@@ -25,6 +25,16 @@ func (s *InMemoryStorage) GetCommitVerification(ctx context.Context, id model.Co
 	return record, nil
 }
 
+func (s *InMemoryStorage) ListCommitVerificationByMessageID(ctx context.Context, committeeID string, messageID model.MessageID) ([]*model.CommitVerificationRecord, error) {
+	var results []*model.CommitVerificationRecord
+	for _, record := range s.records {
+		if record.CommitteeID == committeeID && record.MessageId == messageID {
+			results = append(results, record)
+		}
+	}
+	return results, nil
+}
+
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{
 		records: make(map[string]*model.CommitVerificationRecord),

@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -27,7 +28,14 @@ func bufDialer(context.Context, string) (net.Conn, error) {
 func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), error) {
 	lis = bufconn.Listen(bufSize)
 	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel)
-	s := agg.NewServer(l)
+	s := agg.NewServer(l, model.AggregatorConfig{
+		Storage: model.StorageConfig{
+			StorageType: "memory",
+		},
+		Aggregation: model.AggregationConfig{
+			AggregationStrategy: "stub",
+		},
+	})
 	go func() {
 		s.Start(lis)
 	}()

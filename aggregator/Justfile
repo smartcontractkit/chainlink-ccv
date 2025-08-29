@@ -12,3 +12,6 @@ clean-dev:
 
 proto:
     protoc --go_out=. --go-grpc_out=. ./proto/aggregator.proto
+
+proto-lint:
+    buf lint

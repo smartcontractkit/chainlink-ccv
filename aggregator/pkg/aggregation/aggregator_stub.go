@@ -2,7 +2,9 @@ package aggregation
 
 import "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 
-type AggregatorStub struct {
+type AggregatorSinkStub struct {
 }
 
-func (c *AggregatorStub) CheckAggregation(committee_id string, messageID model.MessageID) {}
+func (s *AggregatorSinkStub) SubmitReport(report *model.CommitAggregatedReport) error {
+	return nil
+}

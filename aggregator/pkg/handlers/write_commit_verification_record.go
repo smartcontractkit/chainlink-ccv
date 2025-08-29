@@ -9,7 +9,7 @@ import (
 )
 
 type AggregationTriggerer interface {
-	CheckAggregation(committee_id string, messageID model.MessageID)
+	CheckAggregation(committee_id string, messageID model.MessageID) error
 }
 
 type WriteCommitVerificationRecordHandler struct {
@@ -31,7 +31,11 @@ func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *
 		}, err
 	}
 
-	h.aggregator.CheckAggregation(req.GetCommitteeId(), req.GetCommitVerificationRecord().GetMessageId())
+	if err := h.aggregator.CheckAggregation(req.GetCommitteeId(), req.GetCommitVerificationRecord().GetMessageId()); err != nil {
+		return &aggregator.WriteCommitVerificationResponse{
+			Status: aggregator.WriteStatus_FAILED,
+		}, err
+	}
 
 	return &aggregator.WriteCommitVerificationResponse{
 		Status: aggregator.WriteStatus_SUCCESS,
