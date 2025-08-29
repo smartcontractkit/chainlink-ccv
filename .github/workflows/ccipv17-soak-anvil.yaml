@@ -36,8 +36,8 @@ jobs:
         run: go run cmd/ccv.go obs u
       - name: Run CCIPv2 environment
         run: |
-          cd cmd/ccip && go install . && cd -
-          ccip u env-ci.toml
+          cd cmd/ccv && go install . && cd -
+          ccv u env-ci.toml
       - name: Run Soak Test
         working-directory: example/ccv/tests
         run: go test -timeout 2h -v -run TestSoak

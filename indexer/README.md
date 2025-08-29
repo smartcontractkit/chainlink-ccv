@@ -8,7 +8,7 @@ Build production image
 just build
 ```
 
-See [devenv](../devenv/ccv/services/indexer.go) wrapper and [environment](../devenv/ccv/environment.go) integration, run it with
+See [devenv](../build/devenv/ccv/services/indexer.go) wrapper and [environment](../build/devenv/ccv/environment.go) integration, run it with
 ```
 cd devenv/ccipv1_7
 ccip u

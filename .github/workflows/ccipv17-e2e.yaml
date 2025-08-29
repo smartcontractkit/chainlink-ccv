@@ -40,8 +40,8 @@ jobs:
           cache: true
       - name: Run CCIPv2 environment
         run: |
-          cd cmd/ccip && go install . && cd -
-          ccip u env-ci.toml
+          cd cmd/ccv && go install . && cd -
+          ccv u env-ci.toml
 
 defaults:
   run:

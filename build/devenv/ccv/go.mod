@@ -303,8 +303,8 @@ require (
 exclude github.com/golang-jwt/jwt/v4 v4.5.1
 
 replace (
-	github.com/smartcontractkit/chainlink-ccip => ../../../../GolandProjects/chainlink-ccip
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment => ../../../../GolandProjects/chainlink-ccip/chains/evm/deployment
+	github.com/smartcontractkit/chainlink-ccip => ./../../../../chainlink-ccip
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment => ./../../../../chainlink-ccip/chains/evm/deployment
 )
 
 replace github.com/ebitengine/purego v0.8.2 => github.com/ebitengine/purego v0.8.4

@@ -46,8 +46,8 @@ jobs:
               exit 1
               ;;
           esac
-          cd cmd/ccip && go install . && cd -
-          PRIVATE_KEY=${PRIVATE_KEY} ccip env-ci.toml,env-fuji.toml
+          cd cmd/ccv && go install . && cd -
+          PRIVATE_KEY=${PRIVATE_KEY} ccv env-ci.toml,env-fuji.toml
 
 
 defaults:
