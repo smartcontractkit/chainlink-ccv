@@ -9,7 +9,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    runs-on: ubuntu24.04-16cores-64GB
+    runs-on: ubuntu
     steps:
       - name: Checkout
         uses: actions/checkout@v4
