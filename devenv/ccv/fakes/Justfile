@@ -1,0 +1,5 @@
+run:
+    docker run --rm -it -p 9111:9111 ccv-fakes
+
+build:
+    docker build -t ccv-fakes:local .
