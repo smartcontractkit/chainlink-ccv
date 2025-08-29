@@ -5,7 +5,7 @@ ENV GOPRIVATE=github.com/smartcontractkit/*
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
-COPY ../../../../devenv .
+COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /fake main.go
 
 FROM alpine:latest
