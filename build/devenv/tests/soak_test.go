@@ -10,7 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 
-	ccipv17 "github.com/smartcontractkit/devenv/ccv"
+	ccipv17 "github.com/smartcontractkit/chainlink-ccv/devenv"
 
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 )

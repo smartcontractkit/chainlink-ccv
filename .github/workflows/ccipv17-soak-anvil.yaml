@@ -1,4 +1,4 @@
-name: CCIPv1.7 Soak Test
+name: CCV Soak Test
 
 on:
   workflow_dispatch:
@@ -30,11 +30,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.4'
+          go-version-file: go.mod
           cache: true
       - name: Run Observability Stack
         run: go run cmd/ccv.go obs u
-      - name: Run CCIPv2 environment
+      - name: Run CCV environment
         run: |
           cd cmd/ccv && go install . && cd -
           ccv u env-ci.toml
@@ -44,4 +44,4 @@ jobs:
 
 defaults:
   run:
-    working-directory: devenv/ccv
+    working-directory: devenv

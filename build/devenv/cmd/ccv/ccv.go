@@ -6,12 +6,12 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/smartcontractkit/devenv/ccv/services"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
-	ccipv17 "github.com/smartcontractkit/devenv/ccv"
+	ccipv17 "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 const (

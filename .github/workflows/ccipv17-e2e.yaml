@@ -1,4 +1,4 @@
-name: End-to-end CCIPv1.7 Test
+name: End-to-end CCV Test
 
 on:
   # TODO: we need all the ECRs to be available before we turn it on
@@ -36,13 +36,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.4'
+          go-version-file: go.mod
           cache: true
-      - name: Run CCIPv2 environment
+      - name: Run CCV environment
         run: |
           cd cmd/ccv && go install . && cd -
           ccv u env-ci.toml
 
 defaults:
   run:
-    working-directory: devenv/ccv
+    working-directory: devenv

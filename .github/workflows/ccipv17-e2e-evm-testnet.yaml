@@ -1,4 +1,4 @@
-name: End-to-end CCIPv1.7 Test (EVM Testnets)
+name: End-to-end CCV Test (EVM Testnets)
 
 on:
   workflow_dispatch:
@@ -31,9 +31,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
+          go-version-file: go.mod
           go-version: '1.24.4'
           cache: true
-      - name: Run CCIPv2 environment
+      - name: Run CCV environment
         env:
           ETH_FUJI_PRIVATE_KEY: ${{ secrets.ETH_FUJI_PRIVATE_KEY }}
         run: |
@@ -52,4 +53,4 @@ jobs:
 
 defaults:
   run:
-    working-directory: devenv/ccv
+    working-directory: devenv

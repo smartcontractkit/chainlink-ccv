@@ -3,7 +3,7 @@ package ccv
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/devenv/ccv/services"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
