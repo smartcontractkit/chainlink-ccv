@@ -1,0 +1,7 @@
+* @smartcontractkit/ccip
+
+# Onchain components
+/chains/evm @smartcontractkit/ccip-onchain
+
+# Deployment
+/deployment @smartcontractkit/ccip-tooling @smartcontractkit/ccip-offchain
