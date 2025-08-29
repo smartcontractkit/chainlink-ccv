@@ -1,4 +1,4 @@
-package ccipv2_tests
+package devenv_test
 
 import (
 	"fmt"
@@ -6,21 +6,19 @@ import (
 	"testing"
 	"time"
 
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
-
-	ccipv17 "github.com/smartcontractkit/chainlink-ccv/devenv"
-
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 )
 
-var L = ccipv17.Plog
+var L = ccv.Plog
 
 func TestSoak(t *testing.T) {
-	in, err := ccipv17.LoadOutput[ccipv17.Cfg]("../env-out.toml")
+	in, err := ccv.LoadOutput[ccv.Cfg]("../env-out.toml")
 	require.NoError(t, err)
-	c, _, _, err := ccipv17.ETHClient(in.Blockchains[0].Out.Nodes[0].ExternalWSUrl, in.CCV.GasSettings)
+	c, _, _, err := ccv.ETHClient(in.Blockchains[0].Out.Nodes[0].ExternalWSUrl, in.CCV.GasSettings)
 	require.NoError(t, err)
 	clNodes, err := clclient.New(in.NodeSets[0].Out.CLNodes)
 	require.NoError(t, err)
@@ -35,7 +33,7 @@ func TestSoak(t *testing.T) {
 	checkResourceConsumption(t, in, start, end)
 }
 
-func checkResourceConsumption(t *testing.T, in *ccipv17.Cfg, start, end time.Time) {
+func checkResourceConsumption(t *testing.T, in *ccv.Cfg, start, end time.Time) {
 	pc := f.NewPrometheusQueryClient(f.LocalPrometheusBaseURL)
 	// example Prometheus query, assert resources, CPU, Memory, etc
 	// no more than 10% CPU at the end of the test

@@ -1,4 +1,4 @@
-module github.com/smartcontractkit/devenv/ccipv17/aggregator
+module github.com/smartcontractkit/chainlink-ccv/aggregator
 
 go 1.24.6
 

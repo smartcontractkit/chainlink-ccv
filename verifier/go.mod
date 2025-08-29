@@ -1,4 +1,4 @@
-module github.com/smartcontractkit/devenv/ccipv17/verifier
+module github.com/smartcontractkit/chainlink-ccv/verifier
 
 go 1.24.6
 

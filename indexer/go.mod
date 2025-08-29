@@ -1,4 +1,4 @@
-module github.com/smartcontractkit/devenv/ccipv17/indexer
+module github.com/smartcontractkit/chainlink-ccv/indexer
 
 go 1.24.6
 

@@ -11,16 +11,16 @@ import (
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
-	ccipv17 "github.com/smartcontractkit/chainlink-ccv/devenv"
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 const (
-	LocalCCIPv2Dashboard = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/datafeedsv1-soak-test?orgId=1&refresh=5s"
+	LocalCCVDashboard = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/datafeedsv1-soak-test?orgId=1&refresh=5s"
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "ccv",
-	Short: "A CCIP local environment tool",
+	Short: "A CCV local environment tool",
 }
 
 var reconfigureCmd = &cobra.Command{
@@ -43,7 +43,7 @@ var reconfigureCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to clean Docker resources: %w", err)
 		}
-		_, err = ccipv17.NewEnvironment()
+		_, err = ccv.NewEnvironment()
 		return err
 	},
 }
@@ -63,7 +63,7 @@ var upCmd = &cobra.Command{
 		framework.L.Info().Str("Config", configFile).Msg("Creating development environment")
 		_ = os.Setenv("CTF_CONFIGS", configFile)
 		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
-		_, err := ccipv17.NewEnvironment()
+		_, err := ccv.NewEnvironment()
 		if err != nil {
 			return err
 		}
@@ -154,7 +154,7 @@ var obsUpCmd = &cobra.Command{
 		if err := framework.ObservabilityUpFull(); err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
 		}
-		ccipv17.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCIPv2Dashboard)
+		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
 		return nil
 	},
 }
@@ -183,7 +183,7 @@ var obsRestartCmd = &cobra.Command{
 		if err := framework.ObservabilityUpFull(); err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
 		}
-		ccipv17.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCIPv2Dashboard)
+		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
 		return nil
 	},
 }
@@ -213,11 +213,11 @@ var printAddresses = &cobra.Command{
 	Use:   "addresses",
 	Short: "Pretty-print all on-chain contract addresses data",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		in, err := ccipv17.LoadOutput[ccipv17.Cfg]("env-out.toml")
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		return ccipv17.PrintCLDFAddresses(in)
+		return ccv.PrintCLDFAddresses(in)
 	},
 }
 
@@ -252,7 +252,7 @@ func main() {
 		return
 	}
 	if err := rootCmd.Execute(); err != nil {
-		ccipv17.Plog.Err(err).Send()
+		ccv.Plog.Err(err).Send()
 		os.Exit(1)
 	}
 }

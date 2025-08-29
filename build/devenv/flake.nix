@@ -1,5 +1,5 @@
 {
-  description = "CCIPv1.7 developer dependencies shell";
+  description = "CCV developer dependencies shell";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
 

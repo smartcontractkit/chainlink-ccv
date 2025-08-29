@@ -1,6 +1,6 @@
-# CCIPv2 Fakes
+# CCV Fakes
 
-This server contains CCIPv2 specific fakes
+This server contains CCV specific fakes
 
 To run it locally and develop (you need a fine-grained GH approved token here)
 ```
