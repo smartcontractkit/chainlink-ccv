@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Better for Go module caching
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Install Just
@@ -28,33 +30,24 @@ jobs:
           DOCKER_BUILDKIT: 1
       - name: List built images
         run: docker images
-#      - name: Configure aws credentials (public)
-#        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
-#        with:
-#          role-to-assume: ${{ secrets.PRIVATE_AWS_ROLE_PROD }}
-#          role-duration-seconds: 3600
-#          aws-region: us-east-1
-#      - name: Login to ecr (public)
-#        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-#        with:
-#          registry-type: public
-#      - name: Configure aws credentials (private)
-#        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
-#        with:
-#          role-to-assume: ${{ secrets.PRIVATE_AWS_ROLE_PROD }}
-#          role-duration-seconds: 3600
-#          aws-region: us-west-2
-#      - name: Login to ecr (private)
-#        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-#        with:
-#          registries: "${{ secrets.AWS_ACCOUNT_NUMBER_PROD }}"
-      - name: Set up Go
+      - name: Set up Go with module caching
         uses: actions/setup-go@v5
         with:
           go-version-file: build/devenv/go.mod
           cache: true
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Download Go dependencies
+        run: |
+          go mod download
       - name: Run CCV environment
         run: |
           cd cmd/ccv && go install . && cd -
           ccv u env.toml
-
