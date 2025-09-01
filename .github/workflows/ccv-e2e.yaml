@@ -1,48 +1,60 @@
 name: End-to-end CCV Test
 
 on:
-  # TODO: we need all the ECRs to be available before we turn it on
-  workflow_dispatch:
+  push:
+
+defaults:
+  run:
+    working-directory: build/devenv
 
 jobs:
   e2e:
     permissions:
       id-token: write
       contents: read
-    runs-on: ubuntu
+    runs-on: ubuntu24.04-16cores-64GB
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
-      - name: Configure aws credentials (public)
-        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Install Just
+        uses: extractions/setup-just@v3
         with:
-          role-to-assume: ${{ secrets.PRIVATE_AWS_ROLE_PROD }}
-          role-duration-seconds: 3600
-          aws-region: us-east-1
-      - name: Login to ecr (public)
-        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-        with:
-          registry-type: public
-      - name: Configure aws credentials (private)
-        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
-        with:
-          role-to-assume: ${{ secrets.PRIVATE_AWS_ROLE_PROD }}
-          role-duration-seconds: 3600
-          aws-region: us-west-2
-      - name: Login to ecr (private)
-        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-        with:
-          registries: "${{ secrets.AWS_ACCOUNT_NUMBER_PROD }}"
+          just-version: '1.40.0'
+      - name: Build Docker images with Just
+        run: just build-docker-dev-ci
+        env:
+          DOCKER_BUILDKIT: 1
+      - name: List built images
+        run: docker images
+#      - name: Configure aws credentials (public)
+#        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+#        with:
+#          role-to-assume: ${{ secrets.PRIVATE_AWS_ROLE_PROD }}
+#          role-duration-seconds: 3600
+#          aws-region: us-east-1
+#      - name: Login to ecr (public)
+#        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+#        with:
+#          registry-type: public
+#      - name: Configure aws credentials (private)
+#        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+#        with:
+#          role-to-assume: ${{ secrets.PRIVATE_AWS_ROLE_PROD }}
+#          role-duration-seconds: 3600
+#          aws-region: us-west-2
+#      - name: Login to ecr (private)
+#        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+#        with:
+#          registries: "${{ secrets.AWS_ACCOUNT_NUMBER_PROD }}"
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: build/devenv/go.mod
           cache: true
       - name: Run CCV environment
         run: |
           cd cmd/ccv && go install . && cd -
-          ccv u env-ci.toml
+          ccv u env.toml
 
-defaults:
-  run:
-    working-directory: devenv

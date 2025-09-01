@@ -99,13 +99,14 @@ func NewEnvironment() (*Cfg, error) {
 		}
 		return nil
 	})
-	eg.Go(func() error {
-		_, err = jd.NewJD(in.JD)
-		if err != nil {
-			return fmt.Errorf("failed to create job distributor: %w", err)
-		}
-		return nil
-	})
+	// TODO: we need access to pre-built JD image in CI
+	//eg.Go(func() error {
+	//	_, err = jd.NewJD(in.JD)
+	//	if err != nil {
+	//		return fmt.Errorf("failed to create job distributor: %w", err)
+	//	}
+	//	return nil
+	//})
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
