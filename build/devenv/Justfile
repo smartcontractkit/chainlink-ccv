@@ -49,6 +49,14 @@ build-docker-dev:
     @just ../../aggregator/build-dev
     @just build-jd-docker
 
+# Build all the services (hot-reload dev mode but with default JD image)
+build-docker-dev-ci:
+    @just ../../build/devenv/fakes/build-dev
+    @just ../../verifier/build-dev
+    @just ../../executor/build-dev
+    @just ../../indexer/build-dev
+    @just ../../aggregator/build-dev
+
 # Build all the services for production
 build-docker-prod:
     @just fakes/build

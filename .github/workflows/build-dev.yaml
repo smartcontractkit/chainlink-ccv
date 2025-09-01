@@ -1,27 +1,28 @@
 name: Build Dev Images
 
+defaults:
+  run:
+    working-directory: build/devenv
+
 on:
   push:
   workflow_dispatch:
 
-defaults:
-  run:
-    working-directory: devenv
-
 jobs:
   build-docker-images:
-    runs-on: ubuntu-24.04-4cores-16GB
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Set up Docker
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Build and load Docker images
-        uses: ./.github/actions/build-docker-dev
+      - name: Install Just
+        uses: extractions/setup-just@v3
         with:
-          justfile-target: 'build-docker-dev'
-          cache-from: 'type=gha,scope=${{ github.workflow }}-${{ github.ref }}'
-          cache-to: 'type=gha,mode=max,scope=${{ github.workflow }}-${{ github.ref }}'
-      - name: Print images
-        run: |
-          docker images
+          just-version: '1.40.0'
+      - name: Build Docker images with Just
+        run: just build-docker-dev-ci
+        env:
+          DOCKER_BUILDKIT: 1
+      - name: List built images
+        run: docker images
