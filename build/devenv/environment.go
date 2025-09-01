@@ -8,7 +8,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/s3provider"
 
@@ -18,10 +17,10 @@ import (
 type Cfg struct {
 	CCV             *CCV                      `toml:"ccv" validate:"required"`
 	StorageProvider *s3provider.Input         `toml:"storage_provider" validate:"required"`
-	FakeServer      *fake.Input               `toml:"fake_server"      validate:"required"`
 	JD              *jd.Input                 `toml:"jd"`
 	Blockchains     []*blockchain.Input       `toml:"blockchains"      validate:"required"`
 	NodeSets        []*ns.Input               `toml:"nodesets"         validate:"required"`
+	Fake            *services.FakeInput       `toml:"fake"      validate:"required"`
 	Verifier        *services.VerifierInput   `toml:"verifier" validate:"required"`
 	Executor        *services.ExecutorInput   `toml:"executor" validate:"required"`
 	Indexer         *services.IndexerInput    `toml:"indexer" validate:"required"`
@@ -66,7 +65,7 @@ func NewEnvironment() (*Cfg, error) {
 		return nil
 	})
 	eg.Go(func() error {
-		_, err = fake.NewDockerFakeDataProvider(in.FakeServer)
+		in.Fake.Out, err = services.NewFake(in.Fake)
 		if err != nil {
 			return fmt.Errorf("failed to create fake data provider: %w", err)
 		}

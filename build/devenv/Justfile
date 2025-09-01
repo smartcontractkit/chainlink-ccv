@@ -33,16 +33,16 @@ pre-commit:
 
 # Remove all the dev images
 clean-docker-dev:
+    @just ../../build/devenv/fakes/build-dev
     @just ../../verifier/clean-dev
     @just ../../executor/clean-dev
     @just ../../indexer/clean-dev
     @just ../../aggregator/clean-dev
-    docker rmi ccv-fakes:local job-distributor:local >/dev/null 2>&1 || true
     rm -rf job-distributor/
 
 # Build all the services (hot-reload dev mode)
 build-docker-dev:
-    @just fakes/build
+    @just ../../build/devenv/fakes/build-dev
     @just ../../verifier/build-dev
     @just ../../executor/build-dev
     @just ../../indexer/build-dev

@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
+
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 )
 

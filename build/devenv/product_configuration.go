@@ -206,7 +206,8 @@ func configureJobs(in *Cfg, clNodes []*clclient.ChainlinkClient) error {
 		if err != nil {
 			return fmt.Errorf("getting OCR keys from OCR node have failed: %w", err)
 		}
-		_ = in.FakeServer.Out.BaseURLDocker
+		_ = in.Fake.Out.ExternalHTTPURL
+		_ = in.Fake.Out.InternalHTTPURL
 
 		// create CCV jobs here
 	}
@@ -396,7 +397,7 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		if err := configureJobs(in, nodeClients); err != nil {
 			return fmt.Errorf("could not configure jobs: %w", err)
 		}
-		if err := setupFakes(in.FakeServer.Out.BaseURLHost); err != nil {
+		if err := setupFakes(in.Fake.Out.ExternalHTTPURL); err != nil {
 			return fmt.Errorf("could not setup fake server: %w", err)
 		}
 

@@ -1,5 +1,14 @@
-run:
-    docker run --rm -it -p 9111:9111 ccv-fakes
+run-dev:
+    docker run --rm -it -v $(pwd):/app -p 9111:9111 ccv-fakes:dev
+
+build-dev:
+    docker build -f Dockerfile.dev -t ccv-fakes:dev .
 
 build:
-    docker build -t ccv-fakes:local .
+    docker build -f Dockerfile.dev -t ccv-fakes:latest .
+
+clean:
+    docker rmi ccv-fakes:latest
+
+clean-dev:
+    docker rmi ccv-fakes:dev
