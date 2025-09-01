@@ -19,8 +19,9 @@
           go install -ldflags="-X main.Version=1.0.0" .
           popd > /dev/null
           [ -f .envrc ] && source .envrc && echo "Loaded .envrc file"
-          echo "📚 Run 'ccv' to check the CLI docs"
-          echo "💻 Run 'ccv sh' to use an interactive mode"
+          echo "⚙️ Run 'just clean-docker-dev' if you have old JobDistributor images to clean up"
+          echo "⚙️ Run 'just build-docker-dev' to build dev images (once!)"
+          echo "💻 Run 'ccv sh' to enter the environment shell"
           '';
           packages = [
           pkgs.air

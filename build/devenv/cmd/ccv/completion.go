@@ -15,7 +15,7 @@ func getCommands() []prompt.Suggest {
 		{Text: "reconfigure", Description: "Reconfigure development environment"},
 		{Text: "bs", Description: "Manage the Blockscout EVM block explorer"},
 		{Text: "obs", Description: "Manage the observability stack"},
-		{Text: "indexer-db", Description: "Inspect Indexer Database"},
+		{Text: "db", Description: "Inspect Databases"},
 		{Text: "exit", Description: "Exit the interactive shell"},
 	}
 }
@@ -37,6 +37,13 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "up", Description: "Spin up observability stack"},
 			{Text: "down", Description: "Spin down observability stack"},
 			{Text: "restart", Description: "Restart observability stack"},
+		}
+	case "db":
+		return []prompt.Suggest{
+			{Text: "indexer", Description: "Inspect Indexer Database"},
+			{Text: "aggregator", Description: "Inspect Aggregator Database"},
+			{Text: "verifier", Description: "Inspect Verifier Database"},
+			{Text: "executor", Description: "Inspect Executor Database"},
 		}
 	case "u":
 		fallthrough

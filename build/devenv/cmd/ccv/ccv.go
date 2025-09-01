@@ -189,17 +189,33 @@ var obsRestartCmd = &cobra.Command{
 }
 
 var indexerDBShell = &cobra.Command{
-	Use:     "indexer-db",
-	Aliases: []string{"idb"},
-	Short:   "Inspect Indexer Database",
+	Use:     "db-shell",
+	Aliases: []string{"db"},
+	Short:   "Inspect Service Database",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		psqlPath, err := exec.LookPath("psql")
 		if err != nil {
 			return fmt.Errorf("psql not found in PATH, are you inside 'nix develop' shell?: %w", err)
 		}
+		if len(args) != 1 {
+			return fmt.Errorf("db cannot be empty, choose between: indexer, aggregator, verifier or executor")
+		}
+		var url string
+		switch args[0] {
+		case "indexer":
+			url = services.DefaultIndexerDBConnectionString
+		case "aggregator":
+			url = services.DefaultAggregatorDBConnectionString
+		case "verifier":
+			url = services.DefaultVerifierDBConnectionString
+		case "executor":
+			url = services.DefaultExecutorDBConnectionString
+		default:
+			return fmt.Errorf("service %s is unknown, choose between indexer, aggregator, verifier, executor", args[0])
+		}
 		psqlArgs := []string{
 			"psql",
-			services.DefaultIndexerDBConnectionString,
+			url,
 		}
 		if len(args) > 0 {
 			psqlArgs = append(psqlArgs, args...)

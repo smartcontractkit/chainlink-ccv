@@ -16,13 +16,19 @@ import (
 )
 
 const (
-	DefaultAggregatorName   = "aggregator"
-	DefaultAggregatorDBName = "aggregator-db"
-	DefaultAggregatorImage  = "aggregator:dev"
-	DefaultAggregatorPort   = 8103
+	DefaultAggregatorName    = "aggregator"
+	DefaultAggregatorDBName  = "aggregator-db"
+	DefaultAggregatorImage   = "aggregator:dev"
+	DefaultAggregatorPort    = 8103
+	DefaultAggregatorDBPort  = 7432
+	DefaultAggregatorSQLInit = "init.sql"
 
-	DefaultAggregatorDBImage            = "postgres:16-alpine"
-	DefaultAggregatorDBConnectionString = "postgresql://aggregator:aggregator@localhost:7432/aggregator?sslmode=disable"
+	DefaultAggregatorDBImage = "postgres:16-alpine"
+)
+
+var (
+	DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+		DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBPort, DefaultAggregatorName)
 )
 
 type AggregatorDBInput struct {
@@ -88,15 +94,15 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
 				"5432/tcp": []nat.PortBinding{
-					{HostPort: "7432"},
+					{HostPort: strconv.Itoa(DefaultAggregatorDBPort)},
 				},
 			}
 		}),
 		testcontainers.WithLabels(framework.DefaultTCLabels()),
-		postgres.WithDatabase("aggregator"),
-		postgres.WithUsername("aggregator"),
-		postgres.WithPassword("aggregator"),
-		postgres.WithInitScripts(filepath.Join(p, "init.sql")),
+		postgres.WithDatabase(DefaultAggregatorName),
+		postgres.WithUsername(DefaultAggregatorName),
+		postgres.WithPassword(DefaultAggregatorName),
+		postgres.WithInitScripts(filepath.Join(p, DefaultAggregatorSQLInit)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)

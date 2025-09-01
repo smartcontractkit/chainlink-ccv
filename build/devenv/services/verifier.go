@@ -16,13 +16,19 @@ import (
 )
 
 const (
-	DefaultVerifierName   = "verifier"
-	DefaultVerifierDBName = "verifier-db"
-	DefaultVerifierImage  = "verifier:dev"
-	DefaultVerifierPort   = 8100
+	DefaultVerifierName    = "verifier"
+	DefaultVerifierDBName  = "verifier-db"
+	DefaultVerifierImage   = "verifier:dev"
+	DefaultVerifierPort    = 8100
+	DefaultVerifierDBPort  = 8432
+	DefaultVerifierSQLInit = "init.sql"
 
-	DefaultVerifierDBImage            = "postgres:16-alpine"
-	DefaultVerifierDBConnectionString = "postgresql://verifier:verifier@localhost:8432/aggregator?sslmode=disable"
+	DefaultVerifierDBImage = "postgres:16-alpine"
+)
+
+var (
+	DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+		DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 )
 
 type VerifierDBInput struct {
@@ -88,15 +94,15 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
 				"5432/tcp": []nat.PortBinding{
-					{HostPort: "8432"},
+					{HostPort: strconv.Itoa(DefaultVerifierDBPort)},
 				},
 			}
 		}),
 		testcontainers.WithLabels(framework.DefaultTCLabels()),
-		postgres.WithDatabase("verifier"),
-		postgres.WithUsername("verifier"),
-		postgres.WithPassword("verifier"),
-		postgres.WithInitScripts(filepath.Join(p, "init.sql")),
+		postgres.WithDatabase(DefaultVerifierName),
+		postgres.WithUsername(DefaultVerifierName),
+		postgres.WithPassword(DefaultVerifierName),
+		postgres.WithInitScripts(filepath.Join(p, DefaultVerifierSQLInit)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)

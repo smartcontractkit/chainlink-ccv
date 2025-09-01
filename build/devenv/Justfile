@@ -33,7 +33,7 @@ pre-commit:
 
 # Remove all the dev images
 clean-docker-dev:
-    @just ../../build/devenv/fakes/build-dev
+    @just ../../build/devenv/fakes/clean-dev
     @just ../../verifier/clean-dev
     @just ../../executor/clean-dev
     @just ../../indexer/clean-dev

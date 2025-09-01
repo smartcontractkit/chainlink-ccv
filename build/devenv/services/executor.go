@@ -16,13 +16,19 @@ import (
 )
 
 const (
-	DefaultExecutorName   = "executor"
-	DefaultExecutorDBName = "executor-db"
-	DefaultExecutorImage  = "executor:dev"
-	DefaultExecutorPort   = 8101
+	DefaultExecutorName    = "executor"
+	DefaultExecutorDBName  = "executor-db"
+	DefaultExecutorImage   = "executor:dev"
+	DefaultExecutorPort    = 8101
+	DefaultExecutorDBPort  = 9432
+	DefaultExecutorSQLInit = "init.sql"
 
-	DefaultExecutorDBImage            = "postgres:16-alpine"
-	DefaultExecutorDBConnectionString = "postgresql://aggregator:aggregator@localhost:9432/aggregator?sslmode=disable"
+	DefaultExecutorDBImage = "postgres:16-alpine"
+)
+
+var (
+	DefaultExecutorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+		DefaultExecutorName, DefaultExecutorName, DefaultExecutorDBPort, DefaultExecutorName)
 )
 
 type ExecutorDBInput struct {
@@ -88,15 +94,15 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
 				"5432/tcp": []nat.PortBinding{
-					{HostPort: "9432"},
+					{HostPort: strconv.Itoa(DefaultExecutorDBPort)},
 				},
 			}
 		}),
 		testcontainers.WithLabels(framework.DefaultTCLabels()),
-		postgres.WithDatabase("aggregator"),
-		postgres.WithUsername("aggregator"),
-		postgres.WithPassword("aggregator"),
-		postgres.WithInitScripts(filepath.Join(p, "init.sql")),
+		postgres.WithDatabase(DefaultExecutorName),
+		postgres.WithUsername(DefaultExecutorName),
+		postgres.WithPassword(DefaultExecutorName),
+		postgres.WithInitScripts(filepath.Join(p, DefaultExecutorSQLInit)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)

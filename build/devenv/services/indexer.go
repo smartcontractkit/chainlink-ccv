@@ -20,9 +20,15 @@ const (
 	DefaultIndexerDBName   = "indexer-db"
 	DefaultIndexerImage    = "indexer:dev"
 	DefaultIndexerHTTPPort = 8102
+	DefaultIndexerDBPort   = 6432
+	DefaultIndexerSQLInit  = "init.sql"
 
-	DefaultIndexerDBImage            = "postgres:16-alpine"
-	DefaultIndexerDBConnectionString = "postgresql://indexer:indexer@localhost:6432/indexer?sslmode=disable"
+	DefaultIndexerDBImage = "postgres:16-alpine"
+)
+
+var (
+	DefaultIndexerDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+		DefaultIndexerName, DefaultIndexerName, DefaultIndexerDBPort, DefaultIndexerName)
 )
 
 type DBInput struct {
@@ -89,15 +95,15 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
 				"5432/tcp": []nat.PortBinding{
-					{HostPort: "6432"},
+					{HostPort: strconv.Itoa(DefaultIndexerDBPort)},
 				},
 			}
 		}),
 		testcontainers.WithLabels(framework.DefaultTCLabels()),
-		postgres.WithDatabase("indexer"),
-		postgres.WithUsername("indexer"),
-		postgres.WithPassword("indexer"),
-		postgres.WithInitScripts(filepath.Join(p, "init.sql")),
+		postgres.WithDatabase(DefaultIndexerName),
+		postgres.WithUsername(DefaultIndexerName),
+		postgres.WithPassword(DefaultIndexerName),
+		postgres.WithInitScripts(filepath.Join(p, DefaultIndexerSQLInit)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
