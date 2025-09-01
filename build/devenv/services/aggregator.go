@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 
@@ -76,17 +75,13 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return in.Out, nil
 	}
 	ctx := context.Background()
-
 	aggregatorDefaults(in)
+	p, err := CwdSourcePath(in.SourceCodePath)
+	if err != nil {
+		return in.Out, err
+	}
 
 	/* Database */
-
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	p := filepath.Join(filepath.Dir(wd), in.SourceCodePath)
-
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
 		testcontainers.WithName(DefaultAggregatorDBName),
@@ -130,25 +125,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-		p := filepath.Join(filepath.Dir(wd), in.SourceCodePath)
-		req.Mounts = testcontainers.Mounts(
-			testcontainers.BindMount(
-				p,
-				"/app",
-			),
-			testcontainers.VolumeMount(
-				"go-mod-cache",
-				"/go/pkg/mod",
-			),
-			testcontainers.VolumeMount(
-				"go-build-cache",
-				"/root/.cache/go-build",
-			),
-		)
+		req.Mounts = GoSourcePathMounts(p, AppPathInsideContainer)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

@@ -3,8 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/docker/docker/api/types/container"
@@ -52,6 +50,10 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 	ctx := context.Background()
 
 	fakeDefaults(in)
+	p, err := CwdSourcePath(in.SourceCodePath)
+	if err != nil {
+		return in.Out, nil
+	}
 
 	/* Service */
 	req := testcontainers.ContainerRequest{
@@ -73,25 +75,7 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-		p := filepath.Join(filepath.Dir(wd), in.SourceCodePath)
-		req.Mounts = testcontainers.Mounts(
-			testcontainers.BindMount(
-				p,
-				"/app",
-			),
-			testcontainers.VolumeMount(
-				"go-mod-cache",
-				"/go/pkg/mod",
-			),
-			testcontainers.VolumeMount(
-				"go-build-cache",
-				"/root/.cache/go-build",
-			),
-		)
+		req.Mounts = GoSourcePathMounts(p, AppPathInsideContainer)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
