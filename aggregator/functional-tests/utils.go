@@ -19,10 +19,14 @@ import (
 
 const bufSize = 1024 * 1024
 
+// CreateServerAndClient creates a test server and client for functional testing.
 func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), error) {
 	lis := bufconn.Listen(bufSize)
 	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel)
 	s := agg.NewServer(l, model.AggregatorConfig{
+		Server: model.ServerConfig{
+			Address: ":50051",
+		},
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
@@ -31,7 +35,7 @@ func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), e
 		},
 	})
 	go func() {
-		s.Start(lis)
+		_, _ = s.Start(lis)
 	}()
 
 	ctx := context.Background()
@@ -42,6 +46,7 @@ func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), e
 		return lis.Dial()
 	}
 
+	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
 	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(bufDialer), grpc.WithInsecure())
 	if err != nil {
 		t.Fatalf("failed to dial bufnet: %v", err)
@@ -49,7 +54,11 @@ func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), e
 
 	client := aggregator.NewAggregatorClient(conn)
 	return client, func() {
-		conn.Close()
-		lis.Close()
+		if err := conn.Close(); err != nil {
+			t.Errorf("failed to close connection: %v", err)
+		}
+		if err := lis.Close(); err != nil {
+			t.Errorf("failed to close listener: %v", err)
+		}
 	}, nil
 }

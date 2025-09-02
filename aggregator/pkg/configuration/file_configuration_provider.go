@@ -1,3 +1,4 @@
+// Package configuration provides configuration management for the aggregator service.
 package configuration
 
 import (

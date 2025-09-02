@@ -1,3 +1,4 @@
+// Package handlers provides HTTP and gRPC request handlers for the aggregator service.
 package handlers
 
 import (

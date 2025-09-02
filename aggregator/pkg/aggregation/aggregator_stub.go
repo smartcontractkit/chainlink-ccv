@@ -7,6 +7,6 @@ type AggregatorSinkStub struct {
 }
 
 // SubmitReport is a stub implementation of the SubmitReport method for testing purposes.
-func (s *AggregatorSinkStub) SubmitReport(report *model.CommitAggregatedReport) error {
+func (s *AggregatorSinkStub) SubmitReport(_ *model.CommitAggregatedReport) error {
 	return nil
 }

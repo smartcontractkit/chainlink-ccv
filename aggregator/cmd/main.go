@@ -1,3 +1,4 @@
+// Package main provides the entry point for the aggregator service.
 package main
 
 import (
@@ -40,7 +41,11 @@ func main() {
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to listen")
 	}
-	defer lis.Close()
+	defer func() {
+		if err := lis.Close(); err != nil {
+			l.Error().Err(err).Msg("failed to close listener")
+		}
+	}()
 
 	stop, err := server.Start(lis)
 	if err != nil {

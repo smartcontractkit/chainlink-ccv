@@ -1,3 +1,4 @@
+// Package functionaltests contains functional tests for the aggregator service.
 package functionaltests
 
 import (

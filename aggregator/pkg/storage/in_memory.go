@@ -1,8 +1,9 @@
+// Package storage provides storage implementations for the aggregator service.
 package storage
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
@@ -13,23 +14,23 @@ type InMemoryStorage struct {
 }
 
 // SaveCommitVerification persists a commit verification record.
-func (s *InMemoryStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error {
+func (s *InMemoryStorage) SaveCommitVerification(_ context.Context, record *model.CommitVerificationRecord) error {
 	id := record.GetID()
 	s.records[id.ToIdentifier()] = record
 	return nil
 }
 
 // GetCommitVerification retrieves a commit verification record by its identifier.
-func (s *InMemoryStorage) GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
+func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
 	record, exists := s.records[id.ToIdentifier()]
 	if !exists {
-		return nil, fmt.Errorf("record not found")
+		return nil, errors.New("record not found")
 	}
 	return record, nil
 }
 
 // ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID and committee ID.
-func (s *InMemoryStorage) ListCommitVerificationByMessageID(ctx context.Context, committeeID string, messageID model.MessageID) ([]*model.CommitVerificationRecord, error) {
+func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, committeeID string, messageID model.MessageID) ([]*model.CommitVerificationRecord, error) {
 	var results []*model.CommitVerificationRecord
 	for _, record := range s.records {
 		if record.CommitteeID == committeeID && record.MessageId == messageID {

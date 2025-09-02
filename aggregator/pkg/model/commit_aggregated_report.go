@@ -1,3 +1,4 @@
+// Package model defines the data structures and types used throughout the aggregator service.
 package model
 
 // CommitAggregatedReport represents a report of aggregated commit verifications.

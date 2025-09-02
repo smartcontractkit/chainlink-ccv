@@ -1,3 +1,4 @@
+// Package aggregator provides the main gRPC server implementation for the aggregator service.
 package aggregator
 
 import (
@@ -16,7 +17,8 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-type server struct {
+// Server represents a gRPC server for the aggregator service.
+type Server struct {
 	aggregator.UnimplementedAggregatorServer
 
 	l                                    zerolog.Logger
@@ -24,18 +26,20 @@ type server struct {
 	writeCommitVerificationRecordHandler *handlers.WriteCommitVerificationRecordHandler
 }
 
-func (s *server) WriteCommitVerification(ctx context.Context, req *aggregator.WriteCommitVerificationRequest) (*aggregator.WriteCommitVerificationResponse, error) {
+// WriteCommitVerification handles requests to write commit verification records.
+func (s *Server) WriteCommitVerification(ctx context.Context, req *aggregator.WriteCommitVerificationRequest) (*aggregator.WriteCommitVerificationResponse, error) {
 	return s.writeCommitVerificationRecordHandler.Handle(ctx, req)
 }
 
-func (s *server) ReadCommitVerification(ctx context.Context, req *aggregator.ReadCommitVerificationRequest) (*aggregator.ReadCommitVerificationResponse, error) {
+// ReadCommitVerification handles requests to read commit verification records.
+func (s *Server) ReadCommitVerification(ctx context.Context, req *aggregator.ReadCommitVerificationRequest) (*aggregator.ReadCommitVerificationResponse, error) {
 	return s.readCommitVerificationRecordHandler.Handle(ctx, req)
 }
 
-func (s *server) Start(lis net.Listener) (func(), error) {
+// Start starts the gRPC server on the provided listener.
+func (s *Server) Start(lis net.Listener) (func(), error) {
 	grpcServer := grpc.NewServer()
 	aggregator.RegisterAggregatorServer(grpcServer, s)
-
 	reflection.Register(grpcServer)
 
 	s.l.Info().Msg("Aggregator gRPC server started")
@@ -47,8 +51,7 @@ func (s *server) Start(lis net.Listener) (func(), error) {
 }
 
 func createAggregatorConfig(storage interfaces.CommitVerificationStore, config model.AggregatorConfig) (handlers.AggregationTriggerer, error) {
-	switch config.Aggregation.AggregationStrategy {
-	case "stub":
+	if config.Aggregation.AggregationStrategy == "stub" {
 		aggregator := aggregation.NewCommitReportAggregator(storage, &aggregation.AggregatorSinkStub{}, config)
 		aggregator.StartBackground(context.Background())
 		return aggregator, nil
@@ -58,15 +61,15 @@ func createAggregatorConfig(storage interfaces.CommitVerificationStore, config m
 }
 
 func createStorage(config model.AggregatorConfig) (interfaces.CommitVerificationStore, error) {
-	switch config.Storage.StorageType {
-	case "memory":
+	if config.Storage.StorageType == "memory" {
 		return storage.NewInMemoryStorage(), nil
 	}
 
 	return nil, fmt.Errorf("unknown storage type: %s", config.Storage.StorageType)
 }
 
-func NewServer(l zerolog.Logger, config model.AggregatorConfig) *server {
+// NewServer creates a new aggregator server with the specified logger and configuration.
+func NewServer(l zerolog.Logger, config model.AggregatorConfig) *Server {
 	store, err := createStorage(config)
 	if err != nil {
 		l.Error().Err(err).Msg("failed to create storage")
@@ -79,12 +82,12 @@ func NewServer(l zerolog.Logger, config model.AggregatorConfig) *server {
 		return nil
 	}
 
-	read_commit_verification_record_handler := handlers.NewReadCommitVerificationRecordHandler(store)
-	write_commit_verification_record_handler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator)
+	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store)
+	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator)
 
-	return &server{
+	return &Server{
 		l:                                    l,
-		readCommitVerificationRecordHandler:  read_commit_verification_record_handler,
-		writeCommitVerificationRecordHandler: write_commit_verification_record_handler,
+		readCommitVerificationRecordHandler:  readCommitVerificationRecordHandler,
+		writeCommitVerificationRecordHandler: writeCommitVerificationRecordHandler,
 	}
 }

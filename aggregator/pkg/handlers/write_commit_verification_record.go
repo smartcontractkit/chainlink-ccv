@@ -10,7 +10,7 @@ import (
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
-	CheckAggregation(committee_id string, messageID model.MessageID) error
+	CheckAggregation(committeeID string, messageID model.MessageID) error
 }
 
 // WriteCommitVerificationRecordHandler handles requests to write commit verification records.

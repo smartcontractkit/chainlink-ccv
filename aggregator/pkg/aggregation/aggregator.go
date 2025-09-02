@@ -1,3 +1,4 @@
+// Package aggregation provides commit report aggregation functionality for the aggregator service.
 package aggregation
 
 import (
@@ -13,7 +14,7 @@ import (
 type CommitReportAggregator struct {
 	storage       interfaces.CommitVerificationStore
 	sink          interfaces.Sink
-	messageIdChan chan aggregationRequest
+	messageIDChan chan aggregationRequest
 	config        model.AggregatorConfig
 }
 
@@ -24,16 +25,16 @@ type aggregationRequest struct {
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified committee and message ID.
-func (c *CommitReportAggregator) CheckAggregation(committee_id string, messageID model.MessageID) error {
-	c.messageIdChan <- aggregationRequest{
-		CommitteeID: committee_id,
+func (c *CommitReportAggregator) CheckAggregation(committeeID string, messageID model.MessageID) error {
+	c.messageIDChan <- aggregationRequest{
+		CommitteeID: committeeID,
 		MessageID:   messageID,
 	}
 	return nil
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(committee_id string, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
-	verifications, err := c.storage.ListCommitVerificationByMessageID(context.Background(), committee_id, messageID)
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(committeeID string, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+	verifications, err := c.storage.ListCommitVerificationByMessageID(context.Background(), committeeID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +59,8 @@ func (c *CommitReportAggregator) checkQuorum(aggregatedReport *model.CommitAggre
 	quorumConfig := c.config.Committees[aggregatedReport.CommitteeID].QuorumConfigs[aggregatedReport.GetDestinationSelector()]
 
 	// Check if we have enough signatures to meet the quorum
-	if len(aggregatedReport.Verifications) < int(len(quorumConfig.Signers))-int(quorumConfig.F) {
+	// TODO: Make the quorum check configurable, currently doing F + 1 to match contract
+	if len(aggregatedReport.Verifications) != int(quorumConfig.F)+1 {
 		return false, nil
 	}
 
@@ -69,8 +71,10 @@ func (c *CommitReportAggregator) checkQuorum(aggregatedReport *model.CommitAggre
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	go func() {
 		select {
-		case request := <-c.messageIdChan:
-			go c.checkAggregationAndSubmitComplete(request.CommitteeID, request.MessageID)
+		case request := <-c.messageIDChan:
+			go func() {
+				_, _ = c.checkAggregationAndSubmitComplete(request.CommitteeID, request.MessageID)
+			}()
 		case <-ctx.Done():
 			return
 		}
@@ -94,7 +98,7 @@ func NewCommitReportAggregator(storage interfaces.CommitVerificationStore, sink 
 	return &CommitReportAggregator{
 		storage:       storage,
 		sink:          sink,
-		messageIdChan: make(chan aggregationRequest),
+		messageIDChan: make(chan aggregationRequest),
 		config:        config,
 	}
 }
