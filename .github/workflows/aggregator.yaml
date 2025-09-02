@@ -44,7 +44,7 @@ jobs:
         with:
           version: latest
           working-directory: aggregator
-          args: --version # Just install, don't run yet
+          args: --help # Just install, don't run yet
 
       - name: Run lint
         run: just lint
