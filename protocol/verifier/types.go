@@ -20,17 +20,16 @@ type SourceReaderConfig struct {
 
 // SourceConfig contains configuration for a single source chain
 type SourceConfig struct {
-	ChainSelector   cciptypes.ChainSelector `json:"chain_selector"`
-	VerifierAddress common.UnknownAddress   `json:"verifier_address"`
+	VerifierAddress common.UnknownAddress `json:"verifier_address"`
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator
 type CoordinatorConfig struct {
-	CoordinatorID         string         `json:"coordinator_id"`
-	SourceConfigs         []SourceConfig `json:"source_configs"`
-	ProcessingChannelSize int            `json:"processing_channel_size"`
-	ProcessingTimeout     time.Duration  `json:"processing_timeout"`
-	MaxBatchSize          int            `json:"max_batch_size"`
+	CoordinatorID         string                                   `json:"coordinator_id"`
+	SourceConfigs         map[cciptypes.ChainSelector]SourceConfig `json:"source_configs"`
+	ProcessingChannelSize int                                      `json:"processing_channel_size"`
+	ProcessingTimeout     time.Duration                            `json:"processing_timeout"`
+	MaxBatchSize          int                                      `json:"max_batch_size"`
 }
 
 // SourceReader defines the interface for reading CCIP messages from source chains
