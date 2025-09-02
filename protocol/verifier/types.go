@@ -34,7 +34,6 @@ type VerifierConfig struct {
 	ProcessingChannelSize int                     `json:"processing_channel_size"`
 	ProcessingTimeout     time.Duration           `json:"processing_timeout"`
 	MaxBatchSize          int                     `json:"max_batch_size"`
-	DeltaRound            time.Duration                     `json:"delta_round"`
 }
 
 // SourceReader defines the interface for reading CCIP messages from source chains
@@ -45,6 +44,7 @@ type SourceReader interface {
 	// Stop stops the reader and closes the messages channel
 	Stop() error
 
+	//TODO: Make the channel return
 	// MessagesChannel returns the channel where new messages are delivered
 	MessagesChannel() <-chan common.Any2AnyVerifierMessage
 

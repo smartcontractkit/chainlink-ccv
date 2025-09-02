@@ -25,8 +25,9 @@ type Verifier struct {
 	doneCh    chan struct{}
 
 	// Core components
-	processor    MessageProcessor
-	signer       MessageSigner
+	processor MessageProcessor
+	signer    MessageSigner
+	// N Channels producing Any2AnyVerifierMessage
 	sourceStates map[cciptypes.ChainSelector]*sourceState
 	storage      common.OffchainStorageWriter
 
@@ -102,8 +103,9 @@ func WithLogger(lggr logger.Logger) Option {
 
 // NewVerifier creates a new simplified verifier
 func NewVerifier(opts ...Option) (*Verifier, error) {
+	//TODO: Make channel size configurable
 	v := &Verifier{
-		ccvDataCh:    make(chan common.CCVData, 100), // Channel for CCVData results
+		ccvDataCh:    make(chan common.CCVData, 1000), // Channel for CCVData results
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
 		sourceStates: make(map[cciptypes.ChainSelector]*sourceState),
@@ -186,23 +188,28 @@ func (v *Verifier) Stop() error {
 func (v *Verifier) run(ctx context.Context) {
 	defer close(v.doneCh)
 
-	// Create a slice to track active source channels
-	var activeSources []cciptypes.ChainSelector
-	for chainSelector := range v.sourceStates {
-		activeSources = append(activeSources, chainSelector)
+	// Start goroutines for each source state
+	var wg sync.WaitGroup
+	for chainSelector, state := range v.sourceStates {
+		wg.Add(1)
+		go v.processSourceMessages(ctx, &wg, chainSelector, state)
 	}
 
+	// Main loop - focus solely on ccvDataCh processing and storage
 	for {
 		select {
 		case <-ctx.Done():
 			v.lggr.Infow("Verifier processing stopped due to context cancellation")
+			wg.Wait() // Wait for all source goroutines to finish
 			return
 		case <-v.stopCh:
 			v.lggr.Infow("Verifier processing stopped due to stop signal")
+			wg.Wait() // Wait for all source goroutines to finish
 			return
 		case ccvData, ok := <-v.ccvDataCh:
 			if !ok {
 				v.lggr.Infow("CCVData channel closed, stopping processing")
+				wg.Wait() // Wait for all source goroutines to finish
 				return
 			}
 
@@ -222,44 +229,50 @@ func (v *Verifier) run(ctx context.Context) {
 					"sourceChain", ccvData.SourceChainSelector,
 				)
 			}
-		default:
-			// Check each source channel for messages
-			messageProcessed := false
-			for _, chainSelector := range activeSources {
-				state, exists := v.sourceStates[chainSelector]
-				if !exists {
-					continue
-				}
+		}
+	}
+}
 
-				select {
-				case message, ok := <-state.messageCh:
-					if !ok {
-						v.lggr.Errorw("Message channel closed for source", "chainSelector", chainSelector)
-						continue
-					}
+// processSourceMessages handles message processing for a single source state in its own goroutine
+func (v *Verifier) processSourceMessages(ctx context.Context, wg *sync.WaitGroup, chainSelector cciptypes.ChainSelector, state *sourceState) {
+	defer wg.Done()
 
-					// Process message using the processor function
-					if err := v.processor(ctx, message, v.ccvDataCh); err != nil {
-						v.lggr.Errorw("Error processing message",
-							"error", err,
-							"messageID", message.Header.MessageID,
-							"sequenceNumber", message.Header.SequenceNumber,
-							"sourceChain", message.Header.SourceChainSelector,
-						)
-					}
-					messageProcessed = true
-				default:
-					// No message available from this source, continue to next
-				}
+	v.lggr.Debugw("Starting source message processor", "chainSelector", chainSelector)
+	defer v.lggr.Debugw("Source message processor stopped", "chainSelector", chainSelector)
+
+	for {
+		select {
+		case <-ctx.Done():
+			v.lggr.Debugw("Source message processor stopped due to context cancellation", "chainSelector", chainSelector)
+			return
+		case <-v.stopCh:
+			v.lggr.Debugw("Source message processor stopped due to stop signal", "chainSelector", chainSelector)
+			return
+		case message, ok := <-state.messageCh:
+			if !ok {
+				v.lggr.Errorw("Message channel closed for source", "chainSelector", chainSelector)
+				return
 			}
 
-			// If no message was processed from any source, sleep briefly to prevent busy waiting
-			if !messageProcessed {
-				time.Sleep(v.config.DeltaRound)
+			// Process message using the processor function
+			if err := v.processor(ctx, message, v.ccvDataCh); err != nil {
+				v.lggr.Errorw("Error processing message",
+					"error", err,
+					"messageID", message.Header.MessageID,
+					"sequenceNumber", message.Header.SequenceNumber,
+					"sourceChain", message.Header.SourceChainSelector,
+					"chainSelector", chainSelector,
+				)
 			}
 		}
 	}
 }
+
+/*
+src1 -> any2any --processMessage--->
+src2 -> any2any --processMessage--->   ccvDatach --> Storage/Aggregator
+src3 -> any2any --processMessage--->
+*/
 
 // DefaultMessageProcessor provides a basic message processor implementation
 func (v *Verifier) DefaultMessageProcessor(ctx context.Context, message common.Any2AnyVerifierMessage, ccvDataCh chan<- common.CCVData) error {
