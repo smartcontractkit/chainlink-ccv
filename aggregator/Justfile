@@ -15,3 +15,9 @@ proto:
 
 proto-lint:
     buf lint
+
+lint: proto-lint
+    golangci-lint run --fix -c .golangci.yml
+
+test:
+    go test ./...
