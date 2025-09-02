@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/storageaccess"
@@ -19,20 +19,17 @@ import (
 )
 
 func main() {
-	// Setup logging
-	lvlStr := os.Getenv("VERIFIER_LOG_LEVEL")
-	if lvlStr == "" {
-		lvlStr = "info"
-	}
-	lvl, err := zerolog.ParseLevel(lvlStr)
+	// Setup logging - always debug level for now
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		config.Development = true
+		config.Encoding = "console"
+	})
 	if err != nil {
 		panic(err)
 	}
 
-	zerologLogger := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(lvl)
-
-	// Create chainlink logger from zerolog
-	lggr := verifier.NewSimpleLogger(zerologLogger)
+	// Use SugaredLogger for better API
+	lggr = logger.Sugared(lggr)
 
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
