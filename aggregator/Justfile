@@ -16,6 +16,14 @@ proto:
 proto-lint:
     buf lint
 
+proto-check: proto
+    just proto
+    if [ -n "$(git diff --name-only)" ]; then \
+        echo "Error: Generated protobuf files are out of sync"; \
+        echo "Run 'just proto' and commit the changes"; \
+        exit 1; \
+    fi
+
 lint: proto-lint
     golangci-lint run --fix -c .golangci.yml
 
