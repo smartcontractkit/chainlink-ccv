@@ -45,8 +45,8 @@ type SourceReader interface {
 	Stop() error
 
 	//TODO: Make the channel return
-	// MessagesChannel returns the channel where new messages are delivered
-	MessagesChannel() <-chan common.Any2AnyVerifierMessage
+	// MessagesChannel returns the channel where new message events are delivered
+	MessagesChannel() <-chan common.VerificationTask
 
 	// HealthCheck returns the current health status of the reader
 	HealthCheck(ctx context.Context) error
@@ -54,8 +54,8 @@ type SourceReader interface {
 
 // MessageSigner defines the interface for signing messages
 type MessageSigner interface {
-	// SignMessage signs a message and returns the signature
-	SignMessage(ctx context.Context, message common.Any2AnyVerifierMessage) ([]byte, error)
+	// SignMessage signs a message event and returns the signature
+	SignMessage(ctx context.Context, verificationTask common.VerificationTask) ([]byte, error)
 
 	// GetSignerAddress returns the address of the signer
 	GetSignerAddress() common.UnknownAddress
@@ -69,8 +69,8 @@ type VerifierInterface interface {
 	// Stop stops the verifier processing
 	Stop() error
 
-	// ProcessMessage processes a single message and stores the result
-	ProcessMessage(ctx context.Context, message common.Any2AnyVerifierMessage) error
+	// ProcessMessage processes a single message event and stores the result
+	ProcessMessage(ctx context.Context, messageEvent common.VerificationTask) error
 
 	// HealthCheck returns the current health status of the verifier
 	HealthCheck(ctx context.Context) error
@@ -101,11 +101,11 @@ func NewECDSAMessageSigner(privateKey []byte) (*ECDSASigner, error) {
 }
 
 // TOOD: implement properly
-// SignMessage signs a message using ECDSA
-func (s *ECDSASigner) SignMessage(ctx context.Context, message common.Any2AnyVerifierMessage) ([]byte, error) {
+// SignMessage signs a message event using ECDSA
+func (s *ECDSASigner) SignMessage(ctx context.Context, messageEvent common.VerificationTask) ([]byte, error) {
 	// Create a hash of the message for signing
 	messageHash := make([]byte, 32)
-	copy(messageHash, message.Header.MessageID[:])
+	copy(messageHash, messageEvent.Message.Header.MessageID[:])
 
 	// For simplicity, return a mock signature
 	// In a real implementation, this would use crypto/ecdsa

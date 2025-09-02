@@ -14,7 +14,7 @@ import (
 )
 
 // MessageProcessor is a function type that processes messages and writes CCVData to a channel
-type MessageProcessor func(ctx context.Context, message common.Any2AnyVerifierMessage, ccvDataCh chan<- common.CCVData) error
+type MessageProcessor func(ctx context.Context, messageEvent common.VerificationTask, ccvDataCh chan<- common.CCVData) error
 
 // Verifier implements a simplified message verification pipeline
 // Reads messages from multiple SourceReaders and processes them using a MessageProcessor function
@@ -248,19 +248,21 @@ func (v *Verifier) processSourceMessages(ctx context.Context, wg *sync.WaitGroup
 		case <-v.stopCh:
 			v.lggr.Debugw("Source message processor stopped due to stop signal", "chainSelector", chainSelector)
 			return
-		case message, ok := <-state.messageCh:
+		case verificationTask, ok := <-state.verificationTaskCh:
 			if !ok {
 				v.lggr.Errorw("Message channel closed for source", "chainSelector", chainSelector)
 				return
 			}
 
-			// Process message using the processor function
-			if err := v.processor(ctx, message, v.ccvDataCh); err != nil {
-				v.lggr.Errorw("Error processing message",
+			// Process message event using the processor function
+			if err := v.processor(ctx, verificationTask, v.ccvDataCh); err != nil {
+				// Extract header for cleaner logging
+				header := verificationTask.Message.Header
+				v.lggr.Errorw("Error processing message event",
 					"error", err,
-					"messageID", message.Header.MessageID,
-					"sequenceNumber", message.Header.SequenceNumber,
-					"sourceChain", message.Header.SourceChainSelector,
+					"messageID", header.MessageID,
+					"sequenceNumber", header.SequenceNumber,
+					"sourceChain", header.SourceChainSelector,
 					"chainSelector", chainSelector,
 				)
 			}
@@ -269,45 +271,52 @@ func (v *Verifier) processSourceMessages(ctx context.Context, wg *sync.WaitGroup
 }
 
 /*
-src1 -> any2any --processMessage--->
-src2 -> any2any --processMessage--->   ccvDatach --> Storage/Aggregator
-src3 -> any2any --processMessage--->
+src1 -> CCIPMessageSentEvent --processMessageEvent--->
+src2 -> CCIPMessageSentEvent --processMessageEvent--->   ccvDatach --> Storage/Aggregator
+src3 -> CCIPMessageSentEvent --processMessageEvent--->
 */
 
 // DefaultMessageProcessor provides a basic message processor implementation
-func (v *Verifier) DefaultMessageProcessor(ctx context.Context, message common.Any2AnyVerifierMessage, ccvDataCh chan<- common.CCVData) error {
+func (v *Verifier) DefaultMessageProcessor(ctx context.Context, verificationTask common.VerificationTask, ccvDataCh chan<- common.CCVData) error {
+	// Extract message and header for cleaner access
+	message := verificationTask.Message
+	header := message.Header
+
 	// Basic validation
 	emptyID := [32]byte{}
-	if message.Header.MessageID == emptyID {
+	if header.MessageID == emptyID {
 		return fmt.Errorf("message ID is empty")
 	}
 
 	// Validate that the message comes from a configured source chain
 	var sourceConfig *SourceConfig
 	for _, config := range v.config.SourceConfigs {
-		if config.ChainSelector == message.Header.SourceChainSelector {
+		if config.ChainSelector == header.SourceChainSelector {
 			sourceConfig = &config
 			break
 		}
 	}
 
 	if sourceConfig == nil {
-		return fmt.Errorf("message source chain selector %d is not configured", message.Header.SourceChainSelector)
+		return fmt.Errorf("message source chain selector %d is not configured", header.SourceChainSelector)
 	}
 
-	if message.Header.SequenceNumber == 0 {
+	if header.SequenceNumber == 0 {
 		return fmt.Errorf("message sequence number cannot be zero")
 	}
 
-	v.lggr.Debugw("Message validation passed",
-		"messageID", message.Header.MessageID,
-		"sequenceNumber", message.Header.SequenceNumber,
+	// Additional validation for event fields - these are now redundant since we removed the duplicate fields
+	// The DestChainSelector and SequenceNumber are only available in Message.Header now
+
+	v.lggr.Debugw("Message event validation passed",
+		"messageID", header.MessageID,
+		"sequenceNumber", header.SequenceNumber,
 	)
 
 	//TODO: Add finality awareness logic
 
 	// Generate CCV data
-	ccvData, err := v.generateCCVData(ctx, message, sourceConfig)
+	ccvData, err := v.generateCCVData(ctx, verificationTask, sourceConfig)
 	if err != nil {
 		return fmt.Errorf("failed to generate CCV data: %w", err)
 	}
@@ -316,8 +325,8 @@ func (v *Verifier) DefaultMessageProcessor(ctx context.Context, message common.A
 	select {
 	case ccvDataCh <- *ccvData:
 		v.lggr.Debugw("CCV data sent to storage channel",
-			"messageID", message.Header.MessageID,
-			"sequenceNumber", message.Header.SequenceNumber,
+			"messageID", header.MessageID,
+			"sequenceNumber", header.SequenceNumber,
 		)
 		return nil
 	case <-ctx.Done():
@@ -325,12 +334,16 @@ func (v *Verifier) DefaultMessageProcessor(ctx context.Context, message common.A
 	}
 }
 
-// generateCCVData creates CCV data for a verified message
-func (v *Verifier) generateCCVData(ctx context.Context, message common.Any2AnyVerifierMessage, sourceConfig *SourceConfig) (*common.CCVData, error) {
-	// Sign the message
-	signature, err := v.signer.SignMessage(ctx, message)
+// generateCCVData creates CCV data for a verified message event
+func (v *Verifier) generateCCVData(ctx context.Context, verificationTask common.VerificationTask, sourceConfig *SourceConfig) (*common.CCVData, error) {
+	// Extract message and header for cleaner access
+	message := verificationTask.Message
+	header := message.Header
+
+	// Sign the message event
+	signature, err := v.signer.SignMessage(ctx, verificationTask)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign message: %w", err)
+		return nil, fmt.Errorf("failed to sign message event: %w", err)
 	}
 
 	// Determine dest verifier address (use first source config's verifier address as fallback)
@@ -341,16 +354,16 @@ func (v *Verifier) generateCCVData(ctx context.Context, message common.Any2AnyVe
 
 	// Create CCV data
 	ccvData := &common.CCVData{
-		MessageID:             message.Header.MessageID,
-		SequenceNumber:        message.Header.SequenceNumber,
-		SourceChainSelector:   message.Header.SourceChainSelector,
-		DestChainSelector:     message.Header.DestChainSelector,
+		MessageID:             header.MessageID,
+		SequenceNumber:        header.SequenceNumber,
+		SourceChainSelector:   header.SourceChainSelector,
+		DestChainSelector:     header.DestChainSelector,
 		SourceVerifierAddress: sourceConfig.VerifierAddress,
 		DestVerifierAddress:   destVerifierAddress,
 		CCVData:               signature,
-		BlobData:              []byte{},
+		BlobData:              []byte{}, // Could include receipt blobs or other event-specific data
 		Timestamp:             time.Now().UnixMicro(),
-		Message:               message,
+		Message:               message, // Store the complete message
 	}
 
 	return ccvData, nil

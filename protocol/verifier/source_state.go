@@ -7,15 +7,15 @@ import (
 
 // sourceState represents the state of a single source reader
 type sourceState struct {
-	chainSelector cciptypes.ChainSelector
-	reader        SourceReader
-	messageCh     <-chan common.Any2AnyVerifierMessage
+	chainSelector      cciptypes.ChainSelector
+	reader             SourceReader
+	verificationTaskCh <-chan common.VerificationTask
 }
 
 func newSourceState(chainSelector cciptypes.ChainSelector, reader SourceReader) *sourceState {
 	return &sourceState{
-		chainSelector: chainSelector,
-		reader:        reader,
-		messageCh:     reader.MessagesChannel(),
+		chainSelector:      chainSelector,
+		reader:             reader,
+		verificationTaskCh: reader.MessagesChannel(),
 	}
 }

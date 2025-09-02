@@ -71,6 +71,14 @@ func createTestMessage(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainS
 	}
 }
 
+func createTestVerificationTask(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.VerificationTask {
+	message := createTestMessage(messageID, seqNum, sourceChainSelector, destChainSelector)
+	return common.VerificationTask{
+		Message:      message,
+		ReceiptBlobs: [][]byte{[]byte("receipt blob 1"), []byte("receipt blob 2")},
+	}
+}
+
 func TestVerifier(t *testing.T) {
 	lggr := logger.Test(t)
 	storage := storageaccess.NewInMemoryOffchainStorage(lggr)
@@ -102,15 +110,15 @@ func TestVerifier(t *testing.T) {
 	mockSourceReader := mocks.NewMockSourceReader(t)
 
 	// Set up channels for async behavior
-	messageCh := make(chan common.Any2AnyVerifierMessage, 10)
+	verificationTaskCh := make(chan common.VerificationTask, 10)
 	var messagesSent atomic.Int32 // Use atomic for thread safety
 
 	// Set up expectations with custom behavior
 	mockSourceReader.EXPECT().Start(mock.Anything).Return(nil)
 	mockSourceReader.EXPECT().Stop().Run(func() {
-		close(messageCh)
+		close(verificationTaskCh)
 	}).Return(nil)
-	mockSourceReader.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(messageCh))
+	mockSourceReader.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(verificationTaskCh))
 
 	// Create verifier
 	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
@@ -132,23 +140,23 @@ func TestVerifier(t *testing.T) {
 	err = v.Start(ctx)
 	require.NoError(t, err)
 
-	// Create test messages
-	testMessages := []common.Any2AnyVerifierMessage{
-		createTestMessage([32]byte{1, 2, 3}, 100, 42, 100),
-		createTestMessage([32]byte{4, 5, 6}, 200, 42, 100),
+	// Create test verification tasks
+	testTasks := []common.VerificationTask{
+		createTestVerificationTask([32]byte{1, 2, 3}, 100, 42, 100),
+		createTestVerificationTask([32]byte{4, 5, 6}, 200, 42, 100),
 	}
 
-	// Send messages asynchronously
+	// Send verification tasks asynchronously
 	go func() {
-		for _, msg := range testMessages {
-			messageCh <- msg
+		for _, task := range testTasks {
+			verificationTaskCh <- task
 			messagesSent.Add(1)
 			time.Sleep(10 * time.Millisecond) // Small delay between messages
 		}
 	}()
 
 	// Wait for all messages to be processed
-	for i := 0; i < len(testMessages); i++ {
+	for i := 0; i < len(testTasks); i++ {
 		err = storage.WaitForStore(ctx)
 		require.NoError(t, err)
 	}
@@ -160,13 +168,13 @@ func TestVerifier(t *testing.T) {
 	// Verify all data was stored
 	storedData, err := storage.GetAllCCVData(config.SourceConfigs[0].VerifierAddress)
 	require.NoError(t, err)
-	assert.Len(t, storedData, len(testMessages))
-	assert.Equal(t, int(messagesSent.Load()), len(testMessages))
+	assert.Len(t, storedData, len(testTasks))
+	assert.Equal(t, int(messagesSent.Load()), len(testTasks))
 
 	// Verify message IDs match
 	expectedIDs := make(map[[32]byte]bool)
-	for _, msg := range testMessages {
-		expectedIDs[msg.Header.MessageID] = true
+	for _, task := range testTasks {
+		expectedIDs[task.Message.Header.MessageID] = true
 	}
 
 	for _, data := range storedData {
@@ -215,23 +223,23 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	mockSourceReader2 := mocks.NewMockSourceReader(t)
 
 	// Set up channels for async behavior
-	messageCh1 := make(chan common.Any2AnyVerifierMessage, 10)
-	messageCh2 := make(chan common.Any2AnyVerifierMessage, 10)
+	taskCh1 := make(chan common.VerificationTask, 10)
+	taskCh2 := make(chan common.VerificationTask, 10)
 	var messagesSent1, messagesSent2 atomic.Int32
 
 	// Set up expectations for source reader 1
 	mockSourceReader1.EXPECT().Start(mock.Anything).Return(nil)
 	mockSourceReader1.EXPECT().Stop().Run(func() {
-		close(messageCh1)
+		close(taskCh1)
 	}).Return(nil)
-	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(messageCh1))
+	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh1))
 
 	// Set up expectations for source reader 2
 	mockSourceReader2.EXPECT().Start(mock.Anything).Return(nil)
 	mockSourceReader2.EXPECT().Stop().Run(func() {
-		close(messageCh2)
+		close(taskCh2)
 	}).Return(nil)
-	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(messageCh2))
+	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh2))
 
 	// Create verifier with multiple source readers
 	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
@@ -255,36 +263,36 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	err = v.Start(ctx)
 	require.NoError(t, err)
 
-	// Create test messages for both sources
-	messagesSource1 := []common.Any2AnyVerifierMessage{
-		createTestMessage([32]byte{1, 1, 1}, 100, sourceChain1, destChain),
-		createTestMessage([32]byte{1, 2, 3}, 101, sourceChain1, destChain),
+	// Create test verification tasks for both sources
+	tasksSource1 := []common.VerificationTask{
+		createTestVerificationTask([32]byte{1, 1, 1}, 100, sourceChain1, destChain),
+		createTestVerificationTask([32]byte{1, 2, 3}, 101, sourceChain1, destChain),
 	}
 
-	messagesSource2 := []common.Any2AnyVerifierMessage{
-		createTestMessage([32]byte{2, 1, 1}, 200, sourceChain2, destChain),
-		createTestMessage([32]byte{2, 2, 3}, 201, sourceChain2, destChain),
+	tasksSource2 := []common.VerificationTask{
+		createTestVerificationTask([32]byte{2, 1, 1}, 200, sourceChain2, destChain),
+		createTestVerificationTask([32]byte{2, 2, 3}, 201, sourceChain2, destChain),
 	}
 
-	// Send messages from both sources concurrently
+	// Send verification tasks from both sources concurrently
 	go func() {
-		for _, msg := range messagesSource1 {
-			messageCh1 <- msg
+		for _, task := range tasksSource1 {
+			taskCh1 <- task
 			messagesSent1.Add(1)
 			time.Sleep(5 * time.Millisecond)
 		}
 	}()
 
 	go func() {
-		for _, msg := range messagesSource2 {
-			messageCh2 <- msg
+		for _, task := range tasksSource2 {
+			taskCh2 <- task
 			messagesSent2.Add(1)
 			time.Sleep(7 * time.Millisecond)
 		}
 	}()
 
 	// Wait for all messages to be processed
-	totalMessages := len(messagesSource1) + len(messagesSource2)
+	totalMessages := len(tasksSource1) + len(tasksSource2)
 	for i := 0; i < totalMessages; i++ {
 		err = storage.WaitForStore(ctx)
 		require.NoError(t, err)
@@ -300,15 +308,15 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	storedDataSource2, err := storage.GetAllCCVData(config.SourceConfigs[1].VerifierAddress)
 	require.NoError(t, err)
 
-	assert.Len(t, storedDataSource1, len(messagesSource1))
-	assert.Len(t, storedDataSource2, len(messagesSource2))
-	assert.Equal(t, int(messagesSent1.Load()), len(messagesSource1))
-	assert.Equal(t, int(messagesSent2.Load()), len(messagesSource2))
+	assert.Len(t, storedDataSource1, len(tasksSource1))
+	assert.Len(t, storedDataSource2, len(tasksSource2))
+	assert.Equal(t, int(messagesSent1.Load()), len(tasksSource1))
+	assert.Equal(t, int(messagesSent2.Load()), len(tasksSource2))
 
 	// Verify message IDs match for source 1
 	expectedIDs1 := make(map[[32]byte]bool)
-	for _, msg := range messagesSource1 {
-		expectedIDs1[msg.Header.MessageID] = true
+	for _, task := range tasksSource1 {
+		expectedIDs1[task.Message.Header.MessageID] = true
 	}
 	for _, data := range storedDataSource1 {
 		assert.True(t, expectedIDs1[data.MessageID], "Unexpected message ID from source 1: %x", data.MessageID)
@@ -317,8 +325,8 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Verify message IDs match for source 2
 	expectedIDs2 := make(map[[32]byte]bool)
-	for _, msg := range messagesSource2 {
-		expectedIDs2[msg.Header.MessageID] = true
+	for _, task := range tasksSource2 {
+		expectedIDs2[task.Message.Header.MessageID] = true
 	}
 	for _, data := range storedDataSource2 {
 		assert.True(t, expectedIDs2[data.MessageID], "Unexpected message ID from source 2: %x", data.MessageID)
@@ -367,20 +375,20 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	mockSourceReader2 := mocks.NewMockSourceReader(t)
 
 	// Set up channels
-	messageCh1 := make(chan common.Any2AnyVerifierMessage, 10)
-	messageCh2 := make(chan common.Any2AnyVerifierMessage, 10)
+	taskCh1 := make(chan common.VerificationTask, 10)
+	taskCh2 := make(chan common.VerificationTask, 10)
 
 	// Source 1 works normally
 	mockSourceReader1.EXPECT().Start(mock.Anything).Return(nil)
 	mockSourceReader1.EXPECT().Stop().Run(func() {
-		close(messageCh1)
+		close(taskCh1)
 	}).Return(nil)
-	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(messageCh1))
+	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh1))
 
 	// Source 2 closes its channel immediately (simulating failure)
 	mockSourceReader2.EXPECT().Start(mock.Anything).Return(nil)
 	mockSourceReader2.EXPECT().Stop().Return(nil)
-	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(messageCh2))
+	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh2))
 
 	// Create verifier
 	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
@@ -405,23 +413,23 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Close source 2 channel immediately to simulate failure
-	close(messageCh2)
+	close(taskCh2)
 
-	// Send messages only to source 1
-	messagesSource1 := []common.Any2AnyVerifierMessage{
-		createTestMessage([32]byte{1, 1, 1}, 100, sourceChain1, destChain),
-		createTestMessage([32]byte{1, 2, 3}, 101, sourceChain1, destChain),
+	// Send verification tasks only to source 1
+	tasksSource1 := []common.VerificationTask{
+		createTestVerificationTask([32]byte{1, 1, 1}, 100, sourceChain1, destChain),
+		createTestVerificationTask([32]byte{1, 2, 3}, 101, sourceChain1, destChain),
 	}
 
 	go func() {
-		for _, msg := range messagesSource1 {
-			messageCh1 <- msg
+		for _, task := range tasksSource1 {
+			taskCh1 <- task
 			time.Sleep(5 * time.Millisecond)
 		}
 	}()
 
-	// Wait for messages from source 1 to be processed
-	for i := 0; i < len(messagesSource1); i++ {
+	// Wait for verification tasks from source 1 to be processed
+	for i := 0; i < len(tasksSource1); i++ {
 		err = storage.WaitForStore(ctx)
 		require.NoError(t, err)
 	}
@@ -436,7 +444,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	storedDataSource2, err := storage.GetAllCCVData(config.SourceConfigs[1].VerifierAddress)
 	require.NoError(t, err)
 
-	assert.Len(t, storedDataSource1, len(messagesSource1))
+	assert.Len(t, storedDataSource1, len(tasksSource1))
 	assert.Len(t, storedDataSource2, 0) // No messages from failed source
 }
 
@@ -471,8 +479,8 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 			},
 			readers: func() map[cciptypes.ChainSelector]verifier.SourceReader {
 				mockReader := mocks.NewMockSourceReader(t)
-				mockCh := make(chan common.Any2AnyVerifierMessage)
-				mockReader.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(mockCh))
+				mockCh := make(chan common.VerificationTask)
+				mockReader.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh))
 				return map[cciptypes.ChainSelector]verifier.SourceReader{
 					42: mockReader, // Missing reader for chain 84
 				}
@@ -491,8 +499,8 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 			},
 			readers: func() map[cciptypes.ChainSelector]verifier.SourceReader {
 				mockReader := mocks.NewMockSourceReader(t)
-				mockCh := make(chan common.Any2AnyVerifierMessage)
-				mockReader.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(mockCh))
+				mockCh := make(chan common.VerificationTask)
+				mockReader.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh))
 				return map[cciptypes.ChainSelector]verifier.SourceReader{
 					42: mockReader,
 				}
@@ -556,10 +564,10 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 	mockSourceReader2 := mocks.NewMockSourceReader(t)
 
 	// Set up channel expectations (required for sourceState creation)
-	mockCh1 := make(chan common.Any2AnyVerifierMessage)
-	mockCh2 := make(chan common.Any2AnyVerifierMessage)
-	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(mockCh1))
-	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.Any2AnyVerifierMessage)(mockCh2))
+	mockCh1 := make(chan common.VerificationTask)
+	mockCh2 := make(chan common.VerificationTask)
+	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh1))
+	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh2))
 
 	// Set up health check expectations
 	mockSourceReader1.EXPECT().HealthCheck(mock.Anything).Return(nil)

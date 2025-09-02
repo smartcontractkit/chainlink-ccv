@@ -70,19 +70,19 @@ func (_c *MockSourceReader_HealthCheck_Call) RunAndReturn(run func(context.Conte
 }
 
 // MessagesChannel provides a mock function with no fields
-func (_m *MockSourceReader) MessagesChannel() <-chan common.Any2AnyVerifierMessage {
+func (_m *MockSourceReader) MessagesChannel() <-chan common.VerificationTask {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for MessagesChannel")
 	}
 
-	var r0 <-chan common.Any2AnyVerifierMessage
-	if rf, ok := ret.Get(0).(func() <-chan common.Any2AnyVerifierMessage); ok {
+	var r0 <-chan common.VerificationTask
+	if rf, ok := ret.Get(0).(func() <-chan common.VerificationTask); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan common.Any2AnyVerifierMessage)
+			r0 = ret.Get(0).(<-chan common.VerificationTask)
 		}
 	}
 
@@ -106,12 +106,12 @@ func (_c *MockSourceReader_MessagesChannel_Call) Run(run func()) *MockSourceRead
 	return _c
 }
 
-func (_c *MockSourceReader_MessagesChannel_Call) Return(_a0 <-chan common.Any2AnyVerifierMessage) *MockSourceReader_MessagesChannel_Call {
+func (_c *MockSourceReader_MessagesChannel_Call) Return(_a0 <-chan common.VerificationTask) *MockSourceReader_MessagesChannel_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockSourceReader_MessagesChannel_Call) RunAndReturn(run func() <-chan common.Any2AnyVerifierMessage) *MockSourceReader_MessagesChannel_Call {
+func (_c *MockSourceReader_MessagesChannel_Call) RunAndReturn(run func() <-chan common.VerificationTask) *MockSourceReader_MessagesChannel_Call {
 	_c.Call.Return(run)
 	return _c
 }
