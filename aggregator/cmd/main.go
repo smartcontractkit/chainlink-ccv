@@ -1,12 +1,15 @@
+// Package main provides the entry point for the aggregator service.
 package main
 
 import (
-	"fmt"
-	"net/http"
+	"context"
+	"net"
 	"os"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
 func main() {
@@ -20,10 +23,35 @@ func main() {
 	}
 	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(lvl)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Aggregator is running!\n")
-	})
+	config := model.AggregatorConfig{
+		Server: model.ServerConfig{
+			Address: ":50051",
+		},
+		Storage: model.StorageConfig{
+			StorageType: "memory",
+		},
+		Aggregation: model.AggregationConfig{
+			AggregationStrategy: "stub",
+		},
+	}
 
-	l.Info().Msgf("Aggregator is running on port %s", ":8100")
-	log.Fatal().Err(http.ListenAndServe(":8100", nil)).Send()
+	server := aggregator.NewServer(l, config)
+
+	address := config.Server.Address
+	lc := &net.ListenConfig{}
+	lis, err := lc.Listen(context.Background(), "tcp", address)
+	if err != nil {
+		l.Fatal().Err(err).Msg("failed to listen")
+	}
+	defer func() {
+		if err := lis.Close(); err != nil {
+			l.Error().Err(err).Msg("failed to close listener")
+		}
+	}()
+
+	stop, err := server.Start(lis)
+	if err != nil {
+		l.Fatal().Err(err).Msg("failed to start server")
+	}
+	defer stop()
 }
