@@ -115,7 +115,7 @@ func TestVerifier(t *testing.T) {
 	mockSourceReader.EXPECT().Stop().Run(func() {
 		close(verificationTaskCh)
 	}).Return(nil)
-	mockSourceReader.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(verificationTaskCh))
+	mockSourceReader.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(verificationTaskCh))
 
 	// Create verifier implementation
 	commitVerifier := verifier.NewCommitVerifier(coordinatorConfig, signer, lggr)
@@ -229,14 +229,14 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	mockSourceReader1.EXPECT().Stop().Run(func() {
 		close(taskCh1)
 	}).Return(nil)
-	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh1))
+	mockSourceReader1.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(taskCh1))
 
 	// Set up expectations for source reader 2
 	mockSourceReader2.EXPECT().Start(mock.Anything).Return(nil)
 	mockSourceReader2.EXPECT().Stop().Run(func() {
 		close(taskCh2)
 	}).Return(nil)
-	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh2))
+	mockSourceReader2.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(taskCh2))
 
 	// Create verifier implementation
 	commitVerifier := verifier.NewCommitVerifier(coordinatorConfig, signer, lggr)
@@ -380,12 +380,12 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	mockSourceReader1.EXPECT().Stop().Run(func() {
 		close(taskCh1)
 	}).Return(nil)
-	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh1))
+	mockSourceReader1.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(taskCh1))
 
 	// Source 2 closes its channel immediately (simulating failure)
 	mockSourceReader2.EXPECT().Start(mock.Anything).Return(nil)
 	mockSourceReader2.EXPECT().Stop().Return(nil)
-	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh2))
+	mockSourceReader2.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(taskCh2))
 
 	// Create verifier implementation
 	commitVerifier := verifier.NewCommitVerifier(coordinatorConfig, signer, lggr)
@@ -478,7 +478,7 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 			readers: func() map[cciptypes.ChainSelector]verifier.SourceReader {
 				mockReader := mocks.NewMockSourceReader(t)
 				mockCh := make(chan common.VerificationTask)
-				mockReader.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh))
+				mockReader.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(mockCh))
 				return map[cciptypes.ChainSelector]verifier.SourceReader{
 					42: mockReader, // Missing reader for chain 84
 				}
@@ -497,7 +497,7 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 			readers: func() map[cciptypes.ChainSelector]verifier.SourceReader {
 				mockReader := mocks.NewMockSourceReader(t)
 				mockCh := make(chan common.VerificationTask)
-				mockReader.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh))
+				mockReader.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(mockCh))
 				return map[cciptypes.ChainSelector]verifier.SourceReader{
 					42: mockReader,
 				}
@@ -564,8 +564,8 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 	// Set up channel expectations (required for sourceState creation)
 	mockCh1 := make(chan common.VerificationTask)
 	mockCh2 := make(chan common.VerificationTask)
-	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh1))
-	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh2))
+	mockSourceReader1.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(mockCh1))
+	mockSourceReader2.EXPECT().VerificationTaskChannel().Return((<-chan common.VerificationTask)(mockCh2))
 
 	// Set up health check expectations - one will be healthy, one unhealthy
 	// The health check will fail on the first unhealthy reader it encounters

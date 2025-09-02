@@ -16,6 +16,6 @@ func newSourceState(chainSelector cciptypes.ChainSelector, reader SourceReader) 
 	return &sourceState{
 		chainSelector:      chainSelector,
 		reader:             reader,
-		verificationTaskCh: reader.MessagesChannel(),
+		verificationTaskCh: reader.VerificationTaskChannel(),
 	}
 }

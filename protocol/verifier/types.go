@@ -41,9 +41,8 @@ type SourceReader interface {
 	// Stop stops the reader and closes the messages channel
 	Stop() error
 
-	//TODO: Make the channel return
-	// MessagesChannel returns the channel where new message events are delivered
-	MessagesChannel() <-chan common.VerificationTask
+	// VerificationTaskChannel returns the channel where new message events are delivered
+	VerificationTaskChannel() <-chan common.VerificationTask
 
 	// HealthCheck returns the current health status of the reader
 	HealthCheck(ctx context.Context) error
