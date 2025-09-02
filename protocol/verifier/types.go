@@ -34,6 +34,7 @@ type VerifierConfig struct {
 	ProcessingChannelSize int                     `json:"processing_channel_size"`
 	ProcessingTimeout     time.Duration           `json:"processing_timeout"`
 	MaxBatchSize          int                     `json:"max_batch_size"`
+	DeltaRound            time.Duration                     `json:"delta_round"`
 }
 
 // SourceReader defines the interface for reading CCIP messages from source chains

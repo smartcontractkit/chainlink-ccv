@@ -255,7 +255,7 @@ func (v *Verifier) run(ctx context.Context) {
 
 			// If no message was processed from any source, sleep briefly to prevent busy waiting
 			if !messageProcessed {
-				time.Sleep(1 * time.Millisecond)
+				time.Sleep(v.config.DeltaRound)
 			}
 		}
 	}
