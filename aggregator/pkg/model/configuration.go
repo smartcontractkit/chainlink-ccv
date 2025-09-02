@@ -44,6 +44,7 @@ type AggregatorConfig struct {
 	Committees  map[string]Committee `toml:"committees"`
 }
 
+// Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
 	// TODO: Add Validate() method to AggregatorConfig to ensure configuration integrity
 	// Should validate:

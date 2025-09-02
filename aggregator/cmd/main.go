@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"os"
 
@@ -37,7 +38,8 @@ func main() {
 	server := aggregator.NewServer(l, config)
 
 	address := config.Server.Address
-	lis, err := net.Listen("tcp", address)
+	lc := &net.ListenConfig{}
+	lis, err := lc.Listen(context.Background(), "tcp", address)
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to listen")
 	}

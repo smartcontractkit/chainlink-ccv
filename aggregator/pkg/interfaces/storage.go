@@ -1,3 +1,4 @@
+// Package interfaces defines the core interfaces used throughout the aggregator service.
 package interfaces
 
 import (
