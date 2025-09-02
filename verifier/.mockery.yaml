@@ -5,7 +5,7 @@ resolve-type-alias: false
 packages:
     github.com/smartcontractkit/chainlink-ccv/verifier:
         config:
-            dir: verifier/mocks
+            dir: mocks
             outpkg: mocks
         interfaces:
             SourceReader:
