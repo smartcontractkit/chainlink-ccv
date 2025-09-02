@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
 
+	"github.com/docker/docker/client"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/spf13/cobra"
 
@@ -262,7 +264,22 @@ func init() {
 	rootCmd.AddCommand(printAddresses)
 }
 
+func checkDockerIsRunning() {
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	defer cli.Close()
+	if err != nil {
+		fmt.Println("Can't create Docker client, please check if Docker daemon is running!")
+		os.Exit(1)
+	}
+	_, err = cli.Ping(context.Background())
+	if err != nil {
+		fmt.Println("Docker is not running, please start Docker daemon first!")
+		os.Exit(1)
+	}
+}
+
 func main() {
+	checkDockerIsRunning()
 	if len(os.Args) == 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
 		StartShell()
 		return
