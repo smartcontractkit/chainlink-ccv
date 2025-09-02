@@ -24,16 +24,13 @@ type SourceConfig struct {
 	VerifierAddress common.UnknownAddress   `json:"verifier_address"`
 }
 
-// VerifierConfig contains configuration for the verifier
-type VerifierConfig struct {
-	VerifierID            string                  `json:"verifier_id"`
-	DestChainSelector     cciptypes.ChainSelector `json:"dest_chain_selector"`
-	SourceConfigs         []SourceConfig          `json:"source_configs"`
-	DestVerifierAddress   common.UnknownAddress   `json:"dest_verifier_address"`
-	SigningKey            []byte                  `json:"signing_key"` // Private key for signing
-	ProcessingChannelSize int                     `json:"processing_channel_size"`
-	ProcessingTimeout     time.Duration           `json:"processing_timeout"`
-	MaxBatchSize          int                     `json:"max_batch_size"`
+// CoordinatorConfig contains configuration for the verification coordinator
+type CoordinatorConfig struct {
+	CoordinatorID         string         `json:"coordinator_id"`
+	SourceConfigs         []SourceConfig `json:"source_configs"`
+	ProcessingChannelSize int            `json:"processing_channel_size"`
+	ProcessingTimeout     time.Duration  `json:"processing_timeout"`
+	MaxBatchSize          int            `json:"max_batch_size"`
 }
 
 // SourceReader defines the interface for reading CCIP messages from source chains
@@ -59,21 +56,6 @@ type MessageSigner interface {
 
 	// GetSignerAddress returns the address of the signer
 	GetSignerAddress() common.UnknownAddress
-}
-
-// VerifierInterface defines the interface for the core verifier logic
-type VerifierInterface interface {
-	// Start begins processing messages from the source reader
-	Start(ctx context.Context) error
-
-	// Stop stops the verifier processing
-	Stop() error
-
-	// ProcessMessage processes a single message event and stores the result
-	ProcessMessage(ctx context.Context, messageEvent common.VerificationTask) error
-
-	// HealthCheck returns the current health status of the verifier
-	HealthCheck(ctx context.Context) error
 }
 
 // ECDSASigner implements MessageSigner using ECDSA

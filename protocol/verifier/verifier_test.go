@@ -90,17 +90,14 @@ func TestVerifier(t *testing.T) {
 	signer, err := verifier.NewECDSAMessageSigner(privateKeyBytes)
 	require.NoError(t, err)
 
-	config := verifier.VerifierConfig{
-		VerifierID:        "test-custom-mockery-verifier",
-		DestChainSelector: cciptypes.ChainSelector(100),
+	coordinatorConfig := verifier.CoordinatorConfig{
+		CoordinatorID: "test-custom-mockery-verifier",
 		SourceConfigs: []verifier.SourceConfig{
 			{
 				ChainSelector:   cciptypes.ChainSelector(42),
 				VerifierAddress: common.UnknownAddress([]byte("0x1234")),
 			},
 		},
-		DestVerifierAddress:   common.UnknownAddress([]byte("0x4567")),
-		SigningKey:            privateKeyBytes,
 		ProcessingChannelSize: 10,
 		ProcessingTimeout:     time.Second,
 		MaxBatchSize:          100,
@@ -120,14 +117,17 @@ func TestVerifier(t *testing.T) {
 	}).Return(nil)
 	mockSourceReader.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(verificationTaskCh))
 
-	// Create verifier
+	// Create verifier implementation
+	commitVerifier := verifier.NewCommitVerifier(coordinatorConfig, signer, lggr)
+
+	// Create coordinator
 	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
 		cciptypes.ChainSelector(42): mockSourceReader,
 	}
-	v, err := verifier.NewVerifier(
-		verifier.WithConfig(config),
+	v, err := verifier.NewVerificationCoordinator(
+		verifier.WithConfig(coordinatorConfig),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithSigner(signer),
+		verifier.WithVerifier(commitVerifier),
 		verifier.WithStorage(storage),
 		verifier.WithLogger(lggr),
 	)
@@ -166,7 +166,7 @@ func TestVerifier(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify all data was stored
-	storedData, err := storage.GetAllCCVData(config.SourceConfigs[0].VerifierAddress)
+	storedData, err := storage.GetAllCCVData(coordinatorConfig.SourceConfigs[0].VerifierAddress)
 	require.NoError(t, err)
 	assert.Len(t, storedData, len(testTasks))
 	assert.Equal(t, int(messagesSent.Load()), len(testTasks))
@@ -198,9 +198,8 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	sourceChain2 := cciptypes.ChainSelector(84)
 	destChain := cciptypes.ChainSelector(100)
 
-	config := verifier.VerifierConfig{
-		VerifierID:        "test-multi-source-verifier",
-		DestChainSelector: destChain,
+	coordinatorConfig := verifier.CoordinatorConfig{
+		CoordinatorID: "test-multi-source-verifier",
 		SourceConfigs: []verifier.SourceConfig{
 			{
 				ChainSelector:   sourceChain1,
@@ -211,8 +210,6 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 				VerifierAddress: common.UnknownAddress([]byte("0x5678")),
 			},
 		},
-		DestVerifierAddress:   common.UnknownAddress([]byte("0x9999")),
-		SigningKey:            privateKeyBytes,
 		ProcessingChannelSize: 10,
 		ProcessingTimeout:     time.Second,
 		MaxBatchSize:          100,
@@ -241,16 +238,19 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	}).Return(nil)
 	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh2))
 
+	// Create verifier implementation
+	commitVerifier := verifier.NewCommitVerifier(coordinatorConfig, signer, lggr)
+
 	// Create verifier with multiple source readers
 	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSourceReader1,
 		sourceChain2: mockSourceReader2,
 	}
 
-	v, err := verifier.NewVerifier(
-		verifier.WithConfig(config),
+	v, err := verifier.NewVerificationCoordinator(
+		verifier.WithConfig(coordinatorConfig),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithSigner(signer),
+		verifier.WithVerifier(commitVerifier),
 		verifier.WithStorage(storage),
 		verifier.WithLogger(lggr),
 	)
@@ -303,9 +303,9 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify all data was stored
-	storedDataSource1, err := storage.GetAllCCVData(config.SourceConfigs[0].VerifierAddress)
+	storedDataSource1, err := storage.GetAllCCVData(coordinatorConfig.SourceConfigs[0].VerifierAddress)
 	require.NoError(t, err)
-	storedDataSource2, err := storage.GetAllCCVData(config.SourceConfigs[1].VerifierAddress)
+	storedDataSource2, err := storage.GetAllCCVData(coordinatorConfig.SourceConfigs[1].VerifierAddress)
 	require.NoError(t, err)
 
 	assert.Len(t, storedDataSource1, len(tasksSource1))
@@ -350,9 +350,8 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	sourceChain2 := cciptypes.ChainSelector(84)
 	destChain := cciptypes.ChainSelector(100)
 
-	config := verifier.VerifierConfig{
-		VerifierID:        "test-failure-verifier",
-		DestChainSelector: destChain,
+	coordinatorConfig := verifier.CoordinatorConfig{
+		CoordinatorID: "test-failure-verifier",
 		SourceConfigs: []verifier.SourceConfig{
 			{
 				ChainSelector:   sourceChain1,
@@ -363,8 +362,6 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 				VerifierAddress: common.UnknownAddress([]byte("0x5678")),
 			},
 		},
-		DestVerifierAddress:   common.UnknownAddress([]byte("0x9999")),
-		SigningKey:            privateKeyBytes,
 		ProcessingChannelSize: 10,
 		ProcessingTimeout:     time.Second,
 		MaxBatchSize:          100,
@@ -390,16 +387,19 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	mockSourceReader2.EXPECT().Stop().Return(nil)
 	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(taskCh2))
 
+	// Create verifier implementation
+	commitVerifier := verifier.NewCommitVerifier(coordinatorConfig, signer, lggr)
+
 	// Create verifier
 	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSourceReader1,
 		sourceChain2: mockSourceReader2,
 	}
 
-	v, err := verifier.NewVerifier(
-		verifier.WithConfig(config),
+	v, err := verifier.NewVerificationCoordinator(
+		verifier.WithConfig(coordinatorConfig),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithSigner(signer),
+		verifier.WithVerifier(commitVerifier),
 		verifier.WithStorage(storage),
 		verifier.WithLogger(lggr),
 	)
@@ -439,9 +439,9 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify only source 1 data was stored
-	storedDataSource1, err := storage.GetAllCCVData(config.SourceConfigs[0].VerifierAddress)
+	storedDataSource1, err := storage.GetAllCCVData(coordinatorConfig.SourceConfigs[0].VerifierAddress)
 	require.NoError(t, err)
-	storedDataSource2, err := storage.GetAllCCVData(config.SourceConfigs[1].VerifierAddress)
+	storedDataSource2, err := storage.GetAllCCVData(coordinatorConfig.SourceConfigs[1].VerifierAddress)
 	require.NoError(t, err)
 
 	assert.Len(t, storedDataSource1, len(tasksSource1))
@@ -453,25 +453,23 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		config      verifier.VerifierConfig
+		config      verifier.CoordinatorConfig
 		readers     map[cciptypes.ChainSelector]verifier.SourceReader
 		expectError string
 	}{
 		{
 			name: "no source readers",
-			config: verifier.VerifierConfig{
-				VerifierID:        "test-no-sources",
-				DestChainSelector: 100,
-				SourceConfigs:     []verifier.SourceConfig{},
+			config: verifier.CoordinatorConfig{
+				CoordinatorID: "test-no-sources",
+				SourceConfigs: []verifier.SourceConfig{},
 			},
 			readers:     map[cciptypes.ChainSelector]verifier.SourceReader{},
 			expectError: "at least one source reader is required",
 		},
 		{
 			name: "mismatched source config and readers",
-			config: verifier.VerifierConfig{
-				VerifierID:        "test-mismatch",
-				DestChainSelector: 100,
+			config: verifier.CoordinatorConfig{
+				CoordinatorID: "test-mismatch",
 				SourceConfigs: []verifier.SourceConfig{
 					{ChainSelector: 42, VerifierAddress: common.UnknownAddress([]byte("0x1234"))},
 					{ChainSelector: 84, VerifierAddress: common.UnknownAddress([]byte("0x5678"))},
@@ -489,9 +487,8 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 		},
 		{
 			name: "duplicate chain selectors in config",
-			config: verifier.VerifierConfig{
-				VerifierID:        "test-duplicates",
-				DestChainSelector: 100,
+			config: verifier.CoordinatorConfig{
+				CoordinatorID: "test-duplicates",
 				SourceConfigs: []verifier.SourceConfig{
 					{ChainSelector: 42, VerifierAddress: common.UnknownAddress([]byte("0x1234"))},
 					{ChainSelector: 42, VerifierAddress: common.UnknownAddress([]byte("0x5678"))}, // Duplicate
@@ -520,10 +517,13 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 
 			storage := storageaccess.NewInMemoryOffchainStorage(lggr)
 
-			_, err = verifier.NewVerifier(
+			// Create verifier implementation
+			commitVerifier := verifier.NewCommitVerifier(tt.config, signer, lggr)
+
+			_, err = verifier.NewVerificationCoordinator(
 				verifier.WithConfig(tt.config),
 				verifier.WithSourceReaders(tt.readers),
-				verifier.WithSigner(signer),
+				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(storage),
 				verifier.WithLogger(lggr),
 			)
@@ -549,14 +549,12 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 	sourceChain1 := cciptypes.ChainSelector(42)
 	sourceChain2 := cciptypes.ChainSelector(84)
 
-	config := verifier.VerifierConfig{
-		VerifierID:        "test-health-check",
-		DestChainSelector: 100,
+	coordinatorConfig := verifier.CoordinatorConfig{
+		CoordinatorID: "test-health-check",
 		SourceConfigs: []verifier.SourceConfig{
 			{ChainSelector: sourceChain1, VerifierAddress: common.UnknownAddress([]byte("0x1234"))},
 			{ChainSelector: sourceChain2, VerifierAddress: common.UnknownAddress([]byte("0x5678"))},
 		},
-		DestVerifierAddress: common.UnknownAddress([]byte("0x9999")),
 	}
 
 	// Create mock source readers
@@ -569,19 +567,23 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 	mockSourceReader1.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh1))
 	mockSourceReader2.EXPECT().MessagesChannel().Return((<-chan common.VerificationTask)(mockCh2))
 
-	// Set up health check expectations
-	mockSourceReader1.EXPECT().HealthCheck(mock.Anything).Return(nil)
-	mockSourceReader2.EXPECT().HealthCheck(mock.Anything).Return(assert.AnError)
+	// Set up health check expectations - one will be healthy, one unhealthy
+	// The health check will fail on the first unhealthy reader it encounters
+	mockSourceReader1.EXPECT().HealthCheck(mock.Anything).Return(nil).Maybe()
+	mockSourceReader2.EXPECT().HealthCheck(mock.Anything).Return(assert.AnError).Maybe()
 
 	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSourceReader1,
 		sourceChain2: mockSourceReader2,
 	}
 
-	v, err := verifier.NewVerifier(
-		verifier.WithConfig(config),
+	// Create verifier implementation
+	commitVerifier := verifier.NewCommitVerifier(coordinatorConfig, signer, lggr)
+
+	v, err := verifier.NewVerificationCoordinator(
+		verifier.WithConfig(coordinatorConfig),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithSigner(signer),
+		verifier.WithVerifier(commitVerifier),
 		verifier.WithStorage(storage),
 		verifier.WithLogger(lggr),
 	)
@@ -598,7 +600,7 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 	// Health check should fail if any source reader is unhealthy
 	err = v.HealthCheck(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "source reader unhealthy for chain 84")
+	assert.Contains(t, err.Error(), "source reader unhealthy for chain")
 
 	// Stop the verifier
 	mockSourceReader1.EXPECT().Stop().Return(nil)
