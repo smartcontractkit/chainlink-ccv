@@ -316,49 +316,22 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 		return fmt.Errorf("message sequence number cannot be zero")
 	}
 
-	// Additional validation for event fields - these are now redundant since we removed the duplicate fields
 	// The DestChainSelector and SequenceNumber are only available in Message.Header now
 
 	cv.lggr.Debugw("Message event validation passed",
 		"messageID", header.MessageID,
 		"sequenceNumber", header.SequenceNumber,
+		"sourceChain", header.SourceChainSelector,
+		"destChain", header.DestChainSelector,
 	)
 
 	//TODO: Add finality awareness logic
 
-	// Generate CCV data
-	ccvData, err := cv.generateCCVData(ctx, verificationTask, sourceConfig)
-	if err != nil {
-		return fmt.Errorf("failed to generate CCV data: %w", err)
-	}
-
-	// Send CCVData to channel for storage
-	select {
-	case ccvDataCh <- *ccvData:
-		cv.lggr.Debugw("CCV data sent to storage channel",
-			"messageID", header.MessageID,
-			"sequenceNumber", header.SequenceNumber,
-		)
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// generateCCVData creates CCV data for a verified message event
-func (cv *CommitVerifier) generateCCVData(ctx context.Context, verificationTask common.VerificationTask, sourceConfig *SourceConfig) (*common.CCVData, error) {
-	// Extract message and header for cleaner access
-	message := verificationTask.Message
-	header := message.Header
-
 	// Sign the message event
 	signature, err := cv.signer.SignMessage(ctx, verificationTask)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign message event: %w", err)
+		return fmt.Errorf("failed to sign message event: %w", err)
 	}
-
-	// For now, leave dest verifier address empty - this could be derived from message or set elsewhere
-	destVerifierAddress := common.UnknownAddress([]byte{})
 
 	// Create CCV data
 	ccvData := &common.CCVData{
@@ -367,14 +340,25 @@ func (cv *CommitVerifier) generateCCVData(ctx context.Context, verificationTask 
 		SourceChainSelector:   header.SourceChainSelector,
 		DestChainSelector:     header.DestChainSelector,
 		SourceVerifierAddress: sourceConfig.VerifierAddress,
-		DestVerifierAddress:   destVerifierAddress,
 		CCVData:               signature,
-		BlobData:              []byte{}, // Could include receipt blobs or other event-specific data
+		BlobData:              []byte{},
 		Timestamp:             time.Now().UnixMicro(),
 		Message:               message, // Store the complete message
 	}
 
-	return ccvData, nil
+	// Send CCVData to channel for storage
+	select {
+	case ccvDataCh <- *ccvData:
+		cv.lggr.Debugw("CCV data sent to storage channel",
+			"messageID", header.MessageID,
+			"sequenceNumber", header.SequenceNumber,
+			"sourceChain", header.SourceChainSelector,
+			"destChain", header.DestChainSelector,
+		)
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // validate checks that all required components are configured
