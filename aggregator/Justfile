@@ -21,6 +21,8 @@ proto-check: proto
     if [ -s /tmp/proto_diff_output ]; then \
         echo "Error: Generated protobuf files are out of sync"; \
         echo "Run 'just proto' and commit the changes"; \
+        echo "Diff:"; \
+        git diff -- *.pb.go; \
         exit 1; \
     else \
         echo "Protobuf files are in sync"; \
