@@ -25,6 +25,11 @@ linters:
     - testifylint
     - unconvert
     - whitespace
+  settings:
+    revive:
+      rules:
+        - name: var-naming
+          disabled: true
 formatters:
   enable:
     - goimports

@@ -1,3 +1,4 @@
+// Package common provides shared interfaces
 package common
 
 import "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
