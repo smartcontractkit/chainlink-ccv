@@ -1,12 +1,13 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
+	"net"
 	"os"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
 func main() {
@@ -20,10 +21,30 @@ func main() {
 	}
 	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(lvl)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Aggregator is running!\n")
-	})
+	config := model.AggregatorConfig{
+		Storage: model.StorageConfig{
+			StorageType: "memory",
+		},
+		Aggregation: model.AggregationConfig{
+			AggregationStrategy: "stub",
+		},
+	}
 
-	l.Info().Msgf("Aggregator is running on port %s", ":8100")
-	log.Fatal().Err(http.ListenAndServe(":8100", nil)).Send()
+	server := aggregator.NewServer(l, config)
+
+	port := os.Getenv("AGGREGATOR_PORT")
+	if port == "" {
+		port = ":50051"
+	}
+	lis, err := net.Listen("tcp", port)
+	if err != nil {
+		l.Fatal().Err(err).Msg("failed to listen")
+	}
+	defer lis.Close()
+
+	stop, err := server.Start(lis)
+	if err != nil {
+		l.Fatal().Err(err).Msg("failed to start server")
+	}
+	defer stop()
 }
