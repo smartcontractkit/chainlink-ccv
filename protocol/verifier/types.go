@@ -25,7 +25,7 @@ type SourceConfig struct {
 
 // CoordinatorConfig contains configuration for the verification coordinator
 type CoordinatorConfig struct {
-	CoordinatorID         string                                   `json:"coordinator_id"`
+	VerifierID            string                                   `json:"verifier_id"`
 	SourceConfigs         map[cciptypes.ChainSelector]SourceConfig `json:"source_configs"`
 	ProcessingChannelSize int                                      `json:"processing_channel_size"`
 	ProcessingTimeout     time.Duration                            `json:"processing_timeout"`

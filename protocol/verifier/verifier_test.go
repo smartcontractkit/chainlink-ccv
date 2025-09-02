@@ -148,7 +148,7 @@ func createCoordinatorConfig(coordinatorID string, sources map[cciptypes.ChainSe
 	}
 
 	return verifier.CoordinatorConfig{
-		CoordinatorID:         coordinatorID,
+		VerifierID:            coordinatorID,
 		SourceConfigs:         sourceConfigs,
 		ProcessingChannelSize: defaultProcessingChannelSize,
 		ProcessingTimeout:     defaultProcessingTimeout,

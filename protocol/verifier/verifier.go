@@ -155,7 +155,7 @@ func (vc *VerificationCoordinator) Start(ctx context.Context) error {
 	go vc.run(ctx)
 
 	vc.lggr.Infow("VerificationCoordinator started",
-		"coordinatorID", vc.config.CoordinatorID,
+		"coordinatorID", vc.config.VerifierID,
 	)
 
 	return nil
@@ -446,7 +446,7 @@ func (vc *VerificationCoordinator) validate() error {
 		return fmt.Errorf("logger is required")
 	}
 
-	if vc.config.CoordinatorID == "" {
+	if vc.config.VerifierID == "" {
 		return fmt.Errorf("coordinator ID cannot be empty")
 	}
 
