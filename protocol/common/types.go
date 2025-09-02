@@ -136,6 +136,14 @@ type Any2EVMVerifierMessage struct {
 	OnRampAddress UnknownAddress `json:"onramp_address"`
 }
 
+// VerificationTask represents the complete CCIPMessageSent event data from the onRamp/proxy
+// This struct wraps the Any2AnyVerifierMessage with additional event fields that are important
+// for verification and processing
+type VerificationTask struct {
+	Message      Any2AnyVerifierMessage `json:"message"`       // the complete message
+	ReceiptBlobs [][]byte               `json:"receipt_blobs"` // receipt blobs from event
+}
+
 // CCVData represents Cross-Chain Verification data
 type CCVData struct {
 	MessageID             cciptypes.Bytes32       `json:"message_id"`
@@ -147,7 +155,7 @@ type CCVData struct {
 	CCVData               []byte                  `json:"ccv_data"`  // The actual proof/signature
 	BlobData              []byte                  `json:"blob_data"` // Additional verifier-specific data
 	Timestamp             int64                   `json:"timestamp"` // Unix timestamp when verification completed (in microseconds)
-	Message               Any2AnyVerifierMessage  `json:"message"`   // Complete message being verified
+	Message               Any2AnyVerifierMessage  `json:"message"`   // Complete message event being verified
 }
 
 // TimestampQueryResponse represents the response from timestamp-based CCV data queries.
