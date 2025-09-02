@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/interfaces"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
@@ -15,7 +15,7 @@ type AggregationTriggerer interface {
 
 // WriteCommitVerificationRecordHandler handles requests to write commit verification records.
 type WriteCommitVerificationRecordHandler struct {
-	storage    interfaces.CommitVerificationStore
+	storage    common.CommitVerificationStore
 	aggregator AggregationTriggerer
 }
 
@@ -46,7 +46,7 @@ func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *
 }
 
 // NewWriteCommitVerificationRecordHandler creates a new instance of WriteCommitVerificationRecordHandler.
-func NewWriteCommitVerificationRecordHandler(store interfaces.CommitVerificationStore, aggregator AggregationTriggerer) *WriteCommitVerificationRecordHandler {
+func NewWriteCommitVerificationRecordHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer) *WriteCommitVerificationRecordHandler {
 	return &WriteCommitVerificationRecordHandler{
 		storage:    store,
 		aggregator: aggregator,

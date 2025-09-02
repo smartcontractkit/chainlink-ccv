@@ -4,7 +4,7 @@ package aggregation
 import (
 	"context"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/interfaces"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
@@ -12,8 +12,8 @@ import (
 // It manages the verification and storage of commit reports through a configurable storage backend,
 // processes aggregation requests via a message channel, and forwards verified reports to a sink.
 type CommitReportAggregator struct {
-	storage       interfaces.CommitVerificationStore
-	sink          interfaces.Sink
+	storage       common.CommitVerificationStore
+	sink          common.Sink
 	messageIDChan chan aggregationRequest
 	config        model.AggregatorConfig
 }
@@ -94,7 +94,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 //   - *CommitReportAggregator: A new aggregator instance ready to process commit reports
 //
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
-func NewCommitReportAggregator(storage interfaces.CommitVerificationStore, sink interfaces.Sink, config model.AggregatorConfig) *CommitReportAggregator {
+func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, config model.AggregatorConfig) *CommitReportAggregator {
 	return &CommitReportAggregator{
 		storage:       storage,
 		sink:          sink,

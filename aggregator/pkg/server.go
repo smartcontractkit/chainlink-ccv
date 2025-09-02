@@ -9,8 +9,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/interfaces"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"google.golang.org/grpc"
@@ -50,7 +50,7 @@ func (s *Server) Start(lis net.Listener) (func(), error) {
 	return grpcServer.Stop, nil
 }
 
-func createAggregatorConfig(storage interfaces.CommitVerificationStore, config model.AggregatorConfig) (handlers.AggregationTriggerer, error) {
+func createAggregatorConfig(storage common.CommitVerificationStore, config model.AggregatorConfig) (handlers.AggregationTriggerer, error) {
 	if config.Aggregation.AggregationStrategy == "stub" {
 		aggregator := aggregation.NewCommitReportAggregator(storage, &aggregation.AggregatorSinkStub{}, config)
 		aggregator.StartBackground(context.Background())
@@ -60,7 +60,7 @@ func createAggregatorConfig(storage interfaces.CommitVerificationStore, config m
 	return nil, fmt.Errorf("unknown aggregation strategy: %s", config.Aggregation.AggregationStrategy)
 }
 
-func createStorage(config model.AggregatorConfig) (interfaces.CommitVerificationStore, error) {
+func createStorage(config model.AggregatorConfig) (common.CommitVerificationStore, error) {
 	if config.Storage.StorageType == "memory" {
 		return storage.NewInMemoryStorage(), nil
 	}
