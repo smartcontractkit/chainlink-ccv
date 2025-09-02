@@ -2,6 +2,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 
@@ -33,7 +34,7 @@ func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.Comm
 func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, committeeID string, messageID model.MessageID) ([]*model.CommitVerificationRecord, error) {
 	var results []*model.CommitVerificationRecord
 	for _, record := range s.records {
-		if record.CommitteeID == committeeID && record.MessageId == messageID {
+		if record.CommitteeID == committeeID && bytes.Equal(record.MessageId, messageID) {
 			results = append(results, record)
 		}
 	}

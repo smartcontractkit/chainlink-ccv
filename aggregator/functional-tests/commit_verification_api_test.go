@@ -19,7 +19,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 		ParticipantId: "participant1",
 		CommitteeId:   "committee1",
 		CommitVerificationRecord: &aggregator.CommitVerificationRecord{
-			MessageId: 1,
+			MessageId: []byte("message1"),
 		},
 	})
 
@@ -29,10 +29,10 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	readResp, err := client.ReadCommitVerification(t.Context(), &aggregator.ReadCommitVerificationRequest{
 		ParticipantId: "participant1",
 		CommitteeId:   "committee1",
-		MessageId:     1,
+		MessageId:     []byte("message1"),
 	})
 
 	require.NoError(t, err, "ReadCommitVerification failed")
 	require.NotNil(t, readResp, "expected non-nil response")
-	require.Equal(t, uint32(1), readResp.CommitVerificationRecord.MessageId, "expected MessageId to match")
+	require.Equal(t, []byte("message1"), readResp.CommitVerificationRecord.MessageId, "expected MessageId to match")
 }

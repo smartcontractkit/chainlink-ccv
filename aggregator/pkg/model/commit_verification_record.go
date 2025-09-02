@@ -7,7 +7,7 @@ import (
 )
 
 // MessageID is a type alias for bytes representing a message identifier.
-type MessageID = uint32
+type MessageID = []byte
 
 // CommitVerificationRecordIdentifier uniquely identifies a commit verification record.
 type CommitVerificationRecordIdentifier struct {
