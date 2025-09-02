@@ -1,8 +1,10 @@
 FROM golang:1.24-alpine
 RUN go install github.com/air-verse/air@latest
 WORKDIR /app
-COPY ../protocol ../protocol
-COPY go.mod go.sum ./
+COPY verifier/go.mod verifier/go.sum ./
+WORKDIR /
+COPY protocol/ ./protocol/
+WORKDIR /app
 RUN go mod download
-COPY air.toml ./
+COPY verifier/air.toml ./
 CMD ["air", "-c", "air.toml"]
