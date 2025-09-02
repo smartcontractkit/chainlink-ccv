@@ -8,10 +8,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
+// ReadCommitVerificationRecordHandler handles requests to read commit verification records.
 type ReadCommitVerificationRecordHandler struct {
 	storage interfaces.CommitVerificationStore
 }
 
+// Handle processes the read request and retrieves the corresponding commit verification record.
 func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.ReadCommitVerificationRequest) (*aggregator.ReadCommitVerificationResponse, error) {
 	id := model.CommitVerificationRecordIdentifier{
 		ParticipantID: req.GetParticipantId(),
@@ -29,6 +31,7 @@ func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *a
 	}, nil
 }
 
+// NewReadCommitVerificationRecordHandler creates a new instance of ReadCommitVerificationRecordHandler.
 func NewReadCommitVerificationRecordHandler(store interfaces.CommitVerificationStore) *ReadCommitVerificationRecordHandler {
 	return &ReadCommitVerificationRecordHandler{
 		storage: store,

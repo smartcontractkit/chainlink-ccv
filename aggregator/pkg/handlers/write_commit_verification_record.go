@@ -8,15 +8,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
+// AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
 	CheckAggregation(committee_id string, messageID model.MessageID) error
 }
 
+// WriteCommitVerificationRecordHandler handles requests to write commit verification records.
 type WriteCommitVerificationRecordHandler struct {
 	storage    interfaces.CommitVerificationStore
 	aggregator AggregationTriggerer
 }
 
+// Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.WriteCommitVerificationRequest) (*aggregator.WriteCommitVerificationResponse, error) {
 	record := model.CommitVerificationRecord{
 		CommitVerificationRecord: *req.GetCommitVerificationRecord(),
@@ -42,6 +45,7 @@ func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *
 	}, nil
 }
 
+// NewWriteCommitVerificationRecordHandler creates a new instance of WriteCommitVerificationRecordHandler.
 func NewWriteCommitVerificationRecordHandler(store interfaces.CommitVerificationStore, aggregator AggregationTriggerer) *WriteCommitVerificationRecordHandler {
 	return &WriteCommitVerificationRecordHandler{
 		storage:    store,

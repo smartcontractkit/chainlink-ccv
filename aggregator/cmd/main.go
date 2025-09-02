@@ -22,6 +22,9 @@ func main() {
 	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(lvl)
 
 	config := model.AggregatorConfig{
+		Server: model.ServerConfig{
+			Address: ":50051",
+		},
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
@@ -32,11 +35,8 @@ func main() {
 
 	server := aggregator.NewServer(l, config)
 
-	port := os.Getenv("AGGREGATOR_PORT")
-	if port == "" {
-		port = ":50051"
-	}
-	lis, err := net.Listen("tcp", port)
+	address := config.Server.Address
+	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to listen")
 	}

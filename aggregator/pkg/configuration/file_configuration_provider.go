@@ -5,6 +5,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
+// LoadConfig loads the aggregator configuration from a file.
 func LoadConfig(filePath string) (*model.AggregatorConfig, error) {
 	var config model.AggregatorConfig
 	if _, err := toml.DecodeFile(filePath, &config); err != nil {

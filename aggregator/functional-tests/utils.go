@@ -19,14 +19,8 @@ import (
 
 const bufSize = 1024 * 1024
 
-var lis *bufconn.Listener
-
-func bufDialer(context.Context, string) (net.Conn, error) {
-	return lis.Dial()
-}
-
 func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), error) {
-	lis = bufconn.Listen(bufSize)
+	lis := bufconn.Listen(bufSize)
 	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel)
 	s := agg.NewServer(l, model.AggregatorConfig{
 		Storage: model.StorageConfig{
@@ -43,6 +37,10 @@ func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), e
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
+
+	bufDialer := func(context.Context, string) (net.Conn, error) {
+		return lis.Dial()
+	}
 
 	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(bufDialer), grpc.WithInsecure())
 	if err != nil {
