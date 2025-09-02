@@ -43,3 +43,16 @@ type AggregatorConfig struct {
 	Aggregation AggregationConfig    `toml:"aggregation"`
 	Committees  map[string]Committee `toml:"committees"`
 }
+
+func (c *AggregatorConfig) Validate() error {
+	// TODO: Add Validate() method to AggregatorConfig to ensure configuration integrity
+	// Should validate:
+	// - No duplicate signers within the same QuorumConfig
+	// - StorageType is supported (memory, etc.)
+	// - AggregationStrategy is supported (stub, etc.)
+	// - F value follows N = 3F + 1 rule, so F = (N-1) // 3
+	// - Committee names are valid
+	// - QuorumConfig chain selectors are valid
+	// - Server address format is correct
+	return nil
+}
