@@ -458,6 +458,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 	err := storage.StoreCCVData(ctx, testData)
 	require.NoError(t, err)
 
+
 	// Verify data was stored - timestamp is managed internally by storage entries
 	result, err := storage.GetAllCCVData(verifierAddress)
 	require.NoError(t, err)
