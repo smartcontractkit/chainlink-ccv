@@ -61,6 +61,7 @@ func getSubCommands(parent string) []prompt.Suggest {
 }
 
 func executor(in string) {
+	checkDockerIsRunning()
 	in = strings.TrimSpace(in)
 	if in == "" {
 		return

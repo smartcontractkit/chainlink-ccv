@@ -55,3 +55,12 @@ just fmt && just lint
 
 ### Creating Components
 See the [guide](services/README.md)
+
+### Running tests
+Devenv include 2 types of tests: end-to-end system-level tests and services tests
+```
+# run all the services tests
+go test -v -run TestService ./...
+# run e2e smoke test, requires full environment to spin up first
+ccv r && go test -v -run TestE2E ./...
+```
