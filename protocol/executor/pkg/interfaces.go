@@ -1,7 +1,8 @@
-package executor
+package pkg
 
 import (
 	"context"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
@@ -14,9 +15,8 @@ type LeaderElector interface {
 // It's used to get the list of ccv addresses for each receiver, as well as check if messages have been executed
 type DestinationReader interface {
 	SupportedChains() []ccipocr3.ChainSelector
-	GetCCVSForMessage(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, receiverAddress ccipocr3.UnknownAddress) (CcvAddressInfo, error)
+	GetCCVSForMessage(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, receiverAddress common.UnknownAddress) (CcvAddressInfo, error)
 	IsMessageExecuted(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, sequenceNumber ccipocr3.SeqNum) (bool, error)
-	GetSenderNonce(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, senderAddress string) (uint64, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains

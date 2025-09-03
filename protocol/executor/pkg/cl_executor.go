@@ -1,8 +1,9 @@
-package executor
+package pkg
 
 import (
 	"context"
 	"fmt"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
@@ -15,16 +16,21 @@ type ChainlinkExecutor struct {
 }
 
 func NewChainlinkExecutor(
+	lggr logger.Logger,
 	contractTransmitters ContractTransmitter,
 	destinationReaders DestinationReader,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
+		lggr:                 lggr,
 		contractTransmitters: contractTransmitters,
 		destinationReaders:   destinationReaders,
 	}
 }
 
 func (cle *ChainlinkExecutor) Validate() error {
+	if cle.lggr == nil {
+		return fmt.Errorf("logger is required")
+	}
 	chainSetA := make(map[ccipocr3.ChainSelector]struct{})
 	chainSetB := make(map[ccipocr3.ChainSelector]struct{})
 	for _, chainID := range cle.contractTransmitters.SupportedChains() {
@@ -94,32 +100,34 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	return nil
 }
 
-func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []CCVData, receiver_defined_ccvs CcvAddressInfo) ([]UnknownAddress, [][]byte, error) {
+func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiver_defined_ccvs CcvAddressInfo) ([]common.UnknownAddress, [][]byte, error) {
 	orderedCcvData := make([][]byte, 0)
-	orderedCcvOfframps := make([]UnknownAddress, 0)
+	orderedCcvOfframps := make([]common.UnknownAddress, 0)
 
-	mappedCcvData := make(map[UnknownAddress][]byte)
+	mappedCcvData := make(map[string][]byte)
 	for _, ccvData := range ccvDatum {
-		mappedCcvData[ccvData.DestVerifierAddress] = ccvData.CCVData
+		mappedCcvData[ccvData.DestVerifierAddress.String()] = ccvData.CCVData
 	}
 
 	for _, ccvAddress := range receiver_defined_ccvs.requiredCcvs {
-		if _, ok := mappedCcvData[ccvAddress]; !ok {
-			return nil, nil, fmt.Errorf("required CCV Offramp %s did not have an attestation", ccvAddress)
+		strAddr := ccvAddress.String()
+		if _, ok := mappedCcvData[strAddr]; !ok {
+			return nil, nil, fmt.Errorf("required CCV Offramp %s did not have an attestation", strAddr)
 		}
-		orderedCcvData = append(orderedCcvData, mappedCcvData[ccvAddress])
+		orderedCcvData = append(orderedCcvData, mappedCcvData[strAddr])
 		orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
 	}
 
-	hits := 0
 	for _, ccvAddress := range receiver_defined_ccvs.optionalCcvs {
-		if data, ok := mappedCcvData[ccvAddress]; ok {
+		if data, ok := mappedCcvData[ccvAddress.String()]; ok {
 			orderedCcvData = append(orderedCcvData, data)
 			orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
-			hits++
 		}
 	}
-	if hits < int(receiver_defined_ccvs.optionalThreshold) {
+
+	// check if we have enough optional CCVs. If any required CCVs were missing
+	// we would have already returned error above
+	if len(orderedCcvData)-len(receiver_defined_ccvs.requiredCcvs) < int(receiver_defined_ccvs.optionalThreshold) {
 		return nil, nil, fmt.Errorf("optional CCV Offramps did not meet threshold")
 	}
 	return orderedCcvOfframps, orderedCcvData, nil
