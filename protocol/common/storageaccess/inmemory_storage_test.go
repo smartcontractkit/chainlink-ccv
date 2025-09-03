@@ -536,7 +536,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 
 	// create numMessages, each 10 seconds apart
 	for i := 0; i < numMessages; i++ {
-		timeProvider = func() int64 { return baseTime + (10 * int64(i)) }
+		storage.timeProvider = func() int64 { return baseTime + (10 * int64(i)) }
 		testData1 := []common.CCVData{
 			{
 				MessageID:             [32]byte{1},
