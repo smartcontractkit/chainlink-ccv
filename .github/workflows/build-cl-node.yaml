@@ -24,9 +24,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('/home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/go.mod') }}
+          key: ${{ runner.os }}-go-cl-${{ hashFiles('/home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/go.mod') }}
           restore-keys: |
-            ${{ runner.os }}-go-
+            ${{ runner.os }}-go-cl-
       - name: Download Go modules
         working-directory: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo
         run: go mod download
