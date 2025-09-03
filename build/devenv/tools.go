@@ -61,6 +61,18 @@ func (t *TimeTracker) Print() {
 		Msg("Total environment boot up time")
 }
 
+func GetCLDFAddressesPerSelector(in *Cfg) ([][]datastore.AddressRef, error) {
+	addrs := make([][]datastore.AddressRef, 0)
+	for _, addr := range in.CCV.Addresses {
+		var refs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addr), &refs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal addresses: %w", err)
+		}
+		addrs = append(addrs, refs)
+	}
+	return addrs, nil
+}
+
 func PrintCLDFAddresses(in *Cfg) error {
 	for _, addr := range in.CCV.Addresses {
 		var refs []datastore.AddressRef

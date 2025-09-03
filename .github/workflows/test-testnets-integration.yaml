@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  e2e:
+  e2e-testnets:
     permissions:
       id-token: write
       contents: read

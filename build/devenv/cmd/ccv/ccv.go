@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	LocalCCVDashboard = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/datafeedsv1-soak-test?orgId=1&refresh=5s"
+	LocalWASPLoadDashboard = "http://localhost:3000/d/WASPLoadTests/wasp-load-test?orgId=1&from=1756927942705&to=1756928229431"
+	LocalCCVDashboard      = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/datafeedsv1-soak-test?orgId=1&refresh=5s"
 )
 
 var rootCmd = &cobra.Command{
@@ -157,6 +158,7 @@ var obsUpCmd = &cobra.Command{
 			return fmt.Errorf("observability up failed: %w", err)
 		}
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
+		ccv.Plog.Info().Msgf("CCV Load Test Dashboard: %s", LocalWASPLoadDashboard)
 		return nil
 	},
 }
@@ -186,6 +188,7 @@ var obsRestartCmd = &cobra.Command{
 			return fmt.Errorf("observability up failed: %w", err)
 		}
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
+		ccv.Plog.Info().Msgf("CCV Load Test Dashboard: %s", LocalWASPLoadDashboard)
 		return nil
 	},
 }

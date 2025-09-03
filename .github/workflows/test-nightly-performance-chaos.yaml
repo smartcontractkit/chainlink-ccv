@@ -1,4 +1,4 @@
-name: Services CCV Tests
+name: Nightly Performance Tests
 
 on:
   push:
@@ -7,16 +7,22 @@ defaults:
   run:
     working-directory: build/devenv
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: true
-
 jobs:
-  e2e:
+  nightly-performance:
     permissions:
       id-token: write
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu24.04-16cores-64GB
+    strategy:
+      matrix:
+        test-name: [
+          "TestE2ELoad/clean",
+          "TestE2ELoad/rpc_latency",
+          "TestE2ELoad/gas",
+          "TestE2ELoad/reorgs",
+          "TestE2ELoad/services_chaos"
+        ]
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -61,6 +67,16 @@ jobs:
       - name: Download Go dependencies
         run: |
           go mod download
+      - name: Run Observability Stack
+        run: |
+          cd cmd/ccv && go install . && cd -
+          ccv obs u
       - name: Run CCV environment
         run: |
-          go test -v -run TestService ./...
+          ccv u env.toml
+      - name: Run specific test
+        working-directory: build/devenv/tests/e2e
+        env:
+          LOKI_URL: http://localhost:3030/loki/api/v1/push
+        run: |
+          go test -v -run ${{ matrix.test-name }} -timeout 1h

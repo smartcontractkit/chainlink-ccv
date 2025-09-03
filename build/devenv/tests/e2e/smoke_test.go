@@ -1,4 +1,4 @@
-package e2e_test
+package e2e
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 )
 
-func TestE2E(t *testing.T) {
+func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
 	c, _, _, err := ccv.ETHClient(in.Blockchains[0].Out.Nodes[0].ExternalWSUrl, in.CCV.GasSettings)

@@ -365,7 +365,7 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		}
 		for _, addr := range ethKeyAddressesSrc {
 			if err := FundNodeEIP1559(clientSrc, pkey, addr, in.CCV.CLNodesFundingETH); err != nil {
-				return fmt.Errorf("failed to fund CL nodes on dst chain: %w", err)
+				return fmt.Errorf("failed to fund CL nodes on src chain: %w", err)
 			}
 		}
 		for _, addr := range ethKeyAddressesDst {

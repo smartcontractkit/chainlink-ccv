@@ -65,3 +65,7 @@ jobs:
         run: |
           cd cmd/ccv && go install . && cd -
           ccv u env.toml
+      - name: Test Smoke
+        working-directory: build/devenv/tests/e2e
+        run: |
+          go test -v -run TestE2ESmoke

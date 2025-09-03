@@ -58,9 +58,47 @@ See the [guide](services/README.md)
 
 ### Running tests
 Devenv include 2 types of tests: end-to-end system-level tests and services tests
+#### Service Tests
+Go to `tests/services` directory and run
+```bash
+go test -v -run TestService
 ```
-# run all the services tests
-go test -v -run TestService ./...
-# run e2e smoke test, requires full environment to spin up first
-ccv r && go test -v -run TestE2E ./...
+
+#### Smoke E2E Test
+Go to `tests/e2e` directory and run
+```bash
+go test -v -run TestE2ESmoke
+```
+
+#### Load/Chaos Tests
+Spin up the observability stack first
+```bash
+export LOKI_URL=http://localhost:3030/loki/api/v1/push
+```
+
+Go to `tests/e2e` directory and run
+
+Clean load test
+```bash
+go test -v -run TestE2ELoad/clean
+```
+
+RPC latency test
+```bash
+go test -v -run TestE2ELoad/rpc_latency
+```
+
+Gas spikes
+```bash
+go test -v -run TestE2ELoad/gas
+```
+
+Reorgs
+```bash
+go test -v -run TestE2ELoad/reorgs
+```
+
+Services chaos
+```bash
+go test -v -run TestE2ELoad/services_chaos
 ```
