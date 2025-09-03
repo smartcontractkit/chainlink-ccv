@@ -55,7 +55,7 @@ type SourceReader interface {
 // MessageSigner defines the interface for signing messages
 type MessageSigner interface {
 	// SignMessage signs a message event and returns the signature and verifier blob
-	SignMessage(ctx context.Context, verificationTask common.VerificationTask, configDigest [32]byte) ([]byte, []byte, error)
+	SignMessage(ctx context.Context, verificationTask common.VerificationTask, configDigest [32]byte, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error)
 
 	// GetSignerAddress returns the address of the signer
 	GetSignerAddress() common.UnknownAddress
@@ -95,7 +95,7 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 }
 
 // SignMessage signs a message event using ECDSA following the Python implementation logic
-func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask common.VerificationTask, configDigest [32]byte) ([]byte, []byte, error) {
+func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask common.VerificationTask, configDigest [32]byte, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error) {
 	// 1. Convert Any2Any to Any2EVM message
 	any2evmMessage := ConvertAny2AnyToAny2EVM(&verificationTask.Message, 200000) // Default gas limit
 
@@ -112,43 +112,48 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask common.V
 		return nil, nil, fmt.Errorf("failed to calculate message hash: %w", err)
 	}
 
-	// 4. Extract nonce from receipt blobs
-	var nonce uint64
-	if len(verificationTask.ReceiptBlobs) > 0 && len(verificationTask.ReceiptBlobs[0]) > 0 {
-		nonce, err = DecodeReceiptBlob(verificationTask.ReceiptBlobs[0])
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to decode receipt blob: %w", err)
-		}
-	} else {
-		// Use sequence number as fallback if no receipt blobs
-		nonce = uint64(verificationTask.Message.Header.SequenceNumber)
+	// 4. Find the verifier index that corresponds to our source verifier address
+	verifierIndex, err := s.findVerifierIndexBySourceAddress(verificationTask, sourceVerifierAddress)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to find verifier index: %w", err)
 	}
 
-	// 5. Generate verifier blob
+	// 5. Extract nonce from the correct receipt blob using the verifier index
+	var nonce uint64
+	if verifierIndex < len(verificationTask.ReceiptBlobs) && len(verificationTask.ReceiptBlobs[verifierIndex]) > 0 {
+		nonce, err = DecodeReceiptBlob(verificationTask.ReceiptBlobs[verifierIndex])
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to decode receipt blob at index %d: %w", verifierIndex, err)
+		}
+	} else {
+		nonce = uint64(0)
+	}
+
+	// 6. Generate verifier blob
 	verifierBlob, err := EncodeVerifierBlob(configDigest, nonce)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encode verifier blob: %w", err)
 	}
 
-	// 6. Calculate signature hash
+	// 7. Calculate signature hash
 	signatureHash, err := CalculateSignatureHash(messageHash, verifierBlob)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to calculate signature hash: %w", err)
 	}
 
-	// 7. Sign the signature hash
+	// 8. Sign the signature hash
 	signature, err := crypto.Sign(signatureHash[:], s.privateKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// 8. Extract r and s from signature and format as required by Python implementation
+	// 9. Extract r and s from signature and format as required by Python implementation
 	rBytes := [32]byte{}
 	sBytes := [32]byte{}
 	copy(rBytes[:], signature[0:32])
 	copy(sBytes[:], signature[32:64])
 
-	// 9. Encode signature in the format expected by the system
+	// 10. Encode signature in the format expected by the system
 	rs := [][32]byte{rBytes}
 	ss := [][32]byte{sBytes}
 	encodedSignature, err := EncodeSignatures(rs, ss)
@@ -162,6 +167,18 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask common.V
 // GetSignerAddress returns the address of the signer
 func (s *ECDSASigner) GetSignerAddress() common.UnknownAddress {
 	return s.address
+}
+
+// findVerifierIndexBySourceAddress finds the index of the source verifier address in the VerifierReceipts array.
+// This index corresponds to the same position in the ReceiptBlobs array where our receipt blob is stored.
+func (s *ECDSASigner) findVerifierIndexBySourceAddress(verificationTask common.VerificationTask, sourceVerifierAddress common.UnknownAddress) (int, error) {
+	for i, receipt := range verificationTask.Message.VerifierReceipts {
+		if receipt.Issuer.String() == sourceVerifierAddress.String() {
+			return i, nil
+		}
+	}
+
+	return -1, fmt.Errorf("source verifier address %s not found in VerifierReceipts", sourceVerifierAddress.String())
 }
 
 // Utility functions for ABI encoding/decoding and hashing

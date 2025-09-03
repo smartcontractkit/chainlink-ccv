@@ -389,7 +389,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	)
 
 	// 3. Sign the message event with complete verification flow
-	signature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, cv.config.ConfigDigest)
+	signature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, cv.config.ConfigDigest, sourceConfig.VerifierAddress)
 	if err != nil {
 		cv.sendVerificationError(ctx, verificationTask,
 			fmt.Errorf("failed to sign message event: %w", err),
