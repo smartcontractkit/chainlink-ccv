@@ -82,8 +82,8 @@ func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
 		return nil
 	}
 
-	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store)
-	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator, l)
+	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store, config.DisableValidation)
+	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator, l, config.DisableValidation)
 
 	return &Server{
 		l:                                    l,

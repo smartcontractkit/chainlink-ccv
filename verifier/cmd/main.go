@@ -42,7 +42,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// TODO: Change this to be configurable
-	storage, err := storageaccess.CreateAggregatorAdapter("localhost:50051", lggr, "participantID", "committeeID")
+	storage, err := storageaccess.CreateAggregatorAdapter("localhost:50051", lggr, "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321")
 	if err != nil {
 		lggr.Errorw("Failed to create storage writer", "error", err)
 		os.Exit(1)

@@ -33,6 +33,7 @@ func main() {
 		Aggregation: model.AggregationConfig{
 			AggregationStrategy: "stub",
 		},
+		DisableValidation: true,
 	}
 
 	server := aggregator.NewServer(lggr, config)

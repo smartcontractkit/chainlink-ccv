@@ -11,11 +11,18 @@ import (
 
 // ReadCommitVerificationRecordHandler handles requests to read commit verification records.
 type ReadCommitVerificationRecordHandler struct {
-	storage common.CommitVerificationStore
+	storage           common.CommitVerificationStore
+	disableValidation bool
 }
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
 func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.ReadCommitVerificationRequest) (*aggregator.ReadCommitVerificationResponse, error) {
+	if !h.disableValidation {
+		if err := validateReadRequest(req); err != nil {
+			return &aggregator.ReadCommitVerificationResponse{}, err
+		}
+	}
+
 	id := model.CommitVerificationRecordIdentifier{
 		ParticipantID: req.GetParticipantId(),
 		CommitteeID:   req.GetCommitteeId(),
@@ -33,8 +40,9 @@ func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *a
 }
 
 // NewReadCommitVerificationRecordHandler creates a new instance of ReadCommitVerificationRecordHandler.
-func NewReadCommitVerificationRecordHandler(store common.CommitVerificationStore) *ReadCommitVerificationRecordHandler {
+func NewReadCommitVerificationRecordHandler(store common.CommitVerificationStore, disableValidation bool) *ReadCommitVerificationRecordHandler {
 	return &ReadCommitVerificationRecordHandler{
-		storage: store,
+		storage:           store,
+		disableValidation: disableValidation,
 	}
 }
