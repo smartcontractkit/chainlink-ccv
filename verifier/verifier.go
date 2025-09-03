@@ -240,7 +240,7 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 					"sourceChain", ccvData.SourceChainSelector,
 				)
 			} else {
-				vc.lggr.Debugw("CCV data stored successfully",
+				vc.lggr.Infow("CCV data stored successfully",
 					"messageID", ccvData.MessageID,
 					"sequenceNumber", ccvData.SequenceNumber,
 					"sourceChain", ccvData.SourceChainSelector,
@@ -369,7 +369,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 		return
 	}
 
-	cv.lggr.Debugw("Message event validation passed",
+	cv.lggr.Infow("Message event validation passed",
 		"messageID", header.MessageID,
 		"sequenceNumber", header.SequenceNumber,
 		"sourceChain", header.SourceChainSelector,
@@ -406,7 +406,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	// Send CCVData to channel for storage
 	select {
 	case ccvDataCh <- *ccvData:
-		cv.lggr.Debugw("CCV data sent to storage channel",
+		cv.lggr.Infow("CCV data sent to storage channel",
 			"messageID", header.MessageID,
 			"sequenceNumber", header.SequenceNumber,
 			"sourceChain", header.SourceChainSelector,

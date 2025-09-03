@@ -44,9 +44,12 @@ func main() {
 	storageWriter := storageaccess.CreateWriterOnly(storage)
 
 	// Create mock source readers for two chains (matching devenv setup)
+	mockSetup1337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(1337))
+	mockSetup2337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(2337))
+
 	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
-		cciptypes.ChainSelector(1337): verifier.NewMockSourceReader(cciptypes.ChainSelector(1337), lggr),
-		cciptypes.ChainSelector(2337): verifier.NewMockSourceReader(cciptypes.ChainSelector(2337), lggr),
+		cciptypes.ChainSelector(1337): mockSetup1337.Reader,
+		cciptypes.ChainSelector(2337): mockSetup2337.Reader,
 	}
 
 	// Create verifier address
@@ -108,6 +111,10 @@ func main() {
 		lggr.Errorw("Failed to start verification coordinator", "error", err)
 		os.Exit(1)
 	}
+
+	// Start mock message generators for development
+	verifier.StartMockMessageGenerator(ctx, mockSetup1337, cciptypes.ChainSelector(1337), lggr)
+	verifier.StartMockMessageGenerator(ctx, mockSetup2337, cciptypes.ChainSelector(2337), lggr)
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
