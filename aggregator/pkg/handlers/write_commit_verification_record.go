@@ -21,6 +21,12 @@ type WriteCommitVerificationRecordHandler struct {
 
 // Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.WriteCommitVerificationRequest) (*aggregator.WriteCommitVerificationResponse, error) {
+	if err := validateWriteRequest(req); err != nil {
+		return &aggregator.WriteCommitVerificationResponse{
+			Status: aggregator.WriteStatus_FAILED,
+		}, err
+	}
+
 	record := model.CommitVerificationRecord{
 		CommitVerificationRecord: *req.GetCommitVerificationRecord(),
 		ParticipantID:            req.GetParticipantId(),
