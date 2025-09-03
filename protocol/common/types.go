@@ -15,9 +15,11 @@ import (
 
 // Constants for CCIP v1.7
 const (
-	MaxNumTokens   = 1
-	MaxDataSize    = 1024 // 1kb
-	MessageVersion = 1    // Current message format version
+	MaxNumTokens                  = 1
+	MaxDataSize                   = 1024 // 1kb
+	MessageVersion                = 1    // Current message format version
+	MinSizeRequiredMsgFields      = 27   // Minimum size for required fields in Message
+	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
 )
 
 // UnknownAddress represents an address on an unknown chain.
@@ -104,7 +106,7 @@ func (tt *TokenTransfer) Encode() []byte {
 
 // DecodeTokenTransfer decodes a TokenTransfer from bytes
 func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
-	if len(data) < 34 { // minimum size: version(1) + amount(32) + length(1)
+	if len(data) < MinSizeRequiredMsgTokenFields { // minimum size: version(1) + amount(32) + length(1)
 		return nil, fmt.Errorf("data too short for token transfer")
 	}
 
@@ -265,7 +267,7 @@ func (m *Message) Encode() ([]byte, error) {
 
 // DecodeMessage decodes a Message from bytes
 func DecodeMessage(data []byte) (*Message, error) {
-	if len(data) < 27 { // minimum size for required fields
+	if len(data) < MinSizeRequiredMsgFields {
 		return nil, fmt.Errorf("data too short for message")
 	}
 
