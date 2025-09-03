@@ -121,6 +121,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 	setup := func(
 		destChains, sourceChains []cciptypes.ChainSelector,
 		limit uint64,
+		offset uint64,
 		startTimestamp int64,
 	) *InMemoryOffchainStorage {
 		lggr := logger.Test(t)
@@ -128,7 +129,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		// Use fixed time provider for predictable tests
 		timeProvider := func() int64 { return baseTime }
 		storage := NewInMemoryOffchainStorageWithTimeProvider(
-			lggr, timeProvider, destChains, sourceChains, limit, startTimestamp)
+			lggr, timeProvider, destChains, sourceChains, limit, offset, startTimestamp)
 
 		verifierAddress := []byte("0x1234")
 
@@ -257,7 +258,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			storage := setup(tt.destChains, tt.sourceChains, uint64(tt.limit), tt.startTime)
+			storage := setup(tt.destChains, tt.sourceChains, uint64(tt.limit), uint64(tt.offset), tt.startTime)
 			response, err := storage.ReadCCVData(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, response)
@@ -422,7 +423,7 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
 	lggr := logger.Test(t)
 	storage := NewInMemoryOffchainStorageWithTimeProvider(
-		lggr, DefaultTimeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, 100, 0)
+		lggr, DefaultTimeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, 100, 0, 0)
 
 	ctx := context.Background()
 
@@ -473,7 +474,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	lggr := logger.Test(t)
 	storage := NewInMemoryOffchainStorageWithTimeProvider(
-		lggr, DefaultTimeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, 100, 0)
+		lggr, DefaultTimeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, 100, 0, 0)
 
 	// Create reader and writer views
 	reader := CreateReaderOnly(storage)
