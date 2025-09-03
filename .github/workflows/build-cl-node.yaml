@@ -14,13 +14,29 @@ jobs:
         with:
           repository: smartcontractkit/chainlink
           path: chainlink-repo
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/go.mod
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('/home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Download Go modules
+        working-directory: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo
+        run: go mod download
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Build and Load Docker Image
         uses: docker/build-push-action@v4
         with:
-          cache-from: type=gha,scope=ctf
-          cache-to: type=gha,scope=ctf,mode=max
+          cache-from: type=gha,scope=ccv
+          cache-to: type=gha,scope=ccv,mode=max
           context: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo
           file: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/plugins/chainlink.Dockerfile
           load: true
