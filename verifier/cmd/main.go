@@ -53,7 +53,13 @@ func main() {
 	}
 
 	// Create verifier address
-	verifierAddr, err := common.NewUnknownAddressFromHex("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
+	verifierAddr, err := common.NewUnknownAddressFromHex("0xAAAA22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
+	if err != nil {
+		lggr.Errorw("Failed to create verifier address", "error", err)
+		os.Exit(1)
+	}
+
+	verifierAddr2, err := common.NewUnknownAddressFromHex("0xBBBB22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
@@ -67,7 +73,7 @@ func main() {
 				VerifierAddress: verifierAddr,
 			},
 			cciptypes.ChainSelector(2337): {
-				VerifierAddress: verifierAddr,
+				VerifierAddress: verifierAddr2,
 			},
 		},
 		ProcessingChannelSize: 1000,
@@ -104,7 +110,7 @@ func main() {
 	lggr.Infow("🚀 Starting Verification Coordinator",
 		"verifierID", config.VerifierID,
 		"sourceChains", []cciptypes.ChainSelector{1337, 2337},
-		"verifierAddress", verifierAddr.String(),
+		"verifierAddress", []string{verifierAddr.String(), verifierAddr2.String()},
 	)
 
 	if err := coordinator.Start(ctx); err != nil {
@@ -121,8 +127,6 @@ func main() {
 		fmt.Fprintf(w, "✅ CCV Verifier is running!\n")
 		fmt.Fprintf(w, "Verifier ID: %s\n", config.VerifierID)
 		fmt.Fprintf(w, "Source Chains: [1337, 2337]\n")
-		fmt.Fprintf(w, "Verifier Address: %s\n", verifierAddr.String())
-		fmt.Fprintf(w, "Total CCV Data Stored: %d\n", storage.GetTotalCount())
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

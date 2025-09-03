@@ -369,7 +369,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 		return
 	}
 
-	cv.lggr.Infow("Message event validation passed",
+	cv.lggr.Debugw("Message event validation passed",
 		"messageID", header.MessageID,
 		"sequenceNumber", header.SequenceNumber,
 		"sourceChain", header.SourceChainSelector,
