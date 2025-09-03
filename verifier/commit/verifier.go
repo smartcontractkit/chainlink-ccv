@@ -5,26 +5,21 @@ import (
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// MessageSigner defines the interface for message signers
-type MessageSigner interface {
-	SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error)
-	GetSignerAddress() common.UnknownAddress
-}
-
 // CommitVerifier provides a basic verifier implementation using the new message format
-type CommitVerifier struct {
+type Verifier struct {
 	config types.CoordinatorConfig
-	signer MessageSigner
+	signer pkg.MessageSigner
 	lggr   logger.Logger
 }
 
 // NewCommitVerifier creates a new commit verifier
-func NewCommitVerifier(config types.CoordinatorConfig, signer MessageSigner, lggr logger.Logger) *CommitVerifier {
-	return &CommitVerifier{
+func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) *Verifier {
+	return &Verifier{
 		config: config,
 		signer: signer,
 		lggr:   lggr,
@@ -32,7 +27,7 @@ func NewCommitVerifier(config types.CoordinatorConfig, signer MessageSigner, lgg
 }
 
 // ValidateMessage validates the new message format
-func (cv *CommitVerifier) ValidateMessage(message common.Message) error {
+func (cv *Verifier) ValidateMessage(message common.Message) error {
 	if message.Version != common.MessageVersion {
 		return fmt.Errorf("unsupported message version: %d", message.Version)
 	}
@@ -49,7 +44,7 @@ func (cv *CommitVerifier) ValidateMessage(message common.Message) error {
 }
 
 // VerifyMessage verifies a message using the new chain-agnostic format
-func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask types.VerificationTask, ccvDataCh chan<- common.CCVData) error {
+func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.VerificationTask, ccvDataCh chan<- common.CCVData) error {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()

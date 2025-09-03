@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/stretchr/testify/assert"
@@ -44,7 +45,7 @@ type testSetup struct {
 	cancel  context.CancelFunc
 	logger  logger.Logger
 	storage *storageaccess.InMemoryOffchainStorage
-	signer  verifier.MessageSigner
+	signer  pkg.MessageSigner
 }
 
 // mockSourceReaderSetup contains a mock source reader and its channel
@@ -76,7 +77,7 @@ func (ts *testSetup) cleanup() {
 }
 
 // createTestSigner generates a test ECDSA message signer
-func createTestSigner(t *testing.T) verifier.MessageSigner {
+func createTestSigner(t *testing.T) pkg.MessageSigner {
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
 	privateKeyBytes := crypto.FromECDSA(privateKey)

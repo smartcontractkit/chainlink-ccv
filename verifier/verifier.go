@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -366,7 +367,7 @@ func (vc *VerificationCoordinator) HealthCheck(ctx context.Context) error {
 }
 
 // NewCommitVerifier creates a new commit verifier
-func NewCommitVerifier(config types.CoordinatorConfig, signer MessageSigner, lggr logger.Logger) Verifier {
+func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) Verifier {
 	// Create a signer adapter
 	signerAdapter := &commitMessageSigner{signer: signer}
 
@@ -378,7 +379,7 @@ func NewCommitVerifier(config types.CoordinatorConfig, signer MessageSigner, lgg
 
 // commitVerifierWrapper wraps the commit verifier to implement the main Verifier interface
 type commitVerifierWrapper struct {
-	verifier *commit.CommitVerifier
+	verifier *commit.Verifier
 }
 
 // VerifyMessage implements the Verifier interface
@@ -399,7 +400,7 @@ func (cvw *commitVerifierWrapper) VerifyMessage(ctx context.Context, task types.
 
 // commitMessageSigner adapts MessageSigner to commit.MessageSigner
 type commitMessageSigner struct {
-	signer MessageSigner
+	signer pkg.MessageSigner
 }
 
 func (cms *commitMessageSigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error) {
@@ -412,6 +413,6 @@ func (cms *commitMessageSigner) GetSignerAddress() common.UnknownAddress {
 }
 
 // NewECDSAMessageSigner creates a new ECDSA message signer
-func NewECDSAMessageSigner(privateKeyBytes []byte) (MessageSigner, error) {
+func NewECDSAMessageSigner(privateKeyBytes []byte) (pkg.MessageSigner, error) {
 	return commit.NewECDSAMessageSigner(privateKeyBytes)
 }
