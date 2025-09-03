@@ -10,7 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// CommitVerifier provides a basic verifier implementation using the new message format
+// Verifier provides a basic verifier implementation using the new message format
 type Verifier struct {
 	config types.CoordinatorConfig
 	signer pkg.MessageSigner

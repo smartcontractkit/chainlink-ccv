@@ -11,7 +11,7 @@ type sourceState struct {
 	chainSelector       cciptypes.ChainSelector
 	reader              reader2.SourceReader
 	verificationTaskCh  <-chan types.VerificationTask
-	verificationErrorCh chan VerificationError
+	verificationErrorCh chan types.VerificationError
 }
 
 // newSourceState creates a new source state
@@ -20,6 +20,6 @@ func newSourceState(chainSelector cciptypes.ChainSelector, reader reader2.Source
 		chainSelector:       chainSelector,
 		reader:              reader,
 		verificationTaskCh:  reader.VerificationTaskChannel(),
-		verificationErrorCh: make(chan VerificationError, 100), // Buffered error channel
+		verificationErrorCh: make(chan types.VerificationError, 100), // Buffered error channel
 	}
 }

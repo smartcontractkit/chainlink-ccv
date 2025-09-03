@@ -17,19 +17,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
-// VerificationError represents an error that occurred during message verification
-type VerificationError struct {
-	Task      types.VerificationTask
-	Error     error
-	Timestamp time.Time
-}
-
-// Verifier defines the interface for message verification logic
-type Verifier interface {
-	// VerifyMessage performs the actual verification of a message asynchronously
-	VerifyMessage(ctx context.Context, task types.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- VerificationError)
-}
-
 // VerificationCoordinator orchestrates the verification workflow using the new message format
 type VerificationCoordinator struct {
 	// Basic operation channels
@@ -38,7 +25,7 @@ type VerificationCoordinator struct {
 	doneCh    chan struct{}
 
 	// Core components
-	verifier Verifier
+	verifier types.Verifier
 	// N Channels producing Message events
 	sourceStates map[cciptypes.ChainSelector]*sourceState
 	storage      common.OffchainStorageWriter
@@ -57,7 +44,7 @@ type VerificationCoordinator struct {
 type Option func(*VerificationCoordinator)
 
 // WithVerifier sets the verifier implementation
-func WithVerifier(verifier Verifier) Option {
+func WithVerifier(verifier types.Verifier) Option {
 	return func(vc *VerificationCoordinator) {
 		vc.verifier = verifier
 	}
@@ -367,7 +354,7 @@ func (vc *VerificationCoordinator) HealthCheck(ctx context.Context) error {
 }
 
 // NewCommitVerifier creates a new commit verifier
-func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) Verifier {
+func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) types.Verifier {
 	// Create a signer adapter
 	signerAdapter := &commitMessageSigner{signer: signer}
 
@@ -383,10 +370,10 @@ type commitVerifierWrapper struct {
 }
 
 // VerifyMessage implements the Verifier interface
-func (cvw *commitVerifierWrapper) VerifyMessage(ctx context.Context, task types.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- VerificationError) {
+func (cvw *commitVerifierWrapper) VerifyMessage(ctx context.Context, task types.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- types.VerificationError) {
 	// No conversion needed - both use the same types from internal/types
 	if err := cvw.verifier.VerifyMessage(ctx, task, ccvDataCh); err != nil {
-		verificationError := VerificationError{
+		verificationError := types.VerificationError{
 			Task:      task,
 			Error:     err,
 			Timestamp: time.Now(),

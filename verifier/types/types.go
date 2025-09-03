@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
@@ -34,4 +35,17 @@ type CoordinatorConfig struct {
 	ProcessingChannelSize int                                      `json:"processing_channel_size"`
 	ProcessingTimeout     time.Duration                            `json:"processing_timeout"`
 	MaxBatchSize          int                                      `json:"max_batch_size"`
+}
+
+// VerificationError represents an error that occurred during message verification
+type VerificationError struct {
+	Task      VerificationTask
+	Error     error
+	Timestamp time.Time
+}
+
+// Verifier defines the interface for message verification logic
+type Verifier interface {
+	// VerifyMessage performs the actual verification of a message asynchronously
+	VerifyMessage(ctx context.Context, task VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- VerificationError)
 }
