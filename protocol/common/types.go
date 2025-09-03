@@ -416,10 +416,11 @@ type CCVData struct {
 	DestChainSelector     cciptypes.ChainSelector `json:"dest_chain_selector"`
 	SourceVerifierAddress UnknownAddress          `json:"source_verifier_address"`
 	DestVerifierAddress   UnknownAddress          `json:"dest_verifier_address"`
-	CCVData               []byte                  `json:"ccv_data"`     // The actual proof/signature
-	Timestamp             int64                   `json:"timestamp"`    // Unix timestamp when verification completed (in microseconds)
-	Message               Message                 `json:"message"`      // Complete message event being verified
-	ReceiptBlob           ReceiptWithBlob         `json:"receipt_blob"` // The receipt blob for the message
+	CCVData               []byte                  `json:"ccv_data"`      // The actual proof/signature
+	BlobData              []byte                  `json:"blob_data"`     // Additional verifier-specific data
+	Timestamp             int64                   `json:"timestamp"`     // Unix timestamp when verification completed (in microseconds)
+	Message               Message                 `json:"message"`       // Complete message event being verified
+	ReceiptBlobs          []ReceiptWithBlob       `json:"receipt_blobs"` // All receipt blobs for the message
 }
 
 // TimestampQueryResponse represents the response from timestamp-based CCV data queries.

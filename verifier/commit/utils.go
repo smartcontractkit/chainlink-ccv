@@ -5,8 +5,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
@@ -149,4 +152,26 @@ func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// CreateCCVData creates CCVData from verification task, signature, and blob using the new format
+func CreateCCVData(verificationTask *types.VerificationTask, signature []byte, verifierBlob []byte, sourceVerifierAddress common.UnknownAddress) (*common.CCVData, error) {
+	message := verificationTask.Message
+	messageID, err := message.MessageID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute message ID: %w", err)
+	}
+	return &common.CCVData{
+		MessageID:             messageID,
+		SequenceNumber:        message.SequenceNumber,
+		SourceChainSelector:   message.SourceChainSelector,
+		DestChainSelector:     message.DestChainSelector,
+		SourceVerifierAddress: sourceVerifierAddress,
+		DestVerifierAddress:   common.UnknownAddress{}, // Will be set by the caller if needed
+		CCVData:               signature,
+		BlobData:              verifierBlob,           // Additional verifier-specific data
+		Timestamp:             time.Now().UnixMicro(), // Unix timestamp in microseconds
+		Message:               message,
+		ReceiptBlobs:          verificationTask.ReceiptBlobs, // Include all receipt blobs for executors
+	}, nil
 }
