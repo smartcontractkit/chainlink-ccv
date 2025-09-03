@@ -23,14 +23,10 @@ type VerificationError struct {
 // Verifier defines the interface for message verification logic
 type Verifier interface {
 	// VerifyMessage performs the actual verification of a message asynchronously
-	// The verifier should handle the task in its own goroutine and send results to ccvDataCh
-	// Any verification errors should be sent to verificationErrorCh
-	// This enables different verification flows based on finality, priority, etc.
 	VerifyMessage(ctx context.Context, task common.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- VerificationError)
 }
 
-// VerificationCoordinator orchestrates the verification workflow
-// Reads messages from multiple SourceReaders and processes them using a Verifier
+// VerificationCoordinator orchestrates the verification workflow using the new message format
 type VerificationCoordinator struct {
 	// Basic operation channels
 	ccvDataCh chan common.CCVData
@@ -39,7 +35,7 @@ type VerificationCoordinator struct {
 
 	// Core components
 	verifier Verifier
-	// N Channels producing Any2AnyVerifierMessage
+	// N Channels producing Message events
 	sourceStates map[cciptypes.ChainSelector]*sourceState
 	storage      common.OffchainStorageWriter
 
@@ -108,9 +104,8 @@ func WithLogger(lggr logger.Logger) Option {
 
 // NewVerificationCoordinator creates a new verification coordinator
 func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error) {
-	//TODO: Make channel size configurable
 	vc := &VerificationCoordinator{
-		ccvDataCh:    make(chan common.CCVData, 1000), // Channel for CCVData results
+		ccvDataCh:    make(chan common.CCVData, 1000),
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
 		sourceStates: make(map[cciptypes.ChainSelector]*sourceState),
@@ -192,11 +187,6 @@ func (vc *VerificationCoordinator) Stop() error {
 }
 
 // run is the main processing loop
-/*
-src1 -> CCIPMessageSentEvent --processMessageEvent--->
-src2 -> CCIPMessageSentEvent --processMessageEvent--->   ccvDatach --> Storage/Aggregator
-src3 -> CCIPMessageSentEvent --processMessageEvent--->
-*/
 func (vc *VerificationCoordinator) run(ctx context.Context) {
 	defer close(vc.doneCh)
 
@@ -216,22 +206,20 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			vc.lggr.Infow("VerificationCoordinator processing stopped due to context cancellation")
-			wg.Wait() // Wait for all source goroutines to finish
+			wg.Wait()
 			return
 		case <-vc.stopCh:
 			vc.lggr.Infow("VerificationCoordinator processing stopped due to stop signal")
-			wg.Wait() // Wait for all source goroutines to finish
+			wg.Wait()
 			return
 		case ccvData, ok := <-vc.ccvDataCh:
 			if !ok {
 				vc.lggr.Infow("CCVData channel closed, stopping processing")
-				wg.Wait() // Wait for all source goroutines to finish
+				wg.Wait()
 				return
 			}
 
 			// Store CCVData to offchain storage
-			//TODO: handle errors/retries?
-			// Do we want to store async as well?
 			if err := vc.storage.StoreCCVData(ctx, []common.CCVData{ccvData}); err != nil {
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
@@ -250,7 +238,7 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 	}
 }
 
-// processSourceMessages handles message processing for a single source state in its own goroutine
+// processSourceMessages handles message processing for a single source state
 func (vc *VerificationCoordinator) processSourceMessages(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
 	defer wg.Done()
 	chainSelector := state.chainSelector
@@ -277,7 +265,7 @@ func (vc *VerificationCoordinator) processSourceMessages(ctx context.Context, wg
 	}
 }
 
-// processSourceErrors handles error processing for a single source state in its own goroutine
+// processSourceErrors handles error processing for a single source state
 func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
 	defer wg.Done()
 	chainSelector := state.chainSelector
@@ -300,27 +288,21 @@ func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *
 			}
 
 			// Handle verification errors for this specific source
-			header := verificationError.Task.Message.Header
+			message := verificationError.Task.Message
 			vc.lggr.Errorw("Verification error received",
 				"error", verificationError.Error,
-				"messageID", header.MessageID,
-				"sequenceNumber", header.SequenceNumber,
-				"sourceChain", header.SourceChainSelector,
-				"destChain", header.DestChainSelector,
+				"messageID", message.MessageID(),
+				"sequenceNumber", message.SequenceNumber,
+				"sourceChain", message.SourceChainSelector,
+				"destChain", message.DestChainSelector,
 				"timestamp", verificationError.Timestamp,
 				"chainSelector", chainSelector,
 			)
-
-			//TODO: Add source-specific error handling strategies:
-			// For Source-specific error handling we'll need some source-specific configuration
-			// - Source-specific retry logic for transient errors
-			// - Source-specific dead letter queues
-			// - Source-specific metrics and alerting
 		}
 	}
 }
 
-// CommitVerifier provides a basic verifier implementation
+// CommitVerifier provides a basic verifier implementation using the new message format
 type CommitVerifier struct {
 	config CoordinatorConfig
 	signer MessageSigner
@@ -336,12 +318,24 @@ func NewCommitVerifier(config CoordinatorConfig, signer MessageSigner, lggr logg
 	}
 }
 
-func (cv *CommitVerifier) ValidateMessage(message common.Any2AnyVerifierMessage) error {
-	//TODO: Implement message validation
+// ValidateMessage validates the new message format
+func (cv *CommitVerifier) ValidateMessage(message common.Message) error {
+	if message.Version != common.MessageVersion {
+		return fmt.Errorf("unsupported message version: %d", message.Version)
+	}
+
+	if len(message.Sender) == 0 {
+		return fmt.Errorf("sender cannot be empty")
+	}
+
+	if len(message.Receiver) == 0 {
+		return fmt.Errorf("receiver cannot be empty")
+	}
+
 	return nil
 }
 
-// sendVerificationError sends a verification error to the error channel with proper context handling
+// sendVerificationError sends a verification error to the error channel
 func (cv *CommitVerifier) sendVerificationError(ctx context.Context, verificationTask common.VerificationTask, err error, verificationErrorCh chan<- VerificationError) {
 	verificationError := VerificationError{
 		Task:      verificationTask,
@@ -355,27 +349,34 @@ func (cv *CommitVerifier) sendVerificationError(ctx context.Context, verificatio
 	}
 }
 
+// VerifyMessage verifies a message using the new chain-agnostic format
 func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask common.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- VerificationError) {
 	message := verificationTask.Message
-	header := message.Header
 
 	cv.lggr.Debugw("Starting message verification",
-		"messageID", header.MessageID,
-		"sequenceNumber", header.SequenceNumber,
-		"sourceChain", header.SourceChainSelector,
-		"destChain", header.DestChainSelector,
+		"messageID", message.MessageID(),
+		"sequenceNumber", message.SequenceNumber,
+		"sourceChain", message.SourceChainSelector,
+		"destChain", message.DestChainSelector,
 	)
 
 	// 1. Validate that the message comes from a configured source chain
-	sourceConfig, exists := cv.config.SourceConfigs[header.SourceChainSelector]
+	sourceConfig, exists := cv.config.SourceConfigs[message.SourceChainSelector]
 	if !exists {
 		cv.sendVerificationError(ctx, verificationTask,
-			fmt.Errorf("message source chain selector %d is not configured", header.SourceChainSelector),
+			fmt.Errorf("message source chain selector %d is not configured", message.SourceChainSelector),
 			verificationErrorCh)
 		return
 	}
 
-	// 2. Validate message and check verifier receipts (following Python logic)
+	// 2. Validate message format and check verifier receipts
+	if err := cv.ValidateMessage(message); err != nil {
+		cv.sendVerificationError(ctx, verificationTask,
+			fmt.Errorf("message format validation failed: %w", err),
+			verificationErrorCh)
+		return
+	}
+
 	if err := common.ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
 		cv.sendVerificationError(ctx, verificationTask,
 			fmt.Errorf("message validation failed: %w", err),
@@ -384,12 +385,12 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	}
 
 	cv.lggr.Debugw("Message validation passed",
-		"messageID", header.MessageID,
+		"messageID", message.MessageID(),
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
 	)
 
-	// 3. Sign the message event with complete verification flow
-	signature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, cv.config.ConfigDigest, sourceConfig.VerifierAddress)
+	// 3. Sign the message event using the new chain-agnostic method
+	signature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
 	if err != nil {
 		cv.sendVerificationError(ctx, verificationTask,
 			fmt.Errorf("failed to sign message event: %w", err),
@@ -398,7 +399,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	}
 
 	cv.lggr.Infow("Message signed successfully",
-		"messageID", header.MessageID,
+		"messageID", message.MessageID(),
 		"signerAddress", cv.signer.GetSignerAddress().String(),
 		"signatureLength", len(signature),
 		"blobLength", len(verifierBlob),
@@ -411,17 +412,17 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	select {
 	case ccvDataCh <- *ccvData:
 		cv.lggr.Infow("CCV data sent to storage channel",
-			"messageID", header.MessageID,
-			"sequenceNumber", header.SequenceNumber,
-			"sourceChain", header.SourceChainSelector,
-			"destChain", header.DestChainSelector,
+			"messageID", message.MessageID(),
+			"sequenceNumber", message.SequenceNumber,
+			"sourceChain", message.SourceChainSelector,
+			"destChain", message.DestChainSelector,
 			"timestamp", ccvData.Timestamp,
 		)
 	case <-ctx.Done():
 		cv.lggr.Debugw("Context cancelled while sending CCV data",
-			"messageID", header.MessageID,
-			"sequenceNumber", header.SequenceNumber,
-			"sourceChain", header.SourceChainSelector,
+			"messageID", message.MessageID(),
+			"sequenceNumber", message.SequenceNumber,
+			"sourceChain", message.SourceChainSelector,
 		)
 	}
 }
@@ -454,8 +455,6 @@ func (vc *VerificationCoordinator) validate() error {
 	if vc.config.VerifierID == "" {
 		return fmt.Errorf("coordinator ID cannot be empty")
 	}
-
-	// Note: verifier is now required and must be set via WithVerifier option
 
 	return nil
 }

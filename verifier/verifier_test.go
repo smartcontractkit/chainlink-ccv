@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
-	"math/big"
+
 	"sync/atomic"
 	"testing"
 	"time"
@@ -83,7 +83,7 @@ func createTestSigner(t *testing.T) verifier.MessageSigner {
 	return signer
 }
 
-func createTestMessage(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.Any2AnyVerifierMessage {
+func createTestMessage(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.Message {
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
 	switch sourceChainSelector {
@@ -95,59 +95,35 @@ func createTestMessage(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainS
 		verifierAddress = "0x1234" // Default fallback
 	}
 
-	return createTestMessageWithVerifier(messageID, seqNum, sourceChainSelector, destChainSelector, verifierAddress)
+	return createTestMessageWithVerifier(seqNum, sourceChainSelector, destChainSelector, verifierAddress)
 }
 
-func createTestMessageWithVerifier(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector, verifierAddress string) common.Any2AnyVerifierMessage {
-	return common.Any2AnyVerifierMessage{
-		Header: common.MessageHeader{
-			MessageID:           messageID,
-			SourceChainSelector: sourceChainSelector,
-			DestChainSelector:   destChainSelector,
-			SequenceNumber:      seqNum,
-		},
-		Sender:         common.UnknownAddress([]byte("0x9999")),
-		OnRampAddress:  common.UnknownAddress([]byte("0x8888")),
-		Data:           []byte("test data"),
-		Receiver:       common.UnknownAddress([]byte("0x7777")),
-		FeeToken:       common.UnknownAddress([]byte("0x6666")),
-		FeeTokenAmount: big.NewInt(1000),
-		FeeValueJuels:  big.NewInt(500),
-		TokenTransfer: common.TokenTransfer{
-			SourceTokenAddress: common.UnknownAddress([]byte("0x5555")),
-			DestTokenAddress:   common.UnknownAddress([]byte("0x4444")),
-			ExtraData:          []byte("token data"),
-			Amount:             big.NewInt(2000),
-		},
-		VerifierReceipts: []common.Receipt{
-			{
-				Issuer:            common.UnknownAddress([]byte(verifierAddress)), // Use the correct verifier address
-				FeeTokenAmount:    big.NewInt(100),
-				DestGasLimit:      50000,
-				DestBytesOverhead: 1024,
-				ExtraArgs:         []byte("receipt args"),
-			},
-		},
-		ExecutorReceipt: &common.Receipt{
-			Issuer:            common.UnknownAddress([]byte("0x2222")),
-			FeeTokenAmount:    big.NewInt(200),
-			DestGasLimit:      60000,
-			DestBytesOverhead: 2048,
-			ExtraArgs:         []byte("executor args"),
-		},
-		TokenReceipt: &common.Receipt{
-			Issuer:            common.UnknownAddress([]byte("0x1111")),
-			FeeTokenAmount:    big.NewInt(300),
-			DestGasLimit:      70000,
-			DestBytesOverhead: 4096,
-			ExtraArgs:         []byte("token args"),
-		},
-		ExtraArgs: []byte("extra args"),
-	}
+func createTestMessageWithVerifier(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector, verifierAddress string) common.Message {
+	// Create empty token transfer
+	tokenTransfer := common.NewEmptyTokenTransfer()
+
+	sender := common.UnknownAddress([]byte("sender_address"))
+	receiver := common.UnknownAddress([]byte("receiver_address"))
+	onRampAddr := common.UnknownAddress([]byte("onramp_address"))
+	offRampAddr := common.UnknownAddress([]byte("offramp_address"))
+
+	return *common.NewMessage(
+		sourceChainSelector,
+		destChainSelector,
+		seqNum,
+		onRampAddr,
+		offRampAddr,
+		0, // finality
+		sender,
+		receiver,
+		[]byte("test data"), // dest blob
+		[]byte("test data"), // data
+		tokenTransfer,
+	)
 }
 
-func createTestVerificationTask(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.VerificationTask {
-	message := createTestMessage(messageID, seqNum, sourceChainSelector, destChainSelector)
+func createTestVerificationTask(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.VerificationTask {
+	message := createTestMessage(seqNum, sourceChainSelector, destChainSelector)
 
 	// Create properly ABI-encoded receipt blob with just the nonce (uint64)
 	// This matches the Python expectation: decode(["uint64"], message.receipt_blobs[0])
@@ -156,9 +132,25 @@ func createTestVerificationTask(messageID [32]byte, seqNum cciptypes.SeqNum, sou
 	args := abi.Arguments{{Type: uint64Type}}
 	receiptBlob, _ := args.Pack(nonce)
 
+	// Determine the correct verifier address based on source chain
+	var verifierAddress string
+	switch sourceChainSelector {
+	case sourceChain1:
+		verifierAddress = "0x1234"
+	case sourceChain2:
+		verifierAddress = "0x5678"
+	default:
+		verifierAddress = "0x1234" // Default fallback
+	}
+
 	return common.VerificationTask{
-		Message:      message,
-		ReceiptBlobs: [][]byte{receiptBlob},
+		Message: message,
+		ReceiptBlobs: []common.ReceiptWithBlob{
+			{
+				Issuer: common.UnknownAddress([]byte(verifierAddress)),
+				Blob:   receiptBlob,
+			},
+		},
 	}
 }
 
@@ -173,7 +165,6 @@ func createCoordinatorConfig(coordinatorID string, sources map[cciptypes.ChainSe
 
 	return verifier.CoordinatorConfig{
 		VerifierID:            coordinatorID,
-		ConfigDigest:          [32]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}, // Test config digest
 		SourceConfigs:         sourceConfigs,
 		ProcessingChannelSize: defaultProcessingChannelSize,
 		ProcessingTimeout:     defaultProcessingTimeout,
@@ -241,7 +232,7 @@ func sendTasksAsync(tasks []common.VerificationTask, channel chan<- common.Verif
 func verifyStoredTasks(t *testing.T, storedData []common.CCVData, expectedTasks []common.VerificationTask, expectedChain cciptypes.ChainSelector) {
 	expectedIDs := make(map[[32]byte]bool)
 	for _, task := range expectedTasks {
-		expectedIDs[task.Message.Header.MessageID] = true
+		expectedIDs[task.Message.MessageID()] = true
 	}
 	for _, data := range storedData {
 		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %x", data.MessageID)
@@ -272,8 +263,8 @@ func TestVerifier(t *testing.T) {
 
 	// Create and send test tasks
 	testTasks := []common.VerificationTask{
-		createTestVerificationTask([32]byte{1, 2, 3}, 100, sourceChain1, defaultDestChain),
-		createTestVerificationTask([32]byte{4, 5, 6}, 200, sourceChain1, defaultDestChain),
+		createTestVerificationTask(100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(200, sourceChain1, defaultDestChain),
 	}
 
 	var messagesSent atomic.Int32
@@ -294,7 +285,7 @@ func TestVerifier(t *testing.T) {
 	// Verify message IDs
 	expectedIDs := make(map[[32]byte]bool)
 	for _, task := range testTasks {
-		expectedIDs[task.Message.Header.MessageID] = true
+		expectedIDs[task.Message.MessageID()] = true
 	}
 	for _, data := range storedData {
 		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %x", data.MessageID)
@@ -327,12 +318,12 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Create test tasks for both sources
 	tasksSource1 := []common.VerificationTask{
-		createTestVerificationTask([32]byte{1, 1, 1}, 100, sourceChain1, defaultDestChain),
-		createTestVerificationTask([32]byte{1, 2, 3}, 101, sourceChain1, defaultDestChain),
+		createTestVerificationTask(100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(101, sourceChain1, defaultDestChain),
 	}
 	tasksSource2 := []common.VerificationTask{
-		createTestVerificationTask([32]byte{2, 1, 1}, 200, sourceChain2, defaultDestChain),
-		createTestVerificationTask([32]byte{2, 2, 3}, 201, sourceChain2, defaultDestChain),
+		createTestVerificationTask(200, sourceChain2, defaultDestChain),
+		createTestVerificationTask(201, sourceChain2, defaultDestChain),
 	}
 
 	// Send tasks from both sources
@@ -392,8 +383,8 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 
 	// Send verification tasks only to source 1
 	tasksSource1 := []common.VerificationTask{
-		createTestVerificationTask([32]byte{1, 1, 1}, 100, sourceChain1, defaultDestChain),
-		createTestVerificationTask([32]byte{1, 2, 3}, 101, sourceChain1, defaultDestChain),
+		createTestVerificationTask(100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(101, sourceChain1, defaultDestChain),
 	}
 
 	sendTasksAsync(tasksSource1, mockSetup1.channel, nil, 5*time.Millisecond)
@@ -524,8 +515,8 @@ func TestVerificationErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test verification tasks
-	validTask := createTestVerificationTask([32]byte{1, 1, 1}, 100, sourceChain1, defaultDestChain)
-	invalidTask := createTestVerificationTask([32]byte{2, 2, 2}, 200, unconfiguredChain, defaultDestChain)
+	validTask := createTestVerificationTask(100, sourceChain1, defaultDestChain)
+	invalidTask := createTestVerificationTask(200, unconfiguredChain, defaultDestChain)
 
 	// Send tasks
 	sendTasksAsync([]common.VerificationTask{validTask}, mockSetup1.channel, nil, 10*time.Millisecond)
@@ -544,7 +535,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	storedData, err := ts.storage.GetAllCCVData(config.SourceConfigs[sourceChain1].VerifierAddress)
 	require.NoError(t, err)
 	assert.Len(t, storedData, 1)
-	assert.Equal(t, validTask.Message.Header.MessageID, storedData[0].MessageID)
+	assert.Equal(t, validTask.Message.MessageID(), storedData[0].MessageID)
 
 	// The unconfigured chain is not in the config, so we can't check its data
 	// The test validates that tasks from unconfigured chains don't cause crashes

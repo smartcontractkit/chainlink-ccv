@@ -5,7 +5,7 @@ import (
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
-// sourceState represents the state of a single source reader
+// sourceState manages state for a single source chain reader
 type sourceState struct {
 	chainSelector       cciptypes.ChainSelector
 	reader              SourceReader
@@ -13,11 +13,12 @@ type sourceState struct {
 	verificationErrorCh chan VerificationError
 }
 
+// newSourceState creates a new source state
 func newSourceState(chainSelector cciptypes.ChainSelector, reader SourceReader) *sourceState {
 	return &sourceState{
 		chainSelector:       chainSelector,
 		reader:              reader,
 		verificationTaskCh:  reader.VerificationTaskChannel(),
-		verificationErrorCh: make(chan VerificationError, 100), // TODO: Make configurable
+		verificationErrorCh: make(chan VerificationError, 100), // Buffered error channel
 	}
 }

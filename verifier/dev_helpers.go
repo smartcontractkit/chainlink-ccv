@@ -3,7 +3,7 @@ package verifier
 import (
 	"context"
 	"fmt"
-	"math/big"
+
 	"time"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -62,10 +62,10 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 				select {
 				case setup.Channel <- task:
 					lggr.Infow("Generated mock verification task",
-						"messageID", task.Message.Header.MessageID,
-						"sequenceNumber", task.Message.Header.SequenceNumber,
-						"sourceChain", task.Message.Header.SourceChainSelector,
-						"destChain", task.Message.Header.DestChainSelector,
+						"messageID", task.Message.MessageID(),
+						"sequenceNumber", task.Message.SequenceNumber,
+						"sourceChain", task.Message.SourceChainSelector,
+						"destChain", task.Message.DestChainSelector,
 					)
 					messageCounter++
 				case <-ctx.Done():
@@ -92,31 +92,28 @@ func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSele
 	senderAddr, _ := common.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
 	receiverAddr, _ := common.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
 	onRampAddr, _ := common.NewUnknownAddressFromHex("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
-	feeTokenAddr, _ := common.NewUnknownAddressFromHex("0x0000000000000000000000000000000000000000") // Native token
 
-	message := common.Any2AnyVerifierMessage{
-		Header: common.MessageHeader{
-			MessageID:           messageID,
-			SourceChainSelector: chainSelector,
-			DestChainSelector:   destChain,
-			SequenceNumber:      cciptypes.SeqNum(counter),
-		},
-		Sender:           senderAddr,
-		OnRampAddress:    onRampAddr,
-		Data:             []byte(fmt.Sprintf("mock-data-%d", counter)),
-		Receiver:         receiverAddr,
-		FeeToken:         feeTokenAddr,
-		FeeTokenAmount:   big.NewInt(1000000),                         // 1 token
-		FeeValueJuels:    big.NewInt(2000000),                         // 2 LINK
-		TokenTransfer:    common.TokenTransfer{Amount: big.NewInt(0)}, // No token transfer
-		VerifierReceipts: []common.Receipt{},
-		ExecutorReceipt:  nil,
-		TokenReceipt:     nil,
-		ExtraArgs:        []byte{},
-	}
+	// Create empty token transfer
+	tokenTransfer := common.NewEmptyTokenTransfer()
+
+	offRampAddr, _ := common.NewUnknownAddressFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+
+	message := *common.NewMessage(
+		chainSelector,
+		destChain,
+		cciptypes.SeqNum(counter),
+		onRampAddr,
+		offRampAddr,
+		0, // finality
+		senderAddr,
+		receiverAddr,
+		[]byte(fmt.Sprintf("mock-data-%d", counter)), // dest blob
+		[]byte(fmt.Sprintf("mock-data-%d", counter)), // data
+		tokenTransfer,
+	)
 
 	return common.VerificationTask{
 		Message:      message,
-		ReceiptBlobs: [][]byte{}, // No receipt blobs for mock
+		ReceiptBlobs: []common.ReceiptWithBlob{}, // No receipt blobs for mock
 	}
 }
