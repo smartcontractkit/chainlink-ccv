@@ -1,29 +1,180 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+	"go.uber.org/zap"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 func main() {
-	lvlStr := os.Getenv("VERIFIER_LOG_LEVEL")
-	if lvlStr == "" {
-		lvlStr = "info"
-	}
-	lvl, err := zerolog.ParseLevel(lvlStr)
+	// Setup logging - always debug level for now
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		config.Development = true
+		config.Encoding = "console"
+	})
 	if err != nil {
 		panic(err)
 	}
-	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(lvl)
 
+	// Use SugaredLogger for better API
+	lggr = logger.Sugared(lggr)
+
+	// Create context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Setup graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Create storage (in-memory for development)
+	storage := storageaccess.NewInMemoryOffchainStorage(lggr)
+	storageWriter := storageaccess.CreateWriterOnly(storage)
+
+	// Create mock source readers for two chains (matching devenv setup)
+	mockSetup1337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(1337))
+	mockSetup2337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(2337))
+
+	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
+		cciptypes.ChainSelector(1337): mockSetup1337.Reader,
+		cciptypes.ChainSelector(2337): mockSetup2337.Reader,
+	}
+
+	// Create verifier address
+	verifierAddr, err := common.NewUnknownAddressFromHex("0xAAAA22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
+	if err != nil {
+		lggr.Errorw("Failed to create verifier address", "error", err)
+		os.Exit(1)
+	}
+
+	verifierAddr2, err := common.NewUnknownAddressFromHex("0xBBBB22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
+	if err != nil {
+		lggr.Errorw("Failed to create verifier address", "error", err)
+		os.Exit(1)
+	}
+
+	// Create coordinator configuration
+	config := verifier.CoordinatorConfig{
+		VerifierID: "dev-verifier-1",
+		SourceConfigs: map[cciptypes.ChainSelector]verifier.SourceConfig{
+			cciptypes.ChainSelector(1337): {
+				VerifierAddress: verifierAddr,
+			},
+			cciptypes.ChainSelector(2337): {
+				VerifierAddress: verifierAddr2,
+			},
+		},
+		ProcessingChannelSize: 1000,
+		ProcessingTimeout:     30 * time.Second,
+		MaxBatchSize:          100,
+	}
+
+	// Create message signer (mock for development)
+	privateKey := make([]byte, 32)
+	copy(privateKey, "dev-private-key-12345678901234567890") // Mock key
+	signer, err := verifier.NewECDSAMessageSigner(privateKey)
+	if err != nil {
+		lggr.Errorw("Failed to create message signer", "error", err)
+		os.Exit(1)
+	}
+
+	// Create commit verifier
+	commitVerifier := verifier.NewCommitVerifier(config, signer, lggr)
+
+	// Create verification coordinator
+	coordinator, err := verifier.NewVerificationCoordinator(
+		verifier.WithVerifier(commitVerifier),
+		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithStorage(storageWriter),
+		verifier.WithConfig(config),
+		verifier.WithLogger(lggr),
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create verification coordinator", "error", err)
+		os.Exit(1)
+	}
+
+	// Start the verification coordinator
+	lggr.Infow("🚀 Starting Verification Coordinator",
+		"verifierID", config.VerifierID,
+		"sourceChains", []cciptypes.ChainSelector{1337, 2337},
+		"verifierAddress", []string{verifierAddr.String(), verifierAddr2.String()},
+	)
+
+	if err := coordinator.Start(ctx); err != nil {
+		lggr.Errorw("Failed to start verification coordinator", "error", err)
+		os.Exit(1)
+	}
+
+	// Start mock message generators for development
+	verifier.StartMockMessageGenerator(ctx, mockSetup1337, cciptypes.ChainSelector(1337), lggr)
+	verifier.StartMockMessageGenerator(ctx, mockSetup2337, cciptypes.ChainSelector(2337), lggr)
+
+	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Verfifier is running!\n")
+		fmt.Fprintf(w, "✅ CCV Verifier is running!\n")
+		fmt.Fprintf(w, "Verifier ID: %s\n", config.VerifierID)
+		fmt.Fprintf(w, "Source Chains: [1337, 2337]\n")
 	})
 
-	l.Info().Msgf("Verifier is running on port %s", ":8100")
-	log.Fatal().Err(http.ListenAndServe(":8100", nil)).Send()
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if err := coordinator.HealthCheck(ctx); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, "❌ Unhealthy: %s\n", err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "✅ Healthy\n")
+	})
+
+	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		stats := storage.GetStats()
+		fmt.Fprintf(w, "📊 Storage Statistics:\n")
+		for key, value := range stats {
+			fmt.Fprintf(w, "%s: %v\n", key, value)
+		}
+	})
+
+	// Start HTTP server
+	server := &http.Server{Addr: ":8100"}
+	go func() {
+		lggr.Infow("🌐 HTTP server starting", "port", "8100")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			lggr.Errorw("HTTP server error", "error", err)
+		}
+	}()
+
+	lggr.Infow("🎯 Verifier service fully started and ready!")
+
+	// Wait for shutdown signal
+	<-sigCh
+	lggr.Infow("🛑 Shutdown signal received, stopping verifier...")
+
+	// Graceful shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	// Stop HTTP server
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		lggr.Errorw("HTTP server shutdown error", "error", err)
+	}
+
+	// Stop verification coordinator
+	if err := coordinator.Stop(); err != nil {
+		lggr.Errorw("Coordinator stop error", "error", err)
+	}
+
+	lggr.Infow("✅ Verifier service stopped gracefully")
 }

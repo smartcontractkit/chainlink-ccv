@@ -126,7 +126,24 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = GoSourcePathMounts(p, AppPathInsideContainer)
+		req.Mounts = testcontainers.Mounts(
+			testcontainers.BindMount(
+				p,
+				AppPathInsideContainer,
+			),
+			testcontainers.BindMount(
+				filepath.Join(p, "../protocol"),
+				"/protocol",
+			),
+			testcontainers.VolumeMount(
+				"go-mod-cache",
+				"/go/pkg/mod",
+			),
+			testcontainers.VolumeMount(
+				"go-build-cache",
+				"/root/.cache/go-build",
+			),
+		)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
