@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -83,6 +84,21 @@ func createTestSigner(t *testing.T) verifier.MessageSigner {
 }
 
 func createTestMessage(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.Any2AnyVerifierMessage {
+	// Determine the correct verifier address based on source chain
+	var verifierAddress string
+	switch sourceChainSelector {
+	case sourceChain1:
+		verifierAddress = "0x1234"
+	case sourceChain2:
+		verifierAddress = "0x5678"
+	default:
+		verifierAddress = "0x1234" // Default fallback
+	}
+
+	return createTestMessageWithVerifier(messageID, seqNum, sourceChainSelector, destChainSelector, verifierAddress)
+}
+
+func createTestMessageWithVerifier(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector, verifierAddress string) common.Any2AnyVerifierMessage {
 	return common.Any2AnyVerifierMessage{
 		Header: common.MessageHeader{
 			MessageID:           messageID,
@@ -105,7 +121,7 @@ func createTestMessage(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainS
 		},
 		VerifierReceipts: []common.Receipt{
 			{
-				Issuer:            common.UnknownAddress([]byte("0x3333")),
+				Issuer:            common.UnknownAddress([]byte(verifierAddress)), // Use the correct verifier address
 				FeeTokenAmount:    big.NewInt(100),
 				DestGasLimit:      50000,
 				DestBytesOverhead: 1024,
@@ -132,9 +148,17 @@ func createTestMessage(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainS
 
 func createTestVerificationTask(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.VerificationTask {
 	message := createTestMessage(messageID, seqNum, sourceChainSelector, destChainSelector)
+
+	// Create properly ABI-encoded receipt blob with just the nonce (uint64)
+	// This matches the Python expectation: decode(["uint64"], message.receipt_blobs[0])
+	nonce := uint64(seqNum)
+	uint64Type, _ := abi.NewType("uint64", "", nil)
+	args := abi.Arguments{{Type: uint64Type}}
+	receiptBlob, _ := args.Pack(nonce)
+
 	return common.VerificationTask{
 		Message:      message,
-		ReceiptBlobs: [][]byte{[]byte("receipt blob 1"), []byte("receipt blob 2")},
+		ReceiptBlobs: [][]byte{receiptBlob},
 	}
 }
 
@@ -149,6 +173,7 @@ func createCoordinatorConfig(coordinatorID string, sources map[cciptypes.ChainSe
 
 	return verifier.CoordinatorConfig{
 		VerifierID:            coordinatorID,
+		ConfigDigest:          [32]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}, // Test config digest
 		SourceConfigs:         sourceConfigs,
 		ProcessingChannelSize: defaultProcessingChannelSize,
 		ProcessingTimeout:     defaultProcessingTimeout,

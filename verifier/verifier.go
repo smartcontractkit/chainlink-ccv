@@ -355,12 +355,18 @@ func (cv *CommitVerifier) sendVerificationError(ctx context.Context, verificatio
 	}
 }
 
-// VerifyMessage implements the Verifier interface
 func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask common.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- VerificationError) {
 	message := verificationTask.Message
 	header := message.Header
 
-	// Validate that the message comes from a configured source chain
+	cv.lggr.Debugw("Starting message verification",
+		"messageID", header.MessageID,
+		"sequenceNumber", header.SequenceNumber,
+		"sourceChain", header.SourceChainSelector,
+		"destChain", header.DestChainSelector,
+	)
+
+	// 1. Validate that the message comes from a configured source chain
 	sourceConfig, exists := cv.config.SourceConfigs[header.SourceChainSelector]
 	if !exists {
 		cv.sendVerificationError(ctx, verificationTask,
@@ -369,20 +375,21 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 		return
 	}
 
-	cv.lggr.Debugw("Message event validation passed",
+	// 2. Validate message and check verifier receipts (following Python logic)
+	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
+		cv.sendVerificationError(ctx, verificationTask,
+			fmt.Errorf("message validation failed: %w", err),
+			verificationErrorCh)
+		return
+	}
+
+	cv.lggr.Debugw("Message validation passed",
 		"messageID", header.MessageID,
-		"sequenceNumber", header.SequenceNumber,
-		"sourceChain", header.SourceChainSelector,
-		"destChain", header.DestChainSelector,
+		"verifierAddress", sourceConfig.VerifierAddress.String(),
 	)
 
-	// This is where different flows based on finality can be implemented
-	// For example:
-	// - Immediate verification for finalized blocks
-	// - Delayed verification for unfinalized blocks
-
-	// Sign the message event
-	signature, err := cv.signer.SignMessage(ctx, verificationTask)
+	// 3. Sign the message event with complete verification flow
+	signature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, cv.config.ConfigDigest)
 	if err != nil {
 		cv.sendVerificationError(ctx, verificationTask,
 			fmt.Errorf("failed to sign message event: %w", err),
@@ -390,18 +397,15 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 		return
 	}
 
-	// Create CCV data
-	ccvData := &common.CCVData{
-		MessageID:             header.MessageID,
-		SequenceNumber:        header.SequenceNumber,
-		SourceChainSelector:   header.SourceChainSelector,
-		DestChainSelector:     header.DestChainSelector,
-		SourceVerifierAddress: sourceConfig.VerifierAddress,
-		CCVData:               signature,
-		BlobData:              []byte{},
-		Timestamp:             time.Now().UnixMicro(),
-		Message:               message, // Store the complete message
-	}
+	cv.lggr.Infow("Message signed successfully",
+		"messageID", header.MessageID,
+		"signerAddress", cv.signer.GetSignerAddress().String(),
+		"signatureLength", len(signature),
+		"blobLength", len(verifierBlob),
+	)
+
+	// 4. Create CCV data with all required fields
+	ccvData := CreateCCVData(&verificationTask, signature, verifierBlob, sourceConfig.VerifierAddress)
 
 	// Send CCVData to channel for storage
 	select {
@@ -411,6 +415,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 			"sequenceNumber", header.SequenceNumber,
 			"sourceChain", header.SourceChainSelector,
 			"destChain", header.DestChainSelector,
+			"timestamp", ccvData.Timestamp,
 		)
 	case <-ctx.Done():
 		cv.lggr.Debugw("Context cancelled while sending CCV data",
