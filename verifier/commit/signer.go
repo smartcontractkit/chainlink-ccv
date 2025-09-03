@@ -1,4 +1,4 @@
-package verifier
+package commit
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format
@@ -43,8 +44,8 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 }
 
 // SignMessage signs a message event using ECDSA with the new chain-agnostic format
-func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask common.VerificationTask, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error) {
-	message := &verificationTask.Message
+func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error) {
+	message := verificationTask.Message
 
 	// 1. Calculate message hash using the new chain-agnostic method
 	messageHash, err := message.MessageID()
@@ -67,7 +68,7 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask common.V
 	}
 
 	// 5. Calculate signature hash using the new method
-	signatureHash, err := common.CalculateSignatureHash(messageHash, verifierBlob)
+	signatureHash, err := CalculateSignatureHash(messageHash, verifierBlob)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to calculate signature hash: %w", err)
 	}
@@ -87,7 +88,7 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask common.V
 	// 8. Encode signature in the format expected by the system
 	rs := [][32]byte{rBytes}
 	ss := [][32]byte{sBytes}
-	encodedSignature, err := common.EncodeSignatures(rs, ss)
+	encodedSignature, err := EncodeSignatures(rs, ss)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encode signature: %w", err)
 	}
@@ -101,7 +102,7 @@ func (s *ECDSASigner) GetSignerAddress() common.UnknownAddress {
 }
 
 // findVerifierIndexBySourceAddress finds the index of the source verifier address in the ReceiptBlobs array.
-func (s *ECDSASigner) findVerifierIndexBySourceAddress(verificationTask common.VerificationTask, sourceVerifierAddress common.UnknownAddress) (int, error) {
+func (s *ECDSASigner) findVerifierIndexBySourceAddress(verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) (int, error) {
 	for i, receipt := range verificationTask.ReceiptBlobs {
 		if receipt.Issuer.String() == sourceVerifierAddress.String() {
 			return i, nil

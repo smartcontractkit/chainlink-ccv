@@ -6,33 +6,58 @@ import (
 
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 )
+
+// DevMockSourceReader is a simple mock for development use
+type DevMockSourceReader struct {
+	mock.Mock
+	channel chan types.VerificationTask
+}
+
+func (m *DevMockSourceReader) Start(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *DevMockSourceReader) Stop() error {
+	if m.channel != nil {
+		close(m.channel)
+	}
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *DevMockSourceReader) VerificationTaskChannel() <-chan types.VerificationTask {
+	return m.channel
+}
+
+func (m *DevMockSourceReader) HealthCheck(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
 
 // DevSourceReaderSetup contains a mock source reader and its channel for development use
 type DevSourceReaderSetup struct {
-	Reader  *mocks.MockSourceReader
-	Channel chan common.VerificationTask
+	Reader  *DevMockSourceReader
+	Channel chan types.VerificationTask
 }
 
 // SetupDevSourceReader creates a mock source reader with an injected channel for development
 // This follows the same pattern as the tests but doesn't require testing.T
 func SetupDevSourceReader(chainSelector cciptypes.ChainSelector) *DevSourceReaderSetup {
 	// Create a mock that doesn't require testing.T by using a nil interface
-	mockReader := &mocks.MockSourceReader{}
-	channel := make(chan common.VerificationTask, 100)
+	channel := make(chan types.VerificationTask, 100)
+	mockReader := &DevMockSourceReader{channel: channel}
 
 	// Set up expectations for the mock
 	mockReader.On("Start", mock.Anything).Return(nil)
-	mockReader.On("VerificationTaskChannel").Return((<-chan common.VerificationTask)(channel))
-	mockReader.On("Stop").Run(func(args mock.Arguments) {
-		close(channel)
-	}).Return(nil)
+	mockReader.On("Stop").Return(nil)
 	mockReader.On("HealthCheck", mock.Anything).Return(nil)
 
 	return &DevSourceReaderSetup{
@@ -82,7 +107,7 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 }
 
 // createDevVerificationTask creates a mock verification task for development
-func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSelector) common.VerificationTask {
+func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSelector) types.VerificationTask {
 	// Create a mock message ID
 	var messageID cciptypes.Bytes32
 	copy(messageID[:], fmt.Sprintf("mock-msg-%d-%d", chainSelector, counter))
@@ -117,7 +142,7 @@ func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSele
 		tokenTransfer,
 	)
 
-	return common.VerificationTask{
+	return types.VerificationTask{
 		Message:      message,
 		ReceiptBlobs: []common.ReceiptWithBlob{}, // No receipt blobs for mock
 	}

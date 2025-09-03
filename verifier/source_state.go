@@ -1,20 +1,21 @@
 package verifier
 
 import (
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	reader2 "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
 // sourceState manages state for a single source chain reader
 type sourceState struct {
 	chainSelector       cciptypes.ChainSelector
-	reader              SourceReader
-	verificationTaskCh  <-chan common.VerificationTask
+	reader              reader2.SourceReader
+	verificationTaskCh  <-chan types.VerificationTask
 	verificationErrorCh chan VerificationError
 }
 
 // newSourceState creates a new source state
-func newSourceState(chainSelector cciptypes.ChainSelector, reader SourceReader) *sourceState {
+func newSourceState(chainSelector cciptypes.ChainSelector, reader reader2.SourceReader) *sourceState {
 	return &sourceState{
 		chainSelector:       chainSelector,
 		reader:              reader,

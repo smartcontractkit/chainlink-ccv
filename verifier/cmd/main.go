@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 	"go.uber.org/zap"
@@ -46,7 +48,7 @@ func main() {
 	mockSetup1337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(1337))
 	mockSetup2337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(2337))
 
-	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
+	sourceReaders := map[cciptypes.ChainSelector]reader.SourceReader{
 		cciptypes.ChainSelector(1337): mockSetup1337.Reader,
 		cciptypes.ChainSelector(2337): mockSetup2337.Reader,
 	}
@@ -65,9 +67,9 @@ func main() {
 	}
 
 	// Create coordinator configuration
-	config := verifier.CoordinatorConfig{
+	config := types.CoordinatorConfig{
 		VerifierID: "dev-verifier-1",
-		SourceConfigs: map[cciptypes.ChainSelector]verifier.SourceConfig{
+		SourceConfigs: map[cciptypes.ChainSelector]types.SourceConfig{
 			cciptypes.ChainSelector(1337): {
 				VerifierAddress: verifierAddr,
 			},
