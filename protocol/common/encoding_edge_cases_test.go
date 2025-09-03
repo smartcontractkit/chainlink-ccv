@@ -199,7 +199,7 @@ func TestReceiptBlobDecodingErrors(t *testing.T) {
 		},
 		{
 			name:      "too_short",
-			data:      []byte{1, 2, 3, 4},
+			data:      []byte{0}, // Less than 2 bytes for length
 			expectErr: "receipt blob too short",
 		},
 	}

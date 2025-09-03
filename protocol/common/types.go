@@ -462,29 +462,93 @@ func CalculateSignatureHash(messageHash cciptypes.Bytes32, verifierBlob []byte) 
 	return Keccak256(buf.Bytes()), nil
 }
 
-// EncodeVerifierBlob encodes nonce into verifier blob using canonical binary encoding
+// VerifierBlobData represents the data stored in a verifier blob
+type VerifierBlobData struct {
+	Version uint8  `json:"version"`
+	Nonce   uint64 `json:"nonce"`
+	// Future extensions can add more fields here
+}
+
+// EncodeVerifierBlob encodes verifier blob data using length-prefixed canonical encoding
 func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
-	// Canonical encoding: 8-byte big-endian uint64
+	blob := VerifierBlobData{
+		Version: 1,
+		Nonce:   nonce,
+	}
+
+	// Encode the blob content
+	var content bytes.Buffer
+	content.WriteByte(blob.Version)
+	binary.Write(&content, binary.BigEndian, blob.Nonce)
+
+	// Create length-prefixed blob: length(2 bytes) + content
 	var buf bytes.Buffer
-	binary.Write(&buf, binary.BigEndian, nonce)
+	contentBytes := content.Bytes()
+	binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+	buf.Write(contentBytes)
+
 	return buf.Bytes(), nil
 }
 
-// DecodeReceiptBlob decodes nonce from receipt blob using canonical binary encoding
+// DecodeReceiptBlob decodes verifier blob data using length-prefixed canonical encoding
 func DecodeReceiptBlob(receiptBlob []byte) (uint64, error) {
-	if len(receiptBlob) < 8 {
-		return 0, fmt.Errorf("receipt blob too short: %d bytes, expected at least 8", len(receiptBlob))
-	}
-
-	// Canonical decoding: 8-byte big-endian uint64
-	reader := bytes.NewReader(receiptBlob)
-	var nonce uint64
-	err := binary.Read(reader, binary.BigEndian, &nonce)
+	blob, err := DecodeVerifierBlobData(receiptBlob)
 	if err != nil {
-		return 0, fmt.Errorf("failed to decode nonce from receipt blob: %w", err)
+		return 0, err
+	}
+	return blob.Nonce, nil
+}
+
+// DecodeVerifierBlobData decodes complete verifier blob data using length-prefixed format
+func DecodeVerifierBlobData(receiptBlob []byte) (*VerifierBlobData, error) {
+	if len(receiptBlob) < 2 {
+		return nil, fmt.Errorf("receipt blob too short: %d bytes, expected at least 2", len(receiptBlob))
 	}
 
-	return nonce, nil
+	reader := bytes.NewReader(receiptBlob)
+
+	// Read content length
+	var contentLength uint16
+	err := binary.Read(reader, binary.BigEndian, &contentLength)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read content length: %w", err)
+	}
+
+	// Check if we have enough data for the content
+	if reader.Len() < int(contentLength) {
+		return nil, fmt.Errorf("insufficient data: expected %d bytes, have %d", contentLength, reader.Len())
+	}
+
+	// Read content
+	content := make([]byte, contentLength)
+	if _, err := io.ReadFull(reader, content); err != nil {
+		return nil, fmt.Errorf("failed to read blob content: %w", err)
+	}
+
+	// Decode content
+	contentReader := bytes.NewReader(content)
+	blob := &VerifierBlobData{}
+
+	// Read version
+	version, err := contentReader.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read version: %w", err)
+	}
+	blob.Version = version
+
+	if version != 1 {
+		return nil, fmt.Errorf("unsupported verifier blob version: %d", version)
+	}
+
+	// Read nonce
+	err = binary.Read(contentReader, binary.BigEndian, &blob.Nonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read nonce: %w", err)
+	}
+
+	// Future versions can read additional fields here based on version
+
+	return blob, nil
 }
 
 // EncodeSignatures encodes r and s arrays into signature format using canonical binary encoding
