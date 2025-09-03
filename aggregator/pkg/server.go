@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -21,7 +21,7 @@ import (
 type Server struct {
 	aggregator.UnimplementedAggregatorServer
 
-	l                                    zerolog.Logger
+	l                                    logger.Logger
 	readCommitVerificationRecordHandler  *handlers.ReadCommitVerificationRecordHandler
 	writeCommitVerificationRecordHandler *handlers.WriteCommitVerificationRecordHandler
 }
@@ -42,7 +42,7 @@ func (s *Server) Start(lis net.Listener) (func(), error) {
 	aggregator.RegisterAggregatorServer(grpcServer, s)
 	reflection.Register(grpcServer)
 
-	s.l.Info().Msg("Aggregator gRPC server started")
+	s.l.Info("Aggregator gRPC server started")
 	if err := grpcServer.Serve(lis); err != nil {
 		return func() {}, err
 	}
@@ -69,16 +69,16 @@ func createStorage(config model.AggregatorConfig) (common.CommitVerificationStor
 }
 
 // NewServer creates a new aggregator server with the specified logger and configuration.
-func NewServer(l zerolog.Logger, config model.AggregatorConfig) *Server {
+func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
 	store, err := createStorage(config)
 	if err != nil {
-		l.Error().Err(err).Msg("failed to create storage")
+		l.Errorw("failed to create storage", "error", err)
 		return nil
 	}
 
 	aggregator, err := createAggregatorConfig(store, config)
 	if err != nil {
-		l.Error().Err(err).Msg("failed to create aggregator")
+		l.Errorw("failed to create aggregator", "error", err)
 		return nil
 	}
 
