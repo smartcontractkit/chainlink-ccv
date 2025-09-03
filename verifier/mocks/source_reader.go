@@ -5,8 +5,7 @@ package mocks
 import (
 	context "context"
 
-	common "github.com/smartcontractkit/chainlink-ccv/protocol/common"
-
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -161,19 +160,19 @@ func (_c *MockSourceReader_Stop_Call) RunAndReturn(run func() error) *MockSource
 }
 
 // VerificationTaskChannel provides a mock function with no fields
-func (_m *MockSourceReader) VerificationTaskChannel() <-chan common.VerificationTask {
+func (_m *MockSourceReader) VerificationTaskChannel() <-chan types.VerificationTask {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for VerificationTaskChannel")
 	}
 
-	var r0 <-chan common.VerificationTask
-	if rf, ok := ret.Get(0).(func() <-chan common.VerificationTask); ok {
+	var r0 <-chan types.VerificationTask
+	if rf, ok := ret.Get(0).(func() <-chan types.VerificationTask); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan common.VerificationTask)
+			r0 = ret.Get(0).(<-chan types.VerificationTask)
 		}
 	}
 
@@ -197,12 +196,12 @@ func (_c *MockSourceReader_VerificationTaskChannel_Call) Run(run func()) *MockSo
 	return _c
 }
 
-func (_c *MockSourceReader_VerificationTaskChannel_Call) Return(_a0 <-chan common.VerificationTask) *MockSourceReader_VerificationTaskChannel_Call {
+func (_c *MockSourceReader_VerificationTaskChannel_Call) Return(_a0 <-chan types.VerificationTask) *MockSourceReader_VerificationTaskChannel_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockSourceReader_VerificationTaskChannel_Call) RunAndReturn(run func() <-chan common.VerificationTask) *MockSourceReader_VerificationTaskChannel_Call {
+func (_c *MockSourceReader_VerificationTaskChannel_Call) RunAndReturn(run func() <-chan types.VerificationTask) *MockSourceReader_VerificationTaskChannel_Call {
 	_c.Call.Return(run)
 	return _c
 }

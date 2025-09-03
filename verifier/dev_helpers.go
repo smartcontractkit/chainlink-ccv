@@ -2,10 +2,12 @@ package verifier
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
-	"math/big"
+
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 	"github.com/stretchr/testify/mock"
@@ -17,7 +19,7 @@ import (
 // DevSourceReaderSetup contains a mock source reader and its channel for development use
 type DevSourceReaderSetup struct {
 	Reader  *mocks.MockSourceReader
-	Channel chan common.VerificationTask
+	Channel chan types.VerificationTask
 }
 
 // SetupDevSourceReader creates a mock source reader with an injected channel for development
@@ -25,11 +27,11 @@ type DevSourceReaderSetup struct {
 func SetupDevSourceReader(chainSelector cciptypes.ChainSelector) *DevSourceReaderSetup {
 	// Create a mock that doesn't require testing.T by using a nil interface
 	mockReader := &mocks.MockSourceReader{}
-	channel := make(chan common.VerificationTask, 100)
+	channel := make(chan types.VerificationTask, 100)
 
 	// Set up expectations for the mock
 	mockReader.On("Start", mock.Anything).Return(nil)
-	mockReader.On("VerificationTaskChannel").Return((<-chan common.VerificationTask)(channel))
+	mockReader.On("VerificationTaskChannel").Return((<-chan types.VerificationTask)(channel))
 	mockReader.On("Stop").Run(func(args mock.Arguments) {
 		close(channel)
 	}).Return(nil)
@@ -43,7 +45,7 @@ func SetupDevSourceReader(chainSelector cciptypes.ChainSelector) *DevSourceReade
 
 // StartMockMessageGenerator starts generating mock messages for development
 // This replaces the heavyweight mock with a simple goroutine
-func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup, chainSelector cciptypes.ChainSelector, lggr logger.Logger) {
+func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup, chainSelector cciptypes.ChainSelector, verifierAddr common.UnknownAddress, lggr logger.Logger) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second) // Generate a message every 10 seconds
 		defer ticker.Stop()
@@ -57,15 +59,20 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 				return
 			case <-ticker.C:
 				// Generate a mock verification task
-				task := createDevVerificationTask(messageCounter, chainSelector)
+				task := createDevVerificationTask(messageCounter, chainSelector, verifierAddr)
 
 				select {
 				case setup.Channel <- task:
+					messageID, err := task.Message.MessageID()
+					if err != nil {
+						lggr.Errorw("Failed to compute message ID", "error", err)
+						continue
+					}
 					lggr.Infow("Generated mock verification task",
-						"messageID", task.Message.Header.MessageID,
-						"sequenceNumber", task.Message.Header.SequenceNumber,
-						"sourceChain", task.Message.Header.SourceChainSelector,
-						"destChain", task.Message.Header.DestChainSelector,
+						"messageID", messageID,
+						"sequenceNumber", task.Message.SequenceNumber,
+						"sourceChain", task.Message.SourceChainSelector,
+						"destChain", task.Message.DestChainSelector,
 					)
 					messageCounter++
 				case <-ctx.Done():
@@ -77,11 +84,7 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 }
 
 // createDevVerificationTask creates a mock verification task for development
-func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSelector) common.VerificationTask {
-	// Create a mock message ID
-	var messageID cciptypes.Bytes32
-	copy(messageID[:], fmt.Sprintf("mock-msg-%d-%d", chainSelector, counter))
-
+func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSelector, verifierAddr common.UnknownAddress) types.VerificationTask {
 	// Mock destination chain (different from source)
 	destChain := cciptypes.ChainSelector(2337)
 	if chainSelector == 2337 {
@@ -91,32 +94,45 @@ func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSele
 	// Create mock sender and receiver addresses
 	senderAddr, _ := common.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
 	receiverAddr, _ := common.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
-	onRampAddr, _ := common.NewUnknownAddressFromHex("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
-	feeTokenAddr, _ := common.NewUnknownAddressFromHex("0x0000000000000000000000000000000000000000") // Native token
+	// Use the provided verifier address as the onramp address
+	onRampAddr := verifierAddr
 
-	message := common.Any2AnyVerifierMessage{
-		Header: common.MessageHeader{
-			MessageID:           messageID,
-			SourceChainSelector: chainSelector,
-			DestChainSelector:   destChain,
-			SequenceNumber:      cciptypes.SeqNum(counter),
+	// Create empty token transfer
+	tokenTransfer := common.NewEmptyTokenTransfer()
+
+	offRampAddr, _ := common.NewUnknownAddressFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+
+	message := *common.NewMessage(
+		chainSelector,
+		destChain,
+		cciptypes.SeqNum(counter),
+		onRampAddr,
+		offRampAddr,
+		0, // finality
+		senderAddr,
+		receiverAddr,
+		[]byte(fmt.Sprintf("mock-data-%d", counter)), // dest blob
+		[]byte(fmt.Sprintf("mock-data-%d", counter)), // data
+		tokenTransfer,
+	)
+
+	// Create receipt blobs with onramp address as issuer (required for validation)
+	// Convert counter to bytes (8 bytes for uint64, big-endian)
+	counterBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(counterBytes, counter)
+
+	receiptBlobs := []common.ReceiptWithBlob{
+		{
+			Issuer:            onRampAddr, // The onramp address must be the issuer
+			DestGasLimit:      200000,     // Default gas limit for development
+			DestBytesOverhead: 50,         // Default bytes overhead for development
+			Blob:              counterBytes,
+			ExtraArgs:         []byte{},
 		},
-		Sender:           senderAddr,
-		OnRampAddress:    onRampAddr,
-		Data:             []byte(fmt.Sprintf("mock-data-%d", counter)),
-		Receiver:         receiverAddr,
-		FeeToken:         feeTokenAddr,
-		FeeTokenAmount:   big.NewInt(1000000),                         // 1 token
-		FeeValueJuels:    big.NewInt(2000000),                         // 2 LINK
-		TokenTransfer:    common.TokenTransfer{Amount: big.NewInt(0)}, // No token transfer
-		VerifierReceipts: []common.Receipt{},
-		ExecutorReceipt:  nil,
-		TokenReceipt:     nil,
-		ExtraArgs:        []byte{},
 	}
 
-	return common.VerificationTask{
+	return types.VerificationTask{
 		Message:      message,
-		ReceiptBlobs: [][]byte{}, // No receipt blobs for mock
+		ReceiptBlobs: receiptBlobs,
 	}
 }
