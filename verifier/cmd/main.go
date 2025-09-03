@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -85,14 +86,14 @@ func main() {
 	// Create message signer (mock for development)
 	privateKey := make([]byte, 32)
 	copy(privateKey, "dev-private-key-12345678901234567890") // Mock key
-	signer, err := verifier.NewECDSAMessageSigner(privateKey)
+	signer, err := commit.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		os.Exit(1)
 	}
 
 	// Create commit verifier
-	commitVerifier := verifier.NewCommitVerifier(config, signer, lggr)
+	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
 
 	// Create verification coordinator
 	coordinator, err := verifier.NewVerificationCoordinator(

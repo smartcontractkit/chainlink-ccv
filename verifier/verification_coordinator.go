@@ -5,16 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
 // VerificationCoordinator orchestrates the verification workflow using the new message format
@@ -351,55 +348,4 @@ func (vc *VerificationCoordinator) HealthCheck(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// NewCommitVerifier creates a new commit verifier
-func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) types.Verifier {
-	// Create a signer adapter
-	signerAdapter := &commitMessageSigner{signer: signer}
-
-	// Since both packages now use the same types from internal/types, we can pass the config directly
-	return &commitVerifierWrapper{
-		verifier: commit.NewCommitVerifier(config, signerAdapter, lggr),
-	}
-}
-
-// commitVerifierWrapper wraps the commit verifier to implement the main Verifier interface
-type commitVerifierWrapper struct {
-	verifier *commit.Verifier
-}
-
-// VerifyMessage implements the Verifier interface
-func (cvw *commitVerifierWrapper) VerifyMessage(ctx context.Context, task types.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- types.VerificationError) {
-	// No conversion needed - both use the same types from internal/types
-	if err := cvw.verifier.VerifyMessage(ctx, task, ccvDataCh); err != nil {
-		verificationError := types.VerificationError{
-			Task:      task,
-			Error:     err,
-			Timestamp: time.Now(),
-		}
-		select {
-		case verificationErrorCh <- verificationError:
-		case <-ctx.Done():
-		}
-	}
-}
-
-// commitMessageSigner adapts MessageSigner to commit.MessageSigner
-type commitMessageSigner struct {
-	signer pkg.MessageSigner
-}
-
-func (cms *commitMessageSigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error) {
-	// No conversion needed - both use the same types from internal/types
-	return cms.signer.SignMessage(ctx, verificationTask, sourceVerifierAddress)
-}
-
-func (cms *commitMessageSigner) GetSignerAddress() common.UnknownAddress {
-	return cms.signer.GetSignerAddress()
-}
-
-// NewECDSAMessageSigner creates a new ECDSA message signer
-func NewECDSAMessageSigner(privateKeyBytes []byte) (pkg.MessageSigner, error) {
-	return commit.NewECDSAMessageSigner(privateKeyBytes)
 }

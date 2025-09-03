@@ -81,7 +81,7 @@ func createTestSigner(t *testing.T) pkg.MessageSigner {
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	signer, err := verifier.NewECDSAMessageSigner(privateKeyBytes)
+	signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 	require.NoError(t, err)
 	return signer
 }
@@ -196,7 +196,7 @@ func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetu
 
 // createVerificationCoordinator creates a verification coordinator with the given setup
 func createVerificationCoordinator(ts *testSetup, config types.CoordinatorConfig, sourceReaders map[cciptypes.ChainSelector]reader.SourceReader) (*verifier.VerificationCoordinator, error) {
-	commitVerifier := verifier.NewCommitVerifier(config, ts.signer, ts.logger)
+	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
 
 	return verifier.NewVerificationCoordinator(
 		verifier.WithConfig(config),

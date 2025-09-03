@@ -7,6 +7,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/utils"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -18,7 +19,7 @@ type Verifier struct {
 }
 
 // NewCommitVerifier creates a new commit verifier
-func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) *Verifier {
+func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) types.Verifier {
 	return &Verifier{
 		config: config,
 		signer: signer,
@@ -44,12 +45,13 @@ func (cv *Verifier) ValidateMessage(message common.Message) error {
 }
 
 // VerifyMessage verifies a message using the new chain-agnostic format
-func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.VerificationTask, ccvDataCh chan<- common.CCVData) error {
+func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- types.VerificationError) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
 	if err != nil {
-		return fmt.Errorf("failed to compute message ID: %w", err)
+		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to compute message ID: %w", err), verificationErrorCh, cv.lggr)
+		return
 	}
 
 	cv.lggr.Debugw("Starting message verification",
@@ -62,16 +64,19 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 	// 1. Validate that the message comes from a configured source chain
 	sourceConfig, exists := cv.config.SourceConfigs[message.SourceChainSelector]
 	if !exists {
-		return fmt.Errorf("message source chain selector %d is not configured", message.SourceChainSelector)
+		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("message source chain selector %d is not configured", message.SourceChainSelector), verificationErrorCh, cv.lggr)
+		return
 	}
 
 	// 2. Validate message format and check verifier receipts
 	if err := cv.ValidateMessage(message); err != nil {
-		return fmt.Errorf("message format validation failed: %w", err)
+		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("message format validation failed: %w", err), verificationErrorCh, cv.lggr)
+		return
 	}
 
 	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
-		return fmt.Errorf("message validation failed: %w", err)
+		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("message validation failed: %w", err), verificationErrorCh, cv.lggr)
+		return
 	}
 
 	cv.lggr.Debugw("Message validation passed",
@@ -82,7 +87,8 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 	// 3. Sign the message event using the new chain-agnostic method
 	signature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
 	if err != nil {
-		return fmt.Errorf("failed to sign message event: %w", err)
+		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to sign message event: %w", err), verificationErrorCh, cv.lggr)
+		return
 	}
 
 	cv.lggr.Infow("Message signed successfully",
@@ -95,7 +101,8 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 	// 4. Create CCV data with all required fields
 	ccvData, err := CreateCCVData(&verificationTask, signature, verifierBlob, sourceConfig.VerifierAddress)
 	if err != nil {
-		return fmt.Errorf("failed to create CCV data: %w", err)
+		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to create CCV data: %w", err), verificationErrorCh, cv.lggr)
+		return
 	}
 
 	// Send CCVData to channel for storage
@@ -115,6 +122,4 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 			"sourceChain", message.SourceChainSelector,
 		)
 	}
-
-	return nil
 }
