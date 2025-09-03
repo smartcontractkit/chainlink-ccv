@@ -61,8 +61,13 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 
 				select {
 				case setup.Channel <- task:
+					messageID, err := task.Message.MessageID()
+					if err != nil {
+						lggr.Errorw("Failed to compute message ID", "error", err)
+						continue
+					}
 					lggr.Infow("Generated mock verification task",
-						"messageID", task.Message.MessageID(),
+						"messageID", messageID,
 						"sequenceNumber", task.Message.SequenceNumber,
 						"sourceChain", task.Message.SourceChainSelector,
 						"destChain", task.Message.DestChainSelector,

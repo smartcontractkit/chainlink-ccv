@@ -47,10 +47,14 @@ func TestTokenTransferEncodeDecode(t *testing.T) {
 
 func TestMessageEncodeDecode(t *testing.T) {
 	// Create test addresses
-	sender := RandomAddress()
-	receiver := RandomAddress()
-	onRampAddr := RandomAddress()
-	offRampAddr := RandomAddress()
+	sender, err := RandomAddress()
+	require.NoError(t, err)
+	receiver, err := RandomAddress()
+	require.NoError(t, err)
+	onRampAddr, err := RandomAddress()
+	require.NoError(t, err)
+	offRampAddr, err := RandomAddress()
+	require.NoError(t, err)
 
 	// Create empty token transfer
 	tokenTransfer := NewEmptyTokenTransfer()
@@ -71,7 +75,8 @@ func TestMessageEncodeDecode(t *testing.T) {
 	)
 
 	// Encode
-	encoded := msg.Encode()
+	encoded, err := msg.Encode()
+	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
 	// Decode
@@ -102,10 +107,14 @@ func TestMessageEncodeDecode(t *testing.T) {
 
 func TestMessageID(t *testing.T) {
 	// Create two identical messages
-	sender := RandomAddress()
-	receiver := RandomAddress()
-	onRampAddr := RandomAddress()
-	offRampAddr := RandomAddress()
+	sender, err := RandomAddress()
+	require.NoError(t, err)
+	receiver, err := RandomAddress()
+	require.NoError(t, err)
+	onRampAddr, err := RandomAddress()
+	require.NoError(t, err)
+	offRampAddr, err := RandomAddress()
+	require.NoError(t, err)
 	tokenTransfer := NewEmptyTokenTransfer()
 
 	msg1 := NewMessage(
@@ -137,7 +146,11 @@ func TestMessageID(t *testing.T) {
 	)
 
 	// Same messages should have same message ID
-	assert.Equal(t, msg1.MessageID(), msg2.MessageID())
+	id1, err := msg1.MessageID()
+	require.NoError(t, err)
+	id2, err := msg2.MessageID()
+	require.NoError(t, err)
+	assert.Equal(t, id1, id2)
 
 	// Different sequence number should give different message ID
 	msg3 := NewMessage(
@@ -154,7 +167,9 @@ func TestMessageID(t *testing.T) {
 		tokenTransfer,
 	)
 
-	assert.NotEqual(t, msg1.MessageID(), msg3.MessageID())
+	id3, err := msg3.MessageID()
+	require.NoError(t, err)
+	assert.NotEqual(t, id1, id3)
 }
 
 func TestEmptyTokenTransfer(t *testing.T) {
@@ -180,11 +195,16 @@ func TestEmptyTokenTransfer(t *testing.T) {
 }
 
 func TestValidateMessage(t *testing.T) {
-	sender := RandomAddress()
-	receiver := RandomAddress()
-	onRampAddr := RandomAddress()
-	offRampAddr := RandomAddress()
-	verifierAddr := RandomAddress()
+	sender, err := RandomAddress()
+	require.NoError(t, err)
+	receiver, err := RandomAddress()
+	require.NoError(t, err)
+	onRampAddr, err := RandomAddress()
+	require.NoError(t, err)
+	offRampAddr, err := RandomAddress()
+	require.NoError(t, err)
+	verifierAddr, err := RandomAddress()
+	require.NoError(t, err)
 
 	message := NewMessage(
 		cciptypes.ChainSelector(1337),
@@ -212,11 +232,12 @@ func TestValidateMessage(t *testing.T) {
 	}
 
 	// Should validate successfully
-	err := ValidateMessage(task, verifierAddr)
+	err = ValidateMessage(task, verifierAddr)
 	assert.NoError(t, err)
 
 	// Should fail with different verifier address
-	differentAddr := RandomAddress()
+	differentAddr, err := RandomAddress()
+	require.NoError(t, err)
 	err = ValidateMessage(task, differentAddr)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found as issuer")

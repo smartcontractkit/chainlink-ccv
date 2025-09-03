@@ -228,7 +228,9 @@ func sendTasksAsync(tasks []common.VerificationTask, channel chan<- common.Verif
 func verifyStoredTasks(t *testing.T, storedData []common.CCVData, expectedTasks []common.VerificationTask, expectedChain cciptypes.ChainSelector) {
 	expectedIDs := make(map[[32]byte]bool)
 	for _, task := range expectedTasks {
-		expectedIDs[task.Message.MessageID()] = true
+		messageID, err := task.Message.MessageID()
+		require.NoError(t, err)
+		expectedIDs[messageID] = true
 	}
 	for _, data := range storedData {
 		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %x", data.MessageID)
@@ -281,7 +283,9 @@ func TestVerifier(t *testing.T) {
 	// Verify message IDs
 	expectedIDs := make(map[[32]byte]bool)
 	for _, task := range testTasks {
-		expectedIDs[task.Message.MessageID()] = true
+		messageID, err := task.Message.MessageID()
+		require.NoError(t, err)
+		expectedIDs[messageID] = true
 	}
 	for _, data := range storedData {
 		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %x", data.MessageID)
@@ -531,7 +535,9 @@ func TestVerificationErrorHandling(t *testing.T) {
 	storedData, err := ts.storage.GetAllCCVData(config.SourceConfigs[sourceChain1].VerifierAddress)
 	require.NoError(t, err)
 	assert.Len(t, storedData, 1)
-	assert.Equal(t, validTask.Message.MessageID(), storedData[0].MessageID)
+	expectedMessageID, err := validTask.Message.MessageID()
+	require.NoError(t, err)
+	assert.Equal(t, expectedMessageID, storedData[0].MessageID)
 
 	// The unconfigured chain is not in the config, so we can't check its data
 	// The test validates that tasks from unconfigured chains don't cause crashes

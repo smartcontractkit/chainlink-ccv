@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -124,26 +123,26 @@ func main() {
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "✅ CCV Verifier is running!\n")
-		fmt.Fprintf(w, "Verifier ID: %s\n", config.VerifierID)
-		fmt.Fprintf(w, "Source Chains: [1337, 2337]\n")
+		lggr.Infow("✅ CCV Verifier is running!\n")
+		lggr.Infow("Verifier ID: %s\n", config.VerifierID)
+		lggr.Infow("Source Chains: [1337, 2337]\n")
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := coordinator.HealthCheck(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, "❌ Unhealthy: %s\n", err.Error())
+			lggr.Infow("❌ Unhealthy: %s\n", err.Error())
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "✅ Healthy\n")
+		lggr.Infow("✅ Healthy\n")
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
 		stats := storage.GetStats()
-		fmt.Fprintf(w, "📊 Storage Statistics:\n")
+		lggr.Infow("📊 Storage Statistics:\n")
 		for key, value := range stats {
-			fmt.Fprintf(w, "%s: %v\n", key, value)
+			lggr.Infow("%s: %v\n", key, value)
 		}
 	})
 

@@ -36,16 +36,18 @@ func TestVerifierBlobVersionValidation(t *testing.T) {
 	// Create blob with invalid version using length-prefixed format
 	var content bytes.Buffer
 	content.WriteByte(99) // Invalid version
-	binary.Write(&content, binary.BigEndian, uint64(123))
+	err := binary.Write(&content, binary.BigEndian, uint64(123))
+	require.NoError(t, err)
 
 	var buf bytes.Buffer
 	contentBytes := content.Bytes()
-	binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+	err = binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+	require.NoError(t, err)
 	buf.Write(contentBytes)
 
 	invalidBlob := buf.Bytes()
 
-	_, err := DecodeReceiptBlob(invalidBlob)
+	_, err = DecodeReceiptBlob(invalidBlob)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported verifier blob version")
 }
@@ -95,8 +97,11 @@ func TestLengthPrefixedBlobEdgeCases(t *testing.T) {
 			name: "length_mismatch_too_short",
 			data: func() []byte {
 				var buf bytes.Buffer
-				binary.Write(&buf, binary.BigEndian, uint16(10)) // Claim 10 bytes
-				buf.Write([]byte{1, 2, 3})                       // But only provide 3 bytes
+				err := binary.Write(&buf, binary.BigEndian, uint16(10))
+				if err != nil {
+					t.Fatalf("Failed to write to buffer: %v", err)
+				}
+				buf.Write([]byte{1, 2, 3}) // But only provide 3 bytes
 				return buf.Bytes()
 			}(),
 			expectErr: "insufficient data",
@@ -105,7 +110,10 @@ func TestLengthPrefixedBlobEdgeCases(t *testing.T) {
 			name: "zero_length_content",
 			data: func() []byte {
 				var buf bytes.Buffer
-				binary.Write(&buf, binary.BigEndian, uint16(0)) // Zero length content
+				err := binary.Write(&buf, binary.BigEndian, uint16(0))
+				if err != nil {
+					t.Fatalf("Failed to write to buffer: %v", err)
+				}
 				return buf.Bytes()
 			}(),
 			expectErr: "failed to read version", // Should fail when trying to read version from empty content
@@ -119,7 +127,10 @@ func TestLengthPrefixedBlobEdgeCases(t *testing.T) {
 
 				var buf bytes.Buffer
 				contentBytes := content.Bytes()
-				binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+				err := binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+				if err != nil {
+					t.Fatalf("Failed to write to buffer: %v", err)
+				}
 				buf.Write(contentBytes)
 				return buf.Bytes()
 			}(),
@@ -167,7 +178,8 @@ func TestLengthPrefixedBlobFlexibility(t *testing.T) {
 			// Manually create blob with extra data
 			var content bytes.Buffer
 			content.WriteByte(tt.version)
-			binary.Write(&content, binary.BigEndian, tt.nonce)
+			err := binary.Write(&content, binary.BigEndian, tt.nonce)
+			require.NoError(t, err)
 			if tt.extraData != nil {
 				content.Write(tt.extraData)
 			}
@@ -175,7 +187,8 @@ func TestLengthPrefixedBlobFlexibility(t *testing.T) {
 			// Create length-prefixed blob
 			var buf bytes.Buffer
 			contentBytes := content.Bytes()
-			binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+			err = binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+			require.NoError(t, err)
 			buf.Write(contentBytes)
 
 			encoded := buf.Bytes()
@@ -204,8 +217,9 @@ func TestMaximumBlobSize(t *testing.T) {
 	maxContentSize := int(^uint16(0)) // 65535
 
 	var content bytes.Buffer
-	content.WriteByte(1)                                    // version
-	binary.Write(&content, binary.BigEndian, uint64(12345)) // nonce
+	content.WriteByte(1) // version
+	err := binary.Write(&content, binary.BigEndian, uint64(12345))
+	require.NoError(t, err)
 
 	// Add padding to reach maximum size
 	remainingSize := maxContentSize - content.Len()
@@ -216,7 +230,8 @@ func TestMaximumBlobSize(t *testing.T) {
 	// Create length-prefixed blob
 	var buf bytes.Buffer
 	contentBytes := content.Bytes()
-	binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+	err = binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+	require.NoError(t, err)
 	buf.Write(contentBytes)
 
 	encoded := buf.Bytes()

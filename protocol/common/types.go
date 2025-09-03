@@ -206,16 +206,22 @@ type Message struct {
 }
 
 // Encode returns the canonical encoding of this message
-func (m *Message) Encode() []byte {
+func (m *Message) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 
 	// Protocol header
 	buf.WriteByte(m.Version)
 
 	// Chain selectors and sequence number (8 bytes each, big-endian)
-	binary.Write(&buf, binary.BigEndian, uint64(m.SourceChainSelector))
-	binary.Write(&buf, binary.BigEndian, uint64(m.DestChainSelector))
-	binary.Write(&buf, binary.BigEndian, uint64(m.SequenceNumber))
+	if err := binary.Write(&buf, binary.BigEndian, uint64(m.SourceChainSelector)); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint64(m.DestChainSelector)); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint64(m.SequenceNumber)); err != nil {
+		return nil, err
+	}
 
 	// On-ramp address
 	buf.WriteByte(m.OnRampAddressLength)
@@ -226,7 +232,9 @@ func (m *Message) Encode() []byte {
 	buf.Write(m.OffRampAddress)
 
 	// User provided data
-	binary.Write(&buf, binary.BigEndian, m.Finality)
+	if err := binary.Write(&buf, binary.BigEndian, m.Finality); err != nil {
+		return nil, err
+	}
 
 	// Sender
 	buf.WriteByte(m.SenderLength)
@@ -237,18 +245,24 @@ func (m *Message) Encode() []byte {
 	buf.Write(m.Receiver)
 
 	// Dest blob
-	binary.Write(&buf, binary.BigEndian, m.DestBlobLength)
+	if err := binary.Write(&buf, binary.BigEndian, m.DestBlobLength); err != nil {
+		return nil, err
+	}
 	buf.Write(m.DestBlob)
 
 	// Token transfer
-	binary.Write(&buf, binary.BigEndian, m.TokenTransferLength)
+	if err := binary.Write(&buf, binary.BigEndian, m.TokenTransferLength); err != nil {
+		return nil, err
+	}
 	buf.Write(m.TokenTransfer)
 
 	// Data
-	binary.Write(&buf, binary.BigEndian, m.DataLength)
+	if err := binary.Write(&buf, binary.BigEndian, m.DataLength); err != nil {
+		return nil, err
+	}
 	buf.Write(m.Data)
 
-	return buf.Bytes()
+	return buf.Bytes(), nil
 }
 
 // DecodeMessage decodes a Message from bytes
@@ -374,12 +388,15 @@ func DecodeMessage(data []byte) (*Message, error) {
 }
 
 // MessageID returns the message ID of this message (keccak256 of the canonical encoding)
-func (m *Message) MessageID() cciptypes.Bytes32 {
-	encoded := m.Encode()
+func (m *Message) MessageID() (cciptypes.Bytes32, error) {
+	encoded, err := m.Encode()
+	if err != nil {
+		return cciptypes.Bytes32{}, err
+	}
 	hash := crypto.Keccak256(encoded)
 	var result cciptypes.Bytes32
 	copy(result[:], hash)
-	return result
+	return result, nil
 }
 
 // ReceiptWithBlob represents a chain-agnostic receipt with blob
@@ -479,12 +496,16 @@ func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 	// Encode the blob content
 	var content bytes.Buffer
 	content.WriteByte(blob.Version)
-	binary.Write(&content, binary.BigEndian, blob.Nonce)
+	if err := binary.Write(&content, binary.BigEndian, blob.Nonce); err != nil {
+		return nil, err
+	}
 
 	// Create length-prefixed blob: length(2 bytes) + content
 	var buf bytes.Buffer
 	contentBytes := content.Bytes()
-	binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes)))
+	if err := binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes))); err != nil {
+		return nil, err
+	}
 	buf.Write(contentBytes)
 
 	return buf.Bytes(), nil
@@ -561,7 +582,9 @@ func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
 
 	// Encode array length as uint16 (big-endian)
 	arrayLen := uint16(len(rs))
-	binary.Write(&buf, binary.BigEndian, arrayLen)
+	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
+		return nil, err
+	}
 
 	// Encode rs array
 	for _, r := range rs {
@@ -587,7 +610,10 @@ func ValidateMessage(verificationTask *VerificationTask, verifierOnRampAddress U
 		return fmt.Errorf("unsupported message version: %d", message.Version)
 	}
 
-	messageID := message.MessageID()
+	messageID, err := message.MessageID()
+	if err != nil {
+		return fmt.Errorf("failed to compute message ID: %w", err)
+	}
 	if bytes.Equal(messageID[:], make([]byte, 32)) {
 		return fmt.Errorf("message ID is empty")
 	}
@@ -609,10 +635,14 @@ func ValidateMessage(verificationTask *VerificationTask, verifierOnRampAddress U
 }
 
 // CreateCCVData creates CCVData from verification task, signature, and blob using the new format
-func CreateCCVData(verificationTask *VerificationTask, signature []byte, verifierBlob []byte, sourceVerifierAddress UnknownAddress) *CCVData {
+func CreateCCVData(verificationTask *VerificationTask, signature []byte, verifierBlob []byte, sourceVerifierAddress UnknownAddress) (*CCVData, error) {
 	message := &verificationTask.Message
+	messageID, err := message.MessageID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute message ID: %w", err)
+	}
 	return &CCVData{
-		MessageID:             message.MessageID(),
+		MessageID:             messageID,
 		SequenceNumber:        message.SequenceNumber,
 		SourceChainSelector:   message.SourceChainSelector,
 		DestChainSelector:     message.DestChainSelector,
@@ -622,7 +652,7 @@ func CreateCCVData(verificationTask *VerificationTask, signature []byte, verifie
 		BlobData:              verifierBlob,
 		Timestamp:             time.Now().UnixMicro(), // Unix timestamp in microseconds
 		Message:               *message,
-	}
+	}, nil
 }
 
 // Helper functions for creating empty/default values
@@ -683,8 +713,10 @@ func NewMessage(
 }
 
 // RandomAddress generates a random address for testing
-func RandomAddress() UnknownAddress {
+func RandomAddress() (UnknownAddress, error) {
 	addr := make([]byte, 20)
-	rand.Read(addr)
-	return UnknownAddress(addr)
+	if _, err := rand.Read(addr); err != nil {
+		return nil, err
+	}
+	return UnknownAddress(addr), nil
 }

@@ -47,7 +47,10 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask common.V
 	message := &verificationTask.Message
 
 	// 1. Calculate message hash using the new chain-agnostic method
-	messageHash := message.MessageID()
+	messageHash, err := message.MessageID()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to compute message ID: %w", err)
+	}
 
 	// 2. Find the verifier index that corresponds to our source verifier address
 	verifierIndex, err := s.findVerifierIndexBySourceAddress(verificationTask, sourceVerifierAddress)

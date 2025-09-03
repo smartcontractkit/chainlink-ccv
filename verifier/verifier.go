@@ -289,9 +289,14 @@ func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *
 
 			// Handle verification errors for this specific source
 			message := verificationError.Task.Message
+			messageID, err := message.MessageID()
+			if err != nil {
+				vc.lggr.Errorw("Failed to compute message ID for error logging", "error", err)
+				messageID = cciptypes.Bytes32{} // Use empty message ID as fallback
+			}
 			vc.lggr.Errorw("Verification error received",
 				"error", verificationError.Error,
-				"messageID", message.MessageID(),
+				"messageID", messageID,
 				"sequenceNumber", message.SequenceNumber,
 				"sourceChain", message.SourceChainSelector,
 				"destChain", message.DestChainSelector,
@@ -353,8 +358,14 @@ func (cv *CommitVerifier) sendVerificationError(ctx context.Context, verificatio
 func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask common.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- VerificationError) {
 	message := verificationTask.Message
 
+	messageID, err := message.MessageID()
+	if err != nil {
+		cv.sendVerificationError(ctx, verificationTask, fmt.Errorf("failed to compute message ID: %w", err), verificationErrorCh)
+		return
+	}
+
 	cv.lggr.Debugw("Starting message verification",
-		"messageID", message.MessageID(),
+		"messageID", messageID,
 		"sequenceNumber", message.SequenceNumber,
 		"sourceChain", message.SourceChainSelector,
 		"destChain", message.DestChainSelector,
@@ -385,7 +396,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	}
 
 	cv.lggr.Debugw("Message validation passed",
-		"messageID", message.MessageID(),
+		"messageID", messageID,
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
 	)
 
@@ -399,20 +410,24 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	}
 
 	cv.lggr.Infow("Message signed successfully",
-		"messageID", message.MessageID(),
+		"messageID", messageID,
 		"signerAddress", cv.signer.GetSignerAddress().String(),
 		"signatureLength", len(signature),
 		"blobLength", len(verifierBlob),
 	)
 
 	// 4. Create CCV data with all required fields
-	ccvData := common.CreateCCVData(&verificationTask, signature, verifierBlob, sourceConfig.VerifierAddress)
+	ccvData, err := common.CreateCCVData(&verificationTask, signature, verifierBlob, sourceConfig.VerifierAddress)
+	if err != nil {
+		cv.sendVerificationError(ctx, verificationTask, fmt.Errorf("failed to create CCV data: %w", err), verificationErrorCh)
+		return
+	}
 
 	// Send CCVData to channel for storage
 	select {
 	case ccvDataCh <- *ccvData:
 		cv.lggr.Infow("CCV data sent to storage channel",
-			"messageID", message.MessageID(),
+			"messageID", messageID,
 			"sequenceNumber", message.SequenceNumber,
 			"sourceChain", message.SourceChainSelector,
 			"destChain", message.DestChainSelector,
@@ -420,7 +435,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 		)
 	case <-ctx.Done():
 		cv.lggr.Debugw("Context cancelled while sending CCV data",
-			"messageID", message.MessageID(),
+			"messageID", messageID,
 			"sequenceNumber", message.SequenceNumber,
 			"sourceChain", message.SourceChainSelector,
 		)
