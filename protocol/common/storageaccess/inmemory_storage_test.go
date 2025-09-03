@@ -2,7 +2,6 @@ package storageaccess
 
 import (
 	"context"
-	"math/big"
 	"sort"
 	"testing"
 	"time"
@@ -14,52 +13,28 @@ import (
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
-func createTestMessage(messageID [32]byte, seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.Any2AnyVerifierMessage {
-	return common.Any2AnyVerifierMessage{
-		Header: common.MessageHeader{
-			MessageID:           messageID,
-			SourceChainSelector: sourceChainSelector,
-			DestChainSelector:   destChainSelector,
-			SequenceNumber:      seqNum,
-		},
-		Sender:         common.UnknownAddress([]byte("0x9999")),
-		OnRampAddress:  common.UnknownAddress([]byte("0x8888")),
-		Data:           []byte("test data"),
-		Receiver:       common.UnknownAddress([]byte("0x7777")),
-		FeeToken:       common.UnknownAddress([]byte("0x6666")),
-		FeeTokenAmount: big.NewInt(1000),
-		FeeValueJuels:  big.NewInt(500),
-		TokenTransfer: common.TokenTransfer{
-			SourceTokenAddress: common.UnknownAddress([]byte("0x5555")),
-			DestTokenAddress:   common.UnknownAddress([]byte("0x4444")),
-			ExtraData:          []byte("token data"),
-			Amount:             big.NewInt(2000),
-		},
-		VerifierReceipts: []common.Receipt{
-			{
-				Issuer:            common.UnknownAddress([]byte("0x3333")),
-				FeeTokenAmount:    big.NewInt(100),
-				DestGasLimit:      50000,
-				DestBytesOverhead: 1024,
-				ExtraArgs:         []byte("receipt args"),
-			},
-		},
-		ExecutorReceipt: &common.Receipt{
-			Issuer:            common.UnknownAddress([]byte("0x2222")),
-			FeeTokenAmount:    big.NewInt(200),
-			DestGasLimit:      60000,
-			DestBytesOverhead: 2048,
-			ExtraArgs:         []byte("executor args"),
-		},
-		TokenReceipt: &common.Receipt{
-			Issuer:            common.UnknownAddress([]byte("0x1111")),
-			FeeTokenAmount:    big.NewInt(300),
-			DestGasLimit:      70000,
-			DestBytesOverhead: 4096,
-			ExtraArgs:         []byte("token args"),
-		},
-		ExtraArgs: []byte("extra args"),
-	}
+func createTestMessage(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.Message {
+	// Create empty token transfer
+	tokenTransfer := common.NewEmptyTokenTransfer()
+
+	sender := common.UnknownAddress([]byte("sender_address"))
+	receiver := common.UnknownAddress([]byte("receiver_address"))
+	onRampAddr := common.UnknownAddress([]byte("onramp_address"))
+	offRampAddr := common.UnknownAddress([]byte("offramp_address"))
+
+	return *common.NewMessage(
+		sourceChainSelector,
+		destChainSelector,
+		seqNum,
+		onRampAddr,
+		offRampAddr,
+		0, // finality
+		sender,
+		receiver,
+		[]byte("test data"), // dest blob
+		[]byte("test data"), // data
+		tokenTransfer,
+	)
 }
 
 func TestInMemoryOffchainStorage_StoreCCVData(t *testing.T) {
@@ -81,7 +56,16 @@ func TestInMemoryOffchainStorage_StoreCCVData(t *testing.T) {
 			CCVData:               []byte("signature1"),
 			BlobData:              []byte("blob1"),
 			Timestamp:             time.Now().Unix(),
-			Message:               createTestMessage([32]byte{1, 2, 3}, 100, 1, 2),
+			ReceiptBlobs: []common.ReceiptWithBlob{
+				{
+					Issuer:            verifierAddress,
+					DestGasLimit:      200000,
+					DestBytesOverhead: 50,
+					Blob:              []byte("blob1"),
+					ExtraArgs:         []byte{},
+				},
+			},
+			Message: createTestMessage(100, 1, 2),
 		},
 		{
 			MessageID:             [32]byte{4, 5, 6},
@@ -93,7 +77,16 @@ func TestInMemoryOffchainStorage_StoreCCVData(t *testing.T) {
 			CCVData:               []byte("signature2"),
 			BlobData:              []byte("blob2"),
 			Timestamp:             time.Now().Unix() + 1,
-			Message:               createTestMessage([32]byte{4, 5, 6}, 101, 1, 2),
+			ReceiptBlobs: []common.ReceiptWithBlob{
+				{
+					Issuer:            verifierAddress,
+					DestGasLimit:      300000,
+					DestBytesOverhead: 75,
+					Blob:              []byte("blob2"),
+					ExtraArgs:         []byte("test"),
+				},
+			},
+			Message: createTestMessage(101, 1, 2),
 		},
 	}
 
@@ -143,7 +136,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage([32]byte{1}, 100, 1, 2),
+				Message:               createTestMessage(100, 1, 2),
 			},
 		}
 
@@ -164,7 +157,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig2"),
-				Message:               createTestMessage([32]byte{2}, 101, 1, 2),
+				Message:               createTestMessage(101, 1, 2),
 			},
 		}
 
@@ -184,7 +177,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig3"),
-				Message:               createTestMessage([32]byte{3}, 102, 1, 2),
+				Message:               createTestMessage(102, 1, 2),
 			},
 		}
 
@@ -300,7 +293,16 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 			CCVData:               []byte("signature"),
 			BlobData:              []byte("blob"),
 			Timestamp:             time.Now().Unix(),
-			Message:               createTestMessage(messageID, 100, 1, 2),
+			ReceiptBlobs: []common.ReceiptWithBlob{
+				{
+					Issuer:            verifierAddress,
+					DestGasLimit:      150000,
+					DestBytesOverhead: 30,
+					Blob:              []byte("blob"),
+					ExtraArgs:         []byte{},
+				},
+			},
+			Message: createTestMessage(100, 1, 2),
 		},
 	}
 
@@ -337,14 +339,14 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 			SequenceNumber:        100,
 			SourceVerifierAddress: verifier1,
 			CCVData:               []byte("sig1"),
-			Message:               createTestMessage([32]byte{1}, 100, 1, 2),
+			Message:               createTestMessage(100, 1, 2),
 		},
 		{
 			MessageID:             [32]byte{2},
 			SequenceNumber:        101,
 			SourceVerifierAddress: verifier1,
 			CCVData:               []byte("sig2"),
-			Message:               createTestMessage([32]byte{2}, 101, 1, 2),
+			Message:               createTestMessage(101, 1, 2),
 		},
 	}
 
@@ -354,7 +356,7 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 			SequenceNumber:        200,
 			SourceVerifierAddress: verifier2,
 			CCVData:               []byte("sig3"),
-			Message:               createTestMessage([32]byte{3}, 200, 1, 2),
+			Message:               createTestMessage(200, 1, 2),
 		},
 	}
 
@@ -394,7 +396,7 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 			MessageID:             [32]byte{1, 2, 3},
 			SourceVerifierAddress: verifierAddress,
 			CCVData:               []byte("signature"),
-			Message:               createTestMessage([32]byte{1, 2, 3}, 100, 1, 2),
+			Message:               createTestMessage(100, 1, 2),
 		},
 	}
 
@@ -455,7 +457,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 		{
 			MessageID:             [32]byte{1},
 			SourceVerifierAddress: verifierAddress,
-			Message:               createTestMessage([32]byte{1}, 100, 1, 2),
+			Message:               createTestMessage(100, 1, 2),
 		},
 	}
 
@@ -494,7 +496,16 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature1"),
 			BlobData:              []byte("blob1"),
-			Message:               createTestMessage([32]byte{1, 2, 3}, 100, 1, 2),
+			ReceiptBlobs: []common.ReceiptWithBlob{
+				{
+					Issuer:            verifierAddress,
+					DestGasLimit:      250000,
+					DestBytesOverhead: 60,
+					Blob:              []byte("blob1"),
+					ExtraArgs:         []byte("extra"),
+				},
+			},
+			Message: createTestMessage(100, 1, 2),
 		},
 	}
 
@@ -535,7 +546,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 				SourceVerifierAddress: []byte("0x1234"),
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage([32]byte{1}, 100, 1, 2),
+				Message:               createTestMessage(100, 1, 2),
 			},
 		}
 
@@ -639,7 +650,7 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 				SourceVerifierAddress: []byte("0x1234"),
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage([32]byte{1}, 100, 1, 2),
+				Message:               createTestMessage(100, 1, 2),
 			},
 		}
 		err := storage.WriteCCVData(t.Context(), testData1)
@@ -671,7 +682,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 			DestChainSelector:     10, // Chain 10
 			SourceVerifierAddress: verifierAddress,
 			CCVData:               []byte("sig1"),
-			Message:               createTestMessage([32]byte{1}, 100, 1, 10),
+			Message:               createTestMessage(100, 1, 10),
 		},
 		{
 			MessageID:             [32]byte{2},
@@ -680,7 +691,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 			DestChainSelector:     20, // Chain 20
 			SourceVerifierAddress: verifierAddress,
 			CCVData:               []byte("sig2"),
-			Message:               createTestMessage([32]byte{2}, 101, 1, 20),
+			Message:               createTestMessage(101, 1, 20),
 		},
 		{
 			MessageID:             [32]byte{3},
@@ -689,7 +700,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 			DestChainSelector:     10, // Chain 10 again
 			SourceVerifierAddress: verifierAddress,
 			CCVData:               []byte("sig3"),
-			Message:               createTestMessage([32]byte{3}, 102, 1, 10),
+			Message:               createTestMessage(102, 1, 10),
 		},
 	}
 
