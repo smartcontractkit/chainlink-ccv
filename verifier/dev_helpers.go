@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	"time"
@@ -44,7 +45,7 @@ func SetupDevSourceReader(chainSelector cciptypes.ChainSelector) *DevSourceReade
 
 // StartMockMessageGenerator starts generating mock messages for development
 // This replaces the heavyweight mock with a simple goroutine
-func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup, chainSelector cciptypes.ChainSelector, lggr logger.Logger) {
+func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup, chainSelector cciptypes.ChainSelector, verifierAddr common.UnknownAddress, lggr logger.Logger) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second) // Generate a message every 10 seconds
 		defer ticker.Stop()
@@ -58,7 +59,7 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 				return
 			case <-ticker.C:
 				// Generate a mock verification task
-				task := createDevVerificationTask(messageCounter, chainSelector)
+				task := createDevVerificationTask(messageCounter, chainSelector, verifierAddr)
 
 				select {
 				case setup.Channel <- task:
@@ -83,11 +84,7 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 }
 
 // createDevVerificationTask creates a mock verification task for development
-func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSelector) types.VerificationTask {
-	// Create a mock message ID
-	var messageID cciptypes.Bytes32
-	copy(messageID[:], fmt.Sprintf("mock-msg-%d-%d", chainSelector, counter))
-
+func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSelector, verifierAddr common.UnknownAddress) types.VerificationTask {
 	// Mock destination chain (different from source)
 	destChain := cciptypes.ChainSelector(2337)
 	if chainSelector == 2337 {
@@ -97,7 +94,8 @@ func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSele
 	// Create mock sender and receiver addresses
 	senderAddr, _ := common.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
 	receiverAddr, _ := common.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
-	onRampAddr, _ := common.NewUnknownAddressFromHex("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
+	// Use the provided verifier address as the onramp address
+	onRampAddr := verifierAddr
 
 	// Create empty token transfer
 	tokenTransfer := common.NewEmptyTokenTransfer()
@@ -118,8 +116,20 @@ func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSele
 		tokenTransfer,
 	)
 
+	// Create receipt blobs with onramp address as issuer (required for validation)
+	// Convert counter to bytes (8 bytes for uint64, big-endian)
+	counterBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(counterBytes, counter)
+
+	receiptBlobs := []common.ReceiptWithBlob{
+		{
+			Issuer: onRampAddr, // The onramp address must be the issuer
+			Blob:   counterBytes,
+		},
+	}
+
 	return types.VerificationTask{
 		Message:      message,
-		ReceiptBlobs: []common.ReceiptWithBlob{}, // No receipt blobs for mock
+		ReceiptBlobs: receiptBlobs,
 	}
 }

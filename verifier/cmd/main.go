@@ -121,8 +121,8 @@ func main() {
 	}
 
 	// Start mock message generators for development
-	verifier.StartMockMessageGenerator(ctx, mockSetup1337, cciptypes.ChainSelector(1337), lggr)
-	verifier.StartMockMessageGenerator(ctx, mockSetup2337, cciptypes.ChainSelector(2337), lggr)
+	verifier.StartMockMessageGenerator(ctx, mockSetup1337, cciptypes.ChainSelector(1337), verifierAddr, lggr)
+	verifier.StartMockMessageGenerator(ctx, mockSetup2337, cciptypes.ChainSelector(2337), verifierAddr2, lggr)
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
