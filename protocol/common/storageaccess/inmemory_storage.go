@@ -50,21 +50,41 @@ type InMemoryOffchainStorage struct {
 
 	// Channel to notify when data is stored (for testing)
 	storedCh chan struct{}
+
+	// filtering options
+	destChainSelectors   []cciptypes.ChainSelector
+	sourceChainSelectors []cciptypes.ChainSelector
+	limit                uint64
+	offset               uint64
+
+	// stream pointer
+	nextTimestamp int64
 }
 
-// NewInMemoryOffchainStorage creates a new in-memory offchain storage
+// NewInMemoryOffchainStorage creates a new in-memory offchain storage with some default parameters.
 func NewInMemoryOffchainStorage(lggr logger.Logger) *InMemoryOffchainStorage {
-	return NewInMemoryOffchainStorageWithTimeProvider(lggr, DefaultTimeProvider)
+	return NewInMemoryOffchainStorageWithTimeProvider(lggr, DefaultTimeProvider, nil, nil, 10, 0)
 }
 
 // NewInMemoryOffchainStorageWithTimeProvider creates a new in-memory offchain storage with custom time provider
-func NewInMemoryOffchainStorageWithTimeProvider(lggr logger.Logger, timeProvider TimeProvider) *InMemoryOffchainStorage {
+func NewInMemoryOffchainStorageWithTimeProvider(
+	lggr logger.Logger,
+	timeProvider TimeProvider,
+	destChainSelectors []cciptypes.ChainSelector,
+	sourceChainSelectors []cciptypes.ChainSelector,
+	limit uint64,
+	startTimestamp int64,
+) *InMemoryOffchainStorage {
 	return &InMemoryOffchainStorage{
-		storage:          make([]StorageEntry, 0),
-		insertionCounter: 0,
-		timeProvider:     timeProvider,
-		lggr:             lggr,
-		storedCh:         make(chan struct{}, 100),
+		storage:              make([]StorageEntry, 0),
+		insertionCounter:     0,
+		timeProvider:         timeProvider,
+		lggr:                 lggr,
+		storedCh:             make(chan struct{}, 100),
+		destChainSelectors:   destChainSelectors,
+		sourceChainSelectors: sourceChainSelectors,
+		nextTimestamp:        startTimestamp,
+		limit:                limit,
 	}
 }
 
@@ -88,8 +108,8 @@ func (s *InMemoryOffchainStorage) WaitForStore(ctx context.Context) error {
 	}
 }
 
-// StoreCCVData stores multiple CCV data entries in the offchain storage
-func (s *InMemoryOffchainStorage) StoreCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
+// WriteCCVData stores multiple CCV data entries in the offchain storage
+func (s *InMemoryOffchainStorage) WriteCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -134,24 +154,17 @@ func (s *InMemoryOffchainStorage) StoreCCVData(ctx context.Context, ccvDataList 
 	return nil
 }
 
-// GetCCVDataByTimestamp queries CCV data by timestamp with offset-based pagination
-func (s *InMemoryOffchainStorage) GetCCVDataByTimestamp(
-	ctx context.Context,
-	destChainSelectors []cciptypes.ChainSelector,
-	startTimestamp int64,
-	sourceChainSelectors []cciptypes.ChainSelector,
-	limit int,
-	offset int,
-) (*common.TimestampQueryResponse, error) {
+// ReadCCVData fetches CCV data by timestamp
+func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]common.QueryResponse, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	s.lggr.Debugw("Querying CCV data by timestamp",
-		"destChains", destChainSelectors,
-		"startTimestamp", startTimestamp,
-		"sourceChains", sourceChainSelectors,
-		"limit", limit,
-		"offset", offset,
+		"destChains", s.destChainSelectors,
+		"startTimestamp", s.nextTimestamp,
+		"sourceChains", s.sourceChainSelectors,
+		"limit", s.limit,
+		"offset", s.offset,
 		"totalEntries", len(s.storage),
 	)
 
@@ -160,13 +173,13 @@ func (s *InMemoryOffchainStorage) GetCCVDataByTimestamp(
 
 	for _, entry := range s.storage {
 		// Skip entries before start_timestamp
-		if entry.CreatedAt < startTimestamp {
+		if entry.CreatedAt < s.nextTimestamp {
 			continue
 		}
 
 		// Filter by destination chain
 		found := false
-		for _, destChain := range destChainSelectors {
+		for _, destChain := range s.destChainSelectors {
 			if entry.CCVData.DestChainSelector == destChain {
 				found = true
 				break
@@ -177,9 +190,9 @@ func (s *InMemoryOffchainStorage) GetCCVDataByTimestamp(
 		}
 
 		// Filter by source chain if specified
-		if len(sourceChainSelectors) > 0 {
+		if len(s.sourceChainSelectors) > 0 {
 			found = false
-			for _, sourceChain := range sourceChainSelectors {
+			for _, sourceChain := range s.sourceChainSelectors {
 				if entry.CCVData.SourceChainSelector == sourceChain {
 					found = true
 					break
@@ -194,49 +207,46 @@ func (s *InMemoryOffchainStorage) GetCCVDataByTimestamp(
 	}
 
 	// Apply offset and limit
-	totalFiltered := len(filteredEntries)
+	totalFiltered := uint64(len(filteredEntries))
 	var paginatedEntries []StorageEntry
-	if offset < totalFiltered {
-		end := offset + limit
+	if s.offset < totalFiltered {
+		end := s.offset + s.limit
 		if end > totalFiltered {
 			end = totalFiltered
 		}
-		paginatedEntries = filteredEntries[offset:end]
+		paginatedEntries = filteredEntries[s.offset:end]
 	}
 
-	// Organize results by destination chain
-	resultData := make(map[cciptypes.ChainSelector][]common.CCVData)
-	for _, entry := range paginatedEntries {
-		destChain := entry.CCVData.DestChainSelector
-		resultData[destChain] = append(resultData[destChain], entry.CCVData)
+	// Prepare result data
+	resultData := make([]common.QueryResponse, len(paginatedEntries))
+	for i, entry := range paginatedEntries {
+		resultData[i] = common.QueryResponse{
+			Data:      entry.CCVData,
+			Timestamp: &entry.CreatedAt,
+		}
 	}
 
 	// Determine pagination metadata
-	hasMore := (offset + limit) < totalFiltered
-	var nextTimestamp *int64
+	hasMore := (s.offset + s.limit) < totalFiltered
+	//var nextTimestamp *int64
 
 	if len(paginatedEntries) > 0 && !hasMore {
 		// If this is the last page, find the next timestamp for future queries
 		lastEntryTimestamp := paginatedEntries[len(paginatedEntries)-1].CreatedAt
 		for _, entry := range s.storage {
 			if entry.CreatedAt > lastEntryTimestamp {
-				nextTimestamp = &entry.CreatedAt
+				s.nextTimestamp = entry.CreatedAt
 				break
 			}
 		}
+		s.offset = 0
 	} else if len(paginatedEntries) > 0 && hasMore {
 		// More data exists at current timestamp, keep same timestamp for next query
-		nextTimestamp = &startTimestamp
+		//s.nextTimestamp = s.nextTimestamp
+		s.offset += s.limit
 	}
 
-	response := &common.TimestampQueryResponse{
-		Data:          resultData,
-		NextTimestamp: nextTimestamp,
-		HasMore:       hasMore,
-		TotalCount:    len(paginatedEntries),
-	}
-
-	return response, nil
+	return resultData, nil
 }
 
 // GetAllCCVData retrieves all CCV data for a verifier (for testing/debugging)
@@ -254,8 +264,8 @@ func (s *InMemoryOffchainStorage) GetAllCCVData(verifierAddress []byte) ([]commo
 	return result, nil
 }
 
-// GetCCVDataByMessageID retrieves CCV data by message ID (for testing/debugging)
-func (s *InMemoryOffchainStorage) GetCCVDataByMessageID(messageID cciptypes.Bytes32) (*common.CCVData, error) {
+// ReadCCVDataByMessageID retrieves CCV data by message ID (for testing/debugging)
+func (s *InMemoryOffchainStorage) ReadCCVDataByMessageID(messageID cciptypes.Bytes32) (*common.CCVData, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -381,15 +391,8 @@ type ReaderOnlyView struct {
 	storage *InMemoryOffchainStorage
 }
 
-func (r *ReaderOnlyView) GetCCVDataByTimestamp(
-	ctx context.Context,
-	destChainSelectors []cciptypes.ChainSelector,
-	startTimestamp int64,
-	sourceChainSelectors []cciptypes.ChainSelector,
-	limit int,
-	offset int,
-) (*common.TimestampQueryResponse, error) {
-	return r.storage.GetCCVDataByTimestamp(ctx, destChainSelectors, startTimestamp, sourceChainSelectors, limit, offset)
+func (r *ReaderOnlyView) ReadCCVData(ctx context.Context) ([]common.QueryResponse, error) {
+	return r.storage.ReadCCVData(ctx)
 }
 
 // Utility methods for testing (not part of the interface)
@@ -402,6 +405,6 @@ type WriterOnlyView struct {
 	storage *InMemoryOffchainStorage
 }
 
-func (w *WriterOnlyView) StoreCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
-	return w.storage.StoreCCVData(ctx, ccvDataList)
+func (w *WriterOnlyView) WriteCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
+	return w.storage.WriteCCVData(ctx, ccvDataList)
 }

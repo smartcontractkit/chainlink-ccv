@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/crypto"
+
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
@@ -178,8 +179,6 @@ type OffchainStorageWriter interface {
 // This interface is used to access offchain data by CCIP executors to read new
 // ccv data. Designed for efficient executor polling workflows.
 type OffchainStorageReader interface {
-	// GetCCVData returns the next available CCV data entries.
-	ReadCCVData(
-		ctx context.Context,
-	) ([]QueryResponse, error)
+	// ReadCCVData returns the next available CCV data entries.
+	ReadCCVData(ctx context.Context) ([]QueryResponse, error)
 }
