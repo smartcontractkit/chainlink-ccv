@@ -7,8 +7,8 @@ import (
 
 type AbstractAggregatedReport struct {
 	Message Any2AnyVerifierMessage
-	CCVS    []string
-	Proofs  []byte
+	CCVS    []UnknownAddress
+	Proofs  [][]byte
 }
 
 // ContractAddresses is a map of contract names across all chain selectors and their address.
@@ -21,6 +21,15 @@ type MessageWithCCVData struct {
 	CCVData        []CCVData
 	ReadyTimestamp uint64
 }
+
+type CcvAddressInfo struct {
+	requiredCcvs      []UnknownAddress
+	optionalCcvs      []UnknownAddress
+	optionalThreshold uint8
+}
+
+// ========================================
+// The following types are defined in protocol/common, we just use them here while we figure out imports
 
 type UnknownAddress []byte
 

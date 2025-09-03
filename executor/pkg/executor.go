@@ -19,11 +19,9 @@ type ExecutorCoordinator struct {
 	stopCh chan struct{}
 	doneCh chan struct{}
 
-	executor             Executor
-	ccvDataReader        CcvDataReader
-	contractTransmitters map[uint64]ContractTransmitter
-	destinationReaders   map[uint64]DestinationReader
-	leaderElector        LeaderElector
+	executor      Executor
+	ccvDataReader CcvDataReader
+	leaderElector LeaderElector
 
 	lggr    logger.Logger
 	started bool
@@ -50,18 +48,6 @@ func WithCCVDataReader(ccvDataReader CcvDataReader) Option {
 	}
 }
 
-func WithContractTransmitters(contractTransmitters map[uint64]ContractTransmitter) Option {
-	return func(ec *ExecutorCoordinator) {
-		ec.contractTransmitters = contractTransmitters
-	}
-}
-
-func WithDestinationReaders(destinationReaders map[uint64]DestinationReader) Option {
-	return func(ec *ExecutorCoordinator) {
-		ec.destinationReaders = destinationReaders
-	}
-}
-
 func WithLeaderElector(leaderElector LeaderElector) Option {
 	return func(ec *ExecutorCoordinator) {
 		ec.leaderElector = leaderElector
@@ -72,22 +58,14 @@ func (ec *ExecutorCoordinator) Validate() error {
 	if ec.executor == nil {
 		return fmt.Errorf("executor is required")
 	}
-	if len(ec.contractTransmitters) == 0 {
-		return fmt.Errorf("at least one contract transmitter is required")
-	}
-	if len(ec.destinationReaders) == 0 {
-		return fmt.Errorf("at least one destination reader is required")
-	}
 	return nil
 }
 
 func NewExecutorCoordinator(options ...Option) (*ExecutorCoordinator, error) {
 	ec := &ExecutorCoordinator{
-		ccvDataCh:            make(chan MessageWithCCVData, 100),
-		stopCh:               make(chan struct{}),
-		doneCh:               make(chan struct{}),
-		contractTransmitters: make(map[uint64]ContractTransmitter),
-		destinationReaders:   make(map[uint64]DestinationReader),
+		ccvDataCh: make(chan MessageWithCCVData, 100),
+		stopCh:    make(chan struct{}),
+		doneCh:    make(chan struct{}),
 	}
 
 	for _, opt := range options {

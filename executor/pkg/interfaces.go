@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
@@ -13,8 +14,8 @@ type LeaderElector interface {
 // It's used to get the list of ccv addresses for each receiver, as well as check if messages have been executed
 type DestinationReader interface {
 	SupportedChains() []ccipocr3.ChainSelector
-	GetCCVSForMessage(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, receiverAddress string) ([]byte, error)
-	IsMessageExecuted(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, sequenceNumber uint64) (bool, error)
+	GetCCVSForMessage(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, receiverAddress ccipocr3.UnknownAddress) (CcvAddressInfo, error)
+	IsMessageExecuted(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, sequenceNumber ccipocr3.SeqNum) (bool, error)
 	GetSenderNonce(ctx context.Context, destSelector ccipocr3.ChainSelector, sourceSelector ccipocr3.ChainSelector, senderAddress string) (uint64, error)
 }
 
@@ -22,7 +23,7 @@ type DestinationReader interface {
 // it should be implemented by chain-specific transmitters
 type ContractTransmitter interface {
 	SupportedChains() []ccipocr3.ChainSelector
-	ConvertAndWriteMessageToChain(ctx, report AbstractAggregatedReport) error
+	ConvertAndWriteMessageToChain(ctx context.Context, report AbstractAggregatedReport) error
 }
 
 // CcvDataReader is an interface for reading CCV data messages.
