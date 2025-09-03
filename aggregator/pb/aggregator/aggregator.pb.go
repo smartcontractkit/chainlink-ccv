@@ -255,6 +255,82 @@ func (x *Message) GetData() []byte {
 	return nil
 }
 
+type ReceiptBlob struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Issuer            []byte                 `protobuf:"bytes,1,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	DestGasLimit      uint64                 `protobuf:"varint,2,opt,name=dest_gas_limit,json=destGasLimit,proto3" json:"dest_gas_limit,omitempty"`
+	DestBytesOverhead uint32                 `protobuf:"varint,3,opt,name=dest_bytes_overhead,json=destBytesOverhead,proto3" json:"dest_bytes_overhead,omitempty"`
+	Blob              []byte                 `protobuf:"bytes,4,opt,name=blob,proto3" json:"blob,omitempty"`
+	ExtraArgs         []byte                 `protobuf:"bytes,5,opt,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ReceiptBlob) Reset() {
+	*x = ReceiptBlob{}
+	mi := &file_proto_aggregator_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReceiptBlob) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReceiptBlob) ProtoMessage() {}
+
+func (x *ReceiptBlob) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_aggregator_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReceiptBlob.ProtoReflect.Descriptor instead.
+func (*ReceiptBlob) Descriptor() ([]byte, []int) {
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ReceiptBlob) GetIssuer() []byte {
+	if x != nil {
+		return x.Issuer
+	}
+	return nil
+}
+
+func (x *ReceiptBlob) GetDestGasLimit() uint64 {
+	if x != nil {
+		return x.DestGasLimit
+	}
+	return 0
+}
+
+func (x *ReceiptBlob) GetDestBytesOverhead() uint32 {
+	if x != nil {
+		return x.DestBytesOverhead
+	}
+	return 0
+}
+
+func (x *ReceiptBlob) GetBlob() []byte {
+	if x != nil {
+		return x.Blob
+	}
+	return nil
+}
+
+func (x *ReceiptBlob) GetExtraArgs() []byte {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
 type CommitVerificationRecord struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	MessageId             []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
@@ -266,16 +342,17 @@ type CommitVerificationRecord struct {
 	// ccv_data is the signature from the commit verifier node of the message data and the blob data
 	CcvData []byte `protobuf:"bytes,7,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
 	// blob_data is the encoded nonce from the source chain
-	BlobData      []byte   `protobuf:"bytes,8,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
-	Timestamp     uint64   `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Message       *Message `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
+	BlobData      []byte         `protobuf:"bytes,8,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
+	Timestamp     uint64         `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Message       *Message       `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
+	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,11,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CommitVerificationRecord) Reset() {
 	*x = CommitVerificationRecord{}
-	mi := &file_proto_aggregator_proto_msgTypes[1]
+	mi := &file_proto_aggregator_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -287,7 +364,7 @@ func (x *CommitVerificationRecord) String() string {
 func (*CommitVerificationRecord) ProtoMessage() {}
 
 func (x *CommitVerificationRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[1]
+	mi := &file_proto_aggregator_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -300,7 +377,7 @@ func (x *CommitVerificationRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitVerificationRecord.ProtoReflect.Descriptor instead.
 func (*CommitVerificationRecord) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{1}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CommitVerificationRecord) GetMessageId() []byte {
@@ -373,6 +450,13 @@ func (x *CommitVerificationRecord) GetMessage() *Message {
 	return nil
 }
 
+func (x *CommitVerificationRecord) GetReceiptBlobs() []*ReceiptBlob {
+	if x != nil {
+		return x.ReceiptBlobs
+	}
+	return nil
+}
+
 type WriteCommitVerificationRequest struct {
 	state                    protoimpl.MessageState    `protogen:"open.v1"`
 	CommitVerificationRecord *CommitVerificationRecord `protobuf:"bytes,1,opt,name=commit_verification_record,json=commitVerificationRecord,proto3" json:"commit_verification_record,omitempty"`
@@ -386,7 +470,7 @@ type WriteCommitVerificationRequest struct {
 
 func (x *WriteCommitVerificationRequest) Reset() {
 	*x = WriteCommitVerificationRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[2]
+	mi := &file_proto_aggregator_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -398,7 +482,7 @@ func (x *WriteCommitVerificationRequest) String() string {
 func (*WriteCommitVerificationRequest) ProtoMessage() {}
 
 func (x *WriteCommitVerificationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[2]
+	mi := &file_proto_aggregator_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -411,7 +495,7 @@ func (x *WriteCommitVerificationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteCommitVerificationRequest.ProtoReflect.Descriptor instead.
 func (*WriteCommitVerificationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{2}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *WriteCommitVerificationRequest) GetCommitVerificationRecord() *CommitVerificationRecord {
@@ -444,7 +528,7 @@ type WriteCommitVerificationResponse struct {
 
 func (x *WriteCommitVerificationResponse) Reset() {
 	*x = WriteCommitVerificationResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[3]
+	mi := &file_proto_aggregator_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -456,7 +540,7 @@ func (x *WriteCommitVerificationResponse) String() string {
 func (*WriteCommitVerificationResponse) ProtoMessage() {}
 
 func (x *WriteCommitVerificationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[3]
+	mi := &file_proto_aggregator_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -469,7 +553,7 @@ func (x *WriteCommitVerificationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteCommitVerificationResponse.ProtoReflect.Descriptor instead.
 func (*WriteCommitVerificationResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{3}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WriteCommitVerificationResponse) GetStatus() WriteStatus {
@@ -490,7 +574,7 @@ type ReadCommitVerificationRequest struct {
 
 func (x *ReadCommitVerificationRequest) Reset() {
 	*x = ReadCommitVerificationRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[4]
+	mi := &file_proto_aggregator_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -502,7 +586,7 @@ func (x *ReadCommitVerificationRequest) String() string {
 func (*ReadCommitVerificationRequest) ProtoMessage() {}
 
 func (x *ReadCommitVerificationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[4]
+	mi := &file_proto_aggregator_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -515,7 +599,7 @@ func (x *ReadCommitVerificationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadCommitVerificationRequest.ProtoReflect.Descriptor instead.
 func (*ReadCommitVerificationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{4}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ReadCommitVerificationRequest) GetMessageId() []byte {
@@ -548,7 +632,7 @@ type ReadCommitVerificationResponse struct {
 
 func (x *ReadCommitVerificationResponse) Reset() {
 	*x = ReadCommitVerificationResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[5]
+	mi := &file_proto_aggregator_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -560,7 +644,7 @@ func (x *ReadCommitVerificationResponse) String() string {
 func (*ReadCommitVerificationResponse) ProtoMessage() {}
 
 func (x *ReadCommitVerificationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[5]
+	mi := &file_proto_aggregator_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -573,7 +657,7 @@ func (x *ReadCommitVerificationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadCommitVerificationResponse.ProtoReflect.Descriptor instead.
 func (*ReadCommitVerificationResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{5}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ReadCommitVerificationResponse) GetCommitVerificationRecord() *CommitVerificationRecord {
@@ -609,7 +693,14 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x0etoken_transfer\x18\x11 \x01(\fR\rtokenTransfer\x12\x1f\n" +
 	"\vdata_length\x18\x12 \x01(\rR\n" +
 	"dataLength\x12\x12\n" +
-	"\x04data\x18\x13 \x01(\fR\x04data\"\xac\x03\n" +
+	"\x04data\x18\x13 \x01(\fR\x04data\"\xae\x01\n" +
+	"\vReceiptBlob\x12\x16\n" +
+	"\x06issuer\x18\x01 \x01(\fR\x06issuer\x12$\n" +
+	"\x0edest_gas_limit\x18\x02 \x01(\x04R\fdestGasLimit\x12.\n" +
+	"\x13dest_bytes_overhead\x18\x03 \x01(\rR\x11destBytesOverhead\x12\x12\n" +
+	"\x04blob\x18\x04 \x01(\fR\x04blob\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x05 \x01(\fR\textraArgs\"\xdf\x03\n" +
 	"\x18CommitVerificationRecord\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\fR\tmessageId\x12'\n" +
@@ -622,7 +713,8 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\tblob_data\x18\b \x01(\fR\bblobData\x12\x1c\n" +
 	"\ttimestamp\x18\t \x01(\x04R\ttimestamp\x12\"\n" +
 	"\amessage\x18\n" +
-	" \x01(\v2\b.MessageR\amessage\"\xc3\x01\n" +
+	" \x01(\v2\b.MessageR\amessage\x121\n" +
+	"\rreceipt_blobs\x18\v \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xc3\x01\n" +
 	"\x1eWriteCommitVerificationRequest\x12W\n" +
 	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord\x12%\n" +
 	"\x0eparticipant_id\x18\x02 \x01(\tR\rparticipantId\x12!\n" +
@@ -658,30 +750,32 @@ func file_proto_aggregator_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_aggregator_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_proto_aggregator_proto_goTypes = []any{
 	(WriteStatus)(0),                        // 0: WriteStatus
 	(*Message)(nil),                         // 1: Message
-	(*CommitVerificationRecord)(nil),        // 2: CommitVerificationRecord
-	(*WriteCommitVerificationRequest)(nil),  // 3: WriteCommitVerificationRequest
-	(*WriteCommitVerificationResponse)(nil), // 4: WriteCommitVerificationResponse
-	(*ReadCommitVerificationRequest)(nil),   // 5: ReadCommitVerificationRequest
-	(*ReadCommitVerificationResponse)(nil),  // 6: ReadCommitVerificationResponse
+	(*ReceiptBlob)(nil),                     // 2: ReceiptBlob
+	(*CommitVerificationRecord)(nil),        // 3: CommitVerificationRecord
+	(*WriteCommitVerificationRequest)(nil),  // 4: WriteCommitVerificationRequest
+	(*WriteCommitVerificationResponse)(nil), // 5: WriteCommitVerificationResponse
+	(*ReadCommitVerificationRequest)(nil),   // 6: ReadCommitVerificationRequest
+	(*ReadCommitVerificationResponse)(nil),  // 7: ReadCommitVerificationResponse
 }
 var file_proto_aggregator_proto_depIdxs = []int32{
 	1, // 0: CommitVerificationRecord.message:type_name -> Message
-	2, // 1: WriteCommitVerificationRequest.commit_verification_record:type_name -> CommitVerificationRecord
-	0, // 2: WriteCommitVerificationResponse.status:type_name -> WriteStatus
-	2, // 3: ReadCommitVerificationResponse.commit_verification_record:type_name -> CommitVerificationRecord
-	3, // 4: Aggregator.WriteCommitVerification:input_type -> WriteCommitVerificationRequest
-	5, // 5: Aggregator.ReadCommitVerification:input_type -> ReadCommitVerificationRequest
-	4, // 6: Aggregator.WriteCommitVerification:output_type -> WriteCommitVerificationResponse
-	6, // 7: Aggregator.ReadCommitVerification:output_type -> ReadCommitVerificationResponse
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	2, // 1: CommitVerificationRecord.receipt_blobs:type_name -> ReceiptBlob
+	3, // 2: WriteCommitVerificationRequest.commit_verification_record:type_name -> CommitVerificationRecord
+	0, // 3: WriteCommitVerificationResponse.status:type_name -> WriteStatus
+	3, // 4: ReadCommitVerificationResponse.commit_verification_record:type_name -> CommitVerificationRecord
+	4, // 5: Aggregator.WriteCommitVerification:input_type -> WriteCommitVerificationRequest
+	6, // 6: Aggregator.ReadCommitVerification:input_type -> ReadCommitVerificationRequest
+	5, // 7: Aggregator.WriteCommitVerification:output_type -> WriteCommitVerificationResponse
+	7, // 8: Aggregator.ReadCommitVerification:output_type -> ReadCommitVerificationResponse
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_proto_aggregator_proto_init() }
@@ -695,7 +789,7 @@ func file_proto_aggregator_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_aggregator_proto_rawDesc), len(file_proto_aggregator_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

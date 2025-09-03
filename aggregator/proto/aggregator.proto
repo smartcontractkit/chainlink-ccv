@@ -29,6 +29,14 @@ message Message {
   bytes data = 19;
 }
 
+message ReceiptBlob {
+  bytes issuer = 1;
+  uint64 dest_gas_limit = 2;
+  uint32 dest_bytes_overhead = 3;
+  bytes blob = 4;
+  bytes extra_args = 5;
+}
+
 message CommitVerificationRecord {
   bytes message_id = 1;
   uint64 sequence_number = 2;
@@ -42,6 +50,7 @@ message CommitVerificationRecord {
   bytes blob_data = 8;
   uint64 timestamp = 9;
   Message message = 10;
+  repeated ReceiptBlob receipt_blobs = 11;
 }
 
 message WriteCommitVerificationRequest {

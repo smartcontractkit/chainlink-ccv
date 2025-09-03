@@ -18,10 +18,39 @@ type AggregatorWriterAdapter struct {
 	committeeID   string
 }
 
+func mapReceiptBlob(receiptBlob common.ReceiptWithBlob) (*aggregator.ReceiptBlob, error) {
+	return &aggregator.ReceiptBlob{
+		Issuer:            receiptBlob.Issuer[:],
+		Blob:              receiptBlob.Blob[:],
+		DestGasLimit:      receiptBlob.DestGasLimit,
+		DestBytesOverhead: receiptBlob.DestBytesOverhead,
+		ExtraArgs:         receiptBlob.ExtraArgs,
+	}, nil
+}
+
+func mapReceiptBlobs(receiptBlobs []common.ReceiptWithBlob) ([]*aggregator.ReceiptBlob, error) {
+	var result []*aggregator.ReceiptBlob
+	for _, blob := range receiptBlobs {
+		mapped, err := mapReceiptBlob(blob)
+		if err != nil {
+			return nil, err
+		}
+		if mapped != nil {
+			result = append(result, mapped)
+		}
+	}
+	return result, nil
+}
+
 // StoreCCVData implements common.OffchainStorageWriter.
 func (a *AggregatorWriterAdapter) StoreCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
+		receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
+		if err != nil {
+			return err
+		}
+
 		res, err := a.client.WriteCommitVerification(ctx, &aggregator.WriteCommitVerificationRequest{
 			ParticipantId: a.participantID,
 			CommitteeId:   a.committeeID,
@@ -56,6 +85,7 @@ func (a *AggregatorWriterAdapter) StoreCCVData(ctx context.Context, ccvDataList 
 					DataLength:           uint32(ccvData.Message.DataLength),
 					Data:                 ccvData.Message.Data[:],
 				},
+				ReceiptBlobs: receiptBlobs,
 			},
 		})
 		if err != nil {
