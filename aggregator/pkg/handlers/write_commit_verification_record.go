@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -17,10 +18,13 @@ type AggregationTriggerer interface {
 type WriteCommitVerificationRecordHandler struct {
 	storage    common.CommitVerificationStore
 	aggregator AggregationTriggerer
+	logger     zerolog.Logger
 }
 
 // Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.WriteCommitVerificationRequest) (*aggregator.WriteCommitVerificationResponse, error) {
+	h.logger.Info().Msgf("Received WriteCommitVerificationRequest: ParticipantID=%s, CommitteeID=%s, MessageID=%x",
+		req.GetParticipantId(), req.GetCommitteeId(), req.GetCommitVerificationRecord().GetMessageId())
 	record := model.CommitVerificationRecord{
 		CommitVerificationRecord: *req.GetCommitVerificationRecord(),
 		ParticipantID:            req.GetParticipantId(),
@@ -46,9 +50,10 @@ func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *
 }
 
 // NewWriteCommitVerificationRecordHandler creates a new instance of WriteCommitVerificationRecordHandler.
-func NewWriteCommitVerificationRecordHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer) *WriteCommitVerificationRecordHandler {
+func NewWriteCommitVerificationRecordHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l zerolog.Logger) *WriteCommitVerificationRecordHandler {
 	return &WriteCommitVerificationRecordHandler{
 		storage:    store,
 		aggregator: aggregator,
+		logger:     l,
 	}
 }

@@ -41,9 +41,13 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Create storage (in-memory for development)
-	storage := storageaccess.NewInMemoryOffchainStorage(lggr)
-	storageWriter := storageaccess.CreateWriterOnly(storage)
+	// TODO: Change this to be configurable
+	storage, err := storageaccess.CreateAggregatorAdapter("localhost:50051", lggr, "participantID", "committeeID")
+	if err != nil {
+		lggr.Errorw("Failed to create storage writer", "error", err)
+		os.Exit(1)
+	}
+	storageWriter := storage
 
 	// Create mock source readers for two chains (matching devenv setup)
 	mockSetup1337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(1337))

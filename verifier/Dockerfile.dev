@@ -4,6 +4,7 @@ WORKDIR /app
 COPY verifier/go.mod verifier/go.sum ./
 WORKDIR /
 COPY protocol/ ./protocol/
+COPY aggregator/ ./aggregator/
 WORKDIR /app
 RUN go mod download
 COPY verifier/air.toml ./

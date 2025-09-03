@@ -83,7 +83,7 @@ func NewServer(l zerolog.Logger, config model.AggregatorConfig) *Server {
 	}
 
 	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store)
-	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator)
+	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator, l)
 
 	return &Server{
 		l:                                    l,

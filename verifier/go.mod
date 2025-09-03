@@ -1,8 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccv/verifier
 
-go 1.24.5
-
-toolchain go1.24.6
+go 1.24.6
 
 require (
 	github.com/ethereum/go-ethereum v1.16.3
@@ -20,13 +18,21 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/smartcontractkit/chain-selectors v1.0.62 // indirect
+	github.com/smartcontractkit/chainlink-ccv/aggregator v0.0.0 // indirect
 	github.com/smartcontractkit/libocr v0.0.0-20250408131511-c90716988ee0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
+	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
+	google.golang.org/grpc v1.75.0 // indirect
+	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 // Replace directives for local modules
 replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
+
+replace github.com/smartcontractkit/chainlink-ccv/aggregator => ../aggregator
