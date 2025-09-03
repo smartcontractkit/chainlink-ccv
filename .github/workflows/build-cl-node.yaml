@@ -1,0 +1,27 @@
+name: Build CL image with plugins
+on:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu22.04-16cores-64GB
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout Chainlink repository
+        uses: actions/checkout@v3
+        with:
+          repository: smartcontractkit/chainlink
+          path: chainlink-repo
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build and Load Docker Image
+        uses: docker/build-push-action@v4
+        with:
+          cache-from: type=gha,scope=ctf
+          cache-to: type=gha,scope=ctf,mode=max
+          context: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo
+          file: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/plugins/chainlink.Dockerfile
+          load: true
+          tags: local
