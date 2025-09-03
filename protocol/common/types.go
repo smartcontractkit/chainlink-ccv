@@ -158,40 +158,28 @@ type CCVData struct {
 	Message               Any2AnyVerifierMessage  `json:"message"`   // Complete message event being verified
 }
 
-// TimestampQueryResponse represents the response from timestamp-based CCV data queries.
-// Contains the queried data organized by destination chain along with
-// pagination metadata for efficient executor polling workflows.
-type TimestampQueryResponse struct {
+// QueryResponse represents the response from CCV data queries.
+type QueryResponse struct {
 	// Data organized by destination chain selector
-	Data map[cciptypes.ChainSelector][]CCVData `json:"data"`
-	// Next timestamp to query (nil if no more data)
-	NextTimestamp *int64 `json:"next_timestamp,omitempty"`
-	// Whether more data exists at current timestamp
-	HasMore bool `json:"has_more"`
-	// Total number of items returned
-	TotalCount int `json:"total_count"`
+	Data CCVData `json:"data"`
+	// Timestamp when the data was written (optional).
+	Timestamp *int64 `json:"timestamp,omitempty"`
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
 // This interface is used by CCIP verifiers to store their CCV data
 // after verification. Each verifier has write access to its own storage instance.
 type OffchainStorageWriter interface {
-	// StoreCCVData stores multiple CCV data entries in the offchain storage
-	StoreCCVData(ctx context.Context, ccvDataList []CCVData) error
+	// WriteCCVData stores multiple CCV data entries in the offchain storage
+	WriteCCVData(ctx context.Context, ccvDataList []CCVData) error
 }
 
-// OffchainStorageReader defines the interface for executors to query CCV data by timestamp.
-// This interface is used by CCIP executors to poll for new CCV data using
-// timestamp-based queries with offset pagination. Designed for efficient
-// executor polling workflows.
+// OffchainStorageReader defines the interface for executors to read CCV data.
+// This interface is used to access offchain data by CCIP executors to read new
+// ccv data. Designed for efficient executor polling workflows.
 type OffchainStorageReader interface {
-	// GetCCVDataByTimestamp queries CCV data by timestamp with offset-based pagination
-	GetCCVDataByTimestamp(
+	// GetCCVData returns the next available CCV data entries.
+	ReadCCVData(
 		ctx context.Context,
-		destChainSelectors []cciptypes.ChainSelector,
-		startTimestamp int64,
-		sourceChainSelectors []cciptypes.ChainSelector,
-		limit int,
-		offset int,
-	) (*TimestampQueryResponse, error)
+	) ([]QueryResponse, error)
 }
