@@ -11,7 +11,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/crypto"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
@@ -450,71 +449,67 @@ func Keccak256(data []byte) [32]byte {
 	return result
 }
 
-// CalculateSignatureHash calculates signature hash using the new chain-agnostic method:
-// keccak256(abi.encode(messageHash, keccak256(verifierBlob)))
+// CalculateSignatureHash calculates signature hash using canonical binary encoding:
+// keccak256(messageHash || keccak256(verifierBlob))
 func CalculateSignatureHash(messageHash cciptypes.Bytes32, verifierBlob []byte) ([32]byte, error) {
 	verifierBlobHash := Keccak256(verifierBlob)
 
-	// ABI encode the two hashes
-	bytes32Type, _ := abi.NewType("bytes32", "", nil)
-	args := abi.Arguments{
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-	}
+	// Canonical encoding: simply concatenate the two 32-byte hashes
+	var buf bytes.Buffer
+	buf.Write(messageHash[:])
+	buf.Write(verifierBlobHash[:])
 
-	encoded, err := args.Pack([32]byte(messageHash), [32]byte(verifierBlobHash))
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to encode signature hash components: %w", err)
-	}
-
-	return Keccak256(encoded), nil
+	return Keccak256(buf.Bytes()), nil
 }
 
-// EncodeVerifierBlob encodes nonce into verifier blob (simplified from config digest + nonce)
+// EncodeVerifierBlob encodes nonce into verifier blob using canonical binary encoding
 func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
-	uint64Type, _ := abi.NewType("uint64", "", nil)
-	args := abi.Arguments{
-		{Type: uint64Type},
-	}
-	return args.Pack(nonce)
+	// Canonical encoding: 8-byte big-endian uint64
+	var buf bytes.Buffer
+	binary.Write(&buf, binary.BigEndian, nonce)
+	return buf.Bytes(), nil
 }
 
-// DecodeReceiptBlob decodes nonce from receipt blob
+// DecodeReceiptBlob decodes nonce from receipt blob using canonical binary encoding
 func DecodeReceiptBlob(receiptBlob []byte) (uint64, error) {
-	if len(receiptBlob) < 32 {
-		return 0, fmt.Errorf("receipt blob too short: %d bytes", len(receiptBlob))
+	if len(receiptBlob) < 8 {
+		return 0, fmt.Errorf("receipt blob too short: %d bytes, expected at least 8", len(receiptBlob))
 	}
 
-	uint64Type, _ := abi.NewType("uint64", "", nil)
-	args := abi.Arguments{
-		{Type: uint64Type},
-	}
-
-	values, err := args.Unpack(receiptBlob)
+	// Canonical decoding: 8-byte big-endian uint64
+	reader := bytes.NewReader(receiptBlob)
+	var nonce uint64
+	err := binary.Read(reader, binary.BigEndian, &nonce)
 	if err != nil {
-		return 0, fmt.Errorf("failed to decode receipt blob: %w", err)
-	}
-
-	if len(values) == 0 {
-		return 0, fmt.Errorf("no values decoded from receipt blob")
-	}
-
-	nonce, ok := values[0].(uint64)
-	if !ok {
-		return 0, fmt.Errorf("failed to cast decoded value to uint64")
+		return 0, fmt.Errorf("failed to decode nonce from receipt blob: %w", err)
 	}
 
 	return nonce, nil
 }
 
-// EncodeSignatures encodes r and s arrays into signature format
+// EncodeSignatures encodes r and s arrays into signature format using canonical binary encoding
 func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
-	bytes32ArrayType, _ := abi.NewType("bytes32[]", "", nil)
-	args := abi.Arguments{
-		{Type: bytes32ArrayType},
-		{Type: bytes32ArrayType},
+	if len(rs) != len(ss) {
+		return nil, fmt.Errorf("rs and ss arrays must have the same length")
 	}
-	return args.Pack(rs, ss)
+
+	var buf bytes.Buffer
+
+	// Encode array length as uint16 (big-endian)
+	arrayLen := uint16(len(rs))
+	binary.Write(&buf, binary.BigEndian, arrayLen)
+
+	// Encode rs array
+	for _, r := range rs {
+		buf.Write(r[:])
+	}
+
+	// Encode ss array
+	for _, s := range ss {
+		buf.Write(s[:])
+	}
+
+	return buf.Bytes(), nil
 }
 
 // ValidateMessage validates a verification task message using the new format

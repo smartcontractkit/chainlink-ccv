@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -125,12 +124,9 @@ func createTestMessageWithVerifier(seqNum cciptypes.SeqNum, sourceChainSelector,
 func createTestVerificationTask(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.VerificationTask {
 	message := createTestMessage(seqNum, sourceChainSelector, destChainSelector)
 
-	// Create properly ABI-encoded receipt blob with just the nonce (uint64)
-	// This matches the Python expectation: decode(["uint64"], message.receipt_blobs[0])
+	// Create receipt blob with nonce using canonical encoding
 	nonce := uint64(seqNum)
-	uint64Type, _ := abi.NewType("uint64", "", nil)
-	args := abi.Arguments{{Type: uint64Type}}
-	receiptBlob, _ := args.Pack(nonce)
+	receiptBlob, _ := common.EncodeVerifierBlob(nonce)
 
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
