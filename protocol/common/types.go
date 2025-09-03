@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/crypto"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
@@ -194,4 +196,248 @@ type OffchainStorageReader interface {
 		limit int,
 		offset int,
 	) (*TimestampQueryResponse, error)
+}
+
+// Cryptographic and Message Processing Utilities
+// These utilities implement core CCIP v1.7 protocol logic for message verification
+
+// ABI types for encoding - shared across the protocol
+var (
+	bytes32Type, _      = abi.NewType("bytes32", "", nil)
+	uint64Type, _       = abi.NewType("uint64", "", nil)
+	uint256Type, _      = abi.NewType("uint256", "", nil)
+	addressType, _      = abi.NewType("address", "", nil)
+	bytesType, _        = abi.NewType("bytes", "", nil)
+	bytes32ArrayType, _ = abi.NewType("bytes32[]", "", nil)
+)
+
+// EncodeVerifierBlob encodes config digest and nonce into verifier blob
+// Equivalent to: abi.encode(["bytes32", "uint64"], [configDigest, nonce])
+func EncodeVerifierBlob(configDigest [32]byte, nonce uint64) ([]byte, error) {
+	args := abi.Arguments{
+		{Type: bytes32Type},
+		{Type: uint64Type},
+	}
+	return args.Pack(configDigest, nonce)
+}
+
+// EncodeSignatures encodes r and s arrays into signature format
+// Equivalent to: abi.encode(["bytes32[]", "bytes32[]], [rs, ss])
+func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
+	args := abi.Arguments{
+		{Type: bytes32ArrayType},
+		{Type: bytes32ArrayType},
+	}
+	return args.Pack(rs, ss)
+}
+
+// DecodeReceiptBlob decodes nonce from receipt blob
+// Equivalent to: abi.decode(receiptBlob, ["uint64"])
+func DecodeReceiptBlob(receiptBlob []byte) (uint64, error) {
+	if len(receiptBlob) < 32 {
+		return 0, fmt.Errorf("receipt blob too short: %d bytes", len(receiptBlob))
+	}
+
+	args := abi.Arguments{
+		{Type: uint64Type},
+	}
+
+	values, err := args.Unpack(receiptBlob)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode receipt blob: %w", err)
+	}
+
+	if len(values) == 0 {
+		return 0, fmt.Errorf("no values decoded from receipt blob")
+	}
+
+	nonce, ok := values[0].(uint64)
+	if !ok {
+		return 0, fmt.Errorf("failed to cast decoded value to uint64")
+	}
+
+	return nonce, nil
+}
+
+// Keccak256 computes the Keccak256 hash of the input
+func Keccak256(data []byte) [32]byte {
+	hash := crypto.Keccak256(data)
+	var result [32]byte
+	copy(result[:], hash)
+	return result
+}
+
+// CalculateSignatureHash calculates signature hash using Solidity-compatible method:
+// keccak256(abi.encode(messageHash, keccak256(verifierBlob)))
+func CalculateSignatureHash(messageHash [32]byte, verifierBlob []byte) ([32]byte, error) {
+	verifierBlobHash := Keccak256(verifierBlob)
+
+	args := abi.Arguments{
+		{Type: bytes32Type},
+		{Type: bytes32Type},
+	}
+
+	encoded, err := args.Pack([32]byte(messageHash), [32]byte(verifierBlobHash))
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to encode signature hash components: %w", err)
+	}
+
+	return Keccak256(encoded), nil
+}
+
+// Hash calculates the metadata hash for Any2EVMMessageMetadata
+func (m *Any2EVMMessageMetadata) Hash() [32]byte {
+	args := abi.Arguments{
+		{Type: uint64Type}, // source chain selector
+		{Type: uint64Type}, // dest chain selector
+		{Type: bytesType},  // onramp address
+	}
+
+	encoded, err := args.Pack(
+		uint64(m.SourceChainSelector),
+		uint64(m.DestChainSelector),
+		[]byte(m.OnRampAddress),
+	)
+	if err != nil {
+		// This should not happen with valid input
+		return [32]byte{}
+	}
+
+	return Keccak256(encoded)
+}
+
+// ConvertAny2AnyToAny2EVM converts Any2AnyVerifierMessage to Any2EVMVerifierMessage format
+func ConvertAny2AnyToAny2EVM(any2any *Any2AnyVerifierMessage, gasLimit uint32) *Any2EVMVerifierMessage {
+	if gasLimit == 0 {
+		gasLimit = 200000 // Default gas limit
+	}
+
+	return &Any2EVMVerifierMessage{
+		Header:        any2any.Header,
+		Sender:        any2any.Sender,
+		Data:          any2any.Data,
+		Receiver:      any2any.Receiver,
+		TokenTransfer: any2any.TokenTransfer,
+		GasLimit:      gasLimit,
+		ExtraArgs:     any2any.ExtraArgs,
+		OnRampAddress: any2any.OnRampAddress,
+	}
+}
+
+// CalculateMessageHash calculates the message hash following Solidity's Internal._hash logic
+// This matches the EVM implementation in Internal.sol
+func CalculateMessageHash(message *Any2EVMVerifierMessage, metadata *Any2EVMMessageMetadata) ([32]byte, error) {
+	// Get domain separators from common package
+	leafDomainSeparator := LeafDomainSeparator
+	metadataHash := metadata.Hash()
+
+	// Calculate nested hashes as per Solidity implementation
+	// keccak256(abi.encode(sender, sequenceNumber, gasLimit))
+	senderSeqGasArgs := abi.Arguments{
+		{Type: bytesType},   // sender
+		{Type: uint64Type},  // sequence number
+		{Type: uint256Type}, // gas limit
+	}
+
+	senderSeqGasEncoded, err := senderSeqGasArgs.Pack(
+		[]byte(message.Sender),
+		uint64(message.Header.SequenceNumber),
+		big.NewInt(int64(message.GasLimit)),
+	)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to encode sender/seq/gas: %w", err)
+	}
+	senderSeqGasHash := Keccak256(senderSeqGasEncoded)
+
+	// keccak256(receiver) - convert to address format if needed
+	receiverHash := Keccak256([]byte(message.Receiver))
+
+	// keccak256(data)
+	dataHash := Keccak256(message.Data)
+
+	// keccak256(abi.encode(tokenTransfer))
+	tokenTransferArgs := abi.Arguments{
+		{Type: bytesType},   // source token address
+		{Type: bytesType},   // dest token address
+		{Type: bytesType},   // extra data
+		{Type: uint256Type}, // amount
+	}
+
+	tokenTransferEncoded, err := tokenTransferArgs.Pack(
+		[]byte(message.TokenTransfer.SourceTokenAddress),
+		[]byte(message.TokenTransfer.DestTokenAddress),
+		message.TokenTransfer.ExtraData,
+		message.TokenTransfer.Amount,
+	)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to encode token transfer: %w", err)
+	}
+	tokenTransferHash := Keccak256(tokenTransferEncoded)
+
+	// Final hash: keccak256(abi.encode(leafDomainSeparator, metadataHash, senderSeqGasHash, receiverHash, dataHash, tokenTransferHash))
+	finalArgs := abi.Arguments{
+		{Type: bytes32Type}, // leaf domain separator
+		{Type: bytes32Type}, // metadata hash
+		{Type: bytes32Type}, // sender/seq/gas hash
+		{Type: bytes32Type}, // receiver hash
+		{Type: bytes32Type}, // data hash
+		{Type: bytes32Type}, // token transfer hash
+	}
+
+	finalEncoded, err := finalArgs.Pack(
+		[32]byte(leafDomainSeparator),
+		[32]byte(metadataHash),
+		[32]byte(senderSeqGasHash),
+		[32]byte(receiverHash),
+		[32]byte(dataHash),
+		[32]byte(tokenTransferHash),
+	)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to encode final hash: %w", err)
+	}
+
+	return Keccak256(finalEncoded), nil
+}
+
+// ValidateMessage validates a verification task message
+func ValidateMessage(verificationTask *VerificationTask, verifierOnRampAddress UnknownAddress) error {
+	if verificationTask == nil {
+		return fmt.Errorf("verification task is nil")
+	}
+
+	if len(verificationTask.Message.Header.MessageID) == 0 {
+		return fmt.Errorf("message ID is empty")
+	}
+
+	// Check if the verifier onramp address is found as issuer in any verifier receipt
+	// This matches the Python logic: any(receipt.issuer == self.verifier_onramp_address for receipt in event.message.verifier_receipts)
+	found := false
+	for _, receipt := range verificationTask.Message.VerifierReceipts {
+		if receipt.Issuer.String() == verifierOnRampAddress.String() {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("verifier onramp address %s not found as issuer in any verifier receipt", verifierOnRampAddress.String())
+	}
+
+	return nil
+}
+
+// CreateCCVData creates CCVData from verification task, signature, and blob
+func CreateCCVData(verificationTask *VerificationTask, signature []byte, verifierBlob []byte, sourceVerifierAddress UnknownAddress) *CCVData {
+	return &CCVData{
+		MessageID:             verificationTask.Message.Header.MessageID,
+		SequenceNumber:        verificationTask.Message.Header.SequenceNumber,
+		SourceChainSelector:   verificationTask.Message.Header.SourceChainSelector,
+		DestChainSelector:     verificationTask.Message.Header.DestChainSelector,
+		SourceVerifierAddress: sourceVerifierAddress,
+		DestVerifierAddress:   UnknownAddress{}, // Will be set by the caller if needed
+		CCVData:               signature,
+		BlobData:              verifierBlob,
+		Timestamp:             time.Now().UnixMicro(), // Unix timestamp in microseconds
+		Message:               verificationTask.Message,
+	}
 }

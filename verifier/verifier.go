@@ -376,7 +376,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	}
 
 	// 2. Validate message and check verifier receipts (following Python logic)
-	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
+	if err := common.ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
 		cv.sendVerificationError(ctx, verificationTask,
 			fmt.Errorf("message validation failed: %w", err),
 			verificationErrorCh)
@@ -405,7 +405,7 @@ func (cv *CommitVerifier) VerifyMessage(ctx context.Context, verificationTask co
 	)
 
 	// 4. Create CCV data with all required fields
-	ccvData := CreateCCVData(&verificationTask, signature, verifierBlob, sourceConfig.VerifierAddress)
+	ccvData := common.CreateCCVData(&verificationTask, signature, verifierBlob, sourceConfig.VerifierAddress)
 
 	// Send CCVData to channel for storage
 	select {
