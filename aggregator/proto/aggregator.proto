@@ -5,6 +5,7 @@ option go_package = "pb/aggregator";
 service Aggregator {
   rpc WriteCommitVerification(WriteCommitVerificationRequest) returns (WriteCommitVerificationResponse);
   rpc ReadCommitVerification(ReadCommitVerificationRequest) returns (ReadCommitVerificationResponse);
+  rpc QueryAggregatedCommitRecords(QueryAggregatedCommitRecordsRequest) returns (QueryAggregatedCommitRecordsResponse);
 }
 
 message Any2AnyMessageHeader {
@@ -86,4 +87,17 @@ message ReadCommitVerificationRequest {
 
 message ReadCommitVerificationResponse {
   CommitVerificationRecord commit_verification_record = 1;
+}
+
+// Query Commit Verification Records between a time range. The result is paginated and sorted in ascending order (from oldest to newest)
+message QueryAggregatedCommitRecordsRequest {
+    uint32 start = 1;
+    uint32 end = 2;
+    string next_token = 3;
+}
+
+message QueryAggregatedCommitRecordsResponse {
+    repeated CommitVerificationRecord records = 1;
+    string next_token = 2;
+    uint32 total = 3;
 }
