@@ -515,6 +515,144 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	require.Equal(t, cciptypes.ChainSelector(2), response[0].Data.DestChainSelector)
 }
 
+func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, limit uint64) *InMemoryOffchainStorage {
+	lggr := logger.Test(t)
+
+	// Use fixed time provider for predictable tests
+	timeProvider := func() int64 { return baseTime }
+	storage := NewInMemoryOffchainStorageWithTimeProvider(
+		lggr, timeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, limit, 0, baseTime-1)
+
+	// create numMessages, each 10 seconds apart
+	for i := 0; i < numMessages; i++ {
+		timeProvider = func() int64 { return baseTime + (10 * int64(i)) }
+		testData1 := []common.CCVData{
+			{
+				MessageID:             [32]byte{1},
+				SequenceNumber:        100,
+				SourceChainSelector:   1,
+				DestChainSelector:     2,
+				SourceVerifierAddress: []byte("0x1234"),
+				DestVerifierAddress:   []byte("0x4567"),
+				CCVData:               []byte("sig1"),
+				Message:               createTestMessage([32]byte{1}, 100, 1, 2),
+			},
+		}
+
+		// Store first data at baseTime
+		err := storage.WriteCCVData(t.Context(), testData1)
+		require.NoError(t, err)
+	}
+
+	return storage
+}
+
+func TestManySequentialReads(t *testing.T) {
+	baseTime := time.Now().UnixMicro()
+	ctx := t.Context()
+
+	tests := []struct {
+		name          string
+		numMessages   int
+		limit         int
+		expectedReads int
+	}{
+		{
+			name:          "10 messages with limit 3",
+			numMessages:   10,
+			limit:         3,
+			expectedReads: 4, // 3 full reads + 1 partial
+		},
+		{
+			name:          "5 messages with limit 2",
+			numMessages:   5,
+			limit:         2,
+			expectedReads: 3, // 2 full reads + 1 partial
+		},
+		{
+			name:          "7 messages with limit 10",
+			numMessages:   7,
+			limit:         10,
+			expectedReads: 1, // all in one read
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			storage := setupReaderWithMessagesfunc(t, baseTime, tt.numMessages, uint64(tt.limit))
+			totalRetrieved := 0
+			for {
+				response, err := storage.ReadCCVData(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, response)
+
+				totalRetrieved += len(response)
+
+				// If fewer than limit were returned, we've reached the end
+				if len(response) < tt.limit {
+					break
+				}
+			}
+
+			require.Equal(t, tt.numMessages, totalRetrieved)
+		})
+	}
+}
+
+func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
+	baseTime := time.Now().UnixMicro()
+	ctx := t.Context()
+
+	storage := setupReaderWithMessagesfunc(t, baseTime, 99, 50)
+	{
+		// Read first 50 messages
+		results, err := storage.ReadCCVData(ctx)
+		require.NoError(t, err)
+		require.Len(t, results, 50)
+	}
+
+	{
+		// Read remaining 49 messages
+		results, err := storage.ReadCCVData(ctx)
+		require.NoError(t, err)
+		require.Len(t, results, 49)
+	}
+
+	{
+		// Next read should return empty
+		results, err := storage.ReadCCVData(ctx)
+		require.NoError(t, err)
+		require.Len(t, results, 0)
+	}
+
+	{
+		// Add 1 more message, it should be returned by the next read.
+		seqNum := cciptypes.SeqNum(987654321)
+		timeProvider := func() int64 { return baseTime + (10 * int64(100)) }
+		storage.timeProvider = timeProvider
+		testData1 := []common.CCVData{
+			{
+				MessageID:             [32]byte{1},
+				SequenceNumber:        seqNum,
+				SourceChainSelector:   1,
+				DestChainSelector:     2,
+				SourceVerifierAddress: []byte("0x1234"),
+				DestVerifierAddress:   []byte("0x4567"),
+				CCVData:               []byte("sig1"),
+				Message:               createTestMessage([32]byte{1}, 100, 1, 2),
+			},
+		}
+		err := storage.WriteCCVData(t.Context(), testData1)
+		require.NoError(t, err)
+
+		// Next read should return the new message
+		results, err := storage.ReadCCVData(ctx)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		require.Equal(t, seqNum, results[0].Data.SequenceNumber)
+	}
+}
+
 /*
 // I don't think these tests are valid anymore.
 func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {

@@ -229,24 +229,7 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]common.Que
 	}
 
 	// Determine pagination metadata
-	hasMore := (s.offset + s.limit) < totalFiltered
-	//var nextTimestamp *int64
-
-	if len(paginatedEntries) > 0 && !hasMore {
-		// If this is the last page, find the next timestamp for future queries
-		lastEntryTimestamp := paginatedEntries[len(paginatedEntries)-1].CreatedAt
-		for _, entry := range s.storage {
-			if entry.CreatedAt > lastEntryTimestamp {
-				s.nextTimestamp = entry.CreatedAt
-				break
-			}
-		}
-		s.offset = 0
-	} else if len(paginatedEntries) > 0 && hasMore {
-		// More data exists at current timestamp, keep same timestamp for next query
-		//s.nextTimestamp = s.nextTimestamp
-		s.offset += s.limit
-	}
+	s.offset += uint64(len(resultData))
 
 	return resultData, nil
 }
