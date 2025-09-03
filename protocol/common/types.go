@@ -401,8 +401,11 @@ func (m *Message) MessageID() (cciptypes.Bytes32, error) {
 
 // ReceiptWithBlob represents a chain-agnostic receipt with blob
 type ReceiptWithBlob struct {
-	Issuer UnknownAddress `json:"issuer"`
-	Blob   []byte         `json:"blob"`
+	Issuer            UnknownAddress `json:"issuer"`
+	DestGasLimit      uint64         `json:"dest_gas_limit"`
+	DestBytesOverhead uint32         `json:"dest_bytes_overhead"`
+	Blob              []byte         `json:"blob"`
+	ExtraArgs         []byte         `json:"extra_args"`
 }
 
 // CCVData represents Cross-Chain Verification data
@@ -413,10 +416,10 @@ type CCVData struct {
 	DestChainSelector     cciptypes.ChainSelector `json:"dest_chain_selector"`
 	SourceVerifierAddress UnknownAddress          `json:"source_verifier_address"`
 	DestVerifierAddress   UnknownAddress          `json:"dest_verifier_address"`
-	CCVData               []byte                  `json:"ccv_data"`  // The actual proof/signature
-	BlobData              []byte                  `json:"blob_data"` // Additional verifier-specific data
-	Timestamp             int64                   `json:"timestamp"` // Unix timestamp when verification completed (in microseconds)
-	Message               Message                 `json:"message"`   // Complete message event being verified
+	CCVData               []byte                  `json:"ccv_data"`     // The actual proof/signature
+	Timestamp             int64                   `json:"timestamp"`    // Unix timestamp when verification completed (in microseconds)
+	Message               Message                 `json:"message"`      // Complete message event being verified
+	ReceiptBlob           ReceiptWithBlob         `json:"receipt_blob"` // The receipt blob for the message
 }
 
 // TimestampQueryResponse represents the response from timestamp-based CCV data queries.

@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/utils"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format
@@ -54,7 +55,7 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 	}
 
 	// 2. Find the verifier index that corresponds to our source verifier address
-	verifierIndex, err := s.findVerifierIndexBySourceAddress(verificationTask, sourceVerifierAddress)
+	verifierIndex, err := utils.FindVerifierIndexBySourceAddress(&verificationTask, sourceVerifierAddress)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to find verifier index: %w", err)
 	}
@@ -99,15 +100,4 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 // GetSignerAddress returns the address of the signer
 func (s *ECDSASigner) GetSignerAddress() common.UnknownAddress {
 	return s.address
-}
-
-// findVerifierIndexBySourceAddress finds the index of the source verifier address in the ReceiptBlobs array.
-func (s *ECDSASigner) findVerifierIndexBySourceAddress(verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) (int, error) {
-	for i, receipt := range verificationTask.ReceiptBlobs {
-		if receipt.Issuer.String() == sourceVerifierAddress.String() {
-			return i, nil
-		}
-	}
-
-	return -1, fmt.Errorf("source verifier address %s not found in ReceiptBlobs", sourceVerifierAddress.String())
 }

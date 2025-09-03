@@ -147,8 +147,11 @@ func createTestVerificationTask(seqNum cciptypes.SeqNum, sourceChainSelector, de
 		Message: message,
 		ReceiptBlobs: []common.ReceiptWithBlob{
 			{
-				Issuer: common.UnknownAddress([]byte(verifierAddress)),
-				Blob:   receiptBlob,
+				Issuer:            common.UnknownAddress([]byte(verifierAddress)),
+				DestGasLimit:      300000, // Test gas limit
+				DestBytesOverhead: 100,    // Test bytes overhead
+				Blob:              receiptBlob,
+				ExtraArgs:         []byte("test-extra-args"), // Test extra args
 			},
 		},
 	}

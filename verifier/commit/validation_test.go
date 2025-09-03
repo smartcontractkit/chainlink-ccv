@@ -96,8 +96,11 @@ func TestValidateMessageErrors(t *testing.T) {
 				},
 				ReceiptBlobs: []common.ReceiptWithBlob{
 					{
-						Issuer: common.UnknownAddress([]byte("different")),
-						Blob:   []byte("blob"),
+						Issuer:            common.UnknownAddress([]byte("different")),
+						DestGasLimit:      100000, // Test gas limit
+						DestBytesOverhead: 25,     // Test bytes overhead
+						Blob:              []byte("blob"),
+						ExtraArgs:         []byte{},
 					},
 				},
 			},
@@ -147,8 +150,11 @@ func TestValidateMessage(t *testing.T) {
 		Message: *message,
 		ReceiptBlobs: []common.ReceiptWithBlob{
 			{
-				Issuer: verifierAddr,
-				Blob:   []byte("test blob"),
+				Issuer:            verifierAddr,
+				DestGasLimit:      250000, // Test gas limit
+				DestBytesOverhead: 75,     // Test bytes overhead
+				Blob:              []byte("test blob"),
+				ExtraArgs:         []byte("test"), // Test extra args
 			},
 		},
 	}

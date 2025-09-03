@@ -123,8 +123,11 @@ func createDevVerificationTask(counter uint64, chainSelector cciptypes.ChainSele
 
 	receiptBlobs := []common.ReceiptWithBlob{
 		{
-			Issuer: onRampAddr, // The onramp address must be the issuer
-			Blob:   counterBytes,
+			Issuer:            onRampAddr, // The onramp address must be the issuer
+			DestGasLimit:      200000,     // Default gas limit for development
+			DestBytesOverhead: 50,         // Default bytes overhead for development
+			Blob:              counterBytes,
+			ExtraArgs:         []byte{},
 		},
 	}
 

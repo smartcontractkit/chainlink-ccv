@@ -55,9 +55,15 @@ func TestInMemoryOffchainStorage_StoreCCVData(t *testing.T) {
 			SourceVerifierAddress: verifierAddress,
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature1"),
-			BlobData:              []byte("blob1"),
 			Timestamp:             time.Now().Unix(),
-			Message:               createTestMessage(100, 1, 2),
+			ReceiptBlob: common.ReceiptWithBlob{
+				Issuer:            verifierAddress,
+				DestGasLimit:      200000,
+				DestBytesOverhead: 50,
+				Blob:              []byte("blob1"),
+				ExtraArgs:         []byte{},
+			},
+			Message: createTestMessage(100, 1, 2),
 		},
 		{
 			MessageID:             [32]byte{4, 5, 6},
@@ -67,9 +73,15 @@ func TestInMemoryOffchainStorage_StoreCCVData(t *testing.T) {
 			SourceVerifierAddress: verifierAddress,
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature2"),
-			BlobData:              []byte("blob2"),
 			Timestamp:             time.Now().Unix() + 1,
-			Message:               createTestMessage(101, 1, 2),
+			ReceiptBlob: common.ReceiptWithBlob{
+				Issuer:            verifierAddress,
+				DestGasLimit:      300000,
+				DestBytesOverhead: 75,
+				Blob:              []byte("blob2"),
+				ExtraArgs:         []byte("test"),
+			},
+			Message: createTestMessage(101, 1, 2),
 		},
 	}
 
@@ -264,9 +276,15 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 			SourceVerifierAddress: verifierAddress,
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature"),
-			BlobData:              []byte("blob"),
 			Timestamp:             time.Now().Unix(),
-			Message:               createTestMessage(100, 1, 2),
+			ReceiptBlob: common.ReceiptWithBlob{
+				Issuer:            verifierAddress,
+				DestGasLimit:      150000,
+				DestBytesOverhead: 30,
+				Blob:              []byte("blob"),
+				ExtraArgs:         []byte{},
+			},
+			Message: createTestMessage(100, 1, 2),
 		},
 	}
 
@@ -464,8 +482,14 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 			SourceVerifierAddress: verifierAddress,
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature1"),
-			BlobData:              []byte("blob1"),
-			Message:               createTestMessage(100, 1, 2),
+			ReceiptBlob: common.ReceiptWithBlob{
+				Issuer:            verifierAddress,
+				DestGasLimit:      250000,
+				DestBytesOverhead: 60,
+				Blob:              []byte("blob1"),
+				ExtraArgs:         []byte("extra"),
+			},
+			Message: createTestMessage(100, 1, 2),
 		},
 	}
 
