@@ -1,24 +1,26 @@
 set fallback
 
+import '../tools/lib/utils.justfile'
+
 # Default: show available recipes
 default:
     just --list
 
 # Format all go files
-fmt:
+fmt: ensure-golangci-lint
     golangci-lint fmt
 
 # Run golangci-lint
-lint:
+lint: ensure-golangci-lint
     golangci-lint run --output.text.path stdout
 
-mod-tidy:
+mod-tidy: ensure-go
     go mod tidy
 
-mod-download:
+mod-tidy: ensure-go
     go mod download
 
-test:
+test: ensure-go
     go test -v ./...
 
 test-coverage:

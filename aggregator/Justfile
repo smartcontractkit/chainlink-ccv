@@ -1,27 +1,29 @@
 set fallback
 
+import '../tools/lib/utils.justfile'
+
 # Default: show available recipes
 default:
     just --list
 
 # Format all go files
-fmt:
+fmt: ensure-golangci-lint
     golangci-lint fmt
 
 # Run golangci-lint
-lint:
+lint: ensure-golangci-lint
     golangci-lint run --output.text.path stdout
 
-mod-tidy:
+mod-tidy: ensure-go
     go mod tidy
 
-mod-download:
+mod-download: ensure-go
     go mod download
 
-proto:
+proto: ensure-protoc
     protoc --go_out=. --go-grpc_out=. ./proto/aggregator.proto
 
-proto-lint:
+proto-lint: ensure-buf
     buf lint
 
 proto-check: proto
@@ -36,10 +38,10 @@ proto-check: proto
         echo "Protobuf files are in sync"; \
     fi
 
-test:
+test: ensure-go
     go test -v ./...
 
-test-coverage:
+test-coverage: ensure-go
     go test -v -coverprofile=coverage.out ./...
 
 build:
