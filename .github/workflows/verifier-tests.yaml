@@ -29,8 +29,12 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0
 
-      - name: Install go-tools
-        run: just install-go-tools
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9
+        with:
+          version: latest
+          working-directory: verifier
+          args: --help # Just install, don't run yet
 
       - name: Run lint
         run: just lint
