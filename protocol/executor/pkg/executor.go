@@ -24,8 +24,7 @@ type ExecutorCoordinator struct {
 	leaderElector LeaderElector
 
 	lggr    logger.Logger
-	started bool
-	stopped bool
+	running bool
 }
 
 type Option func(*ExecutorCoordinator)
@@ -81,15 +80,11 @@ func NewExecutorCoordinator(options ...Option) (*ExecutorCoordinator, error) {
 }
 
 func (ec *ExecutorCoordinator) Start(ctx context.Context) error {
-	if ec.started {
-		return fmt.Errorf("ExecutorCoordinator already started")
+	if ec.running {
+		return fmt.Errorf("ExecutorCoordinator already running")
 	}
 
-	if ec.stopped {
-		return fmt.Errorf("ExecutorCoordinator already stopped")
-	}
-
-	ec.started = true
+	ec.running = true
 	go ec.run(ctx)
 
 	ec.lggr.Infow("ExecutorCoordinator started")
@@ -98,14 +93,11 @@ func (ec *ExecutorCoordinator) Start(ctx context.Context) error {
 }
 
 func (ec *ExecutorCoordinator) Stop() error {
-	if !ec.started {
+	if !ec.running {
 		return fmt.Errorf("ExecutorCoordinator not started")
 	}
 
-	if ec.stopped {
-		return nil
-	}
-	ec.stopped, ec.started = true, false
+	ec.running = false
 
 	close(ec.stopCh)
 	<-ec.doneCh
@@ -118,22 +110,27 @@ func (ec *ExecutorCoordinator) Stop() error {
 func (ec *ExecutorCoordinator) run(ctx context.Context) {
 	defer close(ec.doneCh)
 
-	go ec.readCCVData(ctx)
+	messagesCh, err := ec.ccvDataReader.subscribeMessages()
+	if err != nil {
+		ec.lggr.Errorw("failed to get messages from ccvDataReader", "error", err)
+		return
+	}
 
+	ctx, cancel := context.WithCancel(ctx)
 	for {
 		select {
-		case <-ctx.Done():
-			ec.lggr.Infow("ExecutorCoordinator context done, exiting")
-			return
 		case <-ec.stopCh:
 			ec.lggr.Infow("ExecutorCoordinator stop signal received, exiting")
+			cancel()
 			return
-		case ccvData, ok := <-ec.ccvDataCh:
+		case msg, ok := <-messagesCh:
 			if !ok {
-				ec.lggr.Warnw("ccvDataCh closed, exiting")
-				return
+				ec.lggr.Warnw("messagesCh closed")
+				// TODO: handle reconnection logic
 			}
-			err := ec.ProcessIndexerPayload(ctx)
+			ec.ccvDataCh <- msg
+		case ccvData := <-ec.ccvDataCh:
+			err := ec.ProcessMessage(ctx)
 			if err != nil {
 				ec.lggr.Errorw("failed to process indexer payload", "error", err)
 			} else {
@@ -143,51 +140,23 @@ func (ec *ExecutorCoordinator) run(ctx context.Context) {
 	}
 }
 
-func (ec *ExecutorCoordinator) readCCVData(ctx context.Context) {
-	messagesCh, err := ec.ccvDataReader.subscribeMessages()
-	if err != nil {
-		ec.lggr.Errorw("failed to get messages from ccvDataReader", "error", err)
-		return
-	}
-
+func (ec *ExecutorCoordinator) ProcessMessage(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			ec.lggr.Infow("readCCVData context done, exiting")
-			return
-		case <-ec.stopCh:
-			ec.lggr.Infow("readCCVData stop signal received, exiting")
-			return
-		case msg, ok := <-messagesCh:
-			if !ok {
-				ec.lggr.Warnw("messagesCh closed, exiting readCCVData")
-				return
-			}
-			ec.ccvDataCh <- msg
-		}
-	}
-}
-
-func (ec *ExecutorCoordinator) ProcessIndexerPayload(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			ec.lggr.Infow("readCCVData context done, exiting")
-			return nil
-		case <-ec.stopCh:
-			ec.lggr.Infow("readCCVData stop signal received, exiting")
+			ec.lggr.Infow("executor main loop context done, exiting")
 			return nil
 		case msg, ok := <-ec.ccvDataCh:
 			if !ok {
-				ec.lggr.Warnw("messagesCh closed, exiting readCCVData")
+				ec.lggr.Warnw("ccvDataCh closed, exiting processMessage")
 				return nil
 			}
 			// todo: perform some validations on the message
 
 			// get message delay from leader elector
-			delay := ec.leaderElector.get_delay(msg.Message.Header.MessageID, msg.Message.Header.DestChainSelector)
+			delay := ec.leaderElector.get_delay(msg.Message.Header.MessageID, msg.Message.Header.DestChainSelector, msg.ReadyTimestamp)
 			if delay+msg.ReadyTimestamp > uint64(time.Now().Unix()) {
-				// not ready yet, requeue. In a real system, consider using a cache instead of sleep
+				// not ready yet, requeue. In a real system, consider using a priority queue keyed on "readiness time"
 				ec.lggr.Infow("message not ready yet, requeuing", "message", msg, "delay", delay)
 				go func() {
 					time.Sleep(time.Duration((delay + msg.ReadyTimestamp - uint64(time.Now().Unix())) * uint64(time.Second)))

@@ -83,15 +83,15 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return fmt.Errorf("failed to get CCV Offramp addresses for message: %w", err)
 	}
 
-	ordered_ccv_offramps, ordered_ccv_data, err := cle.orderCcvData(messageWithCCVData.CCVData, ccvInfo)
+	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(messageWithCCVData.CCVData, ccvInfo)
 	if err != nil {
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
 	}
 
 	err = cle.contractTransmitters.ConvertAndWriteMessageToChain(ctx, AbstractAggregatedReport{
 		Message: messageWithCCVData.Message,
-		CCVS:    ordered_ccv_offramps,
-		Proofs:  ordered_ccv_data,
+		CCVS:    orderedCcvOfframps,
+		Proofs:  orderedCcvData,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to transmit message to chain: %w", err)
@@ -131,5 +131,4 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiver_d
 		return nil, nil, fmt.Errorf("optional CCV Offramps did not meet threshold")
 	}
 	return orderedCcvOfframps, orderedCcvData, nil
-
 }

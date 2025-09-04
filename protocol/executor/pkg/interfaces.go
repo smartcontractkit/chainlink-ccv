@@ -8,7 +8,7 @@ import (
 )
 
 type LeaderElector interface {
-	get_delay(messageId ccipocr3.Bytes32, destSelector ccipocr3.ChainSelector) uint64
+	get_delay(messageId ccipocr3.Bytes32, destSelector ccipocr3.ChainSelector, readyTimestamp uint64) uint64
 }
 
 // DestinationReader is an interface for reading message status and data from destination chains
