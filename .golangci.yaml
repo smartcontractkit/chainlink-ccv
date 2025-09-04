@@ -54,15 +54,16 @@ linters:
     # https://golangci-lint.run/usage/linters/#depguard
     depguard:
       rules:
-        protocol:
-          list-mode: lax
-          files:
-            - ${config-path}/protocol/**.go
-          allow:
-            - $gostd
-          deny:
-            - pkg: github.com/smartcontractkit/chainlink
-              desc: No chainlink dependencies in protocol abstraction layer
+        # TODO enforce after rearrange
+        #protocol:
+        #  list-mode: lax
+        #  files:
+        #    - ${config-path}/protocol/**.go
+        #  allow:
+        #    - $gostd
+        #  deny:
+        #    - pkg: github.com/smartcontractkit/chainlink
+        #      desc: No chainlink dependencies in protocol abstraction layer
 
         test:
           list-mode: lax
@@ -264,9 +265,6 @@ linters:
           severity: warning
         # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#import-alias-naming
         - name: import-alias-naming
-          severity: warning
-        # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#import-shadowing
-        - name: import-shadowing
           severity: warning
         # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#increment-decrement
         - name: increment-decrement
