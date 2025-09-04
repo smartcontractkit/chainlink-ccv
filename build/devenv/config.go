@@ -28,6 +28,7 @@ const (
 	DefaultConfigDir = "."
 	// EnvVarTestConfigs is the environment variable name to read config paths from, ex.: CTF_CONFIGS=env.toml,overrides.toml.
 	EnvVarTestConfigs = "CTF_CONFIGS"
+	DefaultAnvilKey   = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 )
 
 var L = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
@@ -107,7 +108,7 @@ func getNetworkPrivateKey() string {
 	pk := os.Getenv("PRIVATE_KEY")
 	if pk == "" {
 		// that's the first Anvil and Geth private key, serves as a fallback for local testing if not overridden
-		return "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+		return DefaultAnvilKey
 	}
 	return pk
 }
