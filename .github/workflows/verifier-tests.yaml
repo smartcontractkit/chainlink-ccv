@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - 'verifier/**'
+      - 'protocol/**'
   pull_request:
     paths:
       - 'verifier/**'
+      - 'protocol/**'
 
 defaults:
   run:
