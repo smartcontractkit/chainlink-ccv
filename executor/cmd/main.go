@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -34,11 +35,30 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Create executor coordinator
-	coordinator, err := NewExecutorCoordinator(
-		verifier.WithVerifier(commitVerifier),
-		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithStorage(storageWriter),
-		verifier.WithConfig(config),
-		verifier.WithLogger(lggr),
+	coordinator, err := executor.NewExecutorCoordinator(
+		executor.WithLogger(lggr),
 	)
+	if err != nil {
+		lggr.Errorw("Failed to create execution coordinator", "error", err)
+		os.Exit(1)
+	}
+
+	if err := coordinator.Start(ctx); err != nil {
+		lggr.Errorw("Failed to start execution coordinator", "error", err)
+		os.Exit(1)
+	}
+
+	<-sigCh
+	lggr.Infow("🛑 Shutdown signal received, stopping verifier...")
+
+	// Graceful shutdown
+	_, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	// Stop verification coordinator
+	if err := coordinator.Stop(); err != nil {
+		lggr.Errorw("Execution coordinator stop error", "error", err)
+	}
+
+	lggr.Infow("✅ Execution service stopped gracefully")
 }
