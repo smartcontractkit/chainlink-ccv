@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"math"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
@@ -21,6 +23,11 @@ func (h *QueryAggregatedCommitRecordsHandler) Handle(ctx context.Context, req *a
 			// TODO: Fill in the rest
 		})
 	}
+
+	if len(records) > math.MaxUint32 {
+		return nil, fmt.Errorf("number of records (%d) exceeds max allowed records", len(records))
+	}
+
 	return &aggregator.QueryAggregatedCommitRecordsResponse{
 		Records: records,
 		Total:   uint32(len(records)),
