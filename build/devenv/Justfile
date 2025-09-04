@@ -1,6 +1,6 @@
 set fallback
 
-import '../tools/lib/utils.justfile'
+import '../../tools/lib/utils.justfile'
 
 # Default: show available recipes
 default:
@@ -17,7 +17,7 @@ lint: ensure-golangci-lint
 mod-tidy: ensure-go
     go mod tidy
 
-mod-tidy: ensure-go
+mod-download: ensure-go
     go mod download
 
 clean:

@@ -17,7 +17,7 @@ lint: ensure-golangci-lint
 mod-tidy: ensure-go
     go mod tidy
 
-mod-tidy: ensure-go
+mod-download: ensure-go
     go mod download
 
 test: ensure-go
