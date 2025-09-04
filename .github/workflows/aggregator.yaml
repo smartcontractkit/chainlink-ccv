@@ -22,9 +22,12 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        uses: actions/setup-go@v6 # v6
         with:
+          cache: true
           go-version-file: aggregator/go.mod
+          cache-dependency-path: |
+            aggregator/go.sum
 
       - name: Install just
         uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0
