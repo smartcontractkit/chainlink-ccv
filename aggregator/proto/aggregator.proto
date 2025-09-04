@@ -1,10 +1,12 @@
 syntax = "proto3";
 
 option go_package = "pb/aggregator";
+import "google/protobuf/timestamp.proto";
 
 service Aggregator {
   rpc WriteCommitVerification(WriteCommitVerificationRequest) returns (WriteCommitVerificationResponse);
   rpc ReadCommitVerification(ReadCommitVerificationRequest) returns (ReadCommitVerificationResponse);
+  rpc QueryAggregatedCommitRecords(QueryAggregatedCommitRecordsRequest) returns (QueryAggregatedCommitRecordsResponse);
 }
 
 message Any2AnyMessageHeader {
@@ -86,4 +88,17 @@ message ReadCommitVerificationRequest {
 
 message ReadCommitVerificationResponse {
   CommitVerificationRecord commit_verification_record = 1;
+}
+
+// Query Commit Verification Records between a time range. The result is paginated and sorted in ascending order (from oldest to newest)
+message QueryAggregatedCommitRecordsRequest {
+    google.protobuf.Timestamp start = 1;
+    google.protobuf.Timestamp end = 2;
+    string next_token = 3;
+}
+
+message QueryAggregatedCommitRecordsResponse {
+    repeated CommitVerificationRecord records = 1;
+    string next_token = 2;
+    uint32 total = 3;
 }
