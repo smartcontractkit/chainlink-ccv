@@ -1,3 +1,15 @@
+# Default: show available recipes
+default:
+    just --list
+
+# Format all go files
+fmt:
+    golangci-lint fmt
+
+# Run golangci-lint
+lint:
+    golangci-lint run --whole-files --output.text.path stdout --max-same-issues=0
+
 build:
     docker build -f Dockerfile -t executor:latest .
 

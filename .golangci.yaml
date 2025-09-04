@@ -10,6 +10,7 @@ linters:
     - asasalint
     - copyloopvar
     - decorder
+    - depguard
     - dupl
     - dupword
     - errcheck
@@ -60,11 +61,11 @@ linters:
           allow:
             - $gostd
           deny:
-            - pkg: github.com/test-go
+            - pkg: "github.com/docker/docker/client"
               desc: Use github.com/stretchr instead
             - pkg: github.com/test-go/testify/assert
               desc: Use github.com/stretchr/testify/assert
-            - pkg: github.com/test-go/testify/require
+            - pkg: github.com/stretchr/testify/require
               desc: Use github.com/stretchr/testify/require
             - pkg: github.com/smartcontractkit/chainlink/v2
               desc: System-level tests should not import chainlink/v2, please either use chain-specific packages or consult core team
@@ -75,9 +76,11 @@ linters:
           allow:
             - $gostd
           deny:
+            - pkg: github.com/smartcontractkit/chainlink-testing-framework(/|$)
+              desc: This package is not maintained
             - pkg: github.com/mitchellh/mapstructure
               desc: This package is not maintained; Use github.com/go-viper/mapstructure/v2 instead.
-            - pkg: github.com/x/net/context
+            - pkg: "github.com/docker/docker/client"
               desc: Use context package from the standard library.
             - pkg: github.com/pkg/errors
               desc: Should be replaced by the standard lib errors package.
@@ -387,19 +390,6 @@ linters:
         - binding
         - validate
 
-  exclusions:
-    generated: lax
-    warn-unused: false
-
-    rules:
-      - path: _test\.go
-        linters:
-          - dupl
-          - errcheck
-          - gocyclo
-          - gosec
-          - revive
-
 # https://golangci-lint.run/usage/configuration/#formatters-configuration
 formatters:
   enable:
@@ -413,7 +403,7 @@ formatters:
       sections:
         - standard
         - default
-        - prefix(github.com/smartcontractkit/crib-sdk)
+        - prefix(github.com/smartcontractkit/chainlink-ccv)
         - blank
         - dot
         - alias
@@ -427,12 +417,12 @@ formatters:
           replacement: 'a[b:]'
     # https://golangci-lint.run/usage/formatters/#gofumpt
     gofumpt:
-      module-path: github.com/smartcontractkit/crib-sdk
+      module-path: github.com/smartcontractkit/chainlink-ccv
       extra-rules: true
     # https://golangci-lint.run/usage/formatters/#goimports
     goimports:
       local-prefixes:
-        - github.com/smartcontractkit/crib-sdk
+        - github.com/smartcontractkit/chainlink-ccv
 
   exclusions:
     generated: lax
@@ -464,7 +454,7 @@ output:
 # https://golangci-lint.run/usage/configuration/#run-configuration
 run:
   timeout: 5m
-  tests: false
+  tests: true
   modules-download-mode: readonly
   allow-parallel-runners: true
   allow-serial-runners: true

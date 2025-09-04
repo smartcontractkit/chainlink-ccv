@@ -21,11 +21,11 @@ rm-chaos:
 
 # Format all go files
 fmt:
-    golangci-lint fmt --config=.golangci.yaml
+    golangci-lint fmt 
 
 # Run golangci-lint
 lint:
-    golangci-lint run --whole-files --output.text.path stdout --max-same-issues=0 --config=.golangci.yaml
+    golangci-lint run --whole-files --output.text.path stdout --max-same-issues=0
 
 # Install pre-commit hooks
 pre-commit:
