@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Aggregator_WriteCommitVerification_FullMethodName = "/Aggregator/WriteCommitVerification"
-	Aggregator_ReadCommitVerification_FullMethodName  = "/Aggregator/ReadCommitVerification"
+	Aggregator_WriteCommitVerification_FullMethodName      = "/Aggregator/WriteCommitVerification"
+	Aggregator_ReadCommitVerification_FullMethodName       = "/Aggregator/ReadCommitVerification"
+	Aggregator_QueryAggregatedCommitRecords_FullMethodName = "/Aggregator/QueryAggregatedCommitRecords"
 )
 
 // AggregatorClient is the client API for Aggregator service.
@@ -29,6 +30,7 @@ const (
 type AggregatorClient interface {
 	WriteCommitVerification(ctx context.Context, in *WriteCommitVerificationRequest, opts ...grpc.CallOption) (*WriteCommitVerificationResponse, error)
 	ReadCommitVerification(ctx context.Context, in *ReadCommitVerificationRequest, opts ...grpc.CallOption) (*ReadCommitVerificationResponse, error)
+	QueryAggregatedCommitRecords(ctx context.Context, in *QueryAggregatedCommitRecordsRequest, opts ...grpc.CallOption) (*QueryAggregatedCommitRecordsResponse, error)
 }
 
 type aggregatorClient struct {
@@ -59,12 +61,23 @@ func (c *aggregatorClient) ReadCommitVerification(ctx context.Context, in *ReadC
 	return out, nil
 }
 
+func (c *aggregatorClient) QueryAggregatedCommitRecords(ctx context.Context, in *QueryAggregatedCommitRecordsRequest, opts ...grpc.CallOption) (*QueryAggregatedCommitRecordsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QueryAggregatedCommitRecordsResponse)
+	err := c.cc.Invoke(ctx, Aggregator_QueryAggregatedCommitRecords_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AggregatorServer is the server API for Aggregator service.
 // All implementations must embed UnimplementedAggregatorServer
 // for forward compatibility.
 type AggregatorServer interface {
 	WriteCommitVerification(context.Context, *WriteCommitVerificationRequest) (*WriteCommitVerificationResponse, error)
 	ReadCommitVerification(context.Context, *ReadCommitVerificationRequest) (*ReadCommitVerificationResponse, error)
+	QueryAggregatedCommitRecords(context.Context, *QueryAggregatedCommitRecordsRequest) (*QueryAggregatedCommitRecordsResponse, error)
 	mustEmbedUnimplementedAggregatorServer()
 }
 
@@ -80,6 +93,9 @@ func (UnimplementedAggregatorServer) WriteCommitVerification(context.Context, *W
 }
 func (UnimplementedAggregatorServer) ReadCommitVerification(context.Context, *ReadCommitVerificationRequest) (*ReadCommitVerificationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReadCommitVerification not implemented")
+}
+func (UnimplementedAggregatorServer) QueryAggregatedCommitRecords(context.Context, *QueryAggregatedCommitRecordsRequest) (*QueryAggregatedCommitRecordsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryAggregatedCommitRecords not implemented")
 }
 func (UnimplementedAggregatorServer) mustEmbedUnimplementedAggregatorServer() {}
 func (UnimplementedAggregatorServer) testEmbeddedByValue()                    {}
@@ -138,6 +154,24 @@ func _Aggregator_ReadCommitVerification_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Aggregator_QueryAggregatedCommitRecords_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryAggregatedCommitRecordsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AggregatorServer).QueryAggregatedCommitRecords(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Aggregator_QueryAggregatedCommitRecords_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AggregatorServer).QueryAggregatedCommitRecords(ctx, req.(*QueryAggregatedCommitRecordsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Aggregator_ServiceDesc is the grpc.ServiceDesc for Aggregator service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +186,10 @@ var Aggregator_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReadCommitVerification",
 			Handler:    _Aggregator_ReadCommitVerification_Handler,
+		},
+		{
+			MethodName: "QueryAggregatedCommitRecords",
+			Handler:    _Aggregator_QueryAggregatedCommitRecords_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

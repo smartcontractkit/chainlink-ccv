@@ -9,6 +9,7 @@ package aggregator
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -667,11 +668,132 @@ func (x *ReadCommitVerificationResponse) GetCommitVerificationRecord() *CommitVe
 	return nil
 }
 
+// Query Commit Verification Records between a time range. The result is paginated and sorted in ascending order (from oldest to newest)
+type QueryAggregatedCommitRecordsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Start         *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	End           *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+	NextToken     string                 `protobuf:"bytes,3,opt,name=next_token,json=nextToken,proto3" json:"next_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryAggregatedCommitRecordsRequest) Reset() {
+	*x = QueryAggregatedCommitRecordsRequest{}
+	mi := &file_proto_aggregator_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryAggregatedCommitRecordsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryAggregatedCommitRecordsRequest) ProtoMessage() {}
+
+func (x *QueryAggregatedCommitRecordsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_aggregator_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryAggregatedCommitRecordsRequest.ProtoReflect.Descriptor instead.
+func (*QueryAggregatedCommitRecordsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *QueryAggregatedCommitRecordsRequest) GetStart() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Start
+	}
+	return nil
+}
+
+func (x *QueryAggregatedCommitRecordsRequest) GetEnd() *timestamppb.Timestamp {
+	if x != nil {
+		return x.End
+	}
+	return nil
+}
+
+func (x *QueryAggregatedCommitRecordsRequest) GetNextToken() string {
+	if x != nil {
+		return x.NextToken
+	}
+	return ""
+}
+
+type QueryAggregatedCommitRecordsResponse struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Records       []*CommitVerificationRecord `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
+	NextToken     string                      `protobuf:"bytes,2,opt,name=next_token,json=nextToken,proto3" json:"next_token,omitempty"`
+	Total         uint32                      `protobuf:"varint,3,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryAggregatedCommitRecordsResponse) Reset() {
+	*x = QueryAggregatedCommitRecordsResponse{}
+	mi := &file_proto_aggregator_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryAggregatedCommitRecordsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryAggregatedCommitRecordsResponse) ProtoMessage() {}
+
+func (x *QueryAggregatedCommitRecordsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_aggregator_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryAggregatedCommitRecordsResponse.ProtoReflect.Descriptor instead.
+func (*QueryAggregatedCommitRecordsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *QueryAggregatedCommitRecordsResponse) GetRecords() []*CommitVerificationRecord {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+func (x *QueryAggregatedCommitRecordsResponse) GetNextToken() string {
+	if x != nil {
+		return x.NextToken
+	}
+	return ""
+}
+
+func (x *QueryAggregatedCommitRecordsResponse) GetTotal() uint32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 var File_proto_aggregator_proto protoreflect.FileDescriptor
 
 const file_proto_aggregator_proto_rawDesc = "" +
 	"\n" +
-	"\x16proto/aggregator.proto\"\xe3\x05\n" +
+	"\x16proto/aggregator.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe3\x05\n" +
 	"\aMessage\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x122\n" +
 	"\x15source_chain_selector\x18\x02 \x01(\x04R\x13sourceChainSelector\x12.\n" +
@@ -727,15 +849,26 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x0eparticipant_id\x18\x02 \x01(\tR\rparticipantId\x12!\n" +
 	"\fcommittee_id\x18\x03 \x01(\tR\vcommitteeId\"y\n" +
 	"\x1eReadCommitVerificationResponse\x12W\n" +
-	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord*&\n" +
+	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord\"\xa4\x01\n" +
+	"#QueryAggregatedCommitRecordsRequest\x120\n" +
+	"\x05start\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x05start\x12,\n" +
+	"\x03end\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x03end\x12\x1d\n" +
+	"\n" +
+	"next_token\x18\x03 \x01(\tR\tnextToken\"\x90\x01\n" +
+	"$QueryAggregatedCommitRecordsResponse\x123\n" +
+	"\arecords\x18\x01 \x03(\v2\x19.CommitVerificationRecordR\arecords\x12\x1d\n" +
+	"\n" +
+	"next_token\x18\x02 \x01(\tR\tnextToken\x12\x14\n" +
+	"\x05total\x18\x03 \x01(\rR\x05total*&\n" +
 	"\vWriteStatus\x12\v\n" +
 	"\aSUCCESS\x10\x00\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x012\xc5\x01\n" +
+	"\x06FAILED\x10\x012\xb2\x02\n" +
 	"\n" +
 	"Aggregator\x12\\\n" +
 	"\x17WriteCommitVerification\x12\x1f.WriteCommitVerificationRequest\x1a .WriteCommitVerificationResponse\x12Y\n" +
-	"\x16ReadCommitVerification\x12\x1e.ReadCommitVerificationRequest\x1a\x1f.ReadCommitVerificationResponseB\x0fZ\rpb/aggregatorb\x06proto3"
+	"\x16ReadCommitVerification\x12\x1e.ReadCommitVerificationRequest\x1a\x1f.ReadCommitVerificationResponse\x12k\n" +
+	"\x1cQueryAggregatedCommitRecords\x12$.QueryAggregatedCommitRecordsRequest\x1a%.QueryAggregatedCommitRecordsResponseB\x0fZ\rpb/aggregatorb\x06proto3"
 
 var (
 	file_proto_aggregator_proto_rawDescOnce sync.Once
@@ -750,32 +883,40 @@ func file_proto_aggregator_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_aggregator_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_proto_aggregator_proto_goTypes = []any{
-	(WriteStatus)(0),                        // 0: WriteStatus
-	(*Message)(nil),                         // 1: Message
-	(*ReceiptBlob)(nil),                     // 2: ReceiptBlob
-	(*CommitVerificationRecord)(nil),        // 3: CommitVerificationRecord
-	(*WriteCommitVerificationRequest)(nil),  // 4: WriteCommitVerificationRequest
-	(*WriteCommitVerificationResponse)(nil), // 5: WriteCommitVerificationResponse
-	(*ReadCommitVerificationRequest)(nil),   // 6: ReadCommitVerificationRequest
-	(*ReadCommitVerificationResponse)(nil),  // 7: ReadCommitVerificationResponse
+	(WriteStatus)(0),                             // 0: WriteStatus
+	(*Message)(nil),                              // 1: Message
+	(*ReceiptBlob)(nil),                          // 2: ReceiptBlob
+	(*CommitVerificationRecord)(nil),             // 3: CommitVerificationRecord
+	(*WriteCommitVerificationRequest)(nil),       // 4: WriteCommitVerificationRequest
+	(*WriteCommitVerificationResponse)(nil),      // 5: WriteCommitVerificationResponse
+	(*ReadCommitVerificationRequest)(nil),        // 6: ReadCommitVerificationRequest
+	(*ReadCommitVerificationResponse)(nil),       // 7: ReadCommitVerificationResponse
+	(*QueryAggregatedCommitRecordsRequest)(nil),  // 8: QueryAggregatedCommitRecordsRequest
+	(*QueryAggregatedCommitRecordsResponse)(nil), // 9: QueryAggregatedCommitRecordsResponse
+	(*timestamppb.Timestamp)(nil),                // 10: google.protobuf.Timestamp
 }
 var file_proto_aggregator_proto_depIdxs = []int32{
-	1, // 0: CommitVerificationRecord.message:type_name -> Message
-	2, // 1: CommitVerificationRecord.receipt_blobs:type_name -> ReceiptBlob
-	3, // 2: WriteCommitVerificationRequest.commit_verification_record:type_name -> CommitVerificationRecord
-	0, // 3: WriteCommitVerificationResponse.status:type_name -> WriteStatus
-	3, // 4: ReadCommitVerificationResponse.commit_verification_record:type_name -> CommitVerificationRecord
-	4, // 5: Aggregator.WriteCommitVerification:input_type -> WriteCommitVerificationRequest
-	6, // 6: Aggregator.ReadCommitVerification:input_type -> ReadCommitVerificationRequest
-	5, // 7: Aggregator.WriteCommitVerification:output_type -> WriteCommitVerificationResponse
-	7, // 8: Aggregator.ReadCommitVerification:output_type -> ReadCommitVerificationResponse
-	7, // [7:9] is the sub-list for method output_type
-	5, // [5:7] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	1,  // 0: CommitVerificationRecord.message:type_name -> Message
+	2,  // 1: CommitVerificationRecord.receipt_blobs:type_name -> ReceiptBlob
+	3,  // 2: WriteCommitVerificationRequest.commit_verification_record:type_name -> CommitVerificationRecord
+	0,  // 3: WriteCommitVerificationResponse.status:type_name -> WriteStatus
+	3,  // 4: ReadCommitVerificationResponse.commit_verification_record:type_name -> CommitVerificationRecord
+	10, // 5: QueryAggregatedCommitRecordsRequest.start:type_name -> google.protobuf.Timestamp
+	10, // 6: QueryAggregatedCommitRecordsRequest.end:type_name -> google.protobuf.Timestamp
+	3,  // 7: QueryAggregatedCommitRecordsResponse.records:type_name -> CommitVerificationRecord
+	4,  // 8: Aggregator.WriteCommitVerification:input_type -> WriteCommitVerificationRequest
+	6,  // 9: Aggregator.ReadCommitVerification:input_type -> ReadCommitVerificationRequest
+	8,  // 10: Aggregator.QueryAggregatedCommitRecords:input_type -> QueryAggregatedCommitRecordsRequest
+	5,  // 11: Aggregator.WriteCommitVerification:output_type -> WriteCommitVerificationResponse
+	7,  // 12: Aggregator.ReadCommitVerification:output_type -> ReadCommitVerificationResponse
+	9,  // 13: Aggregator.QueryAggregatedCommitRecords:output_type -> QueryAggregatedCommitRecordsResponse
+	11, // [11:14] is the sub-list for method output_type
+	8,  // [8:11] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_aggregator_proto_init() }
@@ -789,7 +930,7 @@ func file_proto_aggregator_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_aggregator_proto_rawDesc), len(file_proto_aggregator_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
