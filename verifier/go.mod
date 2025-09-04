@@ -3,6 +3,7 @@ module github.com/smartcontractkit/chainlink-ccv/verifier
 go 1.24.6
 
 require (
+	github.com/BurntSushi/toml v1.5.0
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.4
@@ -11,7 +12,6 @@ require (
 )
 
 require (
-	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
