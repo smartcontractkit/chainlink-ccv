@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/utils"
@@ -62,11 +63,10 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 
 	// 3. Extract nonce from the correct receipt blob using the verifier index
 	var verifierBlob []byte
-	if verifierIndex < len(verificationTask.ReceiptBlobs) && len(verificationTask.ReceiptBlobs[verifierIndex].Blob) > 0 {
-		verifierBlob = verificationTask.ReceiptBlobs[verifierIndex].Blob
-	} else {
+	if verifierIndex >= len(verificationTask.ReceiptBlobs) || len(verificationTask.ReceiptBlobs[verifierIndex].Blob) <= 0 {
 		return nil, nil, fmt.Errorf("receipt blob at index %d is empty", verifierIndex)
 	}
+	verifierBlob = verificationTask.ReceiptBlobs[verifierIndex].Blob
 
 	// 5. Calculate signature hash using the new method
 	signatureHash, err := CalculateSignatureHash(messageHash, verifierBlob)

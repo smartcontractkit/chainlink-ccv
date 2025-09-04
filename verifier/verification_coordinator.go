@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 )
@@ -60,12 +61,12 @@ func WithSourceReaders(sourceReaders map[cciptypes.ChainSelector]reader.SourceRe
 }
 
 // AddSourceReader adds a single source reader to the existing map
-func AddSourceReader(chainSelector cciptypes.ChainSelector, reader reader.SourceReader) Option {
+func AddSourceReader(chainSelector cciptypes.ChainSelector, sourceReader reader.SourceReader) Option {
 	return func(vc *VerificationCoordinator) {
 		if vc.sourceStates == nil {
 			vc.sourceStates = make(map[cciptypes.ChainSelector]*sourceState)
 		}
-		vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
+		vc.sourceStates[chainSelector] = newSourceState(chainSelector, sourceReader)
 	}
 }
 

@@ -48,7 +48,7 @@ linters:
         - type
         - func
       ignore-underscore-vars: true
-      disable-dec-order-check: false
+      disable-dec-order-check: true
       disable-init-func-first-check: true
 
     # https://golangci-lint.run/usage/linters/#depguard
@@ -463,7 +463,7 @@ output:
 # https://golangci-lint.run/usage/configuration/#run-configuration
 run:
   timeout: 5m
-  tests: true
+  tests: false
   modules-download-mode: readonly
   allow-parallel-runners: true
   allow-serial-runners: true

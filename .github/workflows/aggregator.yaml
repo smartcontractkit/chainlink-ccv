@@ -30,7 +30,9 @@ jobs:
         uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0
 
       - name: Install go-tools
-        run: just install-go-tools
+        run: |
+          just install-protoc
+          just install-go-tools
 
       - name: Run lint
         run: just lint

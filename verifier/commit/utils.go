@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
 // Keccak256 computes the Keccak256 hash of the input
@@ -50,7 +51,9 @@ func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 
 	// Encode the blob content
 	var content bytes.Buffer
-	content.WriteByte(blob.Version)
+	if err := content.WriteByte(blob.Version); err != nil {
+		return nil, err
+	}
 	if err := binary.Write(&content, binary.BigEndian, blob.Nonce); err != nil {
 		return nil, err
 	}
@@ -58,6 +61,7 @@ func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 	// Create length-prefixed blob: length(2 bytes) + content
 	var buf bytes.Buffer
 	contentBytes := content.Bytes()
+	// #nosec G115 - safe because contentBytes is created here
 	if err := binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes))); err != nil {
 		return nil, err
 	}
