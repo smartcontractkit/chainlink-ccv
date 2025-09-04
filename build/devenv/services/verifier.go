@@ -1,11 +1,13 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
 
+	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -34,6 +36,12 @@ type VerifierDBInput struct {
 	Image string `toml:"image"`
 }
 
+type VerifierConfig struct {
+	AggregatorAddress string `toml:"aggregator_address"`
+	ParticipantID     string `toml:"participant_id"`
+	CommitteeID       string `toml:"committee_id"`
+}
+
 type VerifierInput struct {
 	Image          string          `toml:"image"`
 	Port           int             `toml:"port"`
@@ -42,6 +50,7 @@ type VerifierInput struct {
 	ContainerName  string          `toml:"container_name"`
 	UseCache       bool            `toml:"use_cache"`
 	Out            *VerifierOutput `toml:"out"`
+	VerifierConfig VerifierConfig  `toml:"verifier_config"`
 }
 
 type VerifierOutput struct {
@@ -104,6 +113,11 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
+	var verifierConfigBuf bytes.Buffer
+	if err := toml.NewEncoder(&verifierConfigBuf).Encode(in.VerifierConfig); err != nil {
+		return nil, fmt.Errorf("failed to encode verifier config: %w", err)
+	}
+
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -122,6 +136,13 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}
+		},
+		Files: []testcontainers.ContainerFile{
+			{
+				Reader:            bytes.NewReader(verifierConfigBuf.Bytes()),
+				ContainerFilePath: "/app/verifier.toml",
+				FileMode:          0644,
+			},
 		},
 	}
 

@@ -3,6 +3,7 @@ module github.com/smartcontractkit/chainlink-ccv/devenv
 go 1.24.6
 
 require (
+	github.com/BurntSushi/toml v1.4.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/docker/docker v28.3.1+incompatible

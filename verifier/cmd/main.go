@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/BurntSushi/toml"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 	"go.uber.org/zap"
@@ -17,6 +20,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
+
+func loadConfiguration(filepath string) (*verifier.Configuration, error) {
+	var config verifier.Configuration
+	if _, err := toml.DecodeFile(filepath, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
 
 func main() {
 	// Setup logging - always debug level for now
@@ -39,15 +50,28 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Create storage (in-memory for development)
-	storage := storageaccess.NewInMemoryOffchainStorage(lggr)
-	storageWriter := storageaccess.CreateWriterOnly(storage)
+	filePath := "verifier.toml"
+	if len(os.Args) > 1 {
+		filePath = os.Args[1]
+	}
+	verifierConfig, err := loadConfiguration(filePath)
+	if err != nil {
+		lggr.Errorw("Failed to load configuration", "error", err)
+		os.Exit(1)
+	}
+
+	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr, verifierConfig.ParticipantID, verifierConfig.CommitteeID)
+	if err != nil {
+		lggr.Errorw("Failed to create storage writer", "error", err)
+		os.Exit(1)
+	}
+	storageWriter := storage
 
 	// Create mock source readers for two chains (matching devenv setup)
 	mockSetup1337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(1337))
 	mockSetup2337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(2337))
 
-	sourceReaders := map[cciptypes.ChainSelector]verifier.SourceReader{
+	sourceReaders := map[cciptypes.ChainSelector]reader.SourceReader{
 		cciptypes.ChainSelector(1337): mockSetup1337.Reader,
 		cciptypes.ChainSelector(2337): mockSetup2337.Reader,
 	}
@@ -66,9 +90,9 @@ func main() {
 	}
 
 	// Create coordinator configuration
-	config := verifier.CoordinatorConfig{
+	config := types.CoordinatorConfig{
 		VerifierID: "dev-verifier-1",
-		SourceConfigs: map[cciptypes.ChainSelector]verifier.SourceConfig{
+		SourceConfigs: map[cciptypes.ChainSelector]types.SourceConfig{
 			cciptypes.ChainSelector(1337): {
 				VerifierAddress: verifierAddr,
 			},
@@ -84,14 +108,14 @@ func main() {
 	// Create message signer (mock for development)
 	privateKey := make([]byte, 32)
 	copy(privateKey, "dev-private-key-12345678901234567890") // Mock key
-	signer, err := verifier.NewECDSAMessageSigner(privateKey)
+	signer, err := commit.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		os.Exit(1)
 	}
 
 	// Create commit verifier
-	commitVerifier := verifier.NewCommitVerifier(config, signer, lggr)
+	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
 
 	// Create verification coordinator
 	coordinator, err := verifier.NewVerificationCoordinator(
@@ -119,31 +143,31 @@ func main() {
 	}
 
 	// Start mock message generators for development
-	verifier.StartMockMessageGenerator(ctx, mockSetup1337, cciptypes.ChainSelector(1337), lggr)
-	verifier.StartMockMessageGenerator(ctx, mockSetup2337, cciptypes.ChainSelector(2337), lggr)
+	verifier.StartMockMessageGenerator(ctx, mockSetup1337, cciptypes.ChainSelector(1337), verifierAddr, lggr)
+	verifier.StartMockMessageGenerator(ctx, mockSetup2337, cciptypes.ChainSelector(2337), verifierAddr2, lggr)
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "✅ CCV Verifier is running!\n")
-		fmt.Fprintf(w, "Verifier ID: %s\n", config.VerifierID)
-		fmt.Fprintf(w, "Source Chains: [1337, 2337]\n")
+		lggr.Infow("✅ CCV Verifier is running!\n")
+		lggr.Infow("Verifier ID: %s\n", config.VerifierID)
+		lggr.Infow("Source Chains: [1337, 2337]\n")
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := coordinator.HealthCheck(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, "❌ Unhealthy: %s\n", err.Error())
+			lggr.Infow("❌ Unhealthy: %s\n", err.Error())
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "✅ Healthy\n")
+		lggr.Infow("✅ Healthy\n")
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
 		stats := storage.GetStats()
-		fmt.Fprintf(w, "📊 Storage Statistics:\n")
+		lggr.Infow("📊 Storage Statistics:\n")
 		for key, value := range stats {
-			fmt.Fprintf(w, "%s: %v\n", key, value)
+			lggr.Infow("%s: %v\n", key, value)
 		}
 	})
 
