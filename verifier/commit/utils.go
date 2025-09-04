@@ -140,6 +140,7 @@ func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
 	var buf bytes.Buffer
 
 	// Encode array length as uint16 (big-endian)
+	// #nosec G115 - safe because ecdsa sigs
 	arrayLen := uint16(len(rs))
 	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
 		return nil, err
