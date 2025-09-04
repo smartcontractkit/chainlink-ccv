@@ -48,7 +48,7 @@ jobs:
       - name: Download Go dependencies
         run: |
           go mod download
-      - name: Build Docker images with Just
+      - name: Build Docker Images
         run: just build-docker-dev-ci
         env:
           DOCKER_BUILDKIT: 1
