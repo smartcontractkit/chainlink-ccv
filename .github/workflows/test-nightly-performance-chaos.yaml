@@ -50,10 +50,10 @@ jobs:
         run: just build-docker-dev-ci
         env:
           DOCKER_BUILDKIT: 1
-      - name: Set up Go with module caching
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+      - name: Set up Go
+        uses: actions/setup-go@v6 # v6
         with:
-          go-version-file: build/devenv/go.mod
+          go-version-file: 'build/devenv/go.mod'
       - name: Cache Go modules
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -73,7 +73,7 @@ jobs:
       - name: Run CCV environment with config
         run: |
           ccv u ${{ matrix.test.config }}
-      - name: Run specific test
+      - name: Run perf test
         working-directory: build/devenv/tests/e2e
         env:
           LOKI_URL: http://localhost:3030/loki/api/v1/push

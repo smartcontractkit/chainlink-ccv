@@ -32,8 +32,8 @@ jobs:
         run: just build-docker-dev-ci
         env:
           DOCKER_BUILDKIT: 1
-      - name: Set up Go with module caching
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+      - name: Set up Go
+        uses: actions/setup-go@v6 # v6
         with:
           go-version-file: build/devenv/go.mod
       - name: Cache Go modules
