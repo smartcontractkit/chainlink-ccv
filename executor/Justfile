@@ -1,3 +1,5 @@
+set fallback
+
 # Default: show available recipes
 default:
     just --list
