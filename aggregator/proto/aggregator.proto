@@ -9,43 +9,34 @@ service Aggregator {
   rpc QueryAggregatedCommitRecords(QueryAggregatedCommitRecordsRequest) returns (QueryAggregatedCommitRecordsResponse);
 }
 
-message Any2AnyMessageHeader {
-  bytes message_id = 1;
+message Message {
+  uint32 version = 1;
   uint64 source_chain_selector = 2;
   uint64 dest_chain_selector = 3;
   uint64 sequence_number = 4;
+  uint32 on_ramp_address_length = 5;
+  bytes on_ramp_address = 6;
+  uint32 off_ramp_address_length = 7;
+  bytes off_ramp_address = 8;
+  uint32 finality = 9;
+  uint32 sender_length = 10;
+  bytes sender = 11;
+  uint32 receiver_length = 12;
+  bytes receiver = 13;
+  uint32 dest_blob_length = 14;
+  bytes dest_blob = 15;
+  uint32 token_transfer_length = 16;
+  bytes token_transfer = 17;
+  uint32 data_length = 18;
+  bytes data = 19;
 }
 
-// Subject to change based on the message encoding decisions
-message Any2AnyMessage {
-    Any2AnyMessageHeader header = 1;
-    bytes sender = 2;
-    bytes onramp_address = 3;
-    bytes data = 4;
-    bytes receiver = 5;
-    bytes fee_token = 6;
-    bytes fee_token_amount = 7;
-    bytes fee_value_juels = 8;
-    Any2AnyTokenTransfer token_transfer = 9;
-    repeated AnyReceipt verifier_receipts = 10;
-    AnyReceipt executor_receipt = 11;
-    AnyReceipt token_receipt = 12;
-    bytes extra_args = 13;
-}
-
-message Any2AnyTokenTransfer {
-    bytes source_token_address = 1;
-    bytes dest_token_address = 2;
-    bytes extra_data = 3;
-    bytes amount = 4;
-}
-
-message AnyReceipt {
-    bytes issuer = 1;
-    bytes fee_token_amount = 2;
-    uint64 dest_gas_limit = 3;
-    uint32 dest_bytes_overhead = 4;
-    bytes extra_args = 5;
+message ReceiptBlob {
+  bytes issuer = 1;
+  uint64 dest_gas_limit = 2;
+  uint32 dest_bytes_overhead = 3;
+  bytes blob = 4;
+  bytes extra_args = 5;
 }
 
 message CommitVerificationRecord {
@@ -59,8 +50,9 @@ message CommitVerificationRecord {
   bytes ccv_data = 7;
   // blob_data is the encoded nonce from the source chain
   bytes blob_data = 8;
-  uint32 timestamp = 9;
-  Any2AnyMessage message = 10;
+  uint64 timestamp = 9;
+  Message message = 10;
+  repeated ReceiptBlob receipt_blobs = 11;
 }
 
 message WriteCommitVerificationRequest {

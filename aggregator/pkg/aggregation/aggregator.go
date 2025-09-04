@@ -31,10 +31,12 @@ type aggregationRequest struct {
 
 // CheckAggregation enqueues a new aggregation request for the specified committee and message ID.
 func (c *CommitReportAggregator) CheckAggregation(committeeID string, messageID model.MessageID) error {
-	c.messageIDChan <- aggregationRequest{
-		CommitteeID: committeeID,
-		MessageID:   messageID,
-	}
+	go func() {
+		c.messageIDChan <- aggregationRequest{
+			CommitteeID: committeeID,
+			MessageID:   messageID,
+		}
+	}()
 	return nil
 }
 

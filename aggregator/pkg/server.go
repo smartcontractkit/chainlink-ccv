@@ -5,7 +5,6 @@ import (
 	"context"
 	"net"
 
-	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
@@ -13,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -21,7 +21,7 @@ import (
 type Server struct {
 	aggregator.UnimplementedAggregatorServer
 
-	l                                    zerolog.Logger
+	l                                    logger.Logger
 	readCommitVerificationRecordHandler  *handlers.ReadCommitVerificationRecordHandler
 	writeCommitVerificationRecordHandler *handlers.WriteCommitVerificationRecordHandler
 	queryCommitVerificationsHandler      *handlers.QueryAggregatedCommitRecordsHandler
@@ -48,7 +48,7 @@ func (s *Server) Start(lis net.Listener) (func(), error) {
 	aggregator.RegisterAggregatorServer(grpcServer, s)
 	reflection.Register(grpcServer)
 
-	s.l.Info().Msg("Aggregator gRPC server started")
+	s.l.Info("Aggregator gRPC server started")
 	if err := grpcServer.Serve(lis); err != nil {
 		return func() {}, err
 	}
@@ -63,7 +63,7 @@ func createAggregator(storage common.CommitVerificationStore, sink common.Sink) 
 }
 
 // NewServer creates a new aggregator server with the specified logger and configuration.
-func NewServer(l zerolog.Logger, config model.AggregatorConfig) *Server {
+func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
 	var store *storage.InMemoryStorage
 	if config.Storage.StorageType == "memory" {
 		store = storage.NewInMemoryStorage()
@@ -73,12 +73,12 @@ func NewServer(l zerolog.Logger, config model.AggregatorConfig) *Server {
 
 	aggregator, err := createAggregator(store, store)
 	if err != nil {
-		l.Error().Err(err).Msg("failed to create aggregator")
+		l.Errorw("failed to create aggregator", "error", err)
 		return nil
 	}
 
-	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store)
-	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator)
+	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store, config.DisableValidation)
+	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator, l, config.DisableValidation)
 	queryCommitVerificationsHandler := handlers.NewQueryAggregatedCommitRecordsHandler(store)
 
 	return &Server{

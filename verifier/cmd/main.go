@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
@@ -19,6 +20,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
+
+func loadConfiguration(filepath string) (*verifier.Configuration, error) {
+	var config verifier.Configuration
+	if _, err := toml.DecodeFile(filepath, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
 
 func main() {
 	// Setup logging - always debug level for now
@@ -41,9 +50,22 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Create storage (in-memory for development)
-	storage := storageaccess.NewInMemoryOffchainStorage(lggr)
-	storageWriter := storageaccess.CreateWriterOnly(storage)
+	filePath := "verifier.toml"
+	if len(os.Args) > 1 {
+		filePath = os.Args[1]
+	}
+	verifierConfig, err := loadConfiguration(filePath)
+	if err != nil {
+		lggr.Errorw("Failed to load configuration", "error", err)
+		os.Exit(1)
+	}
+
+	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr, verifierConfig.ParticipantID, verifierConfig.CommitteeID)
+	if err != nil {
+		lggr.Errorw("Failed to create storage writer", "error", err)
+		os.Exit(1)
+	}
+	storageWriter := storage
 
 	// Create mock source readers for two chains (matching devenv setup)
 	mockSetup1337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(1337))

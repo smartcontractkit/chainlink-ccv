@@ -53,8 +53,8 @@ func TestReadWriteCommitVerification(t *testing.T) {
 			SequenceNumber:        uint64(1),
 			SourceChainSelector:   uint64(2),
 			SourceVerifierAddress: sourceVerifierAddr,
-			Timestamp:             uint32(1234567890),
-			Message:               &aggregator.Any2AnyMessage{},
+			Timestamp:             uint64(1234567890),
+			Message:               &aggregator.Message{},
 		},
 	})
 
