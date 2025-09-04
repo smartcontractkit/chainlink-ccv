@@ -47,8 +47,7 @@ type AggregatorInput struct {
 type AggregatorOutput struct {
 	UseCache           bool   `toml:"use_cache"`
 	ContainerName      string `toml:"container_name"`
-	ExternalHTTPURL    string `toml:"http_url"`
-	InternalHTTPURL    string `toml:"internal_http_url"`
+	Address            string `toml:"address"`
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 }
@@ -113,11 +112,11 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
-		ExposedPorts: []string{"8100/tcp"},
+		ExposedPorts: []string{"50051/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
 				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
-				"8100/tcp": []nat.PortBinding{
+				"50051/tcp": []nat.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}
@@ -131,22 +130,17 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
 	}
 
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	_, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
-	host, err := c.Host(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get container host: %w", err)
-	}
 
 	return &AggregatorOutput{
 		ContainerName:      in.ContainerName,
-		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
-		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
+		Address:            fmt.Sprintf("%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultAggregatorDBConnectionString,
 	}, nil
 }
