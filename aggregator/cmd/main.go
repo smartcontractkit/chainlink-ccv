@@ -30,9 +30,6 @@ func main() {
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
-		Aggregation: model.AggregationConfig{
-			AggregationStrategy: "stub",
-		},
 	}
 
 	server := aggregator.NewServer(l, config)

@@ -3,10 +3,15 @@ package aggregation
 
 import (
 	"context"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
+
+type QuorumValidator interface {
+	CheckQuorum(report *model.CommitAggregatedReport) (bool, error)
+}
 
 // CommitReportAggregator is responsible for aggregating commit reports from multiple verifiers.
 // It manages the verification and storage of commit reports through a configurable storage backend,
@@ -15,7 +20,7 @@ type CommitReportAggregator struct {
 	storage       common.CommitVerificationStore
 	sink          common.Sink
 	messageIDChan chan aggregationRequest
-	config        model.AggregatorConfig
+	quorum        QuorumValidator
 }
 
 type aggregationRequest struct {
@@ -42,29 +47,22 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(committeeID s
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
 		Verifications: verifications,
+		CommitteeID:   committeeID,
+		Timestamp:     time.Now().Unix(),
 	}
 
-	if ok, err := c.checkQuorum(aggregatedReport); err != nil {
-		if err := c.sink.SubmitReport(aggregatedReport); err != nil {
+	quorumMet, err := c.quorum.CheckQuorum(aggregatedReport)
+	if err != nil {
+		return nil, err
+	}
+
+	if quorumMet {
+		if err := c.sink.SubmitReport(context.Background(), aggregatedReport); err != nil {
 			return nil, err
 		}
-	} else if !ok {
-		return nil, nil
 	}
 
 	return nil, nil
-}
-
-func (c *CommitReportAggregator) checkQuorum(aggregatedReport *model.CommitAggregatedReport) (bool, error) {
-	quorumConfig := c.config.Committees[aggregatedReport.CommitteeID].QuorumConfigs[aggregatedReport.GetDestinationSelector()]
-
-	// Check if we have enough signatures to meet the quorum
-	// TODO: Make the quorum check configurable, currently doing F + 1 to match contract
-	if len(aggregatedReport.Verifications) != int(quorumConfig.F)+1 {
-		return false, nil
-	}
-
-	return true, nil
 }
 
 // StartBackground begins processing aggregation requests in the background.
@@ -94,11 +92,11 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 //   - *CommitReportAggregator: A new aggregator instance ready to process commit reports
 //
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
-func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, config model.AggregatorConfig) *CommitReportAggregator {
+func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, quorum QuorumValidator) *CommitReportAggregator {
 	return &CommitReportAggregator{
 		storage:       storage,
 		sink:          sink,
 		messageIDChan: make(chan aggregationRequest),
-		config:        config,
+		quorum:        quorum,
 	}
 }
