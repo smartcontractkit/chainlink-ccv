@@ -58,6 +58,7 @@ See the [guide](services/README.md)
 
 ### Running tests
 Devenv include 2 types of tests: end-to-end system-level tests and services tests
+
 #### Service Tests
 Go to `tests/services` directory and run
 ```bash
@@ -74,6 +75,7 @@ go test -v -run TestE2ESmoke
 Spin up the observability stack first
 ```bash
 export LOKI_URL=http://localhost:3030/loki/api/v1/push
+ccv obs u
 ```
 
 Go to `tests/e2e` directory and run
@@ -93,7 +95,7 @@ Gas spikes
 go test -v -run TestE2ELoad/gas
 ```
 
-Reorgs
+Reorgs (you need an env with Geth configured, `up env.toml,env-geth.toml`)
 ```bash
 go test -v -run TestE2ELoad/reorgs
 ```

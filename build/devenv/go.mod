@@ -14,7 +14,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250829142202-abffbe23b9f7
 	github.com/smartcontractkit/chainlink-common v0.9.1-0.20250815142532-64e0a7965958
 	github.com/smartcontractkit/chainlink-deployments-framework v0.37.1
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.15
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.19
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
@@ -435,9 +435,4 @@ replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
 	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
-//go.opentelemetry.io/otel => go.opentelemetry.io/otel v1.35.0
-//go.opentelemetry.io/otel/exporters/otlp/otlptrace => go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.34.0
-//go.opentelemetry.io/otel/metric => go.opentelemetry.io/otel/metric v1.35.0
-//go.opentelemetry.io/otel/sdk => go.opentelemetry.io/otel/sdk v1.34.0
-//go.opentelemetry.io/otel/trace => go.opentelemetry.io/otel/trace v1.35.0
 )

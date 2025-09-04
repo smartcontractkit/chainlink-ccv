@@ -154,7 +154,7 @@ var obsUpCmd = &cobra.Command{
 		if remote {
 			return fmt.Errorf("remote mode: %v, local observability stack can only be used in 'local' mode", remote)
 		}
-		if err := framework.ObservabilityUpFull(); err != nil {
+		if err := framework.ObservabilityUp(); err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
 		}
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
@@ -184,7 +184,7 @@ var obsRestartCmd = &cobra.Command{
 		if err := framework.ObservabilityDown(); err != nil {
 			return fmt.Errorf("observability down failed: %w", err)
 		}
-		if err := framework.ObservabilityUpFull(); err != nil {
+		if err := framework.ObservabilityUp(); err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
 		}
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)

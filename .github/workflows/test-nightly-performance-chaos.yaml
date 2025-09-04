@@ -2,6 +2,8 @@ name: Nightly Performance Tests
 
 on:
   push:
+  schedule:
+    - cron: "0 0 * * *"
 
 defaults:
   run:
@@ -15,12 +17,12 @@ jobs:
     runs-on: ubuntu24.04-16cores-64GB
     strategy:
       matrix:
-        test-name: [
-          "TestE2ELoad/clean",
-          "TestE2ELoad/rpc_latency",
-          "TestE2ELoad/gas",
-          "TestE2ELoad/reorgs",
-          "TestE2ELoad/services_chaos"
+        test: [
+          { name: "TestE2ELoad/clean", config: "env.toml" },
+          { name: "TestE2ELoad/rpc_latency", config: "env.toml" },
+          { name: "TestE2ELoad/gas", config: "env.toml" },
+          { name: "TestE2ELoad/reorgs", config: "env.toml,env-geth.toml" },
+          { name: "TestE2ELoad/services_chaos", config: "env.toml" },
         ]
       fail-fast: false
     steps:
@@ -71,12 +73,12 @@ jobs:
         run: |
           cd cmd/ccv && go install . && cd -
           ccv obs u
-      - name: Run CCV environment
+      - name: Run CCV environment with config
         run: |
-          ccv u env.toml
+          ccv u ${{ matrix.test.config }}
       - name: Run specific test
         working-directory: build/devenv/tests/e2e
         env:
           LOKI_URL: http://localhost:3030/loki/api/v1/push
         run: |
-          go test -v -run ${{ matrix.test-name }} -timeout 1h
+          go test -v -run ${{ matrix.test.name }} -timeout 1h

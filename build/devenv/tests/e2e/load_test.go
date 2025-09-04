@@ -116,6 +116,7 @@ func TestE2ELoad(t *testing.T) {
 		_, err = createLoadProfile(1, 5*time.Minute, srcRPCURL, dstRPCURL, srcBlockchainClient, dstBlockchainClient, srcAuth, dstAuth, addrs).Run(true)
 		require.NoError(t, err)
 	})
+
 	t.Run("gas", func(t *testing.T) {
 		// test slow and fast gas spikes on both chains
 		p := createLoadProfile(1, 5*time.Minute, srcRPCURL, dstRPCURL, srcBlockchainClient, dstBlockchainClient, srcAuth, dstAuth, addrs)
@@ -170,10 +171,70 @@ func TestE2ELoad(t *testing.T) {
 		}
 		p.Wait()
 	})
+
 	t.Run("reorgs", func(t *testing.T) {
-		// test below and above finality reorgs on both chains
-		// TODO: expose Anvil API for reorgs
+		p := createLoadProfile(1, 5*time.Minute, srcRPCURL, dstRPCURL, srcBlockchainClient, dstBlockchainClient, srcAuth, dstAuth, addrs)
+		_, err = p.Run(false)
+		require.NoError(t, err)
+		tcs := []struct {
+			name       string
+			wait       time.Duration
+			chainURL   string
+			reorgDepth int
+			validate   func() error
+		}{
+			{
+				name:       "Reorg src with depth: 1",
+				wait:       30 * time.Second,
+				chainURL:   srcRPCURL,
+				reorgDepth: 1,
+				validate: func() error {
+					// add clients and validate
+					return nil
+				},
+			},
+			{
+				name:       "Reorg dst with depth: 1",
+				wait:       30 * time.Second,
+				chainURL:   dstRPCURL,
+				reorgDepth: 1,
+				validate: func() error {
+					return nil
+				},
+			},
+			{
+				name:       "Reorg src with depth: 5",
+				wait:       30 * time.Second,
+				chainURL:   srcRPCURL,
+				reorgDepth: 5,
+				validate: func() error {
+					return nil
+				},
+			},
+			{
+				name:       "Reorg dst with depth: 5",
+				wait:       30 * time.Second,
+				chainURL:   dstRPCURL,
+				reorgDepth: 5,
+				validate: func() error {
+					return nil
+				},
+			},
+		}
+
+		for _, tc := range tcs {
+			t.Run(tc.name, func(t *testing.T) {
+				r := rpc.New(tc.chainURL, nil)
+				err := r.GethSetHead(tc.reorgDepth)
+				require.NoError(t, err)
+				time.Sleep(tc.wait)
+				err = tc.validate()
+				require.NoError(t, err)
+			})
+		}
+		p.Wait()
 	})
+
 	t.Run("services_chaos", func(t *testing.T) {
 		tcs := []ChaosTestCase{
 			{
