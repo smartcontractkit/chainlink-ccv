@@ -50,7 +50,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run proto-lint
-        run: just lint
+        run: just proto-lint
 
       - name: Run proto-check
         run: just proto-check
