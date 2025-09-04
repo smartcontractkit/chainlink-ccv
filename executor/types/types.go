@@ -1,4 +1,4 @@
-package pkg
+package types
 
 import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
@@ -22,7 +22,7 @@ type MessageWithCCVData struct {
 }
 
 type CcvAddressInfo struct {
-	requiredCcvs      []common.UnknownAddress
-	optionalCcvs      []common.UnknownAddress
-	optionalThreshold uint8
+	RequiredCcvs      []common.UnknownAddress
+	OptionalCcvs      []common.UnknownAddress
+	OptionalThreshold uint8
 }

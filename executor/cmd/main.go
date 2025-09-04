@@ -1,29 +1,44 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
+	"context"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"go.uber.org/zap"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func main() {
-	lvlStr := os.Getenv("EXECUTOR_LOG_LEVEL")
-	if lvlStr == "" {
-		lvlStr = "info"
-	}
-	lvl, err := zerolog.ParseLevel(lvlStr)
+	// Setup logging - always debug level for now
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		config.Development = true
+		config.Encoding = "console"
+	})
 	if err != nil {
 		panic(err)
 	}
-	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(lvl)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Executor is running!\n")
-	})
+	// Use SugaredLogger for better API
+	lggr = logger.Sugared(lggr)
 
-	l.Info().Msgf("Executor is running on port %s", ":8100")
-	log.Fatal().Err(http.ListenAndServe(":8100", nil)).Send()
+	// Create context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Setup graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Create executor coordinator
+	coordinator, err := NewExecutorCoordinator(
+		verifier.WithVerifier(commitVerifier),
+		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithStorage(storageWriter),
+		verifier.WithConfig(config),
+		verifier.WithLogger(lggr),
+	)
 }

@@ -1,27 +1,27 @@
-package pkg
+package executor
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"
+	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
+	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type Executor interface {
-	ExecuteMessage(ctx context.Context, messageWithCCVData MessageWithCCVData) error
-}
-
 type ExecutorCoordinator struct {
-	ccvDataCh           chan MessageWithCCVData
-	executableMessageCh chan MessageWithCCVData
+	ccvDataCh           chan types.MessageWithCCVData
+	executableMessageCh chan types.MessageWithCCVData
 
 	stopCh chan struct{}
 	doneCh chan struct{}
 
-	executor      Executor
-	ccvDataReader CcvDataReader
-	leaderElector LeaderElector
+	executor      e.Executor
+	ccvDataReader cdr.CcvDataReader
+	leaderElector le.LeaderElector
 
 	lggr    logger.Logger
 	running bool
@@ -35,19 +35,19 @@ func WithLogger(lggr logger.Logger) Option {
 	}
 }
 
-func WithExecutor(executor Executor) Option {
+func WithExecutor(executor e.Executor) Option {
 	return func(ec *ExecutorCoordinator) {
 		ec.executor = executor
 	}
 }
 
-func WithCCVDataReader(ccvDataReader CcvDataReader) Option {
+func WithCCVDataReader(ccvDataReader cdr.CcvDataReader) Option {
 	return func(ec *ExecutorCoordinator) {
 		ec.ccvDataReader = ccvDataReader
 	}
 }
 
-func WithLeaderElector(leaderElector LeaderElector) Option {
+func WithLeaderElector(leaderElector le.LeaderElector) Option {
 	return func(ec *ExecutorCoordinator) {
 		ec.leaderElector = leaderElector
 	}
@@ -62,7 +62,7 @@ func (ec *ExecutorCoordinator) Validate() error {
 
 func NewExecutorCoordinator(options ...Option) (*ExecutorCoordinator, error) {
 	ec := &ExecutorCoordinator{
-		ccvDataCh: make(chan MessageWithCCVData, 100),
+		ccvDataCh: make(chan types.MessageWithCCVData, 100),
 		stopCh:    make(chan struct{}),
 		doneCh:    make(chan struct{}),
 	}
@@ -110,7 +110,7 @@ func (ec *ExecutorCoordinator) Stop() error {
 func (ec *ExecutorCoordinator) run(ctx context.Context) {
 	defer close(ec.doneCh)
 
-	messagesCh, err := ec.ccvDataReader.subscribeMessages()
+	messagesCh, err := ec.ccvDataReader.SubscribeMessages()
 	if err != nil {
 		ec.lggr.Errorw("failed to get messages from ccvDataReader", "error", err)
 		return
@@ -154,7 +154,7 @@ func (ec *ExecutorCoordinator) ProcessMessage(ctx context.Context) error {
 			// todo: perform some validations on the message
 
 			// get message delay from leader elector
-			delay := ec.leaderElector.get_delay(msg.CCVData[0].MessageID, msg.Message.DestChainSelector, msg.ReadyTimestamp)
+			delay := ec.leaderElector.GetDelay(msg.CCVData[0].MessageID, msg.Message.DestChainSelector, msg.ReadyTimestamp)
 			if delay+msg.ReadyTimestamp > uint64(time.Now().Unix()) {
 				// not ready yet, requeue. In a real system, consider using a priority queue keyed on "readiness time"
 				ec.lggr.Infow("message not ready yet, requeuing", "message", msg, "delay", delay)

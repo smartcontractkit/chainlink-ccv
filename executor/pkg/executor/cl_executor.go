@@ -1,24 +1,27 @@
-package pkg
+package executor
 
 import (
 	"context"
 	"fmt"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 
+	ct "github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
+	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
 type ChainlinkExecutor struct {
 	lggr                 logger.Logger
-	contractTransmitters ContractTransmitter
-	destinationReaders   DestinationReader
+	contractTransmitters ct.ContractTransmitter
+	destinationReaders   dr.DestinationReader
 }
 
 func NewChainlinkExecutor(
 	lggr logger.Logger,
-	contractTransmitters ContractTransmitter,
-	destinationReaders DestinationReader,
+	contractTransmitters ct.ContractTransmitter,
+	destinationReaders dr.DestinationReader,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
 		lggr:                 lggr,
@@ -58,7 +61,7 @@ func (cle *ChainlinkExecutor) Validate() error {
 	return nil
 }
 
-func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCVData MessageWithCCVData) error {
+func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error {
 	messageExecuted, err := cle.destinationReaders.IsMessageExecuted(
 		ctx,
 		messageWithCCVData.Message.DestChainSelector,
@@ -88,7 +91,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
 	}
 
-	err = cle.contractTransmitters.ConvertAndWriteMessageToChain(ctx, AbstractAggregatedReport{
+	err = cle.contractTransmitters.ConvertAndWriteMessageToChain(ctx, types.AbstractAggregatedReport{
 		Message: messageWithCCVData.Message,
 		CCVS:    orderedCcvOfframps,
 		CCVData: orderedCcvData,
@@ -100,7 +103,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	return nil
 }
 
-func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiver_defined_ccvs CcvAddressInfo) ([]common.UnknownAddress, [][]byte, error) {
+func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiverDefinedCcvs types.CcvAddressInfo) ([]common.UnknownAddress, [][]byte, error) {
 	orderedCcvData := make([][]byte, 0)
 	orderedCcvOfframps := make([]common.UnknownAddress, 0)
 
@@ -109,7 +112,7 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiver_d
 		mappedCcvData[ccvData.DestVerifierAddress.String()] = ccvData.CCVData
 	}
 
-	for _, ccvAddress := range receiver_defined_ccvs.requiredCcvs {
+	for _, ccvAddress := range receiverDefinedCcvs.RequiredCcvs {
 		strAddr := ccvAddress.String()
 		if _, ok := mappedCcvData[strAddr]; !ok {
 			return nil, nil, fmt.Errorf("required CCV Offramp %s did not have an attestation", strAddr)
@@ -118,7 +121,7 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiver_d
 		orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
 	}
 
-	for _, ccvAddress := range receiver_defined_ccvs.optionalCcvs {
+	for _, ccvAddress := range receiverDefinedCcvs.OptionalCcvs {
 		if data, ok := mappedCcvData[ccvAddress.String()]; ok {
 			orderedCcvData = append(orderedCcvData, data)
 			orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
@@ -127,7 +130,7 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiver_d
 
 	// check if we have enough optional CCVs. If any required CCVs were missing
 	// we would have already returned error above
-	if len(orderedCcvData)-len(receiver_defined_ccvs.requiredCcvs) < int(receiver_defined_ccvs.optionalThreshold) {
+	if len(orderedCcvData)-len(receiverDefinedCcvs.RequiredCcvs) < int(receiverDefinedCcvs.OptionalThreshold) {
 		return nil, nil, fmt.Errorf("optional CCV Offramps did not meet threshold")
 	}
 	return orderedCcvOfframps, orderedCcvData, nil
