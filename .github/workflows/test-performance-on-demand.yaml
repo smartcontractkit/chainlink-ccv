@@ -1,16 +1,17 @@
-name: Nightly Performance Tests
+name: On-demand Performance Tests
 
 on:
-  push:
-  schedule:
-    - cron: "0 0 * * *"
+  pull_request:
+    types: [labeled]
 
 defaults:
   run:
     working-directory: build/devenv
 
 jobs:
-  nightly-performance:
+  on-demand-performance:
+    if: |
+      github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'performance')
     permissions:
       id-token: write
       contents: read
@@ -18,11 +19,7 @@ jobs:
     strategy:
       matrix:
         test: [
-          { name: "TestE2ELoad/clean", config: "env.toml" },
           { name: "TestE2ELoad/rpc_latency", config: "env.toml" },
-          { name: "TestE2ELoad/gas", config: "env.toml" },
-          { name: "TestE2ELoad/reorgs", config: "env.toml,env-geth.toml" },
-          { name: "TestE2ELoad/services_chaos", config: "env.toml" },
         ]
       fail-fast: false
     steps:
