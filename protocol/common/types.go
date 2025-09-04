@@ -10,6 +10,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/crypto"
+
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
@@ -423,35 +424,24 @@ type CCVData struct {
 	ReceiptBlobs          []ReceiptWithBlob       `json:"receipt_blobs"` // All receipt blobs for the message
 }
 
-// TimestampQueryResponse represents the response from timestamp-based CCV data queries.
-type TimestampQueryResponse struct {
+// QueryResponse represents the response from CCV data queries.
+type QueryResponse struct {
 	// Data organized by destination chain selector
-	Data map[cciptypes.ChainSelector][]CCVData `json:"data"`
-	// Next timestamp to query (nil if no more data)
-	NextTimestamp *int64 `json:"next_timestamp,omitempty"`
-	// Whether more data exists at current timestamp
-	HasMore bool `json:"has_more"`
-	// Total number of items returned
-	TotalCount int `json:"total_count"`
+	Data CCVData `json:"data"`
+	// Timestamp when the data was written (optional).
+	Timestamp *int64 `json:"timestamp,omitempty"`
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
 type OffchainStorageWriter interface {
-	// StoreCCVData stores multiple CCV data entries in the offchain storage
-	StoreCCVData(ctx context.Context, ccvDataList []CCVData) error
+	// WriteCCVData stores multiple CCV data entries in the offchain storage
+	WriteCCVData(ctx context.Context, ccvDataList []CCVData) error
 }
 
 // OffchainStorageReader defines the interface for executors to query CCV data by timestamp.
 type OffchainStorageReader interface {
-	// GetCCVDataByTimestamp queries CCV data by timestamp with offset-based pagination
-	GetCCVDataByTimestamp(
-		ctx context.Context,
-		destChainSelectors []cciptypes.ChainSelector,
-		startTimestamp int64,
-		sourceChainSelectors []cciptypes.ChainSelector,
-		limit int,
-		offset int,
-	) (*TimestampQueryResponse, error)
+	// ReadCCVData returns the next available CCV data entries.
+	ReadCCVData(ctx context.Context) ([]QueryResponse, error)
 }
 
 // Helper functions for creating empty/default values
