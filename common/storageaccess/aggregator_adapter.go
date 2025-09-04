@@ -3,7 +3,7 @@ package storageaccess
 import (
 	"context"
 
-	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"google.golang.org/grpc"
@@ -43,7 +43,7 @@ func mapReceiptBlobs(receiptBlobs []common.ReceiptWithBlob) ([]*aggregator.Recei
 }
 
 // StoreCCVData implements common.OffchainStorageWriter.
-func (a *AggregatorWriterAdapter) StoreCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
+func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
 		receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)

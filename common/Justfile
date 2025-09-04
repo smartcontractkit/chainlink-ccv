@@ -1,0 +1,17 @@
+proto:
+    protoc --go_out=. --go-grpc_out=. ./proto/aggregator.proto
+
+proto-lint:
+    buf lint
+
+proto-check: proto
+    @git diff --name-only -- *.pb.go > /tmp/proto_diff_output; \
+    if [ -s /tmp/proto_diff_output ]; then \
+        echo "Error: Generated protobuf files are out of sync"; \
+        echo "Run 'just proto' and commit the changes"; \
+        echo "Diff:"; \
+        git diff -- *.pb.go; \
+        exit 1; \
+    else \
+        echo "Protobuf files are in sync"; \
+    fi
