@@ -91,7 +91,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	err = cle.contractTransmitters.ConvertAndWriteMessageToChain(ctx, AbstractAggregatedReport{
 		Message: messageWithCCVData.Message,
 		CCVS:    orderedCcvOfframps,
-		Proofs:  orderedCcvData,
+		CCVData: orderedCcvData,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to transmit message to chain: %w", err)

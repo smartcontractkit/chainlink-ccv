@@ -7,7 +7,7 @@ import (
 type AbstractAggregatedReport struct {
 	Message common.Any2AnyVerifierMessage
 	CCVS    []common.UnknownAddress
-	Proofs  [][]byte
+	CCVData [][]byte
 }
 
 // ContractAddresses is a map of contract names across all chain selectors and their address.
