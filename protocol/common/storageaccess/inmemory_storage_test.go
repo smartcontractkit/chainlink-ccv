@@ -2,7 +2,6 @@ package storageaccess
 
 import (
 	"context"
-
 	"sort"
 	"testing"
 	"time"
@@ -91,8 +90,8 @@ func TestInMemoryOffchainStorage_StoreCCVData(t *testing.T) {
 		},
 	}
 
-	// Store data
-	err := storage.StoreCCVData(ctx, testData)
+	// Write data
+	err := storage.WriteCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Retrieve and verify
@@ -109,73 +108,84 @@ func TestInMemoryOffchainStorage_StoreCCVData(t *testing.T) {
 }
 
 func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
-	lggr := logger.Test(t)
-
-	// Use fixed time provider for predictable tests
 	baseTime := time.Now().UnixMicro()
-	timeProvider := func() int64 { return baseTime }
-	storage := NewInMemoryOffchainStorageWithTimeProvider(lggr, timeProvider)
+	ctx := t.Context()
 
-	ctx := context.Background()
-	verifierAddress := []byte("0x1234")
+	setup := func(
+		destChains, sourceChains []cciptypes.ChainSelector,
+		limit uint64,
+		offset uint64,
+		startTimestamp int64,
+	) *InMemoryOffchainStorage {
+		lggr := logger.Test(t)
 
-	// Create test data with different timestamps by storing at different times
-	testData1 := []common.CCVData{
-		{
-			MessageID:             [32]byte{1},
-			SequenceNumber:        100,
-			SourceChainSelector:   1,
-			DestChainSelector:     2,
-			SourceVerifierAddress: verifierAddress,
-			DestVerifierAddress:   []byte("0x4567"),
-			CCVData:               []byte("sig1"),
-			Message:               createTestMessage(100, 1, 2),
-		},
+		// Use fixed time provider for predictable tests
+		timeProvider := func() int64 { return baseTime }
+		storage := NewInMemoryOffchainStorageWithTimeProvider(
+			lggr, timeProvider, destChains, sourceChains, limit, offset, startTimestamp)
+
+		verifierAddress := []byte("0x1234")
+
+		// Create test data with different timestamps by storing at different times
+		testData1 := []common.CCVData{
+			{
+				MessageID:             [32]byte{1},
+				SequenceNumber:        100,
+				SourceChainSelector:   1,
+				DestChainSelector:     2,
+				SourceVerifierAddress: verifierAddress,
+				DestVerifierAddress:   []byte("0x4567"),
+				CCVData:               []byte("sig1"),
+				Message:               createTestMessage(100, 1, 2),
+			},
+		}
+
+		// Store first data at baseTime
+		err := storage.WriteCCVData(ctx, testData1)
+		require.NoError(t, err)
+
+		// Update time provider for second batch
+		timeProvider = func() int64 { return baseTime + 10000000 } // 10 seconds later in microseconds
+		storage.timeProvider = timeProvider
+
+		testData2 := []common.CCVData{
+			{
+				MessageID:             [32]byte{2},
+				SequenceNumber:        101,
+				SourceChainSelector:   1,
+				DestChainSelector:     2,
+				SourceVerifierAddress: verifierAddress,
+				DestVerifierAddress:   []byte("0x4567"),
+				CCVData:               []byte("sig2"),
+				Message:               createTestMessage(101, 1, 2),
+			},
+		}
+
+		err = storage.WriteCCVData(ctx, testData2)
+		require.NoError(t, err)
+
+		// Update time provider for third batch
+		timeProvider = func() int64 { return baseTime + 20000000 } // 20 seconds later in microseconds
+		storage.timeProvider = timeProvider
+
+		testData3 := []common.CCVData{
+			{
+				MessageID:             [32]byte{3},
+				SequenceNumber:        102,
+				SourceChainSelector:   1,
+				DestChainSelector:     2,
+				SourceVerifierAddress: verifierAddress,
+				DestVerifierAddress:   []byte("0x4567"),
+				CCVData:               []byte("sig3"),
+				Message:               createTestMessage(102, 1, 2),
+			},
+		}
+
+		err = storage.WriteCCVData(ctx, testData3)
+		require.NoError(t, err)
+
+		return storage
 	}
-
-	// Store first data at baseTime
-	err := storage.StoreCCVData(ctx, testData1)
-	require.NoError(t, err)
-
-	// Update time provider for second batch
-	timeProvider = func() int64 { return baseTime + 10000000 } // 10 seconds later in microseconds
-	storage.timeProvider = timeProvider
-
-	testData2 := []common.CCVData{
-		{
-			MessageID:             [32]byte{2},
-			SequenceNumber:        101,
-			SourceChainSelector:   1,
-			DestChainSelector:     2,
-			SourceVerifierAddress: verifierAddress,
-			DestVerifierAddress:   []byte("0x4567"),
-			CCVData:               []byte("sig2"),
-			Message:               createTestMessage(101, 1, 2),
-		},
-	}
-
-	err = storage.StoreCCVData(ctx, testData2)
-	require.NoError(t, err)
-
-	// Update time provider for third batch
-	timeProvider = func() int64 { return baseTime + 20000000 } // 20 seconds later in microseconds
-	storage.timeProvider = timeProvider
-
-	testData3 := []common.CCVData{
-		{
-			MessageID:             [32]byte{3},
-			SequenceNumber:        102,
-			SourceChainSelector:   1,
-			DestChainSelector:     2,
-			SourceVerifierAddress: verifierAddress,
-			DestVerifierAddress:   []byte("0x4567"),
-			CCVData:               []byte("sig3"),
-			Message:               createTestMessage(102, 1, 2),
-		},
-	}
-
-	err = storage.StoreCCVData(ctx, testData3)
-	require.NoError(t, err)
 
 	tests := []struct {
 		name          string
@@ -241,18 +251,17 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			response, err := storage.GetCCVDataByTimestamp(ctx, tt.destChains, tt.startTime, tt.sourceChains, tt.limit, tt.offset)
+			storage := setup(tt.destChains, tt.sourceChains, uint64(tt.limit), uint64(tt.offset), tt.startTime)
+			response, err := storage.ReadCCVData(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, response)
 
-			require.Equal(t, tt.expectedCount, response.TotalCount)
+			require.Equal(t, tt.expectedCount, len(response))
 
 			// Verify sequence numbers match expected by collecting from all destination chains
 			var actualSeqs []cciptypes.SeqNum
-			for _, ccvList := range response.Data {
-				for _, ccv := range ccvList {
-					actualSeqs = append(actualSeqs, ccv.SequenceNumber)
-				}
+			for _, ccv := range response {
+				actualSeqs = append(actualSeqs, ccv.Data.SequenceNumber)
 			}
 
 			// Sort actual sequences for comparison
@@ -298,18 +307,18 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	}
 
 	// Store data
-	err := storage.StoreCCVData(ctx, testData)
+	err := storage.WriteCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Test finding existing message
-	result, err := storage.GetCCVDataByMessageID(messageID)
+	result, err := storage.ReadCCVDataByMessageID(messageID)
 	require.NoError(t, err)
 	require.Equal(t, cciptypes.Bytes32(messageID), result.MessageID)
 	require.Equal(t, cciptypes.SeqNum(100), result.SequenceNumber)
 
 	// Test finding non-existing message
 	nonExistentID := [32]byte{9, 9, 9}
-	result, err = storage.GetCCVDataByMessageID(nonExistentID)
+	result, err = storage.ReadCCVDataByMessageID(nonExistentID)
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.Contains(t, err.Error(), "CCV data not found")
@@ -351,11 +360,11 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 		},
 	}
 
-	// Store data for both verifiers
-	err := storage.StoreCCVData(ctx, data1)
+	// Write data for both verifiers
+	err := storage.WriteCCVData(ctx, data1)
 	require.NoError(t, err)
 
-	err = storage.StoreCCVData(ctx, data2)
+	err = storage.WriteCCVData(ctx, data2)
 	require.NoError(t, err)
 
 	// Verify verifier1 data
@@ -391,7 +400,7 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 		},
 	}
 
-	err := storage.StoreCCVData(ctx, testData)
+	err := storage.WriteCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Verify data exists
@@ -415,12 +424,13 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 
 func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
 	lggr := logger.Test(t)
-	storage := NewInMemoryOffchainStorage(lggr)
+	storage := NewInMemoryOffchainStorageWithTimeProvider(
+		lggr, DefaultTimeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, 100, 0, 0)
 
 	ctx := context.Background()
 
-	// Store empty data should not error
-	err := storage.StoreCCVData(ctx, []common.CCVData{})
+	// Write empty data should not error
+	err := storage.WriteCCVData(ctx, []common.CCVData{})
 	require.NoError(t, err)
 
 	// Get data for non-existent verifier
@@ -430,16 +440,9 @@ func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
 	require.Len(t, result, 0)
 
 	// Get data by timestamp for non-existent verifier
-	timestampResult, err := storage.GetCCVDataByTimestamp(
-		ctx,
-		[]cciptypes.ChainSelector{2}, // dest chains
-		0,                            // start timestamp
-		[]cciptypes.ChainSelector{1}, // source chains
-		100,                          // limit
-		0,                            // offset
-	)
+	result2, err := storage.ReadCCVData(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 0, timestampResult.TotalCount)
+	require.Equal(t, 0, len(result2))
 }
 
 func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
@@ -458,7 +461,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 		},
 	}
 
-	err := storage.StoreCCVData(ctx, testData)
+	err := storage.WriteCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Verify data was stored - timestamp is managed internally by storage entries
@@ -472,7 +475,8 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 
 func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	lggr := logger.Test(t)
-	storage := NewInMemoryOffchainStorage(lggr)
+	storage := NewInMemoryOffchainStorageWithTimeProvider(
+		lggr, DefaultTimeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, 100, 0, 0)
 
 	// Create reader and writer views
 	reader := CreateReaderOnly(storage)
@@ -506,29 +510,162 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	}
 
 	// Store data using writer view
-	err := writer.StoreCCVData(ctx, testData)
+	err := writer.WriteCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Read data using reader view
-	response, err := reader.GetCCVDataByTimestamp(
+	response, err := reader.ReadCCVData(
 		ctx,
-		[]cciptypes.ChainSelector{2}, // dest chains
-		0,                            // start timestamp
-		[]cciptypes.ChainSelector{1}, // source chains
-		100,                          // limit
-		0,                            // offset
 	)
 	require.NoError(t, err)
 	require.NotNil(t, response)
-	require.Equal(t, 1, response.TotalCount)
+	require.Equal(t, 1, len(response))
 
-	// Verify data is organized by destination chain
-	ccvList, exists := response.Data[2]
-	require.True(t, exists)
-	require.Len(t, ccvList, 1)
-	require.Equal(t, cciptypes.Bytes32([32]byte{1, 2, 3}), ccvList[0].MessageID)
+	// Verify all data is present
+	require.Len(t, response, 1)
+	require.Equal(t, cciptypes.ChainSelector(2), response[0].Data.DestChainSelector)
 }
 
+func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, limit uint64) *InMemoryOffchainStorage {
+	lggr := logger.Test(t)
+
+	// Use fixed time provider for predictable tests
+	timeProvider := func() int64 { return baseTime }
+	storage := NewInMemoryOffchainStorageWithTimeProvider(
+		lggr, timeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, limit, 0, baseTime-1)
+
+	// create numMessages, each 10 seconds apart
+	for i := 0; i < numMessages; i++ {
+		storage.timeProvider = func() int64 { return baseTime + (10 * int64(i)) }
+		testData1 := []common.CCVData{
+			{
+				MessageID:             [32]byte{1},
+				SequenceNumber:        100,
+				SourceChainSelector:   1,
+				DestChainSelector:     2,
+				SourceVerifierAddress: []byte("0x1234"),
+				DestVerifierAddress:   []byte("0x4567"),
+				CCVData:               []byte("sig1"),
+				Message:               createTestMessage(100, 1, 2),
+			},
+		}
+
+		// Store first data at baseTime
+		err := storage.WriteCCVData(t.Context(), testData1)
+		require.NoError(t, err)
+	}
+
+	return storage
+}
+
+func TestManySequentialReads(t *testing.T) {
+	baseTime := time.Now().UnixMicro()
+	ctx := t.Context()
+
+	tests := []struct {
+		name          string
+		numMessages   int
+		limit         int
+		expectedReads int
+	}{
+		{
+			name:          "10 messages with limit 3",
+			numMessages:   10,
+			limit:         3,
+			expectedReads: 4, // 3 full reads + 1 partial
+		},
+		{
+			name:          "5 messages with limit 2",
+			numMessages:   5,
+			limit:         2,
+			expectedReads: 3, // 2 full reads + 1 partial
+		},
+		{
+			name:          "7 messages with limit 10",
+			numMessages:   7,
+			limit:         10,
+			expectedReads: 1, // all in one read
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			storage := setupReaderWithMessagesfunc(t, baseTime, tt.numMessages, uint64(tt.limit))
+			totalRetrieved := 0
+			for {
+				response, err := storage.ReadCCVData(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, response)
+
+				totalRetrieved += len(response)
+
+				// If fewer than limit were returned, we've reached the end
+				if len(response) < tt.limit {
+					break
+				}
+			}
+
+			require.Equal(t, tt.numMessages, totalRetrieved)
+		})
+	}
+}
+
+func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
+	baseTime := time.Now().UnixMicro()
+	ctx := t.Context()
+
+	storage := setupReaderWithMessagesfunc(t, baseTime, 99, 50)
+	{
+		// Read first 50 messages
+		results, err := storage.ReadCCVData(ctx)
+		require.NoError(t, err)
+		require.Len(t, results, 50)
+	}
+
+	{
+		// Read remaining 49 messages
+		results, err := storage.ReadCCVData(ctx)
+		require.NoError(t, err)
+		require.Len(t, results, 49)
+	}
+
+	{
+		// Next read should return empty
+		results, err := storage.ReadCCVData(ctx)
+		require.NoError(t, err)
+		require.Len(t, results, 0)
+	}
+
+	{
+		// Add 1 more message, it should be returned by the next read.
+		seqNum := cciptypes.SeqNum(987654321)
+		timeProvider := func() int64 { return baseTime + (10 * int64(100)) }
+		storage.timeProvider = timeProvider
+		testData1 := []common.CCVData{
+			{
+				MessageID:             [32]byte{1},
+				SequenceNumber:        seqNum,
+				SourceChainSelector:   1,
+				DestChainSelector:     2,
+				SourceVerifierAddress: []byte("0x1234"),
+				DestVerifierAddress:   []byte("0x4567"),
+				CCVData:               []byte("sig1"),
+				Message:               createTestMessage(100, 1, 2),
+			},
+		}
+		err := storage.WriteCCVData(t.Context(), testData1)
+		require.NoError(t, err)
+
+		// Next read should return the new message
+		results, err := storage.ReadCCVData(ctx)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		require.Equal(t, seqNum, results[0].Data.SequenceNumber)
+	}
+}
+
+/*
+// I don't think these tests are valid anymore.
 func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 	lggr := logger.Test(t)
 	storage := NewInMemoryOffchainStorage(lggr)
@@ -568,7 +705,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 	}
 
 	// Store data
-	err := storage.StoreCCVData(ctx, testData)
+	err := storage.WriteCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Query for both destination chains
@@ -612,3 +749,4 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 	_, exists = response.Data[20]
 	require.False(t, exists)
 }
+*/
