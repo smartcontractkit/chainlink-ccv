@@ -43,7 +43,7 @@ func mapReceiptBlobs(receiptBlobs []common.ReceiptWithBlob) ([]*aggregator.Recei
 }
 
 // StoreCCVData implements common.OffchainStorageWriter.
-func (a *AggregatorWriterAdapter) StoreCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
+func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
 		receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
