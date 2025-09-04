@@ -13,4 +13,4 @@ ensure-buf:
 	@buf --version | grep -q '1.57.0' || (echo "Please use buf 1.57.0 (just install-go-tools)" && exit 1)
 
 ensure-mockery:
-	@mockery --version | grep -q 'v2.53.0' || (echo "Please use mockery v2.53.0 (just install-go-tools)" && exit 1)
+	@mockery --version | grep -q 'v2.53.5' || (echo "Please use mockery v2.53.5 (just install-go-tools)" && exit 1)

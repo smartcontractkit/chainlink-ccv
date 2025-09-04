@@ -64,7 +64,7 @@ linters:
             - pkg: github.com/smartcontractkit/chainlink
               desc: No chainlink dependencies in protocol abstraction layer
 
-        test: ensure-go
+        test:
           list-mode: lax
           files:
             - $test

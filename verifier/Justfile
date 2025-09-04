@@ -6,6 +6,12 @@ import '../tools/lib/utils.justfile'
 default:
     just --list
 
+mock: ensure-mockery
+    @echo "Cleaning existing mocks..."
+    find . -path "*/mocks/*.go" -delete 2>/dev/null || true
+    @echo "Generating mocks with mockery..."
+    mockery
+
 # Format all go files
 fmt: ensure-golangci-lint
     golangci-lint fmt
@@ -17,7 +23,7 @@ lint: ensure-golangci-lint
 mod-tidy: ensure-go
     go mod tidy
 
-mod-tidy: ensure-go
+mod-download: ensure-go
     go mod download
 
 test: ensure-go
