@@ -1,12 +1,16 @@
 package aggregation
 
-import "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+import (
+	"context"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+)
 
 // AggregatorSinkStub is a stub implementation of the Sink interface for testing purposes.
 type AggregatorSinkStub struct {
 }
 
 // SubmitReport is a stub implementation of the SubmitReport method for testing purposes.
-func (s *AggregatorSinkStub) SubmitReport(_ *model.CommitAggregatedReport) error {
+func (s *AggregatorSinkStub) SubmitReport(_ context.Context, _ *model.CommitAggregatedReport) error {
 	return nil
 }

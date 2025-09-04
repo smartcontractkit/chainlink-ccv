@@ -18,7 +18,7 @@ import (
 const bufSize = 1024 * 1024
 
 // CreateServerAndClient creates a test server and client for functional testing.
-func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), error) {
+func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Committee) (aggregator.AggregatorClient, func(), error) {
 	lis := bufconn.Listen(bufSize)
 	// Setup logging - always debug level for now
 	lggr, err := logger.NewWith(func(config *zap.Config) {
@@ -38,9 +38,7 @@ func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), e
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
-		Aggregation: model.AggregationConfig{
-			AggregationStrategy: "stub",
-		},
+		Committees: committeeConfig,
 	})
 	go func() {
 		_, _ = s.Start(lis)
