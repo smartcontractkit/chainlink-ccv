@@ -4,6 +4,7 @@ go 1.24.6
 
 require (
 	github.com/BurntSushi/toml v1.5.0
+	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.75.0

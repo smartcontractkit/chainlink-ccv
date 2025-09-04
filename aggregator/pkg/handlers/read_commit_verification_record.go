@@ -16,6 +16,10 @@ type ReadCommitVerificationRecordHandler struct {
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
 func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.ReadCommitVerificationRequest) (*aggregator.ReadCommitVerificationResponse, error) {
+	if err := validateReadRequest(req); err != nil {
+		return &aggregator.ReadCommitVerificationResponse{}, err
+	}
+
 	id := model.CommitVerificationRecordIdentifier{
 		ParticipantID: req.GetParticipantId(),
 		CommitteeID:   req.GetCommitteeId(),

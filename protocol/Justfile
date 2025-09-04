@@ -1,0 +1,17 @@
+test:
+    go test -v ./...
+
+test-coverage:
+    go test -v -coverprofile=coverage.out ./...
+
+lint:
+    golangci-lint run --fix
+
+clean:
+    rm -f coverage.out
+
+mod-tidy:
+    go mod tidy
+
+mod-download:
+    go mod download
