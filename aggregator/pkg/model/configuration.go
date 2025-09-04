@@ -26,11 +26,6 @@ type StorageConfig struct {
 	StorageType string `toml:"type,default=memory"`
 }
 
-// AggregationConfig represents the configuration for the aggregation process.
-type AggregationConfig struct {
-	AggregationStrategy string `toml:"strategy,default=stub"`
-}
-
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
 	Address string `toml:"address,default=:50051"`
@@ -38,10 +33,10 @@ type ServerConfig struct {
 
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Server      ServerConfig         `toml:"server"`
-	Storage     StorageConfig        `toml:"storage"`
-	Aggregation AggregationConfig    `toml:"aggregation"`
-	Committees  map[string]Committee `toml:"committees"`
+	DisableValidation bool                 `toml:"disableValidation,default=false"`
+	Server            ServerConfig         `toml:"server"`
+	Storage           StorageConfig        `toml:"storage"`
+	Committees        map[string]Committee `toml:"committees"`
 }
 
 // Validate validates the aggregator configuration for integrity and correctness.

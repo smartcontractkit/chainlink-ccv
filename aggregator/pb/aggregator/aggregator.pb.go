@@ -68,30 +68,45 @@ func (WriteStatus) EnumDescriptor() ([]byte, []int) {
 	return file_proto_aggregator_proto_rawDescGZIP(), []int{0}
 }
 
-type Any2AnyMessageHeader struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	MessageId           []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	SourceChainSelector uint64                 `protobuf:"varint,2,opt,name=source_chain_selector,json=sourceChainSelector,proto3" json:"source_chain_selector,omitempty"`
-	DestChainSelector   uint64                 `protobuf:"varint,3,opt,name=dest_chain_selector,json=destChainSelector,proto3" json:"dest_chain_selector,omitempty"`
-	SequenceNumber      uint64                 `protobuf:"varint,4,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+type Message struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Version              uint32                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	SourceChainSelector  uint64                 `protobuf:"varint,2,opt,name=source_chain_selector,json=sourceChainSelector,proto3" json:"source_chain_selector,omitempty"`
+	DestChainSelector    uint64                 `protobuf:"varint,3,opt,name=dest_chain_selector,json=destChainSelector,proto3" json:"dest_chain_selector,omitempty"`
+	SequenceNumber       uint64                 `protobuf:"varint,4,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number,omitempty"`
+	OnRampAddressLength  uint32                 `protobuf:"varint,5,opt,name=on_ramp_address_length,json=onRampAddressLength,proto3" json:"on_ramp_address_length,omitempty"`
+	OnRampAddress        []byte                 `protobuf:"bytes,6,opt,name=on_ramp_address,json=onRampAddress,proto3" json:"on_ramp_address,omitempty"`
+	OffRampAddressLength uint32                 `protobuf:"varint,7,opt,name=off_ramp_address_length,json=offRampAddressLength,proto3" json:"off_ramp_address_length,omitempty"`
+	OffRampAddress       []byte                 `protobuf:"bytes,8,opt,name=off_ramp_address,json=offRampAddress,proto3" json:"off_ramp_address,omitempty"`
+	Finality             uint32                 `protobuf:"varint,9,opt,name=finality,proto3" json:"finality,omitempty"`
+	SenderLength         uint32                 `protobuf:"varint,10,opt,name=sender_length,json=senderLength,proto3" json:"sender_length,omitempty"`
+	Sender               []byte                 `protobuf:"bytes,11,opt,name=sender,proto3" json:"sender,omitempty"`
+	ReceiverLength       uint32                 `protobuf:"varint,12,opt,name=receiver_length,json=receiverLength,proto3" json:"receiver_length,omitempty"`
+	Receiver             []byte                 `protobuf:"bytes,13,opt,name=receiver,proto3" json:"receiver,omitempty"`
+	DestBlobLength       uint32                 `protobuf:"varint,14,opt,name=dest_blob_length,json=destBlobLength,proto3" json:"dest_blob_length,omitempty"`
+	DestBlob             []byte                 `protobuf:"bytes,15,opt,name=dest_blob,json=destBlob,proto3" json:"dest_blob,omitempty"`
+	TokenTransferLength  uint32                 `protobuf:"varint,16,opt,name=token_transfer_length,json=tokenTransferLength,proto3" json:"token_transfer_length,omitempty"`
+	TokenTransfer        []byte                 `protobuf:"bytes,17,opt,name=token_transfer,json=tokenTransfer,proto3" json:"token_transfer,omitempty"`
+	DataLength           uint32                 `protobuf:"varint,18,opt,name=data_length,json=dataLength,proto3" json:"data_length,omitempty"`
+	Data                 []byte                 `protobuf:"bytes,19,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
-func (x *Any2AnyMessageHeader) Reset() {
-	*x = Any2AnyMessageHeader{}
+func (x *Message) Reset() {
+	*x = Message{}
 	mi := &file_proto_aggregator_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Any2AnyMessageHeader) String() string {
+func (x *Message) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Any2AnyMessageHeader) ProtoMessage() {}
+func (*Message) ProtoMessage() {}
 
-func (x *Any2AnyMessageHeader) ProtoReflect() protoreflect.Message {
+func (x *Message) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_aggregator_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -103,274 +118,170 @@ func (x *Any2AnyMessageHeader) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Any2AnyMessageHeader.ProtoReflect.Descriptor instead.
-func (*Any2AnyMessageHeader) Descriptor() ([]byte, []int) {
+// Deprecated: Use Message.ProtoReflect.Descriptor instead.
+func (*Message) Descriptor() ([]byte, []int) {
 	return file_proto_aggregator_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Any2AnyMessageHeader) GetMessageId() []byte {
+func (x *Message) GetVersion() uint32 {
 	if x != nil {
-		return x.MessageId
+		return x.Version
 	}
-	return nil
+	return 0
 }
 
-func (x *Any2AnyMessageHeader) GetSourceChainSelector() uint64 {
+func (x *Message) GetSourceChainSelector() uint64 {
 	if x != nil {
 		return x.SourceChainSelector
 	}
 	return 0
 }
 
-func (x *Any2AnyMessageHeader) GetDestChainSelector() uint64 {
+func (x *Message) GetDestChainSelector() uint64 {
 	if x != nil {
 		return x.DestChainSelector
 	}
 	return 0
 }
 
-func (x *Any2AnyMessageHeader) GetSequenceNumber() uint64 {
+func (x *Message) GetSequenceNumber() uint64 {
 	if x != nil {
 		return x.SequenceNumber
 	}
 	return 0
 }
 
-// Subject to change based on the message encoding decisions
-type Any2AnyMessage struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Header           *Any2AnyMessageHeader  `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
-	Sender           []byte                 `protobuf:"bytes,2,opt,name=sender,proto3" json:"sender,omitempty"`
-	OnrampAddress    []byte                 `protobuf:"bytes,3,opt,name=onramp_address,json=onrampAddress,proto3" json:"onramp_address,omitempty"`
-	Data             []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
-	Receiver         []byte                 `protobuf:"bytes,5,opt,name=receiver,proto3" json:"receiver,omitempty"`
-	FeeToken         []byte                 `protobuf:"bytes,6,opt,name=fee_token,json=feeToken,proto3" json:"fee_token,omitempty"`
-	FeeTokenAmount   []byte                 `protobuf:"bytes,7,opt,name=fee_token_amount,json=feeTokenAmount,proto3" json:"fee_token_amount,omitempty"`
-	FeeValueJuels    []byte                 `protobuf:"bytes,8,opt,name=fee_value_juels,json=feeValueJuels,proto3" json:"fee_value_juels,omitempty"`
-	TokenTransfer    *Any2AnyTokenTransfer  `protobuf:"bytes,9,opt,name=token_transfer,json=tokenTransfer,proto3" json:"token_transfer,omitempty"`
-	VerifierReceipts []*AnyReceipt          `protobuf:"bytes,10,rep,name=verifier_receipts,json=verifierReceipts,proto3" json:"verifier_receipts,omitempty"`
-	ExecutorReceipt  *AnyReceipt            `protobuf:"bytes,11,opt,name=executor_receipt,json=executorReceipt,proto3" json:"executor_receipt,omitempty"`
-	TokenReceipt     *AnyReceipt            `protobuf:"bytes,12,opt,name=token_receipt,json=tokenReceipt,proto3" json:"token_receipt,omitempty"`
-	ExtraArgs        []byte                 `protobuf:"bytes,13,opt,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *Any2AnyMessage) Reset() {
-	*x = Any2AnyMessage{}
-	mi := &file_proto_aggregator_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Any2AnyMessage) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Any2AnyMessage) ProtoMessage() {}
-
-func (x *Any2AnyMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[1]
+func (x *Message) GetOnRampAddressLength() uint32 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+		return x.OnRampAddressLength
 	}
-	return mi.MessageOf(x)
+	return 0
 }
 
-// Deprecated: Use Any2AnyMessage.ProtoReflect.Descriptor instead.
-func (*Any2AnyMessage) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *Any2AnyMessage) GetHeader() *Any2AnyMessageHeader {
+func (x *Message) GetOnRampAddress() []byte {
 	if x != nil {
-		return x.Header
+		return x.OnRampAddress
 	}
 	return nil
 }
 
-func (x *Any2AnyMessage) GetSender() []byte {
+func (x *Message) GetOffRampAddressLength() uint32 {
+	if x != nil {
+		return x.OffRampAddressLength
+	}
+	return 0
+}
+
+func (x *Message) GetOffRampAddress() []byte {
+	if x != nil {
+		return x.OffRampAddress
+	}
+	return nil
+}
+
+func (x *Message) GetFinality() uint32 {
+	if x != nil {
+		return x.Finality
+	}
+	return 0
+}
+
+func (x *Message) GetSenderLength() uint32 {
+	if x != nil {
+		return x.SenderLength
+	}
+	return 0
+}
+
+func (x *Message) GetSender() []byte {
 	if x != nil {
 		return x.Sender
 	}
 	return nil
 }
 
-func (x *Any2AnyMessage) GetOnrampAddress() []byte {
+func (x *Message) GetReceiverLength() uint32 {
 	if x != nil {
-		return x.OnrampAddress
+		return x.ReceiverLength
 	}
-	return nil
+	return 0
 }
 
-func (x *Any2AnyMessage) GetData() []byte {
-	if x != nil {
-		return x.Data
-	}
-	return nil
-}
-
-func (x *Any2AnyMessage) GetReceiver() []byte {
+func (x *Message) GetReceiver() []byte {
 	if x != nil {
 		return x.Receiver
 	}
 	return nil
 }
 
-func (x *Any2AnyMessage) GetFeeToken() []byte {
+func (x *Message) GetDestBlobLength() uint32 {
 	if x != nil {
-		return x.FeeToken
+		return x.DestBlobLength
+	}
+	return 0
+}
+
+func (x *Message) GetDestBlob() []byte {
+	if x != nil {
+		return x.DestBlob
 	}
 	return nil
 }
 
-func (x *Any2AnyMessage) GetFeeTokenAmount() []byte {
+func (x *Message) GetTokenTransferLength() uint32 {
 	if x != nil {
-		return x.FeeTokenAmount
+		return x.TokenTransferLength
 	}
-	return nil
+	return 0
 }
 
-func (x *Any2AnyMessage) GetFeeValueJuels() []byte {
-	if x != nil {
-		return x.FeeValueJuels
-	}
-	return nil
-}
-
-func (x *Any2AnyMessage) GetTokenTransfer() *Any2AnyTokenTransfer {
+func (x *Message) GetTokenTransfer() []byte {
 	if x != nil {
 		return x.TokenTransfer
 	}
 	return nil
 }
 
-func (x *Any2AnyMessage) GetVerifierReceipts() []*AnyReceipt {
+func (x *Message) GetDataLength() uint32 {
 	if x != nil {
-		return x.VerifierReceipts
+		return x.DataLength
+	}
+	return 0
+}
+
+func (x *Message) GetData() []byte {
+	if x != nil {
+		return x.Data
 	}
 	return nil
 }
 
-func (x *Any2AnyMessage) GetExecutorReceipt() *AnyReceipt {
-	if x != nil {
-		return x.ExecutorReceipt
-	}
-	return nil
-}
-
-func (x *Any2AnyMessage) GetTokenReceipt() *AnyReceipt {
-	if x != nil {
-		return x.TokenReceipt
-	}
-	return nil
-}
-
-func (x *Any2AnyMessage) GetExtraArgs() []byte {
-	if x != nil {
-		return x.ExtraArgs
-	}
-	return nil
-}
-
-type Any2AnyTokenTransfer struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	SourceTokenAddress []byte                 `protobuf:"bytes,1,opt,name=source_token_address,json=sourceTokenAddress,proto3" json:"source_token_address,omitempty"`
-	DestTokenAddress   []byte                 `protobuf:"bytes,2,opt,name=dest_token_address,json=destTokenAddress,proto3" json:"dest_token_address,omitempty"`
-	ExtraData          []byte                 `protobuf:"bytes,3,opt,name=extra_data,json=extraData,proto3" json:"extra_data,omitempty"`
-	Amount             []byte                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
-}
-
-func (x *Any2AnyTokenTransfer) Reset() {
-	*x = Any2AnyTokenTransfer{}
-	mi := &file_proto_aggregator_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Any2AnyTokenTransfer) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Any2AnyTokenTransfer) ProtoMessage() {}
-
-func (x *Any2AnyTokenTransfer) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Any2AnyTokenTransfer.ProtoReflect.Descriptor instead.
-func (*Any2AnyTokenTransfer) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *Any2AnyTokenTransfer) GetSourceTokenAddress() []byte {
-	if x != nil {
-		return x.SourceTokenAddress
-	}
-	return nil
-}
-
-func (x *Any2AnyTokenTransfer) GetDestTokenAddress() []byte {
-	if x != nil {
-		return x.DestTokenAddress
-	}
-	return nil
-}
-
-func (x *Any2AnyTokenTransfer) GetExtraData() []byte {
-	if x != nil {
-		return x.ExtraData
-	}
-	return nil
-}
-
-func (x *Any2AnyTokenTransfer) GetAmount() []byte {
-	if x != nil {
-		return x.Amount
-	}
-	return nil
-}
-
-type AnyReceipt struct {
+type ReceiptBlob struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Issuer            []byte                 `protobuf:"bytes,1,opt,name=issuer,proto3" json:"issuer,omitempty"`
-	FeeTokenAmount    []byte                 `protobuf:"bytes,2,opt,name=fee_token_amount,json=feeTokenAmount,proto3" json:"fee_token_amount,omitempty"`
-	DestGasLimit      uint64                 `protobuf:"varint,3,opt,name=dest_gas_limit,json=destGasLimit,proto3" json:"dest_gas_limit,omitempty"`
-	DestBytesOverhead uint32                 `protobuf:"varint,4,opt,name=dest_bytes_overhead,json=destBytesOverhead,proto3" json:"dest_bytes_overhead,omitempty"`
+	DestGasLimit      uint64                 `protobuf:"varint,2,opt,name=dest_gas_limit,json=destGasLimit,proto3" json:"dest_gas_limit,omitempty"`
+	DestBytesOverhead uint32                 `protobuf:"varint,3,opt,name=dest_bytes_overhead,json=destBytesOverhead,proto3" json:"dest_bytes_overhead,omitempty"`
+	Blob              []byte                 `protobuf:"bytes,4,opt,name=blob,proto3" json:"blob,omitempty"`
 	ExtraArgs         []byte                 `protobuf:"bytes,5,opt,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
-func (x *AnyReceipt) Reset() {
-	*x = AnyReceipt{}
-	mi := &file_proto_aggregator_proto_msgTypes[3]
+func (x *ReceiptBlob) Reset() {
+	*x = ReceiptBlob{}
+	mi := &file_proto_aggregator_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AnyReceipt) String() string {
+func (x *ReceiptBlob) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AnyReceipt) ProtoMessage() {}
+func (*ReceiptBlob) ProtoMessage() {}
 
-func (x *AnyReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[3]
+func (x *ReceiptBlob) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_aggregator_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -381,40 +292,40 @@ func (x *AnyReceipt) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AnyReceipt.ProtoReflect.Descriptor instead.
-func (*AnyReceipt) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{3}
+// Deprecated: Use ReceiptBlob.ProtoReflect.Descriptor instead.
+func (*ReceiptBlob) Descriptor() ([]byte, []int) {
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AnyReceipt) GetIssuer() []byte {
+func (x *ReceiptBlob) GetIssuer() []byte {
 	if x != nil {
 		return x.Issuer
 	}
 	return nil
 }
 
-func (x *AnyReceipt) GetFeeTokenAmount() []byte {
-	if x != nil {
-		return x.FeeTokenAmount
-	}
-	return nil
-}
-
-func (x *AnyReceipt) GetDestGasLimit() uint64 {
+func (x *ReceiptBlob) GetDestGasLimit() uint64 {
 	if x != nil {
 		return x.DestGasLimit
 	}
 	return 0
 }
 
-func (x *AnyReceipt) GetDestBytesOverhead() uint32 {
+func (x *ReceiptBlob) GetDestBytesOverhead() uint32 {
 	if x != nil {
 		return x.DestBytesOverhead
 	}
 	return 0
 }
 
-func (x *AnyReceipt) GetExtraArgs() []byte {
+func (x *ReceiptBlob) GetBlob() []byte {
+	if x != nil {
+		return x.Blob
+	}
+	return nil
+}
+
+func (x *ReceiptBlob) GetExtraArgs() []byte {
 	if x != nil {
 		return x.ExtraArgs
 	}
@@ -432,16 +343,17 @@ type CommitVerificationRecord struct {
 	// ccv_data is the signature from the commit verifier node of the message data and the blob data
 	CcvData []byte `protobuf:"bytes,7,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
 	// blob_data is the encoded nonce from the source chain
-	BlobData      []byte          `protobuf:"bytes,8,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
-	Timestamp     uint32          `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Message       *Any2AnyMessage `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
+	BlobData      []byte         `protobuf:"bytes,8,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
+	Timestamp     uint64         `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Message       *Message       `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
+	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,11,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CommitVerificationRecord) Reset() {
 	*x = CommitVerificationRecord{}
-	mi := &file_proto_aggregator_proto_msgTypes[4]
+	mi := &file_proto_aggregator_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -453,7 +365,7 @@ func (x *CommitVerificationRecord) String() string {
 func (*CommitVerificationRecord) ProtoMessage() {}
 
 func (x *CommitVerificationRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[4]
+	mi := &file_proto_aggregator_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -466,7 +378,7 @@ func (x *CommitVerificationRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitVerificationRecord.ProtoReflect.Descriptor instead.
 func (*CommitVerificationRecord) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{4}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CommitVerificationRecord) GetMessageId() []byte {
@@ -525,16 +437,23 @@ func (x *CommitVerificationRecord) GetBlobData() []byte {
 	return nil
 }
 
-func (x *CommitVerificationRecord) GetTimestamp() uint32 {
+func (x *CommitVerificationRecord) GetTimestamp() uint64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-func (x *CommitVerificationRecord) GetMessage() *Any2AnyMessage {
+func (x *CommitVerificationRecord) GetMessage() *Message {
 	if x != nil {
 		return x.Message
+	}
+	return nil
+}
+
+func (x *CommitVerificationRecord) GetReceiptBlobs() []*ReceiptBlob {
+	if x != nil {
+		return x.ReceiptBlobs
 	}
 	return nil
 }
@@ -552,7 +471,7 @@ type WriteCommitVerificationRequest struct {
 
 func (x *WriteCommitVerificationRequest) Reset() {
 	*x = WriteCommitVerificationRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[5]
+	mi := &file_proto_aggregator_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -564,7 +483,7 @@ func (x *WriteCommitVerificationRequest) String() string {
 func (*WriteCommitVerificationRequest) ProtoMessage() {}
 
 func (x *WriteCommitVerificationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[5]
+	mi := &file_proto_aggregator_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -577,7 +496,7 @@ func (x *WriteCommitVerificationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteCommitVerificationRequest.ProtoReflect.Descriptor instead.
 func (*WriteCommitVerificationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{5}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *WriteCommitVerificationRequest) GetCommitVerificationRecord() *CommitVerificationRecord {
@@ -610,7 +529,7 @@ type WriteCommitVerificationResponse struct {
 
 func (x *WriteCommitVerificationResponse) Reset() {
 	*x = WriteCommitVerificationResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[6]
+	mi := &file_proto_aggregator_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -622,7 +541,7 @@ func (x *WriteCommitVerificationResponse) String() string {
 func (*WriteCommitVerificationResponse) ProtoMessage() {}
 
 func (x *WriteCommitVerificationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[6]
+	mi := &file_proto_aggregator_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -635,7 +554,7 @@ func (x *WriteCommitVerificationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteCommitVerificationResponse.ProtoReflect.Descriptor instead.
 func (*WriteCommitVerificationResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{6}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WriteCommitVerificationResponse) GetStatus() WriteStatus {
@@ -656,7 +575,7 @@ type ReadCommitVerificationRequest struct {
 
 func (x *ReadCommitVerificationRequest) Reset() {
 	*x = ReadCommitVerificationRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[7]
+	mi := &file_proto_aggregator_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -668,7 +587,7 @@ func (x *ReadCommitVerificationRequest) String() string {
 func (*ReadCommitVerificationRequest) ProtoMessage() {}
 
 func (x *ReadCommitVerificationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[7]
+	mi := &file_proto_aggregator_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -681,7 +600,7 @@ func (x *ReadCommitVerificationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadCommitVerificationRequest.ProtoReflect.Descriptor instead.
 func (*ReadCommitVerificationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{7}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ReadCommitVerificationRequest) GetMessageId() []byte {
@@ -714,7 +633,7 @@ type ReadCommitVerificationResponse struct {
 
 func (x *ReadCommitVerificationResponse) Reset() {
 	*x = ReadCommitVerificationResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[8]
+	mi := &file_proto_aggregator_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -726,7 +645,7 @@ func (x *ReadCommitVerificationResponse) String() string {
 func (*ReadCommitVerificationResponse) ProtoMessage() {}
 
 func (x *ReadCommitVerificationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[8]
+	mi := &file_proto_aggregator_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -739,7 +658,7 @@ func (x *ReadCommitVerificationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadCommitVerificationResponse.ProtoReflect.Descriptor instead.
 func (*ReadCommitVerificationResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{8}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ReadCommitVerificationResponse) GetCommitVerificationRecord() *CommitVerificationRecord {
@@ -761,7 +680,7 @@ type QueryAggregatedCommitRecordsRequest struct {
 
 func (x *QueryAggregatedCommitRecordsRequest) Reset() {
 	*x = QueryAggregatedCommitRecordsRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[9]
+	mi := &file_proto_aggregator_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -773,7 +692,7 @@ func (x *QueryAggregatedCommitRecordsRequest) String() string {
 func (*QueryAggregatedCommitRecordsRequest) ProtoMessage() {}
 
 func (x *QueryAggregatedCommitRecordsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[9]
+	mi := &file_proto_aggregator_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -786,7 +705,7 @@ func (x *QueryAggregatedCommitRecordsRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use QueryAggregatedCommitRecordsRequest.ProtoReflect.Descriptor instead.
 func (*QueryAggregatedCommitRecordsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{9}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *QueryAggregatedCommitRecordsRequest) GetStart() *timestamppb.Timestamp {
@@ -821,7 +740,7 @@ type QueryAggregatedCommitRecordsResponse struct {
 
 func (x *QueryAggregatedCommitRecordsResponse) Reset() {
 	*x = QueryAggregatedCommitRecordsResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[10]
+	mi := &file_proto_aggregator_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -833,7 +752,7 @@ func (x *QueryAggregatedCommitRecordsResponse) String() string {
 func (*QueryAggregatedCommitRecordsResponse) ProtoMessage() {}
 
 func (x *QueryAggregatedCommitRecordsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[10]
+	mi := &file_proto_aggregator_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -846,7 +765,7 @@ func (x *QueryAggregatedCommitRecordsResponse) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use QueryAggregatedCommitRecordsResponse.ProtoReflect.Descriptor instead.
 func (*QueryAggregatedCommitRecordsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{10}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *QueryAggregatedCommitRecordsResponse) GetRecords() []*CommitVerificationRecord {
@@ -874,43 +793,36 @@ var File_proto_aggregator_proto protoreflect.FileDescriptor
 
 const file_proto_aggregator_proto_rawDesc = "" +
 	"\n" +
-	"\x16proto/aggregator.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc2\x01\n" +
-	"\x14Any2AnyMessageHeader\x12\x1d\n" +
-	"\n" +
-	"message_id\x18\x01 \x01(\fR\tmessageId\x122\n" +
+	"\x16proto/aggregator.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe3\x05\n" +
+	"\aMessage\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\rR\aversion\x122\n" +
 	"\x15source_chain_selector\x18\x02 \x01(\x04R\x13sourceChainSelector\x12.\n" +
 	"\x13dest_chain_selector\x18\x03 \x01(\x04R\x11destChainSelector\x12'\n" +
-	"\x0fsequence_number\x18\x04 \x01(\x04R\x0esequenceNumber\"\x9e\x04\n" +
-	"\x0eAny2AnyMessage\x12-\n" +
-	"\x06header\x18\x01 \x01(\v2\x15.Any2AnyMessageHeaderR\x06header\x12\x16\n" +
-	"\x06sender\x18\x02 \x01(\fR\x06sender\x12%\n" +
-	"\x0eonramp_address\x18\x03 \x01(\fR\ronrampAddress\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\x12\x1a\n" +
-	"\breceiver\x18\x05 \x01(\fR\breceiver\x12\x1b\n" +
-	"\tfee_token\x18\x06 \x01(\fR\bfeeToken\x12(\n" +
-	"\x10fee_token_amount\x18\a \x01(\fR\x0efeeTokenAmount\x12&\n" +
-	"\x0ffee_value_juels\x18\b \x01(\fR\rfeeValueJuels\x12<\n" +
-	"\x0etoken_transfer\x18\t \x01(\v2\x15.Any2AnyTokenTransferR\rtokenTransfer\x128\n" +
-	"\x11verifier_receipts\x18\n" +
-	" \x03(\v2\v.AnyReceiptR\x10verifierReceipts\x126\n" +
-	"\x10executor_receipt\x18\v \x01(\v2\v.AnyReceiptR\x0fexecutorReceipt\x120\n" +
-	"\rtoken_receipt\x18\f \x01(\v2\v.AnyReceiptR\ftokenReceipt\x12\x1d\n" +
+	"\x0fsequence_number\x18\x04 \x01(\x04R\x0esequenceNumber\x123\n" +
+	"\x16on_ramp_address_length\x18\x05 \x01(\rR\x13onRampAddressLength\x12&\n" +
+	"\x0fon_ramp_address\x18\x06 \x01(\fR\ronRampAddress\x125\n" +
+	"\x17off_ramp_address_length\x18\a \x01(\rR\x14offRampAddressLength\x12(\n" +
+	"\x10off_ramp_address\x18\b \x01(\fR\x0eoffRampAddress\x12\x1a\n" +
+	"\bfinality\x18\t \x01(\rR\bfinality\x12#\n" +
+	"\rsender_length\x18\n" +
+	" \x01(\rR\fsenderLength\x12\x16\n" +
+	"\x06sender\x18\v \x01(\fR\x06sender\x12'\n" +
+	"\x0freceiver_length\x18\f \x01(\rR\x0ereceiverLength\x12\x1a\n" +
+	"\breceiver\x18\r \x01(\fR\breceiver\x12(\n" +
+	"\x10dest_blob_length\x18\x0e \x01(\rR\x0edestBlobLength\x12\x1b\n" +
+	"\tdest_blob\x18\x0f \x01(\fR\bdestBlob\x122\n" +
+	"\x15token_transfer_length\x18\x10 \x01(\rR\x13tokenTransferLength\x12%\n" +
+	"\x0etoken_transfer\x18\x11 \x01(\fR\rtokenTransfer\x12\x1f\n" +
+	"\vdata_length\x18\x12 \x01(\rR\n" +
+	"dataLength\x12\x12\n" +
+	"\x04data\x18\x13 \x01(\fR\x04data\"\xae\x01\n" +
+	"\vReceiptBlob\x12\x16\n" +
+	"\x06issuer\x18\x01 \x01(\fR\x06issuer\x12$\n" +
+	"\x0edest_gas_limit\x18\x02 \x01(\x04R\fdestGasLimit\x12.\n" +
+	"\x13dest_bytes_overhead\x18\x03 \x01(\rR\x11destBytesOverhead\x12\x12\n" +
+	"\x04blob\x18\x04 \x01(\fR\x04blob\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\r \x01(\fR\textraArgs\"\xad\x01\n" +
-	"\x14Any2AnyTokenTransfer\x120\n" +
-	"\x14source_token_address\x18\x01 \x01(\fR\x12sourceTokenAddress\x12,\n" +
-	"\x12dest_token_address\x18\x02 \x01(\fR\x10destTokenAddress\x12\x1d\n" +
-	"\n" +
-	"extra_data\x18\x03 \x01(\fR\textraData\x12\x16\n" +
-	"\x06amount\x18\x04 \x01(\fR\x06amount\"\xc3\x01\n" +
-	"\n" +
-	"AnyReceipt\x12\x16\n" +
-	"\x06issuer\x18\x01 \x01(\fR\x06issuer\x12(\n" +
-	"\x10fee_token_amount\x18\x02 \x01(\fR\x0efeeTokenAmount\x12$\n" +
-	"\x0edest_gas_limit\x18\x03 \x01(\x04R\fdestGasLimit\x12.\n" +
-	"\x13dest_bytes_overhead\x18\x04 \x01(\rR\x11destBytesOverhead\x12\x1d\n" +
-	"\n" +
-	"extra_args\x18\x05 \x01(\fR\textraArgs\"\xb3\x03\n" +
+	"extra_args\x18\x05 \x01(\fR\textraArgs\"\xdf\x03\n" +
 	"\x18CommitVerificationRecord\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\fR\tmessageId\x12'\n" +
@@ -921,9 +833,10 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x15dest_verifier_address\x18\x06 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
 	"\bccv_data\x18\a \x01(\fR\accvData\x12\x1b\n" +
 	"\tblob_data\x18\b \x01(\fR\bblobData\x12\x1c\n" +
-	"\ttimestamp\x18\t \x01(\rR\ttimestamp\x12)\n" +
+	"\ttimestamp\x18\t \x01(\x04R\ttimestamp\x12\"\n" +
 	"\amessage\x18\n" +
-	" \x01(\v2\x0f.Any2AnyMessageR\amessage\"\xc3\x01\n" +
+	" \x01(\v2\b.MessageR\amessage\x121\n" +
+	"\rreceipt_blobs\x18\v \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xc3\x01\n" +
 	"\x1eWriteCommitVerificationRequest\x12W\n" +
 	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord\x12%\n" +
 	"\x0eparticipant_id\x18\x02 \x01(\tR\rparticipantId\x12!\n" +
@@ -970,46 +883,40 @@ func file_proto_aggregator_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_aggregator_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_proto_aggregator_proto_goTypes = []any{
 	(WriteStatus)(0),                             // 0: WriteStatus
-	(*Any2AnyMessageHeader)(nil),                 // 1: Any2AnyMessageHeader
-	(*Any2AnyMessage)(nil),                       // 2: Any2AnyMessage
-	(*Any2AnyTokenTransfer)(nil),                 // 3: Any2AnyTokenTransfer
-	(*AnyReceipt)(nil),                           // 4: AnyReceipt
-	(*CommitVerificationRecord)(nil),             // 5: CommitVerificationRecord
-	(*WriteCommitVerificationRequest)(nil),       // 6: WriteCommitVerificationRequest
-	(*WriteCommitVerificationResponse)(nil),      // 7: WriteCommitVerificationResponse
-	(*ReadCommitVerificationRequest)(nil),        // 8: ReadCommitVerificationRequest
-	(*ReadCommitVerificationResponse)(nil),       // 9: ReadCommitVerificationResponse
-	(*QueryAggregatedCommitRecordsRequest)(nil),  // 10: QueryAggregatedCommitRecordsRequest
-	(*QueryAggregatedCommitRecordsResponse)(nil), // 11: QueryAggregatedCommitRecordsResponse
-	(*timestamppb.Timestamp)(nil),                // 12: google.protobuf.Timestamp
+	(*Message)(nil),                              // 1: Message
+	(*ReceiptBlob)(nil),                          // 2: ReceiptBlob
+	(*CommitVerificationRecord)(nil),             // 3: CommitVerificationRecord
+	(*WriteCommitVerificationRequest)(nil),       // 4: WriteCommitVerificationRequest
+	(*WriteCommitVerificationResponse)(nil),      // 5: WriteCommitVerificationResponse
+	(*ReadCommitVerificationRequest)(nil),        // 6: ReadCommitVerificationRequest
+	(*ReadCommitVerificationResponse)(nil),       // 7: ReadCommitVerificationResponse
+	(*QueryAggregatedCommitRecordsRequest)(nil),  // 8: QueryAggregatedCommitRecordsRequest
+	(*QueryAggregatedCommitRecordsResponse)(nil), // 9: QueryAggregatedCommitRecordsResponse
+	(*timestamppb.Timestamp)(nil),                // 10: google.protobuf.Timestamp
 }
 var file_proto_aggregator_proto_depIdxs = []int32{
-	1,  // 0: Any2AnyMessage.header:type_name -> Any2AnyMessageHeader
-	3,  // 1: Any2AnyMessage.token_transfer:type_name -> Any2AnyTokenTransfer
-	4,  // 2: Any2AnyMessage.verifier_receipts:type_name -> AnyReceipt
-	4,  // 3: Any2AnyMessage.executor_receipt:type_name -> AnyReceipt
-	4,  // 4: Any2AnyMessage.token_receipt:type_name -> AnyReceipt
-	2,  // 5: CommitVerificationRecord.message:type_name -> Any2AnyMessage
-	5,  // 6: WriteCommitVerificationRequest.commit_verification_record:type_name -> CommitVerificationRecord
-	0,  // 7: WriteCommitVerificationResponse.status:type_name -> WriteStatus
-	5,  // 8: ReadCommitVerificationResponse.commit_verification_record:type_name -> CommitVerificationRecord
-	12, // 9: QueryAggregatedCommitRecordsRequest.start:type_name -> google.protobuf.Timestamp
-	12, // 10: QueryAggregatedCommitRecordsRequest.end:type_name -> google.protobuf.Timestamp
-	5,  // 11: QueryAggregatedCommitRecordsResponse.records:type_name -> CommitVerificationRecord
-	6,  // 12: Aggregator.WriteCommitVerification:input_type -> WriteCommitVerificationRequest
-	8,  // 13: Aggregator.ReadCommitVerification:input_type -> ReadCommitVerificationRequest
-	10, // 14: Aggregator.QueryAggregatedCommitRecords:input_type -> QueryAggregatedCommitRecordsRequest
-	7,  // 15: Aggregator.WriteCommitVerification:output_type -> WriteCommitVerificationResponse
-	9,  // 16: Aggregator.ReadCommitVerification:output_type -> ReadCommitVerificationResponse
-	11, // 17: Aggregator.QueryAggregatedCommitRecords:output_type -> QueryAggregatedCommitRecordsResponse
-	15, // [15:18] is the sub-list for method output_type
-	12, // [12:15] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	1,  // 0: CommitVerificationRecord.message:type_name -> Message
+	2,  // 1: CommitVerificationRecord.receipt_blobs:type_name -> ReceiptBlob
+	3,  // 2: WriteCommitVerificationRequest.commit_verification_record:type_name -> CommitVerificationRecord
+	0,  // 3: WriteCommitVerificationResponse.status:type_name -> WriteStatus
+	3,  // 4: ReadCommitVerificationResponse.commit_verification_record:type_name -> CommitVerificationRecord
+	10, // 5: QueryAggregatedCommitRecordsRequest.start:type_name -> google.protobuf.Timestamp
+	10, // 6: QueryAggregatedCommitRecordsRequest.end:type_name -> google.protobuf.Timestamp
+	3,  // 7: QueryAggregatedCommitRecordsResponse.records:type_name -> CommitVerificationRecord
+	4,  // 8: Aggregator.WriteCommitVerification:input_type -> WriteCommitVerificationRequest
+	6,  // 9: Aggregator.ReadCommitVerification:input_type -> ReadCommitVerificationRequest
+	8,  // 10: Aggregator.QueryAggregatedCommitRecords:input_type -> QueryAggregatedCommitRecordsRequest
+	5,  // 11: Aggregator.WriteCommitVerification:output_type -> WriteCommitVerificationResponse
+	7,  // 12: Aggregator.ReadCommitVerification:output_type -> ReadCommitVerificationResponse
+	9,  // 13: Aggregator.QueryAggregatedCommitRecords:output_type -> QueryAggregatedCommitRecordsResponse
+	11, // [11:14] is the sub-list for method output_type
+	8,  // [8:11] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_aggregator_proto_init() }
@@ -1023,7 +930,7 @@ func file_proto_aggregator_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_aggregator_proto_rawDesc), len(file_proto_aggregator_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

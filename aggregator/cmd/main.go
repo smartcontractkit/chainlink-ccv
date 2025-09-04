@@ -4,24 +4,24 @@ package main
 import (
 	"context"
 	"net"
-	"os"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"go.uber.org/zap"
 )
 
 func main() {
-	lvlStr := os.Getenv("AGGREGATOR_LOG_LEVEL")
-	if lvlStr == "" {
-		lvlStr = "info"
-	}
-	lvl, err := zerolog.ParseLevel(lvlStr)
+	// Setup logging - always debug level for now
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		config.Development = true
+		config.Encoding = "console"
+	})
 	if err != nil {
 		panic(err)
 	}
-	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(lvl)
+
+	lggr = logger.Sugared(lggr)
 
 	config := model.AggregatorConfig{
 		Server: model.ServerConfig{
@@ -30,28 +30,26 @@ func main() {
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
-		Aggregation: model.AggregationConfig{
-			AggregationStrategy: "stub",
-		},
+		DisableValidation: true,
 	}
 
-	server := aggregator.NewServer(l, config)
+	server := aggregator.NewServer(lggr, config)
 
 	address := config.Server.Address
 	lc := &net.ListenConfig{}
 	lis, err := lc.Listen(context.Background(), "tcp", address)
 	if err != nil {
-		l.Fatal().Err(err).Msg("failed to listen")
+		lggr.Fatalw("failed to listen", "address", address, "error", err)
 	}
 	defer func() {
 		if err := lis.Close(); err != nil {
-			l.Error().Err(err).Msg("failed to close listener")
+			lggr.Errorw("failed to close listener", "error", err)
 		}
 	}()
 
 	stop, err := server.Start(lis)
 	if err != nil {
-		l.Fatal().Err(err).Msg("failed to start server")
+		lggr.Fatalw("failed to start server", "error", err)
 	}
 	defer stop()
 }

@@ -71,7 +71,17 @@ func NewEnvironment() (*Cfg, error) {
 		}
 		return nil
 	})
+	aggregatorOutput, err := services.NewAggregator(in.Aggregator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create aggregator service: %w", err)
+	}
+
 	eg.Go(func() error {
+		in.Verifier.VerifierConfig = services.VerifierConfig{
+			AggregatorAddress: aggregatorOutput.Address,
+			ParticipantID:     "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+			CommitteeID:       "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+		}
 		_, err = services.NewVerifier(in.Verifier)
 		if err != nil {
 			return fmt.Errorf("failed to create verifier service: %w", err)
@@ -89,13 +99,6 @@ func NewEnvironment() (*Cfg, error) {
 		_, err = services.NewIndexer(in.Indexer)
 		if err != nil {
 			return fmt.Errorf("failed to create indexer service: %w", err)
-		}
-		return nil
-	})
-	eg.Go(func() error {
-		_, err = services.NewAggregator(in.Aggregator)
-		if err != nil {
-			return fmt.Errorf("failed to create aggregator service: %w", err)
 		}
 		return nil
 	})

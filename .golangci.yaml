@@ -424,7 +424,7 @@ formatters:
       sections:
         - standard
         - default
-        - prefix(github.com/smartcontractkit/chainlink-ccv)
+        - prefix(github.com/smartcontractkit/chainlink)
         - blank
         - dot
         - alias
@@ -438,7 +438,7 @@ formatters:
           replacement: 'a[b:]'
     # https://golangci-lint.run/usage/formatters/#gofumpt
     gofumpt:
-      module-path: github.com/smartcontractkit/chainlink-ccv
+      module-path: github.com/smartcontractkit/chainlink
       extra-rules: true
     # https://golangci-lint.run/usage/formatters/#goimports
     goimports:
