@@ -53,13 +53,6 @@ func WithLeaderElector(leaderElector le.LeaderElector) Option {
 	}
 }
 
-func (ec *ExecutorCoordinator) Validate() error {
-	if ec.executor == nil {
-		return fmt.Errorf("executor is required")
-	}
-	return nil
-}
-
 func NewExecutorCoordinator(options ...Option) (*ExecutorCoordinator, error) {
 	ec := &ExecutorCoordinator{
 		ccvDataCh: make(chan types.MessageWithCCVData, 100),
@@ -69,11 +62,6 @@ func NewExecutorCoordinator(options ...Option) (*ExecutorCoordinator, error) {
 
 	for _, opt := range options {
 		opt(ec)
-	}
-
-	// Validate required fields
-	if err := ec.Validate(); err != nil {
-		return nil, err
 	}
 
 	return ec, nil
@@ -153,6 +141,12 @@ func (ec *ExecutorCoordinator) ProcessMessage(ctx context.Context) error {
 			}
 			// todo: perform some validations on the message
 
+			err := ec.executor.CheckValidMessage(ctx, msg)
+			if err != nil {
+				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+				continue
+			}
+
 			// get message delay from leader elector
 			delay := ec.leaderElector.GetDelay(msg.CCVData[0].MessageID, msg.Message.DestChainSelector, msg.ReadyTimestamp)
 			if delay+msg.ReadyTimestamp > uint64(time.Now().Unix()) {
@@ -166,7 +160,7 @@ func (ec *ExecutorCoordinator) ProcessMessage(ctx context.Context) error {
 			}
 			// if message is executable, send to executor
 
-			err := ec.executor.ExecuteMessage(ctx, msg)
+			err = ec.executor.ExecuteMessage(ctx, msg)
 			if err != nil {
 				ec.lggr.Errorw("failed to execute message", "error", err, "message", msg)
 			} else {

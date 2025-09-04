@@ -14,14 +14,14 @@ import (
 
 type ChainlinkExecutor struct {
 	lggr                 logger.Logger
-	contractTransmitters ct.ContractTransmitter
-	destinationReaders   dr.DestinationReader
+	contractTransmitters map[ccipocr3.ChainSelector]ct.ContractTransmitter
+	destinationReaders   map[ccipocr3.ChainSelector]dr.DestinationReader
 }
 
 func NewChainlinkExecutor(
 	lggr logger.Logger,
-	contractTransmitters ct.ContractTransmitter,
-	destinationReaders dr.DestinationReader,
+	contractTransmitters map[ccipocr3.ChainSelector]ct.ContractTransmitter,
+	destinationReaders map[ccipocr3.ChainSelector]dr.DestinationReader,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
 		lggr:                 lggr,
@@ -30,41 +30,23 @@ func NewChainlinkExecutor(
 	}
 }
 
-func (cle *ChainlinkExecutor) Validate() error {
-	if cle.lggr == nil {
-		return fmt.Errorf("logger is required")
+func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error {
+	destinationChain := messageWithCCVData.Message.DestChainSelector
+	_, ok := cle.destinationReaders[destinationChain]
+	if !ok {
+		return fmt.Errorf("no destination reader for chain %d", destinationChain)
 	}
-	chainSetA := make(map[ccipocr3.ChainSelector]struct{})
-	chainSetB := make(map[ccipocr3.ChainSelector]struct{})
-	for _, chainID := range cle.contractTransmitters.SupportedChains() {
-		chainSetA[chainID] = struct{}{}
-	}
-
-	for _, chainID := range cle.destinationReaders.SupportedChains() {
-		chainSetB[chainID] = struct{}{}
-	}
-	if len(chainSetA) == 0 {
-		return fmt.Errorf("contract transmitters must support at least one chain")
-	}
-	if len(chainSetB) == 0 {
-		return fmt.Errorf("destination readers must support at least one chain")
-	}
-
-	if len(chainSetA) != len(chainSetB) {
-		return fmt.Errorf("contract transmitters and destination readers must support the same chains")
-	}
-	for chainID := range chainSetA {
-		if _, ok := chainSetB[chainID]; !ok {
-			return fmt.Errorf("contract transmitters and destination readers must support the same chains")
-		}
+	_, ok = cle.contractTransmitters[destinationChain]
+	if !ok {
+		return fmt.Errorf("no contract transmitter for chain %d", destinationChain)
 	}
 	return nil
 }
 
 func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error {
-	messageExecuted, err := cle.destinationReaders.IsMessageExecuted(
+	destinationChain := messageWithCCVData.Message.DestChainSelector
+	messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 		ctx,
-		messageWithCCVData.Message.DestChainSelector,
 		messageWithCCVData.Message.SourceChainSelector,
 		messageWithCCVData.Message.SequenceNumber,
 	)
@@ -76,9 +58,8 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return nil
 	}
 
-	ccvInfo, err := cle.destinationReaders.GetCCVSForMessage(
+	ccvInfo, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
 		ctx,
-		messageWithCCVData.Message.DestChainSelector,
 		messageWithCCVData.Message.SourceChainSelector,
 		messageWithCCVData.Message.Receiver,
 	)
@@ -91,7 +72,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
 	}
 
-	err = cle.contractTransmitters.ConvertAndWriteMessageToChain(ctx, types.AbstractAggregatedReport{
+	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, types.AbstractAggregatedReport{
 		Message: messageWithCCVData.Message,
 		CCVS:    orderedCcvOfframps,
 		CCVData: orderedCcvData,
@@ -134,4 +115,41 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiverDe
 		return nil, nil, fmt.Errorf("optional CCV Offramps did not meet threshold")
 	}
 	return orderedCcvOfframps, orderedCcvData, nil
+}
+
+func (cle *ChainlinkExecutor) Validate() error {
+	if cle.lggr == nil {
+		return fmt.Errorf("logger is required")
+	}
+	chainSetA := make(map[ccipocr3.ChainSelector]struct{})
+	chainSetB := make(map[ccipocr3.ChainSelector]struct{})
+	if cle.contractTransmitters == nil {
+		return fmt.Errorf("contract transmitters is required")
+	}
+	if cle.destinationReaders == nil {
+		return fmt.Errorf("destination readers is required")
+	}
+	for chainSel, _ := range cle.contractTransmitters {
+		chainSetA[chainSel] = struct{}{}
+	}
+
+	for chainSel, _ := range cle.destinationReaders {
+		chainSetB[chainSel] = struct{}{}
+	}
+	if len(chainSetA) == 0 {
+		return fmt.Errorf("contract transmitters must support at least one chain")
+	}
+	if len(chainSetB) == 0 {
+		return fmt.Errorf("destination readers must support at least one chain")
+	}
+
+	if len(chainSetA) != len(chainSetB) {
+		return fmt.Errorf("contract transmitters and destination readers must support the same chains")
+	}
+	for chainID := range chainSetA {
+		if _, ok := chainSetB[chainID]; !ok {
+			return fmt.Errorf("contract transmitters and destination readers must support the same chains")
+		}
+	}
+	return nil
 }

@@ -7,4 +7,5 @@ import (
 
 type Executor interface {
 	ExecuteMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error
+	CheckValidMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error
 }
