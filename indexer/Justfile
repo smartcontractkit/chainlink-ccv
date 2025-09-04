@@ -1,11 +1,35 @@
+# Default: show available recipes
+default:
+    just --list
+
+# Format all go files
+fmt:
+    golangci-lint fmt
+
+# Run golangci-lint
+lint:
+    golangci-lint run --output.text.path stdout
+
+mod-tidy:
+    go mod tidy
+
+mod-download:
+    go mod download
+
+test:
+    go test -v ./...
+
+test-coverage:
+    go test -v -coverprofile=coverage.out ./...
+
 build:
-    docker build -f Dockerfile -t indexer:latest .
+    docker build -f Dockerfile -t verifier:latest .
 
 build-dev:
-    docker build -f Dockerfile.dev -t indexer:dev .
+    docker build -f Dockerfile.dev -t verifier:dev ..
 
 clean:
-    docker rmi indexer:latest
+    docker rmi verifier:latest
 
 clean-dev:
-    docker rmi indexer:dev
+    docker rmi verifier:dev

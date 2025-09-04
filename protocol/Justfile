@@ -1,14 +1,20 @@
+# Default: show available recipes
+default:
+    just --list
+
 test:
     go test -v ./...
 
 test-coverage:
     go test -v -coverprofile=coverage.out ./...
 
-lint:
-    golangci-lint run --fix
+# Format all go files
+fmt:
+    golangci-lint fmt
 
-clean:
-    rm -f coverage.out
+# Run golangci-lint
+lint:
+    golangci-lint run --output.text.path stdout
 
 mod-tidy:
     go mod tidy

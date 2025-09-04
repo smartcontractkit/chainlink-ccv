@@ -1,14 +1,20 @@
-build:
-    docker build -f Dockerfile -t aggregator:latest .
+# Default: show available recipes
+default:
+    just --list
 
-build-dev:
-    docker build -f Dockerfile.dev -t aggregator:dev .
+# Format all go files
+fmt:
+    golangci-lint fmt
 
-clean:
-    docker rmi aggregator:latest
+# Run golangci-lint
+lint:
+    golangci-lint run --output.text.path stdout
 
-clean-dev:
-    docker rmi aggregator:dev
+mod-tidy:
+    go mod tidy
+
+mod-download:
+    go mod download
 
 proto:
     protoc --go_out=. --go-grpc_out=. ./proto/aggregator.proto
@@ -28,8 +34,20 @@ proto-check: proto
         echo "Protobuf files are in sync"; \
     fi
 
-lint: proto-lint
-    golangci-lint run --fix -c .golangci.yml
-
 test:
-    go test ./...
+    go test -v ./...
+
+test-coverage:
+    go test -v -coverprofile=coverage.out ./...
+
+build:
+    docker build -f Dockerfile -t aggregator:latest .
+
+build-dev:
+    docker build -f Dockerfile.dev -t aggregator:dev .
+
+clean:
+    docker rmi aggregator:latest
+
+clean-dev:
+    docker rmi aggregator:dev

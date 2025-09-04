@@ -2,9 +2,19 @@
 default:
     just --list
 
-# Run go mod tidy
-tidy:
+# Format all go files
+fmt:
+    golangci-lint fmt
+
+# Run golangci-lint
+lint:
+    golangci-lint run --output.text.path stdout
+
+mod-tidy:
     go mod tidy
+
+mod-download:
+    go mod download
 
 clean:
     rm -rf compose/ blockscout/
@@ -18,14 +28,6 @@ rm-chaos:
     kubectl delete stresschaos --all -A
     kubectl delete dnschaos --all -A
     kubectl delete kernelchaos --all -A
-
-# Format all go files
-fmt:
-    golangci-lint fmt 
-
-# Run golangci-lint
-lint:
-    golangci-lint run --whole-files --output.text.path stdout --max-same-issues=0
 
 # Install pre-commit hooks
 pre-commit:

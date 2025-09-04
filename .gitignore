@@ -1,1 +1,8 @@
+# golangci-lint report
+**/.build
+
+# Intellij IDEA project config
 .idea/*
+
+# local mise config
+mise.local.toml

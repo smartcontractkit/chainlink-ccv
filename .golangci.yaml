@@ -54,6 +54,16 @@ linters:
     # https://golangci-lint.run/usage/linters/#depguard
     depguard:
       rules:
+        protocol:
+          list-mode: lax
+          files:
+            - ${config-path}/protocol/**.go
+          allow:
+            - $gostd
+          deny:
+            - pkg: github.com/smartcontractkit/chainlink
+              desc: No chainlink dependencies in protocol abstraction layer
+
         test:
           list-mode: lax
           files:
@@ -61,14 +71,15 @@ linters:
           allow:
             - $gostd
           deny:
-            - pkg: "github.com/docker/docker/client"
+            - pkg: github.com/test-go
               desc: Use github.com/stretchr instead
             - pkg: github.com/test-go/testify/assert
               desc: Use github.com/stretchr/testify/assert
-            - pkg: github.com/stretchr/testify/require
+            - pkg: github.com/test-go/testify/require
               desc: Use github.com/stretchr/testify/require
             - pkg: github.com/smartcontractkit/chainlink/v2
               desc: System-level tests should not import chainlink/v2, please either use chain-specific packages or consult core team
+
         main:
           list-mode: lax
           files:
@@ -76,11 +87,9 @@ linters:
           allow:
             - $gostd
           deny:
-            - pkg: github.com/smartcontractkit/chainlink-testing-framework(/|$)
-              desc: This package is not maintained
             - pkg: github.com/mitchellh/mapstructure
               desc: This package is not maintained; Use github.com/go-viper/mapstructure/v2 instead.
-            - pkg: "github.com/docker/docker/client"
+            - pkg: github.com/x/net/context
               desc: Use context package from the standard library.
             - pkg: github.com/pkg/errors
               desc: Should be replaced by the standard lib errors package.
