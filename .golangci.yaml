@@ -453,7 +453,7 @@ issues:
   max-same-issues: 0 # disable limit - show all
   uniq-by-line: true
   new: false
-  new-from-merge-base: main
+  new-from-merge-base: origin/main
   new-from-rev: HEAD
   whole-files: true
   fix: true
