@@ -4,12 +4,9 @@ go 1.24.6
 
 require (
 	github.com/ethereum/go-ethereum v1.16.3
-	github.com/smartcontractkit/chainlink-ccv/aggregator v0.0.0
 	github.com/smartcontractkit/chainlink-common v0.9.4
 	github.com/stretchr/testify v1.11.1
 )
-
-replace github.com/smartcontractkit/chainlink-ccv/aggregator => ../aggregator
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

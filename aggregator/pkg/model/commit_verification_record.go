@@ -3,7 +3,7 @@ package model
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
 // MessageID is a type alias for bytes representing a message identifier.
