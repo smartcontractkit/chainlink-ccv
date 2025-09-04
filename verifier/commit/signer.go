@@ -12,13 +12,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/utils"
 )
 
-// ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format
+// ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {
 	privateKey *ecdsa.PrivateKey
 	address    common.UnknownAddress
 }
 
-// NewECDSAMessageSigner creates a new ECDSA message signer
+// NewECDSAMessageSigner creates a new ECDSA message signer.
 func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 	if len(privateKeyBytes) == 0 {
 		return nil, fmt.Errorf("private key cannot be empty")
@@ -45,7 +45,7 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 	}, nil
 }
 
-// SignMessage signs a message event using ECDSA with the new chain-agnostic format
+// SignMessage signs a message event using ECDSA with the new chain-agnostic format.
 func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error) {
 	message := verificationTask.Message
 
@@ -97,7 +97,7 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 	return encodedSignature, verifierBlob, nil
 }
 
-// GetSignerAddress returns the address of the signer
+// GetSignerAddress returns the address of the signer.
 func (s *ECDSASigner) GetSignerAddress() common.UnknownAddress {
 	return s.address
 }
