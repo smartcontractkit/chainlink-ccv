@@ -78,7 +78,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 
 	require.NoError(t, err, "QueryAggregatedCommitRecords failed")
 	require.NotNil(t, queryResp, "expected non-nil response")
-	require.Equal(t, 1, len(queryResp.Records), "expected exactly 1 record")
+	require.Len(t, queryResp.Records, 1, "expected exactly 1 record")
 	record := queryResp.Records[0]
 	require.Equal(t, messageID, record.MessageId, "expected MessageId to match")
 }

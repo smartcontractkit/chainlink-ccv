@@ -30,7 +30,7 @@ func (h *QueryAggregatedCommitRecordsHandler) Handle(ctx context.Context, req *a
 
 	return &aggregator.QueryAggregatedCommitRecordsResponse{
 		Records: records,
-		Total:   uint32(len(records)),
+		Total:   uint32(len(records)), //nolint:gosec // length is checked above
 	}, nil
 }
 
