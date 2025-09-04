@@ -207,8 +207,8 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 				return
 			}
 
-			// Store CCVData to offchain storage
-			if err := vc.storage.StoreCCVData(ctx, []common.CCVData{ccvData}); err != nil {
+			// Write CCVData to offchain storage
+			if err := vc.storage.WriteCCVData(ctx, []common.CCVData{ccvData}); err != nil {
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
 					"messageID", ccvData.MessageID,
