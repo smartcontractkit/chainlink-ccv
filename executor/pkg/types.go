@@ -5,7 +5,7 @@ import (
 )
 
 type AbstractAggregatedReport struct {
-	Message common.Any2AnyVerifierMessage
+	Message common.Message
 	CCVS    []common.UnknownAddress
 	CCVData [][]byte
 }
@@ -16,7 +16,7 @@ type ContractAddresses map[string]map[uint64]string
 
 // MessageWithCCVData is a struct that represents the data in between the indexer and executor
 type MessageWithCCVData struct {
-	Message        common.Any2AnyVerifierMessage
+	Message        common.Message
 	CCVData        []common.CCVData
 	ReadyTimestamp uint64
 }

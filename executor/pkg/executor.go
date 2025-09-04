@@ -154,7 +154,7 @@ func (ec *ExecutorCoordinator) ProcessMessage(ctx context.Context) error {
 			// todo: perform some validations on the message
 
 			// get message delay from leader elector
-			delay := ec.leaderElector.get_delay(msg.Message.Header.MessageID, msg.Message.Header.DestChainSelector, msg.ReadyTimestamp)
+			delay := ec.leaderElector.get_delay(msg.CCVData[0].MessageID, msg.Message.DestChainSelector, msg.ReadyTimestamp)
 			if delay+msg.ReadyTimestamp > uint64(time.Now().Unix()) {
 				// not ready yet, requeue. In a real system, consider using a priority queue keyed on "readiness time"
 				ec.lggr.Infow("message not ready yet, requeuing", "message", msg, "delay", delay)

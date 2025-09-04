@@ -61,22 +61,22 @@ func (cle *ChainlinkExecutor) Validate() error {
 func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCVData MessageWithCCVData) error {
 	messageExecuted, err := cle.destinationReaders.IsMessageExecuted(
 		ctx,
-		messageWithCCVData.Message.Header.DestChainSelector,
-		messageWithCCVData.Message.Header.SourceChainSelector,
-		messageWithCCVData.Message.Header.SequenceNumber,
+		messageWithCCVData.Message.DestChainSelector,
+		messageWithCCVData.Message.SourceChainSelector,
+		messageWithCCVData.Message.SequenceNumber,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to check if message is executed: %w", err)
 	}
 	if messageExecuted {
-		cle.lggr.Infof("message %d already executed on chain %d", messageWithCCVData.Message.Header.SequenceNumber, messageWithCCVData.Message.Header.DestChainSelector)
+		cle.lggr.Infof("message %d already executed on chain %d", messageWithCCVData.Message.SequenceNumber, messageWithCCVData.Message.DestChainSelector)
 		return nil
 	}
 
 	ccvInfo, err := cle.destinationReaders.GetCCVSForMessage(
 		ctx,
-		messageWithCCVData.Message.Header.DestChainSelector,
-		messageWithCCVData.Message.Header.SourceChainSelector,
+		messageWithCCVData.Message.DestChainSelector,
+		messageWithCCVData.Message.SourceChainSelector,
 		messageWithCCVData.Message.Receiver,
 	)
 	if err != nil {
