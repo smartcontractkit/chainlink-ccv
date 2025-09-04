@@ -399,6 +399,18 @@ linters:
         - binding
         - validate
 
+  exclusions:
+    generated: lax
+    warn-unused: false
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+          - errcheck
+          - gocyclo
+          - gosec
+          - revive
+
 # https://golangci-lint.run/usage/configuration/#formatters-configuration
 formatters:
   enable:
@@ -463,7 +475,7 @@ output:
 # https://golangci-lint.run/usage/configuration/#run-configuration
 run:
   timeout: 5m
-  tests: false
+  tests: true
   modules-download-mode: readonly
   allow-parallel-runners: true
   allow-serial-runners: true
