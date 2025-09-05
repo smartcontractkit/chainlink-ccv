@@ -1,19 +1,14 @@
 package handlers
 
 import (
-	"regexp"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
-
-var bytes32HexStringValidation = validation.Match(regexp.MustCompile(`^[a-fA-F0-9]{64}$`))
 
 func validateWriteRequest(req *aggregator.WriteCommitVerificationRequest) error {
 	err := validation.ValidateStruct(
 		req,
-		validation.Field(&req.ParticipantId, validation.Required, bytes32HexStringValidation),
-		validation.Field(&req.CommitteeId, validation.Required, bytes32HexStringValidation),
 		validation.Field(&req.CommitVerificationRecord, validation.Required))
 	if err != nil {
 		return err
@@ -36,7 +31,6 @@ func validateWriteRequest(req *aggregator.WriteCommitVerificationRequest) error 
 		// TODO: Do deeper validation once format is finalized
 		validation.Field(&verificationRecord.Message, validation.Required),
 	)
-
 	if err != nil {
 		return err
 	}
@@ -46,8 +40,6 @@ func validateWriteRequest(req *aggregator.WriteCommitVerificationRequest) error 
 func validateReadRequest(req *aggregator.ReadCommitVerificationRequest) error {
 	err := validation.ValidateStruct(
 		req,
-		validation.Field(&req.ParticipantId, validation.Required, bytes32HexStringValidation),
-		validation.Field(&req.CommitteeId, validation.Required, bytes32HexStringValidation),
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),
 	)
 	if err != nil {

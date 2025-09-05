@@ -461,12 +461,8 @@ func (x *CommitVerificationRecord) GetReceiptBlobs() []*ReceiptBlob {
 type WriteCommitVerificationRequest struct {
 	state                    protoimpl.MessageState    `protogen:"open.v1"`
 	CommitVerificationRecord *CommitVerificationRecord `protobuf:"bytes,1,opt,name=commit_verification_record,json=commitVerificationRecord,proto3" json:"commit_verification_record,omitempty"`
-	// This is the id of the signer. In concrete term every node operator will have their own id which identify them uniquely
-	ParticipantId string `protobuf:"bytes,2,opt,name=participant_id,json=participantId,proto3" json:"participant_id,omitempty"`
-	// This is used to seperate different group of signers. As we can have multiple commit verifiers
-	CommitteeId   string `protobuf:"bytes,3,opt,name=committee_id,json=committeeId,proto3" json:"committee_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *WriteCommitVerificationRequest) Reset() {
@@ -504,20 +500,6 @@ func (x *WriteCommitVerificationRequest) GetCommitVerificationRecord() *CommitVe
 		return x.CommitVerificationRecord
 	}
 	return nil
-}
-
-func (x *WriteCommitVerificationRequest) GetParticipantId() string {
-	if x != nil {
-		return x.ParticipantId
-	}
-	return ""
-}
-
-func (x *WriteCommitVerificationRequest) GetCommitteeId() string {
-	if x != nil {
-		return x.CommitteeId
-	}
-	return ""
 }
 
 type WriteCommitVerificationResponse struct {
@@ -567,8 +549,7 @@ func (x *WriteCommitVerificationResponse) GetStatus() WriteStatus {
 type ReadCommitVerificationRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MessageId     []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	ParticipantId string                 `protobuf:"bytes,2,opt,name=participant_id,json=participantId,proto3" json:"participant_id,omitempty"`
-	CommitteeId   string                 `protobuf:"bytes,3,opt,name=committee_id,json=committeeId,proto3" json:"committee_id,omitempty"`
+	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -610,18 +591,11 @@ func (x *ReadCommitVerificationRequest) GetMessageId() []byte {
 	return nil
 }
 
-func (x *ReadCommitVerificationRequest) GetParticipantId() string {
+func (x *ReadCommitVerificationRequest) GetPublicKey() []byte {
 	if x != nil {
-		return x.ParticipantId
+		return x.PublicKey
 	}
-	return ""
-}
-
-func (x *ReadCommitVerificationRequest) GetCommitteeId() string {
-	if x != nil {
-		return x.CommitteeId
-	}
-	return ""
+	return nil
 }
 
 type ReadCommitVerificationResponse struct {
@@ -836,18 +810,16 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\ttimestamp\x18\t \x01(\x04R\ttimestamp\x12\"\n" +
 	"\amessage\x18\n" +
 	" \x01(\v2\b.MessageR\amessage\x121\n" +
-	"\rreceipt_blobs\x18\v \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xc3\x01\n" +
+	"\rreceipt_blobs\x18\v \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"y\n" +
 	"\x1eWriteCommitVerificationRequest\x12W\n" +
-	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord\x12%\n" +
-	"\x0eparticipant_id\x18\x02 \x01(\tR\rparticipantId\x12!\n" +
-	"\fcommittee_id\x18\x03 \x01(\tR\vcommitteeId\"G\n" +
+	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord\"G\n" +
 	"\x1fWriteCommitVerificationResponse\x12$\n" +
-	"\x06status\x18\x01 \x01(\x0e2\f.WriteStatusR\x06status\"\x88\x01\n" +
+	"\x06status\x18\x01 \x01(\x0e2\f.WriteStatusR\x06status\"]\n" +
 	"\x1dReadCommitVerificationRequest\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\fR\tmessageId\x12%\n" +
-	"\x0eparticipant_id\x18\x02 \x01(\tR\rparticipantId\x12!\n" +
-	"\fcommittee_id\x18\x03 \x01(\tR\vcommitteeId\"y\n" +
+	"message_id\x18\x01 \x01(\fR\tmessageId\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x02 \x01(\fR\tpublicKey\"y\n" +
 	"\x1eReadCommitVerificationResponse\x12W\n" +
 	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord\"\xa4\x01\n" +
 	"#QueryAggregatedCommitRecordsRequest\x120\n" +

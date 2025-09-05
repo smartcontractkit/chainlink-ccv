@@ -86,8 +86,6 @@ func NewEnvironment() (*Cfg, error) {
 	eg.Go(func() error {
 		in.Verifier.VerifierConfig = services.VerifierConfig{
 			AggregatorAddress: aggregatorOutput.Address,
-			ParticipantID:     "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-			CommitteeID:       "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
 		}
 		_, err = services.NewVerifier(in.Verifier)
 		if err != nil {

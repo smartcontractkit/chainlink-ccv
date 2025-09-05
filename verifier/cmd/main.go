@@ -11,8 +11,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
@@ -61,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr, verifierConfig.ParticipantID, verifierConfig.CommitteeID)
+	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create storage writer", "error", err)
 		os.Exit(1)

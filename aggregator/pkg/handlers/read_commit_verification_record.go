@@ -24,9 +24,8 @@ func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *a
 	}
 
 	id := model.CommitVerificationRecordIdentifier{
-		ParticipantID: req.GetParticipantId(),
-		CommitteeID:   req.GetCommitteeId(),
-		MessageID:     req.GetMessageId(),
+		PublicKey: req.GetPublicKey(),
+		MessageID: req.GetMessageId(),
 	}
 
 	record, err := h.storage.GetCommitVerification(ctx, id)
