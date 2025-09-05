@@ -37,12 +37,8 @@ func main() {
 
 	server := aggregator.NewServer(lggr, config)
 
-	// Start both services concurrently
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	lc := &net.ListenConfig{}
-	lis, err := lc.Listen(ctx, "tcp", config.Server.Address)
+	lis, err := lc.Listen(context.Background(), "tcp", config.Server.Address)
 	if err != nil {
 		lggr.Fatalw("failed to listen for CCV data service", "address", config.Server.Address, "error", err)
 	}
