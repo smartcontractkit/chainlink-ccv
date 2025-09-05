@@ -28,8 +28,7 @@ type StorageConfig struct {
 
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
-	CommitAggregatorAddress string `toml:"address"`
-	CCVDataAddress          string `toml:"ccvDataAddress"`
+	Address string `toml:"address"`
 }
 
 // AggregatorConfig is the root configuration for the aggregator.

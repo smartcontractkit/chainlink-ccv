@@ -21,8 +21,7 @@ const bufSize = 1024 * 1024
 
 // CreateServerAndClient creates a test server and client for functional testing.
 func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Committee) (aggregator.AggregatorClient, aggregator.CCVDataClient, func(), error) {
-	aggregatorBuf := bufconn.Listen(bufSize)
-	ccvDataBuf := bufconn.Listen(bufSize)
+	buf := bufconn.Listen(bufSize)
 	// Setup logging - always debug level for now
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
@@ -36,32 +35,28 @@ func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Commit
 	lggr = logger.Sugared(lggr)
 	s := agg.NewServer(lggr, model.AggregatorConfig{
 		Server: model.ServerConfig{
-			CommitAggregatorAddress: ":50051",
-			CCVDataAddress:          ":50052",
+			Address: ":50051",
 		},
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
 		Committees: committeeConfig,
 	})
-	go func() {
-		_, _ = s.StartCommitAggregator(aggregatorBuf)
-	}()
-
-	go func() {
-		_, _ = s.StartCCVData(ccvDataBuf)
-	}()
+	err = s.Start(buf)
+	if err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
 
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	aggregatorClient, aggregatorConn, err := createAggregatorClient(ctx, aggregatorBuf)
+	aggregatorClient, aggregatorConn, err := createAggregatorClient(ctx, buf)
 	if err != nil {
 		t.Fatalf("failed to create aggregator client: %v", err)
 	}
 
-	ccvDataClient, ccvDataConn, err := createCCVDataClient(ctx, ccvDataBuf)
+	ccvDataClient, ccvDataConn, err := createCCVDataClient(ctx, buf)
 	if err != nil {
 		t.Fatalf("failed to create CCV data client: %v", err)
 	}
