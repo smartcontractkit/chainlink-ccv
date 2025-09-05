@@ -37,7 +37,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 
 	defaultTransmitter := func() *executor_mocks.MockContractTransmitter {
 		ct := executor_mocks.NewMockContractTransmitter(t)
-		ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil)
+		ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Maybe()
 		return ct
 	}
 
