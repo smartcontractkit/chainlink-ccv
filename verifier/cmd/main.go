@@ -9,16 +9,17 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
 func loadConfiguration(filepath string) (*verifier.Configuration, error) {
@@ -172,7 +173,7 @@ func main() {
 	})
 
 	// Start HTTP server
-	server := &http.Server{Addr: ":8100"}
+	server := &http.Server{Addr: ":8100", ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	go func() {
 		lggr.Infow("🌐 HTTP server starting", "port", "8100")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

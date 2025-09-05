@@ -37,7 +37,7 @@ func createTestMessage(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSe
 	)
 }
 
-func TestInMemoryOffchainStorage_StoreCCVData(t *testing.T) {
+func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 	lggr := logger.Test(t)
 	storage := NewInMemoryOffchainStorage(lggr)
 

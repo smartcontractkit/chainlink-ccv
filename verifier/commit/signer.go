@@ -6,18 +6,19 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/utils"
 )
 
-// ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format
+// ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {
 	privateKey *ecdsa.PrivateKey
 	address    common.UnknownAddress
 }
 
-// NewECDSAMessageSigner creates a new ECDSA message signer
+// NewECDSAMessageSigner creates a new ECDSA message signer.
 func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 	if len(privateKeyBytes) == 0 {
 		return nil, fmt.Errorf("private key cannot be empty")
@@ -44,7 +45,7 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 	}, nil
 }
 
-// SignMessage signs a message event using ECDSA with the new chain-agnostic format
+// SignMessage signs a message event using ECDSA with the new chain-agnostic format.
 func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error) {
 	message := verificationTask.Message
 
@@ -62,11 +63,10 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 
 	// 3. Extract nonce from the correct receipt blob using the verifier index
 	var verifierBlob []byte
-	if verifierIndex < len(verificationTask.ReceiptBlobs) && len(verificationTask.ReceiptBlobs[verifierIndex].Blob) > 0 {
-		verifierBlob = verificationTask.ReceiptBlobs[verifierIndex].Blob
-	} else {
+	if verifierIndex >= len(verificationTask.ReceiptBlobs) || len(verificationTask.ReceiptBlobs[verifierIndex].Blob) <= 0 {
 		return nil, nil, fmt.Errorf("receipt blob at index %d is empty", verifierIndex)
 	}
+	verifierBlob = verificationTask.ReceiptBlobs[verifierIndex].Blob
 
 	// 5. Calculate signature hash using the new method
 	signatureHash, err := CalculateSignatureHash(messageHash, verifierBlob)
@@ -97,7 +97,7 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 	return encodedSignature, verifierBlob, nil
 }
 
-// GetSignerAddress returns the address of the signer
+// GetSignerAddress returns the address of the signer.
 func (s *ECDSASigner) GetSignerAddress() common.UnknownAddress {
 	return s.address
 }

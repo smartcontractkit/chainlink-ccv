@@ -1,3 +1,31 @@
+set fallback
+
+import '../tools/lib/utils.justfile'
+
+# Default: show available recipes
+default:
+    just --list
+
+# Format all go files
+fmt: ensure-golangci-lint
+    golangci-lint fmt
+
+# Run golangci-lint
+lint: ensure-golangci-lint
+    golangci-lint run --output.text.path stdout
+
+mod-tidy: ensure-go
+    go mod tidy
+
+mod-download: ensure-go
+    go mod download
+
+test: ensure-go
+    go test -v ./...
+
+test-coverage: ensure-go
+    go test -v -coverprofile=coverage.out ./...
+
 build:
     docker build -f Dockerfile -t aggregator:latest .
 
@@ -9,9 +37,3 @@ clean:
 
 clean-dev:
     docker rmi aggregator:dev
-
-lint:
-    golangci-lint run --fix -c .golangci.yml
-
-test:
-    go test ./...
