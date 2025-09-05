@@ -1,7 +1,10 @@
 package e2e
 
 import (
+	"context"
+	"fmt"
 	"math/big"
+	"strconv"
 	"testing"
 	"time"
 
@@ -10,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+
+	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
@@ -106,8 +111,12 @@ func TestE2ELoad(t *testing.T) {
 
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
-		_, err = createLoadProfile(1, 5*time.Minute, srcRPCURL, dstRPCURL, srcBlockchainClient, dstBlockchainClient, srcAuth, dstAuth, addrs).Run(true)
+		_, err = createLoadProfile(1, 30*time.Second, srcRPCURL, dstRPCURL, srcBlockchainClient, dstBlockchainClient, srcAuth, dstAuth, addrs).Run(true)
 		require.NoError(t, err)
+		// assert any logs you need
+		checkLogs(t, in, time.Now())
+		// assert any metrics you need
+		checkCPUMem(t, in, time.Now())
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
@@ -335,4 +344,43 @@ func TestE2ELoad(t *testing.T) {
 		}
 		p.Wait()
 	})
+}
+
+func checkLogs(t *testing.T, in *ccv.Cfg, end time.Time) {
+	logs, err := f.NewLokiQueryClient(f.LocalLokiBaseURL, "", f.BasicAuth{}, f.QueryParams{
+		Query:     "{job=\"ctf\",container=\"don-node1\"}",
+		StartTime: end.Add(-time.Minute),
+		EndTime:   end,
+		Limit:     100,
+	}).QueryRange(context.Background())
+	require.NoError(t, err)
+	fmt.Println(logs)
+}
+
+func checkCPUMem(t *testing.T, in *ccv.Cfg, end time.Time) {
+	pc := f.NewPrometheusQueryClient(f.LocalPrometheusBaseURL)
+	// no more than 10% CPU for this test
+	maxCPU := 10.0
+	cpuResp, err := pc.Query("sum(rate(container_cpu_usage_seconds_total{name=~\".*don.*\"}[5m])) by (name) *100", end)
+	require.NoError(t, err)
+	cpu := f.ToLabelsMap(cpuResp)
+	for i := 0; i < in.NodeSets[0].Nodes; i++ {
+		nodeLabel := fmt.Sprintf("name:don-node%d", i)
+		nodeCpu, err := strconv.ParseFloat(cpu[nodeLabel][0].(string), 64)
+		ccv.Plog.Info().Int("Node", i).Float64("CPU", nodeCpu).Msg("CPU usage percentage")
+		require.NoError(t, err)
+		require.LessOrEqual(t, nodeCpu, maxCPU)
+	}
+	// no more than 200mb for this test
+	maxMem := int(200e6) // 200mb
+	memoryResp, err := pc.Query("sum(container_memory_rss{name=~\".*don.*\"}) by (name)", end)
+	require.NoError(t, err)
+	mem := f.ToLabelsMap(memoryResp)
+	for i := 0; i < in.NodeSets[0].Nodes; i++ {
+		nodeLabel := fmt.Sprintf("name:don-node%d", i)
+		nodeMem, err := strconv.Atoi(mem[nodeLabel][0].(string))
+		ccv.Plog.Info().Int("Node", i).Int("Memory", nodeMem).Msg("Total memory")
+		require.NoError(t, err)
+		require.LessOrEqual(t, nodeMem, maxMem)
+	}
 }

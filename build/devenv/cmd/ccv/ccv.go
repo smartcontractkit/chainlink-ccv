@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -127,11 +128,7 @@ var bsRestartCmd = &cobra.Command{
 	Aliases: []string{"r"},
 	Short:   "Restart the Blockscout EVM block explorer",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		remote, _ := rootCmd.Flags().GetBool("remote")
 		url, _ := bsCmd.Flags().GetString("url")
-		if !remote {
-			return fmt.Errorf("remote mode: %v, Blockscout can only be used in 'local' mode", remote)
-		}
 		if err := framework.BlockScoutDown(url); err != nil {
 			return err
 		}
@@ -150,11 +147,14 @@ var obsUpCmd = &cobra.Command{
 	Aliases: []string{"u"},
 	Short:   "Spin up the observability stack",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		remote, _ := rootCmd.Flags().GetBool("remote")
-		if remote {
-			return fmt.Errorf("remote mode: %v, local observability stack can only be used in 'local' mode", remote)
+		full, _ := cmd.Flags().GetBool("full")
+		var err error
+		if full {
+			err = framework.ObservabilityUpFull()
+		} else {
+			err = framework.ObservabilityUp()
 		}
-		if err := framework.ObservabilityUp(); err != nil {
+		if err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
 		}
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
@@ -168,10 +168,6 @@ var obsDownCmd = &cobra.Command{
 	Aliases: []string{"d"},
 	Short:   "Spin down the observability stack",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		remote, _ := rootCmd.Flags().GetBool("remote")
-		if remote {
-			return fmt.Errorf("remote mode: %v, local observability stack can only be used in 'local' mode", remote)
-		}
 		return framework.ObservabilityDown()
 	},
 }
@@ -184,7 +180,14 @@ var obsRestartCmd = &cobra.Command{
 		if err := framework.ObservabilityDown(); err != nil {
 			return fmt.Errorf("observability down failed: %w", err)
 		}
-		if err := framework.ObservabilityUp(); err != nil {
+		full, _ := cmd.Flags().GetBool("full")
+		var err error
+		if full {
+			err = framework.ObservabilityUpFull()
+		} else {
+			err = framework.ObservabilityUp()
+		}
+		if err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
 		}
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
@@ -253,6 +256,7 @@ func init() {
 
 	// observability
 	obsCmd.AddCommand(obsRestartCmd)
+	obsUpCmd.Flags().BoolP("full", "f", false, "Enable full observability stack with additional components")
 	obsCmd.AddCommand(obsUpCmd)
 	obsCmd.AddCommand(obsDownCmd)
 	rootCmd.AddCommand(obsCmd)
