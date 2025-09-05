@@ -11,8 +11,8 @@ fmt: ensure-golangci-lint
     golangci-lint fmt
 
 # Run golangci-lint
-lint: ensure-golangci-lint
-    golangci-lint run --output.text.path stdout --fix
+lint fix="": ensure-golangci-lint
+    golangci-lint run --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
 
 mod-tidy: ensure-go
     go mod tidy
@@ -30,7 +30,7 @@ build:
     docker build -f Dockerfile -t executor:latest .
 
 build-dev:
-    docker build -f Dockerfile.dev -t executor:dev .
+    docker build -f Dockerfile.dev -t executor:dev ..
 
 clean:
     docker rmi executor:latest

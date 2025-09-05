@@ -3,7 +3,6 @@ package functionaltests
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"testing"
 	"time"
 
@@ -36,15 +35,11 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	participantID := hex.EncodeToString(createRandomBytes(t, 32))
-	committeeID := hex.EncodeToString(createRandomBytes(t, 32))
 	messageID := createRandomBytes(t, 32)
 	destVerifierAddr := createRandomBytes(t, 20)
 	sourceVerifierAddr := createRandomBytes(t, 20)
 
 	writeResp, err := client.WriteCommitVerification(t.Context(), &aggregator.WriteCommitVerificationRequest{
-		ParticipantId: participantID,
-		CommitteeId:   committeeID,
 		CommitVerificationRecord: &aggregator.CommitVerificationRecord{
 			MessageId:             messageID,
 			BlobData:              []byte("test blob data"),
@@ -63,9 +58,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, writeResp.Status, "expected WriteStatus_SUCCESS")
 
 	readResp, err := client.ReadCommitVerification(t.Context(), &aggregator.ReadCommitVerificationRequest{
-		ParticipantId: participantID,
-		CommitteeId:   committeeID,
-		MessageId:     messageID,
+		MessageId: messageID,
 	})
 
 	require.NoError(t, err, "ReadCommitVerification failed")

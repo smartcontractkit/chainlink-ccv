@@ -25,32 +25,30 @@ const (
 	DefaultExecutorDBImage = "postgres:16-alpine"
 )
 
-var (
-	DefaultExecutorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		DefaultExecutorName, DefaultExecutorName, DefaultExecutorDBPort, DefaultExecutorName)
-)
+var DefaultExecutorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+	DefaultExecutorName, DefaultExecutorName, DefaultExecutorDBPort, DefaultExecutorName)
 
 type ExecutorDBInput struct {
 	Image string `toml:"image"`
 }
 
 type ExecutorInput struct {
-	Image          string          `toml:"image"`
-	Port           int             `toml:"port"`
-	SourceCodePath string          `toml:"source_code_path"`
 	DB             *DBInput        `toml:"db"`
-	ContainerName  string          `toml:"container_name"`
-	UseCache       bool            `toml:"use_cache"`
 	Out            *ExecutorOutput `toml:"-"`
+	Image          string          `toml:"image"`
+	SourceCodePath string          `toml:"source_code_path"`
+	ContainerName  string          `toml:"container_name"`
+	Port           int             `toml:"port"`
+	UseCache       bool            `toml:"use_cache"`
 }
 
 type ExecutorOutput struct {
-	UseCache           bool   `toml:"use_cache"`
 	ContainerName      string `toml:"container_name"`
 	ExternalHTTPURL    string `toml:"http_url"`
 	InternalHTTPURL    string `toml:"internal_http_url"`
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
+	UseCache           bool   `toml:"use_cache"`
 }
 
 func executorDefaults(in *ExecutorInput) {
@@ -125,7 +123,25 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = GoSourcePathMounts(p, AppPathInsideContainer)
+		//nolint:staticcheck // ignore for now
+		req.Mounts = testcontainers.Mounts(
+			testcontainers.BindMount(
+				p,
+				AppPathInsideContainer,
+			),
+			testcontainers.BindMount(
+				filepath.Join(p, "../protocol"),
+				"/protocol",
+			),
+			testcontainers.VolumeMount(
+				"go-mod-cache",
+				"/go/pkg/mod",
+			),
+			testcontainers.VolumeMount(
+				"go-build-cache",
+				"/root/.cache/go-build",
+			),
+		)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

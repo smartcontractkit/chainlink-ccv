@@ -1,3 +1,2 @@
-aggregator_address = ""
-participant_id = ""
-committee_id = ""
+aggregator_address = "aggregator:50051"
+committee_id = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"

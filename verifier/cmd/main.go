@@ -61,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr, verifierConfig.ParticipantID, verifierConfig.CommitteeID)
+	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create storage writer", "error", err)
 		os.Exit(1)

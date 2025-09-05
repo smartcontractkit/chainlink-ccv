@@ -251,6 +251,7 @@ linters:
           arguments:
             - "check-public-interface"
             - "disable-checks-on-constants"
+            - "disable-checks-on-functions"
             - "disable-checks-on-methods"
             - "disable-checks-on-types"
             - "disable-checks-on-variables"

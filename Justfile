@@ -28,21 +28,21 @@ test-all:
     @echo "Testing indexer"
     @just ./indexer/test
 
-lint-all:
+lint-all fix="":
     @echo "Linting protocol"
-    @just ./protocol/lint
+    @just ./protocol/lint {{fix}}
     @echo "Linting common"
-    @just ./common/lint
+    @just ./common/lint {{fix}}
     @echo "Linting verifier"
-    @just ./verifier/lint
+    @just ./verifier/lint {{fix}}
     @echo "Linting executor"
-    @just ./executor/lint
+    @just ./executor/lint {{fix}}
     @echo "Linting aggregator"
-    @just ./aggregator/lint
+    @just ./aggregator/lint {{fix}}
     @echo "Linting indexer"
-    @just ./indexer/lint
+    @just ./indexer/lint {{fix}}
     @echo "Linting devenv"
-    @just ./build/devenv/lint
+    @just ./build/devenv/lint {{fix}}
 
 mod-tidy-all: ensure-gomods
     gomods tidy
