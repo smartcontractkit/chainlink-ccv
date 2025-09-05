@@ -10,10 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestConstructor(t *testing.T) {
