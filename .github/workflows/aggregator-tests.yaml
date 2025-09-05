@@ -1,19 +1,19 @@
-name: Protocol Tests
+name: Aggregator CI
 
 on:
   push:
     paths:
-      - 'protocol/**'
+      - 'aggregator/**'
   pull_request:
     paths:
-      - 'protocol/**'
+      - 'aggregator/**'
 
 defaults:
   run:
-    working-directory: protocol
+    working-directory: aggregator
 
 jobs:
-  protocol-lint-and-test:
+  aggregator-lint-and-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -25,9 +25,9 @@ jobs:
         uses: actions/setup-go@v6 # v6
         with:
           cache: true
-          go-version-file: protocol/go.mod
+          go-version-file: aggregator/go.mod
           cache-dependency-path: |
-            protocol/go.sum
+            aggregator/go.sum
 
       - name: Install just
         uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0

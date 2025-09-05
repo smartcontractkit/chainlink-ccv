@@ -15,7 +15,7 @@ defaults:
     working-directory: verifier
 
 jobs:
-  verifier-tests:
+  verifier-lint-and-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

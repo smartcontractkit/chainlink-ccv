@@ -30,7 +30,7 @@ build:
     docker build -f Dockerfile -t aggregator:latest .
 
 build-dev:
-    docker build -f Dockerfile.dev -t aggregator:dev .
+    docker build -f Dockerfile.dev -t aggregator:dev ..
 
 clean:
     docker rmi aggregator:latest
