@@ -4,6 +4,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -31,11 +32,11 @@ func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.Comm
 	return record, nil
 }
 
-// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID and committee ID.
-func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, committeeID string, messageID model.MessageID) ([]*model.CommitVerificationRecord, error) {
+// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID.
+func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, messageID model.MessageID) ([]*model.CommitVerificationRecord, error) {
 	var results []*model.CommitVerificationRecord
 	for _, record := range s.records {
-		if record.CommitteeID == committeeID && bytes.Equal(record.MessageId, messageID) {
+		if bytes.Equal(record.MessageId, messageID) {
 			results = append(results, record)
 		}
 	}
@@ -43,8 +44,8 @@ func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, c
 }
 
 func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
-	id := report.GetID()
-	s.aggregatedReports[id.ToIdentifier()] = report
+	id := hex.EncodeToString(report.MessageID)
+	s.aggregatedReports[id] = report
 	return nil
 }
 

@@ -25,23 +25,21 @@ type CommitReportAggregator struct {
 
 type aggregationRequest struct {
 	// CommitteeID is the ID of the committee for the aggregation request.
-	CommitteeID string
-	MessageID   model.MessageID
+	MessageID model.MessageID
 }
 
-// CheckAggregation enqueues a new aggregation request for the specified committee and message ID.
-func (c *CommitReportAggregator) CheckAggregation(committeeID string, messageID model.MessageID) error {
+// CheckAggregation enqueues a new aggregation request for the specified message ID.
+func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID) error {
 	go func() {
 		c.messageIDChan <- aggregationRequest{
-			CommitteeID: committeeID,
-			MessageID:   messageID,
+			MessageID: messageID,
 		}
 	}()
 	return nil
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(committeeID string, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
-	verifications, err := c.storage.ListCommitVerificationByMessageID(context.Background(), committeeID, messageID)
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+	verifications, err := c.storage.ListCommitVerificationByMessageID(context.Background(), messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +47,6 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(committeeID s
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
 		Verifications: verifications,
-		CommitteeID:   committeeID,
 		Timestamp:     time.Now().Unix(),
 	}
 
@@ -73,7 +70,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 		select {
 		case request := <-c.messageIDChan:
 			go func() {
-				_, _ = c.checkAggregationAndSubmitComplete(request.CommitteeID, request.MessageID)
+				_, _ = c.checkAggregationAndSubmitComplete(request.MessageID)
 			}()
 		case <-ctx.Done():
 			return

@@ -57,8 +57,6 @@ message CommitVerificationRecord {
 
 message WriteCommitVerificationRequest {
   CommitVerificationRecord commit_verification_record = 1;
-  // This is used to seperate different group of signers. As we can have multiple commit verifiers
-  string committee_id = 3;
 }
 
 enum WriteStatus {
@@ -72,9 +70,7 @@ message WriteCommitVerificationResponse {
 
 message ReadCommitVerificationRequest {
   bytes message_id = 1;
-  // This is the id of the signer. In concrete term every node operator will have their own id which identify them uniquely
-  string participant_id = 2;
-  string committee_id = 3;
+  bytes public_key = 2;
 }
 
 message ReadCommitVerificationResponse {

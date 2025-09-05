@@ -11,7 +11,7 @@ import (
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
-	CheckAggregation(committeeID string, messageID model.MessageID) error
+	CheckAggregation(messageID model.MessageID) error
 }
 
 // WriteCommitVerificationRecordHandler handles requests to write commit verification records.
@@ -24,8 +24,7 @@ type WriteCommitVerificationRecordHandler struct {
 
 // Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.WriteCommitVerificationRequest) (*aggregator.WriteCommitVerificationResponse, error) {
-	h.logger.Infof("Received WriteCommitVerificationRequest: ParticipantID=%s, CommitteeID=%s, MessageID=%x",
-		req.GetParticipantId(), req.GetCommitteeId(), req.GetCommitVerificationRecord().GetMessageId())
+	h.logger.Infof("Received WriteCommitVerificationRequest: MessageID=%x", req.GetCommitVerificationRecord().GetMessageId())
 	if !h.disableValidation {
 		if err := validateWriteRequest(req); err != nil {
 			return &aggregator.WriteCommitVerificationResponse{
@@ -36,8 +35,6 @@ func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *
 
 	record := model.CommitVerificationRecord{
 		CommitVerificationRecord: *req.GetCommitVerificationRecord(),
-		ParticipantID:            req.GetParticipantId(),
-		CommitteeID:              req.GetCommitteeId(),
 	}
 	err := h.storage.SaveCommitVerification(ctx, &record)
 
@@ -47,7 +44,7 @@ func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *
 		}, err
 	}
 
-	if err := h.aggregator.CheckAggregation(req.GetCommitteeId(), req.GetCommitVerificationRecord().GetMessageId()); err != nil {
+	if err := h.aggregator.CheckAggregation(req.GetCommitVerificationRecord().GetMessageId()); err != nil {
 		return &aggregator.WriteCommitVerificationResponse{
 			Status: aggregator.WriteStatus_FAILED,
 		}, err

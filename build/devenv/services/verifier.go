@@ -38,7 +38,6 @@ type VerifierDBInput struct {
 
 type VerifierConfig struct {
 	AggregatorAddress string `toml:"aggregator_address"`
-	CommitteeID       string `toml:"committee_id"`
 }
 
 type VerifierInput struct {
