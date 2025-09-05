@@ -4,7 +4,7 @@ import (
 	"regexp"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
 var bytes32HexStringValidation = validation.Match(regexp.MustCompile(`^[a-fA-F0-9]{64}$`))

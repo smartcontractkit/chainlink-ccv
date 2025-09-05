@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-services:
+  services-tests:
     permissions:
       id-token: write
       contents: read

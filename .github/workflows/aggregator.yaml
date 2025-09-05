@@ -40,8 +40,5 @@ jobs:
       - name: Run lint
         run: just lint
 
-      - name: Run proto-check
-        run: just proto-check
-
       - name: Run tests
         run: just test

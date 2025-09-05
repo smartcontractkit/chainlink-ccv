@@ -5,6 +5,7 @@ go 1.24.6
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/ethereum/go-ethereum v1.16.3
+	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.4
 	github.com/stretchr/testify v1.11.1
@@ -19,7 +20,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/smartcontractkit/chain-selectors v1.0.62 // indirect
-	github.com/smartcontractkit/chainlink-ccv/aggregator v0.0.0 // indirect
 	github.com/smartcontractkit/libocr v0.0.0-20250408131511-c90716988ee0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
@@ -36,4 +36,4 @@ require (
 // Replace directives for local modules
 replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
 
-replace github.com/smartcontractkit/chainlink-ccv/aggregator => ../aggregator
+replace github.com/smartcontractkit/chainlink-ccv/common => ../common

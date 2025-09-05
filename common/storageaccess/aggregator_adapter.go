@@ -3,6 +3,9 @@ package storageaccess
 import (
 	"context"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
