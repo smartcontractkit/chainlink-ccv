@@ -9,9 +9,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func main() {

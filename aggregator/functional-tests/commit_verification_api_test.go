@@ -4,9 +4,9 @@ package functionaltests
 import (
 	"crypto/rand"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
@@ -49,7 +49,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 			SequenceNumber:        uint64(1),
 			SourceChainSelector:   uint64(2),
 			SourceVerifierAddress: sourceVerifierAddr,
-			Timestamp:             uint64(1234567890),
+			Timestamp:             1234567890,
 			Message:               &aggregator.Message{},
 		},
 	})
@@ -66,8 +66,8 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	require.Equal(t, messageID, readResp.CommitVerificationRecord.MessageId, "expected MessageId to match")
 
 	queryResp, err := client.QueryAggregatedCommitRecords(t.Context(), &aggregator.QueryAggregatedCommitRecordsRequest{
-		Start: timestamppb.New(timestamppb.Now().AsTime().Add(-1 * 60 * 60 * 1000000000)), // 1 hour ago
-		End:   timestamppb.New(timestamppb.Now().AsTime()),
+		Start: time.Now().Add(-time.Hour).Unix(),
+		End:   time.Now().Unix(),
 	})
 
 	require.NoError(t, err, "QueryAggregatedCommitRecords failed")

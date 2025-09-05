@@ -3,25 +3,25 @@ package executor
 import (
 	"context"
 	"fmt"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+
+	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ct "github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 type ChainlinkExecutor struct {
 	lggr                 logger.Logger
-	contractTransmitters map[ccipocr3.ChainSelector]ct.ContractTransmitter
-	destinationReaders   map[ccipocr3.ChainSelector]dr.DestinationReader
+	contractTransmitters map[protocol.ChainSelector]ct.ContractTransmitter
+	destinationReaders   map[protocol.ChainSelector]dr.DestinationReader
 }
 
 func NewChainlinkExecutor(
 	lggr logger.Logger,
-	contractTransmitters map[ccipocr3.ChainSelector]ct.ContractTransmitter,
-	destinationReaders map[ccipocr3.ChainSelector]dr.DestinationReader,
+	contractTransmitters map[protocol.ChainSelector]ct.ContractTransmitter,
+	destinationReaders map[protocol.ChainSelector]dr.DestinationReader,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
 		lggr:                 lggr,
@@ -84,9 +84,9 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	return nil
 }
 
-func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []common.CCVData, receiverDefinedCcvs types.CcvAddressInfo) ([]common.UnknownAddress, [][]byte, error) {
+func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []protocol.CCVData, receiverDefinedCcvs types.CcvAddressInfo) ([]protocol.UnknownAddress, [][]byte, error) {
 	orderedCcvData := make([][]byte, 0)
-	orderedCcvOfframps := make([]common.UnknownAddress, 0)
+	orderedCcvOfframps := make([]protocol.UnknownAddress, 0)
 
 	mappedCcvData := make(map[string][]byte)
 	for _, ccvData := range ccvDatum {
@@ -121,19 +121,19 @@ func (cle *ChainlinkExecutor) Validate() error {
 	if cle.lggr == nil {
 		return fmt.Errorf("logger is required")
 	}
-	chainSetA := make(map[ccipocr3.ChainSelector]struct{})
-	chainSetB := make(map[ccipocr3.ChainSelector]struct{})
+	chainSetA := make(map[protocol.ChainSelector]struct{})
+	chainSetB := make(map[protocol.ChainSelector]struct{})
 	if cle.contractTransmitters == nil {
 		return fmt.Errorf("contract transmitters is required")
 	}
 	if cle.destinationReaders == nil {
 		return fmt.Errorf("destination readers is required")
 	}
-	for chainSel, _ := range cle.contractTransmitters {
+	for chainSel := range cle.contractTransmitters {
 		chainSetA[chainSel] = struct{}{}
 	}
 
-	for chainSel, _ := range cle.destinationReaders {
+	for chainSel := range cle.destinationReaders {
 		chainSetB[chainSel] = struct{}{}
 	}
 	if len(chainSetA) == 0 {

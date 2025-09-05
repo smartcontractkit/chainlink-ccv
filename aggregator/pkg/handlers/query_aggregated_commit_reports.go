@@ -14,9 +14,9 @@ type QueryAggregatedCommitRecordsHandler struct {
 }
 
 func (h *QueryAggregatedCommitRecordsHandler) Handle(ctx context.Context, req *aggregator.QueryAggregatedCommitRecordsRequest) (*aggregator.QueryAggregatedCommitRecordsResponse, error) {
-	storage := h.storage.QueryAggregatedReports(ctx, req.Start.Seconds, req.End.Seconds)
+	storage := h.storage.QueryAggregatedReports(ctx, req.Start, req.End)
 
-	var records []*aggregator.CommitVerificationRecord
+	records := make([]*aggregator.CommitVerificationRecord, 0, len(storage))
 	for _, report := range storage {
 		records = append(records, &aggregator.CommitVerificationRecord{
 			MessageId: report.MessageID,
@@ -34,6 +34,7 @@ func (h *QueryAggregatedCommitRecordsHandler) Handle(ctx context.Context, req *a
 	}, nil
 }
 
+// NewQueryAggregatedCommitRecordsHandler initializes QueryAggregatedCommitRecordsHandler.
 func NewQueryAggregatedCommitRecordsHandler(storage common.CommitVerificationAggregatedStore) *QueryAggregatedCommitRecordsHandler {
 	return &QueryAggregatedCommitRecordsHandler{
 		storage: storage,

@@ -7,28 +7,29 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
+
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 type ChaosTestCase struct {
-	name     string
 	run      func() error
 	validate func() error
+	name     string
 }
 
 type GasTestCase struct {
-	name             string
-	chainURL         string
 	increase         *big.Int
-	waitBetweenTests time.Duration
 	gasFunc          func(t *testing.T, r *rpc.RPCClient, blockPace time.Duration)
 	validate         func() error
+	name             string
+	chainURL         string
+	waitBetweenTests time.Duration
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
@@ -177,11 +178,11 @@ func TestE2ELoad(t *testing.T) {
 		_, err = p.Run(false)
 		require.NoError(t, err)
 		tcs := []struct {
-			name       string
-			wait       time.Duration
-			chainURL   string
-			reorgDepth int
 			validate   func() error
+			name       string
+			chainURL   string
+			wait       time.Duration
+			reorgDepth int
 		}{
 			{
 				name:       "Reorg src with depth: 1",
@@ -334,5 +335,4 @@ func TestE2ELoad(t *testing.T) {
 		}
 		p.Wait()
 	})
-
 }

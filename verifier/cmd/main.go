@@ -12,18 +12,18 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-func loadConfiguration(filepath string) (*verifier.Configuration, error) {
-	var config verifier.Configuration
+func loadConfiguration(filepath string) (*config.Configuration, error) {
+	var config config.Configuration
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}
@@ -69,22 +69,22 @@ func main() {
 	storageWriter := storage
 
 	// Create mock source readers for two chains (matching devenv setup)
-	mockSetup1337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(1337))
-	mockSetup2337 := verifier.SetupDevSourceReader(cciptypes.ChainSelector(2337))
+	mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
+	mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
 
-	sourceReaders := map[cciptypes.ChainSelector]reader.SourceReader{
-		cciptypes.ChainSelector(1337): mockSetup1337.Reader,
-		cciptypes.ChainSelector(2337): mockSetup2337.Reader,
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
+		protocol.ChainSelector(1337): mockSetup1337.Reader,
+		protocol.ChainSelector(2337): mockSetup2337.Reader,
 	}
 
 	// Create verifier address
-	verifierAddr, err := common.NewUnknownAddressFromHex("0xAAAA22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
+	verifierAddr, err := protocol.NewUnknownAddressFromHex("0xAAAA22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
 	}
 
-	verifierAddr2, err := common.NewUnknownAddressFromHex("0xBBBB22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
+	verifierAddr2, err := protocol.NewUnknownAddressFromHex("0xBBBB22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
@@ -93,11 +93,11 @@ func main() {
 	// Create coordinator configuration
 	config := types.CoordinatorConfig{
 		VerifierID: "dev-verifier-1",
-		SourceConfigs: map[cciptypes.ChainSelector]types.SourceConfig{
-			cciptypes.ChainSelector(1337): {
+		SourceConfigs: map[protocol.ChainSelector]types.SourceConfig{
+			protocol.ChainSelector(1337): {
 				VerifierAddress: verifierAddr,
 			},
-			cciptypes.ChainSelector(2337): {
+			protocol.ChainSelector(2337): {
 				VerifierAddress: verifierAddr2,
 			},
 		},
@@ -119,12 +119,12 @@ func main() {
 	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
 
 	// Create verification coordinator
-	coordinator, err := verifier.NewVerificationCoordinator(
-		verifier.WithVerifier(commitVerifier),
-		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithStorage(storageWriter),
-		verifier.WithConfig(config),
-		verifier.WithLogger(lggr),
+	coordinator, err := internal.NewVerificationCoordinator(
+		internal.WithVerifier(commitVerifier),
+		internal.WithSourceReaders(sourceReaders),
+		internal.WithStorage(storageWriter),
+		internal.WithConfig(config),
+		internal.WithLogger(lggr),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
@@ -134,7 +134,7 @@ func main() {
 	// Start the verification coordinator
 	lggr.Infow("🚀 Starting Verification Coordinator",
 		"verifierID", config.VerifierID,
-		"sourceChains", []cciptypes.ChainSelector{1337, 2337},
+		"sourceChains", []protocol.ChainSelector{1337, 2337},
 		"verifierAddress", []string{verifierAddr.String(), verifierAddr2.String()},
 	)
 
@@ -144,8 +144,8 @@ func main() {
 	}
 
 	// Start mock message generators for development
-	verifier.StartMockMessageGenerator(ctx, mockSetup1337, cciptypes.ChainSelector(1337), verifierAddr, lggr)
-	verifier.StartMockMessageGenerator(ctx, mockSetup2337, cciptypes.ChainSelector(2337), verifierAddr2, lggr)
+	internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
+	internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

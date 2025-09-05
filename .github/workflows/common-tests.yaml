@@ -3,9 +3,8 @@ name: Common CI
 on:
   push:
     paths:
-      - 'common/**'
-  pull_request:
-    paths:
+      - '.github/**'
+      - 'protocol/**'
       - 'common/**'
 
 defaults:
@@ -52,8 +51,8 @@ jobs:
           just install-protoc
           just install-go-tools
 
-      - name: Run proto-lint
-        run: just proto-lint
+      - name: Run lint
+        run: just lint
 
       - name: Run proto-check
         run: just proto-check

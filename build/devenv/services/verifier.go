@@ -27,10 +27,8 @@ const (
 	DefaultVerifierDBImage = "postgres:16-alpine"
 )
 
-var (
-	DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
-)
+var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
 type VerifierDBInput struct {
 	Image string `toml:"image"`
@@ -41,23 +39,23 @@ type VerifierConfig struct {
 }
 
 type VerifierInput struct {
-	Image          string          `toml:"image"`
-	Port           int             `toml:"port"`
-	SourceCodePath string          `toml:"source_code_path"`
 	DB             *DBInput        `toml:"db"`
-	ContainerName  string          `toml:"container_name"`
-	UseCache       bool            `toml:"use_cache"`
 	Out            *VerifierOutput `toml:"out"`
+	Image          string          `toml:"image"`
+	SourceCodePath string          `toml:"source_code_path"`
+	ContainerName  string          `toml:"container_name"`
 	VerifierConfig VerifierConfig  `toml:"verifier_config"`
+	Port           int             `toml:"port"`
+	UseCache       bool            `toml:"use_cache"`
 }
 
 type VerifierOutput struct {
-	UseCache           bool   `toml:"use_cache"`
 	ContainerName      string `toml:"container_name"`
 	ExternalHTTPURL    string `toml:"http_url"`
 	InternalHTTPURL    string `toml:"internal_http_url"`
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
+	UseCache           bool   `toml:"use_cache"`
 }
 
 func verifierDefaults(in *VerifierInput) {
@@ -139,12 +137,13 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			{
 				Reader:            bytes.NewReader(verifierConfigBuf.Bytes()),
 				ContainerFilePath: "/app/verifier.toml",
-				FileMode:          0644,
+				FileMode:          0o644,
 			},
 		},
 	}
 
 	if in.SourceCodePath != "" {
+		//nolint:staticcheck // ignore for now
 		req.Mounts = testcontainers.Mounts(
 			testcontainers.BindMount(
 				p,

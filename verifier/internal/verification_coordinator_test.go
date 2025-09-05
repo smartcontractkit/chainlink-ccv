@@ -1,44 +1,42 @@
-package verifier_test
+package internal_test
 
 import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
-
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/storageaccess"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// Test constants
+// Test constants.
 const (
 	defaultProcessingChannelSize = 10
 	defaultProcessingTimeout     = time.Second
 	defaultMaxBatchSize          = 100
-	defaultDestChain             = cciptypes.ChainSelector(100)
-	sourceChain1                 = cciptypes.ChainSelector(42)
-	sourceChain2                 = cciptypes.ChainSelector(84)
-	unconfiguredChain            = cciptypes.ChainSelector(999)
+	defaultDestChain             = protocol.ChainSelector(100)
+	sourceChain1                 = protocol.ChainSelector(42)
+	sourceChain2                 = protocol.ChainSelector(84)
+	unconfiguredChain            = protocol.ChainSelector(999)
 )
 
-// testSetup contains common test dependencies
+// testSetup contains common test dependencies.
 type testSetup struct {
 	t       *testing.T
 	ctx     context.Context
@@ -48,13 +46,13 @@ type testSetup struct {
 	signer  pkg.MessageSigner
 }
 
-// mockSourceReaderSetup contains a mock source reader and its channel
+// mockSourceReaderSetup contains a mock source reader and its channel.
 type mockSourceReaderSetup struct {
 	reader  *mocks.MockSourceReader
 	channel chan types.VerificationTask
 }
 
-// newTestSetup creates common test dependencies
+// newTestSetup creates common test dependencies.
 func newTestSetup(t *testing.T) *testSetup {
 	ctx, cancel := context.WithCancel(context.Background())
 	lggr := logger.Test(t)
@@ -71,12 +69,12 @@ func newTestSetup(t *testing.T) *testSetup {
 	}
 }
 
-// cleanup should be called in defer
+// cleanup should be called in defer.
 func (ts *testSetup) cleanup() {
 	ts.cancel()
 }
 
-// createTestSigner generates a test ECDSA message signer
+// createTestSigner generates a test ECDSA message signer.
 func createTestSigner(t *testing.T) pkg.MessageSigner {
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
@@ -86,7 +84,7 @@ func createTestSigner(t *testing.T) pkg.MessageSigner {
 	return signer
 }
 
-func createTestMessage(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.Message {
+func createTestMessage(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector) protocol.Message {
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
 	switch sourceChainSelector {
@@ -98,19 +96,19 @@ func createTestMessage(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSe
 		verifierAddress = "0x1234" // Default fallback
 	}
 
-	return createTestMessageWithVerifier(seqNum, sourceChainSelector, destChainSelector, verifierAddress)
+	return createTestMessageWithVerifier(t, seqNum, sourceChainSelector, destChainSelector, verifierAddress)
 }
 
-func createTestMessageWithVerifier(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector, verifierAddress string) common.Message {
+func createTestMessageWithVerifier(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector, verifierAddress string) protocol.Message {
 	// Create empty token transfer
-	tokenTransfer := common.NewEmptyTokenTransfer()
+	tokenTransfer := protocol.NewEmptyTokenTransfer()
 
-	sender := common.UnknownAddress([]byte("sender_address"))
-	receiver := common.UnknownAddress([]byte("receiver_address"))
-	onRampAddr := common.UnknownAddress([]byte("onramp_address"))
-	offRampAddr := common.UnknownAddress([]byte("offramp_address"))
+	sender := protocol.UnknownAddress([]byte("sender_address"))
+	receiver := protocol.UnknownAddress([]byte("receiver_address"))
+	onRampAddr := protocol.UnknownAddress([]byte("onramp_address"))
+	offRampAddr := protocol.UnknownAddress([]byte("offramp_address"))
 
-	return *common.NewMessage(
+	message, err := protocol.NewMessage(
 		sourceChainSelector,
 		destChainSelector,
 		seqNum,
@@ -123,14 +121,17 @@ func createTestMessageWithVerifier(seqNum cciptypes.SeqNum, sourceChainSelector,
 		[]byte("test data"), // data
 		tokenTransfer,
 	)
+	require.NoError(t, err)
+	return *message
 }
 
-func createTestVerificationTask(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) types.VerificationTask {
-	message := createTestMessage(seqNum, sourceChainSelector, destChainSelector)
+func createTestVerificationTask(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector) types.VerificationTask {
+	message := createTestMessage(t, seqNum, sourceChainSelector, destChainSelector)
 
 	// Create receipt blob with nonce using canonical encoding
 	nonce := uint64(seqNum)
-	receiptBlob, _ := commit.EncodeVerifierBlob(nonce)
+	receiptBlob, err := commit.EncodeVerifierBlob(nonce)
+	require.NoError(t, err)
 
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
@@ -145,9 +146,9 @@ func createTestVerificationTask(seqNum cciptypes.SeqNum, sourceChainSelector, de
 
 	return types.VerificationTask{
 		Message: message,
-		ReceiptBlobs: []common.ReceiptWithBlob{
+		ReceiptBlobs: []protocol.ReceiptWithBlob{
 			{
-				Issuer:            common.UnknownAddress([]byte(verifierAddress)),
+				Issuer:            []byte(verifierAddress),
 				DestGasLimit:      300000, // Test gas limit
 				DestBytesOverhead: 100,    // Test bytes overhead
 				Blob:              receiptBlob,
@@ -157,12 +158,12 @@ func createTestVerificationTask(seqNum cciptypes.SeqNum, sourceChainSelector, de
 	}
 }
 
-// createCoordinatorConfig creates a coordinator config with the given sources
-func createCoordinatorConfig(coordinatorID string, sources map[cciptypes.ChainSelector]string) types.CoordinatorConfig {
-	sourceConfigs := make(map[cciptypes.ChainSelector]types.SourceConfig)
+// createCoordinatorConfig creates a coordinator config with the given sources.
+func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSelector]string) types.CoordinatorConfig {
+	sourceConfigs := make(map[protocol.ChainSelector]types.SourceConfig)
 	for chainSelector, address := range sources {
 		sourceConfigs[chainSelector] = types.SourceConfig{
-			VerifierAddress: common.UnknownAddress([]byte(address)),
+			VerifierAddress: protocol.UnknownAddress([]byte(address)),
 		}
 	}
 
@@ -175,7 +176,7 @@ func createCoordinatorConfig(coordinatorID string, sources map[cciptypes.ChainSe
 	}
 }
 
-// setupMockSourceReader creates a mock source reader with expectations
+// setupMockSourceReader creates a mock source reader with expectations.
 func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetup {
 	mockReader := mocks.NewMockSourceReader(t)
 	channel := make(chan types.VerificationTask, 10)
@@ -197,20 +198,20 @@ func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetu
 	}
 }
 
-// createVerificationCoordinator creates a verification coordinator with the given setup
-func createVerificationCoordinator(ts *testSetup, config types.CoordinatorConfig, sourceReaders map[cciptypes.ChainSelector]reader.SourceReader) (*verifier.VerificationCoordinator, error) {
+// createVerificationCoordinator creates a verification coordinator with the given setup.
+func createVerificationCoordinator(ts *testSetup, config types.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]reader.SourceReader) (*internal.VerificationCoordinator, error) {
 	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
 
-	return verifier.NewVerificationCoordinator(
-		verifier.WithConfig(config),
-		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithVerifier(commitVerifier),
-		verifier.WithStorage(ts.storage),
-		verifier.WithLogger(ts.logger),
+	return internal.NewVerificationCoordinator(
+		internal.WithConfig(config),
+		internal.WithSourceReaders(sourceReaders),
+		internal.WithVerifier(commitVerifier),
+		internal.WithStorage(ts.storage),
+		internal.WithLogger(ts.logger),
 	)
 }
 
-// waitForMessages waits for the specified number of messages to be processed
+// waitForMessages waits for the specified number of messages to be processed.
 func waitForMessages(ts *testSetup, count int) {
 	for i := 0; i < count; i++ {
 		err := ts.storage.WaitForStore(ts.ctx)
@@ -218,7 +219,7 @@ func waitForMessages(ts *testSetup, count int) {
 	}
 }
 
-// sendTasksAsync sends verification tasks asynchronously with a delay
+// sendTasksAsync sends verification tasks asynchronously with a delay.
 func sendTasksAsync(tasks []types.VerificationTask, channel chan<- types.VerificationTask, counter *atomic.Int32, delay time.Duration) {
 	go func() {
 		for _, task := range tasks {
@@ -231,8 +232,8 @@ func sendTasksAsync(tasks []types.VerificationTask, channel chan<- types.Verific
 	}()
 }
 
-// verifyStoredTasks is a helper to verify stored data matches expected tasks
-func verifyStoredTasks(t *testing.T, storedData []common.CCVData, expectedTasks []types.VerificationTask, expectedChain cciptypes.ChainSelector) {
+// verifyStoredTasks is a helper to verify stored data matches expected tasks.
+func verifyStoredTasks(t *testing.T, storedData []protocol.CCVData, expectedTasks []types.VerificationTask, expectedChain protocol.ChainSelector) {
 	expectedIDs := make(map[[32]byte]bool)
 	for _, task := range expectedTasks {
 		messageID, err := task.Message.MessageID()
@@ -249,13 +250,13 @@ func TestVerifier(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.cleanup()
 
-	config := createCoordinatorConfig("test-custom-mockery-verifier", map[cciptypes.ChainSelector]string{
+	config := createCoordinatorConfig("test-custom-mockery-verifier", map[protocol.ChainSelector]string{
 		sourceChain1: "0x1234",
 	})
 
 	// Set up mock source reader
 	mockSetup := setupMockSourceReader(t, true)
-	sourceReaders := map[cciptypes.ChainSelector]reader.SourceReader{
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
 		sourceChain1: mockSetup.reader,
 	}
 
@@ -268,8 +269,8 @@ func TestVerifier(t *testing.T) {
 
 	// Create and send test tasks
 	testTasks := []types.VerificationTask{
-		createTestVerificationTask(100, sourceChain1, defaultDestChain),
-		createTestVerificationTask(200, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain),
 	}
 
 	var messagesSent atomic.Int32
@@ -303,7 +304,7 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.cleanup()
 
-	config := createCoordinatorConfig("test-multi-source-verifier", map[cciptypes.ChainSelector]string{
+	config := createCoordinatorConfig("test-multi-source-verifier", map[protocol.ChainSelector]string{
 		sourceChain1: "0x1234",
 		sourceChain2: "0x5678",
 	})
@@ -311,7 +312,7 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	// Set up mock source readers
 	mockSetup1 := setupMockSourceReader(t, true)
 	mockSetup2 := setupMockSourceReader(t, true)
-	sourceReaders := map[cciptypes.ChainSelector]reader.SourceReader{
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
 		sourceChain1: mockSetup1.reader,
 		sourceChain2: mockSetup2.reader,
 	}
@@ -325,12 +326,12 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Create test tasks for both sources
 	tasksSource1 := []types.VerificationTask{
-		createTestVerificationTask(100, sourceChain1, defaultDestChain),
-		createTestVerificationTask(101, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain),
 	}
 	tasksSource2 := []types.VerificationTask{
-		createTestVerificationTask(200, sourceChain2, defaultDestChain),
-		createTestVerificationTask(201, sourceChain2, defaultDestChain),
+		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain),
+		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain),
 	}
 
 	// Send tasks from both sources
@@ -365,7 +366,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.cleanup()
 
-	config := createCoordinatorConfig("test-failure-verifier", map[cciptypes.ChainSelector]string{
+	config := createCoordinatorConfig("test-failure-verifier", map[protocol.ChainSelector]string{
 		sourceChain1: "0x1234",
 		sourceChain2: "0x5678",
 	})
@@ -373,7 +374,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	// Set up mock source readers - source 2 will fail by closing its channel immediately
 	mockSetup1 := setupMockSourceReader(t, true)
 	mockSetup2 := setupMockSourceReader(t, false)
-	sourceReaders := map[cciptypes.ChainSelector]reader.SourceReader{
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
 		sourceChain1: mockSetup1.reader,
 		sourceChain2: mockSetup2.reader,
 	}
@@ -390,8 +391,8 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 
 	// Send verification tasks only to source 1
 	tasksSource1 := []types.VerificationTask{
-		createTestVerificationTask(100, sourceChain1, defaultDestChain),
-		createTestVerificationTask(101, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain),
 	}
 
 	sendTasksAsync(tasksSource1, mockSetup1.channel, nil, 5*time.Millisecond)
@@ -415,29 +416,29 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 	defer ts.cleanup()
 
 	tests := []struct {
+		readers     map[protocol.ChainSelector]reader.SourceReader
 		name        string
-		config      types.CoordinatorConfig
-		readers     map[cciptypes.ChainSelector]reader.SourceReader
 		expectError string
+		config      types.CoordinatorConfig
 	}{
 		{
 			name:        "no source readers",
-			config:      createCoordinatorConfig("test-no-sources", map[cciptypes.ChainSelector]string{}),
-			readers:     map[cciptypes.ChainSelector]reader.SourceReader{},
+			config:      createCoordinatorConfig("test-no-sources", map[protocol.ChainSelector]string{}),
+			readers:     map[protocol.ChainSelector]reader.SourceReader{},
 			expectError: "at least one source reader is required",
 		},
 		{
 			name: "mismatched source config and readers",
-			config: createCoordinatorConfig("test-mismatch", map[cciptypes.ChainSelector]string{
+			config: createCoordinatorConfig("test-mismatch", map[protocol.ChainSelector]string{
 				sourceChain1: "0x1234",
 				sourceChain2: "0x5678",
 			}),
-			readers: func() map[cciptypes.ChainSelector]reader.SourceReader {
+			readers: func() map[protocol.ChainSelector]reader.SourceReader {
 				// Create a mock that only expects VerificationTaskChannel call
 				mockReader := mocks.NewMockSourceReader(t)
 				mockCh := make(chan types.VerificationTask)
 				mockReader.EXPECT().VerificationTaskChannel().Return((<-chan types.VerificationTask)(mockCh))
-				return map[cciptypes.ChainSelector]reader.SourceReader{
+				return map[protocol.ChainSelector]reader.SourceReader{
 					sourceChain1: mockReader, // Missing reader for sourceChain2
 				}
 			}(),
@@ -458,7 +459,7 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.cleanup()
 
-	config := createCoordinatorConfig("test-health-check", map[cciptypes.ChainSelector]string{
+	config := createCoordinatorConfig("test-health-check", map[protocol.ChainSelector]string{
 		sourceChain1: "0x1234",
 		sourceChain2: "0x5678",
 	})
@@ -471,7 +472,7 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 	mockSetup1.reader.EXPECT().HealthCheck(mock.Anything).Return(nil).Maybe()
 	mockSetup2.reader.EXPECT().HealthCheck(mock.Anything).Return(assert.AnError).Maybe()
 
-	sourceReaders := map[cciptypes.ChainSelector]reader.SourceReader{
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
 		sourceChain1: mockSetup1.reader,
 		sourceChain2: mockSetup2.reader,
 	}
@@ -498,7 +499,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	defer ts.cleanup()
 
 	// Create config with only one source chain configured
-	config := createCoordinatorConfig("test-error-handling", map[cciptypes.ChainSelector]string{
+	config := createCoordinatorConfig("test-error-handling", map[protocol.ChainSelector]string{
 		sourceChain1: "0x1234",
 		// unconfiguredChain is intentionally not included in the config
 	})
@@ -509,7 +510,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 
 	// Create source readers map that includes the unconfigured chain
 	// This simulates having a reader for a chain that's not in the coordinator config
-	sourceReaders := map[cciptypes.ChainSelector]reader.SourceReader{
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
 		sourceChain1:      mockSetup1.reader,
 		unconfiguredChain: mockSetup2.reader,
 	}
@@ -522,8 +523,8 @@ func TestVerificationErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test verification tasks
-	validTask := createTestVerificationTask(100, sourceChain1, defaultDestChain)
-	invalidTask := createTestVerificationTask(200, unconfiguredChain, defaultDestChain)
+	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain)
+	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain)
 
 	// Send tasks
 	sendTasksAsync([]types.VerificationTask{validTask}, mockSetup1.channel, nil, 10*time.Millisecond)

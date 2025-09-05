@@ -11,8 +11,8 @@ fmt: ensure-golangci-lint
     golangci-lint fmt
 
 # Run golangci-lint
-lint: ensure-golangci-lint
-    golangci-lint run --output.text.path stdout
+lint fix="": ensure-golangci-lint
+    golangci-lint run --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
 
 mod-tidy: ensure-go
     go mod tidy
@@ -22,9 +22,6 @@ mod-download: ensure-go
 
 proto: ensure-protoc
     protoc --go_out=. --go-grpc_out=. ./proto/aggregator.proto
-
-proto-lint: ensure-buf
-    buf lint
 
 proto-check: proto
     @git diff --name-only -- *.pb.go > /tmp/proto_diff_output; \
