@@ -3,8 +3,9 @@ package e2e
 import (
 	"testing"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/stretchr/testify/require"
+
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 )

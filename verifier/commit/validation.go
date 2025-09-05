@@ -4,18 +4,19 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
+
+	types2 "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// ValidateMessage validates a verification task message using the new format
-func ValidateMessage(verificationTask *types.VerificationTask, verifierOnRampAddress common.UnknownAddress) error {
+// ValidateMessage validates a verification task message using the new format.
+func ValidateMessage(verificationTask *types.VerificationTask, verifierOnRampAddress types2.UnknownAddress) error {
 	if verificationTask == nil {
 		return fmt.Errorf("verification task is nil")
 	}
 
 	message := verificationTask.Message
-	if message.Version != common.MessageVersion {
+	if message.Version != types2.MessageVersion {
 		return fmt.Errorf("unsupported message version: %d", message.Version)
 	}
 

@@ -1,7 +1,6 @@
 syntax = "proto3";
 
 option go_package = "pb/aggregator";
-import "google/protobuf/timestamp.proto";
 
 service Aggregator {
   rpc WriteCommitVerification(WriteCommitVerificationRequest) returns (WriteCommitVerificationResponse);
@@ -50,7 +49,7 @@ message CommitVerificationRecord {
   bytes ccv_data = 7;
   // blob_data is the encoded nonce from the source chain
   bytes blob_data = 8;
-  uint64 timestamp = 9;
+  int64 timestamp = 9;
   Message message = 10;
   repeated ReceiptBlob receipt_blobs = 11;
 }
@@ -84,13 +83,13 @@ message ReadCommitVerificationResponse {
 
 // Query Commit Verification Records between a time range. The result is paginated and sorted in ascending order (from oldest to newest)
 message QueryAggregatedCommitRecordsRequest {
-    google.protobuf.Timestamp start = 1;
-    google.protobuf.Timestamp end = 2;
-    string next_token = 3;
+  int64 start = 1;
+  int64 end = 2;
+  string next_token = 3;
 }
 
 message QueryAggregatedCommitRecordsResponse {
-    repeated CommitVerificationRecord records = 1;
-    string next_token = 2;
-    uint32 total = 3;
+  repeated CommitVerificationRecord records = 1;
+  string next_token = 2;
+  uint32 total = 3;
 }

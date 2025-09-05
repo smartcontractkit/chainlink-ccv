@@ -54,16 +54,15 @@ linters:
     # https://golangci-lint.run/usage/linters/#depguard
     depguard:
       rules:
-        # TODO enforce after rearrange
-        #protocol:
-        #  list-mode: lax
-        #  files:
-        #    - ${config-path}/protocol/**.go
-        #  allow:
-        #    - $gostd
-        #  deny:
-        #    - pkg: github.com/smartcontractkit/chainlink
-        #      desc: No chainlink dependencies in protocol abstraction layer
+        protocol:
+          list-mode: lax
+          files:
+            - ${config-path}/protocol/**.go
+          allow:
+            - $gostd
+          deny:
+            - pkg: github.com/smartcontractkit/chainlink
+              desc: No chainlink dependencies in protocol abstraction layer
 
         test:
           list-mode: lax
@@ -441,7 +440,7 @@ formatters:
     # https://golangci-lint.run/usage/formatters/#goimports
     goimports:
       local-prefixes:
-        - github.com/smartcontractkit/chainlink-ccv
+        - github.com/smartcontractkit/chainlink
 
   exclusions:
     generated: lax
@@ -456,7 +455,7 @@ issues:
   new-from-merge-base: origin/main
   new-from-rev: HEAD
   whole-files: true
-  fix: true
+  fix: false
 
 # https://golangci-lint.run/usage/configuration/#output-configuration
 output:

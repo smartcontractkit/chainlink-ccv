@@ -1,4 +1,4 @@
-package common
+package types
 
 import (
 	"bytes"
@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hash"
 )
 
 var (
 	// ExtraArgs version tags
-	EVMExtraArgsV1Tag    = crypto.Keccak256([]byte("CCIP EVMExtraArgsV1"))[:4]
-	EVMExtraArgsV2Tag    = crypto.Keccak256([]byte("CCIP EVMExtraArgsV2"))[:4]
+	EVMExtraArgsV1Tag    = hash.Keccak256([]byte("CCIP EVMExtraArgsV1"))[:4]
+	EVMExtraArgsV2Tag    = hash.Keccak256([]byte("CCIP EVMExtraArgsV2"))[:4]
 	EVMExtraArgsV3Tag, _ = hex.DecodeString("302326cb") // TODO: determine hash preimage
 )
 

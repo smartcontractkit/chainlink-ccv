@@ -7,8 +7,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -20,7 +19,7 @@ type AggregatorWriterAdapter struct {
 	committeeID   string
 }
 
-func mapReceiptBlob(receiptBlob common.ReceiptWithBlob) (*aggregator.ReceiptBlob, error) {
+func mapReceiptBlob(receiptBlob types.ReceiptWithBlob) (*aggregator.ReceiptBlob, error) {
 	return &aggregator.ReceiptBlob{
 		Issuer:            receiptBlob.Issuer[:],
 		Blob:              receiptBlob.Blob[:],
@@ -30,7 +29,7 @@ func mapReceiptBlob(receiptBlob common.ReceiptWithBlob) (*aggregator.ReceiptBlob
 	}, nil
 }
 
-func mapReceiptBlobs(receiptBlobs []common.ReceiptWithBlob) ([]*aggregator.ReceiptBlob, error) {
+func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*aggregator.ReceiptBlob, error) {
 	var result []*aggregator.ReceiptBlob
 	for _, blob := range receiptBlobs {
 		mapped, err := mapReceiptBlob(blob)
@@ -45,7 +44,7 @@ func mapReceiptBlobs(receiptBlobs []common.ReceiptWithBlob) ([]*aggregator.Recei
 }
 
 // WriteCCVData implements common.OffchainStorageWriter.
-func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
+func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
 		receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
@@ -65,8 +64,7 @@ func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList 
 				DestVerifierAddress:   ccvData.DestVerifierAddress[:],
 				CcvData:               ccvData.CCVData,
 				BlobData:              ccvData.BlobData,
-				// #nosec G115 - ignore for now
-				Timestamp: uint64(ccvData.Timestamp),
+				Timestamp:             ccvData.Timestamp,
 				Message: &aggregator.Message{
 					Version:              uint32(ccvData.Message.Version),
 					SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),

@@ -58,10 +58,12 @@ jobs:
         run: just build-docker-dev-ci
         env:
           DOCKER_BUILDKIT: 1
+
       - name: Run CCV environment
         run: |
           cd cmd/ccv && go install . && cd -
           ccv u env.toml
+
       - name: Test Smoke
         working-directory: build/devenv/tests/e2e
         run: |

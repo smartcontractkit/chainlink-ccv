@@ -9,7 +9,6 @@ package aggregator
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -344,7 +343,7 @@ type CommitVerificationRecord struct {
 	CcvData []byte `protobuf:"bytes,7,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
 	// blob_data is the encoded nonce from the source chain
 	BlobData      []byte         `protobuf:"bytes,8,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
-	Timestamp     uint64         `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Timestamp     int64          `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	Message       *Message       `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
 	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,11,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -437,7 +436,7 @@ func (x *CommitVerificationRecord) GetBlobData() []byte {
 	return nil
 }
 
-func (x *CommitVerificationRecord) GetTimestamp() uint64 {
+func (x *CommitVerificationRecord) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
@@ -671,8 +670,8 @@ func (x *ReadCommitVerificationResponse) GetCommitVerificationRecord() *CommitVe
 // Query Commit Verification Records between a time range. The result is paginated and sorted in ascending order (from oldest to newest)
 type QueryAggregatedCommitRecordsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Start         *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
-	End           *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+	Start         int64                  `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
+	End           int64                  `protobuf:"varint,2,opt,name=end,proto3" json:"end,omitempty"`
 	NextToken     string                 `protobuf:"bytes,3,opt,name=next_token,json=nextToken,proto3" json:"next_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -708,18 +707,18 @@ func (*QueryAggregatedCommitRecordsRequest) Descriptor() ([]byte, []int) {
 	return file_proto_aggregator_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *QueryAggregatedCommitRecordsRequest) GetStart() *timestamppb.Timestamp {
+func (x *QueryAggregatedCommitRecordsRequest) GetStart() int64 {
 	if x != nil {
 		return x.Start
 	}
-	return nil
+	return 0
 }
 
-func (x *QueryAggregatedCommitRecordsRequest) GetEnd() *timestamppb.Timestamp {
+func (x *QueryAggregatedCommitRecordsRequest) GetEnd() int64 {
 	if x != nil {
 		return x.End
 	}
-	return nil
+	return 0
 }
 
 func (x *QueryAggregatedCommitRecordsRequest) GetNextToken() string {
@@ -793,7 +792,7 @@ var File_proto_aggregator_proto protoreflect.FileDescriptor
 
 const file_proto_aggregator_proto_rawDesc = "" +
 	"\n" +
-	"\x16proto/aggregator.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe3\x05\n" +
+	"\x16proto/aggregator.proto\"\xe3\x05\n" +
 	"\aMessage\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x122\n" +
 	"\x15source_chain_selector\x18\x02 \x01(\x04R\x13sourceChainSelector\x12.\n" +
@@ -833,7 +832,7 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x15dest_verifier_address\x18\x06 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
 	"\bccv_data\x18\a \x01(\fR\accvData\x12\x1b\n" +
 	"\tblob_data\x18\b \x01(\fR\bblobData\x12\x1c\n" +
-	"\ttimestamp\x18\t \x01(\x04R\ttimestamp\x12\"\n" +
+	"\ttimestamp\x18\t \x01(\x03R\ttimestamp\x12\"\n" +
 	"\amessage\x18\n" +
 	" \x01(\v2\b.MessageR\amessage\x121\n" +
 	"\rreceipt_blobs\x18\v \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xc3\x01\n" +
@@ -849,10 +848,10 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x0eparticipant_id\x18\x02 \x01(\tR\rparticipantId\x12!\n" +
 	"\fcommittee_id\x18\x03 \x01(\tR\vcommitteeId\"y\n" +
 	"\x1eReadCommitVerificationResponse\x12W\n" +
-	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord\"\xa4\x01\n" +
-	"#QueryAggregatedCommitRecordsRequest\x120\n" +
-	"\x05start\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x05start\x12,\n" +
-	"\x03end\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x03end\x12\x1d\n" +
+	"\x1acommit_verification_record\x18\x01 \x01(\v2\x19.CommitVerificationRecordR\x18commitVerificationRecord\"l\n" +
+	"#QueryAggregatedCommitRecordsRequest\x12\x14\n" +
+	"\x05start\x18\x01 \x01(\x03R\x05start\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\x03R\x03end\x12\x1d\n" +
 	"\n" +
 	"next_token\x18\x03 \x01(\tR\tnextToken\"\x90\x01\n" +
 	"$QueryAggregatedCommitRecordsResponse\x123\n" +
@@ -895,28 +894,25 @@ var file_proto_aggregator_proto_goTypes = []any{
 	(*ReadCommitVerificationResponse)(nil),       // 7: ReadCommitVerificationResponse
 	(*QueryAggregatedCommitRecordsRequest)(nil),  // 8: QueryAggregatedCommitRecordsRequest
 	(*QueryAggregatedCommitRecordsResponse)(nil), // 9: QueryAggregatedCommitRecordsResponse
-	(*timestamppb.Timestamp)(nil),                // 10: google.protobuf.Timestamp
 }
 var file_proto_aggregator_proto_depIdxs = []int32{
-	1,  // 0: CommitVerificationRecord.message:type_name -> Message
-	2,  // 1: CommitVerificationRecord.receipt_blobs:type_name -> ReceiptBlob
-	3,  // 2: WriteCommitVerificationRequest.commit_verification_record:type_name -> CommitVerificationRecord
-	0,  // 3: WriteCommitVerificationResponse.status:type_name -> WriteStatus
-	3,  // 4: ReadCommitVerificationResponse.commit_verification_record:type_name -> CommitVerificationRecord
-	10, // 5: QueryAggregatedCommitRecordsRequest.start:type_name -> google.protobuf.Timestamp
-	10, // 6: QueryAggregatedCommitRecordsRequest.end:type_name -> google.protobuf.Timestamp
-	3,  // 7: QueryAggregatedCommitRecordsResponse.records:type_name -> CommitVerificationRecord
-	4,  // 8: Aggregator.WriteCommitVerification:input_type -> WriteCommitVerificationRequest
-	6,  // 9: Aggregator.ReadCommitVerification:input_type -> ReadCommitVerificationRequest
-	8,  // 10: Aggregator.QueryAggregatedCommitRecords:input_type -> QueryAggregatedCommitRecordsRequest
-	5,  // 11: Aggregator.WriteCommitVerification:output_type -> WriteCommitVerificationResponse
-	7,  // 12: Aggregator.ReadCommitVerification:output_type -> ReadCommitVerificationResponse
-	9,  // 13: Aggregator.QueryAggregatedCommitRecords:output_type -> QueryAggregatedCommitRecordsResponse
-	11, // [11:14] is the sub-list for method output_type
-	8,  // [8:11] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	1, // 0: CommitVerificationRecord.message:type_name -> Message
+	2, // 1: CommitVerificationRecord.receipt_blobs:type_name -> ReceiptBlob
+	3, // 2: WriteCommitVerificationRequest.commit_verification_record:type_name -> CommitVerificationRecord
+	0, // 3: WriteCommitVerificationResponse.status:type_name -> WriteStatus
+	3, // 4: ReadCommitVerificationResponse.commit_verification_record:type_name -> CommitVerificationRecord
+	3, // 5: QueryAggregatedCommitRecordsResponse.records:type_name -> CommitVerificationRecord
+	4, // 6: Aggregator.WriteCommitVerification:input_type -> WriteCommitVerificationRequest
+	6, // 7: Aggregator.ReadCommitVerification:input_type -> ReadCommitVerificationRequest
+	8, // 8: Aggregator.QueryAggregatedCommitRecords:input_type -> QueryAggregatedCommitRecordsRequest
+	5, // 9: Aggregator.WriteCommitVerification:output_type -> WriteCommitVerificationResponse
+	7, // 10: Aggregator.ReadCommitVerification:output_type -> ReadCommitVerificationResponse
+	9, // 11: Aggregator.QueryAggregatedCommitRecords:output_type -> QueryAggregatedCommitRecordsResponse
+	9, // [9:12] is the sub-list for method output_type
+	6, // [6:9] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_proto_aggregator_proto_init() }

@@ -234,7 +234,7 @@ var printAddresses = &cobra.Command{
 	Use:   "addresses",
 	Short: "Pretty-print all on-chain contract addresses data",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		in, err := ccv.LoadOutput[ccv.Cfg]("env.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}

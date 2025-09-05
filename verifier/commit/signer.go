@@ -7,15 +7,16 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/utils"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
+
+	types2 "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {
 	privateKey *ecdsa.PrivateKey
-	address    common.UnknownAddress
+	address    types2.UnknownAddress
 }
 
 // NewECDSAMessageSigner creates a new ECDSA message signer.
@@ -41,12 +42,12 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 
 	return &ECDSASigner{
 		privateKey: privateKey,
-		address:    common.UnknownAddress(address.Bytes()),
+		address:    types2.UnknownAddress(address.Bytes()),
 	}, nil
 }
 
 // SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress common.UnknownAddress) ([]byte, []byte, error) {
+func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress types2.UnknownAddress) ([]byte, []byte, error) {
 	message := verificationTask.Message
 
 	// 1. Calculate message hash using the new chain-agnostic method
@@ -98,6 +99,6 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 }
 
 // GetSignerAddress returns the address of the signer.
-func (s *ECDSASigner) GetSignerAddress() common.UnknownAddress {
+func (s *ECDSASigner) GetSignerAddress() types2.UnknownAddress {
 	return s.address
 }

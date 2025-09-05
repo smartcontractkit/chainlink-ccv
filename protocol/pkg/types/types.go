@@ -1,17 +1,14 @@
-package common
+package types
 
 import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/crypto"
-
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
 // Constants for CCIP v1.7
@@ -22,41 +19,6 @@ const (
 	MinSizeRequiredMsgFields      = 27   // Minimum size for required fields in Message
 	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
 )
-
-// UnknownAddress represents an address on an unknown chain.
-type UnknownAddress []byte
-
-// NewUnknownAddressFromHex creates an UnknownAddress from a hex string
-func NewUnknownAddressFromHex(s string) (UnknownAddress, error) {
-	if s == "" {
-		return UnknownAddress{}, nil
-	}
-
-	// Remove 0x prefix if present
-	if len(s) >= 2 && s[:2] == "0x" {
-		s = s[2:]
-	}
-
-	bytes, err := hex.DecodeString(s)
-	if err != nil {
-		return nil, fmt.Errorf("invalid hex string: %w", err)
-	}
-
-	return UnknownAddress(bytes), nil
-}
-
-// String returns the hex representation of the address
-func (a UnknownAddress) String() string {
-	if len(a) == 0 {
-		return ""
-	}
-	return "0x" + hex.EncodeToString(a)
-}
-
-// Bytes returns the raw bytes of the address
-func (a UnknownAddress) Bytes() []byte {
-	return []byte(a)
-}
 
 // TokenTransfer represents a chain-agnostic token transfer with canonical encoding
 type TokenTransfer struct {
@@ -183,14 +145,14 @@ func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 // Message represents the chain-agnostic CCIP message format
 type Message struct {
 	// Protocol header
-	Version              uint8                   `json:"version"`
-	SourceChainSelector  cciptypes.ChainSelector `json:"source_chain_selector"`
-	DestChainSelector    cciptypes.ChainSelector `json:"dest_chain_selector"`
-	SequenceNumber       cciptypes.SeqNum        `json:"sequence_number"`
-	OnRampAddressLength  uint8                   `json:"on_ramp_address_length"`
-	OnRampAddress        []byte                  `json:"on_ramp_address"`
-	OffRampAddressLength uint8                   `json:"off_ramp_address_length"`
-	OffRampAddress       []byte                  `json:"off_ramp_address"`
+	Version              uint8         `json:"version"`
+	SourceChainSelector  ChainSelector `json:"source_chain_selector"`
+	DestChainSelector    ChainSelector `json:"dest_chain_selector"`
+	SequenceNumber       SeqNum        `json:"sequence_number"`
+	OnRampAddressLength  uint8         `json:"on_ramp_address_length"`
+	OnRampAddress        []byte        `json:"on_ramp_address"`
+	OffRampAddressLength uint8         `json:"off_ramp_address_length"`
+	OffRampAddress       []byte        `json:"off_ramp_address"`
 
 	// User provided data
 	Finality            uint16 `json:"finality"`
@@ -294,9 +256,9 @@ func DecodeMessage(data []byte) (*Message, error) {
 		return nil, fmt.Errorf("failed to read sequence number: %w", err)
 	}
 
-	msg.SourceChainSelector = cciptypes.ChainSelector(sourceChain)
-	msg.DestChainSelector = cciptypes.ChainSelector(destChain)
-	msg.SequenceNumber = cciptypes.SeqNum(seqNum)
+	msg.SourceChainSelector = ChainSelector(sourceChain)
+	msg.DestChainSelector = ChainSelector(destChain)
+	msg.SequenceNumber = SeqNum(seqNum)
 
 	// Read on-ramp address
 	onRampLen, err := reader.ReadByte()
@@ -389,13 +351,13 @@ func DecodeMessage(data []byte) (*Message, error) {
 }
 
 // MessageID returns the message ID of this message (keccak256 of the canonical encoding)
-func (m *Message) MessageID() (cciptypes.Bytes32, error) {
+func (m *Message) MessageID() (Bytes32, error) {
 	encoded, err := m.Encode()
 	if err != nil {
-		return cciptypes.Bytes32{}, err
+		return Bytes32{}, err
 	}
 	hash := crypto.Keccak256(encoded)
-	var result cciptypes.Bytes32
+	var result Bytes32
 	copy(result[:], hash)
 	return result, nil
 }
@@ -411,17 +373,17 @@ type ReceiptWithBlob struct {
 
 // CCVData represents Cross-Chain Verification data
 type CCVData struct {
-	MessageID             cciptypes.Bytes32       `json:"message_id"`
-	SequenceNumber        cciptypes.SeqNum        `json:"sequence_number"`
-	SourceChainSelector   cciptypes.ChainSelector `json:"source_chain_selector"`
-	DestChainSelector     cciptypes.ChainSelector `json:"dest_chain_selector"`
-	SourceVerifierAddress UnknownAddress          `json:"source_verifier_address"`
-	DestVerifierAddress   UnknownAddress          `json:"dest_verifier_address"`
-	CCVData               []byte                  `json:"ccv_data"`      // The actual proof/signature
-	BlobData              []byte                  `json:"blob_data"`     // Additional verifier-specific data
-	Timestamp             int64                   `json:"timestamp"`     // Unix timestamp when verification completed (in microseconds)
-	Message               Message                 `json:"message"`       // Complete message event being verified
-	ReceiptBlobs          []ReceiptWithBlob       `json:"receipt_blobs"` // All receipt blobs for the message
+	MessageID             Bytes32           `json:"message_id"`
+	SequenceNumber        SeqNum            `json:"sequence_number"`
+	SourceChainSelector   ChainSelector     `json:"source_chain_selector"`
+	DestChainSelector     ChainSelector     `json:"dest_chain_selector"`
+	SourceVerifierAddress UnknownAddress    `json:"source_verifier_address"`
+	DestVerifierAddress   UnknownAddress    `json:"dest_verifier_address"`
+	CCVData               []byte            `json:"ccv_data"`      // The actual proof/signature
+	BlobData              []byte            `json:"blob_data"`     // Additional verifier-specific data
+	Timestamp             int64             `json:"timestamp"`     // Unix timestamp when verification completed (in microseconds)
+	Message               Message           `json:"message"`       // Complete message event being verified
+	ReceiptBlobs          []ReceiptWithBlob `json:"receipt_blobs"` // All receipt blobs for the message
 }
 
 // QueryResponse represents the response from CCV data queries.
@@ -464,8 +426,8 @@ func NewEmptyTokenTransfer() *TokenTransfer {
 
 // NewMessage creates a new message with the given parameters
 func NewMessage(
-	sourceChain, destChain cciptypes.ChainSelector,
-	sequenceNumber cciptypes.SeqNum,
+	sourceChain, destChain ChainSelector,
+	sequenceNumber SeqNum,
 	onRampAddress, offRampAddress UnknownAddress,
 	finality uint16,
 	sender, receiver UnknownAddress,

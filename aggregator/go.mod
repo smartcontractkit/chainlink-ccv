@@ -2,6 +2,11 @@ module github.com/smartcontractkit/chainlink-ccv/aggregator
 
 go 1.24.6
 
+replace (
+	github.com/smartcontractkit/chainlink-ccv/common => ../common
+	github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
+)
+
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
@@ -25,5 +30,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/smartcontractkit/chainlink-ccv/common => ../common

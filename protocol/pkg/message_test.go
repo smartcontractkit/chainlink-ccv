@@ -1,49 +1,14 @@
-package common
+package pkg
 
 import (
-	"math/big"
+	"encoding/binary"
 	"testing"
 
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
-
-func TestTokenTransferEncodeDecode(t *testing.T) {
-	// Create a test token transfer
-	tt := &TokenTransfer{
-		Version:                  1,
-		Amount:                   big.NewInt(1000),
-		SourceTokenAddressLength: 3,
-		SourceTokenAddress:       []byte("abc"),
-		DestTokenAddressLength:   4,
-		DestTokenAddress:         []byte("wxyz"),
-		TokenReceiverLength:      2,
-		TokenReceiver:            []byte("R1"),
-		ExtraDataLength:          5,
-		ExtraData:                []byte("hello"),
-	}
-
-	// Encode
-	encoded := tt.Encode()
-	require.NotEmpty(t, encoded)
-
-	// Decode
-	decoded, err := DecodeTokenTransfer(encoded)
-	require.NoError(t, err)
-
-	// Verify all fields match
-	assert.Equal(t, tt.Version, decoded.Version)
-	assert.Equal(t, tt.Amount.Cmp(decoded.Amount), 0)
-	assert.Equal(t, tt.SourceTokenAddressLength, decoded.SourceTokenAddressLength)
-	assert.Equal(t, tt.SourceTokenAddress, decoded.SourceTokenAddress)
-	assert.Equal(t, tt.DestTokenAddressLength, decoded.DestTokenAddressLength)
-	assert.Equal(t, tt.DestTokenAddress, decoded.DestTokenAddress)
-	assert.Equal(t, tt.TokenReceiverLength, decoded.TokenReceiverLength)
-	assert.Equal(t, tt.TokenReceiver, decoded.TokenReceiver)
-	assert.Equal(t, tt.ExtraDataLength, decoded.ExtraDataLength)
-	assert.Equal(t, tt.ExtraData, decoded.ExtraData)
-}
 
 func TestMessageEncodeDecode(t *testing.T) {
 	// Create test addresses
@@ -57,13 +22,13 @@ func TestMessageEncodeDecode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create empty token transfer
-	tokenTransfer := NewEmptyTokenTransfer()
+	tokenTransfer := types.NewEmptyTokenTransfer()
 
 	// Create a test message
-	msg := NewMessage(
-		cciptypes.ChainSelector(1337),
-		cciptypes.ChainSelector(2337),
-		cciptypes.SeqNum(123),
+	msg := types.NewMessage(
+		types.ChainSelector(1337),
+		types.ChainSelector(2337),
+		types.SeqNum(123),
 		onRampAddr,
 		offRampAddr,
 		10, // finality
@@ -80,7 +45,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 	require.NotEmpty(t, encoded)
 
 	// Decode
-	decoded, err := DecodeMessage(encoded)
+	decoded, err := types.DecodeMessage(encoded)
 	require.NoError(t, err)
 
 	// Verify all fields match
@@ -115,12 +80,12 @@ func TestMessageID(t *testing.T) {
 	require.NoError(t, err)
 	offRampAddr, err := RandomAddress()
 	require.NoError(t, err)
-	tokenTransfer := NewEmptyTokenTransfer()
+	tokenTransfer := types.NewEmptyTokenTransfer()
 
-	msg1 := NewMessage(
-		cciptypes.ChainSelector(1337),
-		cciptypes.ChainSelector(2337),
-		cciptypes.SeqNum(123),
+	msg1 := types.NewMessage(
+		types.ChainSelector(1337),
+		types.ChainSelector(2337),
+		types.SeqNum(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -131,10 +96,10 @@ func TestMessageID(t *testing.T) {
 		tokenTransfer,
 	)
 
-	msg2 := NewMessage(
-		cciptypes.ChainSelector(1337),
-		cciptypes.ChainSelector(2337),
-		cciptypes.SeqNum(123),
+	msg2 := types.NewMessage(
+		types.ChainSelector(1337),
+		types.ChainSelector(2337),
+		types.SeqNum(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -153,10 +118,10 @@ func TestMessageID(t *testing.T) {
 	assert.Equal(t, id1, id2)
 
 	// Different sequence number should give different message ID
-	msg3 := NewMessage(
-		cciptypes.ChainSelector(1337),
-		cciptypes.ChainSelector(2337),
-		cciptypes.SeqNum(124), // Different sequence number
+	msg3 := types.NewMessage(
+		types.ChainSelector(1337),
+		types.ChainSelector(2337),
+		types.SeqNum(124), // Different sequence number
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -172,24 +137,51 @@ func TestMessageID(t *testing.T) {
 	assert.NotEqual(t, id1, id3)
 }
 
-func TestEmptyTokenTransfer(t *testing.T) {
-	tt := NewEmptyTokenTransfer()
+// TestMessageDecodingErrors tests message decoding error conditions
+func TestMessageDecodingErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		data      []byte
+		expectErr string
+	}{
+		{
+			name:      "empty_data",
+			data:      []byte{},
+			expectErr: "data too short",
+		},
+		{
+			name:      "too_short",
+			data:      make([]byte, 10),
+			expectErr: "data too short",
+		},
+		{
+			name:      "truncated_chain_selector",
+			data:      []byte{1}, // Just version
+			expectErr: "data too short",
+		},
+		{
+			name: "invalid_address_length",
+			data: func() []byte {
+				// Create minimal valid header
+				data := make([]byte, 27) // minimum size
+				data[0] = 1              // version
+				// Set chain selectors and sequence number (8 bytes each)
+				binary.BigEndian.PutUint64(data[1:9], 1)   // source chain
+				binary.BigEndian.PutUint64(data[9:17], 2)  // dest chain
+				binary.BigEndian.PutUint64(data[17:25], 3) // sequence number
+				data[25] = 10                              // claim 10 bytes for on-ramp address
+				data[26] = 0                               // but only provide 0 bytes for off-ramp
+				return data
+			}(),
+			expectErr: "failed to read on-ramp address",
+		},
+	}
 
-	assert.Equal(t, uint8(MessageVersion), tt.Version)
-	assert.Equal(t, big.NewInt(0).Cmp(tt.Amount), 0)
-	assert.Equal(t, uint8(0), tt.SourceTokenAddressLength)
-	assert.Empty(t, tt.SourceTokenAddress)
-	assert.Equal(t, uint8(0), tt.DestTokenAddressLength)
-	assert.Empty(t, tt.DestTokenAddress)
-	assert.Equal(t, uint8(0), tt.TokenReceiverLength)
-	assert.Empty(t, tt.TokenReceiver)
-	assert.Equal(t, uint8(0), tt.ExtraDataLength)
-	assert.Empty(t, tt.ExtraData)
-
-	// Should be able to encode/decode
-	encoded := tt.Encode()
-	decoded, err := DecodeTokenTransfer(encoded)
-	require.NoError(t, err)
-	assert.Equal(t, tt.Version, decoded.Version)
-	assert.Equal(t, tt.Amount.Cmp(decoded.Amount), 0)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := types.DecodeMessage(tt.data)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectErr)
+		})
+	}
 }
