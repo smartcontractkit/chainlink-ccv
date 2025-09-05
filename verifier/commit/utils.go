@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
-// Keccak256 computes the Keccak256 hash of the input
+// Keccak256 computes the Keccak256 hash of the input.
 func Keccak256(data []byte) [32]byte {
 	hash := crypto.Keccak256(data)
 	var result [32]byte
@@ -22,7 +24,7 @@ func Keccak256(data []byte) [32]byte {
 }
 
 // CalculateSignatureHash calculates signature hash using canonical binary encoding:
-// keccak256(messageHash || keccak256(verifierBlob))
+// keccak256(messageHash || keccak256(verifierBlob)).
 func CalculateSignatureHash(messageHash cciptypes.Bytes32, verifierBlob []byte) ([32]byte, error) {
 	verifierBlobHash := Keccak256(verifierBlob)
 
@@ -34,14 +36,14 @@ func CalculateSignatureHash(messageHash cciptypes.Bytes32, verifierBlob []byte) 
 	return Keccak256(buf.Bytes()), nil
 }
 
-// VerifierBlobData represents the data stored in a verifier blob
+// VerifierBlobData represents the data stored in a verifier blob.
 type VerifierBlobData struct {
 	Version uint8  `json:"version"`
 	Nonce   uint64 `json:"nonce"`
 	// Future extensions can add more fields here
 }
 
-// EncodeVerifierBlob encodes verifier blob data using length-prefixed canonical encoding
+// EncodeVerifierBlob encodes verifier blob data using length-prefixed canonical encoding.
 func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 	blob := VerifierBlobData{
 		Version: 1,
@@ -50,7 +52,9 @@ func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 
 	// Encode the blob content
 	var content bytes.Buffer
-	content.WriteByte(blob.Version)
+	if err := content.WriteByte(blob.Version); err != nil {
+		return nil, err
+	}
 	if err := binary.Write(&content, binary.BigEndian, blob.Nonce); err != nil {
 		return nil, err
 	}
@@ -58,6 +62,7 @@ func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 	// Create length-prefixed blob: length(2 bytes) + content
 	var buf bytes.Buffer
 	contentBytes := content.Bytes()
+	// #nosec G115 - safe because contentBytes is created here
 	if err := binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes))); err != nil {
 		return nil, err
 	}
@@ -66,7 +71,7 @@ func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// DecodeReceiptBlob decodes verifier blob data using length-prefixed canonical encoding
+// DecodeReceiptBlob decodes verifier blob data using length-prefixed canonical encoding.
 func DecodeReceiptBlob(receiptBlob []byte) (uint64, error) {
 	blob, err := DecodeVerifierBlobData(receiptBlob)
 	if err != nil {
@@ -75,7 +80,7 @@ func DecodeReceiptBlob(receiptBlob []byte) (uint64, error) {
 	return blob.Nonce, nil
 }
 
-// DecodeVerifierBlobData decodes complete verifier blob data using length-prefixed format
+// DecodeVerifierBlobData decodes complete verifier blob data using length-prefixed format.
 func DecodeVerifierBlobData(receiptBlob []byte) (*VerifierBlobData, error) {
 	if len(receiptBlob) < 2 {
 		return nil, fmt.Errorf("receipt blob too short: %d bytes, expected at least 2", len(receiptBlob))
@@ -127,7 +132,7 @@ func DecodeVerifierBlobData(receiptBlob []byte) (*VerifierBlobData, error) {
 	return blob, nil
 }
 
-// EncodeSignatures encodes r and s arrays into signature format using canonical binary encoding
+// EncodeSignatures encodes r and s arrays into signature format using canonical binary encoding.
 func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
 	if len(rs) != len(ss) {
 		return nil, fmt.Errorf("rs and ss arrays must have the same length")
@@ -136,6 +141,7 @@ func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
 	var buf bytes.Buffer
 
 	// Encode array length as uint16 (big-endian)
+	// #nosec G115 - safe because ecdsa sigs
 	arrayLen := uint16(len(rs))
 	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
 		return nil, err
@@ -154,8 +160,8 @@ func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// CreateCCVData creates CCVData from verification task, signature, and blob using the new format
-func CreateCCVData(verificationTask *types.VerificationTask, signature []byte, verifierBlob []byte, sourceVerifierAddress common.UnknownAddress) (*common.CCVData, error) {
+// CreateCCVData creates CCVData from verification task, signature, and blob using the new format.
+func CreateCCVData(verificationTask *types.VerificationTask, signature, verifierBlob []byte, sourceVerifierAddress common.UnknownAddress) (*common.CCVData, error) {
 	message := verificationTask.Message
 	messageID, err := message.MessageID()
 	if err != nil {

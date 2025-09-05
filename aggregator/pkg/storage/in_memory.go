@@ -11,7 +11,8 @@ import (
 
 // InMemoryStorage is an in-memory implementation of the CommitVerificationStore interface.
 type InMemoryStorage struct {
-	records map[string]*model.CommitVerificationRecord
+	records           map[string]*model.CommitVerificationRecord
+	aggregatedReports map[string]*model.CommitAggregatedReport
 }
 
 // SaveCommitVerification persists a commit verification record.
@@ -41,9 +42,26 @@ func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, c
 	return results, nil
 }
 
+func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
+	id := report.GetID()
+	s.aggregatedReports[id.ToIdentifier()] = report
+	return nil
+}
+
+func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start int64, end int64) []*model.CommitAggregatedReport {
+	var results []*model.CommitAggregatedReport
+	for _, report := range s.aggregatedReports {
+		if report.Timestamp >= start && report.Timestamp <= end {
+			results = append(results, report)
+		}
+	}
+	return results
+}
+
 // NewInMemoryStorage creates a new instance of InMemoryStorage.
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{
-		records: make(map[string]*model.CommitVerificationRecord),
+		records:           make(map[string]*model.CommitVerificationRecord),
+		aggregatedReports: make(map[string]*model.CommitAggregatedReport),
 	}
 }

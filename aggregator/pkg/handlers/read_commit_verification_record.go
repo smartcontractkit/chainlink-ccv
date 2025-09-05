@@ -4,20 +4,23 @@ package handlers
 import (
 	"context"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
 // ReadCommitVerificationRecordHandler handles requests to read commit verification records.
 type ReadCommitVerificationRecordHandler struct {
-	storage common.CommitVerificationStore
+	storage           common.CommitVerificationStore
+	disableValidation bool
 }
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
 func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.ReadCommitVerificationRequest) (*aggregator.ReadCommitVerificationResponse, error) {
-	if err := validateReadRequest(req); err != nil {
-		return &aggregator.ReadCommitVerificationResponse{}, err
+	if !h.disableValidation {
+		if err := validateReadRequest(req); err != nil {
+			return &aggregator.ReadCommitVerificationResponse{}, err
+		}
 	}
 
 	id := model.CommitVerificationRecordIdentifier{
@@ -37,8 +40,9 @@ func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *a
 }
 
 // NewReadCommitVerificationRecordHandler creates a new instance of ReadCommitVerificationRecordHandler.
-func NewReadCommitVerificationRecordHandler(store common.CommitVerificationStore) *ReadCommitVerificationRecordHandler {
+func NewReadCommitVerificationRecordHandler(store common.CommitVerificationStore, disableValidation bool) *ReadCommitVerificationRecordHandler {
 	return &ReadCommitVerificationRecordHandler{
-		storage: store,
+		storage:           store,
+		disableValidation: disableValidation,
 	}
 }

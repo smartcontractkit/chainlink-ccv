@@ -3,7 +3,7 @@ filename: "{{.InterfaceName | snakecase}}.go"
 dir: mocks/{{ replaceAll .InterfaceDirRelative "internal" "internal_" }}
 resolve-type-alias: false
 packages:
-    github.com/smartcontractkit/chainlink-ccv/verifier:
+    github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader:
         config:
             dir: mocks
             outpkg: mocks

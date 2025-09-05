@@ -2,13 +2,14 @@
 
 ## Getting started
 
-Run all the services in local environment, install [Nix](https://github.com/DeterminateSystems/nix-installer) and run
+Install [just](https://github.com/casey/just)
+
+List available commands:
 ```bash
-nix develop
-just clean-docker-dev # needed in case you have old JD image
-just build-docker-dev
+just --list
 ```
-Then enter the `ccv` shell and run `up`
+
+Run tests:
 ```bash
-ccv sh
+just tests
 ```

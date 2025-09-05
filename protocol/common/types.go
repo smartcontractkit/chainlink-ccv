@@ -10,6 +10,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/crypto"
+
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
@@ -76,30 +77,30 @@ func (tt *TokenTransfer) Encode() []byte {
 	var buf bytes.Buffer
 
 	// Version (1 byte)
-	buf.WriteByte(tt.Version)
+	_ = buf.WriteByte(tt.Version)
 
 	// Amount (32 bytes, big-endian)
 	amountBytes := make([]byte, 32)
 	if tt.Amount != nil {
 		tt.Amount.FillBytes(amountBytes)
 	}
-	buf.Write(amountBytes)
+	_, _ = buf.Write(amountBytes)
 
 	// Source token address
-	buf.WriteByte(tt.SourceTokenAddressLength)
-	buf.Write(tt.SourceTokenAddress)
+	_ = buf.WriteByte(tt.SourceTokenAddressLength)
+	_, _ = buf.Write(tt.SourceTokenAddress)
 
 	// Dest token address
-	buf.WriteByte(tt.DestTokenAddressLength)
-	buf.Write(tt.DestTokenAddress)
+	_ = buf.WriteByte(tt.DestTokenAddressLength)
+	_, _ = buf.Write(tt.DestTokenAddress)
 
 	// Token receiver
-	buf.WriteByte(tt.TokenReceiverLength)
-	buf.Write(tt.TokenReceiver)
+	_ = buf.WriteByte(tt.TokenReceiverLength)
+	_, _ = buf.Write(tt.TokenReceiver)
 
 	// Extra data
-	buf.WriteByte(tt.ExtraDataLength)
-	buf.Write(tt.ExtraData)
+	_ = buf.WriteByte(tt.ExtraDataLength)
+	_, _ = buf.Write(tt.ExtraData)
 
 	return buf.Bytes()
 }
@@ -210,7 +211,7 @@ func (m *Message) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 
 	// Protocol header
-	buf.WriteByte(m.Version)
+	_ = buf.WriteByte(m.Version)
 
 	// Chain selectors and sequence number (8 bytes each, big-endian)
 	if err := binary.Write(&buf, binary.BigEndian, uint64(m.SourceChainSelector)); err != nil {
@@ -224,12 +225,12 @@ func (m *Message) Encode() ([]byte, error) {
 	}
 
 	// On-ramp address
-	buf.WriteByte(m.OnRampAddressLength)
-	buf.Write(m.OnRampAddress)
+	_ = buf.WriteByte(m.OnRampAddressLength)
+	_, _ = buf.Write(m.OnRampAddress)
 
 	// Off-ramp address
-	buf.WriteByte(m.OffRampAddressLength)
-	buf.Write(m.OffRampAddress)
+	_ = buf.WriteByte(m.OffRampAddressLength)
+	_, _ = buf.Write(m.OffRampAddress)
 
 	// User provided data
 	if err := binary.Write(&buf, binary.BigEndian, m.Finality); err != nil {
@@ -237,30 +238,30 @@ func (m *Message) Encode() ([]byte, error) {
 	}
 
 	// Sender
-	buf.WriteByte(m.SenderLength)
-	buf.Write(m.Sender)
+	_ = buf.WriteByte(m.SenderLength)
+	_, _ = buf.Write(m.Sender)
 
 	// Receiver
-	buf.WriteByte(m.ReceiverLength)
-	buf.Write(m.Receiver)
+	_ = buf.WriteByte(m.ReceiverLength)
+	_, _ = buf.Write(m.Receiver)
 
 	// Dest blob
 	if err := binary.Write(&buf, binary.BigEndian, m.DestBlobLength); err != nil {
 		return nil, err
 	}
-	buf.Write(m.DestBlob)
+	_, _ = buf.Write(m.DestBlob)
 
 	// Token transfer
 	if err := binary.Write(&buf, binary.BigEndian, m.TokenTransferLength); err != nil {
 		return nil, err
 	}
-	buf.Write(m.TokenTransfer)
+	_, _ = buf.Write(m.TokenTransfer)
 
 	// Data
 	if err := binary.Write(&buf, binary.BigEndian, m.DataLength); err != nil {
 		return nil, err
 	}
-	buf.Write(m.Data)
+	_, _ = buf.Write(m.Data)
 
 	return buf.Bytes(), nil
 }
@@ -423,35 +424,24 @@ type CCVData struct {
 	ReceiptBlobs          []ReceiptWithBlob       `json:"receipt_blobs"` // All receipt blobs for the message
 }
 
-// TimestampQueryResponse represents the response from timestamp-based CCV data queries.
-type TimestampQueryResponse struct {
+// QueryResponse represents the response from CCV data queries.
+type QueryResponse struct {
 	// Data organized by destination chain selector
-	Data map[cciptypes.ChainSelector][]CCVData `json:"data"`
-	// Next timestamp to query (nil if no more data)
-	NextTimestamp *int64 `json:"next_timestamp,omitempty"`
-	// Whether more data exists at current timestamp
-	HasMore bool `json:"has_more"`
-	// Total number of items returned
-	TotalCount int `json:"total_count"`
+	Data CCVData `json:"data"`
+	// Timestamp when the data was written (optional).
+	Timestamp *int64 `json:"timestamp,omitempty"`
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
 type OffchainStorageWriter interface {
-	// StoreCCVData stores multiple CCV data entries in the offchain storage
-	StoreCCVData(ctx context.Context, ccvDataList []CCVData) error
+	// WriteCCVData stores multiple CCV data entries in the offchain storage
+	WriteCCVData(ctx context.Context, ccvDataList []CCVData) error
 }
 
 // OffchainStorageReader defines the interface for executors to query CCV data by timestamp.
 type OffchainStorageReader interface {
-	// GetCCVDataByTimestamp queries CCV data by timestamp with offset-based pagination
-	GetCCVDataByTimestamp(
-		ctx context.Context,
-		destChainSelectors []cciptypes.ChainSelector,
-		startTimestamp int64,
-		sourceChainSelectors []cciptypes.ChainSelector,
-		limit int,
-		offset int,
-	) (*TimestampQueryResponse, error)
+	// ReadCCVData returns the next available CCV data entries.
+	ReadCCVData(ctx context.Context) ([]QueryResponse, error)
 }
 
 // Helper functions for creating empty/default values
@@ -489,24 +479,31 @@ func NewMessage(
 	tokenTransferBytes := tokenTransfer.Encode()
 
 	return &Message{
-		Version:              MessageVersion,
-		SourceChainSelector:  sourceChain,
-		DestChainSelector:    destChain,
-		SequenceNumber:       sequenceNumber,
-		OnRampAddressLength:  uint8(len(onRampAddress)),
-		OnRampAddress:        onRampAddress.Bytes(),
+		Version:             MessageVersion,
+		SourceChainSelector: sourceChain,
+		DestChainSelector:   destChain,
+		SequenceNumber:      sequenceNumber,
+		// #nosec G115 - ignore for now
+		OnRampAddressLength: uint8(len(onRampAddress)),
+		OnRampAddress:       onRampAddress.Bytes(),
+		// #nosec G115 - ignore for now
 		OffRampAddressLength: uint8(len(offRampAddress)),
 		OffRampAddress:       offRampAddress.Bytes(),
 		Finality:             finality,
-		SenderLength:         uint8(len(sender)),
-		Sender:               sender.Bytes(),
-		ReceiverLength:       uint8(len(receiver)),
-		Receiver:             receiver.Bytes(),
-		DestBlobLength:       uint16(len(destBlob)),
-		DestBlob:             destBlob,
-		TokenTransferLength:  uint16(len(tokenTransferBytes)),
-		TokenTransfer:        tokenTransferBytes,
-		DataLength:           uint16(len(data)),
-		Data:                 data,
+		// #nosec G115 - ignore for now
+		SenderLength: uint8(len(sender)),
+		Sender:       sender.Bytes(),
+		// #nosec G115 - ignore for now
+		ReceiverLength: uint8(len(receiver)),
+		Receiver:       receiver.Bytes(),
+		// #nosec G115 - ignore for now
+		DestBlobLength: uint16(len(destBlob)),
+		DestBlob:       destBlob,
+		// #nosec G115 - ignore for now
+		TokenTransferLength: uint16(len(tokenTransferBytes)),
+		TokenTransfer:       tokenTransferBytes,
+		// #nosec G115 - ignore for now
+		DataLength: uint16(len(data)),
+		Data:       data,
 	}
 }

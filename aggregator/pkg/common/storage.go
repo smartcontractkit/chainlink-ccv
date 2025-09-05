@@ -16,3 +16,7 @@ type CommitVerificationStore interface {
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)
 	ListCommitVerificationByMessageID(ctx context.Context, committeeID string, messageID model.MessageID) ([]*model.CommitVerificationRecord, error)
 }
+
+type CommitVerificationAggregatedStore interface {
+	QueryAggregatedReports(ctx context.Context, start int64, end int64) []*model.CommitAggregatedReport
+}

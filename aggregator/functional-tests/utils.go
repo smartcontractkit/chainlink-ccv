@@ -3,16 +3,14 @@ package functionaltests
 import (
 	"context"
 	"net"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog/log"
-
-	"github.com/rs/zerolog"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -20,19 +18,27 @@ import (
 const bufSize = 1024 * 1024
 
 // CreateServerAndClient creates a test server and client for functional testing.
-func CreateServerAndClient(t *testing.T) (aggregator.AggregatorClient, func(), error) {
+func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Committee) (aggregator.AggregatorClient, func(), error) {
 	lis := bufconn.Listen(bufSize)
-	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel)
-	s := agg.NewServer(l, model.AggregatorConfig{
+	// Setup logging - always debug level for now
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		config.Development = true
+		config.Encoding = "console"
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// Use SugaredLogger for better API
+	lggr = logger.Sugared(lggr)
+	s := agg.NewServer(lggr, model.AggregatorConfig{
 		Server: model.ServerConfig{
 			Address: ":50051",
 		},
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
-		Aggregation: model.AggregationConfig{
-			AggregationStrategy: "stub",
-		},
+		Committees: committeeConfig,
 	})
 	go func() {
 		_, _ = s.Start(lis)

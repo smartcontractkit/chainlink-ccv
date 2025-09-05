@@ -3,16 +3,16 @@ package aggregator
 
 import (
 	"context"
-	"fmt"
 	"net"
 
-	"github.com/rs/zerolog"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -21,9 +21,10 @@ import (
 type Server struct {
 	aggregator.UnimplementedAggregatorServer
 
-	l                                    zerolog.Logger
+	l                                    logger.Logger
 	readCommitVerificationRecordHandler  *handlers.ReadCommitVerificationRecordHandler
 	writeCommitVerificationRecordHandler *handlers.WriteCommitVerificationRecordHandler
+	queryCommitVerificationsHandler      *handlers.QueryAggregatedCommitRecordsHandler
 }
 
 // WriteCommitVerification handles requests to write commit verification records.
@@ -36,13 +37,18 @@ func (s *Server) ReadCommitVerification(ctx context.Context, req *aggregator.Rea
 	return s.readCommitVerificationRecordHandler.Handle(ctx, req)
 }
 
+// QueryAggregatedCommitRecords handles requests to query aggregated commit records.
+func (s *Server) QueryAggregatedCommitRecords(ctx context.Context, req *aggregator.QueryAggregatedCommitRecordsRequest) (*aggregator.QueryAggregatedCommitRecordsResponse, error) {
+	return s.queryCommitVerificationsHandler.Handle(ctx, req)
+}
+
 // Start starts the gRPC server on the provided listener.
 func (s *Server) Start(lis net.Listener) (func(), error) {
 	grpcServer := grpc.NewServer()
 	aggregator.RegisterAggregatorServer(grpcServer, s)
 	reflection.Register(grpcServer)
 
-	s.l.Info().Msg("Aggregator gRPC server started")
+	s.l.Info("Aggregator gRPC server started")
 	if err := grpcServer.Serve(lis); err != nil {
 		return func() {}, err
 	}
@@ -50,44 +56,35 @@ func (s *Server) Start(lis net.Listener) (func(), error) {
 	return grpcServer.Stop, nil
 }
 
-func createAggregatorConfig(storage common.CommitVerificationStore, config model.AggregatorConfig) (handlers.AggregationTriggerer, error) {
-	if config.Aggregation.AggregationStrategy == "stub" {
-		aggregator := aggregation.NewCommitReportAggregator(storage, &aggregation.AggregatorSinkStub{}, config)
-		aggregator.StartBackground(context.Background())
-		return aggregator, nil
-	}
-
-	return nil, fmt.Errorf("unknown aggregation strategy: %s", config.Aggregation.AggregationStrategy)
-}
-
-func createStorage(config model.AggregatorConfig) (common.CommitVerificationStore, error) {
-	if config.Storage.StorageType == "memory" {
-		return storage.NewInMemoryStorage(), nil
-	}
-
-	return nil, fmt.Errorf("unknown storage type: %s", config.Storage.StorageType)
+func createAggregator(storage common.CommitVerificationStore, sink common.Sink) (handlers.AggregationTriggerer, error) {
+	aggregator := aggregation.NewCommitReportAggregator(storage, sink, &quorum.QuorumValidatorStub{})
+	aggregator.StartBackground(context.Background())
+	return aggregator, nil
 }
 
 // NewServer creates a new aggregator server with the specified logger and configuration.
-func NewServer(l zerolog.Logger, config model.AggregatorConfig) *Server {
-	store, err := createStorage(config)
+func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
+	var store *storage.InMemoryStorage
+	if config.Storage.StorageType == "memory" {
+		store = storage.NewInMemoryStorage()
+	} else {
+		panic("unknown storage type")
+	}
+
+	aggregator, err := createAggregator(store, store)
 	if err != nil {
-		l.Error().Err(err).Msg("failed to create storage")
+		l.Errorw("failed to create aggregator", "error", err)
 		return nil
 	}
 
-	aggregator, err := createAggregatorConfig(store, config)
-	if err != nil {
-		l.Error().Err(err).Msg("failed to create aggregator")
-		return nil
-	}
-
-	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store)
-	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator)
+	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store, config.DisableValidation)
+	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator, l, config.DisableValidation)
+	queryCommitVerificationsHandler := handlers.NewQueryAggregatedCommitRecordsHandler(store)
 
 	return &Server{
 		l:                                    l,
 		readCommitVerificationRecordHandler:  readCommitVerificationRecordHandler,
 		writeCommitVerificationRecordHandler: writeCommitVerificationRecordHandler,
+		queryCommitVerificationsHandler:      queryCommitVerificationsHandler,
 	}
 }

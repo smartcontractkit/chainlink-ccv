@@ -1,10 +1,24 @@
+set fallback
+
+import '../../tools/lib/utils.justfile'
+
 # Default: show available recipes
 default:
     just --list
 
-# Run go mod tidy
-tidy:
+# Format all go files
+fmt: ensure-golangci-lint
+    golangci-lint fmt
+
+# Run golangci-lint
+lint: ensure-golangci-lint
+    golangci-lint run --output.text.path stdout
+
+mod-tidy: ensure-go
     go mod tidy
+
+mod-download: ensure-go
+    go mod download
 
 clean:
     rm -rf compose/ blockscout/
@@ -19,26 +33,18 @@ rm-chaos:
     kubectl delete dnschaos --all -A
     kubectl delete kernelchaos --all -A
 
-# Format all go files
-fmt:
-    golangci-lint fmt --config=.golangci.yaml
-
-# Run golangci-lint
-lint:
-    golangci-lint run --whole-files --output.text.path stdout --max-same-issues=0 --config=.golangci.yaml
-
 # Install pre-commit hooks
 pre-commit:
     pre-commit install
 
 # Remove all the dev images
 clean-docker-dev:
-    @just ../../build/devenv/fakes/clean-dev
-    @just ../../verifier/clean-dev
-    @just ../../executor/clean-dev
-    @just ../../indexer/clean-dev
-    @just ../../aggregator/clean-dev
-    rm -rf job-distributor/
+    just ../../build/devenv/fakes/clean-dev >/dev/null 2>&1 || true
+    just ../../verifier/clean-dev >/dev/null 2>&1 || true
+    just ../../executor/clean-dev >/dev/null 2>&1 || true
+    just ../../indexer/clean-dev >/dev/null 2>&1 || true
+    just ../../aggregator/clean-dev >/dev/null 2>&1 || true
+    rm -rf job-distributor/ >/dev/null 2>&1 || true
 
 # Build all the services (hot-reload dev mode)
 build-docker-dev:

@@ -6,48 +6,40 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
-// VerificationCoordinator orchestrates the verification workflow using the new message format
+// VerificationCoordinator orchestrates the verification workflow using the new message format.
 type VerificationCoordinator struct {
-	// Basic operation channels
-	ccvDataCh chan common.CCVData
-	stopCh    chan struct{}
-	doneCh    chan struct{}
-
-	// Core components
-	verifier types.Verifier
-	// N Channels producing Message events
-	sourceStates map[cciptypes.ChainSelector]*sourceState
+	verifier     types.Verifier
 	storage      common.OffchainStorageWriter
-
-	// Configuration
-	config types.CoordinatorConfig
-	lggr   logger.Logger
-
-	// State management
-	mu      sync.RWMutex
-	started bool
-	stopped bool
+	lggr         logger.Logger
+	ccvDataCh    chan common.CCVData
+	stopCh       chan struct{}
+	doneCh       chan struct{}
+	sourceStates map[cciptypes.ChainSelector]*sourceState
+	config       types.CoordinatorConfig
+	mu           sync.RWMutex
+	started      bool
+	stopped      bool
 }
 
-// Option is the functional option type for VerificationCoordinator
+// Option is the functional option type for VerificationCoordinator.
 type Option func(*VerificationCoordinator)
 
-// WithVerifier sets the verifier implementation
+// WithVerifier sets the verifier implementation.
 func WithVerifier(verifier types.Verifier) Option {
 	return func(vc *VerificationCoordinator) {
 		vc.verifier = verifier
 	}
 }
 
-// WithSourceReaders sets multiple source readers
+// WithSourceReaders sets multiple source readers.
 func WithSourceReaders(sourceReaders map[cciptypes.ChainSelector]reader.SourceReader) Option {
 	return func(vc *VerificationCoordinator) {
 		if vc.sourceStates == nil {
@@ -59,38 +51,38 @@ func WithSourceReaders(sourceReaders map[cciptypes.ChainSelector]reader.SourceRe
 	}
 }
 
-// AddSourceReader adds a single source reader to the existing map
-func AddSourceReader(chainSelector cciptypes.ChainSelector, reader reader.SourceReader) Option {
+// AddSourceReader adds a single source reader to the existing map.
+func AddSourceReader(chainSelector cciptypes.ChainSelector, sourceReader reader.SourceReader) Option {
 	return func(vc *VerificationCoordinator) {
 		if vc.sourceStates == nil {
 			vc.sourceStates = make(map[cciptypes.ChainSelector]*sourceState)
 		}
-		vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
+		vc.sourceStates[chainSelector] = newSourceState(chainSelector, sourceReader)
 	}
 }
 
-// WithStorage sets the storage writer
+// WithStorage sets the storage writer.
 func WithStorage(storage common.OffchainStorageWriter) Option {
 	return func(vc *VerificationCoordinator) {
 		vc.storage = storage
 	}
 }
 
-// WithConfig sets the coordinator configuration
+// WithConfig sets the coordinator configuration.
 func WithConfig(config types.CoordinatorConfig) Option {
 	return func(vc *VerificationCoordinator) {
 		vc.config = config
 	}
 }
 
-// WithLogger sets the logger
+// WithLogger sets the logger.
 func WithLogger(lggr logger.Logger) Option {
 	return func(vc *VerificationCoordinator) {
 		vc.lggr = lggr
 	}
 }
 
-// NewVerificationCoordinator creates a new verification coordinator
+// NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error) {
 	vc := &VerificationCoordinator{
 		ccvDataCh:    make(chan common.CCVData, 1000),
@@ -112,7 +104,7 @@ func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error
 	return vc, nil
 }
 
-// Start begins the verification coordinator processing
+// Start begins the verification coordinator processing.
 func (vc *VerificationCoordinator) Start(ctx context.Context) error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
@@ -144,7 +136,7 @@ func (vc *VerificationCoordinator) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the verification coordinator processing
+// Stop stops the verification coordinator processing.
 func (vc *VerificationCoordinator) Stop() error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
@@ -174,7 +166,7 @@ func (vc *VerificationCoordinator) Stop() error {
 	return nil
 }
 
-// run is the main processing loop
+// run is the main processing loop.
 func (vc *VerificationCoordinator) run(ctx context.Context) {
 	defer close(vc.doneCh)
 
@@ -207,8 +199,8 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 				return
 			}
 
-			// Store CCVData to offchain storage
-			if err := vc.storage.StoreCCVData(ctx, []common.CCVData{ccvData}); err != nil {
+			// Write CCVData to offchain storage
+			if err := vc.storage.WriteCCVData(ctx, []common.CCVData{ccvData}); err != nil {
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
 					"messageID", ccvData.MessageID,
@@ -226,7 +218,7 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 	}
 }
 
-// processSourceMessages handles message processing for a single source state
+// processSourceMessages handles message processing for a single source state.
 func (vc *VerificationCoordinator) processSourceMessages(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
 	defer wg.Done()
 	chainSelector := state.chainSelector
@@ -253,7 +245,7 @@ func (vc *VerificationCoordinator) processSourceMessages(ctx context.Context, wg
 	}
 }
 
-// processSourceErrors handles error processing for a single source state
+// processSourceErrors handles error processing for a single source state.
 func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
 	defer wg.Done()
 	chainSelector := state.chainSelector
@@ -295,7 +287,7 @@ func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *
 	}
 }
 
-// validate checks that all required components are configured
+// validate checks that all required components are configured.
 func (vc *VerificationCoordinator) validate() error {
 	if len(vc.sourceStates) == 0 {
 		return fmt.Errorf("at least one source reader is required")
@@ -327,7 +319,7 @@ func (vc *VerificationCoordinator) validate() error {
 	return nil
 }
 
-// HealthCheck returns the current health status
+// HealthCheck returns the current health status.
 func (vc *VerificationCoordinator) HealthCheck(ctx context.Context) error {
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
