@@ -33,9 +33,9 @@ type Server struct {
 	getMessagesSinceHandler       *handlers.GetMessagesSinceHandler
 	getCCVDataForMessageHandler   *handlers.GetCCVDataForMessageHandler
 	grpcServer                    *grpc.Server
-	started                       bool
 	closeChan                     chan struct{}
 	mu                            sync.Mutex
+	started                       bool
 }
 
 // WriteCommitCCVNodeData handles requests to write commit verification records.
