@@ -3,8 +3,7 @@
 package executor_mocks
 
 import (
-	ccipocr3 "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
-
+	types "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -21,19 +20,19 @@ func (_m *MockLeaderElector) EXPECT() *MockLeaderElector_Expecter {
 	return &MockLeaderElector_Expecter{mock: &_m.Mock}
 }
 
-// GetDelay provides a mock function with given fields: messageId, destSelector, readyTimestamp
-func (_m *MockLeaderElector) GetDelay(messageId ccipocr3.Bytes32, destSelector ccipocr3.ChainSelector, readyTimestamp uint64) uint64 {
-	ret := _m.Called(messageId, destSelector, readyTimestamp)
+// GetDelay provides a mock function with given fields: messageID, destSelector, readyTimestamp
+func (_m *MockLeaderElector) GetDelay(messageID types.Bytes32, destSelector types.ChainSelector, readyTimestamp int64) int64 {
+	ret := _m.Called(messageID, destSelector, readyTimestamp)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetDelay")
 	}
 
-	var r0 uint64
-	if rf, ok := ret.Get(0).(func(ccipocr3.Bytes32, ccipocr3.ChainSelector, uint64) uint64); ok {
-		r0 = rf(messageId, destSelector, readyTimestamp)
+	var r0 int64
+	if rf, ok := ret.Get(0).(func(types.Bytes32, types.ChainSelector, int64) int64); ok {
+		r0 = rf(messageID, destSelector, readyTimestamp)
 	} else {
-		r0 = ret.Get(0).(uint64)
+		r0 = ret.Get(0).(int64)
 	}
 
 	return r0
@@ -45,26 +44,26 @@ type MockLeaderElector_GetDelay_Call struct {
 }
 
 // GetDelay is a helper method to define mock.On call
-//   - messageId ccipocr3.Bytes32
-//   - destSelector ccipocr3.ChainSelector
-//   - readyTimestamp uint64
-func (_e *MockLeaderElector_Expecter) GetDelay(messageId interface{}, destSelector interface{}, readyTimestamp interface{}) *MockLeaderElector_GetDelay_Call {
-	return &MockLeaderElector_GetDelay_Call{Call: _e.mock.On("GetDelay", messageId, destSelector, readyTimestamp)}
+//   - messageID types.Bytes32
+//   - destSelector types.ChainSelector
+//   - readyTimestamp int64
+func (_e *MockLeaderElector_Expecter) GetDelay(messageID interface{}, destSelector interface{}, readyTimestamp interface{}) *MockLeaderElector_GetDelay_Call {
+	return &MockLeaderElector_GetDelay_Call{Call: _e.mock.On("GetDelay", messageID, destSelector, readyTimestamp)}
 }
 
-func (_c *MockLeaderElector_GetDelay_Call) Run(run func(messageId ccipocr3.Bytes32, destSelector ccipocr3.ChainSelector, readyTimestamp uint64)) *MockLeaderElector_GetDelay_Call {
+func (_c *MockLeaderElector_GetDelay_Call) Run(run func(messageID types.Bytes32, destSelector types.ChainSelector, readyTimestamp int64)) *MockLeaderElector_GetDelay_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(ccipocr3.Bytes32), args[1].(ccipocr3.ChainSelector), args[2].(uint64))
+		run(args[0].(types.Bytes32), args[1].(types.ChainSelector), args[2].(int64))
 	})
 	return _c
 }
 
-func (_c *MockLeaderElector_GetDelay_Call) Return(_a0 uint64) *MockLeaderElector_GetDelay_Call {
+func (_c *MockLeaderElector_GetDelay_Call) Return(_a0 int64) *MockLeaderElector_GetDelay_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockLeaderElector_GetDelay_Call) RunAndReturn(run func(ccipocr3.Bytes32, ccipocr3.ChainSelector, uint64) uint64) *MockLeaderElector_GetDelay_Call {
+func (_c *MockLeaderElector_GetDelay_Call) RunAndReturn(run func(types.Bytes32, types.ChainSelector, int64) int64) *MockLeaderElector_GetDelay_Call {
 	_c.Call.Return(run)
 	return _c
 }

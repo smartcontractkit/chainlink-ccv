@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	executor_mocks "github.com/smartcontractkit/chainlink-ccv/executor/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/executor/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -79,7 +79,7 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ec, err := executor.NewExecutorCoordinator(tc.options...)
+			ec, err := executor.NewCoordinator(tc.options...)
 
 			if len(tc.err) > 0 {
 				require.Error(t, err)
@@ -100,14 +100,14 @@ func TestConstructor(t *testing.T) {
 }
 
 func TestLifecycle(t *testing.T) {
-	getReader := func() *executor.ExecutorCoordinator {
+	getReader := func() *executor.Coordinator {
 		lggr := logger.Test(t)
 
 		ccvDataReader := executor_mocks.NewMockCcvDataReader(t)
 		messageChan := make(chan types.MessageWithCCVData)
 		ccvDataReader.EXPECT().SubscribeMessages().Return(messageChan, nil)
 
-		ec, err := executor.NewExecutorCoordinator(
+		ec, err := executor.NewCoordinator(
 			executor.WithLogger(lggr),
 			executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 			executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
@@ -146,7 +146,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 	sentinelError := fmt.Errorf("lilo & stitch")
 	ccvDataReader.EXPECT().SubscribeMessages().Return(messageChan, sentinelError)
 
-	ec, err := executor.NewExecutorCoordinator(
+	ec, err := executor.NewCoordinator(
 		executor.WithLogger(lggr),
 		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),

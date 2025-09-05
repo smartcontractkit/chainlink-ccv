@@ -35,7 +35,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Create executor coordinator
-	coordinator, err := executor.NewExecutorCoordinator(
+	coordinator, err := executor.NewCoordinator(
 		executor.WithLogger(lggr),
 	)
 	if err != nil {

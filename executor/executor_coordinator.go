@@ -55,7 +55,7 @@ func WithLeaderElector(leaderElector le.LeaderElector) Option {
 	}
 }
 
-func NewExecutorCoordinator(options ...Option) (*Coordinator, error) {
+func NewCoordinator(options ...Option) (*Coordinator, error) {
 	ec := &Coordinator{
 		ccvDataCh: make(chan types.MessageWithCCVData, 100),
 		doneCh:    make(chan struct{}),

@@ -8,16 +8,16 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
 // DevSourceReaderSetup contains a mock source reader and its channel for development use.
 type DevSourceReaderSetup struct {
-	Reader  *mocks.MockSourceReader
+	Reader  *verifier_mocks.MockSourceReader
 	Channel chan types.VerificationTask
 }
 
@@ -25,7 +25,7 @@ type DevSourceReaderSetup struct {
 // This follows the same pattern as the tests but doesn't require testing.T.
 func SetupDevSourceReader(chainSelector protocol.ChainSelector) *DevSourceReaderSetup {
 	// Create a mock that doesn't require testing.T by using a nil interface
-	mockReader := &mocks.MockSourceReader{}
+	mockReader := &verifier_mocks.MockSourceReader{}
 	channel := make(chan types.VerificationTask, 100)
 
 	// Set up expectations for the mock

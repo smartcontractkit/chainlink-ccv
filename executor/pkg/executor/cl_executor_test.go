@@ -6,23 +6,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	ct "github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
+	executor_mocks "github.com/smartcontractkit/chainlink-ccv/executor/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
-
-// Mock implementations.
-type mockContractTransmitter struct {
-	convertErr error
-}
-
-func (m *mockContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report types.AbstractAggregatedReport) error {
-	return m.convertErr
-}
 
 type mockDestinationReader struct {
 	executedErr error
@@ -41,9 +34,16 @@ func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, src proto
 
 // Tests.
 func Test_ChainlinkExecutor(t *testing.T) {
-	type chainlinkExecutorTestSuite struct {
+
+	defaultTransmitter := func() *executor_mocks.MockContractTransmitter {
+		ct := executor_mocks.NewMockContractTransmitter(t)
+		ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil)
+		return ct
+	}
+
+	testcases := []struct {
 		name                       string
-		ct                         *mockContractTransmitter
+		ct                         func() *executor_mocks.MockContractTransmitter
 		ctChains                   []protocol.ChainSelector
 		dr                         *mockDestinationReader
 		drChains                   []protocol.ChainSelector
@@ -51,12 +51,10 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		validateShouldError        bool
 		validateMessageShouldError bool
 		executeShouldError         bool
-	}
-
-	suite := []chainlinkExecutorTestSuite{
+	}{
 		{
 			name:                       "valid case",
-			ct:                         &mockContractTransmitter{},
+			ct:                         defaultTransmitter,
 			ctChains:                   []protocol.ChainSelector{1, 2},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1, 2},
@@ -67,7 +65,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		},
 		{
 			name:                       "mismatched supported chains should error",
-			ct:                         &mockContractTransmitter{},
+			ct:                         defaultTransmitter,
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1, 2},
@@ -77,8 +75,12 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			executeShouldError:         false,
 		},
 		{
-			name:                       "should fail to execute if ConvertAndWriteMessageToChain fails",
-			ct:                         &mockContractTransmitter{convertErr: errors.New("fail")},
+			name: "should fail to execute if ConvertAndWriteMessageToChain fails",
+			ct: func() *executor_mocks.MockContractTransmitter {
+				ct := executor_mocks.NewMockContractTransmitter(t)
+				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(errors.New("fail"))
+				return ct
+			},
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1},
@@ -89,7 +91,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		},
 		{
 			name:                       "Should not error if message already executed",
-			ct:                         &mockContractTransmitter{},
+			ct:                         defaultTransmitter,
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{executed: true, executedErr: nil},
 			drChains:                   []protocol.ChainSelector{1},
@@ -100,38 +102,41 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		},
 	}
 
-	for _, tc := range suite {
-		allContractTransmitters := make(map[protocol.ChainSelector]ct.ContractTransmitter)
-		for _, chain := range tc.ctChains {
-			allContractTransmitters[chain] = tc.ct
-		}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			allContractTransmitters := make(map[protocol.ChainSelector]contracttransmitter.ContractTransmitter)
+			ct := tc.ct()
+			for _, chain := range tc.ctChains {
+				allContractTransmitters[chain] = ct
+			}
 
-		allDestinationReaders := make(map[protocol.ChainSelector]dr.DestinationReader)
-		for _, chain := range tc.drChains {
-			allDestinationReaders[chain] = tc.dr
-		}
-		executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders)
-		err := executor.Validate()
-		if tc.validateShouldError {
-			assert.Error(t, err)
-		} else {
-			assert.NoError(t, err)
-		}
+			allDestinationReaders := make(map[protocol.ChainSelector]dr.DestinationReader)
+			for _, chain := range tc.drChains {
+				allDestinationReaders[chain] = tc.dr
+			}
+			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders)
+			err := executor.Validate()
+			if tc.validateShouldError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 
-		err = executor.CheckValidMessage(context.Background(), tc.msg)
-		if tc.validateMessageShouldError {
-			assert.Error(t, err)
-			continue
-		} else {
-			assert.NoError(t, err)
-		}
+			err = executor.CheckValidMessage(context.Background(), tc.msg)
+			if tc.validateMessageShouldError {
+				assert.Error(t, err)
+				return
+			} else {
+				assert.NoError(t, err)
+			}
 
-		err = executor.ExecuteMessage(context.Background(), tc.msg)
-		if tc.executeShouldError {
-			assert.Error(t, err)
-		} else {
-			assert.NoError(t, err)
-		}
+			err = executor.ExecuteMessage(context.Background(), tc.msg)
+			if tc.executeShouldError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
 	}
 }
 
