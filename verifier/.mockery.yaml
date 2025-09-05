@@ -1,6 +1,6 @@
 with-expecter: true
 
-dir: internal/mocks
+dir: internal/verifier_mocks
 outpkg: verifier_mocks
 
 packages:

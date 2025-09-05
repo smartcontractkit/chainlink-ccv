@@ -1,7 +1,7 @@
 with-expecter: true
 
-dir: ./internal/mocks      # output directory for mocks
-outpkg: executor_mocks     # package name for mocks
+dir: ./internal/executor_mocks
+outpkg: executor_mocks
 
 packages:
     github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor:

@@ -10,7 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	executor_mocks "github.com/smartcontractkit/chainlink-ccv/executor/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
