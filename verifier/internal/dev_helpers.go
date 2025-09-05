@@ -101,7 +101,7 @@ func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelec
 
 	offRampAddr, _ := protocol.NewUnknownAddressFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 
-	message := *protocol.NewMessage(
+	message, _ := protocol.NewMessage(
 		chainSelector,
 		destChain,
 		protocol.SeqNum(counter),
@@ -131,7 +131,7 @@ func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelec
 	}
 
 	return types.VerificationTask{
-		Message:      message,
+		Message:      *message,
 		ReceiptBlobs: receiptBlobs,
 	}
 }

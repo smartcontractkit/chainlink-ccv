@@ -68,11 +68,11 @@ func TestEmptyTokenTransfer(t *testing.T) {
 	assert.Equal(t, tt.Amount.Cmp(decoded.Amount), 0)
 }
 
-// TestTokenTransferEdgeCases tests edge cases for token transfer encoding/decoding
+// TestTokenTransferEdgeCases tests edge cases for token transfer encoding/decoding.
 func TestTokenTransferEdgeCases(t *testing.T) {
 	tests := []struct {
-		name      string
 		transfer  *types.TokenTransfer
+		name      string
 		expectErr bool
 	}{
 		{
@@ -150,12 +150,12 @@ func TestTokenTransferEdgeCases(t *testing.T) {
 	}
 }
 
-// TestTokenTransferDecodingErrors tests decoding error conditions
+// TestTokenTransferDecodingErrors tests decoding error conditions.
 func TestTokenTransferDecodingErrors(t *testing.T) {
 	tests := []struct {
 		name      string
-		data      []byte
 		expectErr string
+		data      []byte
 	}{
 		{
 			name:      "empty_data",

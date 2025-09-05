@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func createTestMessage(seqNum types.SeqNum, sourceChainSelector, destChainSelector types.ChainSelector) types.Message {
+func createTestMessage(t *testing.T, seqNum types.SeqNum, sourceChainSelector, destChainSelector types.ChainSelector) types.Message {
 	// Create empty token transfer
 	tokenTransfer := types.NewEmptyTokenTransfer()
 
@@ -21,7 +21,7 @@ func createTestMessage(seqNum types.SeqNum, sourceChainSelector, destChainSelect
 	onRampAddr := types.UnknownAddress([]byte("onramp_address"))
 	offRampAddr := types.UnknownAddress([]byte("offramp_address"))
 
-	return *types.NewMessage(
+	message, err := types.NewMessage(
 		sourceChainSelector,
 		destChainSelector,
 		seqNum,
@@ -34,6 +34,8 @@ func createTestMessage(seqNum types.SeqNum, sourceChainSelector, destChainSelect
 		[]byte("test data"), // data
 		tokenTransfer,
 	)
+	require.NoError(t, err)
+	return *message
 }
 
 func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
@@ -64,7 +66,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 					ExtraArgs:         []byte{},
 				},
 			},
-			Message: createTestMessage(100, 1, 2),
+			Message: createTestMessage(t, 100, 1, 2),
 		},
 		{
 			MessageID:             [32]byte{4, 5, 6},
@@ -85,7 +87,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 					ExtraArgs:         []byte("test"),
 				},
 			},
-			Message: createTestMessage(101, 1, 2),
+			Message: createTestMessage(t, 101, 1, 2),
 		},
 	}
 
@@ -135,7 +137,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(100, 1, 2),
+				Message:               createTestMessage(t, 100, 1, 2),
 			},
 		}
 
@@ -156,7 +158,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig2"),
-				Message:               createTestMessage(101, 1, 2),
+				Message:               createTestMessage(t, 101, 1, 2),
 			},
 		}
 
@@ -176,7 +178,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig3"),
-				Message:               createTestMessage(102, 1, 2),
+				Message:               createTestMessage(t, 102, 1, 2),
 			},
 		}
 
@@ -301,7 +303,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 					ExtraArgs:         []byte{},
 				},
 			},
-			Message: createTestMessage(100, 1, 2),
+			Message: createTestMessage(t, 100, 1, 2),
 		},
 	}
 
@@ -338,14 +340,14 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 			SequenceNumber:        100,
 			SourceVerifierAddress: verifier1,
 			CCVData:               []byte("sig1"),
-			Message:               createTestMessage(100, 1, 2),
+			Message:               createTestMessage(t, 100, 1, 2),
 		},
 		{
 			MessageID:             [32]byte{2},
 			SequenceNumber:        101,
 			SourceVerifierAddress: verifier1,
 			CCVData:               []byte("sig2"),
-			Message:               createTestMessage(101, 1, 2),
+			Message:               createTestMessage(t, 101, 1, 2),
 		},
 	}
 
@@ -355,7 +357,7 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 			SequenceNumber:        200,
 			SourceVerifierAddress: verifier2,
 			CCVData:               []byte("sig3"),
-			Message:               createTestMessage(200, 1, 2),
+			Message:               createTestMessage(t, 200, 1, 2),
 		},
 	}
 
@@ -395,7 +397,7 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 			MessageID:             [32]byte{1, 2, 3},
 			SourceVerifierAddress: verifierAddress,
 			CCVData:               []byte("signature"),
-			Message:               createTestMessage(100, 1, 2),
+			Message:               createTestMessage(t, 100, 1, 2),
 		},
 	}
 
@@ -456,7 +458,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 		{
 			MessageID:             [32]byte{1},
 			SourceVerifierAddress: verifierAddress,
-			Message:               createTestMessage(100, 1, 2),
+			Message:               createTestMessage(t, 100, 1, 2),
 		},
 	}
 
@@ -504,7 +506,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 					ExtraArgs:         []byte("extra"),
 				},
 			},
-			Message: createTestMessage(100, 1, 2),
+			Message: createTestMessage(t, 100, 1, 2),
 		},
 	}
 
@@ -545,7 +547,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 				SourceVerifierAddress: []byte("0x1234"),
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(100, 1, 2),
+				Message:               createTestMessage(t, 100, 1, 2),
 			},
 		}
 
@@ -649,7 +651,7 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 				SourceVerifierAddress: []byte("0x1234"),
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(100, 1, 2),
+				Message:               createTestMessage(t, 100, 1, 2),
 			},
 		}
 		err := storage.WriteCCVData(t.Context(), testData1)

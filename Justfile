@@ -29,6 +29,8 @@ test-all:
     @just ./indexer/test
 
 lint-all:
+    @echo "Linting protocol"
+    @just ./protocol/lint
     @echo "Linting common"
     @just ./common/lint
     @echo "Linting verifier"

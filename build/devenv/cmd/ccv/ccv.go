@@ -8,9 +8,9 @@ import (
 	"syscall"
 
 	"github.com/docker/docker/client"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/spf13/cobra"
 
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -234,7 +234,7 @@ var printAddresses = &cobra.Command{
 	Use:   "addresses",
 	Short: "Pretty-print all on-chain contract addresses data",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		in, err := ccv.LoadOutput[ccv.Cfg]("env.toml")
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
@@ -269,11 +269,11 @@ func init() {
 
 func checkDockerIsRunning() {
 	cli, err := client.NewClientWithOpts(client.FromEnv)
-	defer cli.Close()
 	if err != nil {
 		fmt.Println("Can't create Docker client, please check if Docker daemon is running!")
 		os.Exit(1)
 	}
+	defer cli.Close()
 	_, err = cli.Ping(context.Background())
 	if err != nil {
 		fmt.Println("Docker is not running, please start Docker daemon first!")

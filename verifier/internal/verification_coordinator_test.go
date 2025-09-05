@@ -84,7 +84,7 @@ func createTestSigner(t *testing.T) pkg.MessageSigner {
 	return signer
 }
 
-func createTestMessage(seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector) protocol.Message {
+func createTestMessage(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector) protocol.Message {
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
 	switch sourceChainSelector {
@@ -96,10 +96,10 @@ func createTestMessage(seqNum protocol.SeqNum, sourceChainSelector, destChainSel
 		verifierAddress = "0x1234" // Default fallback
 	}
 
-	return createTestMessageWithVerifier(seqNum, sourceChainSelector, destChainSelector, verifierAddress)
+	return createTestMessageWithVerifier(t, seqNum, sourceChainSelector, destChainSelector, verifierAddress)
 }
 
-func createTestMessageWithVerifier(seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector, verifierAddress string) protocol.Message {
+func createTestMessageWithVerifier(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector, verifierAddress string) protocol.Message {
 	// Create empty token transfer
 	tokenTransfer := protocol.NewEmptyTokenTransfer()
 
@@ -108,7 +108,7 @@ func createTestMessageWithVerifier(seqNum protocol.SeqNum, sourceChainSelector, 
 	onRampAddr := protocol.UnknownAddress([]byte("onramp_address"))
 	offRampAddr := protocol.UnknownAddress([]byte("offramp_address"))
 
-	return *protocol.NewMessage(
+	message, err := protocol.NewMessage(
 		sourceChainSelector,
 		destChainSelector,
 		seqNum,
@@ -121,14 +121,17 @@ func createTestMessageWithVerifier(seqNum protocol.SeqNum, sourceChainSelector, 
 		[]byte("test data"), // data
 		tokenTransfer,
 	)
+	require.NoError(t, err)
+	return *message
 }
 
-func createTestVerificationTask(seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector) types.VerificationTask {
-	message := createTestMessage(seqNum, sourceChainSelector, destChainSelector)
+func createTestVerificationTask(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector) types.VerificationTask {
+	message := createTestMessage(t, seqNum, sourceChainSelector, destChainSelector)
 
 	// Create receipt blob with nonce using canonical encoding
 	nonce := uint64(seqNum)
-	receiptBlob, _ := commit.EncodeVerifierBlob(nonce)
+	receiptBlob, err := commit.EncodeVerifierBlob(nonce)
+	require.NoError(t, err)
 
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
@@ -145,7 +148,7 @@ func createTestVerificationTask(seqNum protocol.SeqNum, sourceChainSelector, des
 		Message: message,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{
 			{
-				Issuer:            protocol.UnknownAddress([]byte(verifierAddress)),
+				Issuer:            []byte(verifierAddress),
 				DestGasLimit:      300000, // Test gas limit
 				DestBytesOverhead: 100,    // Test bytes overhead
 				Blob:              receiptBlob,
@@ -266,8 +269,8 @@ func TestVerifier(t *testing.T) {
 
 	// Create and send test tasks
 	testTasks := []types.VerificationTask{
-		createTestVerificationTask(100, sourceChain1, defaultDestChain),
-		createTestVerificationTask(200, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain),
 	}
 
 	var messagesSent atomic.Int32
@@ -323,12 +326,12 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Create test tasks for both sources
 	tasksSource1 := []types.VerificationTask{
-		createTestVerificationTask(100, sourceChain1, defaultDestChain),
-		createTestVerificationTask(101, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain),
 	}
 	tasksSource2 := []types.VerificationTask{
-		createTestVerificationTask(200, sourceChain2, defaultDestChain),
-		createTestVerificationTask(201, sourceChain2, defaultDestChain),
+		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain),
+		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain),
 	}
 
 	// Send tasks from both sources
@@ -388,8 +391,8 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 
 	// Send verification tasks only to source 1
 	tasksSource1 := []types.VerificationTask{
-		createTestVerificationTask(100, sourceChain1, defaultDestChain),
-		createTestVerificationTask(101, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain),
 	}
 
 	sendTasksAsync(tasksSource1, mockSetup1.channel, nil, 5*time.Millisecond)
@@ -520,8 +523,8 @@ func TestVerificationErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test verification tasks
-	validTask := createTestVerificationTask(100, sourceChain1, defaultDestChain)
-	invalidTask := createTestVerificationTask(200, unconfiguredChain, defaultDestChain)
+	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain)
+	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain)
 
 	// Send tasks
 	sendTasksAsync([]types.VerificationTask{validTask}, mockSetup1.channel, nil, 10*time.Millisecond)

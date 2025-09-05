@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// ChainSelector represents chainlink-specific chain id
+// ChainSelector represents chainlink-specific chain id.
 type ChainSelector uint64
 
 func (c ChainSelector) String() string {
@@ -24,7 +24,7 @@ func (s SeqNum) String() string {
 // UnknownAddress represents an address on an unknown chain.
 type UnknownAddress []byte
 
-// NewUnknownAddressFromHex creates an UnknownAddress from a hex string
+// NewUnknownAddressFromHex creates an UnknownAddress from a hex string.
 func NewUnknownAddressFromHex(s string) (UnknownAddress, error) {
 	if s == "" {
 		return UnknownAddress{}, nil
@@ -43,7 +43,7 @@ func NewUnknownAddressFromHex(s string) (UnknownAddress, error) {
 	return UnknownAddress(bytes), nil
 }
 
-// String returns the hex representation of the address
+// String returns the hex representation of the address.
 func (a UnknownAddress) String() string {
 	if len(a) == 0 {
 		return ""
@@ -51,13 +51,14 @@ func (a UnknownAddress) String() string {
 	return "0x" + hex.EncodeToString(a)
 }
 
-// Bytes returns the raw bytes of the address
+// Bytes returns the raw bytes of the address.
 func (a UnknownAddress) Bytes() []byte {
 	return []byte(a)
 }
 
 type Bytes32 [32]byte
 
+// NewBytes32FromString creates 32-sized bytes array from hex-encoded string or returns an error.
 func NewBytes32FromString(s string) (Bytes32, error) {
 	if len(s) > 66 { // "0x" + 64 hex chars
 		return Bytes32{}, fmt.Errorf("Bytes32 must be at most 32 bytes (64 hex chars) long: %s", s)

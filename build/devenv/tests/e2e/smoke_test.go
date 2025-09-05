@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
+
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 func TestE2ESmoke(t *testing.T) {

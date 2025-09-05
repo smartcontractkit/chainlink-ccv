@@ -25,7 +25,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 	tokenTransfer := types.NewEmptyTokenTransfer()
 
 	// Create a test message
-	msg := types.NewMessage(
+	msg, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
 		types.SeqNum(123),
@@ -38,6 +38,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 		[]byte("test data"),
 		tokenTransfer,
 	)
+	require.NoError(t, err)
 
 	// Encode
 	encoded, err := msg.Encode()
@@ -82,7 +83,7 @@ func TestMessageID(t *testing.T) {
 	require.NoError(t, err)
 	tokenTransfer := types.NewEmptyTokenTransfer()
 
-	msg1 := types.NewMessage(
+	msg1, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
 		types.SeqNum(123),
@@ -95,8 +96,9 @@ func TestMessageID(t *testing.T) {
 		[]byte("test data"),
 		tokenTransfer,
 	)
+	require.NoError(t, err)
 
-	msg2 := types.NewMessage(
+	msg2, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
 		types.SeqNum(123),
@@ -109,6 +111,7 @@ func TestMessageID(t *testing.T) {
 		[]byte("test data"),
 		tokenTransfer,
 	)
+	require.NoError(t, err)
 
 	// Same messages should have same message ID
 	id1, err := msg1.MessageID()
@@ -118,7 +121,7 @@ func TestMessageID(t *testing.T) {
 	assert.Equal(t, id1, id2)
 
 	// Different sequence number should give different message ID
-	msg3 := types.NewMessage(
+	msg3, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
 		types.SeqNum(124), // Different sequence number
@@ -131,18 +134,19 @@ func TestMessageID(t *testing.T) {
 		[]byte("test data"),
 		tokenTransfer,
 	)
+	require.NoError(t, err)
 
 	id3, err := msg3.MessageID()
 	require.NoError(t, err)
 	assert.NotEqual(t, id1, id3)
 }
 
-// TestMessageDecodingErrors tests message decoding error conditions
+// TestMessageDecodingErrors tests message decoding error conditions.
 func TestMessageDecodingErrors(t *testing.T) {
 	tests := []struct {
 		name      string
-		data      []byte
 		expectErr string
+		data      []byte
 	}{
 		{
 			name:      "empty_data",

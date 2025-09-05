@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -61,7 +62,7 @@ func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 	// Create length-prefixed blob: length(2 bytes) + content
 	var buf bytes.Buffer
 	contentBytes := content.Bytes()
-	// #nosec G115 - safe because contentBytes is created here
+	//nolint:gosec // contentBytes is created here
 	if err := binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes))); err != nil {
 		return nil, err
 	}
@@ -133,15 +134,18 @@ func DecodeVerifierBlobData(receiptBlob []byte) (*VerifierBlobData, error) {
 
 // EncodeSignatures encodes r and s arrays into signature format using canonical binary encoding.
 func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
-	if len(rs) != len(ss) {
+	rsLen := len(rs)
+	if rsLen != len(ss) {
 		return nil, fmt.Errorf("rs and ss arrays must have the same length")
 	}
 
 	var buf bytes.Buffer
 
 	// Encode array length as uint16 (big-endian)
-	// #nosec G115 - safe because ecdsa sigs
-	arrayLen := uint16(len(rs))
+	if rsLen > math.MaxUint16 {
+		return nil, fmt.Errorf("rs and ss arrays exceeds maximum length")
+	}
+	arrayLen := uint16(rsLen)
 	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
 		return nil, err
 	}

@@ -18,7 +18,7 @@ fmt: ensure-golangci-lint
 
 # Run golangci-lint
 lint: ensure-golangci-lint
-    golangci-lint run --output.text.path stdout
+    golangci-lint run --output.text.path stdout --fix
 
 mod-tidy: ensure-go
     go mod tidy

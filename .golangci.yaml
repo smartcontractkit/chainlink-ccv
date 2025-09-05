@@ -60,6 +60,7 @@ linters:
             - ${config-path}/protocol/**.go
           allow:
             - $gostd
+            - github.com/smartcontractkit/chainlink-ccv/protocol
           deny:
             - pkg: github.com/smartcontractkit/chainlink
               desc: No chainlink dependencies in protocol abstraction layer
@@ -404,6 +405,14 @@ linters:
         linters:
           - dupl
           - errcheck
+          - gocyclo
+          - gosec
+          - revive
+      - path: build/devenv
+        linters:
+          - dupl
+          - errcheck
+          - forbidigo
           - gocyclo
           - gosec
           - revive

@@ -9,8 +9,8 @@ import (
 
 // VerificationTask represents the complete CCIPMessageSent event data from the onRamp/proxy.
 type VerificationTask struct {
-	Message      types.Message           `json:"message"`       // the complete message
-	ReceiptBlobs []types.ReceiptWithBlob `json:"receipt_blobs"` // receipt blobs from event
+	ReceiptBlobs []types.ReceiptWithBlob `json:"receipt_blobs"`
+	Message      types.Message           `json:"message"`
 }
 
 // SourceReaderConfig contains configuration for the EVM source reader.

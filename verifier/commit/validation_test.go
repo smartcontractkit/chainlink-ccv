@@ -132,7 +132,7 @@ func TestValidateMessage(t *testing.T) {
 	verifierAddr, err := pkg.RandomAddress()
 	require.NoError(t, err)
 
-	message := protocol.NewMessage(
+	message, err := protocol.NewMessage(
 		protocol.ChainSelector(1337),
 		protocol.ChainSelector(2337),
 		protocol.SeqNum(123),
@@ -145,6 +145,7 @@ func TestValidateMessage(t *testing.T) {
 		[]byte("test data"),
 		protocol.NewEmptyTokenTransfer(),
 	)
+	require.NoError(t, err)
 
 	// Create verification task with matching verifier address
 	task := &types.VerificationTask{
