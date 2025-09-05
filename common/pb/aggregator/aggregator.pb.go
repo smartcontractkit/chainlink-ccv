@@ -551,39 +551,36 @@ func (x *ReceiptBlob) GetExtraArgs() []byte {
 	return nil
 }
 
-type CCVData struct {
+type MessageWithCCVNodeData struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	MessageId             []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	SequenceNumber        uint64                 `protobuf:"varint,2,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number,omitempty"`
-	SourceChainSelector   uint64                 `protobuf:"varint,3,opt,name=source_chain_selector,json=sourceChainSelector,proto3" json:"source_chain_selector,omitempty"`
-	DestChainSelector     uint64                 `protobuf:"varint,4,opt,name=dest_chain_selector,json=destChainSelector,proto3" json:"dest_chain_selector,omitempty"`
-	SourceVerifierAddress []byte                 `protobuf:"bytes,5,opt,name=source_verifier_address,json=sourceVerifierAddress,proto3" json:"source_verifier_address,omitempty"`
-	DestVerifierAddress   []byte                 `protobuf:"bytes,6,opt,name=dest_verifier_address,json=destVerifierAddress,proto3" json:"dest_verifier_address,omitempty"`
+	SourceVerifierAddress []byte                 `protobuf:"bytes,2,opt,name=source_verifier_address,json=sourceVerifierAddress,proto3" json:"source_verifier_address,omitempty"`
+	DestVerifierAddress   []byte                 `protobuf:"bytes,3,opt,name=dest_verifier_address,json=destVerifierAddress,proto3" json:"dest_verifier_address,omitempty"`
 	// ccv_data is the signature from the commit verifier node of the message data and the blob data
-	CcvData []byte `protobuf:"bytes,7,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
+	CcvData []byte `protobuf:"bytes,4,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
 	// blob_data is the encoded nonce from the source chain
-	BlobData      []byte         `protobuf:"bytes,8,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
-	Timestamp     int64          `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Message       *Message       `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
-	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,11,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
+	BlobData      []byte         `protobuf:"bytes,5,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
+	Timestamp     int64          `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Message       *Message       `protobuf:"bytes,7,opt,name=message,proto3" json:"message,omitempty"`
+	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,8,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CCVData) Reset() {
-	*x = CCVData{}
+func (x *MessageWithCCVNodeData) Reset() {
+	*x = MessageWithCCVNodeData{}
 	mi := &file_proto_aggregator_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CCVData) String() string {
+func (x *MessageWithCCVNodeData) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CCVData) ProtoMessage() {}
+func (*MessageWithCCVNodeData) ProtoMessage() {}
 
-func (x *CCVData) ProtoReflect() protoreflect.Message {
+func (x *MessageWithCCVNodeData) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_aggregator_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -595,109 +592,91 @@ func (x *CCVData) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CCVData.ProtoReflect.Descriptor instead.
-func (*CCVData) Descriptor() ([]byte, []int) {
+// Deprecated: Use MessageWithCCVNodeData.ProtoReflect.Descriptor instead.
+func (*MessageWithCCVNodeData) Descriptor() ([]byte, []int) {
 	return file_proto_aggregator_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *CCVData) GetMessageId() []byte {
+func (x *MessageWithCCVNodeData) GetMessageId() []byte {
 	if x != nil {
 		return x.MessageId
 	}
 	return nil
 }
 
-func (x *CCVData) GetSequenceNumber() uint64 {
-	if x != nil {
-		return x.SequenceNumber
-	}
-	return 0
-}
-
-func (x *CCVData) GetSourceChainSelector() uint64 {
-	if x != nil {
-		return x.SourceChainSelector
-	}
-	return 0
-}
-
-func (x *CCVData) GetDestChainSelector() uint64 {
-	if x != nil {
-		return x.DestChainSelector
-	}
-	return 0
-}
-
-func (x *CCVData) GetSourceVerifierAddress() []byte {
+func (x *MessageWithCCVNodeData) GetSourceVerifierAddress() []byte {
 	if x != nil {
 		return x.SourceVerifierAddress
 	}
 	return nil
 }
 
-func (x *CCVData) GetDestVerifierAddress() []byte {
+func (x *MessageWithCCVNodeData) GetDestVerifierAddress() []byte {
 	if x != nil {
 		return x.DestVerifierAddress
 	}
 	return nil
 }
 
-func (x *CCVData) GetCcvData() []byte {
+func (x *MessageWithCCVNodeData) GetCcvData() []byte {
 	if x != nil {
 		return x.CcvData
 	}
 	return nil
 }
 
-func (x *CCVData) GetBlobData() []byte {
+func (x *MessageWithCCVNodeData) GetBlobData() []byte {
 	if x != nil {
 		return x.BlobData
 	}
 	return nil
 }
 
-func (x *CCVData) GetTimestamp() int64 {
+func (x *MessageWithCCVNodeData) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-func (x *CCVData) GetMessage() *Message {
+func (x *MessageWithCCVNodeData) GetMessage() *Message {
 	if x != nil {
 		return x.Message
 	}
 	return nil
 }
 
-func (x *CCVData) GetReceiptBlobs() []*ReceiptBlob {
+func (x *MessageWithCCVNodeData) GetReceiptBlobs() []*ReceiptBlob {
 	if x != nil {
 		return x.ReceiptBlobs
 	}
 	return nil
 }
 
-type WriteCommitCCVDataRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CcvData       *CCVData               `protobuf:"bytes,1,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+type MessageWithCCVData struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Message               *Message               `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	SourceVerifierAddress []byte                 `protobuf:"bytes,2,opt,name=source_verifier_address,json=sourceVerifierAddress,proto3" json:"source_verifier_address,omitempty"`
+	DestVerifierAddress   []byte                 `protobuf:"bytes,3,opt,name=dest_verifier_address,json=destVerifierAddress,proto3" json:"dest_verifier_address,omitempty"`
+	CcvData               []byte                 `protobuf:"bytes,4,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
-func (x *WriteCommitCCVDataRequest) Reset() {
-	*x = WriteCommitCCVDataRequest{}
+func (x *MessageWithCCVData) Reset() {
+	*x = MessageWithCCVData{}
 	mi := &file_proto_aggregator_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *WriteCommitCCVDataRequest) String() string {
+func (x *MessageWithCCVData) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WriteCommitCCVDataRequest) ProtoMessage() {}
+func (*MessageWithCCVData) ProtoMessage() {}
 
-func (x *WriteCommitCCVDataRequest) ProtoReflect() protoreflect.Message {
+func (x *MessageWithCCVData) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_aggregator_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -709,39 +688,60 @@ func (x *WriteCommitCCVDataRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WriteCommitCCVDataRequest.ProtoReflect.Descriptor instead.
-func (*WriteCommitCCVDataRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use MessageWithCCVData.ProtoReflect.Descriptor instead.
+func (*MessageWithCCVData) Descriptor() ([]byte, []int) {
 	return file_proto_aggregator_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *WriteCommitCCVDataRequest) GetCcvData() *CCVData {
+func (x *MessageWithCCVData) GetMessage() *Message {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+func (x *MessageWithCCVData) GetSourceVerifierAddress() []byte {
+	if x != nil {
+		return x.SourceVerifierAddress
+	}
+	return nil
+}
+
+func (x *MessageWithCCVData) GetDestVerifierAddress() []byte {
+	if x != nil {
+		return x.DestVerifierAddress
+	}
+	return nil
+}
+
+func (x *MessageWithCCVData) GetCcvData() []byte {
 	if x != nil {
 		return x.CcvData
 	}
 	return nil
 }
 
-type WriteCommitCCVDataResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        WriteStatus            `protobuf:"varint,1,opt,name=status,proto3,enum=WriteStatus" json:"status,omitempty"`
+type WriteCommitCCVNodeDataRequest struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	CcvNodeData   *MessageWithCCVNodeData `protobuf:"bytes,1,opt,name=ccv_node_data,json=ccvNodeData,proto3" json:"ccv_node_data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *WriteCommitCCVDataResponse) Reset() {
-	*x = WriteCommitCCVDataResponse{}
+func (x *WriteCommitCCVNodeDataRequest) Reset() {
+	*x = WriteCommitCCVNodeDataRequest{}
 	mi := &file_proto_aggregator_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *WriteCommitCCVDataResponse) String() string {
+func (x *WriteCommitCCVNodeDataRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WriteCommitCCVDataResponse) ProtoMessage() {}
+func (*WriteCommitCCVNodeDataRequest) ProtoMessage() {}
 
-func (x *WriteCommitCCVDataResponse) ProtoReflect() protoreflect.Message {
+func (x *WriteCommitCCVNodeDataRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_aggregator_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -753,19 +753,63 @@ func (x *WriteCommitCCVDataResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WriteCommitCCVDataResponse.ProtoReflect.Descriptor instead.
-func (*WriteCommitCCVDataResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use WriteCommitCCVNodeDataRequest.ProtoReflect.Descriptor instead.
+func (*WriteCommitCCVNodeDataRequest) Descriptor() ([]byte, []int) {
 	return file_proto_aggregator_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *WriteCommitCCVDataResponse) GetStatus() WriteStatus {
+func (x *WriteCommitCCVNodeDataRequest) GetCcvNodeData() *MessageWithCCVNodeData {
+	if x != nil {
+		return x.CcvNodeData
+	}
+	return nil
+}
+
+type WriteCommitCCVNodeDataResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        WriteStatus            `protobuf:"varint,1,opt,name=status,proto3,enum=WriteStatus" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteCommitCCVNodeDataResponse) Reset() {
+	*x = WriteCommitCCVNodeDataResponse{}
+	mi := &file_proto_aggregator_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteCommitCCVNodeDataResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteCommitCCVNodeDataResponse) ProtoMessage() {}
+
+func (x *WriteCommitCCVNodeDataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_aggregator_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteCommitCCVNodeDataResponse.ProtoReflect.Descriptor instead.
+func (*WriteCommitCCVNodeDataResponse) Descriptor() ([]byte, []int) {
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *WriteCommitCCVNodeDataResponse) GetStatus() WriteStatus {
 	if x != nil {
 		return x.Status
 	}
 	return WriteStatus_SUCCESS
 }
 
-type ReadCommitCCVDataRequest struct {
+type ReadCommitCCVNodeDataRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MessageId     []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
@@ -773,21 +817,21 @@ type ReadCommitCCVDataRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ReadCommitCCVDataRequest) Reset() {
-	*x = ReadCommitCCVDataRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[10]
+func (x *ReadCommitCCVNodeDataRequest) Reset() {
+	*x = ReadCommitCCVNodeDataRequest{}
+	mi := &file_proto_aggregator_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ReadCommitCCVDataRequest) String() string {
+func (x *ReadCommitCCVNodeDataRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ReadCommitCCVDataRequest) ProtoMessage() {}
+func (*ReadCommitCCVNodeDataRequest) ProtoMessage() {}
 
-func (x *ReadCommitCCVDataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[10]
+func (x *ReadCommitCCVNodeDataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_aggregator_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -798,47 +842,47 @@ func (x *ReadCommitCCVDataRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ReadCommitCCVDataRequest.ProtoReflect.Descriptor instead.
-func (*ReadCommitCCVDataRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{10}
+// Deprecated: Use ReadCommitCCVNodeDataRequest.ProtoReflect.Descriptor instead.
+func (*ReadCommitCCVNodeDataRequest) Descriptor() ([]byte, []int) {
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *ReadCommitCCVDataRequest) GetMessageId() []byte {
+func (x *ReadCommitCCVNodeDataRequest) GetMessageId() []byte {
 	if x != nil {
 		return x.MessageId
 	}
 	return nil
 }
 
-func (x *ReadCommitCCVDataRequest) GetPublicKey() []byte {
+func (x *ReadCommitCCVNodeDataRequest) GetPublicKey() []byte {
 	if x != nil {
 		return x.PublicKey
 	}
 	return nil
 }
 
-type ReadCommitCCVDataResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CcvData       *CCVData               `protobuf:"bytes,1,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
+type ReadCommitCCVNodeDataResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	CcvNodeData   *MessageWithCCVNodeData `protobuf:"bytes,1,opt,name=ccv_node_data,json=ccvNodeData,proto3" json:"ccv_node_data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ReadCommitCCVDataResponse) Reset() {
-	*x = ReadCommitCCVDataResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[11]
+func (x *ReadCommitCCVNodeDataResponse) Reset() {
+	*x = ReadCommitCCVNodeDataResponse{}
+	mi := &file_proto_aggregator_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ReadCommitCCVDataResponse) String() string {
+func (x *ReadCommitCCVNodeDataResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ReadCommitCCVDataResponse) ProtoMessage() {}
+func (*ReadCommitCCVNodeDataResponse) ProtoMessage() {}
 
-func (x *ReadCommitCCVDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[11]
+func (x *ReadCommitCCVNodeDataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_aggregator_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -849,14 +893,14 @@ func (x *ReadCommitCCVDataResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ReadCommitCCVDataResponse.ProtoReflect.Descriptor instead.
-func (*ReadCommitCCVDataResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{11}
+// Deprecated: Use ReadCommitCCVNodeDataResponse.ProtoReflect.Descriptor instead.
+func (*ReadCommitCCVNodeDataResponse) Descriptor() ([]byte, []int) {
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *ReadCommitCCVDataResponse) GetCcvData() *CCVData {
+func (x *ReadCommitCCVNodeDataResponse) GetCcvNodeData() *MessageWithCCVNodeData {
 	if x != nil {
-		return x.CcvData
+		return x.CcvNodeData
 	}
 	return nil
 }
@@ -870,7 +914,7 @@ type GetCCVDataForMessageRequest struct {
 
 func (x *GetCCVDataForMessageRequest) Reset() {
 	*x = GetCCVDataForMessageRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[12]
+	mi := &file_proto_aggregator_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -882,7 +926,7 @@ func (x *GetCCVDataForMessageRequest) String() string {
 func (*GetCCVDataForMessageRequest) ProtoMessage() {}
 
 func (x *GetCCVDataForMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[12]
+	mi := &file_proto_aggregator_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -895,7 +939,7 @@ func (x *GetCCVDataForMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCCVDataForMessageRequest.ProtoReflect.Descriptor instead.
 func (*GetCCVDataForMessageRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{12}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetCCVDataForMessageRequest) GetMessageId() []byte {
@@ -915,7 +959,7 @@ type GetMessagesSinceRequest struct {
 
 func (x *GetMessagesSinceRequest) Reset() {
 	*x = GetMessagesSinceRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[13]
+	mi := &file_proto_aggregator_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -927,7 +971,7 @@ func (x *GetMessagesSinceRequest) String() string {
 func (*GetMessagesSinceRequest) ProtoMessage() {}
 
 func (x *GetMessagesSinceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[13]
+	mi := &file_proto_aggregator_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -940,7 +984,7 @@ func (x *GetMessagesSinceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessagesSinceRequest.ProtoReflect.Descriptor instead.
 func (*GetMessagesSinceRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{13}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetMessagesSinceRequest) GetSince() int64 {
@@ -959,7 +1003,7 @@ func (x *GetMessagesSinceRequest) GetNextToken() string {
 
 type GetMessagesSinceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Results       []*CCVData             `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	Results       []*MessageWithCCVData  `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
 	NextToken     string                 `protobuf:"bytes,2,opt,name=next_token,json=nextToken,proto3" json:"next_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -967,7 +1011,7 @@ type GetMessagesSinceResponse struct {
 
 func (x *GetMessagesSinceResponse) Reset() {
 	*x = GetMessagesSinceResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[14]
+	mi := &file_proto_aggregator_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -979,7 +1023,7 @@ func (x *GetMessagesSinceResponse) String() string {
 func (*GetMessagesSinceResponse) ProtoMessage() {}
 
 func (x *GetMessagesSinceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[14]
+	mi := &file_proto_aggregator_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -992,10 +1036,10 @@ func (x *GetMessagesSinceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessagesSinceResponse.ProtoReflect.Descriptor instead.
 func (*GetMessagesSinceResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{14}
+	return file_proto_aggregator_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *GetMessagesSinceResponse) GetResults() []*CCVData {
+func (x *GetMessagesSinceResponse) GetResults() []*MessageWithCCVData {
 	if x != nil {
 		return x.Results
 	}
@@ -1052,55 +1096,56 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x13dest_bytes_overhead\x18\x03 \x01(\rR\x11destBytesOverhead\x12\x12\n" +
 	"\x04blob\x18\x04 \x01(\fR\x04blob\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x05 \x01(\fR\textraArgs\"\xce\x03\n" +
-	"\aCCVData\x12\x1d\n" +
+	"extra_args\x18\x05 \x01(\fR\textraArgs\"\xd0\x02\n" +
+	"\x16MessageWithCCVNodeData\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\fR\tmessageId\x12'\n" +
-	"\x0fsequence_number\x18\x02 \x01(\x04R\x0esequenceNumber\x122\n" +
-	"\x15source_chain_selector\x18\x03 \x01(\x04R\x13sourceChainSelector\x12.\n" +
-	"\x13dest_chain_selector\x18\x04 \x01(\x04R\x11destChainSelector\x126\n" +
-	"\x17source_verifier_address\x18\x05 \x01(\fR\x15sourceVerifierAddress\x122\n" +
-	"\x15dest_verifier_address\x18\x06 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
-	"\bccv_data\x18\a \x01(\fR\accvData\x12\x1b\n" +
-	"\tblob_data\x18\b \x01(\fR\bblobData\x12\x1c\n" +
-	"\ttimestamp\x18\t \x01(\x03R\ttimestamp\x12\"\n" +
-	"\amessage\x18\n" +
-	" \x01(\v2\b.MessageR\amessage\x121\n" +
-	"\rreceipt_blobs\x18\v \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"@\n" +
-	"\x19WriteCommitCCVDataRequest\x12#\n" +
-	"\bccv_data\x18\x01 \x01(\v2\b.CCVDataR\accvData\"B\n" +
-	"\x1aWriteCommitCCVDataResponse\x12$\n" +
-	"\x06status\x18\x01 \x01(\x0e2\f.WriteStatusR\x06status\"X\n" +
-	"\x18ReadCommitCCVDataRequest\x12\x1d\n" +
+	"message_id\x18\x01 \x01(\fR\tmessageId\x126\n" +
+	"\x17source_verifier_address\x18\x02 \x01(\fR\x15sourceVerifierAddress\x122\n" +
+	"\x15dest_verifier_address\x18\x03 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
+	"\bccv_data\x18\x04 \x01(\fR\accvData\x12\x1b\n" +
+	"\tblob_data\x18\x05 \x01(\fR\bblobData\x12\x1c\n" +
+	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\"\n" +
+	"\amessage\x18\a \x01(\v2\b.MessageR\amessage\x121\n" +
+	"\rreceipt_blobs\x18\b \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xbf\x01\n" +
+	"\x12MessageWithCCVData\x12\"\n" +
+	"\amessage\x18\x01 \x01(\v2\b.MessageR\amessage\x126\n" +
+	"\x17source_verifier_address\x18\x02 \x01(\fR\x15sourceVerifierAddress\x122\n" +
+	"\x15dest_verifier_address\x18\x03 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
+	"\bccv_data\x18\x04 \x01(\fR\accvData\"\\\n" +
+	"\x1dWriteCommitCCVNodeDataRequest\x12;\n" +
+	"\rccv_node_data\x18\x01 \x01(\v2\x17.MessageWithCCVNodeDataR\vccvNodeData\"F\n" +
+	"\x1eWriteCommitCCVNodeDataResponse\x12$\n" +
+	"\x06status\x18\x01 \x01(\x0e2\f.WriteStatusR\x06status\"\\\n" +
+	"\x1cReadCommitCCVNodeDataRequest\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\fR\tmessageId\x12\x1d\n" +
 	"\n" +
-	"public_key\x18\x02 \x01(\fR\tpublicKey\"@\n" +
-	"\x19ReadCommitCCVDataResponse\x12#\n" +
-	"\bccv_data\x18\x01 \x01(\v2\b.CCVDataR\accvData\"<\n" +
+	"public_key\x18\x02 \x01(\fR\tpublicKey\"\\\n" +
+	"\x1dReadCommitCCVNodeDataResponse\x12;\n" +
+	"\rccv_node_data\x18\x01 \x01(\v2\x17.MessageWithCCVNodeDataR\vccvNodeData\"<\n" +
 	"\x1bGetCCVDataForMessageRequest\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\fR\tmessageId\"N\n" +
 	"\x17GetMessagesSinceRequest\x12\x14\n" +
 	"\x05since\x18\x01 \x01(\x03R\x05since\x12\x1d\n" +
 	"\n" +
-	"next_token\x18\x02 \x01(\tR\tnextToken\"]\n" +
-	"\x18GetMessagesSinceResponse\x12\"\n" +
-	"\aresults\x18\x01 \x03(\v2\b.CCVDataR\aresults\x12\x1d\n" +
+	"next_token\x18\x02 \x01(\tR\tnextToken\"h\n" +
+	"\x18GetMessagesSinceResponse\x12-\n" +
+	"\aresults\x18\x01 \x03(\v2\x13.MessageWithCCVDataR\aresults\x12\x1d\n" +
 	"\n" +
 	"next_token\x18\x02 \x01(\tR\tnextToken*&\n" +
 	"\vWriteStatus\x12\v\n" +
 	"\aSUCCESS\x10\x00\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x012\xce\x02\n" +
+	"\x06FAILED\x10\x012\xe6\x02\n" +
 	"\n" +
-	"Aggregator\x12M\n" +
-	"\x12WriteCommitCCVData\x12\x1a.WriteCommitCCVDataRequest\x1a\x1b.WriteCommitCCVDataResponse\x12J\n" +
-	"\x11ReadCommitCCVData\x12\x19.ReadCommitCCVDataRequest\x1a\x1a.ReadCommitCCVDataResponse\x12S\n" +
+	"Aggregator\x12Y\n" +
+	"\x16WriteCommitCCVNodeData\x12\x1e.WriteCommitCCVNodeDataRequest\x1a\x1f.WriteCommitCCVNodeDataResponse\x12V\n" +
+	"\x15ReadCommitCCVNodeData\x12\x1d.ReadCommitCCVNodeDataRequest\x1a\x1e.ReadCommitCCVNodeDataResponse\x12S\n" +
 	"\x14WriteBlockCheckpoint\x12\x1c.WriteBlockCheckpointRequest\x1a\x1d.WriteBlockCheckpointResponse\x12P\n" +
-	"\x13ReadBlockCheckpoint\x12\x1b.ReadBlockCheckpointRequest\x1a\x1c.ReadBlockCheckpointResponse2\x99\x01\n" +
-	"\x0eCCVDataService\x12>\n" +
-	"\x14GetCCVDataForMessage\x12\x1c.GetCCVDataForMessageRequest\x1a\b.CCVData\x12G\n" +
+	"\x13ReadBlockCheckpoint\x12\x1b.ReadBlockCheckpointRequest\x1a\x1c.ReadBlockCheckpointResponse2\x9d\x01\n" +
+	"\aCCVData\x12I\n" +
+	"\x14GetCCVDataForMessage\x12\x1c.GetCCVDataForMessageRequest\x1a\x13.MessageWithCCVData\x12G\n" +
 	"\x10GetMessagesSince\x12\x18.GetMessagesSinceRequest\x1a\x19.GetMessagesSinceResponseB\x0fZ\rpb/aggregatorb\x06proto3"
 
 var (
@@ -1116,52 +1161,54 @@ func file_proto_aggregator_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_aggregator_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_proto_aggregator_proto_goTypes = []any{
-	(WriteStatus)(0),                     // 0: WriteStatus
-	(*BlockCheckpoint)(nil),              // 1: BlockCheckpoint
-	(*WriteBlockCheckpointRequest)(nil),  // 2: WriteBlockCheckpointRequest
-	(*WriteBlockCheckpointResponse)(nil), // 3: WriteBlockCheckpointResponse
-	(*ReadBlockCheckpointRequest)(nil),   // 4: ReadBlockCheckpointRequest
-	(*ReadBlockCheckpointResponse)(nil),  // 5: ReadBlockCheckpointResponse
-	(*Message)(nil),                      // 6: Message
-	(*ReceiptBlob)(nil),                  // 7: ReceiptBlob
-	(*CCVData)(nil),                      // 8: CCVData
-	(*WriteCommitCCVDataRequest)(nil),    // 9: WriteCommitCCVDataRequest
-	(*WriteCommitCCVDataResponse)(nil),   // 10: WriteCommitCCVDataResponse
-	(*ReadCommitCCVDataRequest)(nil),     // 11: ReadCommitCCVDataRequest
-	(*ReadCommitCCVDataResponse)(nil),    // 12: ReadCommitCCVDataResponse
-	(*GetCCVDataForMessageRequest)(nil),  // 13: GetCCVDataForMessageRequest
-	(*GetMessagesSinceRequest)(nil),      // 14: GetMessagesSinceRequest
-	(*GetMessagesSinceResponse)(nil),     // 15: GetMessagesSinceResponse
+	(WriteStatus)(0),                       // 0: WriteStatus
+	(*BlockCheckpoint)(nil),                // 1: BlockCheckpoint
+	(*WriteBlockCheckpointRequest)(nil),    // 2: WriteBlockCheckpointRequest
+	(*WriteBlockCheckpointResponse)(nil),   // 3: WriteBlockCheckpointResponse
+	(*ReadBlockCheckpointRequest)(nil),     // 4: ReadBlockCheckpointRequest
+	(*ReadBlockCheckpointResponse)(nil),    // 5: ReadBlockCheckpointResponse
+	(*Message)(nil),                        // 6: Message
+	(*ReceiptBlob)(nil),                    // 7: ReceiptBlob
+	(*MessageWithCCVNodeData)(nil),         // 8: MessageWithCCVNodeData
+	(*MessageWithCCVData)(nil),             // 9: MessageWithCCVData
+	(*WriteCommitCCVNodeDataRequest)(nil),  // 10: WriteCommitCCVNodeDataRequest
+	(*WriteCommitCCVNodeDataResponse)(nil), // 11: WriteCommitCCVNodeDataResponse
+	(*ReadCommitCCVNodeDataRequest)(nil),   // 12: ReadCommitCCVNodeDataRequest
+	(*ReadCommitCCVNodeDataResponse)(nil),  // 13: ReadCommitCCVNodeDataResponse
+	(*GetCCVDataForMessageRequest)(nil),    // 14: GetCCVDataForMessageRequest
+	(*GetMessagesSinceRequest)(nil),        // 15: GetMessagesSinceRequest
+	(*GetMessagesSinceResponse)(nil),       // 16: GetMessagesSinceResponse
 }
 var file_proto_aggregator_proto_depIdxs = []int32{
 	1,  // 0: WriteBlockCheckpointRequest.checkpoints:type_name -> BlockCheckpoint
 	0,  // 1: WriteBlockCheckpointResponse.status:type_name -> WriteStatus
 	1,  // 2: ReadBlockCheckpointResponse.checkpoints:type_name -> BlockCheckpoint
-	6,  // 3: CCVData.message:type_name -> Message
-	7,  // 4: CCVData.receipt_blobs:type_name -> ReceiptBlob
-	8,  // 5: WriteCommitCCVDataRequest.ccv_data:type_name -> CCVData
-	0,  // 6: WriteCommitCCVDataResponse.status:type_name -> WriteStatus
-	8,  // 7: ReadCommitCCVDataResponse.ccv_data:type_name -> CCVData
-	8,  // 8: GetMessagesSinceResponse.results:type_name -> CCVData
-	9,  // 9: Aggregator.WriteCommitCCVData:input_type -> WriteCommitCCVDataRequest
-	11, // 10: Aggregator.ReadCommitCCVData:input_type -> ReadCommitCCVDataRequest
-	2,  // 11: Aggregator.WriteBlockCheckpoint:input_type -> WriteBlockCheckpointRequest
-	4,  // 12: Aggregator.ReadBlockCheckpoint:input_type -> ReadBlockCheckpointRequest
-	13, // 13: CCVDataService.GetCCVDataForMessage:input_type -> GetCCVDataForMessageRequest
-	14, // 14: CCVDataService.GetMessagesSince:input_type -> GetMessagesSinceRequest
-	10, // 15: Aggregator.WriteCommitCCVData:output_type -> WriteCommitCCVDataResponse
-	12, // 16: Aggregator.ReadCommitCCVData:output_type -> ReadCommitCCVDataResponse
-	3,  // 17: Aggregator.WriteBlockCheckpoint:output_type -> WriteBlockCheckpointResponse
-	5,  // 18: Aggregator.ReadBlockCheckpoint:output_type -> ReadBlockCheckpointResponse
-	8,  // 19: CCVDataService.GetCCVDataForMessage:output_type -> CCVData
-	15, // 20: CCVDataService.GetMessagesSince:output_type -> GetMessagesSinceResponse
-	15, // [15:21] is the sub-list for method output_type
-	9,  // [9:15] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	6,  // 3: MessageWithCCVNodeData.message:type_name -> Message
+	7,  // 4: MessageWithCCVNodeData.receipt_blobs:type_name -> ReceiptBlob
+	6,  // 5: MessageWithCCVData.message:type_name -> Message
+	8,  // 6: WriteCommitCCVNodeDataRequest.ccv_node_data:type_name -> MessageWithCCVNodeData
+	0,  // 7: WriteCommitCCVNodeDataResponse.status:type_name -> WriteStatus
+	8,  // 8: ReadCommitCCVNodeDataResponse.ccv_node_data:type_name -> MessageWithCCVNodeData
+	9,  // 9: GetMessagesSinceResponse.results:type_name -> MessageWithCCVData
+	10, // 10: Aggregator.WriteCommitCCVNodeData:input_type -> WriteCommitCCVNodeDataRequest
+	12, // 11: Aggregator.ReadCommitCCVNodeData:input_type -> ReadCommitCCVNodeDataRequest
+	2,  // 12: Aggregator.WriteBlockCheckpoint:input_type -> WriteBlockCheckpointRequest
+	4,  // 13: Aggregator.ReadBlockCheckpoint:input_type -> ReadBlockCheckpointRequest
+	14, // 14: CCVData.GetCCVDataForMessage:input_type -> GetCCVDataForMessageRequest
+	15, // 15: CCVData.GetMessagesSince:input_type -> GetMessagesSinceRequest
+	11, // 16: Aggregator.WriteCommitCCVNodeData:output_type -> WriteCommitCCVNodeDataResponse
+	13, // 17: Aggregator.ReadCommitCCVNodeData:output_type -> ReadCommitCCVNodeDataResponse
+	3,  // 18: Aggregator.WriteBlockCheckpoint:output_type -> WriteBlockCheckpointResponse
+	5,  // 19: Aggregator.ReadBlockCheckpoint:output_type -> ReadBlockCheckpointResponse
+	9,  // 20: CCVData.GetCCVDataForMessage:output_type -> MessageWithCCVData
+	16, // 21: CCVData.GetMessagesSince:output_type -> GetMessagesSinceResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_proto_aggregator_proto_init() }
@@ -1175,7 +1222,7 @@ func file_proto_aggregator_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_aggregator_proto_rawDesc), len(file_proto_aggregator_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

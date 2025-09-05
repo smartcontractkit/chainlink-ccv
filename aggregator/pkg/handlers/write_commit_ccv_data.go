@@ -15,8 +15,8 @@ type AggregationTriggerer interface {
 	CheckAggregation(messageID model.MessageID) error
 }
 
-// WriteCommitCCVDataHandler handles requests to write commit verification records.
-type WriteCommitCCVDataHandler struct {
+// WriteCommitCCVNodeDataHandler handles requests to write commit verification records.
+type WriteCommitCCVNodeDataHandler struct {
 	storage           common.CommitVerificationStore
 	aggregator        AggregationTriggerer
 	logger            logger.Logger
@@ -24,40 +24,40 @@ type WriteCommitCCVDataHandler struct {
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *WriteCommitCCVDataHandler) Handle(ctx context.Context, req *aggregator.WriteCommitCCVDataRequest) (*aggregator.WriteCommitCCVDataResponse, error) {
-	h.logger.Infof("Received WriteCommitCCVDataRequest: MessageID=%x", req.CcvData.GetMessageId())
+func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.WriteCommitCCVNodeDataRequest) (*aggregator.WriteCommitCCVNodeDataResponse, error) {
+	h.logger.Infof("Received WriteCommitCCVNodeDataRequest: MessageID=%x", req.CcvNodeData.GetMessageId())
 	if !h.disableValidation {
 		if err := validateWriteRequest(req); err != nil {
-			return &aggregator.WriteCommitCCVDataResponse{
+			return &aggregator.WriteCommitCCVNodeDataResponse{
 				Status: aggregator.WriteStatus_FAILED,
 			}, err
 		}
 	}
 
 	record := model.CommitVerificationRecord{
-		CCVData: *req.GetCcvData(),
+		MessageWithCCVNodeData: *req.GetCcvNodeData(),
 	}
 	err := h.storage.SaveCommitVerification(ctx, &record)
 	if err != nil {
-		return &aggregator.WriteCommitCCVDataResponse{
+		return &aggregator.WriteCommitCCVNodeDataResponse{
 			Status: aggregator.WriteStatus_FAILED,
 		}, err
 	}
 
-	if err := h.aggregator.CheckAggregation(req.CcvData.GetMessageId()); err != nil {
-		return &aggregator.WriteCommitCCVDataResponse{
+	if err := h.aggregator.CheckAggregation(req.CcvNodeData.GetMessageId()); err != nil {
+		return &aggregator.WriteCommitCCVNodeDataResponse{
 			Status: aggregator.WriteStatus_FAILED,
 		}, err
 	}
 
-	return &aggregator.WriteCommitCCVDataResponse{
+	return &aggregator.WriteCommitCCVNodeDataResponse{
 		Status: aggregator.WriteStatus_SUCCESS,
 	}, nil
 }
 
-// NewWriteCommitCCVDataHandler creates a new instance of WriteCommitCCVDataHandler.
-func NewWriteCommitCCVDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.Logger, disableValidation bool) *WriteCommitCCVDataHandler {
-	return &WriteCommitCCVDataHandler{
+// NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.Logger, disableValidation bool) *WriteCommitCCVNodeDataHandler {
+	return &WriteCommitCCVNodeDataHandler{
 		storage:           store,
 		aggregator:        aggregator,
 		logger:            l,

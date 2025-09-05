@@ -50,12 +50,9 @@ func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList 
 			return err
 		}
 
-		res, err := a.client.WriteCommitCCVData(ctx, &aggregator.WriteCommitCCVDataRequest{
-			CcvData: &aggregator.CCVData{
+		res, err := a.client.WriteCommitCCVNodeData(ctx, &aggregator.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: &aggregator.MessageWithCCVNodeData{
 				MessageId:             ccvData.MessageID[:],
-				SequenceNumber:        uint64(ccvData.SequenceNumber),
-				SourceChainSelector:   uint64(ccvData.SourceChainSelector),
-				DestChainSelector:     uint64(ccvData.DestChainSelector),
 				SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
 				DestVerifierAddress:   ccvData.DestVerifierAddress[:],
 				CcvData:               ccvData.CCVData,

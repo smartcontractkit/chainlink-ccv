@@ -103,7 +103,7 @@ func startCCVDataService(ctx context.Context, lggr logger.Logger, server *aggreg
 			}
 		}()
 
-		stopFunc, err := server.StartCCVDataService(lis)
+		stopFunc, err := server.StartCCVData(lis)
 		if err != nil {
 			lggr.Fatalw("failed to start CCV data service", "error", err)
 		}

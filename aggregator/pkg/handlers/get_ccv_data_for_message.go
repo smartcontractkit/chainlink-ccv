@@ -12,11 +12,11 @@ type GetCCVDataForMessageHandler struct {
 }
 
 // Handle processes the get request and retrieves the commit verification data.
-func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.CCVData, error) {
+func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.MessageWithCCVData, error) {
 	data := h.storage.GetCCVData(ctx, req.MessageId)
 
-	return &aggregator.CCVData{
-		MessageId: data.MessageID,
+	return &aggregator.MessageWithCCVData{
+		Message: data.Verifications[0].Message,
 		// TODO: Fill in the rest
 	}, nil
 }

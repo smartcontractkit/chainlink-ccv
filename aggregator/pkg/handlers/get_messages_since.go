@@ -16,10 +16,10 @@ type GetMessagesSinceHandler struct {
 func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
 	storage := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix())
 
-	records := make([]*aggregator.CCVData, 0, len(storage))
+	records := make([]*aggregator.MessageWithCCVData, 0, len(storage))
 	for _, report := range storage {
-		records = append(records, &aggregator.CCVData{
-			MessageId: report.MessageID,
+		records = append(records, &aggregator.MessageWithCCVData{
+			Message: report.Verifications[0].Message,
 			// TODO: Fill in the rest
 		})
 	}

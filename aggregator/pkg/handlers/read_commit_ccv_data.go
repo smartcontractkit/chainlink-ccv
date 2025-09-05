@@ -9,17 +9,17 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
-// ReadCommitCCVDataHandler handles requests to read commit verification records.
-type ReadCommitCCVDataHandler struct {
+// ReadCommitCCVNodeDataHandler handles requests to read commit verification records.
+type ReadCommitCCVNodeDataHandler struct {
 	storage           common.CommitVerificationStore
 	disableValidation bool
 }
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
-func (h *ReadCommitCCVDataHandler) Handle(ctx context.Context, req *aggregator.ReadCommitCCVDataRequest) (*aggregator.ReadCommitCCVDataResponse, error) {
+func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.ReadCommitCCVNodeDataRequest) (*aggregator.ReadCommitCCVNodeDataResponse, error) {
 	if !h.disableValidation {
 		if err := validateReadRequest(req); err != nil {
-			return &aggregator.ReadCommitCCVDataResponse{}, err
+			return &aggregator.ReadCommitCCVNodeDataResponse{}, err
 		}
 	}
 
@@ -33,14 +33,14 @@ func (h *ReadCommitCCVDataHandler) Handle(ctx context.Context, req *aggregator.R
 		return nil, err
 	}
 
-	return &aggregator.ReadCommitCCVDataResponse{
-		CcvData: &record.CCVData,
+	return &aggregator.ReadCommitCCVNodeDataResponse{
+		CcvNodeData: &record.MessageWithCCVNodeData,
 	}, nil
 }
 
-// NewReadCommitCCVDataHandler creates a new instance of ReadCommitCCVDataHandler.
-func NewReadCommitCCVDataHandler(store common.CommitVerificationStore, disableValidation bool) *ReadCommitCCVDataHandler {
-	return &ReadCommitCCVDataHandler{
+// NewReadCommitCCVNodeDataHandler creates a new instance of ReadCommitCCVNodeDataHandler.
+func NewReadCommitCCVNodeDataHandler(store common.CommitVerificationStore, disableValidation bool) *ReadCommitCCVNodeDataHandler {
+	return &ReadCommitCCVNodeDataHandler{
 		storage:           store,
 		disableValidation: disableValidation,
 	}

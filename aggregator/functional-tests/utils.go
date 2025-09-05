@@ -20,7 +20,7 @@ import (
 const bufSize = 1024 * 1024
 
 // CreateServerAndClient creates a test server and client for functional testing.
-func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Committee) (aggregator.AggregatorClient, aggregator.CCVDataServiceClient, func(), error) {
+func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Committee) (aggregator.AggregatorClient, aggregator.CCVDataClient, func(), error) {
 	aggregatorBuf := bufconn.Listen(bufSize)
 	ccvDataBuf := bufconn.Listen(bufSize)
 	// Setup logging - always debug level for now
@@ -49,7 +49,7 @@ func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Commit
 	}()
 
 	go func() {
-		_, _ = s.StartCCVDataService(ccvDataBuf)
+		_, _ = s.StartCCVData(ccvDataBuf)
 	}()
 
 	ctx := context.Background()
@@ -76,7 +76,7 @@ func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Commit
 	}, nil
 }
 
-func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (aggregator.CCVDataServiceClient, *grpc.ClientConn, error) {
+func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (aggregator.CCVDataClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return ccvDataBuf.Dial()
 	}
@@ -87,7 +87,7 @@ func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (agg
 		return nil, nil, err
 	}
 
-	client := aggregator.NewCCVDataServiceClient(ccvDataConn)
+	client := aggregator.NewCCVDataClient(ccvDataConn)
 	return client, ccvDataConn, nil
 }
 

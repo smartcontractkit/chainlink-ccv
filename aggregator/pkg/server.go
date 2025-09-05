@@ -21,26 +21,26 @@ import (
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
 	aggregator.UnimplementedAggregatorServer
-	aggregator.UnimplementedCCVDataServiceServer
+	aggregator.UnimplementedCCVDataServer
 
-	l                           logger.Logger
-	readCommitCCVDataHandler    *handlers.ReadCommitCCVDataHandler
-	writeCommitCCVDataHandler   *handlers.WriteCommitCCVDataHandler
-	getMessagesSinceHandler     *handlers.GetMessagesSinceHandler
-	getCCVDataForMessageHandler *handlers.GetCCVDataForMessageHandler
+	l                             logger.Logger
+	readCommitCCVNodeDataHandler  *handlers.ReadCommitCCVNodeDataHandler
+	writeCommitCCVNodeDataHandler *handlers.WriteCommitCCVNodeDataHandler
+	getMessagesSinceHandler       *handlers.GetMessagesSinceHandler
+	getCCVDataForMessageHandler   *handlers.GetCCVDataForMessageHandler
 }
 
-// WriteCommitCCVData handles requests to write commit verification records.
-func (s *Server) WriteCommitCCVData(ctx context.Context, req *aggregator.WriteCommitCCVDataRequest) (*aggregator.WriteCommitCCVDataResponse, error) {
-	return s.writeCommitCCVDataHandler.Handle(ctx, req)
+// WriteCommitCCVNodeData handles requests to write commit verification records.
+func (s *Server) WriteCommitCCVNodeData(ctx context.Context, req *aggregator.WriteCommitCCVNodeDataRequest) (*aggregator.WriteCommitCCVNodeDataResponse, error) {
+	return s.writeCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-// ReadCommitCCVData handles requests to read commit verification records.
-func (s *Server) ReadCommitCCVData(ctx context.Context, req *aggregator.ReadCommitCCVDataRequest) (*aggregator.ReadCommitCCVDataResponse, error) {
-	return s.readCommitCCVDataHandler.Handle(ctx, req)
+// ReadCommitCCVNodeData handles requests to read commit verification records.
+func (s *Server) ReadCommitCCVNodeData(ctx context.Context, req *aggregator.ReadCommitCCVNodeDataRequest) (*aggregator.ReadCommitCCVNodeDataResponse, error) {
+	return s.readCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-func (s *Server) GetCCVDataForMessage(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.CCVData, error) {
+func (s *Server) GetCCVDataForMessage(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.MessageWithCCVData, error) {
 	return s.getCCVDataForMessageHandler.Handle(ctx, req)
 }
 
@@ -62,12 +62,12 @@ func (s *Server) StartCommitAggregator(lis net.Listener) (func(), error) {
 	return grpcServer.Stop, nil
 }
 
-func (s *Server) StartCCVDataService(lis net.Listener) (func(), error) {
+func (s *Server) StartCCVData(lis net.Listener) (func(), error) {
 	grpcServer := grpc.NewServer()
-	aggregator.RegisterCCVDataServiceServer(grpcServer, s)
+	aggregator.RegisterCCVDataServer(grpcServer, s)
 	reflection.Register(grpcServer)
 
-	s.l.Info("CCV Data Service gRPC server started")
+	s.l.Info("CCV Data gRPC server started")
 	if err := grpcServer.Serve(lis); err != nil {
 		return func() {}, err
 	}
@@ -95,16 +95,16 @@ func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
 		return nil
 	}
 
-	readCommitCCVDataHandler := handlers.NewReadCommitCCVDataHandler(store, config.DisableValidation)
-	writeCommitCCVDataHandler := handlers.NewWriteCommitCCVDataHandler(store, aggregator, l, config.DisableValidation)
+	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation)
+	writeCommitCCVNodeDataHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, aggregator, l, config.DisableValidation)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store)
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store)
 
 	return &Server{
-		l:                           l,
-		readCommitCCVDataHandler:    readCommitCCVDataHandler,
-		writeCommitCCVDataHandler:   writeCommitCCVDataHandler,
-		getMessagesSinceHandler:     getMessagesSinceHandler,
-		getCCVDataForMessageHandler: getCCVDataForMessageHandler,
+		l:                             l,
+		readCommitCCVNodeDataHandler:  readCommitCCVNodeDataHandler,
+		writeCommitCCVNodeDataHandler: writeCommitCCVNodeDataHandler,
+		getMessagesSinceHandler:       getMessagesSinceHandler,
+		getCCVDataForMessageHandler:   getCCVDataForMessageHandler,
 	}
 }

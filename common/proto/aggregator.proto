@@ -3,14 +3,14 @@ syntax = "proto3";
 option go_package = "pb/aggregator";
 
 service Aggregator {
-  rpc WriteCommitCCVData(WriteCommitCCVDataRequest) returns (WriteCommitCCVDataResponse);
-  rpc ReadCommitCCVData(ReadCommitCCVDataRequest) returns (ReadCommitCCVDataResponse);
+  rpc WriteCommitCCVNodeData(WriteCommitCCVNodeDataRequest) returns (WriteCommitCCVNodeDataResponse);
+  rpc ReadCommitCCVNodeData(ReadCommitCCVNodeDataRequest) returns (ReadCommitCCVNodeDataResponse);
   rpc WriteBlockCheckpoint(WriteBlockCheckpointRequest) returns (WriteBlockCheckpointResponse);
   rpc ReadBlockCheckpoint(ReadBlockCheckpointRequest) returns (ReadBlockCheckpointResponse);
 }
 
-service CCVDataService {
-  rpc GetCCVDataForMessage(GetCCVDataForMessageRequest) returns (CCVData);
+service CCVData {
+  rpc GetCCVDataForMessage(GetCCVDataForMessageRequest) returns (MessageWithCCVData);
   rpc GetMessagesSince(GetMessagesSinceRequest) returns (GetMessagesSinceResponse);
 }
 
@@ -63,24 +63,28 @@ message ReceiptBlob {
   bytes extra_args = 5;
 }
 
-message CCVData {
+message MessageWithCCVNodeData {
   bytes message_id = 1;
-  uint64 sequence_number = 2;
-  uint64 source_chain_selector = 3;
-  uint64 dest_chain_selector = 4;
-  bytes source_verifier_address = 5;
-  bytes dest_verifier_address = 6;
+  bytes source_verifier_address = 2;
+  bytes dest_verifier_address = 3;
   // ccv_data is the signature from the commit verifier node of the message data and the blob data
-  bytes ccv_data = 7;
+  bytes ccv_data = 4;
   // blob_data is the encoded nonce from the source chain
-  bytes blob_data = 8;
-  int64 timestamp = 9;
-  Message message = 10;
-  repeated ReceiptBlob receipt_blobs = 11;
+  bytes blob_data = 5;
+  int64 timestamp = 6;
+  Message message = 7;
+  repeated ReceiptBlob receipt_blobs = 8;
 }
 
-message WriteCommitCCVDataRequest {
-  CCVData ccv_data = 1;
+message MessageWithCCVData {
+  Message message = 1;
+  bytes source_verifier_address = 2;
+  bytes dest_verifier_address = 3;
+  bytes ccv_data = 4;
+}
+
+message WriteCommitCCVNodeDataRequest {
+  MessageWithCCVNodeData ccv_node_data = 1;
 }
 
 enum WriteStatus {
@@ -88,17 +92,17 @@ enum WriteStatus {
   FAILED = 1;
 }
 
-message WriteCommitCCVDataResponse {
+message WriteCommitCCVNodeDataResponse {
   WriteStatus status = 1;
 }
 
-message ReadCommitCCVDataRequest {
+message ReadCommitCCVNodeDataRequest {
   bytes message_id = 1;
   bytes public_key = 2;
 }
 
-message ReadCommitCCVDataResponse {
-  CCVData ccv_data = 1;
+message ReadCommitCCVNodeDataResponse {
+  MessageWithCCVNodeData ccv_node_data = 1;
 }
 
 message GetCCVDataForMessageRequest {
@@ -111,6 +115,6 @@ message GetMessagesSinceRequest {
 }
 
 message GetMessagesSinceResponse {
-    repeated CCVData results = 1;
+    repeated MessageWithCCVData results = 1;
     string next_token = 2;
 }
