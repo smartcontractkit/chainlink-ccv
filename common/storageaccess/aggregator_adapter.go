@@ -13,10 +13,9 @@ import (
 )
 
 type AggregatorWriterAdapter struct {
-	client      aggregator.AggregatorClient
-	conn        *grpc.ClientConn
-	lggr        logger.Logger
-	committeeID string
+	client aggregator.AggregatorClient
+	conn   *grpc.ClientConn
+	lggr   logger.Logger
 }
 
 func mapReceiptBlob(receiptBlob common.ReceiptWithBlob) (*aggregator.ReceiptBlob, error) {
