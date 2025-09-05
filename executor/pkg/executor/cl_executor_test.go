@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
-	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -34,7 +34,6 @@ func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, src proto
 
 // Tests.
 func Test_ChainlinkExecutor(t *testing.T) {
-
 	defaultTransmitter := func() *executor_mocks.MockContractTransmitter {
 		ct := executor_mocks.NewMockContractTransmitter(t)
 		ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Maybe()

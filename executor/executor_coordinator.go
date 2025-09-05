@@ -15,18 +15,15 @@ import (
 )
 
 type Coordinator struct {
+	executor            e.Executor
+	ccvDataReader       cdr.CcvDataReader
+	leaderElector       le.LeaderElector
+	lggr                logger.Logger
 	ccvDataCh           chan types.MessageWithCCVData
 	executableMessageCh chan types.MessageWithCCVData //nolint:unused //will be used by executor
-
-	doneCh chan struct{}
-
-	executor      e.Executor
-	ccvDataReader cdr.CcvDataReader
-	leaderElector le.LeaderElector
-
-	lggr    logger.Logger
-	running bool
-	cancel  context.CancelFunc
+	doneCh              chan struct{}
+	cancel              context.CancelFunc
+	running             bool
 }
 
 type Option func(*Coordinator)
@@ -66,7 +63,7 @@ func NewCoordinator(options ...Option) (*Coordinator, error) {
 	}
 
 	var errs []error
-	appendIfNil := func(field interface{}, fieldName string) {
+	appendIfNil := func(field any, fieldName string) {
 		if field == nil {
 			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
 		}
@@ -194,7 +191,7 @@ func (ec *Coordinator) ProcessMessage(ctx context.Context) error {
 	}
 }
 
-// IsRunning returns whether the coordinator is running
+// IsRunning returns whether the coordinator is running.
 func (ec *Coordinator) IsRunning() bool {
 	return ec.running
 }

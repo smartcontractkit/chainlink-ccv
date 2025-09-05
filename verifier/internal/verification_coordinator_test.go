@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
@@ -22,6 +21,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Test constants.

@@ -8,10 +8,11 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // DevSourceReaderSetup contains a mock source reader and its channel for development use.
