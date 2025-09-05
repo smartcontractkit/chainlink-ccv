@@ -3,9 +3,8 @@ name: Common CI
 on:
   push:
     paths:
-      - 'common/**'
-  pull_request:
-    paths:
+      - '.github/**'
+      - 'protocol/**'
       - 'common/**'
 
 defaults:

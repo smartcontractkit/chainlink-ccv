@@ -3,9 +3,7 @@ name: Protocol Tests
 on:
   push:
     paths:
-      - 'protocol/**'
-  pull_request:
-    paths:
+      - '.github/**'
       - 'protocol/**'
 
 defaults:
