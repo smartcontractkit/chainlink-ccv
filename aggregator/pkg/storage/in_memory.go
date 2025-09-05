@@ -49,7 +49,7 @@ func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAg
 	return nil
 }
 
-func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start int64, end int64) []*model.CommitAggregatedReport {
+func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end int64) []*model.CommitAggregatedReport {
 	var results []*model.CommitAggregatedReport
 	for _, report := range s.aggregatedReports {
 		if report.Timestamp >= start && report.Timestamp <= end {

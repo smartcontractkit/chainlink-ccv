@@ -11,6 +11,7 @@ import (
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
+	// CheckAggregation triggers the aggregation process for the specified message ID.
 	CheckAggregation(messageID model.MessageID) error
 }
 
@@ -37,7 +38,6 @@ func (h *WriteCommitVerificationRecordHandler) Handle(ctx context.Context, req *
 		CommitVerificationRecord: *req.GetCommitVerificationRecord(),
 	}
 	err := h.storage.SaveCommitVerification(ctx, &record)
-
 	if err != nil {
 		return &aggregator.WriteCommitVerificationResponse{
 			Status: aggregator.WriteStatus_FAILED,

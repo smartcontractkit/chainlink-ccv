@@ -8,15 +8,16 @@ import (
 )
 
 // CommitVerificationStore defines an interface for storing and retrieving commit verification records.
-// SaveCommitVerification persists a commit verification record.
-// GetCommitVerification retrieves a commit verification record by its identifier.
-// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID and committee ID.
 type CommitVerificationStore interface {
+	// SaveCommitVerification persists a commit verification record.
 	SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error
+	// GetCommitVerification retrieves a commit verification record by its identifier.
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)
+	// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID and committee ID.
 	ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID) ([]*model.CommitVerificationRecord, error)
 }
 
 type CommitVerificationAggregatedStore interface {
-	QueryAggregatedReports(ctx context.Context, start int64, end int64) []*model.CommitAggregatedReport
+	// QueryAggregatedReports retrieves all aggregated reports within a specific time range.
+	QueryAggregatedReports(ctx context.Context, start, end int64) []*model.CommitAggregatedReport
 }

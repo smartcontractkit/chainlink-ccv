@@ -5,10 +5,11 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
 func createRandomBytes(t *testing.T, n int) []byte {

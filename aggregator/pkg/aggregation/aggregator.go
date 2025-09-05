@@ -10,6 +10,7 @@ import (
 )
 
 type QuorumValidator interface {
+	// CheckQuorum checks if the aggregated report meets the quorum requirements.
 	CheckQuorum(report *model.CommitAggregatedReport) (bool, error)
 }
 

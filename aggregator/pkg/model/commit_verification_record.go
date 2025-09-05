@@ -23,8 +23,8 @@ func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
 
 // CommitVerificationRecord represents a record of a commit verification.
 type CommitVerificationRecord struct {
-	aggregator.CommitVerificationRecord
 	PublicKey []byte
+	aggregator.CommitVerificationRecord
 }
 
 // GetID retrieves the unique identifier for the commit verification record.
