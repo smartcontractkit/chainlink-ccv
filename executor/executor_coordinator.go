@@ -87,6 +87,8 @@ func (ec *ExecutorCoordinator) Stop() error {
 
 	ec.running = false
 
+	ec.lggr.Infow("ExecutorCoordinator stopping")
+
 	close(ec.stopCh)
 	<-ec.doneCh
 
@@ -139,18 +141,24 @@ func (ec *ExecutorCoordinator) ProcessMessage(ctx context.Context) error {
 				ec.lggr.Warnw("ccvDataCh closed, exiting processMessage")
 				return nil
 			}
-			// todo: perform some validations on the message
 
-			err := ec.executor.CheckValidMessage(ctx, msg)
+			// todo: perform some validations on the message
+			id, err := msg.Message.MessageID()
+			if err != nil {
+				ec.lggr.Errorw("invalid message, failed to generate ID", "error", err, "message", msg)
+				continue
+			}
+
+			err = ec.executor.CheckValidMessage(ctx, msg)
 			if err != nil {
 				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
 				continue
 			}
 
 			// get message delay from leader elector
-			delay := ec.leaderElector.GetDelay(msg.CCVData[0].MessageID, msg.Message.DestChainSelector, msg.ReadyTimestamp)
+			delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.ReadyTimestamp)
 			if delay+msg.ReadyTimestamp > uint64(time.Now().Unix()) {
-				// not ready yet, requeue. In a real system, consider using a priority queue keyed on "readiness time"
+				// TODO: CCIP-7104 - use a priority queue ordered by execution time adds them to ccvDataCh at the right time.
 				ec.lggr.Infow("message not ready yet, requeuing", "message", msg, "delay", delay)
 				go func() {
 					time.Sleep(time.Duration((delay + msg.ReadyTimestamp - uint64(time.Now().Unix())) * uint64(time.Second)))

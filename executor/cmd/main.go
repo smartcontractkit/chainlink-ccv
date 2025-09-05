@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,6 +10,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 )
 
 func main() {
