@@ -5,6 +5,9 @@ import (
 	"context"
 	"net"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
@@ -13,42 +16,58 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
 )
 
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
 	aggregator.UnimplementedAggregatorServer
+	aggregator.UnimplementedCCVDataServiceServer
 
-	l                                    logger.Logger
-	readCommitVerificationRecordHandler  *handlers.ReadCommitVerificationRecordHandler
-	writeCommitVerificationRecordHandler *handlers.WriteCommitVerificationRecordHandler
-	queryCommitVerificationsHandler      *handlers.QueryAggregatedCommitRecordsHandler
+	l                         logger.Logger
+	readCommitCCVDataHandler  *handlers.ReadCommitCCVDataHandler
+	writeCommitCCVDataHandler *handlers.WriteCommitCCVDataHandler
+	getMessagesSinceHandler   *handlers.GetMessagesSinceHandler
+	getCCVDataHandler         *handlers.GetCCVDataHandler
 }
 
-// WriteCommitVerification handles requests to write commit verification records.
-func (s *Server) WriteCommitVerification(ctx context.Context, req *aggregator.WriteCommitVerificationRequest) (*aggregator.WriteCommitVerificationResponse, error) {
-	return s.writeCommitVerificationRecordHandler.Handle(ctx, req)
+// WriteCommitCCVData handles requests to write commit verification records.
+func (s *Server) WriteCommitCCVData(ctx context.Context, req *aggregator.WriteCommitCCVDataRequest) (*aggregator.WriteCommitCCVDataResponse, error) {
+	return s.writeCommitCCVDataHandler.Handle(ctx, req)
 }
 
-// ReadCommitVerification handles requests to read commit verification records.
-func (s *Server) ReadCommitVerification(ctx context.Context, req *aggregator.ReadCommitVerificationRequest) (*aggregator.ReadCommitVerificationResponse, error) {
-	return s.readCommitVerificationRecordHandler.Handle(ctx, req)
+// ReadCommitCCVData handles requests to read commit verification records.
+func (s *Server) ReadCommitCCVData(ctx context.Context, req *aggregator.ReadCommitCCVDataRequest) (*aggregator.ReadCommitCCVDataResponse, error) {
+	return s.readCommitCCVDataHandler.Handle(ctx, req)
 }
 
-// QueryAggregatedCommitRecords handles requests to query aggregated commit records.
-func (s *Server) QueryAggregatedCommitRecords(ctx context.Context, req *aggregator.QueryAggregatedCommitRecordsRequest) (*aggregator.QueryAggregatedCommitRecordsResponse, error) {
-	return s.queryCommitVerificationsHandler.Handle(ctx, req)
+func (s *Server) GetCCVData(ctx context.Context, req *aggregator.GetCCVDataRequest) (*aggregator.CCVData, error) {
+	return s.getCCVDataHandler.Handle(ctx, req)
+}
+
+func (s *Server) GetMessagesSince(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
+	return s.getMessagesSinceHandler.Handle(ctx, req)
 }
 
 // Start starts the gRPC server on the provided listener.
-func (s *Server) Start(lis net.Listener) (func(), error) {
+func (s *Server) StartCommitAggregator(lis net.Listener) (func(), error) {
 	grpcServer := grpc.NewServer()
 	aggregator.RegisterAggregatorServer(grpcServer, s)
 	reflection.Register(grpcServer)
 
 	s.l.Info("Aggregator gRPC server started")
+	if err := grpcServer.Serve(lis); err != nil {
+		return func() {}, err
+	}
+
+	return grpcServer.Stop, nil
+}
+
+func (s *Server) StartCCVDataService(lis net.Listener) (func(), error) {
+	grpcServer := grpc.NewServer()
+	aggregator.RegisterCCVDataServiceServer(grpcServer, s)
+	reflection.Register(grpcServer)
+
+	s.l.Info("CCV Data Service gRPC server started")
 	if err := grpcServer.Serve(lis); err != nil {
 		return func() {}, err
 	}
@@ -64,12 +83,11 @@ func createAggregator(storage common.CommitVerificationStore, sink common.Sink) 
 
 // NewServer creates a new aggregator server with the specified logger and configuration.
 func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
-	var store *storage.InMemoryStorage
-	if config.Storage.StorageType == "memory" {
-		store = storage.NewInMemoryStorage()
-	} else {
+	if config.Storage.StorageType != "memory" {
 		panic("unknown storage type")
 	}
+
+	store := storage.NewInMemoryStorage()
 
 	aggregator, err := createAggregator(store, store)
 	if err != nil {
@@ -77,14 +95,16 @@ func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
 		return nil
 	}
 
-	readCommitVerificationRecordHandler := handlers.NewReadCommitVerificationRecordHandler(store, config.DisableValidation)
-	writeCommitVerificationRecordHandler := handlers.NewWriteCommitVerificationRecordHandler(store, aggregator, l, config.DisableValidation)
-	queryCommitVerificationsHandler := handlers.NewQueryAggregatedCommitRecordsHandler(store)
+	readCommitCCVDataHandler := handlers.NewReadCommitCCVDataHandler(store, config.DisableValidation)
+	writeCommitCCVDataHandler := handlers.NewWriteCommitCCVDataHandler(store, aggregator, l, config.DisableValidation)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store)
+	getCCVDataHandler := handlers.NewGetCCVDataHandler(store)
 
 	return &Server{
-		l:                                    l,
-		readCommitVerificationRecordHandler:  readCommitVerificationRecordHandler,
-		writeCommitVerificationRecordHandler: writeCommitVerificationRecordHandler,
-		queryCommitVerificationsHandler:      queryCommitVerificationsHandler,
+		l:                         l,
+		readCommitCCVDataHandler:  readCommitCCVDataHandler,
+		writeCommitCCVDataHandler: writeCommitCCVDataHandler,
+		getMessagesSinceHandler:   getMessagesSinceHandler,
+		getCCVDataHandler:         getCCVDataHandler,
 	}
 }

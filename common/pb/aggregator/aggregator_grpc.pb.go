@@ -19,18 +19,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Aggregator_WriteCommitVerification_FullMethodName      = "/Aggregator/WriteCommitVerification"
-	Aggregator_ReadCommitVerification_FullMethodName       = "/Aggregator/ReadCommitVerification"
-	Aggregator_QueryAggregatedCommitRecords_FullMethodName = "/Aggregator/QueryAggregatedCommitRecords"
+	Aggregator_WriteCommitCCVData_FullMethodName   = "/Aggregator/WriteCommitCCVData"
+	Aggregator_ReadCommitCCVData_FullMethodName    = "/Aggregator/ReadCommitCCVData"
+	Aggregator_WriteBlockCheckpoint_FullMethodName = "/Aggregator/WriteBlockCheckpoint"
+	Aggregator_ReadBlockCheckpoint_FullMethodName  = "/Aggregator/ReadBlockCheckpoint"
 )
 
 // AggregatorClient is the client API for Aggregator service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AggregatorClient interface {
-	WriteCommitVerification(ctx context.Context, in *WriteCommitVerificationRequest, opts ...grpc.CallOption) (*WriteCommitVerificationResponse, error)
-	ReadCommitVerification(ctx context.Context, in *ReadCommitVerificationRequest, opts ...grpc.CallOption) (*ReadCommitVerificationResponse, error)
-	QueryAggregatedCommitRecords(ctx context.Context, in *QueryAggregatedCommitRecordsRequest, opts ...grpc.CallOption) (*QueryAggregatedCommitRecordsResponse, error)
+	WriteCommitCCVData(ctx context.Context, in *WriteCommitCCVDataRequest, opts ...grpc.CallOption) (*WriteCommitCCVDataResponse, error)
+	ReadCommitCCVData(ctx context.Context, in *ReadCommitCCVDataRequest, opts ...grpc.CallOption) (*ReadCommitCCVDataResponse, error)
+	WriteBlockCheckpoint(ctx context.Context, in *WriteBlockCheckpointRequest, opts ...grpc.CallOption) (*WriteBlockCheckpointResponse, error)
+	ReadBlockCheckpoint(ctx context.Context, in *ReadBlockCheckpointRequest, opts ...grpc.CallOption) (*ReadBlockCheckpointResponse, error)
 }
 
 type aggregatorClient struct {
@@ -41,30 +43,40 @@ func NewAggregatorClient(cc grpc.ClientConnInterface) AggregatorClient {
 	return &aggregatorClient{cc}
 }
 
-func (c *aggregatorClient) WriteCommitVerification(ctx context.Context, in *WriteCommitVerificationRequest, opts ...grpc.CallOption) (*WriteCommitVerificationResponse, error) {
+func (c *aggregatorClient) WriteCommitCCVData(ctx context.Context, in *WriteCommitCCVDataRequest, opts ...grpc.CallOption) (*WriteCommitCCVDataResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(WriteCommitVerificationResponse)
-	err := c.cc.Invoke(ctx, Aggregator_WriteCommitVerification_FullMethodName, in, out, cOpts...)
+	out := new(WriteCommitCCVDataResponse)
+	err := c.cc.Invoke(ctx, Aggregator_WriteCommitCCVData_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *aggregatorClient) ReadCommitVerification(ctx context.Context, in *ReadCommitVerificationRequest, opts ...grpc.CallOption) (*ReadCommitVerificationResponse, error) {
+func (c *aggregatorClient) ReadCommitCCVData(ctx context.Context, in *ReadCommitCCVDataRequest, opts ...grpc.CallOption) (*ReadCommitCCVDataResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ReadCommitVerificationResponse)
-	err := c.cc.Invoke(ctx, Aggregator_ReadCommitVerification_FullMethodName, in, out, cOpts...)
+	out := new(ReadCommitCCVDataResponse)
+	err := c.cc.Invoke(ctx, Aggregator_ReadCommitCCVData_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *aggregatorClient) QueryAggregatedCommitRecords(ctx context.Context, in *QueryAggregatedCommitRecordsRequest, opts ...grpc.CallOption) (*QueryAggregatedCommitRecordsResponse, error) {
+func (c *aggregatorClient) WriteBlockCheckpoint(ctx context.Context, in *WriteBlockCheckpointRequest, opts ...grpc.CallOption) (*WriteBlockCheckpointResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(QueryAggregatedCommitRecordsResponse)
-	err := c.cc.Invoke(ctx, Aggregator_QueryAggregatedCommitRecords_FullMethodName, in, out, cOpts...)
+	out := new(WriteBlockCheckpointResponse)
+	err := c.cc.Invoke(ctx, Aggregator_WriteBlockCheckpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aggregatorClient) ReadBlockCheckpoint(ctx context.Context, in *ReadBlockCheckpointRequest, opts ...grpc.CallOption) (*ReadBlockCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReadBlockCheckpointResponse)
+	err := c.cc.Invoke(ctx, Aggregator_ReadBlockCheckpoint_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +87,10 @@ func (c *aggregatorClient) QueryAggregatedCommitRecords(ctx context.Context, in 
 // All implementations must embed UnimplementedAggregatorServer
 // for forward compatibility.
 type AggregatorServer interface {
-	WriteCommitVerification(context.Context, *WriteCommitVerificationRequest) (*WriteCommitVerificationResponse, error)
-	ReadCommitVerification(context.Context, *ReadCommitVerificationRequest) (*ReadCommitVerificationResponse, error)
-	QueryAggregatedCommitRecords(context.Context, *QueryAggregatedCommitRecordsRequest) (*QueryAggregatedCommitRecordsResponse, error)
+	WriteCommitCCVData(context.Context, *WriteCommitCCVDataRequest) (*WriteCommitCCVDataResponse, error)
+	ReadCommitCCVData(context.Context, *ReadCommitCCVDataRequest) (*ReadCommitCCVDataResponse, error)
+	WriteBlockCheckpoint(context.Context, *WriteBlockCheckpointRequest) (*WriteBlockCheckpointResponse, error)
+	ReadBlockCheckpoint(context.Context, *ReadBlockCheckpointRequest) (*ReadBlockCheckpointResponse, error)
 	mustEmbedUnimplementedAggregatorServer()
 }
 
@@ -88,14 +101,17 @@ type AggregatorServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAggregatorServer struct{}
 
-func (UnimplementedAggregatorServer) WriteCommitVerification(context.Context, *WriteCommitVerificationRequest) (*WriteCommitVerificationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method WriteCommitVerification not implemented")
+func (UnimplementedAggregatorServer) WriteCommitCCVData(context.Context, *WriteCommitCCVDataRequest) (*WriteCommitCCVDataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WriteCommitCCVData not implemented")
 }
-func (UnimplementedAggregatorServer) ReadCommitVerification(context.Context, *ReadCommitVerificationRequest) (*ReadCommitVerificationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ReadCommitVerification not implemented")
+func (UnimplementedAggregatorServer) ReadCommitCCVData(context.Context, *ReadCommitCCVDataRequest) (*ReadCommitCCVDataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadCommitCCVData not implemented")
 }
-func (UnimplementedAggregatorServer) QueryAggregatedCommitRecords(context.Context, *QueryAggregatedCommitRecordsRequest) (*QueryAggregatedCommitRecordsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method QueryAggregatedCommitRecords not implemented")
+func (UnimplementedAggregatorServer) WriteBlockCheckpoint(context.Context, *WriteBlockCheckpointRequest) (*WriteBlockCheckpointResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WriteBlockCheckpoint not implemented")
+}
+func (UnimplementedAggregatorServer) ReadBlockCheckpoint(context.Context, *ReadBlockCheckpointRequest) (*ReadBlockCheckpointResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadBlockCheckpoint not implemented")
 }
 func (UnimplementedAggregatorServer) mustEmbedUnimplementedAggregatorServer() {}
 func (UnimplementedAggregatorServer) testEmbeddedByValue()                    {}
@@ -118,56 +134,74 @@ func RegisterAggregatorServer(s grpc.ServiceRegistrar, srv AggregatorServer) {
 	s.RegisterService(&Aggregator_ServiceDesc, srv)
 }
 
-func _Aggregator_WriteCommitVerification_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WriteCommitVerificationRequest)
+func _Aggregator_WriteCommitCCVData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteCommitCCVDataRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AggregatorServer).WriteCommitVerification(ctx, in)
+		return srv.(AggregatorServer).WriteCommitCCVData(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Aggregator_WriteCommitVerification_FullMethodName,
+		FullMethod: Aggregator_WriteCommitCCVData_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AggregatorServer).WriteCommitVerification(ctx, req.(*WriteCommitVerificationRequest))
+		return srv.(AggregatorServer).WriteCommitCCVData(ctx, req.(*WriteCommitCCVDataRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Aggregator_ReadCommitVerification_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReadCommitVerificationRequest)
+func _Aggregator_ReadCommitCCVData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadCommitCCVDataRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AggregatorServer).ReadCommitVerification(ctx, in)
+		return srv.(AggregatorServer).ReadCommitCCVData(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Aggregator_ReadCommitVerification_FullMethodName,
+		FullMethod: Aggregator_ReadCommitCCVData_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AggregatorServer).ReadCommitVerification(ctx, req.(*ReadCommitVerificationRequest))
+		return srv.(AggregatorServer).ReadCommitCCVData(ctx, req.(*ReadCommitCCVDataRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Aggregator_QueryAggregatedCommitRecords_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryAggregatedCommitRecordsRequest)
+func _Aggregator_WriteBlockCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteBlockCheckpointRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AggregatorServer).QueryAggregatedCommitRecords(ctx, in)
+		return srv.(AggregatorServer).WriteBlockCheckpoint(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Aggregator_QueryAggregatedCommitRecords_FullMethodName,
+		FullMethod: Aggregator_WriteBlockCheckpoint_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AggregatorServer).QueryAggregatedCommitRecords(ctx, req.(*QueryAggregatedCommitRecordsRequest))
+		return srv.(AggregatorServer).WriteBlockCheckpoint(ctx, req.(*WriteBlockCheckpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Aggregator_ReadBlockCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadBlockCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AggregatorServer).ReadBlockCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Aggregator_ReadBlockCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AggregatorServer).ReadBlockCheckpoint(ctx, req.(*ReadBlockCheckpointRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -180,16 +214,160 @@ var Aggregator_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*AggregatorServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "WriteCommitVerification",
-			Handler:    _Aggregator_WriteCommitVerification_Handler,
+			MethodName: "WriteCommitCCVData",
+			Handler:    _Aggregator_WriteCommitCCVData_Handler,
 		},
 		{
-			MethodName: "ReadCommitVerification",
-			Handler:    _Aggregator_ReadCommitVerification_Handler,
+			MethodName: "ReadCommitCCVData",
+			Handler:    _Aggregator_ReadCommitCCVData_Handler,
 		},
 		{
-			MethodName: "QueryAggregatedCommitRecords",
-			Handler:    _Aggregator_QueryAggregatedCommitRecords_Handler,
+			MethodName: "WriteBlockCheckpoint",
+			Handler:    _Aggregator_WriteBlockCheckpoint_Handler,
+		},
+		{
+			MethodName: "ReadBlockCheckpoint",
+			Handler:    _Aggregator_ReadBlockCheckpoint_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "proto/aggregator.proto",
+}
+
+const (
+	CCVDataService_GetCCVData_FullMethodName       = "/CCVDataService/GetCCVData"
+	CCVDataService_GetMessagesSince_FullMethodName = "/CCVDataService/GetMessagesSince"
+)
+
+// CCVDataServiceClient is the client API for CCVDataService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type CCVDataServiceClient interface {
+	GetCCVData(ctx context.Context, in *GetCCVDataRequest, opts ...grpc.CallOption) (*CCVData, error)
+	GetMessagesSince(ctx context.Context, in *GetMessagesSinceRequest, opts ...grpc.CallOption) (*GetMessagesSinceResponse, error)
+}
+
+type cCVDataServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewCCVDataServiceClient(cc grpc.ClientConnInterface) CCVDataServiceClient {
+	return &cCVDataServiceClient{cc}
+}
+
+func (c *cCVDataServiceClient) GetCCVData(ctx context.Context, in *GetCCVDataRequest, opts ...grpc.CallOption) (*CCVData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CCVData)
+	err := c.cc.Invoke(ctx, CCVDataService_GetCCVData_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cCVDataServiceClient) GetMessagesSince(ctx context.Context, in *GetMessagesSinceRequest, opts ...grpc.CallOption) (*GetMessagesSinceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMessagesSinceResponse)
+	err := c.cc.Invoke(ctx, CCVDataService_GetMessagesSince_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CCVDataServiceServer is the server API for CCVDataService service.
+// All implementations must embed UnimplementedCCVDataServiceServer
+// for forward compatibility.
+type CCVDataServiceServer interface {
+	GetCCVData(context.Context, *GetCCVDataRequest) (*CCVData, error)
+	GetMessagesSince(context.Context, *GetMessagesSinceRequest) (*GetMessagesSinceResponse, error)
+	mustEmbedUnimplementedCCVDataServiceServer()
+}
+
+// UnimplementedCCVDataServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedCCVDataServiceServer struct{}
+
+func (UnimplementedCCVDataServiceServer) GetCCVData(context.Context, *GetCCVDataRequest) (*CCVData, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCCVData not implemented")
+}
+func (UnimplementedCCVDataServiceServer) GetMessagesSince(context.Context, *GetMessagesSinceRequest) (*GetMessagesSinceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMessagesSince not implemented")
+}
+func (UnimplementedCCVDataServiceServer) mustEmbedUnimplementedCCVDataServiceServer() {}
+func (UnimplementedCCVDataServiceServer) testEmbeddedByValue()                        {}
+
+// UnsafeCCVDataServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to CCVDataServiceServer will
+// result in compilation errors.
+type UnsafeCCVDataServiceServer interface {
+	mustEmbedUnimplementedCCVDataServiceServer()
+}
+
+func RegisterCCVDataServiceServer(s grpc.ServiceRegistrar, srv CCVDataServiceServer) {
+	// If the following call pancis, it indicates UnimplementedCCVDataServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&CCVDataService_ServiceDesc, srv)
+}
+
+func _CCVDataService_GetCCVData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCCVDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CCVDataServiceServer).GetCCVData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CCVDataService_GetCCVData_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CCVDataServiceServer).GetCCVData(ctx, req.(*GetCCVDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CCVDataService_GetMessagesSince_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMessagesSinceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CCVDataServiceServer).GetMessagesSince(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CCVDataService_GetMessagesSince_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CCVDataServiceServer).GetMessagesSince(ctx, req.(*GetMessagesSinceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// CCVDataService_ServiceDesc is the grpc.ServiceDesc for CCVDataService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var CCVDataService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "CCVDataService",
+	HandlerType: (*CCVDataServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetCCVData",
+			Handler:    _CCVDataService_GetCCVData_Handler,
+		},
+		{
+			MethodName: "GetMessagesSince",
+			Handler:    _CCVDataService_GetMessagesSince_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

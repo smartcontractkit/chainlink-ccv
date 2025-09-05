@@ -51,8 +51,8 @@ func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList 
 			return err
 		}
 
-		res, err := a.client.WriteCommitVerification(ctx, &aggregator.WriteCommitVerificationRequest{
-			CommitVerificationRecord: &aggregator.CommitVerificationRecord{
+		res, err := a.client.WriteCommitCCVData(ctx, &aggregator.WriteCommitCCVDataRequest{
+			CcvData: &aggregator.CCVData{
 				MessageId:             ccvData.MessageID[:],
 				SequenceNumber:        uint64(ccvData.SequenceNumber),
 				SourceChainSelector:   uint64(ccvData.SourceChainSelector),

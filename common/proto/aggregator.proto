@@ -4,9 +4,34 @@ option go_package = "pb/aggregator";
 import "google/protobuf/timestamp.proto";
 
 service Aggregator {
-  rpc WriteCommitVerification(WriteCommitVerificationRequest) returns (WriteCommitVerificationResponse);
-  rpc ReadCommitVerification(ReadCommitVerificationRequest) returns (ReadCommitVerificationResponse);
-  rpc QueryAggregatedCommitRecords(QueryAggregatedCommitRecordsRequest) returns (QueryAggregatedCommitRecordsResponse);
+  rpc WriteCommitCCVData(WriteCommitCCVDataRequest) returns (WriteCommitCCVDataResponse);
+  rpc ReadCommitCCVData(ReadCommitCCVDataRequest) returns (ReadCommitCCVDataResponse);
+  rpc WriteBlockCheckpoint(WriteBlockCheckpointRequest) returns (WriteBlockCheckpointResponse);
+  rpc ReadBlockCheckpoint(ReadBlockCheckpointRequest) returns (ReadBlockCheckpointResponse);
+}
+
+service CCVDataService {
+  rpc GetCCVData(GetCCVDataRequest) returns (CCVData);
+  rpc GetMessagesSince(GetMessagesSinceRequest) returns (GetMessagesSinceResponse);
+}
+
+message BlockCheckpoint {
+  uint64 chain_selector = 1;
+  uint64 finalized_block_height = 2;
+}
+
+message WriteBlockCheckpointRequest {
+  repeated BlockCheckpoint checkpoints = 1;
+}
+
+message WriteBlockCheckpointResponse {
+  WriteStatus status = 1;
+}
+
+message ReadBlockCheckpointRequest {}
+
+message ReadBlockCheckpointResponse {
+  repeated BlockCheckpoint checkpoints = 1;
 }
 
 message Message {
@@ -39,7 +64,7 @@ message ReceiptBlob {
   bytes extra_args = 5;
 }
 
-message CommitVerificationRecord {
+message CCVData {
   bytes message_id = 1;
   uint64 sequence_number = 2;
   uint64 source_chain_selector = 3;
@@ -55,8 +80,8 @@ message CommitVerificationRecord {
   repeated ReceiptBlob receipt_blobs = 11;
 }
 
-message WriteCommitVerificationRequest {
-  CommitVerificationRecord commit_verification_record = 1;
+message WriteCommitCCVDataRequest {
+  CCVData ccv_data = 1;
 }
 
 enum WriteStatus {
@@ -64,28 +89,29 @@ enum WriteStatus {
   FAILED = 1;
 }
 
-message WriteCommitVerificationResponse {
+message WriteCommitCCVDataResponse {
   WriteStatus status = 1;
 }
 
-message ReadCommitVerificationRequest {
+message ReadCommitCCVDataRequest {
   bytes message_id = 1;
   bytes public_key = 2;
 }
 
-message ReadCommitVerificationResponse {
-  CommitVerificationRecord commit_verification_record = 1;
+message ReadCommitCCVDataResponse {
+  CCVData ccv_data = 1;
 }
 
-// Query Commit Verification Records between a time range. The result is paginated and sorted in ascending order (from oldest to newest)
-message QueryAggregatedCommitRecordsRequest {
-    google.protobuf.Timestamp start = 1;
-    google.protobuf.Timestamp end = 2;
-    string next_token = 3;
+message GetCCVDataRequest {
+  bytes message_id = 1;
 }
 
-message QueryAggregatedCommitRecordsResponse {
-    repeated CommitVerificationRecord records = 1;
+message GetMessagesSinceRequest {
+    google.protobuf.Timestamp since = 1;
     string next_token = 2;
-    uint32 total = 3;
+}
+
+message GetMessagesSinceResponse {
+    repeated CCVData results = 1;
+    string next_token = 2;
 }

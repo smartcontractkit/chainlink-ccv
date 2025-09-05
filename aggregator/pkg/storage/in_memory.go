@@ -59,6 +59,11 @@ func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end i
 	return results
 }
 
+func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageID) *model.CommitAggregatedReport {
+	id := hex.EncodeToString(messageID)
+	return s.aggregatedReports[id]
+}
+
 // NewInMemoryStorage creates a new instance of InMemoryStorage.
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{

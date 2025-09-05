@@ -6,15 +6,15 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-func validateWriteRequest(req *aggregator.WriteCommitVerificationRequest) error {
+func validateWriteRequest(req *aggregator.WriteCommitCCVDataRequest) error {
 	err := validation.ValidateStruct(
 		req,
-		validation.Field(&req.CommitVerificationRecord, validation.Required))
+		validation.Field(&req.CcvData, validation.Required))
 	if err != nil {
 		return err
 	}
 
-	verificationRecord := req.GetCommitVerificationRecord()
+	verificationRecord := req.CcvData
 
 	err = validation.ValidateStruct(
 		verificationRecord,
@@ -37,7 +37,7 @@ func validateWriteRequest(req *aggregator.WriteCommitVerificationRequest) error 
 	return nil
 }
 
-func validateReadRequest(req *aggregator.ReadCommitVerificationRequest) error {
+func validateReadRequest(req *aggregator.ReadCommitCCVDataRequest) error {
 	err := validation.ValidateStruct(
 		req,
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),
