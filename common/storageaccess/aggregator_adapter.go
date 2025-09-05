@@ -11,11 +11,10 @@ import (
 )
 
 type AggregatorWriterAdapter struct {
-	client        aggregator.AggregatorClient
-	conn          *grpc.ClientConn
-	lggr          logger.Logger
-	participantID string
-	committeeID   string
+	client      aggregator.AggregatorClient
+	conn        *grpc.ClientConn
+	lggr        logger.Logger
+	committeeID string
 }
 
 func mapReceiptBlob(receiptBlob common.ReceiptWithBlob) (*aggregator.ReceiptBlob, error) {
@@ -52,8 +51,7 @@ func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList 
 		}
 
 		res, err := a.client.WriteCommitVerification(ctx, &aggregator.WriteCommitVerificationRequest{
-			ParticipantId: a.participantID,
-			CommitteeId:   a.committeeID,
+			CommitteeId: a.committeeID,
 			CommitVerificationRecord: &aggregator.CommitVerificationRecord{
 				MessageId:             ccvData.MessageID[:],
 				SequenceNumber:        uint64(ccvData.SequenceNumber),
@@ -114,7 +112,7 @@ func (a *AggregatorWriterAdapter) Close() error {
 	return nil
 }
 
-func CreateAggregatorAdapter(address string, lggr logger.Logger, participantID string, committeeID string) (*AggregatorWriterAdapter, error) {
+func CreateAggregatorAdapter(address string, lggr logger.Logger, committeeID string) (*AggregatorWriterAdapter, error) {
 	// Create a gRPC connection to the aggregator server
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -122,10 +120,9 @@ func CreateAggregatorAdapter(address string, lggr logger.Logger, participantID s
 	}
 
 	return &AggregatorWriterAdapter{
-		client:        aggregator.NewAggregatorClient(conn),
-		conn:          conn,
-		lggr:          lggr,
-		participantID: participantID,
-		committeeID:   committeeID,
+		client:      aggregator.NewAggregatorClient(conn),
+		conn:        conn,
+		lggr:        lggr,
+		committeeID: committeeID,
 	}, nil
 }

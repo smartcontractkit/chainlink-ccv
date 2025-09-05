@@ -16,8 +16,8 @@ import (
 	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
@@ -60,7 +60,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr, verifierConfig.ParticipantID, verifierConfig.CommitteeID)
+	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr, verifierConfig.CommitteeID)
 	if err != nil {
 		lggr.Errorw("Failed to create storage writer", "error", err)
 		os.Exit(1)
