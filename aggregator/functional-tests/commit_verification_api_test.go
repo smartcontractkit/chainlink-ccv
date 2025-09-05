@@ -75,7 +75,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	record := messagesSinceResponse.Results[0]
 	require.Equal(t, messageID, record.MessageId, "expected MessageId to match")
 
-	getCCVDataResponse, err := ccvDataClient.GetCCVData(t.Context(), &aggregator.GetCCVDataRequest{
+	getCCVDataResponse, err := ccvDataClient.GetCCVDataForMessage(t.Context(), &aggregator.GetCCVDataForMessageRequest{
 		MessageId: messageID,
 	})
 

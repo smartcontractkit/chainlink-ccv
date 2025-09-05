@@ -235,15 +235,15 @@ var Aggregator_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	CCVDataService_GetCCVData_FullMethodName       = "/CCVDataService/GetCCVData"
-	CCVDataService_GetMessagesSince_FullMethodName = "/CCVDataService/GetMessagesSince"
+	CCVDataService_GetCCVDataForMessage_FullMethodName = "/CCVDataService/GetCCVDataForMessage"
+	CCVDataService_GetMessagesSince_FullMethodName     = "/CCVDataService/GetMessagesSince"
 )
 
 // CCVDataServiceClient is the client API for CCVDataService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CCVDataServiceClient interface {
-	GetCCVData(ctx context.Context, in *GetCCVDataRequest, opts ...grpc.CallOption) (*CCVData, error)
+	GetCCVDataForMessage(ctx context.Context, in *GetCCVDataForMessageRequest, opts ...grpc.CallOption) (*CCVData, error)
 	GetMessagesSince(ctx context.Context, in *GetMessagesSinceRequest, opts ...grpc.CallOption) (*GetMessagesSinceResponse, error)
 }
 
@@ -255,10 +255,10 @@ func NewCCVDataServiceClient(cc grpc.ClientConnInterface) CCVDataServiceClient {
 	return &cCVDataServiceClient{cc}
 }
 
-func (c *cCVDataServiceClient) GetCCVData(ctx context.Context, in *GetCCVDataRequest, opts ...grpc.CallOption) (*CCVData, error) {
+func (c *cCVDataServiceClient) GetCCVDataForMessage(ctx context.Context, in *GetCCVDataForMessageRequest, opts ...grpc.CallOption) (*CCVData, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CCVData)
-	err := c.cc.Invoke(ctx, CCVDataService_GetCCVData_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, CCVDataService_GetCCVDataForMessage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +279,7 @@ func (c *cCVDataServiceClient) GetMessagesSince(ctx context.Context, in *GetMess
 // All implementations must embed UnimplementedCCVDataServiceServer
 // for forward compatibility.
 type CCVDataServiceServer interface {
-	GetCCVData(context.Context, *GetCCVDataRequest) (*CCVData, error)
+	GetCCVDataForMessage(context.Context, *GetCCVDataForMessageRequest) (*CCVData, error)
 	GetMessagesSince(context.Context, *GetMessagesSinceRequest) (*GetMessagesSinceResponse, error)
 	mustEmbedUnimplementedCCVDataServiceServer()
 }
@@ -291,8 +291,8 @@ type CCVDataServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedCCVDataServiceServer struct{}
 
-func (UnimplementedCCVDataServiceServer) GetCCVData(context.Context, *GetCCVDataRequest) (*CCVData, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetCCVData not implemented")
+func (UnimplementedCCVDataServiceServer) GetCCVDataForMessage(context.Context, *GetCCVDataForMessageRequest) (*CCVData, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCCVDataForMessage not implemented")
 }
 func (UnimplementedCCVDataServiceServer) GetMessagesSince(context.Context, *GetMessagesSinceRequest) (*GetMessagesSinceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetMessagesSince not implemented")
@@ -318,20 +318,20 @@ func RegisterCCVDataServiceServer(s grpc.ServiceRegistrar, srv CCVDataServiceSer
 	s.RegisterService(&CCVDataService_ServiceDesc, srv)
 }
 
-func _CCVDataService_GetCCVData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetCCVDataRequest)
+func _CCVDataService_GetCCVDataForMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCCVDataForMessageRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(CCVDataServiceServer).GetCCVData(ctx, in)
+		return srv.(CCVDataServiceServer).GetCCVDataForMessage(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: CCVDataService_GetCCVData_FullMethodName,
+		FullMethod: CCVDataService_GetCCVDataForMessage_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CCVDataServiceServer).GetCCVData(ctx, req.(*GetCCVDataRequest))
+		return srv.(CCVDataServiceServer).GetCCVDataForMessage(ctx, req.(*GetCCVDataForMessageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -362,8 +362,8 @@ var CCVDataService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*CCVDataServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "GetCCVData",
-			Handler:    _CCVDataService_GetCCVData_Handler,
+			MethodName: "GetCCVDataForMessage",
+			Handler:    _CCVDataService_GetCCVDataForMessage_Handler,
 		},
 		{
 			MethodName: "GetMessagesSince",

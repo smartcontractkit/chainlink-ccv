@@ -862,27 +862,27 @@ func (x *ReadCommitCCVDataResponse) GetCcvData() *CCVData {
 	return nil
 }
 
-type GetCCVDataRequest struct {
+type GetCCVDataForMessageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MessageId     []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetCCVDataRequest) Reset() {
-	*x = GetCCVDataRequest{}
+func (x *GetCCVDataForMessageRequest) Reset() {
+	*x = GetCCVDataForMessageRequest{}
 	mi := &file_proto_aggregator_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetCCVDataRequest) String() string {
+func (x *GetCCVDataForMessageRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetCCVDataRequest) ProtoMessage() {}
+func (*GetCCVDataForMessageRequest) ProtoMessage() {}
 
-func (x *GetCCVDataRequest) ProtoReflect() protoreflect.Message {
+func (x *GetCCVDataForMessageRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_aggregator_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -894,12 +894,12 @@ func (x *GetCCVDataRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetCCVDataRequest.ProtoReflect.Descriptor instead.
-func (*GetCCVDataRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetCCVDataForMessageRequest.ProtoReflect.Descriptor instead.
+func (*GetCCVDataForMessageRequest) Descriptor() ([]byte, []int) {
 	return file_proto_aggregator_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *GetCCVDataRequest) GetMessageId() []byte {
+func (x *GetCCVDataForMessageRequest) GetMessageId() []byte {
 	if x != nil {
 		return x.MessageId
 	}
@@ -1078,8 +1078,8 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\n" +
 	"public_key\x18\x02 \x01(\fR\tpublicKey\"@\n" +
 	"\x19ReadCommitCCVDataResponse\x12#\n" +
-	"\bccv_data\x18\x01 \x01(\v2\b.CCVDataR\accvData\"2\n" +
-	"\x11GetCCVDataRequest\x12\x1d\n" +
+	"\bccv_data\x18\x01 \x01(\v2\b.CCVDataR\accvData\"<\n" +
+	"\x1bGetCCVDataForMessageRequest\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\fR\tmessageId\"j\n" +
 	"\x17GetMessagesSinceRequest\x120\n" +
@@ -1099,10 +1099,9 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x12WriteCommitCCVData\x12\x1a.WriteCommitCCVDataRequest\x1a\x1b.WriteCommitCCVDataResponse\x12J\n" +
 	"\x11ReadCommitCCVData\x12\x19.ReadCommitCCVDataRequest\x1a\x1a.ReadCommitCCVDataResponse\x12S\n" +
 	"\x14WriteBlockCheckpoint\x12\x1c.WriteBlockCheckpointRequest\x1a\x1d.WriteBlockCheckpointResponse\x12P\n" +
-	"\x13ReadBlockCheckpoint\x12\x1b.ReadBlockCheckpointRequest\x1a\x1c.ReadBlockCheckpointResponse2\x85\x01\n" +
-	"\x0eCCVDataService\x12*\n" +
-	"\n" +
-	"GetCCVData\x12\x12.GetCCVDataRequest\x1a\b.CCVData\x12G\n" +
+	"\x13ReadBlockCheckpoint\x12\x1b.ReadBlockCheckpointRequest\x1a\x1c.ReadBlockCheckpointResponse2\x99\x01\n" +
+	"\x0eCCVDataService\x12>\n" +
+	"\x14GetCCVDataForMessage\x12\x1c.GetCCVDataForMessageRequest\x1a\b.CCVData\x12G\n" +
 	"\x10GetMessagesSince\x12\x18.GetMessagesSinceRequest\x1a\x19.GetMessagesSinceResponseB\x0fZ\rpb/aggregatorb\x06proto3"
 
 var (
@@ -1133,7 +1132,7 @@ var file_proto_aggregator_proto_goTypes = []any{
 	(*WriteCommitCCVDataResponse)(nil),   // 10: WriteCommitCCVDataResponse
 	(*ReadCommitCCVDataRequest)(nil),     // 11: ReadCommitCCVDataRequest
 	(*ReadCommitCCVDataResponse)(nil),    // 12: ReadCommitCCVDataResponse
-	(*GetCCVDataRequest)(nil),            // 13: GetCCVDataRequest
+	(*GetCCVDataForMessageRequest)(nil),  // 13: GetCCVDataForMessageRequest
 	(*GetMessagesSinceRequest)(nil),      // 14: GetMessagesSinceRequest
 	(*GetMessagesSinceResponse)(nil),     // 15: GetMessagesSinceResponse
 	(*timestamppb.Timestamp)(nil),        // 16: google.protobuf.Timestamp
@@ -1153,13 +1152,13 @@ var file_proto_aggregator_proto_depIdxs = []int32{
 	11, // 11: Aggregator.ReadCommitCCVData:input_type -> ReadCommitCCVDataRequest
 	2,  // 12: Aggregator.WriteBlockCheckpoint:input_type -> WriteBlockCheckpointRequest
 	4,  // 13: Aggregator.ReadBlockCheckpoint:input_type -> ReadBlockCheckpointRequest
-	13, // 14: CCVDataService.GetCCVData:input_type -> GetCCVDataRequest
+	13, // 14: CCVDataService.GetCCVDataForMessage:input_type -> GetCCVDataForMessageRequest
 	14, // 15: CCVDataService.GetMessagesSince:input_type -> GetMessagesSinceRequest
 	10, // 16: Aggregator.WriteCommitCCVData:output_type -> WriteCommitCCVDataResponse
 	12, // 17: Aggregator.ReadCommitCCVData:output_type -> ReadCommitCCVDataResponse
 	3,  // 18: Aggregator.WriteBlockCheckpoint:output_type -> WriteBlockCheckpointResponse
 	5,  // 19: Aggregator.ReadBlockCheckpoint:output_type -> ReadBlockCheckpointResponse
-	8,  // 20: CCVDataService.GetCCVData:output_type -> CCVData
+	8,  // 20: CCVDataService.GetCCVDataForMessage:output_type -> CCVData
 	15, // 21: CCVDataService.GetMessagesSince:output_type -> GetMessagesSinceResponse
 	16, // [16:22] is the sub-list for method output_type
 	10, // [10:16] is the sub-list for method input_type

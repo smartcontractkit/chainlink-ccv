@@ -11,7 +11,7 @@ service Aggregator {
 }
 
 service CCVDataService {
-  rpc GetCCVData(GetCCVDataRequest) returns (CCVData);
+  rpc GetCCVDataForMessage(GetCCVDataForMessageRequest) returns (CCVData);
   rpc GetMessagesSince(GetMessagesSinceRequest) returns (GetMessagesSinceResponse);
 }
 
@@ -102,7 +102,7 @@ message ReadCommitCCVDataResponse {
   CCVData ccv_data = 1;
 }
 
-message GetCCVDataRequest {
+message GetCCVDataForMessageRequest {
   bytes message_id = 1;
 }
 

@@ -23,11 +23,11 @@ type Server struct {
 	aggregator.UnimplementedAggregatorServer
 	aggregator.UnimplementedCCVDataServiceServer
 
-	l                         logger.Logger
-	readCommitCCVDataHandler  *handlers.ReadCommitCCVDataHandler
-	writeCommitCCVDataHandler *handlers.WriteCommitCCVDataHandler
-	getMessagesSinceHandler   *handlers.GetMessagesSinceHandler
-	getCCVDataHandler         *handlers.GetCCVDataHandler
+	l                           logger.Logger
+	readCommitCCVDataHandler    *handlers.ReadCommitCCVDataHandler
+	writeCommitCCVDataHandler   *handlers.WriteCommitCCVDataHandler
+	getMessagesSinceHandler     *handlers.GetMessagesSinceHandler
+	getCCVDataForMessageHandler *handlers.GetCCVDataForMessageHandler
 }
 
 // WriteCommitCCVData handles requests to write commit verification records.
@@ -40,8 +40,8 @@ func (s *Server) ReadCommitCCVData(ctx context.Context, req *aggregator.ReadComm
 	return s.readCommitCCVDataHandler.Handle(ctx, req)
 }
 
-func (s *Server) GetCCVData(ctx context.Context, req *aggregator.GetCCVDataRequest) (*aggregator.CCVData, error) {
-	return s.getCCVDataHandler.Handle(ctx, req)
+func (s *Server) GetCCVDataForMessage(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.CCVData, error) {
+	return s.getCCVDataForMessageHandler.Handle(ctx, req)
 }
 
 func (s *Server) GetMessagesSince(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
@@ -98,13 +98,13 @@ func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
 	readCommitCCVDataHandler := handlers.NewReadCommitCCVDataHandler(store, config.DisableValidation)
 	writeCommitCCVDataHandler := handlers.NewWriteCommitCCVDataHandler(store, aggregator, l, config.DisableValidation)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store)
-	getCCVDataHandler := handlers.NewGetCCVDataHandler(store)
+	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store)
 
 	return &Server{
-		l:                         l,
-		readCommitCCVDataHandler:  readCommitCCVDataHandler,
-		writeCommitCCVDataHandler: writeCommitCCVDataHandler,
-		getMessagesSinceHandler:   getMessagesSinceHandler,
-		getCCVDataHandler:         getCCVDataHandler,
+		l:                           l,
+		readCommitCCVDataHandler:    readCommitCCVDataHandler,
+		writeCommitCCVDataHandler:   writeCommitCCVDataHandler,
+		getMessagesSinceHandler:     getMessagesSinceHandler,
+		getCCVDataForMessageHandler: getCCVDataForMessageHandler,
 	}
 }

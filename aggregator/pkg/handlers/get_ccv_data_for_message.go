@@ -7,12 +7,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
-type GetCCVDataHandler struct {
+type GetCCVDataForMessageHandler struct {
 	storage common.CommitVerificationAggregatedStore
 }
 
 // Handle processes the get request and retrieves the commit verification data.
-func (h *GetCCVDataHandler) Handle(ctx context.Context, req *aggregator.GetCCVDataRequest) (*aggregator.CCVData, error) {
+func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.CCVData, error) {
 	data := h.storage.GetCCVData(ctx, req.MessageId)
 
 	return &aggregator.CCVData{
@@ -21,9 +21,9 @@ func (h *GetCCVDataHandler) Handle(ctx context.Context, req *aggregator.GetCCVDa
 	}, nil
 }
 
-// NewGetCCVDataHandler creates a new instance of GetCCVDataHandler.
-func NewGetCCVDataHandler(storage common.CommitVerificationAggregatedStore) *GetCCVDataHandler {
-	return &GetCCVDataHandler{
+// NewGetCCVDataForMessageHandler creates a new instance of GetCCVDataForMessageHandler.
+func NewGetCCVDataForMessageHandler(storage common.CommitVerificationAggregatedStore) *GetCCVDataForMessageHandler {
+	return &GetCCVDataForMessageHandler{
 		storage: storage,
 	}
 }
