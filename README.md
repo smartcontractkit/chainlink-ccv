@@ -13,3 +13,6 @@ Run tests:
 ```bash
 just tests
 ```
+
+## Local Dev Environment
+Follow the [README](./build/devenv/README.md)

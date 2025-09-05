@@ -25,10 +25,12 @@
 - Indexer example service + PostgreSQL
 
 ## Install
-All build command are run using Justfile
+All build command are run using [Justfile](https://github.com/casey/just?tab=readme-ov-file#cross-platform), start with installing it
 ```
+brew install just # click the link above if you are not on OS X
 just clean-docker-dev # needed in case you have old JD image
 just build-docker-dev
+just cli
 ```
 
 Enter `ccv` shell and follow auto-completion hints
