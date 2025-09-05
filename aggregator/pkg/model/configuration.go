@@ -23,20 +23,20 @@ type QuorumConfig struct {
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType string `toml:"type,default=memory"`
+	StorageType string `toml:"type"`
 }
 
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
-	Address string `toml:"address,default=:50051"`
+	Address string `toml:"address"`
 }
 
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	DisableValidation bool                 `toml:"disableValidation,default=false"`
+	Committees        map[string]Committee `toml:"committees"`
 	Server            ServerConfig         `toml:"server"`
 	Storage           StorageConfig        `toml:"storage"`
-	Committees        map[string]Committee `toml:"committees"`
+	DisableValidation bool                 `toml:"disableValidation"`
 }
 
 // Validate validates the aggregator configuration for integrity and correctness.

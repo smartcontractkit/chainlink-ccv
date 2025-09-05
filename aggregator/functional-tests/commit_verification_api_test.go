@@ -29,7 +29,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 			},
 		},
 	}
-	client, cleanup, err := CreateServerAndClient(t, config)
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, config)
 	if err != nil {
 		t.Fatalf("failed to create server and client: %v", err)
 	}
@@ -39,40 +39,46 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	destVerifierAddr := createRandomBytes(t, 20)
 	sourceVerifierAddr := createRandomBytes(t, 20)
 
-	writeResp, err := client.WriteCommitVerification(t.Context(), &aggregator.WriteCommitVerificationRequest{
-		CommitVerificationRecord: &aggregator.CommitVerificationRecord{
+	writeResp, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: &aggregator.MessageWithCCVNodeData{
 			MessageId:             messageID,
 			BlobData:              []byte("test blob data"),
 			CcvData:               []byte("test ccv data"),
-			DestChainSelector:     uint64(1),
 			DestVerifierAddress:   destVerifierAddr,
-			SequenceNumber:        uint64(1),
-			SourceChainSelector:   uint64(2),
 			SourceVerifierAddress: sourceVerifierAddr,
 			Timestamp:             1234567890,
-			Message:               &aggregator.Message{},
+			Message: &aggregator.Message{
+				Data:              []byte("test message data"),
+				DestChainSelector: 1,
+			},
 		},
 	})
 
 	require.NoError(t, err, "WriteCommitVerification failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, writeResp.Status, "expected WriteStatus_SUCCESS")
 
-	readResp, err := client.ReadCommitVerification(t.Context(), &aggregator.ReadCommitVerificationRequest{
+	readResp, err := aggregatorClient.ReadCommitCCVNodeData(t.Context(), &aggregator.ReadCommitCCVNodeDataRequest{
 		MessageId: messageID,
 	})
 
-	require.NoError(t, err, "ReadCommitVerification failed")
+	require.NoError(t, err, "ReadCommitCCVNodeData failed")
 	require.NotNil(t, readResp, "expected non-nil response")
-	require.Equal(t, messageID, readResp.CommitVerificationRecord.MessageId, "expected MessageId to match")
+	require.Equal(t, messageID, readResp.CcvNodeData.MessageId, "expected MessageId to match")
 
-	queryResp, err := client.QueryAggregatedCommitRecords(t.Context(), &aggregator.QueryAggregatedCommitRecordsRequest{
-		Start: time.Now().Add(-time.Hour).Unix(),
-		End:   time.Now().Unix(),
+	messagesSinceResponse, err := ccvDataClient.GetMessagesSince(t.Context(), &aggregator.GetMessagesSinceRequest{
+		Since: time.Now().Add(-1 * time.Hour).Unix(),
 	})
 
-	require.NoError(t, err, "QueryAggregatedCommitRecords failed")
-	require.NotNil(t, queryResp, "expected non-nil response")
-	require.Len(t, queryResp.Records, 1, "expected exactly 1 record")
-	record := queryResp.Records[0]
-	require.Equal(t, messageID, record.MessageId, "expected MessageId to match")
+	require.NoError(t, err, "GetMessagesSince failed")
+	require.NotNil(t, messagesSinceResponse, "expected non-nil response")
+	require.Len(t, messagesSinceResponse.Results, 1, "expected exactly 1 record")
+	require.Equal(t, []byte("test message data"), messagesSinceResponse.Results[0].Message.Data, "expected MessageId to match")
+
+	getCCVDataResponse, err := ccvDataClient.GetCCVDataForMessage(t.Context(), &aggregator.GetCCVDataForMessageRequest{
+		MessageId: messageID,
+	})
+
+	require.NoError(t, err, "GetCCVData failed")
+	require.NotNil(t, getCCVDataResponse, "expected non-nil response")
+	require.Equal(t, []byte("test message data"), getCCVDataResponse.Message.Data, "expected CCV data to match")
 }

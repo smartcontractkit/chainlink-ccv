@@ -9,17 +9,17 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
-// ReadCommitVerificationRecordHandler handles requests to read commit verification records.
-type ReadCommitVerificationRecordHandler struct {
+// ReadCommitCCVNodeDataHandler handles requests to read commit verification records.
+type ReadCommitCCVNodeDataHandler struct {
 	storage           common.CommitVerificationStore
 	disableValidation bool
 }
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
-func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *aggregator.ReadCommitVerificationRequest) (*aggregator.ReadCommitVerificationResponse, error) {
+func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.ReadCommitCCVNodeDataRequest) (*aggregator.ReadCommitCCVNodeDataResponse, error) {
 	if !h.disableValidation {
 		if err := validateReadRequest(req); err != nil {
-			return &aggregator.ReadCommitVerificationResponse{}, err
+			return &aggregator.ReadCommitCCVNodeDataResponse{}, err
 		}
 	}
 
@@ -33,14 +33,14 @@ func (h *ReadCommitVerificationRecordHandler) Handle(ctx context.Context, req *a
 		return nil, err
 	}
 
-	return &aggregator.ReadCommitVerificationResponse{
-		CommitVerificationRecord: &record.CommitVerificationRecord,
+	return &aggregator.ReadCommitCCVNodeDataResponse{
+		CcvNodeData: &record.MessageWithCCVNodeData,
 	}, nil
 }
 
-// NewReadCommitVerificationRecordHandler creates a new instance of ReadCommitVerificationRecordHandler.
-func NewReadCommitVerificationRecordHandler(store common.CommitVerificationStore, disableValidation bool) *ReadCommitVerificationRecordHandler {
-	return &ReadCommitVerificationRecordHandler{
+// NewReadCommitCCVNodeDataHandler creates a new instance of ReadCommitCCVNodeDataHandler.
+func NewReadCommitCCVNodeDataHandler(store common.CommitVerificationStore, disableValidation bool) *ReadCommitCCVNodeDataHandler {
+	return &ReadCommitCCVNodeDataHandler{
 		storage:           store,
 		disableValidation: disableValidation,
 	}

@@ -7,6 +7,7 @@ lint:
     - ENUM_ZERO_VALUE_SUFFIX
     - SERVICE_SUFFIX
     - ENUM_VALUE_PREFIX
+    - RPC_RESPONSE_STANDARD_NAME
 breaking:
   use:
     - FILE

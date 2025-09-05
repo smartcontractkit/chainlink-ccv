@@ -3,9 +3,34 @@ syntax = "proto3";
 option go_package = "pb/aggregator";
 
 service Aggregator {
-  rpc WriteCommitVerification(WriteCommitVerificationRequest) returns (WriteCommitVerificationResponse);
-  rpc ReadCommitVerification(ReadCommitVerificationRequest) returns (ReadCommitVerificationResponse);
-  rpc QueryAggregatedCommitRecords(QueryAggregatedCommitRecordsRequest) returns (QueryAggregatedCommitRecordsResponse);
+  rpc WriteCommitCCVNodeData(WriteCommitCCVNodeDataRequest) returns (WriteCommitCCVNodeDataResponse);
+  rpc ReadCommitCCVNodeData(ReadCommitCCVNodeDataRequest) returns (ReadCommitCCVNodeDataResponse);
+  rpc WriteBlockCheckpoint(WriteBlockCheckpointRequest) returns (WriteBlockCheckpointResponse);
+  rpc ReadBlockCheckpoint(ReadBlockCheckpointRequest) returns (ReadBlockCheckpointResponse);
+}
+
+service CCVData {
+  rpc GetCCVDataForMessage(GetCCVDataForMessageRequest) returns (MessageWithCCVData);
+  rpc GetMessagesSince(GetMessagesSinceRequest) returns (GetMessagesSinceResponse);
+}
+
+message BlockCheckpoint {
+  uint64 chain_selector = 1;
+  uint64 finalized_block_height = 2;
+}
+
+message WriteBlockCheckpointRequest {
+  repeated BlockCheckpoint checkpoints = 1;
+}
+
+message WriteBlockCheckpointResponse {
+  WriteStatus status = 1;
+}
+
+message ReadBlockCheckpointRequest {}
+
+message ReadBlockCheckpointResponse {
+  repeated BlockCheckpoint checkpoints = 1;
 }
 
 message Message {
@@ -38,24 +63,28 @@ message ReceiptBlob {
   bytes extra_args = 5;
 }
 
-message CommitVerificationRecord {
+message MessageWithCCVNodeData {
   bytes message_id = 1;
-  uint64 sequence_number = 2;
-  uint64 source_chain_selector = 3;
-  uint64 dest_chain_selector = 4;
-  bytes source_verifier_address = 5;
-  bytes dest_verifier_address = 6;
+  bytes source_verifier_address = 2;
+  bytes dest_verifier_address = 3;
   // ccv_data is the signature from the commit verifier node of the message data and the blob data
-  bytes ccv_data = 7;
+  bytes ccv_data = 4;
   // blob_data is the encoded nonce from the source chain
-  bytes blob_data = 8;
-  int64 timestamp = 9;
-  Message message = 10;
-  repeated ReceiptBlob receipt_blobs = 11;
+  bytes blob_data = 5;
+  int64 timestamp = 6;
+  Message message = 7;
+  repeated ReceiptBlob receipt_blobs = 8;
 }
 
-message WriteCommitVerificationRequest {
-  CommitVerificationRecord commit_verification_record = 1;
+message MessageWithCCVData {
+  Message message = 1;
+  bytes source_verifier_address = 2;
+  bytes dest_verifier_address = 3;
+  bytes ccv_data = 4;
+}
+
+message WriteCommitCCVNodeDataRequest {
+  MessageWithCCVNodeData ccv_node_data = 1;
 }
 
 enum WriteStatus {
@@ -63,28 +92,29 @@ enum WriteStatus {
   FAILED = 1;
 }
 
-message WriteCommitVerificationResponse {
+message WriteCommitCCVNodeDataResponse {
   WriteStatus status = 1;
 }
 
-message ReadCommitVerificationRequest {
+message ReadCommitCCVNodeDataRequest {
   bytes message_id = 1;
   bytes public_key = 2;
 }
 
-message ReadCommitVerificationResponse {
-  CommitVerificationRecord commit_verification_record = 1;
+message ReadCommitCCVNodeDataResponse {
+  MessageWithCCVNodeData ccv_node_data = 1;
 }
 
-// Query Commit Verification Records between a time range. The result is paginated and sorted in ascending order (from oldest to newest)
-message QueryAggregatedCommitRecordsRequest {
-  int64 start = 1;
-  int64 end = 2;
-  string next_token = 3;
+message GetCCVDataForMessageRequest {
+  bytes message_id = 1;
 }
 
-message QueryAggregatedCommitRecordsResponse {
-  repeated CommitVerificationRecord records = 1;
-  string next_token = 2;
-  uint32 total = 3;
+message GetMessagesSinceRequest {
+    int64 since = 1;
+    string next_token = 2;
+}
+
+message GetMessagesSinceResponse {
+    repeated MessageWithCCVData results = 1;
+    string next_token = 2;
 }
