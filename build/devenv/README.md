@@ -25,11 +25,8 @@
 - Indexer example service + PostgreSQL
 
 ## Install
-Every command should be run inside [Nix](https://github.com/DeterminateSystems/nix-installer) shell, please follow the [link](https://github.com/DeterminateSystems/nix-installer) and install it.
-
-Enter `Nix` shell and build all the Docker images initially
+All build command are run using Justfile
 ```
-nix develop
 just clean-docker-dev # needed in case you have old JD image
 just build-docker-dev
 ```

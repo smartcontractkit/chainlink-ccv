@@ -3,11 +3,13 @@ package storageaccess
 import (
 	"context"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type AggregatorWriterAdapter struct {
@@ -42,7 +44,7 @@ func mapReceiptBlobs(receiptBlobs []common.ReceiptWithBlob) ([]*aggregator.Recei
 	return result, nil
 }
 
-// StoreCCVData implements common.OffchainStorageWriter.
+// WriteCCVData implements common.OffchainStorageWriter.
 func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList []common.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
@@ -63,7 +65,8 @@ func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList 
 				DestVerifierAddress:   ccvData.DestVerifierAddress[:],
 				CcvData:               ccvData.CCVData,
 				BlobData:              ccvData.BlobData,
-				Timestamp:             uint64(ccvData.Timestamp),
+				// #nosec G115 - ignore for now
+				Timestamp: uint64(ccvData.Timestamp),
 				Message: &aggregator.Message{
 					Version:              uint32(ccvData.Message.Version),
 					SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
@@ -102,8 +105,8 @@ func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList 
 	return nil
 }
 
-func (a *AggregatorWriterAdapter) GetStats() map[string]interface{} {
-	return map[string]interface{}{}
+func (a *AggregatorWriterAdapter) GetStats() map[string]any {
+	return make(map[string]any)
 }
 
 // Close closes the gRPC connection to the aggregator server.
@@ -114,7 +117,8 @@ func (a *AggregatorWriterAdapter) Close() error {
 	return nil
 }
 
-func CreateAggregatorAdapter(address string, lggr logger.Logger, participantID string, committeeID string) (*AggregatorWriterAdapter, error) {
+// CreateAggregatorAdapter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
+func CreateAggregatorAdapter(address string, lggr logger.Logger, participantID, committeeID string) (*AggregatorWriterAdapter, error) {
 	// Create a gRPC connection to the aggregator server
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
