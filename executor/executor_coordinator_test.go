@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	executor_mocks "github.com/smartcontractkit/chainlink-ccv/executor/mocks"
+	executor_mocks "github.com/smartcontractkit/chainlink-ccv/executor/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )

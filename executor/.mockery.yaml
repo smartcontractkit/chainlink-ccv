@@ -1,6 +1,6 @@
 with-expecter: true
 
-dir: ./mocks      # output directory for mocks
+dir: ./internal/mocks      # output directory for mocks
 outpkg: executor_mocks     # package name for mocks
 
 packages:
