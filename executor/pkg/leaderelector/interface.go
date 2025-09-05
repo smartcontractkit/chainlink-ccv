@@ -1,9 +1,10 @@
 package leaderelector
 
 import (
-	"github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 type LeaderElector interface {
-	GetDelay(messageId ccipocr3.Bytes32, destSelector ccipocr3.ChainSelector, readyTimestamp uint64) uint64
+	// GetDelay to check again
+	GetDelay(messageID types.Bytes32, destSelector types.ChainSelector, readyTimestamp int64) int64
 }

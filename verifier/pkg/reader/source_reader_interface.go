@@ -3,10 +3,10 @@ package reader
 import (
 	"context"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
-// SourceReader defines the interface for reading CCIP messages from source chains
+// SourceReader defines the interface for reading CCIP messages from source chains.
 type SourceReader interface {
 	// Start begins reading messages and pushing them to the messages channel
 	Start(ctx context.Context) error

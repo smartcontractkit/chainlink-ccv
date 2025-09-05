@@ -3,12 +3,10 @@ name: Verifier Tests
 on:
   push:
     paths:
-      - 'verifier/**'
+      - '.github/**'
       - 'protocol/**'
-  pull_request:
-    paths:
+      - 'common/**'
       - 'verifier/**'
-      - 'protocol/**'
 
 defaults:
   run:

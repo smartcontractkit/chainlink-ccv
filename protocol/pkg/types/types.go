@@ -1,20 +1,18 @@
-package common
+package types
 
 import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/crypto"
-
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
-// Constants for CCIP v1.7
+// Constants for CCIP v1.7.
 const (
 	MaxNumTokens                  = 1
 	MaxDataSize                   = 1024 // 1kb
@@ -23,56 +21,21 @@ const (
 	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
 )
 
-// UnknownAddress represents an address on an unknown chain.
-type UnknownAddress []byte
-
-// NewUnknownAddressFromHex creates an UnknownAddress from a hex string
-func NewUnknownAddressFromHex(s string) (UnknownAddress, error) {
-	if s == "" {
-		return UnknownAddress{}, nil
-	}
-
-	// Remove 0x prefix if present
-	if len(s) >= 2 && s[:2] == "0x" {
-		s = s[2:]
-	}
-
-	bytes, err := hex.DecodeString(s)
-	if err != nil {
-		return nil, fmt.Errorf("invalid hex string: %w", err)
-	}
-
-	return UnknownAddress(bytes), nil
-}
-
-// String returns the hex representation of the address
-func (a UnknownAddress) String() string {
-	if len(a) == 0 {
-		return ""
-	}
-	return "0x" + hex.EncodeToString(a)
-}
-
-// Bytes returns the raw bytes of the address
-func (a UnknownAddress) Bytes() []byte {
-	return []byte(a)
-}
-
-// TokenTransfer represents a chain-agnostic token transfer with canonical encoding
+// TokenTransfer represents a chain-agnostic token transfer with canonical encoding.
 type TokenTransfer struct {
-	Version                  uint8    `json:"version"`
 	Amount                   *big.Int `json:"amount"`
-	SourceTokenAddressLength uint8    `json:"source_token_address_length"`
 	SourceTokenAddress       []byte   `json:"source_token_address"`
-	DestTokenAddressLength   uint8    `json:"dest_token_address_length"`
 	DestTokenAddress         []byte   `json:"dest_token_address"`
-	TokenReceiverLength      uint8    `json:"token_receiver_length"`
 	TokenReceiver            []byte   `json:"token_receiver"`
-	ExtraDataLength          uint8    `json:"extra_data_length"`
 	ExtraData                []byte   `json:"extra_data"`
+	Version                  uint8    `json:"version"`
+	SourceTokenAddressLength uint8    `json:"source_token_address_length"`
+	DestTokenAddressLength   uint8    `json:"dest_token_address_length"`
+	TokenReceiverLength      uint8    `json:"token_receiver_length"`
+	ExtraDataLength          uint8    `json:"extra_data_length"`
 }
 
-// Encode returns the canonical encoding of this token transfer
+// Encode returns the canonical encoding of this token transfer.
 func (tt *TokenTransfer) Encode() []byte {
 	var buf bytes.Buffer
 
@@ -105,7 +68,7 @@ func (tt *TokenTransfer) Encode() []byte {
 	return buf.Bytes()
 }
 
-// DecodeTokenTransfer decodes a TokenTransfer from bytes
+// DecodeTokenTransfer decodes a TokenTransfer from bytes.
 func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 	if len(data) < MinSizeRequiredMsgTokenFields { // minimum size: version(1) + amount(32) + length(1)
 		return nil, fmt.Errorf("data too short for token transfer")
@@ -180,33 +143,30 @@ func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 	return tt, nil
 }
 
-// Message represents the chain-agnostic CCIP message format
+// Message represents the chain-agnostic CCIP message format.
 type Message struct {
-	// Protocol header
-	Version              uint8                   `json:"version"`
-	SourceChainSelector  cciptypes.ChainSelector `json:"source_chain_selector"`
-	DestChainSelector    cciptypes.ChainSelector `json:"dest_chain_selector"`
-	SequenceNumber       cciptypes.SeqNum        `json:"sequence_number"`
-	OnRampAddressLength  uint8                   `json:"on_ramp_address_length"`
-	OnRampAddress        []byte                  `json:"on_ramp_address"`
-	OffRampAddressLength uint8                   `json:"off_ramp_address_length"`
-	OffRampAddress       []byte                  `json:"off_ramp_address"`
-
-	// User provided data
-	Finality            uint16 `json:"finality"`
-	SenderLength        uint8  `json:"sender_length"`
-	Sender              []byte `json:"sender"`
-	ReceiverLength      uint8  `json:"receiver_length"`
-	Receiver            []byte `json:"receiver"`
-	DestBlobLength      uint16 `json:"dest_blob_length"`
-	DestBlob            []byte `json:"dest_blob"`
-	TokenTransferLength uint16 `json:"token_transfer_length"`
-	TokenTransfer       []byte `json:"token_transfer"`
-	DataLength          uint16 `json:"data_length"`
-	Data                []byte `json:"data"`
+	Sender               []byte        `json:"sender"`
+	Data                 []byte        `json:"data"`
+	OnRampAddress        []byte        `json:"on_ramp_address"`
+	TokenTransfer        []byte        `json:"token_transfer"`
+	OffRampAddress       []byte        `json:"off_ramp_address"`
+	DestBlob             []byte        `json:"dest_blob"`
+	Receiver             []byte        `json:"receiver"`
+	SourceChainSelector  ChainSelector `json:"source_chain_selector"`
+	DestChainSelector    ChainSelector `json:"dest_chain_selector"`
+	SequenceNumber       SeqNum        `json:"sequence_number"`
+	Finality             uint16        `json:"finality"`
+	DestBlobLength       uint16        `json:"dest_blob_length"`
+	TokenTransferLength  uint16        `json:"token_transfer_length"`
+	DataLength           uint16        `json:"data_length"`
+	ReceiverLength       uint8         `json:"receiver_length"`
+	SenderLength         uint8         `json:"sender_length"`
+	Version              uint8         `json:"version"`
+	OffRampAddressLength uint8         `json:"off_ramp_address_length"`
+	OnRampAddressLength  uint8         `json:"on_ramp_address_length"`
 }
 
-// Encode returns the canonical encoding of this message
+// Encode returns the canonical encoding of this message.
 func (m *Message) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -266,7 +226,7 @@ func (m *Message) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// DecodeMessage decodes a Message from bytes
+// DecodeMessage decodes a Message from bytes.
 func DecodeMessage(data []byte) (*Message, error) {
 	if len(data) < MinSizeRequiredMsgFields {
 		return nil, fmt.Errorf("data too short for message")
@@ -294,9 +254,9 @@ func DecodeMessage(data []byte) (*Message, error) {
 		return nil, fmt.Errorf("failed to read sequence number: %w", err)
 	}
 
-	msg.SourceChainSelector = cciptypes.ChainSelector(sourceChain)
-	msg.DestChainSelector = cciptypes.ChainSelector(destChain)
-	msg.SequenceNumber = cciptypes.SeqNum(seqNum)
+	msg.SourceChainSelector = ChainSelector(sourceChain)
+	msg.DestChainSelector = ChainSelector(destChain)
+	msg.SequenceNumber = SeqNum(seqNum)
 
 	// Read on-ramp address
 	onRampLen, err := reader.ReadByte()
@@ -388,48 +348,46 @@ func DecodeMessage(data []byte) (*Message, error) {
 	return msg, nil
 }
 
-// MessageID returns the message ID of this message (keccak256 of the canonical encoding)
-func (m *Message) MessageID() (cciptypes.Bytes32, error) {
+// MessageID returns the message ID of this message (keccak256 of the canonical encoding).
+func (m *Message) MessageID() (Bytes32, error) {
 	encoded, err := m.Encode()
 	if err != nil {
-		return cciptypes.Bytes32{}, err
+		return Bytes32{}, err
 	}
 	hash := crypto.Keccak256(encoded)
-	var result cciptypes.Bytes32
+	var result Bytes32
 	copy(result[:], hash)
 	return result, nil
 }
 
-// ReceiptWithBlob represents a chain-agnostic receipt with blob
+// ReceiptWithBlob represents a chain-agnostic receipt with blob.
 type ReceiptWithBlob struct {
 	Issuer            UnknownAddress `json:"issuer"`
-	DestGasLimit      uint64         `json:"dest_gas_limit"`
-	DestBytesOverhead uint32         `json:"dest_bytes_overhead"`
 	Blob              []byte         `json:"blob"`
 	ExtraArgs         []byte         `json:"extra_args"`
+	DestGasLimit      uint64         `json:"dest_gas_limit"`
+	DestBytesOverhead uint32         `json:"dest_bytes_overhead"`
 }
 
-// CCVData represents Cross-Chain Verification data
+// CCVData represents Cross-Chain Verification data.
 type CCVData struct {
-	MessageID             cciptypes.Bytes32       `json:"message_id"`
-	SequenceNumber        cciptypes.SeqNum        `json:"sequence_number"`
-	SourceChainSelector   cciptypes.ChainSelector `json:"source_chain_selector"`
-	DestChainSelector     cciptypes.ChainSelector `json:"dest_chain_selector"`
-	SourceVerifierAddress UnknownAddress          `json:"source_verifier_address"`
-	DestVerifierAddress   UnknownAddress          `json:"dest_verifier_address"`
-	CCVData               []byte                  `json:"ccv_data"`      // The actual proof/signature
-	BlobData              []byte                  `json:"blob_data"`     // Additional verifier-specific data
-	Timestamp             int64                   `json:"timestamp"`     // Unix timestamp when verification completed (in microseconds)
-	Message               Message                 `json:"message"`       // Complete message event being verified
-	ReceiptBlobs          []ReceiptWithBlob       `json:"receipt_blobs"` // All receipt blobs for the message
+	SourceVerifierAddress UnknownAddress    `json:"source_verifier_address"`
+	DestVerifierAddress   UnknownAddress    `json:"dest_verifier_address"`
+	CCVData               []byte            `json:"ccv_data"`
+	BlobData              []byte            `json:"blob_data"`
+	ReceiptBlobs          []ReceiptWithBlob `json:"receipt_blobs"`
+	Message               Message           `json:"message"`
+	SequenceNumber        SeqNum            `json:"sequence_number"`
+	SourceChainSelector   ChainSelector     `json:"source_chain_selector"`
+	DestChainSelector     ChainSelector     `json:"dest_chain_selector"`
+	Timestamp             int64             `json:"timestamp"`
+	MessageID             Bytes32           `json:"message_id"`
 }
 
 // QueryResponse represents the response from CCV data queries.
 type QueryResponse struct {
-	// Data organized by destination chain selector
-	Data CCVData `json:"data"`
-	// Timestamp when the data was written (optional).
-	Timestamp *int64 `json:"timestamp,omitempty"`
+	Timestamp *int64  `json:"timestamp,omitempty"`
+	Data      CCVData `json:"data"`
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
@@ -446,7 +404,7 @@ type OffchainStorageReader interface {
 
 // Helper functions for creating empty/default values
 
-// NewEmptyTokenTransfer creates an empty token transfer
+// NewEmptyTokenTransfer creates an empty token transfer.
 func NewEmptyTokenTransfer() *TokenTransfer {
 	return &TokenTransfer{
 		Version:                  MessageVersion,
@@ -462,48 +420,58 @@ func NewEmptyTokenTransfer() *TokenTransfer {
 	}
 }
 
-// NewMessage creates a new message with the given parameters
+// NewMessage creates a new message with the given parameters.
 func NewMessage(
-	sourceChain, destChain cciptypes.ChainSelector,
-	sequenceNumber cciptypes.SeqNum,
+	sourceChain, destChain ChainSelector,
+	sequenceNumber SeqNum,
 	onRampAddress, offRampAddress UnknownAddress,
 	finality uint16,
 	sender, receiver UnknownAddress,
 	destBlob, data []byte,
 	tokenTransfer *TokenTransfer,
-) *Message {
+) (*Message, error) {
 	if tokenTransfer == nil {
 		tokenTransfer = NewEmptyTokenTransfer()
 	}
-
+	if len(onRampAddress) > math.MaxUint8 {
+		return nil, fmt.Errorf("onRampAddress length exceeds maximum value")
+	}
+	if len(offRampAddress) > math.MaxUint8 {
+		return nil, fmt.Errorf("offRampAddress length exceeds maximum value")
+	}
+	if len(sender) > math.MaxUint8 {
+		return nil, fmt.Errorf("sender length exceeds maximum value")
+	}
+	if len(receiver) > math.MaxUint8 {
+		return nil, fmt.Errorf("receiver length exceeds maximum value")
+	}
 	tokenTransferBytes := tokenTransfer.Encode()
-
+	if len(tokenTransferBytes) > math.MaxUint8 {
+		return nil, fmt.Errorf("tokenTransferBytes length exceeds maximum value")
+	}
+	if len(data) > math.MaxUint8 {
+		return nil, fmt.Errorf("data length exceeds maximum value")
+	}
+	//nolint:gosec // all verified
 	return &Message{
-		Version:             MessageVersion,
-		SourceChainSelector: sourceChain,
-		DestChainSelector:   destChain,
-		SequenceNumber:      sequenceNumber,
-		// #nosec G115 - ignore for now
-		OnRampAddressLength: uint8(len(onRampAddress)),
-		OnRampAddress:       onRampAddress.Bytes(),
-		// #nosec G115 - ignore for now
+		Version:              MessageVersion,
+		SourceChainSelector:  sourceChain,
+		DestChainSelector:    destChain,
+		SequenceNumber:       sequenceNumber,
+		OnRampAddressLength:  uint8(len(onRampAddress)),
+		OnRampAddress:        onRampAddress.Bytes(),
 		OffRampAddressLength: uint8(len(offRampAddress)),
 		OffRampAddress:       offRampAddress.Bytes(),
 		Finality:             finality,
-		// #nosec G115 - ignore for now
-		SenderLength: uint8(len(sender)),
-		Sender:       sender.Bytes(),
-		// #nosec G115 - ignore for now
-		ReceiverLength: uint8(len(receiver)),
-		Receiver:       receiver.Bytes(),
-		// #nosec G115 - ignore for now
-		DestBlobLength: uint16(len(destBlob)),
-		DestBlob:       destBlob,
-		// #nosec G115 - ignore for now
-		TokenTransferLength: uint16(len(tokenTransferBytes)),
-		TokenTransfer:       tokenTransferBytes,
-		// #nosec G115 - ignore for now
-		DataLength: uint16(len(data)),
-		Data:       data,
-	}
+		SenderLength:         uint8(len(sender)),
+		Sender:               sender.Bytes(),
+		ReceiverLength:       uint8(len(receiver)),
+		Receiver:             receiver.Bytes(),
+		DestBlobLength:       uint16(len(destBlob)),
+		DestBlob:             destBlob,
+		TokenTransferLength:  uint16(len(tokenTransferBytes)),
+		TokenTransfer:        tokenTransferBytes,
+		DataLength:           uint16(len(data)),
+		Data:                 data,
+	}, nil
 }

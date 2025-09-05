@@ -8,21 +8,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 )
 
-func createTestMessage(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSelector cciptypes.ChainSelector) common.Message {
+func createTestMessage(t *testing.T, seqNum types.SeqNum, sourceChainSelector, destChainSelector types.ChainSelector) types.Message {
 	// Create empty token transfer
-	tokenTransfer := common.NewEmptyTokenTransfer()
+	tokenTransfer := types.NewEmptyTokenTransfer()
 
-	sender := common.UnknownAddress([]byte("sender_address"))
-	receiver := common.UnknownAddress([]byte("receiver_address"))
-	onRampAddr := common.UnknownAddress([]byte("onramp_address"))
-	offRampAddr := common.UnknownAddress([]byte("offramp_address"))
+	sender := types.UnknownAddress([]byte("sender_address"))
+	receiver := types.UnknownAddress([]byte("receiver_address"))
+	onRampAddr := types.UnknownAddress([]byte("onramp_address"))
+	offRampAddr := types.UnknownAddress([]byte("offramp_address"))
 
-	return *common.NewMessage(
+	message, err := types.NewMessage(
 		sourceChainSelector,
 		destChainSelector,
 		seqNum,
@@ -35,6 +34,8 @@ func createTestMessage(seqNum cciptypes.SeqNum, sourceChainSelector, destChainSe
 		[]byte("test data"), // data
 		tokenTransfer,
 	)
+	require.NoError(t, err)
+	return *message
 }
 
 func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
@@ -45,7 +46,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Create test CCV data
-	testData := []common.CCVData{
+	testData := []types.CCVData{
 		{
 			MessageID:             [32]byte{1, 2, 3},
 			SequenceNumber:        100,
@@ -56,7 +57,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 			CCVData:               []byte("signature1"),
 			BlobData:              []byte("blob1"),
 			Timestamp:             time.Now().Unix(),
-			ReceiptBlobs: []common.ReceiptWithBlob{
+			ReceiptBlobs: []types.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,
 					DestGasLimit:      200000,
@@ -65,7 +66,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 					ExtraArgs:         []byte{},
 				},
 			},
-			Message: createTestMessage(100, 1, 2),
+			Message: createTestMessage(t, 100, 1, 2),
 		},
 		{
 			MessageID:             [32]byte{4, 5, 6},
@@ -77,7 +78,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 			CCVData:               []byte("signature2"),
 			BlobData:              []byte("blob2"),
 			Timestamp:             time.Now().Unix() + 1,
-			ReceiptBlobs: []common.ReceiptWithBlob{
+			ReceiptBlobs: []types.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,
 					DestGasLimit:      300000,
@@ -86,7 +87,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 					ExtraArgs:         []byte("test"),
 				},
 			},
-			Message: createTestMessage(101, 1, 2),
+			Message: createTestMessage(t, 101, 1, 2),
 		},
 	}
 
@@ -112,7 +113,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 	ctx := t.Context()
 
 	setup := func(
-		destChains, sourceChains []cciptypes.ChainSelector,
+		destChains, sourceChains []types.ChainSelector,
 		limit uint64,
 		offset uint64,
 		startTimestamp int64,
@@ -127,7 +128,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		verifierAddress := []byte("0x1234")
 
 		// Create test data with different timestamps by storing at different times
-		testData1 := []common.CCVData{
+		testData1 := []types.CCVData{
 			{
 				MessageID:             [32]byte{1},
 				SequenceNumber:        100,
@@ -136,7 +137,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(100, 1, 2),
+				Message:               createTestMessage(t, 100, 1, 2),
 			},
 		}
 
@@ -148,7 +149,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		timeProvider = func() int64 { return baseTime + 10000000 } // 10 seconds later in microseconds
 		storage.timeProvider = timeProvider
 
-		testData2 := []common.CCVData{
+		testData2 := []types.CCVData{
 			{
 				MessageID:             [32]byte{2},
 				SequenceNumber:        101,
@@ -157,7 +158,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig2"),
-				Message:               createTestMessage(101, 1, 2),
+				Message:               createTestMessage(t, 101, 1, 2),
 			},
 		}
 
@@ -168,7 +169,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		timeProvider = func() int64 { return baseTime + 20000000 } // 20 seconds later in microseconds
 		storage.timeProvider = timeProvider
 
-		testData3 := []common.CCVData{
+		testData3 := []types.CCVData{
 			{
 				MessageID:             [32]byte{3},
 				SequenceNumber:        102,
@@ -177,7 +178,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				SourceVerifierAddress: verifierAddress,
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig3"),
-				Message:               createTestMessage(102, 1, 2),
+				Message:               createTestMessage(t, 102, 1, 2),
 			},
 		}
 
@@ -189,39 +190,39 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		destChains    []types.ChainSelector
+		sourceChains  []types.ChainSelector
+		expectedSeqs  []types.SeqNum
 		startTime     int64
-		destChains    []cciptypes.ChainSelector
-		sourceChains  []cciptypes.ChainSelector
 		limit         int
 		offset        int
 		expectedCount int
-		expectedSeqs  []cciptypes.SeqNum
 	}{
 		{
 			name:          "all data",
 			startTime:     baseTime - 1,
-			destChains:    []cciptypes.ChainSelector{2},
-			sourceChains:  []cciptypes.ChainSelector{1},
+			destChains:    []types.ChainSelector{2},
+			sourceChains:  []types.ChainSelector{1},
 			limit:         100,
 			offset:        0,
 			expectedCount: 3,
-			expectedSeqs:  []cciptypes.SeqNum{100, 101, 102},
+			expectedSeqs:  []types.SeqNum{100, 101, 102},
 		},
 		{
 			name:          "middle range",
 			startTime:     baseTime + 5000000, // 5 seconds later
-			destChains:    []cciptypes.ChainSelector{2},
-			sourceChains:  []cciptypes.ChainSelector{1},
+			destChains:    []types.ChainSelector{2},
+			sourceChains:  []types.ChainSelector{1},
 			limit:         100,
 			offset:        0,
 			expectedCount: 2,
-			expectedSeqs:  []cciptypes.SeqNum{101, 102},
+			expectedSeqs:  []types.SeqNum{101, 102},
 		},
 		{
 			name:          "no data in range",
 			startTime:     baseTime + 30000000, // 30 seconds later
-			destChains:    []cciptypes.ChainSelector{2},
-			sourceChains:  []cciptypes.ChainSelector{1},
+			destChains:    []types.ChainSelector{2},
+			sourceChains:  []types.ChainSelector{1},
 			limit:         100,
 			offset:        0,
 			expectedCount: 0,
@@ -230,22 +231,22 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		{
 			name:          "pagination test - first page",
 			startTime:     baseTime - 1,
-			destChains:    []cciptypes.ChainSelector{2},
-			sourceChains:  []cciptypes.ChainSelector{1},
+			destChains:    []types.ChainSelector{2},
+			sourceChains:  []types.ChainSelector{1},
 			limit:         2,
 			offset:        0,
 			expectedCount: 2,
-			expectedSeqs:  []cciptypes.SeqNum{100, 101},
+			expectedSeqs:  []types.SeqNum{100, 101},
 		},
 		{
 			name:          "pagination test - second page",
 			startTime:     baseTime - 1,
-			destChains:    []cciptypes.ChainSelector{2},
-			sourceChains:  []cciptypes.ChainSelector{1},
+			destChains:    []types.ChainSelector{2},
+			sourceChains:  []types.ChainSelector{1},
 			limit:         2,
 			offset:        2,
 			expectedCount: 1,
-			expectedSeqs:  []cciptypes.SeqNum{102},
+			expectedSeqs:  []types.SeqNum{102},
 		},
 	}
 
@@ -259,7 +260,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			require.Equal(t, tt.expectedCount, len(response))
 
 			// Verify sequence numbers match expected by collecting from all destination chains
-			var actualSeqs []cciptypes.SeqNum
+			var actualSeqs []types.SeqNum
 			for _, ccv := range response {
 				actualSeqs = append(actualSeqs, ccv.Data.SequenceNumber)
 			}
@@ -282,7 +283,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	messageID := [32]byte{1, 2, 3, 4, 5}
-	testData := []common.CCVData{
+	testData := []types.CCVData{
 		{
 			MessageID:             messageID,
 			SequenceNumber:        100,
@@ -293,7 +294,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 			CCVData:               []byte("signature"),
 			BlobData:              []byte("blob"),
 			Timestamp:             time.Now().Unix(),
-			ReceiptBlobs: []common.ReceiptWithBlob{
+			ReceiptBlobs: []types.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,
 					DestGasLimit:      150000,
@@ -302,7 +303,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 					ExtraArgs:         []byte{},
 				},
 			},
-			Message: createTestMessage(100, 1, 2),
+			Message: createTestMessage(t, 100, 1, 2),
 		},
 	}
 
@@ -313,8 +314,8 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	// Test finding existing message
 	result, err := storage.ReadCCVDataByMessageID(messageID)
 	require.NoError(t, err)
-	require.Equal(t, cciptypes.Bytes32(messageID), result.MessageID)
-	require.Equal(t, cciptypes.SeqNum(100), result.SequenceNumber)
+	require.Equal(t, types.Bytes32(messageID), result.MessageID)
+	require.Equal(t, types.SeqNum(100), result.SequenceNumber)
 
 	// Test finding non-existing message
 	nonExistentID := [32]byte{9, 9, 9}
@@ -333,30 +334,30 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	verifier2 := []byte("0x2222")
 
 	// Create data for different verifiers
-	data1 := []common.CCVData{
+	data1 := []types.CCVData{
 		{
 			MessageID:             [32]byte{1},
 			SequenceNumber:        100,
 			SourceVerifierAddress: verifier1,
 			CCVData:               []byte("sig1"),
-			Message:               createTestMessage(100, 1, 2),
+			Message:               createTestMessage(t, 100, 1, 2),
 		},
 		{
 			MessageID:             [32]byte{2},
 			SequenceNumber:        101,
 			SourceVerifierAddress: verifier1,
 			CCVData:               []byte("sig2"),
-			Message:               createTestMessage(101, 1, 2),
+			Message:               createTestMessage(t, 101, 1, 2),
 		},
 	}
 
-	data2 := []common.CCVData{
+	data2 := []types.CCVData{
 		{
 			MessageID:             [32]byte{3},
 			SequenceNumber:        200,
 			SourceVerifierAddress: verifier2,
 			CCVData:               []byte("sig3"),
-			Message:               createTestMessage(200, 1, 2),
+			Message:               createTestMessage(t, 200, 1, 2),
 		},
 	}
 
@@ -378,9 +379,9 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	require.Len(t, result2, 1)
 
 	// Verify data is separate
-	require.Equal(t, cciptypes.SeqNum(100), result1[0].SequenceNumber)
-	require.Equal(t, cciptypes.SeqNum(101), result1[1].SequenceNumber)
-	require.Equal(t, cciptypes.SeqNum(200), result2[0].SequenceNumber)
+	require.Equal(t, types.SeqNum(100), result1[0].SequenceNumber)
+	require.Equal(t, types.SeqNum(101), result1[1].SequenceNumber)
+	require.Equal(t, types.SeqNum(200), result2[0].SequenceNumber)
 }
 
 func TestInMemoryOffchainStorage_Clear(t *testing.T) {
@@ -391,12 +392,12 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Add some data
-	testData := []common.CCVData{
+	testData := []types.CCVData{
 		{
 			MessageID:             [32]byte{1, 2, 3},
 			SourceVerifierAddress: verifierAddress,
 			CCVData:               []byte("signature"),
-			Message:               createTestMessage(100, 1, 2),
+			Message:               createTestMessage(t, 100, 1, 2),
 		},
 	}
 
@@ -425,12 +426,12 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
 	lggr := logger.Test(t)
 	storage := NewInMemoryOffchainStorageWithTimeProvider(
-		lggr, DefaultTimeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, 100, 0, 0)
+		lggr, DefaultTimeProvider, []types.ChainSelector{2}, []types.ChainSelector{1}, 100, 0, 0)
 
 	ctx := context.Background()
 
 	// Write empty data should not error
-	err := storage.WriteCCVData(ctx, []common.CCVData{})
+	err := storage.WriteCCVData(ctx, []types.CCVData{})
 	require.NoError(t, err)
 
 	// Get data for non-existent verifier
@@ -453,11 +454,11 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Create data - timestamp will be set by storage layer
-	testData := []common.CCVData{
+	testData := []types.CCVData{
 		{
 			MessageID:             [32]byte{1},
 			SourceVerifierAddress: verifierAddress,
-			Message:               createTestMessage(100, 1, 2),
+			Message:               createTestMessage(t, 100, 1, 2),
 		},
 	}
 
@@ -470,13 +471,13 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 	require.Len(t, result, 1)
 
 	// The storage layer manages timestamps internally, so we just verify data was stored
-	require.Equal(t, cciptypes.Bytes32([32]byte{1}), result[0].MessageID)
+	require.Equal(t, types.Bytes32([32]byte{1}), result[0].MessageID)
 }
 
 func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	lggr := logger.Test(t)
 	storage := NewInMemoryOffchainStorageWithTimeProvider(
-		lggr, DefaultTimeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, 100, 0, 0)
+		lggr, DefaultTimeProvider, []types.ChainSelector{2}, []types.ChainSelector{1}, 100, 0, 0)
 
 	// Create reader and writer views
 	reader := CreateReaderOnly(storage)
@@ -486,7 +487,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Test data
-	testData := []common.CCVData{
+	testData := []types.CCVData{
 		{
 			MessageID:             [32]byte{1, 2, 3},
 			SequenceNumber:        100,
@@ -496,7 +497,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature1"),
 			BlobData:              []byte("blob1"),
-			ReceiptBlobs: []common.ReceiptWithBlob{
+			ReceiptBlobs: []types.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,
 					DestGasLimit:      250000,
@@ -505,7 +506,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 					ExtraArgs:         []byte("extra"),
 				},
 			},
-			Message: createTestMessage(100, 1, 2),
+			Message: createTestMessage(t, 100, 1, 2),
 		},
 	}
 
@@ -523,7 +524,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 
 	// Verify all data is present
 	require.Len(t, response, 1)
-	require.Equal(t, cciptypes.ChainSelector(2), response[0].Data.DestChainSelector)
+	require.Equal(t, types.ChainSelector(2), response[0].Data.DestChainSelector)
 }
 
 func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, limit uint64) *InMemoryOffchainStorage {
@@ -532,12 +533,12 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 	// Use fixed time provider for predictable tests
 	timeProvider := func() int64 { return baseTime }
 	storage := NewInMemoryOffchainStorageWithTimeProvider(
-		lggr, timeProvider, []cciptypes.ChainSelector{2}, []cciptypes.ChainSelector{1}, limit, 0, baseTime-1)
+		lggr, timeProvider, []types.ChainSelector{2}, []types.ChainSelector{1}, limit, 0, baseTime-1)
 
 	// create numMessages, each 10 seconds apart
 	for i := 0; i < numMessages; i++ {
 		storage.timeProvider = func() int64 { return baseTime + (10 * int64(i)) }
-		testData1 := []common.CCVData{
+		testData1 := []types.CCVData{
 			{
 				MessageID:             [32]byte{1},
 				SequenceNumber:        100,
@@ -546,7 +547,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 				SourceVerifierAddress: []byte("0x1234"),
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(100, 1, 2),
+				Message:               createTestMessage(t, 100, 1, 2),
 			},
 		}
 
@@ -638,10 +639,10 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 
 	{
 		// Add 1 more message, it should be returned by the next read.
-		seqNum := cciptypes.SeqNum(987654321)
+		seqNum := types.SeqNum(987654321)
 		timeProvider := func() int64 { return baseTime + (10 * int64(100)) }
 		storage.timeProvider = timeProvider
-		testData1 := []common.CCVData{
+		testData1 := []types.CCVData{
 			{
 				MessageID:             [32]byte{1},
 				SequenceNumber:        seqNum,
@@ -650,7 +651,7 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 				SourceVerifierAddress: []byte("0x1234"),
 				DestVerifierAddress:   []byte("0x4567"),
 				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(100, 1, 2),
+				Message:               createTestMessage(t, 100, 1, 2),
 			},
 		}
 		err := storage.WriteCCVData(t.Context(), testData1)
@@ -711,9 +712,9 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 	// Query for both destination chains
 	response, err := storage.GetCCVDataByTimestamp(
 		ctx,
-		[]cciptypes.ChainSelector{10, 20}, // Both dest chains
+		[]types.ChainSelector{10, 20}, // Both dest chains
 		0,                                 // start timestamp
-		[]cciptypes.ChainSelector{1},      // source chain
+		[]types.ChainSelector{1},      // source chain
 		100,                               // limit
 		0,                                 // offset
 	)
@@ -733,9 +734,9 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 	// Query for only chain 10
 	response, err = storage.GetCCVDataByTimestamp(
 		ctx,
-		[]cciptypes.ChainSelector{10}, // Only chain 10
+		[]types.ChainSelector{10}, // Only chain 10
 		0,                             // start timestamp
-		[]cciptypes.ChainSelector{1},  // source chain
+		[]types.ChainSelector{1},  // source chain
 		100,                           // limit
 		0,                             // offset
 	)

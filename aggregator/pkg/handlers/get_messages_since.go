@@ -14,7 +14,7 @@ type GetMessagesSinceHandler struct {
 
 // Handle processes the get request and retrieves the commit verification data since the specified time.
 func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
-	storage := h.storage.QueryAggregatedReports(ctx, req.Since.Seconds, time.Now().Unix())
+	storage := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix())
 
 	records := make([]*aggregator.CCVData, 0, len(storage))
 	for _, report := range storage {

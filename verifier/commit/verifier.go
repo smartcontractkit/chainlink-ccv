@@ -4,21 +4,22 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/utils"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// Verifier provides a basic verifier implementation using the new message format
+// Verifier provides a basic verifier implementation using the new message format.
 type Verifier struct {
-	config types.CoordinatorConfig
 	signer pkg.MessageSigner
 	lggr   logger.Logger
+	config types.CoordinatorConfig
 }
 
-// NewCommitVerifier creates a new commit verifier
+// NewCommitVerifier creates a new commit verifier.
 func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) types.Verifier {
 	return &Verifier{
 		config: config,
@@ -27,9 +28,9 @@ func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner,
 	}
 }
 
-// ValidateMessage validates the new message format
-func (cv *Verifier) ValidateMessage(message common.Message) error {
-	if message.Version != common.MessageVersion {
+// ValidateMessage validates the new message format.
+func (cv *Verifier) ValidateMessage(message protocol.Message) error {
+	if message.Version != protocol.MessageVersion {
 		return fmt.Errorf("unsupported message version: %d", message.Version)
 	}
 
@@ -44,8 +45,8 @@ func (cv *Verifier) ValidateMessage(message common.Message) error {
 	return nil
 }
 
-// VerifyMessage verifies a message using the new chain-agnostic format
-func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.VerificationTask, ccvDataCh chan<- common.CCVData, verificationErrorCh chan<- types.VerificationError) {
+// VerifyMessage verifies a message using the new chain-agnostic format.
+func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.VerificationTask, ccvDataCh chan<- protocol.CCVData, verificationErrorCh chan<- types.VerificationError) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()

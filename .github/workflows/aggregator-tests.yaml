@@ -3,9 +3,9 @@ name: Aggregator CI
 on:
   push:
     paths:
-      - 'aggregator/**'
-  pull_request:
-    paths:
+      - '.github/**'
+      - 'protocol/**'
+      - 'common/**'
       - 'aggregator/**'
 
 defaults:

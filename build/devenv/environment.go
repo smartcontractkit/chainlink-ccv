@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
@@ -16,16 +16,16 @@ import (
 )
 
 type Cfg struct {
-	CCV             *CCV                      `toml:"ccv" validate:"required"`
+	CCV             *CCV                      `toml:"ccv"              validate:"required"`
 	StorageProvider *s3provider.Input         `toml:"storage_provider" validate:"required"`
 	JD              *jd.Input                 `toml:"jd"`
+	Fake            *services.FakeInput       `toml:"fake"             validate:"required"`
+	Verifier        *services.VerifierInput   `toml:"verifier"         validate:"required"`
+	Executor        *services.ExecutorInput   `toml:"executor"         validate:"required"`
+	Indexer         *services.IndexerInput    `toml:"indexer"          validate:"required"`
+	Aggregator      *services.AggregatorInput `toml:"aggregator"       validate:"required"`
 	Blockchains     []*blockchain.Input       `toml:"blockchains"      validate:"required"`
 	NodeSets        []*ns.Input               `toml:"nodesets"         validate:"required"`
-	Fake            *services.FakeInput       `toml:"fake"      validate:"required"`
-	Verifier        *services.VerifierInput   `toml:"verifier" validate:"required"`
-	Executor        *services.ExecutorInput   `toml:"executor" validate:"required"`
-	Indexer         *services.IndexerInput    `toml:"indexer" validate:"required"`
-	Aggregator      *services.AggregatorInput `toml:"aggregator" validate:"required"`
 }
 
 // verifyEnvironment internal function describing how to verify your environment is working.

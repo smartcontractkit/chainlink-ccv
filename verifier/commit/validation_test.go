@@ -3,20 +3,21 @@ package commit
 import (
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
+
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// TestReceiptBlobDecodingErrors tests receipt blob decoding error conditions
+// TestReceiptBlobDecodingErrors tests receipt blob decoding error conditions.
 func TestReceiptBlobDecodingErrors(t *testing.T) {
 	tests := []struct {
 		name      string
-		data      []byte
 		expectErr string
+		data      []byte
 	}{
 		{
 			name:      "empty_data",
@@ -39,13 +40,13 @@ func TestReceiptBlobDecodingErrors(t *testing.T) {
 	}
 }
 
-// TestSignatureEncodingErrors tests signature encoding error conditions
+// TestSignatureEncodingErrors tests signature encoding error conditions.
 func TestSignatureEncodingErrors(t *testing.T) {
 	tests := []struct {
 		name      string
+		expectErr string
 		rs        [][32]byte
 		ss        [][32]byte
-		expectErr string
 	}{
 		{
 			name:      "mismatched_lengths",
@@ -64,39 +65,39 @@ func TestSignatureEncodingErrors(t *testing.T) {
 	}
 }
 
-// TestValidateMessageErrors tests message validation error conditions
+// TestValidateMessageErrors tests message validation error conditions.
 func TestValidateMessageErrors(t *testing.T) {
 	tests := []struct {
-		name      string
 		task      *types.VerificationTask
-		verifier  common.UnknownAddress
+		name      string
 		expectErr string
+		verifier  protocol.UnknownAddress
 	}{
 		{
 			name:      "nil_task",
 			task:      nil,
-			verifier:  common.UnknownAddress{},
+			verifier:  protocol.UnknownAddress{},
 			expectErr: "verification task is nil",
 		},
 		{
 			name: "unsupported_version",
 			task: &types.VerificationTask{
-				Message: common.Message{
+				Message: protocol.Message{
 					Version: 99, // Unsupported version
 				},
 			},
-			verifier:  common.UnknownAddress{},
+			verifier:  protocol.UnknownAddress{},
 			expectErr: "unsupported message version",
 		},
 		{
 			name: "verifier_not_found",
 			task: &types.VerificationTask{
-				Message: common.Message{
-					Version: common.MessageVersion,
+				Message: protocol.Message{
+					Version: protocol.MessageVersion,
 				},
-				ReceiptBlobs: []common.ReceiptWithBlob{
+				ReceiptBlobs: []protocol.ReceiptWithBlob{
 					{
-						Issuer:            common.UnknownAddress([]byte("different")),
+						Issuer:            protocol.UnknownAddress([]byte("different")),
 						DestGasLimit:      100000, // Test gas limit
 						DestBytesOverhead: 25,     // Test bytes overhead
 						Blob:              []byte("blob"),
@@ -104,7 +105,7 @@ func TestValidateMessageErrors(t *testing.T) {
 					},
 				},
 			},
-			verifier:  common.UnknownAddress([]byte("target")),
+			verifier:  protocol.UnknownAddress([]byte("target")),
 			expectErr: "not found as issuer",
 		},
 	}
@@ -118,23 +119,23 @@ func TestValidateMessageErrors(t *testing.T) {
 	}
 }
 
-// TestValidateMessage tests message validation with valid cases
+// TestValidateMessage tests message validation with valid cases.
 func TestValidateMessage(t *testing.T) {
-	sender, err := common.RandomAddress()
+	sender, err := pkg.RandomAddress()
 	require.NoError(t, err)
-	receiver, err := common.RandomAddress()
+	receiver, err := pkg.RandomAddress()
 	require.NoError(t, err)
-	onRampAddr, err := common.RandomAddress()
+	onRampAddr, err := pkg.RandomAddress()
 	require.NoError(t, err)
-	offRampAddr, err := common.RandomAddress()
+	offRampAddr, err := pkg.RandomAddress()
 	require.NoError(t, err)
-	verifierAddr, err := common.RandomAddress()
+	verifierAddr, err := pkg.RandomAddress()
 	require.NoError(t, err)
 
-	message := common.NewMessage(
-		cciptypes.ChainSelector(1337),
-		cciptypes.ChainSelector(2337),
-		cciptypes.SeqNum(123),
+	message, err := protocol.NewMessage(
+		protocol.ChainSelector(1337),
+		protocol.ChainSelector(2337),
+		protocol.SeqNum(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -142,13 +143,14 @@ func TestValidateMessage(t *testing.T) {
 		receiver,
 		[]byte("test data"),
 		[]byte("test data"),
-		common.NewEmptyTokenTransfer(),
+		protocol.NewEmptyTokenTransfer(),
 	)
+	require.NoError(t, err)
 
 	// Create verification task with matching verifier address
 	task := &types.VerificationTask{
 		Message: *message,
-		ReceiptBlobs: []common.ReceiptWithBlob{
+		ReceiptBlobs: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            verifierAddr,
 				DestGasLimit:      250000, // Test gas limit
@@ -164,7 +166,7 @@ func TestValidateMessage(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should fail with different verifier address
-	differentAddr, err := common.RandomAddress()
+	differentAddr, err := pkg.RandomAddress()
 	require.NoError(t, err)
 	err = ValidateMessage(task, differentAddr)
 	assert.Error(t, err)

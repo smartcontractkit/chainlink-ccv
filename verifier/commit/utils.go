@@ -5,14 +5,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Keccak256 computes the Keccak256 hash of the input.
@@ -25,7 +25,7 @@ func Keccak256(data []byte) [32]byte {
 
 // CalculateSignatureHash calculates signature hash using canonical binary encoding:
 // keccak256(messageHash || keccak256(verifierBlob)).
-func CalculateSignatureHash(messageHash cciptypes.Bytes32, verifierBlob []byte) ([32]byte, error) {
+func CalculateSignatureHash(messageHash protocol.Bytes32, verifierBlob []byte) ([32]byte, error) {
 	verifierBlobHash := Keccak256(verifierBlob)
 
 	// Canonical encoding: simply concatenate the two 32-byte hashes
@@ -62,7 +62,7 @@ func EncodeVerifierBlob(nonce uint64) ([]byte, error) {
 	// Create length-prefixed blob: length(2 bytes) + content
 	var buf bytes.Buffer
 	contentBytes := content.Bytes()
-	// #nosec G115 - safe because contentBytes is created here
+	//nolint:gosec // contentBytes is created here
 	if err := binary.Write(&buf, binary.BigEndian, uint16(len(contentBytes))); err != nil {
 		return nil, err
 	}
@@ -134,15 +134,18 @@ func DecodeVerifierBlobData(receiptBlob []byte) (*VerifierBlobData, error) {
 
 // EncodeSignatures encodes r and s arrays into signature format using canonical binary encoding.
 func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
-	if len(rs) != len(ss) {
+	rsLen := len(rs)
+	if rsLen != len(ss) {
 		return nil, fmt.Errorf("rs and ss arrays must have the same length")
 	}
 
 	var buf bytes.Buffer
 
 	// Encode array length as uint16 (big-endian)
-	// #nosec G115 - safe because ecdsa sigs
-	arrayLen := uint16(len(rs))
+	if rsLen > math.MaxUint16 {
+		return nil, fmt.Errorf("rs and ss arrays exceeds maximum length")
+	}
+	arrayLen := uint16(rsLen)
 	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
 		return nil, err
 	}
@@ -161,19 +164,19 @@ func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
 }
 
 // CreateCCVData creates CCVData from verification task, signature, and blob using the new format.
-func CreateCCVData(verificationTask *types.VerificationTask, signature, verifierBlob []byte, sourceVerifierAddress common.UnknownAddress) (*common.CCVData, error) {
+func CreateCCVData(verificationTask *types.VerificationTask, signature, verifierBlob []byte, sourceVerifierAddress protocol.UnknownAddress) (*protocol.CCVData, error) {
 	message := verificationTask.Message
 	messageID, err := message.MessageID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute message ID: %w", err)
 	}
-	return &common.CCVData{
+	return &protocol.CCVData{
 		MessageID:             messageID,
 		SequenceNumber:        message.SequenceNumber,
 		SourceChainSelector:   message.SourceChainSelector,
 		DestChainSelector:     message.DestChainSelector,
 		SourceVerifierAddress: sourceVerifierAddress,
-		DestVerifierAddress:   common.UnknownAddress{}, // Will be set by the caller if needed
+		DestVerifierAddress:   protocol.UnknownAddress{}, // Will be set by the caller if needed
 		CCVData:               signature,
 		BlobData:              verifierBlob,           // Additional verifier-specific data
 		Timestamp:             time.Now().UnixMicro(), // Unix timestamp in microseconds

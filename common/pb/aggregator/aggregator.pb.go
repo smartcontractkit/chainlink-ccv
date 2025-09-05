@@ -9,7 +9,6 @@ package aggregator
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -564,7 +563,7 @@ type CCVData struct {
 	CcvData []byte `protobuf:"bytes,7,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
 	// blob_data is the encoded nonce from the source chain
 	BlobData      []byte         `protobuf:"bytes,8,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
-	Timestamp     uint64         `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Timestamp     int64          `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	Message       *Message       `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
 	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,11,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -657,7 +656,7 @@ func (x *CCVData) GetBlobData() []byte {
 	return nil
 }
 
-func (x *CCVData) GetTimestamp() uint64 {
+func (x *CCVData) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
@@ -908,7 +907,7 @@ func (x *GetCCVDataForMessageRequest) GetMessageId() []byte {
 
 type GetMessagesSinceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Since         *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=since,proto3" json:"since,omitempty"`
+	Since         int64                  `protobuf:"varint,1,opt,name=since,proto3" json:"since,omitempty"`
 	NextToken     string                 `protobuf:"bytes,2,opt,name=next_token,json=nextToken,proto3" json:"next_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -944,11 +943,11 @@ func (*GetMessagesSinceRequest) Descriptor() ([]byte, []int) {
 	return file_proto_aggregator_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *GetMessagesSinceRequest) GetSince() *timestamppb.Timestamp {
+func (x *GetMessagesSinceRequest) GetSince() int64 {
 	if x != nil {
 		return x.Since
 	}
-	return nil
+	return 0
 }
 
 func (x *GetMessagesSinceRequest) GetNextToken() string {
@@ -1014,7 +1013,7 @@ var File_proto_aggregator_proto protoreflect.FileDescriptor
 
 const file_proto_aggregator_proto_rawDesc = "" +
 	"\n" +
-	"\x16proto/aggregator.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"n\n" +
+	"\x16proto/aggregator.proto\"n\n" +
 	"\x0fBlockCheckpoint\x12%\n" +
 	"\x0echain_selector\x18\x01 \x01(\x04R\rchainSelector\x124\n" +
 	"\x16finalized_block_height\x18\x02 \x01(\x04R\x14finalizedBlockHeight\"Q\n" +
@@ -1064,7 +1063,7 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x15dest_verifier_address\x18\x06 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
 	"\bccv_data\x18\a \x01(\fR\accvData\x12\x1b\n" +
 	"\tblob_data\x18\b \x01(\fR\bblobData\x12\x1c\n" +
-	"\ttimestamp\x18\t \x01(\x04R\ttimestamp\x12\"\n" +
+	"\ttimestamp\x18\t \x01(\x03R\ttimestamp\x12\"\n" +
 	"\amessage\x18\n" +
 	" \x01(\v2\b.MessageR\amessage\x121\n" +
 	"\rreceipt_blobs\x18\v \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"@\n" +
@@ -1081,9 +1080,9 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\bccv_data\x18\x01 \x01(\v2\b.CCVDataR\accvData\"<\n" +
 	"\x1bGetCCVDataForMessageRequest\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\fR\tmessageId\"j\n" +
-	"\x17GetMessagesSinceRequest\x120\n" +
-	"\x05since\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\x12\x1d\n" +
+	"message_id\x18\x01 \x01(\fR\tmessageId\"N\n" +
+	"\x17GetMessagesSinceRequest\x12\x14\n" +
+	"\x05since\x18\x01 \x01(\x03R\x05since\x12\x1d\n" +
 	"\n" +
 	"next_token\x18\x02 \x01(\tR\tnextToken\"]\n" +
 	"\x18GetMessagesSinceResponse\x12\"\n" +
@@ -1135,7 +1134,6 @@ var file_proto_aggregator_proto_goTypes = []any{
 	(*GetCCVDataForMessageRequest)(nil),  // 13: GetCCVDataForMessageRequest
 	(*GetMessagesSinceRequest)(nil),      // 14: GetMessagesSinceRequest
 	(*GetMessagesSinceResponse)(nil),     // 15: GetMessagesSinceResponse
-	(*timestamppb.Timestamp)(nil),        // 16: google.protobuf.Timestamp
 }
 var file_proto_aggregator_proto_depIdxs = []int32{
 	1,  // 0: WriteBlockCheckpointRequest.checkpoints:type_name -> BlockCheckpoint
@@ -1146,25 +1144,24 @@ var file_proto_aggregator_proto_depIdxs = []int32{
 	8,  // 5: WriteCommitCCVDataRequest.ccv_data:type_name -> CCVData
 	0,  // 6: WriteCommitCCVDataResponse.status:type_name -> WriteStatus
 	8,  // 7: ReadCommitCCVDataResponse.ccv_data:type_name -> CCVData
-	16, // 8: GetMessagesSinceRequest.since:type_name -> google.protobuf.Timestamp
-	8,  // 9: GetMessagesSinceResponse.results:type_name -> CCVData
-	9,  // 10: Aggregator.WriteCommitCCVData:input_type -> WriteCommitCCVDataRequest
-	11, // 11: Aggregator.ReadCommitCCVData:input_type -> ReadCommitCCVDataRequest
-	2,  // 12: Aggregator.WriteBlockCheckpoint:input_type -> WriteBlockCheckpointRequest
-	4,  // 13: Aggregator.ReadBlockCheckpoint:input_type -> ReadBlockCheckpointRequest
-	13, // 14: CCVDataService.GetCCVDataForMessage:input_type -> GetCCVDataForMessageRequest
-	14, // 15: CCVDataService.GetMessagesSince:input_type -> GetMessagesSinceRequest
-	10, // 16: Aggregator.WriteCommitCCVData:output_type -> WriteCommitCCVDataResponse
-	12, // 17: Aggregator.ReadCommitCCVData:output_type -> ReadCommitCCVDataResponse
-	3,  // 18: Aggregator.WriteBlockCheckpoint:output_type -> WriteBlockCheckpointResponse
-	5,  // 19: Aggregator.ReadBlockCheckpoint:output_type -> ReadBlockCheckpointResponse
-	8,  // 20: CCVDataService.GetCCVDataForMessage:output_type -> CCVData
-	15, // 21: CCVDataService.GetMessagesSince:output_type -> GetMessagesSinceResponse
-	16, // [16:22] is the sub-list for method output_type
-	10, // [10:16] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	8,  // 8: GetMessagesSinceResponse.results:type_name -> CCVData
+	9,  // 9: Aggregator.WriteCommitCCVData:input_type -> WriteCommitCCVDataRequest
+	11, // 10: Aggregator.ReadCommitCCVData:input_type -> ReadCommitCCVDataRequest
+	2,  // 11: Aggregator.WriteBlockCheckpoint:input_type -> WriteBlockCheckpointRequest
+	4,  // 12: Aggregator.ReadBlockCheckpoint:input_type -> ReadBlockCheckpointRequest
+	13, // 13: CCVDataService.GetCCVDataForMessage:input_type -> GetCCVDataForMessageRequest
+	14, // 14: CCVDataService.GetMessagesSince:input_type -> GetMessagesSinceRequest
+	10, // 15: Aggregator.WriteCommitCCVData:output_type -> WriteCommitCCVDataResponse
+	12, // 16: Aggregator.ReadCommitCCVData:output_type -> ReadCommitCCVDataResponse
+	3,  // 17: Aggregator.WriteBlockCheckpoint:output_type -> WriteBlockCheckpointResponse
+	5,  // 18: Aggregator.ReadBlockCheckpoint:output_type -> ReadBlockCheckpointResponse
+	8,  // 19: CCVDataService.GetCCVDataForMessage:output_type -> CCVData
+	15, // 20: CCVDataService.GetMessagesSince:output_type -> GetMessagesSinceResponse
+	15, // [15:21] is the sub-list for method output_type
+	9,  // [9:15] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_proto_aggregator_proto_init() }

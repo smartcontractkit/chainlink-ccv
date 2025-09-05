@@ -1,4 +1,4 @@
-package verifier
+package internal
 
 import (
 	"context"
@@ -6,23 +6,22 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	cciptypes "github.com/smartcontractkit/chainlink-common/pkg/types/ccipocr3"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // VerificationCoordinator orchestrates the verification workflow using the new message format.
 type VerificationCoordinator struct {
 	verifier     types.Verifier
-	storage      common.OffchainStorageWriter
+	storage      protocol.OffchainStorageWriter
 	lggr         logger.Logger
-	ccvDataCh    chan common.CCVData
+	ccvDataCh    chan protocol.CCVData
 	stopCh       chan struct{}
 	doneCh       chan struct{}
-	sourceStates map[cciptypes.ChainSelector]*sourceState
+	sourceStates map[protocol.ChainSelector]*sourceState
 	config       types.CoordinatorConfig
 	mu           sync.RWMutex
 	started      bool
@@ -40,10 +39,10 @@ func WithVerifier(verifier types.Verifier) Option {
 }
 
 // WithSourceReaders sets multiple source readers.
-func WithSourceReaders(sourceReaders map[cciptypes.ChainSelector]reader.SourceReader) Option {
+func WithSourceReaders(sourceReaders map[protocol.ChainSelector]reader.SourceReader) Option {
 	return func(vc *VerificationCoordinator) {
 		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[cciptypes.ChainSelector]*sourceState)
+			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
 		}
 		for chainSelector, reader := range sourceReaders {
 			vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
@@ -52,17 +51,17 @@ func WithSourceReaders(sourceReaders map[cciptypes.ChainSelector]reader.SourceRe
 }
 
 // AddSourceReader adds a single source reader to the existing map.
-func AddSourceReader(chainSelector cciptypes.ChainSelector, sourceReader reader.SourceReader) Option {
+func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader reader.SourceReader) Option {
 	return func(vc *VerificationCoordinator) {
 		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[cciptypes.ChainSelector]*sourceState)
+			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
 		}
 		vc.sourceStates[chainSelector] = newSourceState(chainSelector, sourceReader)
 	}
 }
 
 // WithStorage sets the storage writer.
-func WithStorage(storage common.OffchainStorageWriter) Option {
+func WithStorage(storage protocol.OffchainStorageWriter) Option {
 	return func(vc *VerificationCoordinator) {
 		vc.storage = storage
 	}
@@ -85,10 +84,10 @@ func WithLogger(lggr logger.Logger) Option {
 // NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error) {
 	vc := &VerificationCoordinator{
-		ccvDataCh:    make(chan common.CCVData, 1000),
+		ccvDataCh:    make(chan protocol.CCVData, 1000),
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
-		sourceStates: make(map[cciptypes.ChainSelector]*sourceState),
+		sourceStates: make(map[protocol.ChainSelector]*sourceState),
 	}
 
 	// Apply all options
@@ -200,7 +199,7 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 			}
 
 			// Write CCVData to offchain storage
-			if err := vc.storage.WriteCCVData(ctx, []common.CCVData{ccvData}); err != nil {
+			if err := vc.storage.WriteCCVData(ctx, []protocol.CCVData{ccvData}); err != nil {
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
 					"messageID", ccvData.MessageID,
@@ -272,7 +271,7 @@ func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *
 			messageID, err := message.MessageID()
 			if err != nil {
 				vc.lggr.Errorw("Failed to compute message ID for error logging", "error", err)
-				messageID = cciptypes.Bytes32{} // Use empty message ID as fallback
+				messageID = protocol.Bytes32{} // Use empty message ID as fallback
 			}
 			vc.lggr.Errorw("Verification error received",
 				"error", verificationError.Error,
