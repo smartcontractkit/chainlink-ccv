@@ -2,9 +2,11 @@
 
 ## Getting started
 
-Install `just`:
+Install [just](https://github.com/casey/just)
+
+List available commands:
 ```bash
-make deps
+just --list
 ```
 
 Run tests:
