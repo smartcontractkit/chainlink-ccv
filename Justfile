@@ -1,3 +1,5 @@
+import './tools/lib/utils.justfile'
+
 # Default: show available recipes
 default:
     just --list

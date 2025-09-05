@@ -18,7 +18,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
         with:
+          cache: true
           go-version-file: build/devenv/go.mod
+          cache-dependency-path: build/devenv/go.sum
 
       - name: Verify go.mod and go.sum
         run: |

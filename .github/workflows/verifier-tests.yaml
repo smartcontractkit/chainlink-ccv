@@ -28,8 +28,23 @@ jobs:
         with:
           cache: true
           go-version-file: verifier/go.mod
-          cache-dependency-path: |
-            verifier/go.sum
+          cache-dependency-path: verifier/go.sum
+
+      - name: Populate go envs
+        run: |
+          echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
+          echo "GOCACHE=$(go env GOPATH)/build" >> $GITHUB_ENV
+
+      - name: Cache Go toolchain artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GOBIN }}
+            ${{ env.GOCACHE }}
+          # hashFiles paths are repo-root relative (not affected by working-directory)
+          key: chainlink-ccv-gotools-${{ runner.os }}-${{ hashFiles('tool-versions.env') }}
+          restore-keys: |
+            chainlink-ccv-gotools-${{ runner.os }}-
 
       - name: Install just
         uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0

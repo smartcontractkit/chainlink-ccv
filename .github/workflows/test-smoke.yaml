@@ -48,8 +48,7 @@ jobs:
         with:
           cache: true
           go-version-file: build/devenv/go.mod
-          cache-dependency-path: |
-            build/devenv/go.sum
+          cache-dependency-path: build/devenv/go.sum
 
       - name: Download Go dependencies
         run: |
