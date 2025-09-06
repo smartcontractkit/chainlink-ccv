@@ -14,6 +14,12 @@ fmt: ensure-golangci-lint
 lint fix="": ensure-golangci-lint
     golangci-lint run --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
 
+mock: ensure-mockery
+    @echo "Cleaning existing mocks..."
+    find . -path "*/mocks/*.go" -delete 2>/dev/null || true
+    @echo "Generating mocks with mockery..."
+    mockery
+
 mod-tidy: ensure-go
     go mod tidy
 

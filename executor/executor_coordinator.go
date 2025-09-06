@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,18 +15,15 @@ import (
 )
 
 type Coordinator struct {
+	executor            e.Executor
+	ccvDataReader       cdr.CcvDataReader
+	leaderElector       le.LeaderElector
+	lggr                logger.Logger
 	ccvDataCh           chan types.MessageWithCCVData
 	executableMessageCh chan types.MessageWithCCVData //nolint:unused //will be used by executor
-
-	stopCh chan struct{}
-	doneCh chan struct{}
-
-	executor      e.Executor
-	ccvDataReader cdr.CcvDataReader
-	leaderElector le.LeaderElector
-
-	lggr    logger.Logger
-	running bool
+	doneCh              chan struct{}
+	cancel              context.CancelFunc
+	running             bool
 }
 
 type Option func(*Coordinator)
@@ -54,15 +52,28 @@ func WithLeaderElector(leaderElector le.LeaderElector) Option {
 	}
 }
 
-func NewExecutorCoordinator(options ...Option) (*Coordinator, error) {
+func NewCoordinator(options ...Option) (*Coordinator, error) {
 	ec := &Coordinator{
 		ccvDataCh: make(chan types.MessageWithCCVData, 100),
-		stopCh:    make(chan struct{}),
 		doneCh:    make(chan struct{}),
 	}
 
 	for _, opt := range options {
 		opt(ec)
+	}
+
+	var errs []error
+	appendIfNil := func(field any, fieldName string) {
+		if field == nil {
+			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
+		}
+	}
+	appendIfNil(ec.executor, "executor")
+	appendIfNil(ec.leaderElector, "leaderElector")
+	appendIfNil(ec.lggr, "logger")
+	appendIfNil(ec.ccvDataReader, "ccvDataReader")
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 
 	return ec, nil
@@ -74,6 +85,9 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 	}
 
 	ec.running = true
+	ctx, cancel := context.WithCancel(ctx)
+	ec.cancel = cancel
+
 	go ec.run(ctx)
 
 	ec.lggr.Infow("Coordinator started")
@@ -86,13 +100,9 @@ func (ec *Coordinator) Stop() error {
 		return fmt.Errorf("Coordinator not started")
 	}
 
-	ec.running = false
-
 	ec.lggr.Infow("Coordinator stopping")
-
-	close(ec.stopCh)
+	ec.cancel()
 	<-ec.doneCh
-
 	ec.lggr.Infow("Coordinator stopped")
 
 	return nil
@@ -100,6 +110,10 @@ func (ec *Coordinator) Stop() error {
 
 func (ec *Coordinator) run(ctx context.Context) {
 	defer close(ec.doneCh)
+	defer func() {
+		ec.lggr.Infow("Coordinator run loop exited")
+		ec.running = false
+	}()
 
 	messagesCh, err := ec.ccvDataReader.SubscribeMessages()
 	if err != nil {
@@ -107,12 +121,10 @@ func (ec *Coordinator) run(ctx context.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
 	for {
 		select {
-		case <-ec.stopCh:
-			ec.lggr.Infow("Coordinator stop signal received, exiting")
-			cancel()
+		case <-ctx.Done():
+			ec.lggr.Infow("Coordinator exiting")
 			return
 		case msg, ok := <-messagesCh:
 			if !ok {
@@ -177,4 +189,9 @@ func (ec *Coordinator) ProcessMessage(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// IsRunning returns whether the coordinator is running.
+func (ec *Coordinator) IsRunning() bool {
+	return ec.running
 }

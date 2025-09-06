@@ -16,7 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
@@ -48,7 +48,7 @@ type testSetup struct {
 
 // mockSourceReaderSetup contains a mock source reader and its channel.
 type mockSourceReaderSetup struct {
-	reader  *mocks.MockSourceReader
+	reader  *verifier_mocks.MockSourceReader
 	channel chan types.VerificationTask
 }
 
@@ -178,7 +178,7 @@ func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSel
 
 // setupMockSourceReader creates a mock source reader with expectations.
 func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetup {
-	mockReader := mocks.NewMockSourceReader(t)
+	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan types.VerificationTask, 10)
 
 	mockReader.EXPECT().Start(mock.Anything).Return(nil)
@@ -435,7 +435,7 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 			}),
 			readers: func() map[protocol.ChainSelector]reader.SourceReader {
 				// Create a mock that only expects VerificationTaskChannel call
-				mockReader := mocks.NewMockSourceReader(t)
+				mockReader := verifier_mocks.NewMockSourceReader(t)
 				mockCh := make(chan types.VerificationTask)
 				mockReader.EXPECT().VerificationTaskChannel().Return((<-chan types.VerificationTask)(mockCh))
 				return map[protocol.ChainSelector]reader.SourceReader{
