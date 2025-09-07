@@ -27,7 +27,7 @@ test-coverage: ensure-go
     go test -v -coverprofile=coverage.out ./...
 
 build-rc:
-    docker build -f Dockerfile -t aggregator:rc .
+    docker build -f Dockerfile -t aggregator:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t aggregator:dev ..
