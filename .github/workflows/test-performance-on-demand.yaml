@@ -69,6 +69,7 @@ jobs:
         run: |
           cd cmd/ccv && go install . && cd -
           ccv obs u -f
+
       - name: Run CCV environment with config
         run: |
           ccv u ${{ matrix.test.config }}
