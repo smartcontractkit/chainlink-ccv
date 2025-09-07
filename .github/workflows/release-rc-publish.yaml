@@ -1,0 +1,25 @@
+name: Publish RC Image From Tag
+
+on:
+  push:
+    tags:
+      - '*/v*-rc*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+      - name: Authenticate to AWS ECR
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          aws-region: us-east-1
+          registry-type: public
+      - name: Build Release Candidate
+        run: |
+          MODULE=$(echo "${{ github.ref_name }}" | cut -d'/' -f1)
+          just "$MODULE"/build
