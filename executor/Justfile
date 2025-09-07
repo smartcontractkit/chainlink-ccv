@@ -32,11 +32,15 @@ test: ensure-go
 test-coverage:
     go test -v -coverprofile=coverage.out ./...
 
-build:
-    docker build -f Dockerfile -t executor:latest .
+build-rc:
+    docker build -f Dockerfile -t executor:rc .
 
 build-dev:
     docker build -f Dockerfile.dev -t executor:dev ..
+
+publish-rc registry version:
+    docker tag executor:rc {{registry}}/chainlink-ccv-executor:{{version}}-rc
+    docker push {{registry}}/chainlink-ccv-executor:{{version}}-rc
 
 clean:
     docker rmi executor:latest

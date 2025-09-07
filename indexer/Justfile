@@ -26,11 +26,15 @@ test: ensure-go
 test-coverage:
     go test -v -coverprofile=coverage.out ./...
 
-build:
-    docker build -f Dockerfile -t indexer:latest .
+build-rc:
+    docker build -f Dockerfile -t indexer:rc .
 
 build-dev:
     docker build -f Dockerfile.dev -t indexer:dev .
+
+publish-rc registry version:
+    docker tag indexer:rc {{registry}}/chainlink-ccv-indexer:{{version}}-rc
+    docker push {{registry}}/chainlink-ccv-indexer:{{version}}-rc
 
 clean:
     docker rmi indexer:latest

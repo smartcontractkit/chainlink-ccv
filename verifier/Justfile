@@ -32,11 +32,15 @@ test: ensure-go
 test-coverage:
     go test -v -coverprofile=coverage.out ./...
 
-build:
-    docker build -f Dockerfile -t verifier:latest .
+build-rc:
+    docker build -f Dockerfile -t verifier:rc .
 
 build-dev:
     docker build -f Dockerfile.dev -t verifier:dev ..
+
+publish-rc registry version:
+    docker tag verifier:rc {{registry}}/chainlink-ccv-verifier:{{version}}-rc
+    docker push {{registry}}/chainlink-ccv-verifier:{{version}}-rc
 
 clean:
     docker rmi verifier:latest

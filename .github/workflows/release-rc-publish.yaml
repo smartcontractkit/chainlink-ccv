@@ -7,19 +7,37 @@ on:
 
 jobs:
   build:
+    permissions:
+      id-token: write
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
+
+      - name: Install Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
+
       - name: Authenticate to AWS ECR
         uses: ./.github/actions/aws-ecr-auth
         with:
           role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
-          aws-region: us-east-1
-          registry-type: public
-      - name: Build Release Candidate
+          aws-region: us-west-2
+          registry-type: private
+
+      - name: Build & Publish Release Candidate
         run: |
           MODULE=$(echo "${{ github.ref_name }}" | cut -d'/' -f1)
-          just "$MODULE"/build
+          FULL_TAG=$(echo "${{ github.ref_name }}" | cut -d'/' -f2)
+          VERSION=$(echo "$FULL_TAG" | cut -d'-' -f1)
+          echo "Module: $MODULE"
+          echo "Version: $VERSION"
+          echo "Full Tag: $FULL_TAG"
+          echo "Building Release Candidate Image.."
+          just "$MODULE"/build-rc
+          echo "Publishing Release Candidate Image.."
+          just "$MODULE"/publish-rc "${{ secrets.ECR_REGISTRY }}" "$VERSION"

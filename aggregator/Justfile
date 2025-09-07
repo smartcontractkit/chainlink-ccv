@@ -26,11 +26,15 @@ test: ensure-go
 test-coverage: ensure-go
     go test -v -coverprofile=coverage.out ./...
 
-build:
-    docker build -f Dockerfile -t aggregator:latest .
+build-rc:
+    docker build -f Dockerfile -t aggregator:rc .
 
 build-dev:
     docker build -f Dockerfile.dev -t aggregator:dev ..
+
+publish-rc registry version:
+    docker tag aggregator:rc {{registry}}/chainlink-ccv-aggregator:{{version}}-rc
+    docker push {{registry}}/chainlink-ccv-aggregator:{{version}}-rc
 
 clean:
     docker rmi aggregator:latest
