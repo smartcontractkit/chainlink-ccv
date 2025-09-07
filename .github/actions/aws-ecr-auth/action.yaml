@@ -7,11 +7,11 @@ inputs:
   aws-region:
     description: 'AWS region'
     required: true
-    default: 'us-east-1'
+    default: 'us-west-2'
   registry-type:
     description: 'ECR registry type'
     required: false
-    default: 'public'
+    default: 'private'
 
 runs:
   using: "composite"
