@@ -7,22 +7,22 @@
 </div>
 
 - [Components](#components)
-- [Prerequisites](#prerequisites)
-- [Environment](#run-the-environment-local-chains)
-    - [Local Environment](#run-the-environment-local-chains)
-    - [Testnet Environment](#run-the-environment-testnets)
-- [Developing](#creating-your-own-components)
-    - [Creating components](#creating-your-own-components)
+- [Install](#install)
+- [Testnets](#run-the-environment-testnets)
+- [Creating components](#creating-components)
+- [Tests](#smoke-e2e-test)
 
 
 ## Components
 
 - x2 Anvil chains
 - NodeSet (4 nodes)
-- Fake server (mocks)
 - Job Distributor
-- MinIO storage
-- Indexer example service + PostgreSQL
+- [Fake Server](./fakes/README.md)
+- [Indexer](../../indexer/README.md)
+- [Aggregator](../../aggregator/README.md)
+- [Verifier](../../verifier/README.md)
+- [Executor](../../executor/README.md)
 
 ## Install
 All build command are run using [Justfile](https://github.com/casey/just?tab=readme-ov-file#cross-platform), start with installing it
