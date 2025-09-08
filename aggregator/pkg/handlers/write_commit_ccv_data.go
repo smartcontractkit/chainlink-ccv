@@ -12,7 +12,7 @@ import (
 )
 
 type SignatureValidator interface {
-	ValidateSignature(report *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
+	ValidateSignature(report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
 }
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
@@ -44,9 +44,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 		reqLogger.Warnf("Request validation is disabled")
 	}
 
-	signers, _, err := h.signatureValidator.ValidateSignature(&model.CommitVerificationRecord{
-		MessageWithCCVNodeData: *req.GetCcvNodeData(),
-	})
+	signers, _, err := h.signatureValidator.ValidateSignature(req.GetCcvNodeData())
 	if err != nil {
 		return &aggregator.WriteCommitCCVNodeDataResponse{
 			Status: aggregator.WriteStatus_FAILED,
@@ -60,7 +58,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 		reqLogger = reqLogger.With("Address", signer.Address, "ParticipantID", signer.ParticipantID)
 		record := model.CommitVerificationRecord{
 			MessageWithCCVNodeData: *req.GetCcvNodeData(),
-			Address:                signer.Address,
+			IdentifierSigner:       signer,
 		}
 		err := h.storage.SaveCommitVerification(ctx, &record)
 		if err != nil {

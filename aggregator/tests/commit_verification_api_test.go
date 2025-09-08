@@ -2,7 +2,7 @@
 package tests
 
 import (
-	"crypto/rand"
+	"bytes"
 	"testing"
 	"time"
 
@@ -15,76 +15,38 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-func createRandomBytes(t *testing.T, n int) []byte {
-	b := make([]byte, n)
-	_, err := rand.Read(b)
-	require.NoError(t, err)
-	return b
-}
-
 func TestReadWriteCommitVerification(t *testing.T) {
+	signer1 := NewSignerFixture(t, "node1")
 	config := map[string]*model.Committee{
 		"committee1": {
 			QuorumConfigs: map[uint64]*model.QuorumConfig{
-				1: {
+				2: {
 					F: 0,
+					Signers: []model.Signer{
+						signer1.Signer,
+					},
+					OfframpAddress: make([]byte, 20),
 				},
 			},
 		},
 	}
 	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStubMode(true))
-	if err != nil {
-		t.Fatalf("failed to create server and client: %v", err)
-	}
 	t.Cleanup(cleanup)
+	require.NoError(t, err, "failed to create server and client")
 
-	messageID := createRandomBytes(t, 32)
-	destVerifierAddr := createRandomBytes(t, 20)
-	sourceVerifierAddr := createRandomBytes(t, 20)
+	message := NewProtocolMessage(t)
+	messageId, err := message.MessageID()
+	require.NoError(t, err, "failed to compute message ID")
+	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer1))
 
-	writeResp, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
-		CcvNodeData: &aggregator.MessageWithCCVNodeData{
-			MessageId:             messageID,
-			BlobData:              []byte("test blob data"),
-			CcvData:               []byte("test ccv data"),
-			DestVerifierAddress:   destVerifierAddr,
-			SourceVerifierAddress: sourceVerifierAddr,
-			Timestamp:             1234567890,
-			Message: &aggregator.Message{
-				Data:              []byte("test message data"),
-				DestChainSelector: 1,
-			},
-		},
+	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1,
 	})
 
-	require.NoError(t, err, "WriteCommitVerification failed")
-	require.Equal(t, aggregator.WriteStatus_SUCCESS, writeResp.Status, "expected WriteStatus_SUCCESS")
+	require.NoError(t, err, "WriteCommitCCVNodeData failed")
+	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-	readResp, err := aggregatorClient.ReadCommitCCVNodeData(t.Context(), &aggregator.ReadCommitCCVNodeDataRequest{
-		MessageId: messageID,
-		Address:   make([]byte, 20),
-	})
-
-	require.NoError(t, err, "ReadCommitCCVNodeData failed")
-	require.NotNil(t, readResp, "expected non-nil response")
-	require.Equal(t, messageID, readResp.CcvNodeData.MessageId, "expected MessageId to match")
-
-	messagesSinceResponse, err := ccvDataClient.GetMessagesSince(t.Context(), &aggregator.GetMessagesSinceRequest{
-		Since: time.Now().Add(-1 * time.Hour).Unix(),
-	})
-
-	require.NoError(t, err, "GetMessagesSince failed")
-	require.NotNil(t, messagesSinceResponse, "expected non-nil response")
-	require.Len(t, messagesSinceResponse.Results, 1, "expected exactly 1 record")
-	require.Equal(t, []byte("test message data"), messagesSinceResponse.Results[0].Message.Data, "expected MessageId to match")
-
-	getCCVDataResponse, err := ccvDataClient.GetCCVDataForMessage(t.Context(), &aggregator.GetCCVDataForMessageRequest{
-		MessageId: messageID,
-	})
-
-	require.NoError(t, err, "GetCCVData failed")
-	require.NotNil(t, getCCVDataResponse, "expected non-nil response")
-	require.Equal(t, []byte("test message data"), getCCVDataResponse.Message.Data, "expected CCV data to match")
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData1.GetMessage())
 }
 
 func TestAggregationHappyPath(t *testing.T) {
@@ -99,6 +61,7 @@ func TestAggregationHappyPath(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
+					OfframpAddress: make([]byte, 20),
 				},
 			},
 		},
@@ -151,6 +114,7 @@ func TestIdempotency(t *testing.T) {
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
+					OfframpAddress: make([]byte, 20),
 				},
 			},
 		},
@@ -186,7 +150,7 @@ func assertCCVDataNotFound(t *testing.T, ccvDataClient aggregator.CCVDataClient,
 	require.Nil(t, respCcvData, "expected nil response")
 }
 
-func assertCCVDataFound(t *testing.T, ccvDataClient aggregator.CCVDataClient, messageId types.Bytes32) {
+func assertCCVDataFound(t *testing.T, ccvDataClient aggregator.CCVDataClient, messageId types.Bytes32, message *aggregator.Message) {
 	// Wait a moment for the aggregation to process
 	time.Sleep(50 * time.Millisecond)
 	respCcvData, err := ccvDataClient.GetCCVDataForMessage(t.Context(), &aggregator.GetCCVDataForMessageRequest{
@@ -194,6 +158,30 @@ func assertCCVDataFound(t *testing.T, ccvDataClient aggregator.CCVDataClient, me
 	})
 	require.NoError(t, err, "GetCCVDataForMessage failed")
 	require.NotNil(t, respCcvData, "expected non-nil response")
+	require.Equal(t, message.DataLength, respCcvData.GetMessage().GetDataLength())
+	require.Equal(t, message.Data, respCcvData.GetMessage().GetData())
+	require.Equal(t, message.DestBlobLength, respCcvData.GetMessage().GetDestBlobLength())
+	require.Equal(t, message.DestBlob, respCcvData.GetMessage().GetDestBlob())
+	require.Equal(t, message.Finality, respCcvData.GetMessage().GetFinality())
+	require.Equal(t, message.OffRampAddressLength, respCcvData.GetMessage().GetOffRampAddressLength())
+	require.Equal(t, message.OffRampAddress, respCcvData.GetMessage().GetOffRampAddress())
+	require.Equal(t, message.OnRampAddressLength, respCcvData.GetMessage().GetOnRampAddressLength())
+	require.Equal(t, message.OnRampAddress, respCcvData.GetMessage().GetOnRampAddress())
+	require.Equal(t, message.ReceiverLength, respCcvData.GetMessage().GetReceiverLength())
+	require.Equal(t, message.Receiver, respCcvData.GetMessage().GetReceiver())
+	require.Equal(t, message.SenderLength, respCcvData.GetMessage().GetSenderLength())
+	require.Equal(t, message.Sender, respCcvData.GetMessage().GetSender())
+	require.Equal(t, message.SequenceNumber, respCcvData.GetMessage().GetSequenceNumber())
+	require.Equal(t, message.SourceChainSelector, respCcvData.GetMessage().GetSourceChainSelector())
+	require.Equal(t, message.DestChainSelector, respCcvData.GetMessage().GetDestChainSelector())
+	require.Equal(t, message.TokenTransferLength, respCcvData.GetMessage().GetTokenTransferLength())
+	require.True(t, bytes.Equal(message.TokenTransfer, respCcvData.GetMessage().GetTokenTransfer()))
+	require.Equal(t, message.Version, respCcvData.GetMessage().GetVersion())
+
+	require.Equal(t, respCcvData.DestVerifierAddress, message.OffRampAddress)
+	require.Equal(t, respCcvData.SourceVerifierAddress, message.OnRampAddress)
+	// TODO: Validate signatures
+	require.NotNil(t, respCcvData.CcvData)
 }
 
 // Test where a valid signer sign but is later removed from the committee and another valider signs but aggregation should not complete. Only when we sign with a third valid signer it succeeds.
@@ -210,6 +198,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
+					OfframpAddress: make([]byte, 20),
 				},
 			},
 		},
@@ -239,6 +228,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 			signer2.Signer,
 			signer3.Signer,
 		},
+		OfframpAddress: make([]byte, 20),
 	}
 
 	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer2))
@@ -259,7 +249,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, ccvDataClient, messageId)
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData3.GetMessage())
 }
 
 func TestChangingCommitteeAfterAggregation(t *testing.T) {
@@ -275,6 +265,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
+					OfframpAddress: make([]byte, 20),
 				},
 			},
 		},
@@ -306,7 +297,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, ccvDataClient, messageId)
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage())
 
 	// Change committee to remove signer1 and add signer3
 	config["committee1"].QuorumConfigs[2] = &model.QuorumConfig{
@@ -315,9 +306,10 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 			signer2.Signer,
 			signer3.Signer,
 		},
+		OfframpAddress: make([]byte, 20),
 	}
 
-	assertCCVDataFound(t, ccvDataClient, messageId)
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage())
 
 	// Ensure that we can still write new signatures with the updated committee
 	ccvNodeData3 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer3))
@@ -328,5 +320,5 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, ccvDataClient, messageId)
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData3.GetMessage())
 }

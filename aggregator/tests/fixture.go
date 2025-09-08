@@ -3,7 +3,6 @@ package tests
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"encoding/binary"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -93,52 +92,9 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *types.M
 
 type MessageWithCCVNodeDataOption = func(*aggregator.MessageWithCCVNodeData) *aggregator.MessageWithCCVNodeData
 
-func encodeSignatures(t *testing.T, rs, ss [][32]byte) []byte {
-	require.Equal(t, len(rs), len(ss), "rs and ss must have the same length")
-
-	var buf bytes.Buffer
-
-	// Encode array length as uint16 (big-endian)
-	arrayLen := uint16(len(rs))
-	err := binary.Write(&buf, binary.BigEndian, arrayLen)
-	require.NoError(t, err, "failed to write array length")
-
-	// Encode rs array
-	for _, r := range rs {
-		buf.Write(r[:])
-	}
-
-	// Encode ss array
-	for _, s := range ss {
-		buf.Write(s[:])
-	}
-
-	return buf.Bytes()
-}
-
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
 	return func(m *aggregator.MessageWithCCVNodeData) *aggregator.MessageWithCCVNodeData {
-		protocolMessage := &types.Message{
-			Version:              uint8(m.Message.Version),
-			SourceChainSelector:  types.ChainSelector(m.Message.SourceChainSelector),
-			DestChainSelector:    types.ChainSelector(m.Message.DestChainSelector),
-			SequenceNumber:       types.SeqNum(m.Message.SequenceNumber),
-			OnRampAddressLength:  uint8(m.Message.OnRampAddressLength),
-			OnRampAddress:        m.Message.OnRampAddress,
-			OffRampAddressLength: uint8(m.Message.OffRampAddressLength),
-			OffRampAddress:       m.Message.OffRampAddress,
-			Finality:             uint16(m.Message.Finality),
-			SenderLength:         uint8(m.Message.SenderLength),
-			Sender:               m.Message.Sender,
-			ReceiverLength:       uint8(m.Message.ReceiverLength),
-			Receiver:             m.Message.Receiver,
-			DestBlobLength:       uint16(m.Message.DestBlobLength),
-			DestBlob:             m.Message.DestBlob,
-			TokenTransferLength:  uint16(m.Message.TokenTransferLength),
-			TokenTransfer:        m.Message.TokenTransfer,
-			DataLength:           uint16(m.Message.DataLength),
-			Data:                 m.Message.Data,
-		}
+		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
 
 		r, s, err := signer.Sign(t, protocolMessage, m.BlobData)
 		require.NoError(t, err, "failed to sign message")
@@ -149,7 +105,8 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 			return arr
 		}
 
-		m.CcvData = encodeSignatures(t, [][32]byte{to32ByteArray(r)}, [][32]byte{to32ByteArray(s)})
+		m.CcvData, err = model.EncodeSignatures([][32]byte{to32ByteArray(r)}, [][32]byte{to32ByteArray(s)})
+		require.NoError(t, err, "failed to encode signatures")
 
 		return m
 	}

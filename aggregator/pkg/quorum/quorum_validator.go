@@ -2,75 +2,18 @@ package quorum
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 type EVMQuorumValidator struct {
 	Committees map[string]*model.Committee
 	// Add any necessary fields here
-}
-
-func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
-	if len(rs) != len(ss) {
-		return nil, fmt.Errorf("rs and ss arrays must have the same length")
-	}
-
-	var buf bytes.Buffer
-
-	// Encode array length as uint16 (big-endian)
-	arrayLen := uint16(len(rs))
-	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
-		return nil, err
-	}
-
-	// Encode rs array
-	for _, r := range rs {
-		buf.Write(r[:])
-	}
-
-	// Encode ss array
-	for _, s := range ss {
-		buf.Write(s[:])
-	}
-
-	return buf.Bytes(), nil
-}
-
-func DecodeSignatures(data []byte) (rs, ss [][32]byte, err error) {
-	if len(data) < 2 {
-		return nil, nil, fmt.Errorf("data too short to contain length")
-	}
-
-	// Read array length
-	arrayLen := binary.BigEndian.Uint16(data[:2])
-	expectedLen := 2 + int(arrayLen)*32*2
-	if len(data) != expectedLen {
-		return nil, nil, fmt.Errorf("invalid data length: expected %d, got %d", expectedLen, len(data))
-	}
-
-	rs = make([][32]byte, arrayLen)
-	ss = make([][32]byte, arrayLen)
-
-	// Offsets
-	offset := 2
-	// Decode rs
-	for i := 0; i < int(arrayLen); i++ {
-		copy(rs[i][:], data[offset:offset+32])
-		offset += 32
-	}
-	// Decode ss
-	for i := 0; i < int(arrayLen); i++ {
-		copy(ss[i][:], data[offset:offset+32])
-		offset += 32
-	}
-
-	return rs, ss, nil
 }
 
 func (q *EVMQuorumValidator) CheckQuorum(aggregatedReport *model.CommitAggregatedReport) (bool, error) {
@@ -82,7 +25,7 @@ func (q *EVMQuorumValidator) CheckQuorum(aggregatedReport *model.CommitAggregate
 
 	participantIDs := make(map[string]struct{})
 	for _, verification := range aggregatedReport.Verifications {
-		if signers, qConfig, err := q.ValidateSignature(verification); err != nil {
+		if signers, qConfig, err := q.ValidateSignature(&verification.MessageWithCCVNodeData); err != nil {
 			continue
 		} else if len(signers) == 0 {
 			continue
@@ -109,7 +52,7 @@ func (q *EVMQuorumValidator) CheckQuorum(aggregatedReport *model.CommitAggregate
 
 // ValidateSignature validates the signature of a commit verification record and returns the signers and the quorum config used.
 // It can return multiple signers from the same participant if they have multiple addresses in the config.
-func (q *EVMQuorumValidator) ValidateSignature(report *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) ValidateSignature(report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	signature := report.CcvData
 	if signature == nil {
 		return nil, nil, fmt.Errorf("missing signature in report")
@@ -154,7 +97,7 @@ func (q *EVMQuorumValidator) ValidateSignature(report *model.CommitVerificationR
 		return nil, nil, err
 	}
 
-	rs, ss, err := DecodeSignatures(signature)
+	rs, ss, err := model.DecodeSignatures(signature)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -163,7 +106,10 @@ func (q *EVMQuorumValidator) ValidateSignature(report *model.CommitVerificationR
 		return nil, nil, fmt.Errorf("invalid signature format")
 	}
 
-	var quorumConfig *model.QuorumConfig
+	quorumConfig, err := q.getQuorumConfig(types.ChainSelector(report.Message.DestChainSelector), report.Message.OffRampAddress)
+	if err != nil {
+		return nil, nil, err
+	}
 	identifiedSigners := make([]*model.IdentifierSigner, 0, len(rs))
 	for i := range rs {
 		for vValue := byte(0); vValue <= 1; vValue++ {
@@ -174,25 +120,16 @@ func (q *EVMQuorumValidator) ValidateSignature(report *model.CommitVerificationR
 				continue
 			}
 
-			qConfig, err := q.getQuorumConfig(types.ChainSelector(report.Message.DestChainSelector), address)
-			if err != nil {
-				continue
-			}
-
-			if quorumConfig == nil {
-				quorumConfig = qConfig
-			} else if quorumConfig != qConfig {
-				return nil, nil, fmt.Errorf("signatures correspond to different quorum configurations. This mean that the public keys used to sign the verifications are not all part of the same committee. This can happen if the config changed after receiving the first verifications")
-			}
-
 			for _, signer := range quorumConfig.Signers {
 				for _, s := range signer.Addresses {
 					signerAddress := common.HexToAddress(s)
 
 					if signerAddress == address {
 						identifiedSigners = append(identifiedSigners, &model.IdentifierSigner{
-							Signer:  signer,
-							Address: signerAddress.Bytes(),
+							Signer:     signer,
+							Address:    signerAddress.Bytes(),
+							SignatureR: rs[i],
+							SignatureS: ss[i],
 						})
 					}
 				}
@@ -225,7 +162,7 @@ func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, v
 	return keccak256(buf.Bytes()), nil
 }
 
-func (q *EVMQuorumValidator) getReceiptBlobForVerifier(report *model.CommitVerificationRecord) ([]byte, error) {
+func (q *EVMQuorumValidator) getReceiptBlobForVerifier(report *aggregator.MessageWithCCVNodeData) ([]byte, error) {
 	sourceVerifier := report.SourceVerifierAddress
 	for _, blob := range report.ReceiptBlobs {
 		if bytes.Equal(blob.Issuer, sourceVerifier) {
@@ -246,20 +183,15 @@ func (q *EVMQuorumValidator) ecrecover(signature []byte, msgHash []byte) (common
 	return common.BytesToAddress(hash[12:]), nil
 }
 
-func (q *EVMQuorumValidator) getQuorumConfig(chainSelector types.ChainSelector, address common.Address) (*model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) getQuorumConfig(chainSelector types.ChainSelector, offrampAddress []byte) (*model.QuorumConfig, error) {
 	for _, committee := range q.Committees {
 		if config, exists := committee.QuorumConfigs[uint64(chainSelector)]; exists {
-			for _, signer := range config.Signers {
-				for _, addr := range signer.Addresses {
-					signerAddress := common.HexToAddress(addr)
-					if signerAddress == address {
-						return config, nil
-					}
-				}
+			if bytes.Equal(config.OfframpAddress, offrampAddress) {
+				return config, nil
 			}
 		}
 	}
-	return nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", chainSelector, address.Hex())
+	return nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", chainSelector, common.BytesToAddress(offrampAddress).Hex())
 }
 
 func NewQuorumValidator(config model.AggregatorConfig) *EVMQuorumValidator {

@@ -108,8 +108,9 @@ func (b *TestCaseBuilder) BuildConfig() model.AggregatorConfig {
 			b.committeeID: {
 				QuorumConfigs: map[uint64]*model.QuorumConfig{
 					1: {
-						Signers: signers,
-						F:       b.f,
+						OfframpAddress: make([]byte, 20),
+						Signers:        signers,
+						F:              b.f,
 					},
 				},
 			},
@@ -199,8 +200,9 @@ func TestValidateSignature(t *testing.T) {
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
 						uint64(protocolMessage.DestChainSelector): {
-							Signers: []model.Signer{signerFixture.Signer},
-							F:       0,
+							Signers:        []model.Signer{signerFixture.Signer},
+							F:              0,
+							OfframpAddress: make([]byte, 20),
 						},
 					},
 				},
@@ -213,7 +215,7 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
 
-		signers, _, err := validator.ValidateSignature(record)
+		signers, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
 		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
@@ -226,8 +228,9 @@ func TestValidateSignature(t *testing.T) {
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
 						uint64(protocolMessage.DestChainSelector): {
-							Signers: []model.Signer{signerFixture.Signer},
-							F:       0,
+							Signers:        []model.Signer{signerFixture.Signer},
+							F:              0,
+							OfframpAddress: make([]byte, 20),
 						},
 					},
 				},
@@ -243,7 +246,7 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoSig)
 
-		signer, _, err := validator.ValidateSignature(record)
+		signer, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "missing signature in report")
@@ -255,8 +258,9 @@ func TestValidateSignature(t *testing.T) {
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
 						uint64(protocolMessage.DestChainSelector): {
-							Signers: []model.Signer{signerFixture.Signer},
-							F:       0,
+							Signers:        []model.Signer{signerFixture.Signer},
+							F:              0,
+							OfframpAddress: make([]byte, 20),
 						},
 					},
 				},
@@ -273,7 +277,7 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(invalidMessageData)
 
-		signer, _, err := validator.ValidateSignature(record)
+		signer, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "no valid signers found for the provided signature")
@@ -290,10 +294,10 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
 
-		signer, _, err := validator.ValidateSignature(record)
+		signer, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
-		assert.Contains(t, err.Error(), "no valid signers found for the provided signature")
+		assert.Contains(t, err.Error(), "quorum config not found for chain selector")
 	})
 
 	t.Run("missing receipt blob", func(t *testing.T) {
@@ -302,8 +306,9 @@ func TestValidateSignature(t *testing.T) {
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
 						uint64(protocolMessage.DestChainSelector): {
-							Signers: []model.Signer{signerFixture.Signer},
-							F:       0,
+							Signers:        []model.Signer{signerFixture.Signer},
+							F:              0,
+							OfframpAddress: make([]byte, 20),
 						},
 					},
 				},
@@ -320,7 +325,7 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoBlob)
 
-		signer, _, err := validator.ValidateSignature(record)
+		signer, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "receipt blob not found for verifier")

@@ -14,7 +14,9 @@ type Signer struct {
 
 type IdentifierSigner struct {
 	Signer
-	Address []byte
+	Address    []byte
+	SignatureR [32]byte
+	SignatureS [32]byte
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -26,10 +28,26 @@ type Committee struct {
 	QuorumConfigs map[uint64]*QuorumConfig `toml:"quorumConfigs"`
 }
 
+func FindSignersFromSelectorAndOfframp(committees map[string]*Committee, chainSelector uint64, offrampAddress []byte) []Signer {
+	for _, committee := range committees {
+		quorumConfig, exists := committee.QuorumConfigs[chainSelector]
+		if !exists {
+			continue
+		}
+
+		if !bytes.Equal(quorumConfig.OfframpAddress, offrampAddress) {
+			continue
+		}
+		return quorumConfig.Signers
+	}
+	return nil
+}
+
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	Signers []Signer `toml:"signers"`
-	F       uint8    `toml:"f"`
+	OfframpAddress []byte   `toml:"offrampAddress"`
+	Signers        []Signer `toml:"signers"`
+	F              uint8    `toml:"f"`
 }
 
 func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {
@@ -75,5 +93,6 @@ func (c *AggregatorConfig) Validate() error {
 	// - Committee names are valid
 	// - QuorumConfig chain selectors are valid
 	// - Server address format is correct
+	// - Offramp address cannot be shared accross same chain on different committees
 	return nil
 }

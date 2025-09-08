@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"bytes"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -31,6 +34,16 @@ func validateWriteRequest(req *aggregator.WriteCommitCCVNodeDataRequest) error {
 	if err != nil {
 		return err
 	}
+
+	message := model.MapProtoMessageToProtocolMessage(verificationRecord.Message)
+	messageId, err := message.MessageID()
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(messageId[:], req.CcvNodeData.MessageId) {
+		return validation.NewError("MessageId", "does not match ID derived from Message")
+	}
+
 	return nil
 }
 

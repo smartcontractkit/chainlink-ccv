@@ -23,13 +23,13 @@ func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
 
 // CommitVerificationRecord represents a record of a commit verification.
 type CommitVerificationRecord struct {
-	Address []byte
+	IdentifierSigner *IdentifierSigner
 	aggregator.MessageWithCCVNodeData
 }
 
 // GetID retrieves the unique identifier for the commit verification record.
 func (c *CommitVerificationRecord) GetID() (*CommitVerificationRecordIdentifier, error) {
-	if len(c.Address) == 0 {
+	if len(c.IdentifierSigner.Address) == 0 {
 		return nil, fmt.Errorf("address is nil or empty")
 	}
 	if c.GetMessageId() == nil || len(c.GetMessageId()) == 0 {
@@ -38,6 +38,6 @@ func (c *CommitVerificationRecord) GetID() (*CommitVerificationRecordIdentifier,
 
 	return &CommitVerificationRecordIdentifier{
 		MessageID: c.GetMessageId(),
-		Address:   c.Address,
+		Address:   c.IdentifierSigner.Address,
 	}, nil
 }
