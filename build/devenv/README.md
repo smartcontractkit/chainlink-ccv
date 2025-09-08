@@ -2,12 +2,11 @@
 
 # CCV Developer Environment
 
-`NodeSet` + `x2 Anvil` + `Fake Server` + `JobDistributor` + `CCV Product Orchestration`
-
 </div>
 
 - [Components](#components)
-- [Install](#install)
+- [Install and Run](#install)
+- [Rebuilding Local Chainlink Node](#rebuilding-local-chainlink-node-image)
 - [Testnets](#run-the-environment-testnets)
 - [Creating components](#creating-components)
 - [Tests](#smoke-e2e-test)
@@ -36,6 +35,12 @@ just cli
 Enter `ccv` shell and follow auto-completion hints
 ```
 ccv sh
+```
+
+## Rebuilding Local Chainlink Node Image
+You can build a local image of CL node, please specify your `chainlink` repository path in `docker_ctx`
+```
+up env.toml,env-local-cl.toml
 ```
 
 ## Run the environment (testnets)

@@ -196,7 +196,7 @@ var obsRestartCmd = &cobra.Command{
 	},
 }
 
-var indexerDBShell = &cobra.Command{
+var indexerDBShellCmd = &cobra.Command{
 	Use:     "db-shell",
 	Aliases: []string{"db"},
 	Short:   "Inspect Service Database",
@@ -233,7 +233,7 @@ var indexerDBShell = &cobra.Command{
 	},
 }
 
-var printAddresses = &cobra.Command{
+var printAddressesCmd = &cobra.Command{
 	Use:   "addresses",
 	Short: "Pretty-print all on-chain contract addresses data",
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -242,6 +242,18 @@ var printAddresses = &cobra.Command{
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
 		return ccv.PrintCLDFAddresses(in)
+	},
+}
+
+var monitorContractsCmd = &cobra.Command{
+	Use:   "monitor",
+	Short: "Reads on-chain EVM contract events and exposes them as Prometheus metrics endpoint",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		return ccv.ServeEvents(in)
 	},
 }
 
@@ -267,8 +279,11 @@ func init() {
 	rootCmd.AddCommand(downCmd)
 
 	// utility
-	rootCmd.AddCommand(indexerDBShell)
-	rootCmd.AddCommand(printAddresses)
+	rootCmd.AddCommand(indexerDBShellCmd)
+	rootCmd.AddCommand(printAddressesCmd)
+
+	// on-chain monitoring
+	rootCmd.AddCommand(monitorContractsCmd)
 }
 
 func checkDockerIsRunning() {

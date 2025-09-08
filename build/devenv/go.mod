@@ -10,8 +10,10 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.67
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250829142202-abffbe23b9f7
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250829142202-abffbe23b9f7
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.4
@@ -294,11 +296,10 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/prometheus/alertmanager v0.28.0 // indirect
-	github.com/prometheus/client_golang v1.22.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.63.0 // indirect
+	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/exporter-toolkit v0.13.2 // indirect
-	github.com/prometheus/procfs v0.16.0 // indirect
+	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/prometheus/prometheus v0.302.0 // indirect
 	github.com/prometheus/sigv4 v0.1.1 // indirect
 	github.com/redis/go-redis/v9 v9.7.0 // indirect
@@ -317,7 +318,6 @@ require (
 	github.com/sigurn/crc16 v0.0.0-20211026045750-20ab5afb07e3 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/smartcontractkit/chainlink-aptos v0.0.0-20250414155853-651b4e583ee9 // indirect
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250829142202-abffbe23b9f7 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250805210128-7f8a0f403c3a // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20250805210128-7f8a0f403c3a // indirect
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000 // indirect
@@ -396,16 +396,17 @@ require (
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/ratelimit v0.3.1 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go4.org/netipx v0.0.0-20230125063823-8449b0a6169f // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
+	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc // indirect
 	golang.org/x/mod v0.26.0 // indirect
-	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
-	golang.org/x/term v0.33.0 // indirect
-	golang.org/x/text v0.27.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/term v0.34.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.35.0 // indirect
 	google.golang.org/api v0.221.0 // indirect
@@ -444,3 +445,5 @@ replace (
 	github.com/smartcontractkit/chainlink-ccv/protocol => ../../protocol
 	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
 )
+
+replace github.com/smartcontractkit/chainlink-testing-framework/framework => /Users/fahrenheit/GolandProjects/chainlink-testing-framework/framework
