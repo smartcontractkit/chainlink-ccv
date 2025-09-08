@@ -1,37 +1,47 @@
 package quorum_test
 
 import (
-	"bytes"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
+	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/stretchr/testify/assert"
 )
 
+// copyMessageWithCCVNodeData safely copies MessageWithCCVNodeData without mutex issues
+func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregator.MessageWithCCVNodeData {
+	return aggregator.MessageWithCCVNodeData{
+		MessageId:             src.MessageId,
+		SourceVerifierAddress: src.SourceVerifierAddress,
+		DestVerifierAddress:   src.DestVerifierAddress,
+		Message:               src.Message,
+		BlobData:              src.BlobData,
+		CcvData:               src.CcvData,
+		Timestamp:             src.Timestamp,
+		ReceiptBlobs:          src.ReceiptBlobs,
+	}
+}
+
 // TestCaseBuilder helps build test cases using option pattern
 type TestCaseBuilder struct {
-	signers       []model.Signer
-	f             uint8
-	committeeID   string
-	verifications []string // participant IDs that signed
-	expectedValid bool
-	expectedError bool
+	signerFixtures []*fixtures.SignerFixture
+	f              uint8
+	committeeID    string
+	verifications  []string // participant IDs that signed
+	expectedValid  bool
+	expectedError  bool
 }
 
 // TestCaseOption defines an option for configuring test cases
 type TestCaseOption func(*TestCaseBuilder)
 
-// WithSigners sets the signers for the committee
-func WithSigners(participantIDs ...string) TestCaseOption {
+// WithSignerFixtures sets the signer fixtures for the committee
+func WithSignerFixtures(fixtures ...*fixtures.SignerFixture) TestCaseOption {
 	return func(b *TestCaseBuilder) {
-		b.signers = make([]model.Signer, len(participantIDs))
-		for i, id := range participantIDs {
-			b.signers[i] = model.Signer{ParticipantID: id}
-		}
+		b.signerFixtures = fixtures
 	}
 }
 
@@ -88,12 +98,17 @@ func NewTestCase(opts ...TestCaseOption) *TestCaseBuilder {
 
 // BuildConfig creates the AggregatorConfig from the builder
 func (b *TestCaseBuilder) BuildConfig() model.AggregatorConfig {
+	signers := make([]model.Signer, len(b.signerFixtures))
+	for i, fixture := range b.signerFixtures {
+		signers[i] = fixture.Signer
+	}
+
 	return model.AggregatorConfig{
 		Committees: map[string]model.Committee{
 			b.committeeID: {
 				QuorumConfigs: map[uint64]*model.QuorumConfig{
 					1: {
-						Signers: b.signers,
+						Signers: signers,
 						F:       b.f,
 					},
 				},
@@ -103,15 +118,45 @@ func (b *TestCaseBuilder) BuildConfig() model.AggregatorConfig {
 }
 
 // BuildReport creates the CommitAggregatedReport from the builder
-func (b *TestCaseBuilder) BuildReport() *model.CommitAggregatedReport {
+func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedReport {
 	verifications := make([]*model.CommitVerificationRecord, len(b.verifications))
 
-	for i, _ := range b.verifications {
-		verifications[i] = &model.CommitVerificationRecord{
-			MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{MessageId: []byte{1}, Message: &aggregator.Message{
-				DestChainSelector: 1,
-			}},
+	for i, participantID := range b.verifications {
+		// Find the fixture for this participant
+		var signerFixture *fixtures.SignerFixture
+		for _, fixture := range b.signerFixtures {
+			if fixture.Signer.ParticipantID == participantID {
+				signerFixture = fixture
+				break
+			}
 		}
+
+		if signerFixture == nil {
+			// Create a dummy verification record for unknown signers
+			verifications[i] = &model.CommitVerificationRecord{
+				MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{
+					MessageId: []byte{1},
+					Message: &aggregator.Message{
+						DestChainSelector: 1,
+					},
+				},
+			}
+			continue
+		}
+
+		// Create a proper signed verification record
+		protocolMessage := fixtures.NewProtocolMessage(t, func(m *types.Message) *types.Message {
+			m.DestChainSelector = 1 // Match the config
+			return m
+		})
+
+		messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
+			fixtures.WithSignatureFrom(t, signerFixture))
+
+		verificationRecord := &model.CommitVerificationRecord{}
+		// Use safe copy to avoid mutex copy issues
+		verificationRecord.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
+		verifications[i] = verificationRecord
 	}
 
 	return &model.CommitAggregatedReport{
@@ -123,7 +168,7 @@ func (b *TestCaseBuilder) BuildReport() *model.CommitAggregatedReport {
 func (b *TestCaseBuilder) Run(t *testing.T) {
 	config := b.BuildConfig()
 	validator := quorum.NewQuorumValidator(config)
-	report := b.BuildReport()
+	report := b.BuildReport(t)
 
 	valid, err := validator.CheckQuorum(report)
 
@@ -136,94 +181,16 @@ func (b *TestCaseBuilder) Run(t *testing.T) {
 }
 
 func TestValidateSignature(t *testing.T) {
-	// Create test ECDSA private key and signer
-	privateKey, err := crypto.GenerateKey()
-	assert.NoError(t, err)
-
-	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
-
-	// Setup test data
-	participantID := "signer1"
+	// Create signer fixture
+	signerFixture := fixtures.NewSignerFixture(t, "signer1")
 	committeeID := "committee1"
-	messageID := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-	sourceVerifierAddress := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
-	destVerifierAddress := []byte{21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40}
 
-	// Create verifier blob (nonce encoded)
-	verifierBlob := []byte{12}
+	// Create test message using fixture
+	protocolMessage := fixtures.NewProtocolMessage(t)
 
-	// Create test message
-	testMessage := &aggregator.Message{
-		Version:              1,
-		SourceChainSelector:  1,
-		DestChainSelector:    2,
-		SequenceNumber:       123,
-		OnRampAddressLength:  20,
-		OnRampAddress:        make([]byte, 20),
-		OffRampAddressLength: 20,
-		OffRampAddress:       make([]byte, 20),
-		Finality:             10,
-		SenderLength:         20,
-		Sender:               make([]byte, 20),
-		ReceiverLength:       20,
-		Receiver:             make([]byte, 20),
-		DestBlobLength:       10,
-		DestBlob:             make([]byte, 10),
-		TokenTransferLength:  0,
-		TokenTransfer:        []byte{},
-		DataLength:           8,
-		Data:                 []byte("testdata"),
-	}
-
-	// Convert to protocol message and calculate message hash
-	protocolMessage := types.Message{
-		Version:              uint8(testMessage.Version),
-		SourceChainSelector:  types.ChainSelector(testMessage.SourceChainSelector),
-		DestChainSelector:    types.ChainSelector(testMessage.DestChainSelector),
-		SequenceNumber:       types.SeqNum(testMessage.SequenceNumber),
-		OnRampAddressLength:  uint8(testMessage.OnRampAddressLength),
-		OnRampAddress:        testMessage.OnRampAddress,
-		OffRampAddressLength: uint8(testMessage.OffRampAddressLength),
-		OffRampAddress:       testMessage.OffRampAddress,
-		Finality:             uint16(testMessage.Finality),
-		SenderLength:         uint8(testMessage.SenderLength),
-		Sender:               testMessage.Sender,
-		ReceiverLength:       uint8(testMessage.ReceiverLength),
-		Receiver:             testMessage.Receiver,
-		DestBlobLength:       uint16(testMessage.DestBlobLength),
-		DestBlob:             testMessage.DestBlob,
-		TokenTransferLength:  uint16(testMessage.TokenTransferLength),
-		TokenTransfer:        testMessage.TokenTransfer,
-		DataLength:           uint16(testMessage.DataLength),
-		Data:                 testMessage.Data,
-	}
-
-	messageHash, err := protocolMessage.MessageID()
-	assert.NoError(t, err)
-
-	// Calculate signature hash (message hash || keccak256(verifierBlob))
-	verifierBlobHash := crypto.Keccak256(verifierBlob)
-	var signatureHashInput bytes.Buffer
-	signatureHashInput.Write(messageHash[:])
-	signatureHashInput.Write(verifierBlobHash)
-	signatureHash := crypto.Keccak256(signatureHashInput.Bytes())
-
-	// Create valid signature
-	validSignature, err := crypto.Sign(signatureHash, privateKey)
-	assert.NoError(t, err)
-
-	// Encode signature in the expected format
-	// Note: crypto.Sign returns [R || S || V] where V is the recovery ID
-	rBytes := [32]byte{}
-	sBytes := [32]byte{}
-	copy(rBytes[:], validSignature[0:32])
-	copy(sBytes[:], validSignature[32:64])
-	// V value is at validSignature[64] - this is the recovery ID we need
-
-	rs := [][32]byte{rBytes}
-	ss := [][32]byte{sBytes}
-	encodedSignature, err := quorum.EncodeSignatures(rs, ss)
-	assert.NoError(t, err)
+	// Create MessageWithCCVNodeData using fixtures with signature
+	messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
+		fixtures.WithSignatureFrom(t, signerFixture))
 
 	t.Run("valid signature", func(t *testing.T) {
 		// Setup validator with test configuration
@@ -231,14 +198,9 @@ func TestValidateSignature(t *testing.T) {
 			Committees: map[string]model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
-						2: { // dest chain selector
-							Signers: []model.Signer{
-								{
-									ParticipantID: participantID,
-									Addresses:     []string{signerAddress.Hex()},
-								},
-							},
-							F: 0,
+						uint64(protocolMessage.DestChainSelector): {
+							Signers: []model.Signer{signerFixture.Signer},
+							F:       0,
 						},
 					},
 				},
@@ -248,27 +210,14 @@ func TestValidateSignature(t *testing.T) {
 		validator := quorum.NewQuorumValidator(config)
 
 		// Create verification record with valid signature
-		record := &model.CommitVerificationRecord{
-			MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{
-				MessageId:             messageID,
-				SourceVerifierAddress: sourceVerifierAddress,
-				DestVerifierAddress:   destVerifierAddress,
-				CcvData:               encodedSignature,
-				Message:               testMessage,
-				ReceiptBlobs: []*aggregator.ReceiptBlob{
-					{
-						Issuer: sourceVerifierAddress,
-						Blob:   verifierBlob,
-					},
-				},
-			},
-		}
+		record := &model.CommitVerificationRecord{}
+		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
 
 		signers, _, err := validator.ValidateSignature(record)
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
-		assert.Equal(t, participantID, signers[0].ParticipantID)
-		assert.Contains(t, signers[0].Addresses, signerAddress.Hex())
+		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
+		assert.Equal(t, signerFixture.Signer.Addresses, signers[0].Addresses)
 	})
 
 	t.Run("missing signature", func(t *testing.T) {
@@ -276,14 +225,9 @@ func TestValidateSignature(t *testing.T) {
 			Committees: map[string]model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
-						2: {
-							Signers: []model.Signer{
-								{
-									ParticipantID: participantID,
-									Addresses:     []string{signerAddress.Hex()},
-								},
-							},
-							F: 0,
+						uint64(protocolMessage.DestChainSelector): {
+							Signers: []model.Signer{signerFixture.Signer},
+							F:       0,
 						},
 					},
 				},
@@ -292,21 +236,12 @@ func TestValidateSignature(t *testing.T) {
 
 		validator := quorum.NewQuorumValidator(config)
 
-		record := &model.CommitVerificationRecord{
-			MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{
-				MessageId:             messageID,
-				SourceVerifierAddress: sourceVerifierAddress,
-				DestVerifierAddress:   destVerifierAddress,
-				CcvData:               nil, // Missing signature
-				Message:               testMessage,
-				ReceiptBlobs: []*aggregator.ReceiptBlob{
-					{
-						Issuer: sourceVerifierAddress,
-						Blob:   verifierBlob,
-					},
-				},
-			},
-		}
+		// Create message data without signature
+		messageDataNoSig := fixtures.NewMessageWithCCVNodeData(t, protocolMessage)
+		messageDataNoSig.CcvData = nil // Remove signature
+
+		record := &model.CommitVerificationRecord{}
+		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoSig)
 
 		signer, _, err := validator.ValidateSignature(record)
 		assert.Error(t, err)
@@ -319,14 +254,9 @@ func TestValidateSignature(t *testing.T) {
 			Committees: map[string]model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
-						2: {
-							Signers: []model.Signer{
-								{
-									ParticipantID: participantID,
-									Addresses:     []string{signerAddress.Hex()},
-								},
-							},
-							F: 0,
+						uint64(protocolMessage.DestChainSelector): {
+							Signers: []model.Signer{signerFixture.Signer},
+							F:       0,
 						},
 					},
 				},
@@ -335,36 +265,13 @@ func TestValidateSignature(t *testing.T) {
 
 		validator := quorum.NewQuorumValidator(config)
 
-		// Create invalid signature (different message)
-		invalidHash := crypto.Keccak256([]byte("invalid message"))
-		invalidSignature, err := crypto.Sign(invalidHash, privateKey)
-		assert.NoError(t, err)
+		// Create different signer for invalid signature
+		invalidSignerFixture := fixtures.NewSignerFixture(t, "invalid_signer")
+		invalidMessageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
+			fixtures.WithSignatureFrom(t, invalidSignerFixture))
 
-		invalidRBytes := [32]byte{}
-		invalidSBytes := [32]byte{}
-		copy(invalidRBytes[:], invalidSignature[0:32])
-		copy(invalidSBytes[:], invalidSignature[32:64])
-
-		invalidRs := [][32]byte{invalidRBytes}
-		invalidSs := [][32]byte{invalidSBytes}
-		invalidEncodedSignature, err := quorum.EncodeSignatures(invalidRs, invalidSs)
-		assert.NoError(t, err)
-
-		record := &model.CommitVerificationRecord{
-			MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{
-				MessageId:             messageID,
-				SourceVerifierAddress: sourceVerifierAddress,
-				DestVerifierAddress:   destVerifierAddress,
-				CcvData:               invalidEncodedSignature,
-				Message:               testMessage,
-				ReceiptBlobs: []*aggregator.ReceiptBlob{
-					{
-						Issuer: sourceVerifierAddress,
-						Blob:   verifierBlob,
-					},
-				},
-			},
-		}
+		record := &model.CommitVerificationRecord{}
+		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(invalidMessageData)
 
 		signer, _, err := validator.ValidateSignature(record)
 		assert.Error(t, err)
@@ -380,21 +287,8 @@ func TestValidateSignature(t *testing.T) {
 
 		validator := quorum.NewQuorumValidator(config)
 
-		record := &model.CommitVerificationRecord{
-			MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{
-				MessageId:             messageID,
-				SourceVerifierAddress: sourceVerifierAddress,
-				DestVerifierAddress:   destVerifierAddress,
-				CcvData:               encodedSignature,
-				Message:               testMessage,
-				ReceiptBlobs: []*aggregator.ReceiptBlob{
-					{
-						Issuer: sourceVerifierAddress,
-						Blob:   verifierBlob,
-					},
-				},
-			},
-		}
+		record := &model.CommitVerificationRecord{}
+		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
 
 		signer, _, err := validator.ValidateSignature(record)
 		assert.Error(t, err)
@@ -407,14 +301,9 @@ func TestValidateSignature(t *testing.T) {
 			Committees: map[string]model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
-						2: {
-							Signers: []model.Signer{
-								{
-									ParticipantID: participantID,
-									Addresses:     []string{signerAddress.Hex()},
-								},
-							},
-							F: 0,
+						uint64(protocolMessage.DestChainSelector): {
+							Signers: []model.Signer{signerFixture.Signer},
+							F:       0,
 						},
 					},
 				},
@@ -423,16 +312,13 @@ func TestValidateSignature(t *testing.T) {
 
 		validator := quorum.NewQuorumValidator(config)
 
-		record := &model.CommitVerificationRecord{
-			MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{
-				MessageId:             messageID,
-				SourceVerifierAddress: sourceVerifierAddress,
-				DestVerifierAddress:   destVerifierAddress,
-				CcvData:               encodedSignature,
-				Message:               testMessage,
-				ReceiptBlobs:          []*aggregator.ReceiptBlob{}, // Empty receipt blobs
-			},
-		}
+		// Create message data without receipt blobs
+		messageDataNoBlob := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
+			fixtures.WithSignatureFrom(t, signerFixture))
+		messageDataNoBlob.ReceiptBlobs = []*aggregator.ReceiptBlob{} // Empty receipt blobs
+
+		record := &model.CommitVerificationRecord{}
+		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoBlob)
 
 		signer, _, err := validator.ValidateSignature(record)
 		assert.Error(t, err)
@@ -441,58 +327,65 @@ func TestValidateSignature(t *testing.T) {
 	})
 }
 
-func TestCheckQuorumWithBuilder(t *testing.T) {
-	t.Run("single signer, f=0, one verification", func(t *testing.T) {
-		NewTestCase(
-			WithSigners("signer1"),
-			WithF(0),
-			WithVerifications("signer1"),
-			ExpectValid(true),
-		).Run(t)
-	})
+func TestCheckQuorum(t *testing.T) {
+	tests := []struct {
+		name          string
+		signers       []string
+		f             uint8
+		verifications []string
+		expectedValid bool
+	}{
+		{
+			name:          "single signer, f=0, one verification",
+			signers:       []string{"signer1"},
+			f:             0,
+			verifications: []string{"signer1"},
+			expectedValid: true,
+		},
+		{
+			name:          "single signer, f=0, no verification",
+			signers:       []string{"signer1"},
+			f:             0,
+			verifications: []string{},
+			expectedValid: false,
+		},
+		{
+			name:          "three signers, f=1, two verifications",
+			signers:       []string{"signer1", "signer2", "signer3"},
+			f:             1,
+			verifications: []string{"signer1", "signer2"},
+			expectedValid: true,
+		},
+		{
+			name:          "three signers, f=1, one verification (insufficient)",
+			signers:       []string{"signer1", "signer2", "signer3"},
+			f:             1,
+			verifications: []string{"signer1"},
+			expectedValid: false,
+		},
+		{
+			name:          "three signers, f=0, two verification (too many)",
+			signers:       []string{"signer1", "signer2", "signer3"},
+			f:             0,
+			verifications: []string{"signer1", "signer2"},
+			expectedValid: false,
+		},
+	}
 
-	t.Run("single signer, f=0, no verification", func(t *testing.T) {
-		NewTestCase(
-			WithSigners("signer1"),
-			WithF(0),
-			WithVerifications(),
-			ExpectValid(false),
-		).Run(t)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create signer fixtures based on test case
+			signerFixtures := make([]*fixtures.SignerFixture, len(tt.signers))
+			for i, signerName := range tt.signers {
+				signerFixtures[i] = fixtures.NewSignerFixture(t, signerName)
+			}
 
-	t.Run("three signers, f=1, two verifications", func(t *testing.T) {
-		NewTestCase(
-			WithSigners("signer1", "signer2", "signer3"),
-			WithF(1),
-			WithVerifications("signer1", "signer2"),
-			ExpectValid(true),
-		).Run(t)
-	})
-
-	t.Run("three signers, f=1, one verification (insufficient)", func(t *testing.T) {
-		NewTestCase(
-			WithSigners("signer1", "signer2", "signer3"),
-			WithF(1),
-			WithVerifications("signer1"),
-			ExpectValid(false),
-		).Run(t)
-	})
-
-	t.Run("three signers, f=0, two verification (too many)", func(t *testing.T) {
-		NewTestCase(
-			WithSigners("signer1", "signer2", "signer3"),
-			WithF(0),
-			WithVerifications("signer1", "signer2"),
-			ExpectValid(false),
-		).Run(t)
-	})
-
-	// t.Run("unknown signer verification", func(t *testing.T) {
-	// 	NewTestCase(
-	// 		WithSigners("signer1", "signer2"),
-	// 		WithF(0),
-	// 		WithVerifications("unknown_signer"),
-	// 		ExpectValid(false),
-	// 	).Run(t)
-	// })
+			NewTestCase(
+				WithSignerFixtures(signerFixtures...),
+				WithF(tt.f),
+				WithVerifications(tt.verifications...),
+				ExpectValid(tt.expectedValid),
+			).Run(t)
+		})
+	}
 }

@@ -1,4 +1,4 @@
-package functionaltests
+package tests
 
 import (
 	"context"

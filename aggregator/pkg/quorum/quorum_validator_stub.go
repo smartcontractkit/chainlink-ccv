@@ -19,7 +19,7 @@ func (q *QuorumValidatorStub) ValidateSignature(report *model.CommitVerification
 				ParticipantID: "stub-participant",
 				Addresses:     []string{"0x0000000000000000000000000000000000000000"},
 			},
-			Address: []byte{0},
+			Address: make([]byte, 20),
 		},
 	}, nil, nil
 }

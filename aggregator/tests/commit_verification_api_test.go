@@ -1,5 +1,5 @@
-// Package functionaltests contains functional tests for the aggregator service.
-package functionaltests
+// Package tests contains functional tests for the aggregator service.
+package tests
 
 import (
 	"crypto/rand"
@@ -61,6 +61,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 
 	readResp, err := aggregatorClient.ReadCommitCCVNodeData(t.Context(), &aggregator.ReadCommitCCVNodeDataRequest{
 		MessageId: messageID,
+		Address:   make([]byte, 20),
 	})
 
 	require.NoError(t, err, "ReadCommitCCVNodeData failed")
