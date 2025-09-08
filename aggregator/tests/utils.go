@@ -21,7 +21,7 @@ const bufSize = 1024 * 1024
 
 type ConfigOption = func(*model.AggregatorConfig) *model.AggregatorConfig
 
-func WithCommitteeConfig(committeeConfig map[string]model.Committee) ConfigOption {
+func WithCommitteeConfig(committeeConfig map[string]*model.Committee) ConfigOption {
 	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
 		cfg.Committees = committeeConfig
 		return cfg

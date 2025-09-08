@@ -12,7 +12,7 @@ import (
 )
 
 type EVMQuorumValidator struct {
-	Committees map[string]model.Committee
+	Committees map[string]*model.Committee
 	// Add any necessary fields here
 }
 
@@ -83,9 +83,9 @@ func (q *EVMQuorumValidator) CheckQuorum(aggregatedReport *model.CommitAggregate
 	participantIDs := make(map[string]struct{})
 	for _, verification := range aggregatedReport.Verifications {
 		if signers, qConfig, err := q.ValidateSignature(verification); err != nil {
-			return false, err
+			continue
 		} else if len(signers) == 0 {
-			return false, nil
+			continue
 		} else {
 			for _, signer := range signers {
 				participantIDs[signer.ParticipantID] = struct{}{}

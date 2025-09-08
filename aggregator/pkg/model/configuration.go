@@ -57,11 +57,11 @@ type ServerConfig struct {
 
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Committees        map[string]Committee `toml:"committees"`
-	Server            ServerConfig         `toml:"server"`
-	Storage           StorageConfig        `toml:"storage"`
-	DisableValidation bool                 `toml:"disableValidation"`
-	StubMode          bool                 `toml:"stubQuorumValidation"`
+	Committees        map[string]*Committee `toml:"committees"`
+	Server            ServerConfig          `toml:"server"`
+	Storage           StorageConfig         `toml:"storage"`
+	DisableValidation bool                  `toml:"disableValidation"`
+	StubMode          bool                  `toml:"stubQuorumValidation"`
 }
 
 // Validate validates the aggregator configuration for integrity and correctness.

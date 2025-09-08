@@ -104,7 +104,7 @@ func (b *TestCaseBuilder) BuildConfig() model.AggregatorConfig {
 	}
 
 	return model.AggregatorConfig{
-		Committees: map[string]model.Committee{
+		Committees: map[string]*model.Committee{
 			b.committeeID: {
 				QuorumConfigs: map[uint64]*model.QuorumConfig{
 					1: {
@@ -195,7 +195,7 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("valid signature", func(t *testing.T) {
 		// Setup validator with test configuration
 		config := model.AggregatorConfig{
-			Committees: map[string]model.Committee{
+			Committees: map[string]*model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
 						uint64(protocolMessage.DestChainSelector): {
@@ -222,7 +222,7 @@ func TestValidateSignature(t *testing.T) {
 
 	t.Run("missing signature", func(t *testing.T) {
 		config := model.AggregatorConfig{
-			Committees: map[string]model.Committee{
+			Committees: map[string]*model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
 						uint64(protocolMessage.DestChainSelector): {
@@ -251,7 +251,7 @@ func TestValidateSignature(t *testing.T) {
 
 	t.Run("invalid signature", func(t *testing.T) {
 		config := model.AggregatorConfig{
-			Committees: map[string]model.Committee{
+			Committees: map[string]*model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
 						uint64(protocolMessage.DestChainSelector): {
@@ -282,7 +282,7 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("missing committee config", func(t *testing.T) {
 		// Empty configuration
 		config := model.AggregatorConfig{
-			Committees: map[string]model.Committee{},
+			Committees: map[string]*model.Committee{},
 		}
 
 		validator := quorum.NewQuorumValidator(config)
@@ -298,7 +298,7 @@ func TestValidateSignature(t *testing.T) {
 
 	t.Run("missing receipt blob", func(t *testing.T) {
 		config := model.AggregatorConfig{
-			Committees: map[string]model.Committee{
+			Committees: map[string]*model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
 						uint64(protocolMessage.DestChainSelector): {
