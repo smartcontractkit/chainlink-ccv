@@ -2,8 +2,8 @@ package model
 
 // Signer represents a participant in the commit verification process.
 type Signer struct {
-	ParticipantID string `toml:"participantID"`
-	Addresses     []byte `toml:"addresses"`
+	ParticipantID string   `toml:"participantID"`
+	Addresses     []string `toml:"addresses"`
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -12,7 +12,7 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs map[uint64]QuorumConfig `toml:"quorumConfigs"`
+	QuorumConfigs map[uint64]*QuorumConfig `toml:"quorumConfigs"`
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.

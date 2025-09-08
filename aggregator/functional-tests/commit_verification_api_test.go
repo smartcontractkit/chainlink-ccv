@@ -22,7 +22,7 @@ func createRandomBytes(t *testing.T, n int) []byte {
 func TestReadWriteCommitVerification(t *testing.T) {
 	config := map[string]model.Committee{
 		"committee1": {
-			QuorumConfigs: map[uint64]model.QuorumConfig{
+			QuorumConfigs: map[uint64]*model.QuorumConfig{
 				1: {
 					F: 0,
 				},
