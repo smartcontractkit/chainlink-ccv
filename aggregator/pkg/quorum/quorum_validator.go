@@ -197,7 +197,7 @@ func (q *EVMQuorumValidator) getQuorumConfig(chainSelector types.ChainSelector, 
 	return nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", chainSelector, common.BytesToAddress(offrampAddress).Hex())
 }
 
-func NewQuorumValidator(config model.AggregatorConfig, l logger.SugaredLogger) *EVMQuorumValidator {
+func NewQuorumValidator(config *model.AggregatorConfig, l logger.SugaredLogger) *EVMQuorumValidator {
 	return &EVMQuorumValidator{
 		Committees: config.Committees,
 		l:          l,

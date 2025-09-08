@@ -50,7 +50,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.Ag
 
 	// Use SugaredLogger for better API
 	sugaredLggr := logger.Sugared(lggr)
-	config := model.AggregatorConfig{
+	config := &model.AggregatorConfig{
 		Server: model.ServerConfig{
 			Address: ":50051",
 		},
@@ -60,7 +60,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.Ag
 	}
 
 	for _, option := range options {
-		config = *option(&config)
+		config = option(config)
 	}
 
 	s := agg.NewServer(sugaredLggr, config)

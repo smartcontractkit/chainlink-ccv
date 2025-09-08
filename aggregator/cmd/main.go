@@ -11,7 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
@@ -29,14 +29,14 @@ func main() {
 
 	sugaredLggr := logger.Sugared(lggr)
 
-	config := model.AggregatorConfig{
-		Server: model.ServerConfig{
-			Address: ":50051",
-		},
-		Storage: model.StorageConfig{
-			StorageType: "memory",
-		},
-		DisableValidation: true,
+	filePath := "aggregator.toml"
+	if len(os.Args) > 1 {
+		filePath = os.Args[1]
+	}
+	config, err := configuration.LoadConfig(filePath)
+	if err != nil {
+		lggr.Errorw("Failed to load configuration", "error", err)
+		os.Exit(1)
 	}
 
 	server := aggregator.NewServer(sugaredLggr, config)

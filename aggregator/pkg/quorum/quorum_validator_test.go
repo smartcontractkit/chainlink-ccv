@@ -101,13 +101,13 @@ func NewTestCase(opts ...TestCaseOption) *TestCaseBuilder {
 }
 
 // BuildConfig creates the AggregatorConfig from the builder.
-func (b *TestCaseBuilder) BuildConfig() model.AggregatorConfig {
+func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 	signers := make([]model.Signer, len(b.signerFixtures))
 	for i, fixture := range b.signerFixtures {
 		signers[i] = fixture.Signer
 	}
 
-	return model.AggregatorConfig{
+	return &model.AggregatorConfig{
 		Committees: map[string]*model.Committee{
 			b.committeeID: {
 				QuorumConfigs: map[uint64]*model.QuorumConfig{
@@ -200,7 +200,7 @@ func TestValidateSignature(t *testing.T) {
 
 	t.Run("valid signature", func(t *testing.T) {
 		// Setup validator with test configuration
-		config := model.AggregatorConfig{
+		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
@@ -228,7 +228,7 @@ func TestValidateSignature(t *testing.T) {
 	})
 
 	t.Run("missing signature", func(t *testing.T) {
-		config := model.AggregatorConfig{
+		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
@@ -258,7 +258,7 @@ func TestValidateSignature(t *testing.T) {
 	})
 
 	t.Run("invalid signature", func(t *testing.T) {
-		config := model.AggregatorConfig{
+		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{
@@ -290,7 +290,7 @@ func TestValidateSignature(t *testing.T) {
 
 	t.Run("missing committee config", func(t *testing.T) {
 		// Empty configuration
-		config := model.AggregatorConfig{
+		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{},
 		}
 
@@ -306,7 +306,7 @@ func TestValidateSignature(t *testing.T) {
 	})
 
 	t.Run("missing receipt blob", func(t *testing.T) {
-		config := model.AggregatorConfig{
+		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
 					QuorumConfigs: map[uint64]*model.QuorumConfig{

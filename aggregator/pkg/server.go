@@ -122,7 +122,7 @@ type SignatureAndQuorumValidator interface {
 }
 
 // NewServer creates a new aggregator server with the specified logger and configuration.
-func NewServer(l logger.SugaredLogger, config model.AggregatorConfig) *Server {
+func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	if config.Storage.StorageType != "memory" {
 		panic("unknown storage type")
 	}
