@@ -144,7 +144,7 @@ func NewServer(l logger.SugaredLogger, config model.AggregatorConfig) *Server {
 
 	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation)
 	writeCommitCCVNodeDataHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees)
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees)
 
 	grpcServer := grpc.NewServer()
