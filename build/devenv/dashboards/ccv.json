@@ -22,6 +22,7 @@
   "liveNow": false,
   "panels": [
     {
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -29,10 +30,52 @@
         "y": 0
       },
       "id": 19,
+      "panels": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "description": "All Logs",
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 1
+          },
+          "id": 20,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "P8E80F9AEF21F6940"
+              },
+              "editorMode": "code",
+              "expr": "{job=\"ctf\", container=\"indexer\"}",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "All Logs",
+          "transparent": true,
+          "type": "logs"
+        }
+      ],
       "title": "Indexer",
       "type": "row"
     },
     {
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -40,6 +83,47 @@
         "y": 1
       },
       "id": 18,
+      "panels": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "description": "All Logs",
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 2
+          },
+          "id": 21,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "P8E80F9AEF21F6940"
+              },
+              "editorMode": "code",
+              "expr": "{job=\"ctf\", container=\"aggregator\"}",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "All Logs",
+          "transparent": true,
+          "type": "logs"
+        }
+      ],
       "title": "Aggregator",
       "type": "row"
     },
@@ -51,85 +135,30 @@
         "x": 0,
         "y": 2
       },
-      "id": 17,
+      "id": 24,
       "panels": [
         {
           "datasource": {
             "type": "loki",
             "uid": "P8E80F9AEF21F6940"
           },
-          "description": "Transaction Attempts",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 22,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "auto",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
+          "description": "All Logs",
           "gridPos": {
             "h": 6,
-            "w": 10,
+            "w": 24,
             "x": 0,
             "y": 3
           },
-          "id": 9,
+          "id": 22,
           "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
-            }
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
           },
           "targets": [
             {
@@ -138,193 +167,70 @@
                 "uid": "P8E80F9AEF21F6940"
               },
               "editorMode": "code",
-              "expr": "count_over_time(\n  {job=\"ctf\"} |= \"Sending transaction\" [$__range]\n)",
-              "legendFormat": "{{service_name}}",
+              "expr": "{job=\"ctf\", container=\"verifier\"}",
               "queryType": "range",
               "refId": "A"
             }
           ],
-          "title": "Transaction Attempts",
+          "title": "All Logs",
           "transparent": true,
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
-          },
-          "description": "TX Stats (logs)",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 6,
-            "w": 5,
-            "x": 10,
-            "y": 3
-          },
-          "id": 10,
-          "options": {
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "center",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "textMode": "value_and_name"
-          },
-          "pluginVersion": "10.1.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
-              },
-              "editorMode": "code",
-              "expr": "sum(count_over_time(\n  {job=\"ctf\"} |= \"Sending transaction\" [$__range]\n)) by (job)",
-              "hide": false,
-              "legendFormat": "TX Attempts",
-              "queryType": "range",
-              "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
-              },
-              "editorMode": "code",
-              "expr": "sum(count_over_time(\n  {job=\"ctf\"} |= \"sent transaction\" [$__range]\n)) by (job)",
-              "hide": false,
-              "legendFormat": "TX Sent",
-              "queryType": "range",
-              "refId": "A"
-            }
-          ],
-          "title": "TX Stats (logs)",
-          "transparent": true,
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
-          },
-          "description": "Sent transactions",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 22,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "auto",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 6,
-            "w": 9,
-            "x": 15,
-            "y": 3
-          },
-          "id": 1,
-          "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
-            }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
-              },
-              "editorMode": "code",
-              "expr": "count_over_time(\n  {job=\"ctf\"} |= \"sent transaction\" [$__range]\n)",
-              "legendFormat": "{{service_name}}",
-              "queryType": "range",
-              "refId": "A"
-            }
-          ],
-          "title": "Sent transactions",
-          "transparent": true,
-          "type": "timeseries"
+          "type": "logs"
         }
       ],
-      "title": "Transactions",
+      "title": "Verifier",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "id": 23,
+      "panels": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "description": "All Logs",
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 4
+          },
+          "id": 25,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "P8E80F9AEF21F6940"
+              },
+              "editorMode": "code",
+              "expr": "{job=\"ctf\", container=\"executor\"}",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "All Logs",
+          "transparent": true,
+          "type": "logs"
+        }
+      ],
+      "title": "Executor",
       "type": "row"
     },
     {
@@ -333,7 +239,290 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 3
+        "y": 4
+      },
+      "id": 17,
+      "panels": [],
+      "title": "Transactions",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "description": "Transaction Attempts",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 22,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 0,
+        "y": 5
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "editorMode": "code",
+          "expr": "count_over_time(\n  {job=\"ctf\"} |= \"Sending transaction\" [$__range]\n)",
+          "legendFormat": "{{service_name}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Transaction Attempts",
+      "transparent": true,
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "description": "TX Stats (logs)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 5,
+        "x": 10,
+        "y": 5
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time(\n  {job=\"ctf\"} |= \"Sending transaction\" [$__range]\n)) by (job)",
+          "hide": false,
+          "legendFormat": "TX Attempts",
+          "queryType": "range",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time(\n  {job=\"ctf\"} |= \"sent transaction\" [$__range]\n)) by (job)",
+          "hide": false,
+          "legendFormat": "TX Sent",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "TX Stats (logs)",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "description": "Sent transactions",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 22,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 9,
+        "x": 15,
+        "y": 5
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "editorMode": "code",
+          "expr": "count_over_time(\n  {job=\"ctf\"} |= \"sent transaction\" [$__range]\n)",
+          "legendFormat": "{{service_name}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Sent transactions",
+      "transparent": true,
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 11
       },
       "id": 11,
       "panels": [],
@@ -403,7 +592,7 @@
         "h": 7,
         "w": 10,
         "x": 0,
-        "y": 4
+        "y": 12
       },
       "id": 2,
       "options": {
@@ -473,7 +662,7 @@
         "h": 4,
         "w": 5,
         "x": 10,
-        "y": 4
+        "y": 12
       },
       "id": 15,
       "options": {
@@ -571,7 +760,7 @@
         "h": 7,
         "w": 9,
         "x": 15,
-        "y": 4
+        "y": 12
       },
       "id": 4,
       "options": {
@@ -641,7 +830,7 @@
         "h": 10,
         "w": 5,
         "x": 10,
-        "y": 8
+        "y": 16
       },
       "id": 13,
       "options": {
@@ -739,7 +928,7 @@
         "h": 7,
         "w": 10,
         "x": 0,
-        "y": 11
+        "y": 19
       },
       "id": 3,
       "options": {
@@ -840,7 +1029,7 @@
         "h": 7,
         "w": 9,
         "x": 15,
-        "y": 11
+        "y": 19
       },
       "id": 5,
       "options": {
@@ -887,7 +1076,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 26
       },
       "id": 6,
       "options": {
@@ -926,7 +1115,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 31
       },
       "id": 8,
       "options": {
