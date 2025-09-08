@@ -133,7 +133,7 @@ func NewServer(l logger.SugaredLogger, config model.AggregatorConfig) *Server {
 	if config.StubMode {
 		validator = quorum.NewStubQuorumValidator()
 	} else {
-		validator = quorum.NewQuorumValidator(config)
+		validator = quorum.NewQuorumValidator(config, l)
 	}
 
 	agg, err := createAggregator(store, store, validator, l)
@@ -142,10 +142,10 @@ func NewServer(l logger.SugaredLogger, config model.AggregatorConfig) *Server {
 		return nil
 	}
 
-	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation)
+	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l)
 	writeCommitCCVNodeDataHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees)
-	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l)
+	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
 
 	grpcServer := grpc.NewServer()
 	server := &Server{

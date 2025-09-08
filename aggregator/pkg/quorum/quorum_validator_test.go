@@ -1,6 +1,7 @@
 package quorum_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
 )
@@ -170,10 +172,11 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 // Run executes the test case.
 func (b *TestCaseBuilder) Run(t *testing.T) {
 	config := b.BuildConfig()
-	validator := quorum.NewQuorumValidator(config)
+	validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 	report := b.BuildReport(t)
 
-	valid, err := validator.CheckQuorum(report)
+	ctx := context.Background()
+	valid, err := validator.CheckQuorum(ctx, report)
 
 	if b.expectedError {
 		assert.Error(t, err)
@@ -211,13 +214,13 @@ func TestValidateSignature(t *testing.T) {
 			},
 		}
 
-		validator := quorum.NewQuorumValidator(config)
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Create verification record with valid signature
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
 
-		signers, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
+		signers, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
 		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
@@ -239,7 +242,7 @@ func TestValidateSignature(t *testing.T) {
 			},
 		}
 
-		validator := quorum.NewQuorumValidator(config)
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Create message data without signature
 		messageDataNoSig := fixtures.NewMessageWithCCVNodeData(t, protocolMessage)
@@ -248,7 +251,7 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoSig)
 
-		signer, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
+		signer, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "missing signature in report")
@@ -269,7 +272,7 @@ func TestValidateSignature(t *testing.T) {
 			},
 		}
 
-		validator := quorum.NewQuorumValidator(config)
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Create different signer for invalid signature
 		invalidSignerFixture := fixtures.NewSignerFixture(t, "invalid_signer")
@@ -279,7 +282,7 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(invalidMessageData)
 
-		signer, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
+		signer, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "no valid signers found for the provided signature")
@@ -291,12 +294,12 @@ func TestValidateSignature(t *testing.T) {
 			Committees: map[string]*model.Committee{},
 		}
 
-		validator := quorum.NewQuorumValidator(config)
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
 
-		signer, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
+		signer, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "quorum config not found for chain selector")
@@ -317,7 +320,7 @@ func TestValidateSignature(t *testing.T) {
 			},
 		}
 
-		validator := quorum.NewQuorumValidator(config)
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Create message data without receipt blobs
 		messageDataNoBlob := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
@@ -327,7 +330,7 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoBlob)
 
-		signer, _, err := validator.ValidateSignature(&record.MessageWithCCVNodeData)
+		signer, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "receipt blob not found for verifier")

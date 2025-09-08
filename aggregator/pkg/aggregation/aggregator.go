@@ -7,12 +7,13 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type QuorumValidator interface {
 	// CheckQuorum checks if the aggregated report meets the quorum requirements.
-	CheckQuorum(report *model.CommitAggregatedReport) (bool, error)
+	CheckQuorum(ctx context.Context, report *model.CommitAggregatedReport) (bool, error)
 }
 
 // CommitReportAggregator is responsible for aggregating commit reports from multiple verifiers.
@@ -23,7 +24,7 @@ type CommitReportAggregator struct {
 	sink          common.Sink
 	messageIDChan chan aggregationRequest
 	quorum        QuorumValidator
-	logger        logger.SugaredLogger
+	l             logger.SugaredLogger
 }
 
 type aggregationRequest struct {
@@ -41,10 +42,15 @@ func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID) err
 	return nil
 }
 
+func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogger {
+	return scope.AugmentLogger(ctx, c.l)
+}
+
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(messageID model.MessageID) (*model.CommitAggregatedReport, error) {
-	lggr := c.logger.With("MessageID", messageID)
+	ctx := scope.WithMessageID(context.Background(), messageID)
+	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
-	verifications, err := c.storage.ListCommitVerificationByMessageID(context.Background(), messageID)
+	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
 		return nil, err
@@ -58,14 +64,14 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(messageID mod
 		Timestamp:     time.Now().Unix(),
 	}
 
-	quorumMet, err := c.quorum.CheckQuorum(aggregatedReport)
+	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
 	if err != nil {
 		lggr.Errorw("Failed to check quorum", "error", err)
 		return nil, err
 	}
 
 	if quorumMet {
-		if err := c.sink.SubmitReport(context.Background(), aggregatedReport); err != nil {
+		if err := c.sink.SubmitReport(ctx, aggregatedReport); err != nil {
 			lggr.Errorw("Failed to submit report", "error", err)
 			return nil, err
 		}
@@ -111,6 +117,6 @@ func NewCommitReportAggregator(storage common.CommitVerificationStore, sink comm
 		sink:          sink,
 		messageIDChan: make(chan aggregationRequest, 1000),
 		quorum:        quorum,
-		logger:        logger,
+		l:             logger,
 	}
 }

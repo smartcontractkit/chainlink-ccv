@@ -1,6 +1,8 @@
 package quorum
 
 import (
+	"context"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
@@ -10,12 +12,12 @@ type ValidatorStub struct {
 	// Add any necessary fields here
 }
 
-func (q *ValidatorStub) CheckQuorum(report *model.CommitAggregatedReport) (bool, error) {
+func (q *ValidatorStub) CheckQuorum(ctx context.Context, report *model.CommitAggregatedReport) (bool, error) {
 	// Implement your quorum checking logic here
 	return true, nil
 }
 
-func (q *ValidatorStub) ValidateSignature(report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *ValidatorStub) ValidateSignature(ctx context.Context, report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	// Implement your signature validation logic here
 	return []*model.IdentifierSigner{
 		{

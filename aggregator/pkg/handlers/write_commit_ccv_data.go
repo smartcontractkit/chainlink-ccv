@@ -8,13 +8,14 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type SignatureValidator interface {
 	// ValidateSignature validates a signature for a MessageWithCCVNodeData and returns the signers.
-	ValidateSignature(report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
+	ValidateSignature(ctx context.Context, report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
 }
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
@@ -27,14 +28,20 @@ type AggregationTriggerer interface {
 type WriteCommitCCVNodeDataHandler struct {
 	storage            common.CommitVerificationStore
 	aggregator         AggregationTriggerer
-	logger             logger.SugaredLogger
+	l                  logger.SugaredLogger
 	signatureValidator SignatureValidator
 	disableValidation  bool
 }
 
+func (h *WriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.SugaredLogger {
+	return scope.AugmentLogger(ctx, h.l)
+}
+
 // Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.WriteCommitCCVNodeDataRequest) (*aggregator.WriteCommitCCVNodeDataResponse, error) {
-	reqLogger := h.logger.With("MessageID", req.CcvNodeData.GetMessageId())
+	ctx = scope.WithRequestID(ctx)
+	ctx = scope.WithMessageID(ctx, req.CcvNodeData.GetMessageId())
+	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received WriteCommitCCVNodeDataRequest")
 	if !h.disableValidation {
 		if err := validateWriteRequest(req); err != nil {
@@ -46,7 +53,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 		reqLogger.Warnf("Request validation is disabled")
 	}
 
-	signers, _, err := h.signatureValidator.ValidateSignature(req.GetCcvNodeData())
+	signers, _, err := h.signatureValidator.ValidateSignature(ctx, req.GetCcvNodeData())
 	if err != nil {
 		return &aggregator.WriteCommitCCVNodeDataResponse{
 			Status: aggregator.WriteStatus_FAILED,
@@ -57,7 +64,9 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 	reqLogger.Infof("Signature validated successfully")
 
 	for _, signer := range signers {
-		reqLogger = reqLogger.With("Address", signer.Address, "ParticipantID", signer.ParticipantID)
+		ctx = scope.WithAddress(ctx, signer.Address)
+		ctx = scope.WithParticipantID(ctx, signer.ParticipantID)
+		reqLogger = h.logger(ctx)
 		record := model.CommitVerificationRecord{
 			MessageWithCCVNodeData: *req.GetCcvNodeData(),
 			IdentifierSigner:       signer,
@@ -88,7 +97,7 @@ func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggr
 	return &WriteCommitCCVNodeDataHandler{
 		storage:            store,
 		aggregator:         aggregator,
-		logger:             l,
+		l:                  l,
 		disableValidation:  disableValidation,
 		signatureValidator: signatureValidator,
 	}

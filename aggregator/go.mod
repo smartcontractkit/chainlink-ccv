@@ -11,6 +11,7 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
+	github.com/google/uuid v1.6.0
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.4
