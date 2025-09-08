@@ -255,9 +255,8 @@ func init() {
 	rootCmd.AddCommand(bsCmd)
 
 	// observability
-	obsRestartCmd.Flags().BoolP("full", "f", false, "Enable full observability stack with additional components")
+	obsCmd.PersistentFlags().BoolP("full", "f", false, "Enable full observability stack with additional components")
 	obsCmd.AddCommand(obsRestartCmd)
-	obsUpCmd.Flags().BoolP("full", "f", false, "Enable full observability stack with additional components")
 	obsCmd.AddCommand(obsUpCmd)
 	obsCmd.AddCommand(obsDownCmd)
 	rootCmd.AddCommand(obsCmd)
