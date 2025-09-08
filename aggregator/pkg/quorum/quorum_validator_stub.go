@@ -11,7 +11,19 @@ func (q *QuorumValidatorStub) CheckQuorum(report *model.CommitAggregatedReport) 
 	return true, nil
 }
 
-func (q *QuorumValidatorStub) ValidateSignature(report *model.CommitVerificationRecord) (bool, error) {
+func (q *QuorumValidatorStub) ValidateSignature(report *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	// Implement your signature validation logic here
-	return true, nil
+	return []*model.IdentifierSigner{
+		{
+			Signer: model.Signer{
+				ParticipantID: "stub-participant",
+				Addresses:     []string{"0x0000000000000000000000000000000000000000"},
+			},
+			Address: []byte{0},
+		},
+	}, nil, nil
+}
+
+func NewStubQuorumValidator() *QuorumValidatorStub {
+	return &QuorumValidatorStub{}
 }

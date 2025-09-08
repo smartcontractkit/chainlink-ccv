@@ -18,7 +18,11 @@ type InMemoryStorage struct {
 
 // SaveCommitVerification persists a commit verification record.
 func (s *InMemoryStorage) SaveCommitVerification(_ context.Context, record *model.CommitVerificationRecord) error {
-	id := record.GetID()
+	id, err := record.GetID()
+	if err != nil {
+		return err
+	}
+
 	s.records[id.ToIdentifier()] = record
 	return nil
 }

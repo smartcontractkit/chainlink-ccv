@@ -27,7 +27,7 @@ func main() {
 		panic(err)
 	}
 
-	lggr = logger.Sugared(lggr)
+	sugaredLggr := logger.Sugared(lggr)
 
 	config := model.AggregatorConfig{
 		Server: model.ServerConfig{
@@ -39,7 +39,7 @@ func main() {
 		DisableValidation: true,
 	}
 
-	server := aggregator.NewServer(lggr, config)
+	server := aggregator.NewServer(sugaredLggr, config)
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -47,20 +47,20 @@ func main() {
 	lc := &net.ListenConfig{}
 	lis, err := lc.Listen(context.Background(), "tcp", config.Server.Address)
 	if err != nil {
-		lggr.Fatalw("failed to listen for CCV data service", "address", config.Server.Address, "error", err)
+		sugaredLggr.Fatalw("failed to listen for CCV data service", "address", config.Server.Address, "error", err)
 	}
 
 	err = server.Start(lis)
 	if err != nil {
-		lggr.Fatalw("failed to start CCV data service", "error", err)
+		sugaredLggr.Fatalw("failed to start CCV data service", "error", err)
 	}
 
 	<-ctx.Done()
 	if err := server.Stop(); err != nil {
-		lggr.Errorw("failed to stop CCV data service", "error", err)
+		sugaredLggr.Errorw("failed to stop CCV data service", "error", err)
 	}
 	if err := lis.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-		lggr.Errorw("failed to close listener", "error", err)
+		sugaredLggr.Errorw("failed to close listener", "error", err)
 	}
-	lggr.Info("Aggregator service shut down gracefully")
+	sugaredLggr.Info("Aggregator service shut down gracefully")
 }

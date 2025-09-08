@@ -107,7 +107,9 @@ func (q *EVMQuorumValidator) CheckQuorum(aggregatedReport *model.CommitAggregate
 	return true, nil
 }
 
-func (q *EVMQuorumValidator) ValidateSignature(report *model.CommitVerificationRecord) ([]*model.Signer, *model.QuorumConfig, error) {
+// ValidateSignature validates the signature of a commit verification record and returns the signers and the quorum config used.
+// It can return multiple signers from the same participant if they have multiple addresses in the config.
+func (q *EVMQuorumValidator) ValidateSignature(report *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	signature := report.CcvData
 	if signature == nil {
 		return nil, nil, fmt.Errorf("missing signature in report")
@@ -162,7 +164,7 @@ func (q *EVMQuorumValidator) ValidateSignature(report *model.CommitVerificationR
 	}
 
 	var quorumConfig *model.QuorumConfig
-	identifiedSigners := make([]*model.Signer, 0, len(rs))
+	identifiedSigners := make([]*model.IdentifierSigner, 0, len(rs))
 	for i := range rs {
 		for vValue := byte(0); vValue <= 1; vValue++ {
 			combined := append(rs[i][:], ss[i][:]...)
@@ -188,7 +190,10 @@ func (q *EVMQuorumValidator) ValidateSignature(report *model.CommitVerificationR
 					signerAddress := common.HexToAddress(s)
 
 					if signerAddress == address {
-						identifiedSigners = append(identifiedSigners, &signer)
+						identifiedSigners = append(identifiedSigners, &model.IdentifierSigner{
+							Signer:  signer,
+							Address: signerAddress.Bytes(),
+						})
 					}
 				}
 			}

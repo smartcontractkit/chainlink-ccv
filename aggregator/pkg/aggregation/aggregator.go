@@ -7,6 +7,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type QuorumValidator interface {
@@ -22,6 +23,7 @@ type CommitReportAggregator struct {
 	sink          common.Sink
 	messageIDChan chan aggregationRequest
 	quorum        QuorumValidator
+	logger        logger.SugaredLogger
 }
 
 type aggregationRequest struct {
@@ -40,10 +42,15 @@ func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID) err
 }
 
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+	lggr := c.logger.With("MessageID", messageID)
+	lggr.Debugw("Starting aggregation check")
 	verifications, err := c.storage.ListCommitVerificationByMessageID(context.Background(), messageID)
 	if err != nil {
+		lggr.Errorw("Failed to list verifications", "error", err)
 		return nil, err
 	}
+
+	lggr.Debugw("Verifications retrieved", "count", len(verifications))
 
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
@@ -53,13 +60,17 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(messageID mod
 
 	quorumMet, err := c.quorum.CheckQuorum(aggregatedReport)
 	if err != nil {
+		lggr.Errorw("Failed to check quorum", "error", err)
 		return nil, err
 	}
 
 	if quorumMet {
 		if err := c.sink.SubmitReport(context.Background(), aggregatedReport); err != nil {
+			lggr.Errorw("Failed to submit report", "error", err)
 			return nil, err
 		}
+	} else {
+		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}
 
 	return nil, nil
@@ -68,13 +79,15 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(messageID mod
 // StartBackground begins processing aggregation requests in the background.
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	go func() {
-		select {
-		case request := <-c.messageIDChan:
-			go func() {
-				_, _ = c.checkAggregationAndSubmitComplete(request.MessageID)
-			}()
-		case <-ctx.Done():
-			return
+		for {
+			select {
+			case request := <-c.messageIDChan:
+				go func() {
+					_, _ = c.checkAggregationAndSubmitComplete(request.MessageID)
+				}()
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 }
@@ -92,11 +105,12 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 //   - *CommitReportAggregator: A new aggregator instance ready to process commit reports
 //
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
-func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, quorum QuorumValidator) *CommitReportAggregator {
+func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, quorum QuorumValidator, logger logger.SugaredLogger) *CommitReportAggregator {
 	return &CommitReportAggregator{
 		storage:       storage,
 		sink:          sink,
-		messageIDChan: make(chan aggregationRequest),
+		messageIDChan: make(chan aggregationRequest, 1000),
 		quorum:        quorum,
+		logger:        logger,
 	}
 }

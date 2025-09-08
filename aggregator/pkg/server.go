@@ -110,28 +110,40 @@ func (s *Server) Stop() error {
 	}
 }
 
-func createAggregator(storage common.CommitVerificationStore, sink common.Sink) (handlers.AggregationTriggerer, error) {
-	aggregator := aggregation.NewCommitReportAggregator(storage, sink, &quorum.QuorumValidatorStub{})
+func createAggregator(storage common.CommitVerificationStore, sink common.Sink, validator aggregation.QuorumValidator, lggr logger.SugaredLogger) (handlers.AggregationTriggerer, error) {
+	aggregator := aggregation.NewCommitReportAggregator(storage, sink, validator, lggr)
 	aggregator.StartBackground(context.Background())
 	return aggregator, nil
 }
 
+type SignatureAndQuorumValidator interface {
+	aggregation.QuorumValidator
+	handlers.SignatureValidator
+}
+
 // NewServer creates a new aggregator server with the specified logger and configuration.
-func NewServer(l logger.Logger, config model.AggregatorConfig) *Server {
+func NewServer(l logger.SugaredLogger, config model.AggregatorConfig) *Server {
 	if config.Storage.StorageType != "memory" {
 		panic("unknown storage type")
 	}
 
 	store := storage.NewInMemoryStorage()
 
-	agg, err := createAggregator(store, store)
+	var validator SignatureAndQuorumValidator
+	if config.StubMode {
+		validator = quorum.NewStubQuorumValidator()
+	} else {
+		validator = quorum.NewQuorumValidator(config)
+	}
+
+	agg, err := createAggregator(store, store, validator, l)
 	if err != nil {
 		l.Errorw("failed to create aggregator", "error", err)
 		return nil
 	}
 
 	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation)
-	writeCommitCCVNodeDataHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation)
+	writeCommitCCVNodeDataHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store)
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store)
 

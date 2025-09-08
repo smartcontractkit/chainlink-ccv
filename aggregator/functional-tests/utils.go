@@ -19,29 +19,51 @@ import (
 
 const bufSize = 1024 * 1024
 
+type ConfigOption = func(*model.AggregatorConfig) *model.AggregatorConfig
+
+func WithCommitteeConfig(committeeConfig map[string]model.Committee) ConfigOption {
+	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+		cfg.Committees = committeeConfig
+		return cfg
+	}
+}
+
+func WithStubMode(stub bool) ConfigOption {
+	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+		cfg.StubMode = stub
+		return cfg
+	}
+}
+
 // CreateServerAndClient creates a test server and client for functional testing.
-func CreateServerAndClient(t *testing.T, committeeConfig map[string]model.Committee) (aggregator.AggregatorClient, aggregator.CCVDataClient, func(), error) {
+func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.AggregatorClient, aggregator.CCVDataClient, func(), error) {
 	buf := bufconn.Listen(bufSize)
 	// Setup logging - always debug level for now
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Encoding = "console"
+		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	})
 	if err != nil {
 		panic(err)
 	}
 
 	// Use SugaredLogger for better API
-	lggr = logger.Sugared(lggr)
-	s := agg.NewServer(lggr, model.AggregatorConfig{
+	sugaredLggr := logger.Sugared(lggr)
+	config := model.AggregatorConfig{
 		Server: model.ServerConfig{
 			Address: ":50051",
 		},
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
-		Committees: committeeConfig,
-	})
+	}
+
+	for _, option := range options {
+		config = *option(&config)
+	}
+
+	s := agg.NewServer(sugaredLggr, config)
 	err = s.Start(buf)
 	if err != nil {
 		t.Fatalf("failed to start server: %v", err)

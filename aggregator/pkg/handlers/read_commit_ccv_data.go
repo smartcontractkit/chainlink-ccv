@@ -7,6 +7,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ReadCommitCCVNodeDataHandler handles requests to read commit verification records.
@@ -19,12 +21,12 @@ type ReadCommitCCVNodeDataHandler struct {
 func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.ReadCommitCCVNodeDataRequest) (*aggregator.ReadCommitCCVNodeDataResponse, error) {
 	if !h.disableValidation {
 		if err := validateReadRequest(req); err != nil {
-			return &aggregator.ReadCommitCCVNodeDataResponse{}, err
+			return &aggregator.ReadCommitCCVNodeDataResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 		}
 	}
 
 	id := model.CommitVerificationRecordIdentifier{
-		PublicKey: req.GetPublicKey(),
+		Address:   req.GetAddress(),
 		MessageID: req.GetMessageId(),
 	}
 

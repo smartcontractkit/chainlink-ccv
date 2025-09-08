@@ -1,9 +1,20 @@
 package model
 
+import (
+	"bytes"
+
+	"github.com/ethereum/go-ethereum/common"
+)
+
 // Signer represents a participant in the commit verification process.
 type Signer struct {
 	ParticipantID string   `toml:"participantID"`
 	Addresses     []string `toml:"addresses"`
+}
+
+type IdentifierSigner struct {
+	Signer
+	Address []byte
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -19,6 +30,19 @@ type Committee struct {
 type QuorumConfig struct {
 	Signers []Signer `toml:"signers"`
 	F       uint8    `toml:"f"`
+}
+
+func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {
+	for _, signer := range q.Signers {
+		for _, addr := range signer.Addresses {
+			// TODO: Do not use go ethereum common package here
+			addrBytes := common.HexToAddress(addr).Bytes()
+			if bytes.Equal(addrBytes, address) {
+				return &signer
+			}
+		}
+	}
+	return nil
 }
 
 // StorageConfig represents the configuration for the storage backend.
@@ -37,6 +61,7 @@ type AggregatorConfig struct {
 	Server            ServerConfig         `toml:"server"`
 	Storage           StorageConfig        `toml:"storage"`
 	DisableValidation bool                 `toml:"disableValidation"`
+	StubMode          bool                 `toml:"stubQuorumValidation"`
 }
 
 // Validate validates the aggregator configuration for integrity and correctness.
