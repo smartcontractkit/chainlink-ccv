@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 
 	"github.com/google/uuid"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 

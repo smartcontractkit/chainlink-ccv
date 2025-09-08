@@ -64,20 +64,19 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 	reqLogger.Infof("Signature validated successfully")
 
 	for _, signer := range signers {
-		ctx = scope.WithAddress(ctx, signer.Address)
-		ctx = scope.WithParticipantID(ctx, signer.ParticipantID)
-		reqLogger = h.logger(ctx)
+		signerCtx := scope.WithAddress(ctx, signer.Address)
+		signerCtx = scope.WithParticipantID(signerCtx, signer.ParticipantID)
 		record := model.CommitVerificationRecord{
 			MessageWithCCVNodeData: *req.GetCcvNodeData(),
 			IdentifierSigner:       signer,
 		}
-		err := h.storage.SaveCommitVerification(ctx, &record)
+		err := h.storage.SaveCommitVerification(signerCtx, &record)
 		if err != nil {
 			return &aggregator.WriteCommitCCVNodeDataResponse{
 				Status: aggregator.WriteStatus_FAILED,
 			}, err
 		}
-		reqLogger.Infof("Successfully saved commit verification record")
+		h.logger(signerCtx).Infof("Successfully saved commit verification record")
 	}
 
 	if err := h.aggregator.CheckAggregation(req.CcvNodeData.GetMessageId()); err != nil {

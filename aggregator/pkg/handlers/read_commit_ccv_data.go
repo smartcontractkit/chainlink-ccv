@@ -17,8 +17,8 @@ import (
 // ReadCommitCCVNodeDataHandler handles requests to read commit verification records.
 type ReadCommitCCVNodeDataHandler struct {
 	storage           common.CommitVerificationStore
-	disableValidation bool
 	l                 logger.SugaredLogger
+	disableValidation bool
 }
 
 func (h *ReadCommitCCVNodeDataHandler) logger(ctx context.Context) logger.SugaredLogger {
