@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -21,24 +22,22 @@ func (q *EVMQuorumValidator) CheckQuorum(aggregatedReport *model.CommitAggregate
 		return false, nil
 	}
 
-	var quorumConfig *model.QuorumConfig
+	quorumConfig, err := q.getQuorumConfig(types.ChainSelector(aggregatedReport.GetDestinationSelector()), aggregatedReport.GetOffRampAddress())
+	if err != nil {
+		return false, err
+	}
 
 	participantIDs := make(map[string]struct{})
 	for _, verification := range aggregatedReport.Verifications {
-		if signers, qConfig, err := q.ValidateSignature(&verification.MessageWithCCVNodeData); err != nil {
+		signers, _, err := q.ValidateSignature(&verification.MessageWithCCVNodeData)
+		if err != nil {
 			continue
-		} else if len(signers) == 0 {
+		}
+		if len(signers) == 0 {
 			continue
-		} else {
-			for _, signer := range signers {
-				participantIDs[signer.ParticipantID] = struct{}{}
-			}
-			if quorumConfig == nil {
-				quorumConfig = qConfig
-			} else if quorumConfig != qConfig {
-				// We have many different quorum configs in the same aggregated report. We can't possibly know which one to use.
-				return false, fmt.Errorf("signatures correspond to different quorum configurations. This mean that the public keys used to sign the verifications are not all part of the same committee. This can happen if the config changed after receiving the first verifications")
-			}
+		}
+		for _, signer := range signers {
+			participantIDs[signer.ParticipantID] = struct{}{}
 		}
 	}
 
@@ -61,24 +60,24 @@ func (q *EVMQuorumValidator) ValidateSignature(report *aggregator.MessageWithCCV
 	reportMessage := report.Message
 
 	message := types.Message{
-		Version:              uint8(reportMessage.Version),
+		Version:              uint8(reportMessage.Version), //nolint:gosec // G115: Protocol-defined conversion
 		SourceChainSelector:  types.ChainSelector(reportMessage.SourceChainSelector),
 		DestChainSelector:    types.ChainSelector(reportMessage.DestChainSelector),
 		SequenceNumber:       types.SeqNum(reportMessage.SequenceNumber),
-		OnRampAddressLength:  uint8(reportMessage.OnRampAddressLength),
+		OnRampAddressLength:  uint8(reportMessage.OnRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OnRampAddress:        reportMessage.OnRampAddress,
-		OffRampAddressLength: uint8(reportMessage.OffRampAddressLength),
+		OffRampAddressLength: uint8(reportMessage.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OffRampAddress:       reportMessage.OffRampAddress,
-		Finality:             uint16(reportMessage.Finality),
-		SenderLength:         uint8(reportMessage.SenderLength),
+		Finality:             uint16(reportMessage.Finality),    //nolint:gosec // G115: Protocol-defined conversion
+		SenderLength:         uint8(reportMessage.SenderLength), //nolint:gosec // G115: Protocol-defined conversion
 		Sender:               reportMessage.Sender,
-		ReceiverLength:       uint8(reportMessage.ReceiverLength),
+		ReceiverLength:       uint8(reportMessage.ReceiverLength), //nolint:gosec // G115: Protocol-defined conversion
 		Receiver:             reportMessage.Receiver,
-		DestBlobLength:       uint16(reportMessage.DestBlobLength),
+		DestBlobLength:       uint16(reportMessage.DestBlobLength), //nolint:gosec // G115: Protocol-defined conversion
 		DestBlob:             reportMessage.DestBlob,
-		TokenTransferLength:  uint16(reportMessage.TokenTransferLength),
+		TokenTransferLength:  uint16(reportMessage.TokenTransferLength), //nolint:gosec // G115: Protocol-defined conversion
 		TokenTransfer:        reportMessage.TokenTransfer,
-		DataLength:           uint16(reportMessage.DataLength),
+		DataLength:           uint16(reportMessage.DataLength), //nolint:gosec // G115: Protocol-defined conversion
 		Data:                 reportMessage.Data,
 	}
 
@@ -172,7 +171,7 @@ func (q *EVMQuorumValidator) getReceiptBlobForVerifier(report *aggregator.Messag
 	return nil, fmt.Errorf("receipt blob not found for verifier: %x", sourceVerifier)
 }
 
-func (q *EVMQuorumValidator) ecrecover(signature []byte, msgHash []byte) (common.Address, error) {
+func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {
 	pubKeyBytes, err := crypto.Ecrecover(msgHash, signature)
 	if err != nil {
 		return common.Address{}, err

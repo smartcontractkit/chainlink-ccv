@@ -16,6 +16,10 @@ func (c *CommitAggregatedReport) GetDestinationSelector() uint64 {
 	return c.GetMessage().DestChainSelector
 }
 
+func (c *CommitAggregatedReport) GetOffRampAddress() []byte {
+	return c.GetMessage().OffRampAddress
+}
+
 func (c *CommitAggregatedReport) GetMessage() *aggregator.Message {
 	return c.Verifications[0].Message
 }

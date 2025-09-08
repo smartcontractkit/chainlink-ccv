@@ -5,16 +5,17 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
-type QuorumValidatorStub struct {
+// ValidatorStub is a stub implementation of a quorum validator for testing.
+type ValidatorStub struct {
 	// Add any necessary fields here
 }
 
-func (q *QuorumValidatorStub) CheckQuorum(report *model.CommitAggregatedReport) (bool, error) {
+func (q *ValidatorStub) CheckQuorum(report *model.CommitAggregatedReport) (bool, error) {
 	// Implement your quorum checking logic here
 	return true, nil
 }
 
-func (q *QuorumValidatorStub) ValidateSignature(report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *ValidatorStub) ValidateSignature(report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	// Implement your signature validation logic here
 	return []*model.IdentifierSigner{
 		{
@@ -27,6 +28,6 @@ func (q *QuorumValidatorStub) ValidateSignature(report *aggregator.MessageWithCC
 	}, nil, nil
 }
 
-func NewStubQuorumValidator() *QuorumValidatorStub {
-	return &QuorumValidatorStub{}
+func NewStubQuorumValidator() *ValidatorStub {
+	return &ValidatorStub{}
 }

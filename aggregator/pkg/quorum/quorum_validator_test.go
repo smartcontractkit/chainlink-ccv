@@ -3,15 +3,17 @@ package quorum_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
-	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	"github.com/stretchr/testify/assert"
+
+	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
 )
 
-// copyMessageWithCCVNodeData safely copies MessageWithCCVNodeData without mutex issues
+// copyMessageWithCCVNodeData safely copies MessageWithCCVNodeData without mutex issues.
 func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregator.MessageWithCCVNodeData {
 	return aggregator.MessageWithCCVNodeData{
 		MessageId:             src.MessageId,
@@ -25,62 +27,62 @@ func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregat
 	}
 }
 
-// TestCaseBuilder helps build test cases using option pattern
+// TestCaseBuilder helps build test cases using option pattern.
 type TestCaseBuilder struct {
 	signerFixtures []*fixtures.SignerFixture
-	f              uint8
 	committeeID    string
 	verifications  []string // participant IDs that signed
+	f              uint8
 	expectedValid  bool
 	expectedError  bool
 }
 
-// TestCaseOption defines an option for configuring test cases
+// TestCaseOption defines an option for configuring test cases.
 type TestCaseOption func(*TestCaseBuilder)
 
-// WithSignerFixtures sets the signer fixtures for the committee
+// WithSignerFixtures sets the signer fixtures for the committee.
 func WithSignerFixtures(fixtures ...*fixtures.SignerFixture) TestCaseOption {
 	return func(b *TestCaseBuilder) {
 		b.signerFixtures = fixtures
 	}
 }
 
-// WithF sets the fault tolerance value
+// WithF sets the fault tolerance value.
 func WithF(f uint8) TestCaseOption {
 	return func(b *TestCaseBuilder) {
 		b.f = f
 	}
 }
 
-// WithCommitteeID sets the committee ID
+// WithCommitteeID sets the committee ID.
 func WithCommitteeID(id string) TestCaseOption {
 	return func(b *TestCaseBuilder) {
 		b.committeeID = id
 	}
 }
 
-// WithVerifications sets which signers actually signed (by participant ID)
+// WithVerifications sets which signers actually signed (by participant ID).
 func WithVerifications(participantIDs ...string) TestCaseOption {
 	return func(b *TestCaseBuilder) {
 		b.verifications = participantIDs
 	}
 }
 
-// ExpectValid sets the expected validation result
+// ExpectValid sets the expected validation result.
 func ExpectValid(valid bool) TestCaseOption {
 	return func(b *TestCaseBuilder) {
 		b.expectedValid = valid
 	}
 }
 
-// ExpectError sets whether an error is expected
+// ExpectError sets whether an error is expected.
 func ExpectError() TestCaseOption {
 	return func(b *TestCaseBuilder) {
 		b.expectedError = true
 	}
 }
 
-// NewTestCase creates a new test case builder with defaults
+// NewTestCase creates a new test case builder with defaults.
 func NewTestCase(opts ...TestCaseOption) *TestCaseBuilder {
 	b := &TestCaseBuilder{
 		committeeID:   "committee1",
@@ -96,7 +98,7 @@ func NewTestCase(opts ...TestCaseOption) *TestCaseBuilder {
 	return b
 }
 
-// BuildConfig creates the AggregatorConfig from the builder
+// BuildConfig creates the AggregatorConfig from the builder.
 func (b *TestCaseBuilder) BuildConfig() model.AggregatorConfig {
 	signers := make([]model.Signer, len(b.signerFixtures))
 	for i, fixture := range b.signerFixtures {
@@ -118,7 +120,7 @@ func (b *TestCaseBuilder) BuildConfig() model.AggregatorConfig {
 	}
 }
 
-// BuildReport creates the CommitAggregatedReport from the builder
+// BuildReport creates the CommitAggregatedReport from the builder.
 func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedReport {
 	verifications := make([]*model.CommitVerificationRecord, len(b.verifications))
 
@@ -165,7 +167,7 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 	}
 }
 
-// Run executes the test case
+// Run executes the test case.
 func (b *TestCaseBuilder) Run(t *testing.T) {
 	config := b.BuildConfig()
 	validator := quorum.NewQuorumValidator(config)
@@ -336,8 +338,8 @@ func TestCheckQuorum(t *testing.T) {
 	tests := []struct {
 		name          string
 		signers       []string
-		f             uint8
 		verifications []string
+		f             uint8
 		expectedValid bool
 	}{
 		{

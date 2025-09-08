@@ -11,24 +11,24 @@ import (
 
 func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
 	return &types.Message{
-		Version:              uint8(m.Version),
+		Version:              uint8(m.Version), //nolint:gosec // G115: Protocol-defined conversion
 		SourceChainSelector:  types.ChainSelector(m.SourceChainSelector),
 		DestChainSelector:    types.ChainSelector(m.DestChainSelector),
 		SequenceNumber:       types.SeqNum(m.SequenceNumber),
-		OnRampAddressLength:  uint8(m.OnRampAddressLength),
+		OnRampAddressLength:  uint8(m.OnRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OnRampAddress:        m.OnRampAddress,
-		OffRampAddressLength: uint8(m.OffRampAddressLength),
+		OffRampAddressLength: uint8(m.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OffRampAddress:       m.OffRampAddress,
-		Finality:             uint16(m.Finality),
-		SenderLength:         uint8(m.SenderLength),
+		Finality:             uint16(m.Finality),    //nolint:gosec // G115: Protocol-defined conversion
+		SenderLength:         uint8(m.SenderLength), //nolint:gosec // G115: Protocol-defined conversion
 		Sender:               m.Sender,
-		ReceiverLength:       uint8(m.ReceiverLength),
+		ReceiverLength:       uint8(m.ReceiverLength), //nolint:gosec // G115: Protocol-defined conversion
 		Receiver:             m.Receiver,
-		DestBlobLength:       uint16(m.DestBlobLength),
+		DestBlobLength:       uint16(m.DestBlobLength), //nolint:gosec // G115: Protocol-defined conversion
 		DestBlob:             m.DestBlob,
-		TokenTransferLength:  uint16(m.TokenTransferLength),
+		TokenTransferLength:  uint16(m.TokenTransferLength), //nolint:gosec // G115: Protocol-defined conversion
 		TokenTransfer:        m.TokenTransfer,
-		DataLength:           uint16(m.DataLength),
+		DataLength:           uint16(m.DataLength), //nolint:gosec // G115: Protocol-defined conversion
 		Data:                 m.Data,
 	}
 }
@@ -51,10 +51,10 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		}
 	}
 
-	signers := FindSignersFromSelectorAndOfframp(committees, uint64(report.GetDestinationSelector()), report.GetMessage().OffRampAddress)
+	signers := FindSignersFromSelectorAndOfframp(committees, report.GetDestinationSelector(), report.GetMessage().OffRampAddress)
 
-	var rs [][32]byte
-	var ss [][32]byte
+	rs := make([][32]byte, 0, len(signers))
+	ss := make([][32]byte, 0, len(signers))
 	for _, signer := range signers {
 		sig, exists := participantSignatures[signer.ParticipantID]
 		if !exists {
@@ -86,7 +86,7 @@ func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
 	var buf bytes.Buffer
 
 	// Encode array length as uint16 (big-endian)
-	arrayLen := uint16(len(rs))
+	arrayLen := uint16(len(rs)) //nolint:gosec // G115: Protocol-defined conversion
 	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
 		return nil, err
 	}

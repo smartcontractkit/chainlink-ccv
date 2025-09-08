@@ -93,6 +93,6 @@ func (c *AggregatorConfig) Validate() error {
 	// - Committee names are valid
 	// - QuorumConfig chain selectors are valid
 	// - Server address format is correct
-	// - Offramp address cannot be shared accross same chain on different committees
+	// - Offramp address cannot be shared across same chain on different committees
 	return nil
 }

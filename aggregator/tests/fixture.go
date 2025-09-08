@@ -6,16 +6,17 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type SignerFixture struct {
-	Signer model.Signer
 	key    *ecdsa.PrivateKey
+	Signer model.Signer
 }
 
 func (sf *SignerFixture) Sign(t *testing.T, message *types.Message, verifierBlob []byte) ([]byte, []byte, error) {
@@ -113,11 +114,11 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 }
 
 func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, options ...MessageWithCCVNodeDataOption) *aggregator.MessageWithCCVNodeData {
-	messageId, err := message.MessageID()
+	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 
 	ccvNodeData := &aggregator.MessageWithCCVNodeData{
-		MessageId:             messageId[:],
+		MessageId:             messageID[:],
 		SourceVerifierAddress: make([]byte, 20),
 		DestVerifierAddress:   make([]byte, 20),
 		Message: &aggregator.Message{

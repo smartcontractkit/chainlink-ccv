@@ -36,11 +36,11 @@ func validateWriteRequest(req *aggregator.WriteCommitCCVNodeDataRequest) error {
 	}
 
 	message := model.MapProtoMessageToProtocolMessage(verificationRecord.Message)
-	messageId, err := message.MessageID()
+	messageID, err := message.MessageID()
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(messageId[:], req.CcvNodeData.MessageId) {
+	if !bytes.Equal(messageID[:], req.CcvNodeData.MessageId) {
 		return validation.NewError("MessageId", "does not match ID derived from Message")
 	}
 
