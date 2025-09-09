@@ -16,17 +16,16 @@ import (
 )
 
 type Cfg struct {
-	CCV               *CCV                      `toml:"ccv"              validate:"required"`
-	StorageProvider   *s3provider.Input         `toml:"storage_provider" validate:"required"`
-	JD                *jd.Input                 `toml:"jd"`
-	Fake              *services.FakeInput       `toml:"fake"             validate:"required"`
-	Verifier          *services.VerifierInput   `toml:"verifier"         validate:"required"`
-	Executor          *services.ExecutorInput   `toml:"executor"         validate:"required"`
-	Indexer           *services.IndexerInput    `toml:"indexer"          validate:"required"`
-	Aggregator        *services.AggregatorInput `toml:"aggregator"       validate:"required"`
-	Blockchains       []*blockchain.Input       `toml:"blockchains"      validate:"required"`
-	NodeSets          []*ns.Input               `toml:"nodesets"         validate:"required"`
-	BlockchainOutputs []*blockchain.Output      `toml:"-"`
+	CCV             *CCV                      `toml:"ccv"              validate:"required"`
+	StorageProvider *s3provider.Input         `toml:"storage_provider" validate:"required"`
+	JD              *jd.Input                 `toml:"jd"`
+	Fake            *services.FakeInput       `toml:"fake"             validate:"required"`
+	Verifier        *services.VerifierInput   `toml:"verifier"         validate:"required"`
+	Executor        *services.ExecutorInput   `toml:"executor"         validate:"required"`
+	Indexer         *services.IndexerInput    `toml:"indexer"          validate:"required"`
+	Aggregator      *services.AggregatorInput `toml:"aggregator"       validate:"required"`
+	Blockchains     []*blockchain.Input       `toml:"blockchains"      validate:"required"`
+	NodeSets        []*ns.Input               `toml:"nodesets"         validate:"required"`
 }
 
 // verifyEnvironment internal function describing how to verify your environment is working.
@@ -64,20 +63,38 @@ func NewEnvironment() (*Cfg, error) {
 	track := NewTimeTracker(Plog)
 	eg := &errgroup.Group{}
 
-	// Initialize blockchain outputs slice
-	in.BlockchainOutputs = make([]*blockchain.Output, len(in.Blockchains))
+	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
+	// Channel to signal when blockchain outputs are ready for services that depend on them
+	blockchainOutputsReady := make(chan struct{})
+	aggregatorReady := make(chan struct{})
 
-	for i, b := range in.Blockchains {
-		i, b := i, b // capture loop variables
-		eg.Go(func() error {
-			output, err := blockchain.NewBlockchainNetwork(b)
-			if err != nil {
-				return fmt.Errorf("failed to create blockchain network: %w", err)
-			}
-			in.BlockchainOutputs[i] = output
-			return nil
-		})
-	}
+	// Start blockchain creation goroutine
+	eg.Go(func() error {
+		blockchainEg := &errgroup.Group{}
+
+		for i, b := range in.Blockchains {
+			i, b := i, b // capture loop variables
+			blockchainEg.Go(func() error {
+				output, err := blockchain.NewBlockchainNetwork(b)
+				if err != nil {
+					return fmt.Errorf("failed to create blockchain network: %w", err)
+				}
+				blockchainOutputs[i] = output
+				return nil
+			})
+		}
+
+		// Wait for all blockchains to be created
+		if err := blockchainEg.Wait(); err != nil {
+			return err
+		}
+
+		// Signal that blockchain outputs are ready
+		close(blockchainOutputsReady)
+		return nil
+	})
+
+	// Start services that don't need blockchain outputs
 	eg.Go(func() error {
 		in.Fake.Out, err = services.NewFake(in.Fake)
 		if err != nil {
@@ -85,29 +102,7 @@ func NewEnvironment() (*Cfg, error) {
 		}
 		return nil
 	})
-	aggregatorOutput, err := services.NewAggregator(in.Aggregator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create aggregator service: %w", err)
-	}
 
-	eg.Go(func() error {
-		in.Verifier.VerifierConfig = services.VerifierConfig{
-			AggregatorAddress: aggregatorOutput.Address,
-		}
-		in.Verifier.BlockchainOutputs = in.BlockchainOutputs
-		_, err = services.NewVerifier(in.Verifier)
-		if err != nil {
-			return fmt.Errorf("failed to create verifier service: %w", err)
-		}
-		return nil
-	})
-	eg.Go(func() error {
-		_, err = services.NewExecutor(in.Executor)
-		if err != nil {
-			return fmt.Errorf("failed to create executor service: %w", err)
-		}
-		return nil
-	})
 	eg.Go(func() error {
 		_, err = services.NewIndexer(in.Indexer)
 		if err != nil {
@@ -115,6 +110,46 @@ func NewEnvironment() (*Cfg, error) {
 		}
 		return nil
 	})
+
+	var aggregatorOutput *services.AggregatorOutput
+	eg.Go(func() error {
+		aggregatorOutput, err = services.NewAggregator(in.Aggregator)
+		if err != nil {
+			return fmt.Errorf("failed to create aggregator service: %w", err)
+		}
+		close(aggregatorReady)
+		return nil
+	})
+
+	// Start services that need blockchain outputs
+	eg.Go(func() error {
+		// Wait for blockchain outputs to be ready
+		<-blockchainOutputsReady
+		<-aggregatorReady
+
+		in.Verifier.VerifierConfig = services.VerifierConfig{
+			AggregatorAddress: aggregatorOutput.Address,
+		}
+		in.Verifier.BlockchainOutputs = blockchainOutputs
+		_, err = services.NewVerifier(in.Verifier)
+		if err != nil {
+			return fmt.Errorf("failed to create verifier service: %w", err)
+		}
+		return nil
+	})
+
+	eg.Go(func() error {
+		// Wait for blockchain outputs to be ready
+		<-blockchainOutputsReady
+
+		// TODO: Pass blockchain outputs to executor if needed
+		_, err = services.NewExecutor(in.Executor)
+		if err != nil {
+			return fmt.Errorf("failed to create executor service: %w", err)
+		}
+		return nil
+	})
+
 	// TODO: we need access to pre-built JD image in CI
 	//eg.Go(func() error {
 	//	_, err = jd.NewJD(in.JD)
@@ -123,6 +158,8 @@ func NewEnvironment() (*Cfg, error) {
 	//	}
 	//	return nil
 	//})
+
+	// Wait for all services to be created
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
