@@ -19,7 +19,7 @@ import (
 
 const (
 	LocalWASPLoadDashboard = "http://localhost:3000/d/WASPLoadTests/wasp-load-test?orgId=1&from=1756927942705&to=1756928229431"
-	LocalCCVDashboard      = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/datafeedsv1-soak-test?orgId=1&refresh=5s"
+	LocalCCVDashboard      = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/ccv-services?orgId=1&refresh=5s"
 )
 
 var rootCmd = &cobra.Command{
@@ -255,8 +255,8 @@ func init() {
 	rootCmd.AddCommand(bsCmd)
 
 	// observability
+	obsCmd.PersistentFlags().BoolP("full", "f", false, "Enable full observability stack with additional components")
 	obsCmd.AddCommand(obsRestartCmd)
-	obsUpCmd.Flags().BoolP("full", "f", false, "Enable full observability stack with additional components")
 	obsCmd.AddCommand(obsUpCmd)
 	obsCmd.AddCommand(obsDownCmd)
 	rootCmd.AddCommand(obsCmd)

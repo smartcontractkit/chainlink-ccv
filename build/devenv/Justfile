@@ -64,12 +64,12 @@ build-docker-dev-ci:
     @just ../../aggregator/build-dev
 
 # Build all the services for production
-build-docker-prod:
+build-docker-rc:
     @just fakes/build
-    @just ../../services/verifier/build
-    @just ../../services/executor/build
-    @just ../../services/indexer/build
-    @just ../../services/aggregator/build
+    @just ../../services/verifier/build-rc
+    @just ../../services/executor/build-rc
+    @just ../../services/indexer/build-rc
+    @just ../../services/aggregator/build-rc
 
 # Clone and build job-distributor Docker image
 build-jd-docker:
@@ -90,10 +90,6 @@ build-jd-docker:
         rm -rf job-distributor/
     fi
     echo "Done!"
-
-# Sets MinIO alias for easier use of 'mc' CLI
-minio-alias:
-   mc alias set minio http://localhost:9000 mYrAnD0mAcc3ssK3y2024 s3cR3tK3yL0ngEn0ughF0rMinI0Testing2024!
 
 # Rebuild CLI
 cli:
