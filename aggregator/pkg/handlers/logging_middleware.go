@@ -8,6 +8,7 @@ import (
 )
 
 type Handler[Req, Resp any] interface {
+	// Handle processes a request and returns a response or error.
 	Handle(ctx context.Context, req Req) (Resp, error)
 }
 

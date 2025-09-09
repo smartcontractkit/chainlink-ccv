@@ -47,8 +47,8 @@ func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.Comm
 func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, messageID model.MessageID) ([]*model.CommitVerificationRecord, error) {
 	var results []*model.CommitVerificationRecord
 	s.records.Range(func(key, value any) bool {
-		if bytes.Equal(value.(*model.CommitVerificationRecord).MessageId, messageID) {
-			results = append(results, value.(*model.CommitVerificationRecord))
+		if record, ok := value.(*model.CommitVerificationRecord); ok && bytes.Equal(record.MessageId, messageID) {
+			results = append(results, record)
 		}
 		return true
 	})
@@ -64,9 +64,10 @@ func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAg
 func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end int64) []*model.CommitAggregatedReport {
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
-		report := value.(*model.CommitAggregatedReport)
-		if report.Timestamp >= start && report.Timestamp <= end {
-			results = append(results, report)
+		if report, ok := value.(*model.CommitAggregatedReport); ok {
+			if report.Timestamp >= start && report.Timestamp <= end {
+				results = append(results, report)
+			}
 		}
 		return true
 	})
@@ -76,7 +77,9 @@ func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end i
 func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageID) *model.CommitAggregatedReport {
 	id := hex.EncodeToString(messageID)
 	if value, ok := s.aggregatedReports.Load(id); ok {
-		return value.(*model.CommitAggregatedReport)
+		if report, ok := value.(*model.CommitAggregatedReport); ok {
+			return report
+		}
 	}
 	return nil
 }
