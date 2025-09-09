@@ -188,8 +188,8 @@ func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Addres
 
 func (q *EVMQuorumValidator) getQuorumConfig(chainSelector types.ChainSelector, offrampAddress []byte) (*model.QuorumConfig, error) {
 	for _, committee := range q.Committees {
-		if config, exists := committee.QuorumConfigs[uint64(chainSelector)]; exists {
-			if bytes.Equal(config.OfframpAddress, offrampAddress) {
+		if config, exists := committee.GetQuorumConfig(uint64(chainSelector)); exists {
+			if bytes.Equal(config.GetOfframpAddressBytes(), offrampAddress) {
 				return config, nil
 			}
 		}

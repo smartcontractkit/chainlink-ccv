@@ -27,7 +27,6 @@ func (h *ReadCommitCCVNodeDataHandler) logger(ctx context.Context) logger.Sugare
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
 func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.ReadCommitCCVNodeDataRequest) (*aggregator.ReadCommitCCVNodeDataResponse, error) {
-	ctx = scope.WithRequestID(ctx)
 	ctx = scope.WithMessageID(ctx, req.GetMessageId())
 	h.logger(ctx).Infof("Received ReadCommitCCVNodeDataRequest")
 	if !h.disableValidation {

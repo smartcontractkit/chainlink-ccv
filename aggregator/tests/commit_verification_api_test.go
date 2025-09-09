@@ -19,13 +19,13 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	signer1 := NewSignerFixture(t, "node1")
 	config := map[string]*model.Committee{
 		"committee1": {
-			QuorumConfigs: map[uint64]*model.QuorumConfig{
-				2: {
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
 					F: 0,
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
-					OfframpAddress: make([]byte, 20),
+					OfframpAddress: "0x00000000000000000000000000000000000000000",
 				},
 			},
 		},
@@ -54,14 +54,14 @@ func TestAggregationHappyPath(t *testing.T) {
 	signer2 := NewSignerFixture(t, "node2")
 	config := map[string]*model.Committee{
 		"committee1": {
-			QuorumConfigs: map[uint64]*model.QuorumConfig{
-				2: {
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
 					F: 1,
 					Signers: []model.Signer{
 						signer1.Signer,
 						signer2.Signer,
 					},
-					OfframpAddress: make([]byte, 20),
+					OfframpAddress: "0x00000000000000000000000000000000000000000",
 				},
 			},
 		},
@@ -108,13 +108,13 @@ func TestIdempotency(t *testing.T) {
 	signer1 := NewSignerFixture(t, "node1")
 	config := map[string]*model.Committee{
 		"committee1": {
-			QuorumConfigs: map[uint64]*model.QuorumConfig{
-				2: {
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
 					F: 1,
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
-					OfframpAddress: make([]byte, 20),
+					OfframpAddress: "0x00000000000000000000000000000000000000000",
 				},
 			},
 		},
@@ -191,14 +191,14 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	signer3 := NewSignerFixture(t, "node3")
 	config := map[string]*model.Committee{
 		"committee1": {
-			QuorumConfigs: map[uint64]*model.QuorumConfig{
-				2: {
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
 					F: 1,
 					Signers: []model.Signer{
 						signer1.Signer,
 						signer2.Signer,
 					},
-					OfframpAddress: make([]byte, 20),
+					OfframpAddress: "0x00000000000000000000000000000000000000000",
 				},
 			},
 		},
@@ -222,13 +222,13 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	assertCCVDataNotFound(t, ccvDataClient, messageId)
 
 	// Change committee to remove signer1 and add signer3
-	config["committee1"].QuorumConfigs[2] = &model.QuorumConfig{
+	config["committee1"].QuorumConfigs["2"] = &model.QuorumConfig{
 		F: 1,
 		Signers: []model.Signer{
 			signer2.Signer,
 			signer3.Signer,
 		},
-		OfframpAddress: make([]byte, 20),
+		OfframpAddress: "0x00000000000000000000000000000000000000000",
 	}
 
 	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer2))
@@ -258,14 +258,14 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	signer3 := NewSignerFixture(t, "node3")
 	config := map[string]*model.Committee{
 		"committee1": {
-			QuorumConfigs: map[uint64]*model.QuorumConfig{
-				2: {
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
 					F: 1,
 					Signers: []model.Signer{
 						signer1.Signer,
 						signer2.Signer,
 					},
-					OfframpAddress: make([]byte, 20),
+					OfframpAddress: "0x00000000000000000000000000000000000000000",
 				},
 			},
 		},
@@ -300,13 +300,13 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage())
 
 	// Change committee to remove signer1 and add signer3
-	config["committee1"].QuorumConfigs[2] = &model.QuorumConfig{
+	config["committee1"].QuorumConfigs["2"] = &model.QuorumConfig{
 		F: 1,
 		Signers: []model.Signer{
 			signer2.Signer,
 			signer3.Signer,
 		},
-		OfframpAddress: make([]byte, 20),
+		OfframpAddress: "0x00000000000000000000000000000000000000000",
 	}
 
 	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage())

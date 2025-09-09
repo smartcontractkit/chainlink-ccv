@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -25,17 +26,23 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs map[uint64]*QuorumConfig `toml:"quorumConfigs"`
+	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
+}
+
+func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) {
+	selectorStr := new(big.Int).SetUint64(chainSelector).String()
+	qc, exists := c.QuorumConfigs[selectorStr]
+	return qc, exists
 }
 
 func FindSignersFromSelectorAndOfframp(committees map[string]*Committee, chainSelector uint64, offrampAddress []byte) []Signer {
 	for _, committee := range committees {
-		quorumConfig, exists := committee.QuorumConfigs[chainSelector]
+		quorumConfig, exists := committee.GetQuorumConfig(chainSelector)
 		if !exists {
 			continue
 		}
 
-		if !bytes.Equal(quorumConfig.OfframpAddress, offrampAddress) {
+		if !bytes.Equal(quorumConfig.GetOfframpAddressBytes(), offrampAddress) {
 			continue
 		}
 		return quorumConfig.Signers
@@ -45,7 +52,7 @@ func FindSignersFromSelectorAndOfframp(committees map[string]*Committee, chainSe
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	OfframpAddress []byte   `toml:"offrampAddress"`
+	OfframpAddress string   `toml:"offrampAddress"`
 	Signers        []Signer `toml:"signers"`
 	F              uint8    `toml:"f"`
 }
@@ -61,6 +68,10 @@ func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {
 		}
 	}
 	return nil
+}
+
+func (q *QuorumConfig) GetOfframpAddressBytes() []byte {
+	return common.HexToAddress(q.OfframpAddress).Bytes()
 }
 
 // StorageConfig represents the configuration for the storage backend.

@@ -26,7 +26,6 @@ func (h *GetCCVDataForMessageHandler) logger(ctx context.Context) logger.Sugared
 
 // Handle processes the get request and retrieves the commit verification data.
 func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.MessageWithCCVData, error) {
-	ctx = scope.WithRequestID(ctx)
 	ctx = scope.WithMessageID(ctx, req.MessageId)
 	h.logger(ctx).Infof("Received GetCCVDataForMessageRequest")
 

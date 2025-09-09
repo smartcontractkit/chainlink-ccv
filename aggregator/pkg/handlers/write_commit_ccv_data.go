@@ -39,8 +39,7 @@ func (h *WriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.Sugar
 
 // Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.WriteCommitCCVNodeDataRequest) (*aggregator.WriteCommitCCVNodeDataResponse, error) {
-	ctx = scope.WithRequestID(ctx)
-	ctx = scope.WithMessageID(ctx, req.CcvNodeData.GetMessageId())
+	ctx = scope.WithMessageID(ctx, req.CcvNodeData.MessageId)
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received WriteCommitCCVNodeDataRequest")
 	if !h.disableValidation {

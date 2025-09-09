@@ -28,10 +28,10 @@ type Server struct {
 	aggregator.UnimplementedCCVDataServer
 
 	l                             logger.Logger
-	readCommitCCVNodeDataHandler  *handlers.ReadCommitCCVNodeDataHandler
-	writeCommitCCVNodeDataHandler *handlers.WriteCommitCCVNodeDataHandler
-	getMessagesSinceHandler       *handlers.GetMessagesSinceHandler
-	getCCVDataForMessageHandler   *handlers.GetCCVDataForMessageHandler
+	readCommitCCVNodeDataHandler  handlers.Handler[*aggregator.ReadCommitCCVNodeDataRequest, *aggregator.ReadCommitCCVNodeDataResponse]
+	writeCommitCCVNodeDataHandler handlers.Handler[*aggregator.WriteCommitCCVNodeDataRequest, *aggregator.WriteCommitCCVNodeDataResponse]
+	getMessagesSinceHandler       handlers.Handler[*aggregator.GetMessagesSinceRequest, *aggregator.GetMessagesSinceResponse]
+	getCCVDataForMessageHandler   handlers.Handler[*aggregator.GetCCVDataForMessageRequest, *aggregator.MessageWithCCVData]
 	grpcServer                    *grpc.Server
 	closeChan                     chan struct{}
 	mu                            sync.Mutex
@@ -142,10 +142,10 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		return nil
 	}
 
-	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l)
-	writeCommitCCVNodeDataHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l)
-	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
+	readCommitCCVNodeDataHandler := handlers.NewLoggingMiddleware(handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l), l)
+	writeCommitCCVNodeDataHandler := handlers.NewLoggingMiddleware(handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator), l)
+	getMessagesSinceHandler := handlers.NewLoggingMiddleware(handlers.NewGetMessagesSinceHandler(store, config.Committees, l), l)
+	getCCVDataForMessageHandler := handlers.NewLoggingMiddleware(handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l), l)
 
 	grpcServer := grpc.NewServer()
 	server := &Server{

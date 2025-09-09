@@ -15,6 +15,8 @@ import (
 	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
 )
 
+const destSelector = "2" // Using string keys for QuorumConfigs map
+
 // copyMessageWithCCVNodeData safely copies MessageWithCCVNodeData without mutex issues.
 func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregator.MessageWithCCVNodeData {
 	return aggregator.MessageWithCCVNodeData{
@@ -110,9 +112,9 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 	return &model.AggregatorConfig{
 		Committees: map[string]*model.Committee{
 			b.committeeID: {
-				QuorumConfigs: map[uint64]*model.QuorumConfig{
-					1: {
-						OfframpAddress: make([]byte, 20),
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"1": {
+						OfframpAddress: "0x00000000000000000000000000000000000000000",
 						Signers:        signers,
 						F:              b.f,
 					},
@@ -203,11 +205,11 @@ func TestValidateSignature(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
-					QuorumConfigs: map[uint64]*model.QuorumConfig{
-						uint64(protocolMessage.DestChainSelector): {
+					QuorumConfigs: map[string]*model.QuorumConfig{
+						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							F:              0,
-							OfframpAddress: make([]byte, 20),
+							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
 				},
@@ -231,11 +233,11 @@ func TestValidateSignature(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
-					QuorumConfigs: map[uint64]*model.QuorumConfig{
-						uint64(protocolMessage.DestChainSelector): {
+					QuorumConfigs: map[string]*model.QuorumConfig{
+						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							F:              0,
-							OfframpAddress: make([]byte, 20),
+							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
 				},
@@ -261,11 +263,11 @@ func TestValidateSignature(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
-					QuorumConfigs: map[uint64]*model.QuorumConfig{
-						uint64(protocolMessage.DestChainSelector): {
+					QuorumConfigs: map[string]*model.QuorumConfig{
+						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							F:              0,
-							OfframpAddress: make([]byte, 20),
+							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
 				},
@@ -309,11 +311,11 @@ func TestValidateSignature(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
-					QuorumConfigs: map[uint64]*model.QuorumConfig{
-						uint64(protocolMessage.DestChainSelector): {
+					QuorumConfigs: map[string]*model.QuorumConfig{
+						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							F:              0,
-							OfframpAddress: make([]byte, 20),
+							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
 				},

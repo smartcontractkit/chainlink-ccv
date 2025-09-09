@@ -55,6 +55,27 @@ type AggregatorOutput struct {
 	DBConnectionString string `toml:"db_connection_string"`
 }
 
+type Signer struct {
+	ParticipantID string   `toml:"participantID"`
+	Addresses     []string `toml:"addresses"`
+}
+
+// QuorumConfig represents the configuration for a quorum of signers.
+type QuorumConfig struct {
+	OfframpAddress string   `toml:"offrampAddress"`
+	Signers        []Signer `toml:"signers"`
+	F              uint8    `toml:"f"`
+}
+
+// Committee represents a group of signers participating in the commit verification process.
+type Committee struct {
+	// QuorumConfigs stores a QuorumConfig for each chain selector
+	// there is a commit verifier for.
+	// The aggregator uses this to verify signatures from each chain's
+	// commit verifier set.
+	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
+}
+
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
 	StorageType string `toml:"type"`
@@ -67,9 +88,10 @@ type ServerConfig struct {
 
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Server   ServerConfig  `toml:"server"`
-	Storage  StorageConfig `toml:"storage"`
-	StubMode bool          `toml:"stubQuorumValidation"`
+	Server     ServerConfig          `toml:"server"`
+	Storage    StorageConfig         `toml:"storage"`
+	StubMode   bool                  `toml:"stubQuorumValidation"`
+	Committees map[string]*Committee `toml:"committees"`
 }
 
 func aggregatorDefaults(in *AggregatorInput) {
@@ -95,7 +117,26 @@ func aggregatorDefaults(in *AggregatorInput) {
 			Storage: StorageConfig{
 				StorageType: "memory",
 			},
-			StubMode: true,
+			Committees: map[string]*Committee{
+				"default": {
+					QuorumConfigs: map[string]*QuorumConfig{
+						"1337": {
+							OfframpAddress: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
+							Signers: []Signer{
+								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
+							},
+							F: 0,
+						},
+						"2337": {
+							OfframpAddress: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
+							Signers: []Signer{
+								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
+							},
+							F: 0,
+						},
+					},
+				},
+			},
 		}
 	}
 }

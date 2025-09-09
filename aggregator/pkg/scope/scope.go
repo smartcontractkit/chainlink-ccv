@@ -26,7 +26,7 @@ var contextKeys = []contextKey{
 }
 
 func WithRequestID(ctx context.Context) context.Context {
-	return context.WithValue(ctx, requestIDKey, uuid.New().String())
+	return context.WithValue(ctx, requestIDKey, uuid.NewString())
 }
 
 func WithMessageID(ctx context.Context, id []byte) context.Context {
