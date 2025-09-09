@@ -14,6 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 const (
@@ -30,6 +31,53 @@ const (
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
+// Node represents a blockchain node with connection information
+type Node struct {
+	ExternalHTTPUrl string `json:"external_http_url"`
+	InternalHTTPUrl string `json:"internal_http_url"`
+	ExternalWSUrl   string `json:"external_ws_url"`
+	InternalWSUrl   string `json:"internal_ws_url"`
+}
+
+// BlockchainInfo represents simplified blockchain information for the verifier
+type BlockchainInfo struct {
+	ChainID       string  `json:"chain_id"`
+	Type          string  `json:"type"`
+	Family        string  `json:"family"`
+	ContainerName string  `json:"container_name"`
+	Nodes         []*Node `json:"nodes"`
+}
+
+// ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo
+func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*BlockchainInfo {
+	infos := make(map[string]*BlockchainInfo)
+	for _, output := range outputs {
+		info := &BlockchainInfo{
+			ChainID:       output.ChainID,
+			Type:          output.Type,
+			Family:        output.Family,
+			ContainerName: output.ContainerName,
+			Nodes:         make([]*Node, 0, len(output.Nodes)),
+		}
+
+		// Convert all nodes
+		for _, node := range output.Nodes {
+			if node != nil {
+				convertedNode := &Node{
+					ExternalHTTPUrl: node.ExternalHTTPUrl,
+					InternalHTTPUrl: node.InternalHTTPUrl,
+					ExternalWSUrl:   node.ExternalWSUrl,
+					InternalWSUrl:   node.InternalWSUrl,
+				}
+				info.Nodes = append(info.Nodes, convertedNode)
+			}
+		}
+
+		infos[output.ChainID] = info
+	}
+	return infos
+}
+
 type VerifierDBInput struct {
 	Image string `toml:"image"`
 }
@@ -39,23 +87,25 @@ type VerifierConfig struct {
 }
 
 type VerifierInput struct {
-	DB             *DBInput        `toml:"db"`
-	Out            *VerifierOutput `toml:"out"`
-	Image          string          `toml:"image"`
-	SourceCodePath string          `toml:"source_code_path"`
-	ContainerName  string          `toml:"container_name"`
-	VerifierConfig VerifierConfig  `toml:"verifier_config"`
-	Port           int             `toml:"port"`
-	UseCache       bool            `toml:"use_cache"`
+	DB                *DBInput             `toml:"db"`
+	Out               *VerifierOutput      `toml:"out"`
+	Image             string               `toml:"image"`
+	SourceCodePath    string               `toml:"source_code_path"`
+	ContainerName     string               `toml:"container_name"`
+	VerifierConfig    VerifierConfig       `toml:"verifier_config"`
+	Port              int                  `toml:"port"`
+	UseCache          bool                 `toml:"use_cache"`
+	BlockchainOutputs []*blockchain.Output `toml:"-"`
 }
 
 type VerifierOutput struct {
-	ContainerName      string `toml:"container_name"`
-	ExternalHTTPURL    string `toml:"http_url"`
-	InternalHTTPURL    string `toml:"internal_http_url"`
-	DBURL              string `toml:"db_url"`
-	DBConnectionString string `toml:"db_connection_string"`
-	UseCache           bool   `toml:"use_cache"`
+	ContainerName      string                     `toml:"container_name"`
+	ExternalHTTPURL    string                     `toml:"http_url"`
+	InternalHTTPURL    string                     `toml:"internal_http_url"`
+	DBURL              string                     `toml:"db_url"`
+	DBConnectionString string                     `toml:"db_connection_string"`
+	UseCache           bool                       `toml:"use_cache"`
+	BlockchainInfos    map[string]*BlockchainInfo `toml:"-"`
 }
 
 func verifierDefaults(in *VerifierInput) {
@@ -179,10 +229,17 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
+	// Convert blockchain outputs to simplified format
+	var blockchainInfos map[string]*BlockchainInfo
+	if in.BlockchainOutputs != nil {
+		blockchainInfos = ConvertBlockchainOutputsToInfo(in.BlockchainOutputs)
+	}
+
 	return &VerifierOutput{
 		ContainerName:      in.ContainerName,
 		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultVerifierDBConnectionString,
+		BlockchainInfos:    blockchainInfos,
 	}, nil
 }

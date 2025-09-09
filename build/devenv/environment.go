@@ -16,16 +16,17 @@ import (
 )
 
 type Cfg struct {
-	CCV             *CCV                      `toml:"ccv"              validate:"required"`
-	StorageProvider *s3provider.Input         `toml:"storage_provider" validate:"required"`
-	JD              *jd.Input                 `toml:"jd"`
-	Fake            *services.FakeInput       `toml:"fake"             validate:"required"`
-	Verifier        *services.VerifierInput   `toml:"verifier"         validate:"required"`
-	Executor        *services.ExecutorInput   `toml:"executor"         validate:"required"`
-	Indexer         *services.IndexerInput    `toml:"indexer"          validate:"required"`
-	Aggregator      *services.AggregatorInput `toml:"aggregator"       validate:"required"`
-	Blockchains     []*blockchain.Input       `toml:"blockchains"      validate:"required"`
-	NodeSets        []*ns.Input               `toml:"nodesets"         validate:"required"`
+	CCV               *CCV                      `toml:"ccv"              validate:"required"`
+	StorageProvider   *s3provider.Input         `toml:"storage_provider" validate:"required"`
+	JD                *jd.Input                 `toml:"jd"`
+	Fake              *services.FakeInput       `toml:"fake"             validate:"required"`
+	Verifier          *services.VerifierInput   `toml:"verifier"         validate:"required"`
+	Executor          *services.ExecutorInput   `toml:"executor"         validate:"required"`
+	Indexer           *services.IndexerInput    `toml:"indexer"          validate:"required"`
+	Aggregator        *services.AggregatorInput `toml:"aggregator"       validate:"required"`
+	Blockchains       []*blockchain.Input       `toml:"blockchains"      validate:"required"`
+	NodeSets          []*ns.Input               `toml:"nodesets"         validate:"required"`
+	BlockchainOutputs []*blockchain.Output      `toml:"-"`
 }
 
 // verifyEnvironment internal function describing how to verify your environment is working.
@@ -62,12 +63,18 @@ func NewEnvironment() (*Cfg, error) {
 	}
 	track := NewTimeTracker(Plog)
 	eg := &errgroup.Group{}
-	for _, b := range in.Blockchains {
+
+	// Initialize blockchain outputs slice
+	in.BlockchainOutputs = make([]*blockchain.Output, len(in.Blockchains))
+
+	for i, b := range in.Blockchains {
+		i, b := i, b // capture loop variables
 		eg.Go(func() error {
-			_, err = blockchain.NewBlockchainNetwork(b)
+			output, err := blockchain.NewBlockchainNetwork(b)
 			if err != nil {
 				return fmt.Errorf("failed to create blockchain network: %w", err)
 			}
+			in.BlockchainOutputs[i] = output
 			return nil
 		})
 	}
@@ -87,6 +94,7 @@ func NewEnvironment() (*Cfg, error) {
 		in.Verifier.VerifierConfig = services.VerifierConfig{
 			AggregatorAddress: aggregatorOutput.Address,
 		}
+		in.Verifier.BlockchainOutputs = in.BlockchainOutputs
 		_, err = services.NewVerifier(in.Verifier)
 		if err != nil {
 			return fmt.Errorf("failed to create verifier service: %w", err)
