@@ -53,8 +53,8 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 	}
 
 	// Check if we have enough unique participant IDs to meet the quorum
-	if len(participantIDs) != int(quorumConfig.Threshold)+1 {
-		q.logger(ctx).Debugf("Quorum not met: have %d unique participant IDs, need %d", len(participantIDs), quorumConfig.Threshold+1)
+	if len(participantIDs) < int(quorumConfig.Threshold) {
+		q.logger(ctx).Debugf("Quorum not met: have %d unique participant IDs, need %d", len(participantIDs), quorumConfig.Threshold)
 		return false, nil
 	}
 
