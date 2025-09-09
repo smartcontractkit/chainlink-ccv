@@ -88,10 +88,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 		return nil, nil, err
 	}
 
-	signatureHash, err := q.calculateSignatureHash(messageHash, blob)
-	if err != nil {
-		return nil, nil, err
-	}
+	signatureHash := q.calculateSignatureHash(messageHash, blob)
 
 	rs, ss, err := model.DecodeSignatures(signature)
 	if err != nil {
@@ -154,7 +151,7 @@ func keccak256(data []byte) [32]byte {
 	return result
 }
 
-func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, verifierBlob []byte) ([32]byte, error) {
+func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, verifierBlob []byte) [32]byte {
 	verifierBlobHash := keccak256(verifierBlob)
 
 	// Canonical encoding: simply concatenate the two 32-byte hashes
@@ -162,7 +159,7 @@ func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, v
 	buf.Write(messageHash[:])
 	buf.Write(verifierBlobHash[:])
 
-	return keccak256(buf.Bytes()), nil
+	return keccak256(buf.Bytes())
 }
 
 func (q *EVMQuorumValidator) getReceiptBlobForVerifier(report *aggregator.MessageWithCCVNodeData) ([]byte, error) {
