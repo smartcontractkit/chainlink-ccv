@@ -11,15 +11,16 @@ import (
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
 func loadConfiguration(filepath string) (*config.Configuration, error) {
@@ -28,6 +29,34 @@ func loadConfiguration(filepath string) (*config.Configuration, error) {
 		return nil, err
 	}
 	return &config, nil
+}
+
+func logBlockchainInfo(blockchainHelper *types.BlockchainHelper, lggr logger.Logger) {
+	for _, chainSelector := range []protocol.ChainSelector{1337, 2337} {
+		logChainInfo(blockchainHelper, chainSelector, lggr)
+	}
+}
+
+func logChainInfo(blockchainHelper *types.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
+		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
+	}
+
+	if rpcURL, err := blockchainHelper.GetRPCEndpoint(chainSelector); err == nil {
+		lggr.Infow("🌐 RPC endpoint", "chainSelector", chainSelector, "url", rpcURL)
+	}
+
+	if wsURL, err := blockchainHelper.GetWebSocketEndpoint(chainSelector); err == nil {
+		lggr.Infow("🔌 WebSocket endpoint", "chainSelector", chainSelector, "url", wsURL)
+	}
+
+	if internalURL, err := blockchainHelper.GetInternalRPCEndpoint(chainSelector); err == nil {
+		lggr.Infow("🔒 Internal RPC endpoint", "chainSelector", chainSelector, "url", internalURL)
+	}
+
+	if nodes, err := blockchainHelper.GetAllNodes(chainSelector); err == nil {
+		lggr.Infow("📡 All nodes", "chainSelector", chainSelector, "nodeCount", len(nodes))
+	}
 }
 
 func main() {
@@ -61,6 +90,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Use actual blockchain information from configuration
+	var blockchainHelper *types.BlockchainHelper
+	if len(verifierConfig.BlockchainInfos) == 0 {
+		lggr.Warnw("⚠️ No blockchain information in config")
+	} else {
+		blockchainHelper = types.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		lggr.Infow("✅ Using real blockchain information from environment",
+			"chainCount", len(verifierConfig.BlockchainInfos))
+		logBlockchainInfo(blockchainHelper, lggr)
+	}
+
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create storage writer", "error", err)
@@ -91,9 +131,9 @@ func main() {
 	}
 
 	// Create coordinator configuration
-	config := types.CoordinatorConfig{
+	config := verifiertypes.CoordinatorConfig{
 		VerifierID: "dev-verifier-1",
-		SourceConfigs: map[protocol.ChainSelector]types.SourceConfig{
+		SourceConfigs: map[protocol.ChainSelector]verifiertypes.SourceConfig{
 			protocol.ChainSelector(1337): {
 				VerifierAddress: verifierAddr,
 			},

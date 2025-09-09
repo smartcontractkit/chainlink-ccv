@@ -1,2 +1,25 @@
 aggregator_address = "aggregator:50051"
-committee_id = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+
+[blockchain_infos]
+  [blockchain_infos.1337]
+    ChainID = "1337"
+    Type = "anvil"
+    Family = "evm"
+    ContainerName = "blockchain-node-48b52"
+
+    [[blockchain_infos.1337.Nodes]]
+      ExternalHTTPUrl = "http://127.0.0.1:8545"
+      InternalHTTPUrl = "http://blockchain-node-48b52:8545"
+      ExternalWSUrl = "ws://127.0.0.1:8545"
+      InternalWSUrl = "ws://blockchain-node-48b52:8545"
+  [blockchain_infos.2337]
+    ChainID = "2337"
+    Type = "anvil"
+    Family = "evm"
+    ContainerName = "blockchain-node-d8de2"
+
+    [[blockchain_infos.2337.Nodes]]
+      ExternalHTTPUrl = "http://127.0.0.1:8555"
+      InternalHTTPUrl = "http://blockchain-node-d8de2:8555"
+      ExternalWSUrl = "ws://127.0.0.1:8555"
+      InternalWSUrl = "ws://blockchain-node-d8de2:8555"

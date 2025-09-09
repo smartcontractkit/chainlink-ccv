@@ -48,8 +48,9 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-// NewEnvironment creates a new datafeeds environment either locally in Docker or remotely in K8s.
+// NewEnvironment creates a new CCIP CCV environment either locally in Docker or remotely in K8s.
 func NewEnvironment() (*Cfg, error) {
+	L.Info().Msg("INSIDE NewEnvironment")
 	if err := framework.DefaultNetwork(nil); err != nil {
 		return nil, err
 	}
@@ -62,15 +63,38 @@ func NewEnvironment() (*Cfg, error) {
 	}
 	track := NewTimeTracker(Plog)
 	eg := &errgroup.Group{}
-	for _, b := range in.Blockchains {
-		eg.Go(func() error {
-			_, err = blockchain.NewBlockchainNetwork(b)
-			if err != nil {
-				return fmt.Errorf("failed to create blockchain network: %w", err)
-			}
-			return nil
-		})
-	}
+
+	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
+	// Channel to signal when blockchain outputs are ready for services that depend on them
+	blockchainOutputsReady := make(chan struct{})
+	aggregatorReady := make(chan struct{})
+
+	// Start blockchain creation goroutine
+	eg.Go(func() error {
+		blockchainEg := &errgroup.Group{}
+
+		for i, b := range in.Blockchains {
+			blockchainEg.Go(func() error {
+				output, err := blockchain.NewBlockchainNetwork(b)
+				if err != nil {
+					return fmt.Errorf("failed to create blockchain network: %w", err)
+				}
+				blockchainOutputs[i] = output
+				return nil
+			})
+		}
+
+		// Wait for all blockchains to be created
+		if err := blockchainEg.Wait(); err != nil {
+			return err
+		}
+
+		// Signal that blockchain outputs are ready
+		close(blockchainOutputsReady)
+		return nil
+	})
+
+	// Start services that don't need blockchain outputs
 	eg.Go(func() error {
 		in.Fake.Out, err = services.NewFake(in.Fake)
 		if err != nil {
@@ -78,28 +102,7 @@ func NewEnvironment() (*Cfg, error) {
 		}
 		return nil
 	})
-	aggregatorOutput, err := services.NewAggregator(in.Aggregator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create aggregator service: %w", err)
-	}
 
-	eg.Go(func() error {
-		in.Verifier.VerifierConfig = services.VerifierConfig{
-			AggregatorAddress: aggregatorOutput.Address,
-		}
-		_, err = services.NewVerifier(in.Verifier)
-		if err != nil {
-			return fmt.Errorf("failed to create verifier service: %w", err)
-		}
-		return nil
-	})
-	eg.Go(func() error {
-		_, err = services.NewExecutor(in.Executor)
-		if err != nil {
-			return fmt.Errorf("failed to create executor service: %w", err)
-		}
-		return nil
-	})
 	eg.Go(func() error {
 		_, err = services.NewIndexer(in.Indexer)
 		if err != nil {
@@ -107,6 +110,47 @@ func NewEnvironment() (*Cfg, error) {
 		}
 		return nil
 	})
+
+	var aggregatorOutput *services.AggregatorOutput
+	eg.Go(func() error {
+		aggregatorOutput, err = services.NewAggregator(in.Aggregator)
+		if err != nil {
+			return fmt.Errorf("failed to create aggregator service: %w", err)
+		}
+		close(aggregatorReady)
+		return nil
+	})
+
+	// Start services that need blockchain outputs
+	eg.Go(func() error {
+		// Wait for blockchain outputs to be ready
+		<-blockchainOutputsReady
+		<-aggregatorReady
+
+		in.Verifier.VerifierConfig = services.VerifierConfig{
+			AggregatorAddress: aggregatorOutput.Address,
+			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+		}
+		in.Verifier.BlockchainOutputs = blockchainOutputs
+		_, err = services.NewVerifier(in.Verifier)
+		if err != nil {
+			return fmt.Errorf("failed to create verifier service: %w", err)
+		}
+		return nil
+	})
+
+	eg.Go(func() error {
+		// Wait for blockchain outputs to be ready
+		<-blockchainOutputsReady
+
+		// TODO: Pass blockchain outputs to executor if needed
+		_, err = services.NewExecutor(in.Executor)
+		if err != nil {
+			return fmt.Errorf("failed to create executor service: %w", err)
+		}
+		return nil
+	})
+
 	// TODO: we need access to pre-built JD image in CI
 	//eg.Go(func() error {
 	//	_, err = jd.NewJD(in.JD)
@@ -115,6 +159,8 @@ func NewEnvironment() (*Cfg, error) {
 	//	}
 	//	return nil
 	//})
+
+	// Wait for all services to be created
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
