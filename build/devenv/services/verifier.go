@@ -83,7 +83,8 @@ type VerifierDBInput struct {
 }
 
 type VerifierConfig struct {
-	AggregatorAddress string `toml:"aggregator_address"`
+	AggregatorAddress string                     `toml:"aggregator_address"`
+	BlockchainInfos   map[string]*BlockchainInfo `toml:"blockchain_infos"`
 }
 
 type VerifierInput struct {

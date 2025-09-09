@@ -129,6 +129,7 @@ func NewEnvironment() (*Cfg, error) {
 
 		in.Verifier.VerifierConfig = services.VerifierConfig{
 			AggregatorAddress: aggregatorOutput.Address,
+			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
 		}
 		in.Verifier.BlockchainOutputs = blockchainOutputs
 		_, err = services.NewVerifier(in.Verifier)

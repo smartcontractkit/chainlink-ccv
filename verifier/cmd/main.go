@@ -61,63 +61,35 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Demonstrate blockchain information usage (these would come from the environment in real usage)
-	// For now, create mock blockchain information to show the integration
-	mockBlockchainInfos := map[string]*internal.BlockchainInfo{
-		"1337": {
-			ChainID:       "1337",
-			Type:          "anvil",
-			Family:        "ethereum",
-			ContainerName: "anvil-1337",
-			Nodes: []*internal.Node{
-				{
-					ExternalHTTPUrl: "http://localhost:8545",
-					InternalHTTPUrl: "http://anvil-1337:8545",
-					ExternalWSUrl:   "ws://localhost:8546",
-					InternalWSUrl:   "ws://anvil-1337:8546",
-				},
-			},
-		},
-		"2337": {
-			ChainID:       "2337",
-			Type:          "anvil",
-			Family:        "ethereum",
-			ContainerName: "anvil-2337",
-			Nodes: []*internal.Node{
-				{
-					ExternalHTTPUrl: "http://localhost:8547",
-					InternalHTTPUrl: "http://anvil-2337:8545",
-					ExternalWSUrl:   "ws://localhost:8548",
-					InternalWSUrl:   "ws://anvil-2337:8546",
-				},
-			},
-		},
-	}
+	// Use actual blockchain information from configuration
+	var blockchainHelper *internal.BlockchainHelper
+	if len(verifierConfig.BlockchainInfos) > 0 {
+		blockchainHelper = internal.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		lggr.Infow("✅ Using real blockchain information from environment",
+			"chainCount", len(verifierConfig.BlockchainInfos))
+		for _, chainSelector := range []protocol.ChainSelector{1337, 2337} {
+			if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
+				lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
+			}
 
-	// Create blockchain helper to demonstrate usage
-	blockchainHelper := internal.NewBlockchainHelper(mockBlockchainInfos)
+			if rpcURL, err := blockchainHelper.GetRPCEndpoint(chainSelector); err == nil {
+				lggr.Infow("🌐 RPC endpoint", "chainSelector", chainSelector, "url", rpcURL)
+			}
 
-	// Log blockchain information
-	for _, chainSelector := range []protocol.ChainSelector{1337, 2337} {
-		if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
-			lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
+			if wsURL, err := blockchainHelper.GetWebSocketEndpoint(chainSelector); err == nil {
+				lggr.Infow("🔌 WebSocket endpoint", "chainSelector", chainSelector, "url", wsURL)
+			}
+
+			if internalURL, err := blockchainHelper.GetInternalRPCEndpoint(chainSelector); err == nil {
+				lggr.Infow("🔒 Internal RPC endpoint", "chainSelector", chainSelector, "url", internalURL)
+			}
+
+			if nodes, err := blockchainHelper.GetAllNodes(chainSelector); err == nil {
+				lggr.Infow("📡 All nodes", "chainSelector", chainSelector, "nodeCount", len(nodes))
+			}
 		}
-
-		if rpcURL, err := blockchainHelper.GetRPCEndpoint(chainSelector); err == nil {
-			lggr.Infow("🌐 RPC endpoint", "chainSelector", chainSelector, "url", rpcURL)
-		}
-
-		if wsURL, err := blockchainHelper.GetWebSocketEndpoint(chainSelector); err == nil {
-			lggr.Infow("🔌 WebSocket endpoint", "chainSelector", chainSelector, "url", wsURL)
-		}
-
-		if internalURL, err := blockchainHelper.GetInternalRPCEndpoint(chainSelector); err == nil {
-			lggr.Infow("🔒 Internal RPC endpoint", "chainSelector", chainSelector, "url", internalURL)
-		}
-
-		if nodes, err := blockchainHelper.GetAllNodes(chainSelector); err == nil {
-			lggr.Infow("📡 All nodes", "chainSelector", chainSelector, "nodeCount", len(nodes))
-		}
+	} else {
+		lggr.Warnw("⚠️ No blockchain information in config")
 	}
 
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
