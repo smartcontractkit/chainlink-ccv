@@ -123,16 +123,17 @@ func aggregatorDefaults(in *AggregatorInput) {
 						"1337": {
 							OfframpAddress: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
 							Signers: []Signer{
-								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
+								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66", "0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
 							},
-							F: 0,
+							F: 1,
 						},
 						"2337": {
 							OfframpAddress: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
 							Signers: []Signer{
 								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
+								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
 							},
-							F: 0,
+							F: 1,
 						},
 					},
 				},

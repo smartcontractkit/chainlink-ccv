@@ -46,8 +46,7 @@ func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogge
 	return scope.AugmentLogger(ctx, c.l)
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(messageID model.MessageID) (*model.CommitAggregatedReport, error) {
-	ctx := scope.WithMessageID(context.Background(), messageID)
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
 	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID)
@@ -75,6 +74,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(messageID mod
 			lggr.Errorw("Failed to submit report", "error", err)
 			return nil, err
 		}
+		lggr.Infow("Report submitted successfully", "verifications", len(verifications))
 	} else {
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}
@@ -89,7 +89,11 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 			select {
 			case request := <-c.messageIDChan:
 				go func() {
-					_, _ = c.checkAggregationAndSubmitComplete(request.MessageID)
+					ctx := scope.WithMessageID(context.Background(), request.MessageID)
+					_, err := c.checkAggregationAndSubmitComplete(ctx, request.MessageID)
+					if err != nil {
+						c.logger(ctx).Errorw("Failed to process aggregation request", "error", err)
+					}
 				}()
 			case <-ctx.Done():
 				return

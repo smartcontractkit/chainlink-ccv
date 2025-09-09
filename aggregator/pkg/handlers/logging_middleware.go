@@ -18,12 +18,12 @@ type LoggingMiddleware[Req, Resp any] struct {
 
 func (m *LoggingMiddleware[Req, Resp]) Handle(ctx context.Context, req Req) (Resp, error) {
 	ctx = scope.WithRequestID(ctx)
-	m.l.Infof("Received request: %T", req)
+	m.l.Infof("Received request: %+v", req)
 	resp, err := m.next.Handle(ctx, req)
 	if err != nil {
 		m.l.Errorf("Error processing request: %v", err)
 	} else {
-		m.l.Infof("Successfully processed request: %T", resp)
+		m.l.Infof("Successfully processed request")
 	}
 	return resp, err
 }

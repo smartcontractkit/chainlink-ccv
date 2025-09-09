@@ -21,6 +21,7 @@ type Cfg struct {
 	JD              *jd.Input                 `toml:"jd"`
 	Fake            *services.FakeInput       `toml:"fake"             validate:"required"`
 	Verifier        *services.VerifierInput   `toml:"verifier"         validate:"required"`
+	Verifier2       *services.VerifierInput   `toml:"verifier2"        validate:"required"`
 	Executor        *services.ExecutorInput   `toml:"executor"         validate:"required"`
 	Indexer         *services.IndexerInput    `toml:"indexer"          validate:"required"`
 	Aggregator      *services.AggregatorInput `toml:"aggregator"       validate:"required"`
@@ -86,10 +87,21 @@ func NewEnvironment() (*Cfg, error) {
 	eg.Go(func() error {
 		in.Verifier.VerifierConfig = services.VerifierConfig{
 			AggregatorAddress: aggregatorOutput.Address,
+			PrivateKey:        "dev-private-key-12345678901234567890",
 		}
 		_, err = services.NewVerifier(in.Verifier)
 		if err != nil {
 			return fmt.Errorf("failed to create verifier service: %w", err)
+		}
+		in.Verifier2.VerifierConfig = services.VerifierConfig{
+			AggregatorAddress: aggregatorOutput.Address,
+			PrivateKey:        "dev-private-key2-12345678901234567890",
+		}
+		in.Verifier2.ContainerName = "verifier2"
+		in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
+		_, err = services.NewVerifier(in.Verifier2)
+		if err != nil {
+			return fmt.Errorf("failed to create verifier 2 service: %w", err)
 		}
 		return nil
 	})
