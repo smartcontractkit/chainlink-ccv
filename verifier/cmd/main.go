@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
@@ -62,9 +63,9 @@ func main() {
 	}
 
 	// Use actual blockchain information from configuration
-	var blockchainHelper *internal.BlockchainHelper
+	var blockchainHelper *commontypes.BlockchainHelper
 	if len(verifierConfig.BlockchainInfos) > 0 {
-		blockchainHelper = internal.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		blockchainHelper = commontypes.NewBlockchainHelper(verifierConfig.BlockchainInfos)
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		for _, chainSelector := range []protocol.ChainSelector{1337, 2337} {

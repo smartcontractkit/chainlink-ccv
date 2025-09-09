@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -31,26 +32,9 @@ const (
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
-// Node represents a blockchain node with connection information
-type Node struct {
-	ExternalHTTPUrl string `json:"external_http_url"`
-	InternalHTTPUrl string `json:"internal_http_url"`
-	ExternalWSUrl   string `json:"external_ws_url"`
-	InternalWSUrl   string `json:"internal_ws_url"`
-}
-
-// BlockchainInfo represents simplified blockchain information for the verifier
-type BlockchainInfo struct {
-	ChainID       string  `json:"chain_id"`
-	Type          string  `json:"type"`
-	Family        string  `json:"family"`
-	ContainerName string  `json:"container_name"`
-	Nodes         []*Node `json:"nodes"`
-}
-
 // ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo
-func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*BlockchainInfo {
-	infos := make(map[string]*BlockchainInfo)
+func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*commontypes.BlockchainInfo {
+	infos := make(map[string]*commontypes.BlockchainInfo)
 	for _, output := range outputs {
 		info := &BlockchainInfo{
 			ChainID:       output.ChainID,
