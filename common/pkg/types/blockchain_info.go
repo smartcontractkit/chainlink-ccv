@@ -6,7 +6,7 @@ import (
 	protocltypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// Node represents a blockchain node with connection information
+// Node represents a blockchain node with connection information.
 type Node struct {
 	ExternalHTTPUrl string `json:"external_http_url"`
 	InternalHTTPUrl string `json:"internal_http_url"`
@@ -14,7 +14,7 @@ type Node struct {
 	InternalWSUrl   string `json:"internal_ws_url"`
 }
 
-// BlockchainInfo represents blockchain connection information
+// BlockchainInfo represents blockchain connection information.
 type BlockchainInfo struct {
 	ChainID       string  `json:"chain_id"`
 	Type          string  `json:"type"`
@@ -23,19 +23,19 @@ type BlockchainInfo struct {
 	Nodes         []*Node `json:"nodes"`
 }
 
-// BlockchainHelper provides utilities for working with blockchain information
+// BlockchainHelper provides utilities for working with blockchain information.
 type BlockchainHelper struct {
 	blockchainInfos map[string]*BlockchainInfo
 }
 
-// NewBlockchainHelper creates a new blockchain helper with the provided blockchain information
+// NewBlockchainHelper creates a new blockchain helper with the provided blockchain information.
 func NewBlockchainHelper(blockchainInfos map[string]*BlockchainInfo) *BlockchainHelper {
 	return &BlockchainHelper{
 		blockchainInfos: blockchainInfos,
 	}
 }
 
-// GetBlockchainByChainID returns the blockchain info for a given chain ID
+// GetBlockchainByChainID returns the blockchain info for a given chain ID.
 func (bh *BlockchainHelper) GetBlockchainByChainID(chainID string) (*BlockchainInfo, error) {
 	if info, exists := bh.blockchainInfos[chainID]; exists {
 		return info, nil
@@ -51,7 +51,7 @@ func (bh *BlockchainHelper) GetBlockchainByChainSelector(chainSelector protoclty
 }
 
 // GetRPCEndpoint returns the RPC endpoint for a blockchain by chain selector
-// Returns the first available HTTP endpoint
+// Returns the first available HTTP endpoint.
 func (bh *BlockchainHelper) GetRPCEndpoint(chainSelector protocltypes.ChainSelector) (string, error) {
 	info, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
@@ -69,7 +69,7 @@ func (bh *BlockchainHelper) GetRPCEndpoint(chainSelector protocltypes.ChainSelec
 	return info.Nodes[0].ExternalHTTPUrl, nil
 }
 
-// GetAllChainIDs returns all available chain IDs
+// GetAllChainIDs returns all available chain IDs.
 func (bh *BlockchainHelper) GetAllChainIDs() []string {
 	chainIDs := make([]string, 0, len(bh.blockchainInfos))
 	for chainID := range bh.blockchainInfos {
@@ -78,7 +78,7 @@ func (bh *BlockchainHelper) GetAllChainIDs() []string {
 	return chainIDs
 }
 
-// GetBlockchainInfo returns formatted information about a blockchain
+// GetBlockchainInfo returns formatted information about a blockchain.
 func (bh *BlockchainHelper) GetBlockchainInfo(chainSelector protocltypes.ChainSelector) (string, error) {
 	info, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
@@ -98,7 +98,7 @@ func (bh *BlockchainHelper) GetBlockchainInfo(chainSelector protocltypes.ChainSe
 }
 
 // GetWebSocketEndpoint returns the WebSocket endpoint for a blockchain by chain selector
-// Returns the first available WebSocket endpoint
+// Returns the first available WebSocket endpoint.
 func (bh *BlockchainHelper) GetWebSocketEndpoint(chainSelector protocltypes.ChainSelector) (string, error) {
 	info, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
@@ -116,7 +116,7 @@ func (bh *BlockchainHelper) GetWebSocketEndpoint(chainSelector protocltypes.Chai
 	return info.Nodes[0].ExternalWSUrl, nil
 }
 
-// GetAllNodes returns all nodes for a blockchain by chain selector
+// GetAllNodes returns all nodes for a blockchain by chain selector.
 func (bh *BlockchainHelper) GetAllNodes(chainSelector protocltypes.ChainSelector) ([]*Node, error) {
 	info, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
@@ -127,7 +127,7 @@ func (bh *BlockchainHelper) GetAllNodes(chainSelector protocltypes.ChainSelector
 }
 
 // GetInternalRPCEndpoint returns the internal RPC endpoint for a blockchain by chain selector
-// Useful for container-to-container communication
+// Useful for container-to-container communication.
 func (bh *BlockchainHelper) GetInternalRPCEndpoint(chainSelector protocltypes.ChainSelector) (string, error) {
 	info, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {

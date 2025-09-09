@@ -41,12 +41,12 @@ func Load[T any]() (*T, error) {
 	for _, path := range paths {
 		L.Info().Msg("INSIDE Load")
 		L.Info().Str("Path", path).Msg("Loading configuration input")
-		data, err := os.ReadFile(filepath.Join(DefaultConfigDir, path)) //nolint:gosec
+		data, err := os.ReadFile(filepath.Join(DefaultConfigDir, path))
 		if err != nil {
 			return nil, fmt.Errorf("error reading config file %s: %w", path, err)
 		}
 		if L.GetLevel() == zerolog.TraceLevel {
-			fmt.Println(string(data)) //nolint:forbidigo
+			fmt.Println(string(data))
 		}
 
 		decoder := toml.NewDecoder(strings.NewReader(string(data)))
@@ -55,14 +55,14 @@ func Load[T any]() (*T, error) {
 		if err := decoder.Decode(&config); err != nil {
 			var details *toml.StrictMissingError
 			if errors.As(err, &details) {
-				fmt.Println(details.String()) //nolint:forbidigo
+				fmt.Println(details.String())
 			}
 			return nil, fmt.Errorf("failed to decode TOML config, strict mode: %s", err)
 		}
 	}
 	if L.GetLevel() == zerolog.TraceLevel {
 		L.Trace().Msg("Merged inputs")
-		spew.Dump(config) //nolint:forbidigo
+		spew.Dump(config)
 	}
 	return &config, nil
 }

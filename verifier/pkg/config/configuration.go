@@ -5,6 +5,6 @@ import (
 )
 
 type Configuration struct {
-	AggregatorAddress string                           `toml:"aggregator_address"`
 	BlockchainInfos   map[string]*types.BlockchainInfo `toml:"blockchain_infos"`
+	AggregatorAddress string                           `toml:"aggregator_address"`
 }

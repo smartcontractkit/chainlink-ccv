@@ -10,12 +10,13 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 )
 
 const (
@@ -32,7 +33,7 @@ const (
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
-// ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo
+// ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo.
 func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*commontypes.BlockchainInfo {
 	infos := make(map[string]*commontypes.BlockchainInfo)
 	for _, output := range outputs {
@@ -67,30 +68,30 @@ type VerifierDBInput struct {
 }
 
 type VerifierConfig struct {
-	AggregatorAddress string                                 `toml:"aggregator_address"`
 	BlockchainInfos   map[string]*commontypes.BlockchainInfo `toml:"blockchain_infos"`
+	AggregatorAddress string                                 `toml:"aggregator_address"`
 }
 
 type VerifierInput struct {
+	VerifierConfig    VerifierConfig       `toml:"verifier_config"`
 	DB                *DBInput             `toml:"db"`
 	Out               *VerifierOutput      `toml:"out"`
 	Image             string               `toml:"image"`
 	SourceCodePath    string               `toml:"source_code_path"`
 	ContainerName     string               `toml:"container_name"`
-	VerifierConfig    VerifierConfig       `toml:"verifier_config"`
+	BlockchainOutputs []*blockchain.Output `toml:"-"`
 	Port              int                  `toml:"port"`
 	UseCache          bool                 `toml:"use_cache"`
-	BlockchainOutputs []*blockchain.Output `toml:"-"`
 }
 
 type VerifierOutput struct {
+	BlockchainInfos    map[string]*commontypes.BlockchainInfo `toml:"-"`
 	ContainerName      string                                 `toml:"container_name"`
 	ExternalHTTPURL    string                                 `toml:"http_url"`
 	InternalHTTPURL    string                                 `toml:"internal_http_url"`
 	DBURL              string                                 `toml:"db_url"`
 	DBConnectionString string                                 `toml:"db_connection_string"`
 	UseCache           bool                                   `toml:"use_cache"`
-	BlockchainInfos    map[string]*commontypes.BlockchainInfo `toml:"-"`
 }
 
 func verifierDefaults(in *VerifierInput) {

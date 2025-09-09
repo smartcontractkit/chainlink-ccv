@@ -74,7 +74,6 @@ func NewEnvironment() (*Cfg, error) {
 		blockchainEg := &errgroup.Group{}
 
 		for i, b := range in.Blockchains {
-			i, b := i, b // capture loop variables
 			blockchainEg.Go(func() error {
 				output, err := blockchain.NewBlockchainNetwork(b)
 				if err != nil {
