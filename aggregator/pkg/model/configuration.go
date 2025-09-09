@@ -54,7 +54,7 @@ func FindSignersFromSelectorAndOfframp(committees map[string]*Committee, chainSe
 type QuorumConfig struct {
 	OfframpAddress string   `toml:"offrampAddress"`
 	Signers        []Signer `toml:"signers"`
-	F              uint8    `toml:"f"`
+	Threshold      uint8    `toml:"threshold"`
 }
 
 func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {

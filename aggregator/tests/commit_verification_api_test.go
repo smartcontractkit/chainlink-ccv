@@ -21,7 +21,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 		"committee1": {
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
-					F: 0,
+					Threshold: 0,
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
@@ -56,7 +56,7 @@ func TestAggregationHappyPath(t *testing.T) {
 		"committee1": {
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
-					F: 1,
+					Threshold: 1,
 					Signers: []model.Signer{
 						signer1.Signer,
 						signer2.Signer,
@@ -110,7 +110,7 @@ func TestIdempotency(t *testing.T) {
 		"committee1": {
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
-					F: 1,
+					Threshold: 1,
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
@@ -193,7 +193,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 		"committee1": {
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
-					F: 1,
+					Threshold: 1,
 					Signers: []model.Signer{
 						signer1.Signer,
 						signer2.Signer,
@@ -223,7 +223,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 
 	// Change committee to remove signer1 and add signer3
 	config["committee1"].QuorumConfigs["2"] = &model.QuorumConfig{
-		F: 1,
+		Threshold: 1,
 		Signers: []model.Signer{
 			signer2.Signer,
 			signer3.Signer,
@@ -260,7 +260,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		"committee1": {
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
-					F: 1,
+					Threshold: 1,
 					Signers: []model.Signer{
 						signer1.Signer,
 						signer2.Signer,
@@ -301,7 +301,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 
 	// Change committee to remove signer1 and add signer3
 	config["committee1"].QuorumConfigs["2"] = &model.QuorumConfig{
-		F: 1,
+		Threshold: 1,
 		Signers: []model.Signer{
 			signer2.Signer,
 			signer3.Signer,

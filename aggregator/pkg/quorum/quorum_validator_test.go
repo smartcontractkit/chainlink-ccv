@@ -116,7 +116,7 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 					"1": {
 						OfframpAddress: "0x00000000000000000000000000000000000000000",
 						Signers:        signers,
-						F:              b.f,
+						Threshold:      b.f,
 					},
 				},
 			},
@@ -208,7 +208,7 @@ func TestValidateSignature(t *testing.T) {
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
-							F:              0,
+							Threshold:      0,
 							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
@@ -236,7 +236,7 @@ func TestValidateSignature(t *testing.T) {
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
-							F:              0,
+							Threshold:      0,
 							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
@@ -266,7 +266,7 @@ func TestValidateSignature(t *testing.T) {
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
-							F:              0,
+							Threshold:      0,
 							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
@@ -314,7 +314,7 @@ func TestValidateSignature(t *testing.T) {
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
-							F:              0,
+							Threshold:      0,
 							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
