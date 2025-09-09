@@ -39,6 +39,7 @@ func Load[T any]() (*T, error) {
 	var config T
 	paths := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	for _, path := range paths {
+		L.Info().Msg("INSIDE Load")
 		L.Info().Str("Path", path).Msg("Loading configuration input")
 		data, err := os.ReadFile(filepath.Join(DefaultConfigDir, path)) //nolint:gosec
 		if err != nil {
