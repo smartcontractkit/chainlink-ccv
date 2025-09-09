@@ -65,23 +65,28 @@ func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*co
 
 type VerifierDBInput struct {
 	Image string `toml:"image"`
+	Name  string `toml:"name"`
+	Port  int    `toml:"port"`
 }
 
 type VerifierConfig struct {
-	BlockchainInfos   map[string]*commontypes.BlockchainInfo `toml:"blockchain_infos"`
 	AggregatorAddress string                                 `toml:"aggregator_address"`
+	PrivateKey        string                                 `toml:"private_key"`
+	BlockchainInfos   map[string]*commontypes.BlockchainInfo `toml:"blockchain_infos"`
 }
 
 type VerifierInput struct {
-	VerifierConfig    VerifierConfig       `toml:"verifier_config"`
-	DB                *DBInput             `toml:"db"`
+	DB                *VerifierDBInput     `toml:"db"`
 	Out               *VerifierOutput      `toml:"out"`
 	Image             string               `toml:"image"`
 	SourceCodePath    string               `toml:"source_code_path"`
 	ContainerName     string               `toml:"container_name"`
-	BlockchainOutputs []*blockchain.Output `toml:"-"`
+	VerifierConfig    VerifierConfig       `toml:"verifier_config"`
 	Port              int                  `toml:"port"`
 	UseCache          bool                 `toml:"use_cache"`
+	ConfigFilePath    string               `toml:"config_file_path"`
+	BlockchainOutputs []*blockchain.Output `toml:"-"`
+	AggregatorAddress string               `toml:"aggregator_address"`
 }
 
 type VerifierOutput struct {
@@ -105,9 +110,14 @@ func verifierDefaults(in *VerifierInput) {
 		in.ContainerName = DefaultVerifierName
 	}
 	if in.DB == nil {
-		in.DB = &DBInput{
+		in.DB = &VerifierDBInput{
 			Image: DefaultVerifierDBImage,
+			Name:  DefaultVerifierDBName,
+			Port:  DefaultVerifierDBPort,
 		}
+	}
+	if in.ConfigFilePath == "" {
+		in.ConfigFilePath = "/app/verifier.toml"
 	}
 }
 
@@ -126,12 +136,12 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	/* Database */
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
-		testcontainers.WithName(DefaultVerifierDBName),
+		testcontainers.WithName(in.DB.Name),
 		testcontainers.WithExposedPorts("5432/tcp"),
 		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
 				"5432/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(DefaultVerifierDBPort)},
+					{HostPort: strconv.Itoa(in.DB.Port)},
 				},
 			}
 		}),
@@ -159,6 +169,10 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		NetworkAliases: map[string][]string{
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
+		Env: map[string]string{
+			"VERIFIER_CONFIG": in.ConfigFilePath,
+		},
+		// ExposedPorts
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
 		ExposedPorts: []string{"8100/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
@@ -172,7 +186,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		Files: []testcontainers.ContainerFile{
 			{
 				Reader:            bytes.NewReader(verifierConfigBuf.Bytes()),
-				ContainerFilePath: "/app/verifier.toml",
+				ContainerFilePath: in.ConfigFilePath,
 				FileMode:          0o644,
 			},
 		},

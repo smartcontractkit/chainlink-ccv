@@ -3,6 +3,7 @@ package configuration
 
 import (
 	"github.com/BurntSushi/toml"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 

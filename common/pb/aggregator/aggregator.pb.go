@@ -812,7 +812,7 @@ func (x *WriteCommitCCVNodeDataResponse) GetStatus() WriteStatus {
 type ReadCommitCCVNodeDataRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MessageId     []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	Address       []byte                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -854,9 +854,9 @@ func (x *ReadCommitCCVNodeDataRequest) GetMessageId() []byte {
 	return nil
 }
 
-func (x *ReadCommitCCVNodeDataRequest) GetPublicKey() []byte {
+func (x *ReadCommitCCVNodeDataRequest) GetAddress() []byte {
 	if x != nil {
-		return x.PublicKey
+		return x.Address
 	}
 	return nil
 }
@@ -1115,12 +1115,11 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x1dWriteCommitCCVNodeDataRequest\x12;\n" +
 	"\rccv_node_data\x18\x01 \x01(\v2\x17.MessageWithCCVNodeDataR\vccvNodeData\"F\n" +
 	"\x1eWriteCommitCCVNodeDataResponse\x12$\n" +
-	"\x06status\x18\x01 \x01(\x0e2\f.WriteStatusR\x06status\"\\\n" +
+	"\x06status\x18\x01 \x01(\x0e2\f.WriteStatusR\x06status\"W\n" +
 	"\x1cReadCommitCCVNodeDataRequest\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\fR\tmessageId\x12\x1d\n" +
-	"\n" +
-	"public_key\x18\x02 \x01(\fR\tpublicKey\"\\\n" +
+	"message_id\x18\x01 \x01(\fR\tmessageId\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\fR\aaddress\"\\\n" +
 	"\x1dReadCommitCCVNodeDataResponse\x12;\n" +
 	"\rccv_node_data\x18\x01 \x01(\v2\x17.MessageWithCCVNodeDataR\vccvNodeData\"<\n" +
 	"\x1bGetCCVDataForMessageRequest\x12\x1d\n" +

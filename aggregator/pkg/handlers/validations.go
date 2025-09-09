@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"bytes"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -22,8 +25,8 @@ func validateWriteRequest(req *aggregator.WriteCommitCCVNodeDataRequest) error {
 		validation.Field(&verificationRecord.BlobData, validation.Required),
 		validation.Field(&verificationRecord.CcvData, validation.Required),
 		// TODO: Check valid selector (needs to be in our configuration)
-		validation.Field(&verificationRecord.DestVerifierAddress, validation.Required, validation.Length(20, 20)),
-		validation.Field(&verificationRecord.SourceVerifierAddress, validation.Required, validation.Length(20, 20)),
+		// validation.Field(&verificationRecord.DestVerifierAddress, validation.Required, validation.Length(20, 20)),
+		// validation.Field(&verificationRecord.SourceVerifierAddress, validation.Required, validation.Length(20, 20)),
 		validation.Field(&verificationRecord.Timestamp, validation.Required),
 		// TODO: Do deeper validation once format is finalized
 		validation.Field(&verificationRecord.Message, validation.Required),
@@ -31,6 +34,16 @@ func validateWriteRequest(req *aggregator.WriteCommitCCVNodeDataRequest) error {
 	if err != nil {
 		return err
 	}
+
+	message := model.MapProtoMessageToProtocolMessage(verificationRecord.Message)
+	messageID, err := message.MessageID()
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(messageID[:], req.CcvNodeData.MessageId) {
+		return validation.NewError("MessageId", "does not match ID derived from Message")
+	}
+
 	return nil
 }
 

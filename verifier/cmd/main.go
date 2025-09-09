@@ -84,6 +84,10 @@ func main() {
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
+	envConfig := os.Getenv("VERIFIER_CONFIG")
+	if envConfig != "" {
+		filePath = envConfig
+	}
 	verifierConfig, err := loadConfiguration(filePath)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
@@ -148,12 +152,13 @@ func main() {
 
 	// Create message signer (mock for development)
 	privateKey := make([]byte, 32)
-	copy(privateKey, "dev-private-key-12345678901234567890") // Mock key
+	copy(privateKey, []byte(verifierConfig.PrivateKey)) // Mock key
 	signer, err := commit.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		os.Exit(1)
 	}
+	lggr.Infow("Using verifier address", "address", signer.GetSignerAddress().String())
 
 	// Create commit verifier
 	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
