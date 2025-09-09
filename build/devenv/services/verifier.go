@@ -36,18 +36,18 @@ var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhos
 func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*commontypes.BlockchainInfo {
 	infos := make(map[string]*commontypes.BlockchainInfo)
 	for _, output := range outputs {
-		info := &BlockchainInfo{
+		info := &commontypes.BlockchainInfo{
 			ChainID:       output.ChainID,
 			Type:          output.Type,
 			Family:        output.Family,
 			ContainerName: output.ContainerName,
-			Nodes:         make([]*Node, 0, len(output.Nodes)),
+			Nodes:         make([]*commontypes.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
-				convertedNode := &Node{
+				convertedNode := &commontypes.Node{
 					ExternalHTTPUrl: node.ExternalHTTPUrl,
 					InternalHTTPUrl: node.InternalHTTPUrl,
 					ExternalWSUrl:   node.ExternalWSUrl,
@@ -67,8 +67,8 @@ type VerifierDBInput struct {
 }
 
 type VerifierConfig struct {
-	AggregatorAddress string                     `toml:"aggregator_address"`
-	BlockchainInfos   map[string]*BlockchainInfo `toml:"blockchain_infos"`
+	AggregatorAddress string                                 `toml:"aggregator_address"`
+	BlockchainInfos   map[string]*commontypes.BlockchainInfo `toml:"blockchain_infos"`
 }
 
 type VerifierInput struct {
@@ -84,13 +84,13 @@ type VerifierInput struct {
 }
 
 type VerifierOutput struct {
-	ContainerName      string                     `toml:"container_name"`
-	ExternalHTTPURL    string                     `toml:"http_url"`
-	InternalHTTPURL    string                     `toml:"internal_http_url"`
-	DBURL              string                     `toml:"db_url"`
-	DBConnectionString string                     `toml:"db_connection_string"`
-	UseCache           bool                       `toml:"use_cache"`
-	BlockchainInfos    map[string]*BlockchainInfo `toml:"-"`
+	ContainerName      string                                 `toml:"container_name"`
+	ExternalHTTPURL    string                                 `toml:"http_url"`
+	InternalHTTPURL    string                                 `toml:"internal_http_url"`
+	DBURL              string                                 `toml:"db_url"`
+	DBConnectionString string                                 `toml:"db_connection_string"`
+	UseCache           bool                                   `toml:"use_cache"`
+	BlockchainInfos    map[string]*commontypes.BlockchainInfo `toml:"-"`
 }
 
 func verifierDefaults(in *VerifierInput) {
@@ -215,7 +215,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	// Convert blockchain outputs to simplified format
-	var blockchainInfos map[string]*BlockchainInfo
+	var blockchainInfos map[string]*commontypes.BlockchainInfo
 	if in.BlockchainOutputs != nil {
 		blockchainInfos = ConvertBlockchainOutputsToInfo(in.BlockchainOutputs)
 	}
