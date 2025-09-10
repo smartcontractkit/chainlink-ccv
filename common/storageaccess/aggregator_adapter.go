@@ -3,6 +3,7 @@ package storageaccess
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -156,6 +157,74 @@ func (a *AggregatorReader) Close() error {
 	return nil
 }
 
+func mapMessage(msg *aggregator.Message) (types.Message, error) {
+	if msg == nil {
+		return types.Message{}, nil
+	}
+	result := types.Message{
+		SourceChainSelector: types.ChainSelector(msg.SourceChainSelector),
+		DestChainSelector:   types.ChainSelector(msg.DestChainSelector),
+		SequenceNumber:      types.SeqNum(msg.SequenceNumber),
+		OnRampAddress:       msg.OnRampAddress[:],
+		OffRampAddress:      msg.OffRampAddress[:],
+		Sender:              msg.Sender[:],
+		Receiver:            msg.Receiver[:],
+		DestBlob:            msg.DestBlob[:],
+		TokenTransfer:       msg.TokenTransfer[:],
+		Data:                msg.Data[:],
+	}
+
+	if msg.Version <= math.MaxUint8 {
+		result.Version = uint8(msg.Version)
+	} else {
+		return types.Message{}, fmt.Errorf("Version %d exceeds uint8 max", msg.Version)
+	}
+	if msg.OnRampAddressLength <= math.MaxUint8 {
+		result.OnRampAddressLength = uint8(msg.OnRampAddressLength)
+	} else {
+		return types.Message{}, fmt.Errorf("OnRampAddressLength %d exceeds uint8 max",
+			msg.OnRampAddressLength)
+	}
+	if msg.OffRampAddressLength <= math.MaxUint8 {
+		result.OffRampAddressLength = uint8(msg.OffRampAddressLength)
+	} else {
+		return types.Message{}, fmt.Errorf("OffRampAddressLength %d exceeds uint8 max",
+			msg.OffRampAddressLength)
+	}
+	if msg.Finality <= math.MaxUint16 {
+		result.Finality = uint16(msg.Finality)
+	} else {
+		return types.Message{}, fmt.Errorf("Finality %d exceeds uint16 max", msg.Finality)
+	}
+	if msg.SenderLength <= math.MaxUint8 {
+		result.SenderLength = uint8(msg.SenderLength)
+	} else {
+		return types.Message{}, fmt.Errorf("SenderLength %d exceeds uint8 max", msg.SenderLength)
+	}
+	if msg.ReceiverLength <= math.MaxUint8 {
+		result.ReceiverLength = uint8(msg.ReceiverLength)
+	} else {
+		return types.Message{}, fmt.Errorf("ReceiverLength %d exceeds uint8 max", msg.ReceiverLength)
+	}
+	if msg.DestBlobLength <= math.MaxUint16 {
+		result.DestBlobLength = uint16(msg.DestBlobLength)
+	} else {
+		return types.Message{}, fmt.Errorf("DestBlobLength %d exceeds uint16 max", msg.DestBlobLength)
+	}
+	if msg.TokenTransferLength <= math.MaxUint16 {
+		result.TokenTransferLength = uint16(msg.TokenTransferLength)
+	} else {
+		return types.Message{}, fmt.Errorf("TokenTransferLength %d exceeds uint16 max", msg.TokenTransferLength)
+	}
+	if msg.DataLength <= math.MaxUint16 {
+		result.DataLength = uint16(msg.DataLength)
+	} else {
+		return types.Message{}, fmt.Errorf("DataLength %d exceeds uint16 max", msg.DataLength)
+	}
+
+	return result, nil
+}
+
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
 	resp, err := a.client.GetMessagesSince(ctx, &aggregator.GetMessagesSinceRequest{
@@ -168,30 +237,14 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 	// Convert the response to []types.QueryResponse
 	results := make([]types.QueryResponse, 0, len(resp.Results))
 	for i, result := range resp.Results {
+		msg, err := mapMessage(result.Message)
+		if err != nil {
+			return nil, fmt.Errorf("error mapping message at index %d: %w", i, err)
+		}
 		results[i] = types.QueryResponse{
 			Timestamp: nil,
 			Data: types.CCVData{
-				Message: types.Message{
-					Version:              uint8(result.Message.Version),
-					SourceChainSelector:  types.ChainSelector(result.Message.SourceChainSelector),
-					DestChainSelector:    types.ChainSelector(result.Message.DestChainSelector),
-					SequenceNumber:       types.SeqNum(result.Message.SequenceNumber),
-					OnRampAddressLength:  uint8(result.Message.OnRampAddressLength),
-					OnRampAddress:        result.Message.OnRampAddress[:],
-					OffRampAddressLength: uint8(result.Message.OffRampAddressLength),
-					OffRampAddress:       result.Message.OffRampAddress[:],
-					Finality:             uint16(result.Message.Finality),
-					SenderLength:         uint8(result.Message.SenderLength),
-					Sender:               result.Message.Sender[:],
-					ReceiverLength:       uint8(result.Message.ReceiverLength),
-					Receiver:             result.Message.Receiver[:],
-					DestBlobLength:       uint16(result.Message.DestBlobLength),
-					DestBlob:             result.Message.DestBlob[:],
-					TokenTransferLength:  uint16(result.Message.TokenTransferLength),
-					TokenTransfer:        result.Message.TokenTransfer[:],
-					DataLength:           uint16(result.Message.DataLength),
-					Data:                 result.Message.Data[:],
-				},
+				Message: msg,
 				CCVData: result.CcvData,
 				/*
 					// Missing fields...?
