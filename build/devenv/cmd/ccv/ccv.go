@@ -217,8 +217,6 @@ var indexerDBShellCmd = &cobra.Command{
 			url = services.DefaultAggregatorDBConnectionString
 		case "verifier":
 			url = services.DefaultVerifierDBConnectionString
-		case "executor":
-			url = services.DefaultExecutorDBConnectionString
 		default:
 			return fmt.Errorf("service %s is unknown, choose between indexer, aggregator, verifier, executor", args[0])
 		}
