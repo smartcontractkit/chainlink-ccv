@@ -1,15 +1,16 @@
 package executor
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
+	th "github.com/smartcontractkit/chainlink-ccv/executor/internal/timestamp_heap"
 	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"
 	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
@@ -25,8 +26,8 @@ type Coordinator struct {
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
 	running             bool
-
-	mu sync.RWMutex
+	delayedMessageHeap  *th.MessageHeap
+	mu                  sync.RWMutex
 }
 
 type Option func(*Coordinator)
@@ -92,6 +93,8 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 	ec.running = true
 	ctx, cancel := context.WithCancel(ctx)
 	ec.cancel = cancel
+	ec.delayedMessageHeap = &th.MessageHeap{}
+	heap.Init(ec.delayedMessageHeap)
 
 	go ec.run(ctx)
 
@@ -131,6 +134,9 @@ func (ec *Coordinator) run(ctx context.Context) {
 		return
 	}
 
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -140,36 +146,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 			if !ok {
 				ec.lggr.Warnw("messagesCh closed")
 				// TODO: handle reconnection logic
-			}
-			ec.ccvDataCh <- msg
-		case ccvData := <-ec.ccvDataCh:
-			err := ec.ProcessMessage(ctx)
-			if err != nil {
-				ec.lggr.Errorw("failed to process indexer payload", "error", err)
-			} else {
-				ec.lggr.Infow("successfully processed indexer payload", "data", ccvData)
-			}
-		}
-	}
-}
-
-func (ec *Coordinator) ProcessMessage(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			ec.lggr.Infow("executor main loop context done, exiting")
-			return nil
-		case msg, ok := <-ec.ccvDataCh:
-			if !ok {
-				ec.lggr.Warnw("ccvDataCh closed, exiting processMessage")
-				return nil
-			}
-
-			// todo: perform some validations on the message
-			id, err := msg.Message.MessageID()
-			if err != nil {
-				ec.lggr.Errorw("invalid message, failed to generate ID", "error", err, "message", msg)
-				continue
+				// TODO: support multiple sources
 			}
 
 			err = ec.executor.CheckValidMessage(ctx, msg)
@@ -178,24 +155,30 @@ func (ec *Coordinator) ProcessMessage(ctx context.Context) error {
 				continue
 			}
 
-			// get message delay from leader elector
-			delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.ReadyTimestamp)
-			if delay+msg.ReadyTimestamp > time.Now().Unix() {
-				// TODO: CCIP-7104 - use a priority queue ordered by execution time adds them to ccvDataCh at the right time.
-				ec.lggr.Infow("message not ready yet, requeuing", "message", msg, "delay", delay)
-				go func() {
-					time.Sleep(time.Duration(delay+msg.ReadyTimestamp-time.Now().Unix()) * time.Second)
-					ec.ccvDataCh <- msg
-				}()
-				continue
-			}
-			// if message is executable, send to executor
+			id, _ := msg.Message.MessageID()
 
-			err = ec.executor.ExecuteMessage(ctx, msg)
-			if err != nil {
-				ec.lggr.Errorw("failed to execute message", "error", err, "message", msg)
-			} else {
-				ec.lggr.Infow("successfully executed message", "message", msg)
+			// get message delay from leader elector
+			readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
+			ec.lggr.Infow("waiting before processing message", "readyTimestamp", readyTimestamp, "messageID", id)
+
+			heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
+				Payload:   msg,
+				ReadyTime: readyTimestamp,
+			})
+		case <-ticker.C:
+			// todo: get this current time from a single source across all executors
+			currentTime := time.Now().Unix()
+			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
+			for _, message := range readyMessages {
+				go func() {
+					message := message
+					id, _ := message.Message.MessageID() // can we make this less bad?
+					ec.lggr.Infow("processing message with ID", "messageID", id)
+					err = ec.executor.ExecuteMessage(ctx, message)
+					if err != nil {
+						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
+					}
+				}()
 			}
 		}
 	}
