@@ -3,18 +3,23 @@ package ccv
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
@@ -131,7 +136,7 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 	return selectors, &e, nil
 }
 
-func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64) error {
+func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64) (datastore.DataStore, error) {
 	L.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
@@ -139,8 +144,18 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 		operations.NewMemoryReporter(),
 	)
 	e.OperationsBundle = bundle
+
+	usdPerLink, ok := new(big.Int).SetString("15000000000000000000", 10) // $15
+	if !ok {
+		return nil, errors.New("failed to parse USDPerLINK")
+	}
+	usdPerWeth, ok := new(big.Int).SetString("2000000000000000000000", 10) // $2000
+	if !ok {
+		return nil, errors.New("failed to parse USDPerWETH")
+	}
+
 	out, err := changesets.DeployChainContracts.Apply(*e, changesets.DeployChainContractsCfg{
-		ChainSelector: selector,
+		ChainSel: selector,
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
 			RMNRemote:     sequences.RMNRemoteParams{},
@@ -152,32 +167,33 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 			CCVProxy: sequences.CCVProxyParams{
 				FeeAggregator: common.HexToAddress("0x01"),
 			},
+			ExecutorOnRamp: sequences.ExecutorOnRampParams{
+				MaxCCVsPerMsg: 10,
+			},
 			FeeQuoter: sequences.FeeQuoterParams{
 				// expose in TOML config
 				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
 				TokenPriceStalenessThreshold:   uint32(24 * 60 * 60),
 				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
 				WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
+				USDPerLINK:                     usdPerLink,
+				USDPerWETH:                     usdPerWeth,
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
 				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
-					{
-						// OCR3 or something else?
-						ConfigDigest: [32]byte{0x01},
-						F:            1,
-						Signers: []common.Address{
-							common.HexToAddress("0x02"),
-							common.HexToAddress("0x03"),
-							common.HexToAddress("0x04"),
-							common.HexToAddress("0x05"),
-						},
+					Threshold: 1,
+					Signers: []common.Address{
+						common.HexToAddress("0x02"),
+						common.HexToAddress("0x03"),
+						common.HexToAddress("0x04"),
+						common.HexToAddress("0x05"),
 					},
 				},
 			},
 		},
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	addresses, err := out.DataStore.Addresses().Fetch()
@@ -185,9 +201,73 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 	defer in.CCV.AddressesMu.Unlock()
 	a, err := json.Marshal(addresses)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	in.CCV.Addresses = append(in.CCV.Addresses, string(a))
+	return out.DataStore.Seal(), nil
+}
+
+func configureContractsOnSelectorForLanes(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
+	L.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+	e.OperationsBundle = bundle
+
+	remoteChains := make(map[uint64]changesets.RemoteChainConfig)
+	for _, rs := range remoteSelectors {
+		remoteChains[rs] = changesets.RemoteChainConfig{
+			AllowTrafficFrom: true,
+			CCIPMessageSource: datastore.AddressRef{
+				Type:    datastore.ContractType(commit_onramp.ContractType),
+				Version: semver.MustParse("1.7.0"),
+			},
+			DefaultCCVOffRamps: []datastore.AddressRef{
+				{Type: datastore.ContractType(commit_offramp.ContractType), Version: semver.MustParse("1.7.0")},
+			},
+			// LaneMandatedCCVOffRamps: []datastore.AddressRef{},
+			DefaultCCVOnRamps: []datastore.AddressRef{
+				{Type: datastore.ContractType(commit_onramp.ContractType), Version: semver.MustParse("1.7.0")},
+			},
+			// LaneMandatedCCVOnRamps: []datastore.AddressRef{},
+			DefaultExecutor: datastore.AddressRef{
+				Type:    datastore.ContractType(executor_onramp.ContractType),
+				Version: semver.MustParse("1.7.0"),
+			},
+			CommitOnRampDestChainConfig: sequences.CommitOnRampDestChainConfig{
+				AllowlistEnabled: false,
+			},
+			FeeQuoterDestChainConfig: fee_quoter_v2.DestChainConfig{
+				IsEnabled:                         true,
+				MaxNumberOfTokensPerMsg:           10,
+				MaxDataBytes:                      30_000,
+				MaxPerMsgGasLimit:                 3_000_000,
+				DestGasOverhead:                   300_000,
+				DefaultTokenFeeUSDCents:           25,
+				DestGasPerPayloadByteBase:         16,
+				DestGasPerPayloadByteHigh:         40,
+				DestGasPerPayloadByteThreshold:    3000,
+				DestDataAvailabilityOverheadGas:   100,
+				DestGasPerDataAvailabilityByte:    16,
+				DestDataAvailabilityMultiplierBps: 1,
+				DefaultTokenDestGasOverhead:       90_000,
+				DefaultTxGasLimit:                 200_000,
+				GasMultiplierWeiPerEth:            11e17, // Gas multiplier in wei per eth is scaled by 1e18, so 11e17 is 1.1 = 110%
+				NetworkFeeUSDCents:                10,
+				ChainFamilySelector:               [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
+			},
+		}
+	}
+
+	_, err := changesets.ConfigureChainForLanes.Apply(*e, changesets.ConfigureChainForLanesCfg{
+		ChainSel:     selector,
+		RemoteChains: remoteChains,
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -382,11 +462,31 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 		eg := &errgroup.Group{}
 		in.CCV.AddressesMu = &sync.Mutex{}
+		runningDS := datastore.NewMemoryDataStore()
 		for _, sel := range selectors {
 			eg.Go(func() error {
-				err = deployContractsForSelector(in, e, sel)
+				ds, err := deployContractsForSelector(in, e, sel)
 				if err != nil {
 					return fmt.Errorf("could not configure contracts for chain selector %d: %w", sel, err)
+				}
+				return runningDS.Merge(ds)
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return err
+		}
+		e.DataStore = runningDS.Seal()
+		for _, sel := range selectors {
+			eg.Go(func() error {
+				remoteSelectors := make([]uint64, 0, len(selectors)-1)
+				for _, s := range selectors {
+					if s != sel {
+						remoteSelectors = append(remoteSelectors, s)
+					}
+				}
+				err = configureContractsOnSelectorForLanes(e, sel, remoteSelectors)
+				if err != nil {
+					return fmt.Errorf("could not configure contracts on chain selector %d for lanes: %w", sel, err)
 				}
 				return nil
 			})
