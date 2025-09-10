@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blang/semver"
+	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -135,7 +136,7 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 	return selectors, &e, nil
 }
 
-func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64) error {
+func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64) (datastore.DataStore, error) {
 	L.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
@@ -154,7 +155,7 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 	}
 
 	out, err := changesets.DeployChainContracts.Apply(*e, changesets.DeployChainContractsCfg{
-		ChainSelector: selector,
+		ChainSel: selector,
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
 			RMNRemote:     sequences.RMNRemoteParams{},
@@ -165,6 +166,9 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 			},
 			CCVProxy: sequences.CCVProxyParams{
 				FeeAggregator: common.HexToAddress("0x01"),
+			},
+			ExecutorOnRamp: sequences.ExecutorOnRampParams{
+				MaxCCVsPerMsg: 10,
 			},
 			FeeQuoter: sequences.FeeQuoterParams{
 				// expose in TOML config
@@ -177,23 +181,19 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
 				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
-					{
-						// OCR3 or something else?
-						ConfigDigest: [32]byte{0x01},
-						F:            1,
-						Signers: []common.Address{
-							common.HexToAddress("0x02"),
-							common.HexToAddress("0x03"),
-							common.HexToAddress("0x04"),
-							common.HexToAddress("0x05"),
-						},
+					Threshold: 1,
+					Signers: []common.Address{
+						common.HexToAddress("0x02"),
+						common.HexToAddress("0x03"),
+						common.HexToAddress("0x04"),
+						common.HexToAddress("0x05"),
 					},
 				},
 			},
 		},
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	addresses, err := out.DataStore.Addresses().Fetch()
@@ -204,7 +204,7 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 		return nil, err
 	}
 	in.CCV.Addresses = append(in.CCV.Addresses, string(a))
-	return out.DataStore, nil
+	return out.DataStore.Seal(), nil
 }
 
 func configureContractsOnSelectorForLanes(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
@@ -220,24 +220,20 @@ func configureContractsOnSelectorForLanes(e *deployment.Environment, selector ui
 	for _, rs := range remoteSelectors {
 		remoteChains[rs] = changesets.RemoteChainConfig{
 			AllowTrafficFrom: true,
-			CCIPMessageSource: changesets_utils.TypeAndVersion{
+			CCIPMessageSource: datastore.AddressRef{
 				Type:    datastore.ContractType(commit_onramp.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
-			DefaultCCVOffRamps: []changesets_utils.TypeAndVersion{
+			DefaultCCVOffRamps: []datastore.AddressRef{
 				{Type: datastore.ContractType(commit_offramp.ContractType), Version: semver.MustParse("1.7.0")},
 			},
-			LaneMandatedCCVOffRamps: []changesets_utils.TypeAndVersion{
-				{Type: datastore.ContractType(commit_offramp.ContractType), Version: semver.MustParse("1.7.0")},
-			},
-			DefaultCCVOnRamps: []changesets_utils.TypeAndVersion{
+			// LaneMandatedCCVOffRamps: []datastore.AddressRef{},
+			DefaultCCVOnRamps: []datastore.AddressRef{
 				{Type: datastore.ContractType(commit_onramp.ContractType), Version: semver.MustParse("1.7.0")},
 			},
-			LaneMandatedCCVOnRamps: []changesets_utils.TypeAndVersion{
-				{Type: datastore.ContractType(commit_onramp.ContractType), Version: semver.MustParse("1.7.0")},
-			},
-			DefaultExecutor: changesets_utils.TypeAndVersion{
-				Type:    datastore.ContractType(commit_onramp.ContractType), // TODO: This should be updated to ExecutorOnRamp when available
+			// LaneMandatedCCVOnRamps: []datastore.AddressRef{},
+			DefaultExecutor: datastore.AddressRef{
+				Type:    datastore.ContractType(executor_onramp.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
 			CommitOnRampDestChainConfig: sequences.CommitOnRampDestChainConfig{
@@ -272,7 +268,6 @@ func configureContractsOnSelectorForLanes(e *deployment.Environment, selector ui
 	if err != nil {
 		return err
 	}
-	in.CCV.Addresses = append(in.CCV.Addresses, string(a))
 	return nil
 }
 
@@ -467,13 +462,14 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 		eg := &errgroup.Group{}
 		in.CCV.AddressesMu = &sync.Mutex{}
+		runningDS := datastore.NewMemoryDataStore()
 		for _, sel := range selectors {
 			eg.Go(func() error {
-				err = deployContractsForSelector(in, e, sel)
+				ds, err := deployContractsForSelector(in, e, sel)
 				if err != nil {
 					return fmt.Errorf("could not configure contracts for chain selector %d: %w", sel, err)
 				}
-				return runningDS.Merge(ds.Seal())
+				return runningDS.Merge(ds)
 			})
 		}
 		if err := eg.Wait(); err != nil {

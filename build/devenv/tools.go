@@ -23,7 +23,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/call"
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -457,7 +458,7 @@ func SendMessage(in *Cfg, src uint64, dest uint64) error {
 		},
 	}
 
-	feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, call.Input[router.CCIPSendArgs]{
+	feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
 		ChainSelector: srcChain.Selector,
 		Address:       routerAddr,
 		Args:          ccipSendArgs,
@@ -468,7 +469,7 @@ func SendMessage(in *Cfg, src uint64, dest uint64) error {
 
 	// Send CCIP message with value
 	ccipSendArgs.Value = feeReport.Output
-	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, call.Input[router.CCIPSendArgs]{
+	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
 		ChainSelector: src,
 		Address:       routerAddr,
 		Args:          ccipSendArgs,
