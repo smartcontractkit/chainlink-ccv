@@ -54,7 +54,7 @@ jobs:
         run: just lint
 
       - name: Run tests
-        run: COVERAGE_FILE=verifier_coverage.out just test-coverage
+        run: COVERAGE_FILE=coverage.out just test-coverage
 
       - name: Generate coverage report
         if: github.event_name == 'pull_request'
