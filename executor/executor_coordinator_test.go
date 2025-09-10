@@ -171,3 +171,18 @@ func TestSubscribeMessagesError(t *testing.T) {
 	}
 	require.Eventuallyf(t, found, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
 }
+
+func TestStopNotRunning(t *testing.T) {
+	lggr := logger.Test(t)
+
+	ec, err := executor.NewCoordinator(
+		executor.WithLogger(lggr),
+		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
+		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
+		executor.WithCCVDataReader(executor_mocks.NewMockCcvDataReader(t)),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ec)
+
+	require.ErrorContains(t, ec.Stop(), "Coordinator not started")
+}
