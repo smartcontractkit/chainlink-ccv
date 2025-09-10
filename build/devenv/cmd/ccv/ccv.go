@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -232,6 +234,33 @@ var indexerDBShellCmd = &cobra.Command{
 	},
 }
 
+var sendCmd = &cobra.Command{
+	Use:     "send",
+	Aliases: []string{"s"},
+	Args:    cobra.RangeArgs(1, 1),
+	Short:   "Send a message",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		sels := strings.Split(args[0], ",")
+		if len(sels) != 2 {
+			return fmt.Errorf("expected 2 chain selectors, got %d", len(sels))
+		}
+		src, err := strconv.ParseUint(sels[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse source chain selector: %w", err)
+		}
+		dest, err := strconv.ParseUint(sels[1], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse destination chain selector: %w", err)
+		}
+
+		return ccv.SendMessage(in, src, dest)
+	},
+}
+
 var printAddressesCmd = &cobra.Command{
 	Use:   "addresses",
 	Short: "Pretty-print all on-chain contract addresses data",
@@ -280,6 +309,7 @@ func init() {
 	// utility
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
+	rootCmd.AddCommand(sendCmd)
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)

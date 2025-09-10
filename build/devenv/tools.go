@@ -1,6 +1,7 @@
 package ccv
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +23,10 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
-	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/call"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
 
 /*
@@ -353,4 +357,131 @@ func filterContractEventsPerSelector(in *Cfg, bcByChainID map[string]*ethclient.
 		}
 	}
 	return allLogs, allLogsUnpacked, nil
+}
+
+func SendMessage(in *Cfg, src uint64, dest uint64) error {
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
+	}
+
+	chains := e.BlockChains.EVMChains()
+	if chains == nil {
+		return errors.New("no EVM chains found")
+	}
+
+	if !slices.Contains(selectors, src) {
+		return fmt.Errorf("source selector %d not found in environment selectors %v", src, selectors)
+	}
+	if !slices.Contains(selectors, dest) {
+		return fmt.Errorf("destination selector %d not found in environment selectors %v", dest, selectors)
+	}
+
+	srcChain := chains[src]
+
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+	e.OperationsBundle = bundle
+
+	var routerAddr common.Address
+	for _, addr := range in.CCV.Addresses {
+		var refs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addr), &refs); err != nil {
+			return fmt.Errorf("failed to unmarshal address: %w", err)
+		}
+		for _, ref := range refs {
+			if ref.ChainSelector == src && ref.Type == datastore.ContractType(router.ContractType) {
+				routerAddr = common.HexToAddress(ref.Address)
+			}
+		}
+	}
+	if routerAddr == (common.Address{}) {
+		return fmt.Errorf("router address not found for selector %d", src)
+	}
+
+	const clientABI = `
+		[
+			{
+				"name": "encodeGenericExtraArgsV2",
+				"type": "function",
+				"inputs": [
+					{
+						"components": [
+							{
+								"name": "gasLimit",
+								"type": "uint256"
+							},
+							{
+								"name": "allowOutOfOrderExecution",
+								"type": "bool"
+							}
+						],
+						"name": "args",
+						"type": "tuple"
+					}
+				],
+				"outputs": [],
+				"stateMutability": "pure"
+			}
+		]
+	`
+
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(clientABI)))
+	if err != nil {
+		return fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	genericExtraArgsV2 := struct {
+		GasLimit                 *big.Int
+		AllowOutOfOrderExecution bool
+	}{
+		GasLimit:                 big.NewInt(1_000_000),
+		AllowOutOfOrderExecution: true,
+	}
+	encoded, err := parsedABI.Methods["encodeGenericExtraArgsV2"].Inputs.Pack(genericExtraArgsV2)
+	if err != nil {
+		return fmt.Errorf("failed to pack arguments: %w", err)
+	}
+
+	tag := []byte{0x18, 0x1d, 0xcf, 0x10} // GENERIC_EXTRA_ARGS_V2_TAG
+	ccipSendArgs := router.CCIPSendArgs{
+		DestChainSelector: dest,
+		EVM2AnyMessage: router.EVM2AnyMessage{
+			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
+			Data:         []byte{},
+			TokenAmounts: []router.EVMTokenAmount{},
+			ExtraArgs:    append(tag, encoded...),
+		},
+	}
+
+	feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, call.Input[router.CCIPSendArgs]{
+		ChainSelector: srcChain.Selector,
+		Address:       routerAddr,
+		Args:          ccipSendArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get fee: %w", err)
+	}
+
+	// Send CCIP message with value
+	ccipSendArgs.Value = feeReport.Output
+	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, call.Input[router.CCIPSendArgs]{
+		ChainSelector: src,
+		Address:       routerAddr,
+		Args:          ccipSendArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send CCIP message: %w", err)
+	}
+
+	Plog.Info().Bool("Executed", sendReport.Output.Executed).
+		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
+		Uint64("DestChainSelector", dest).
+		Str("SrcRouter", sendReport.Output.Tx.To).
+		Msg("CCIP message sent!")
+
+	return nil
 }

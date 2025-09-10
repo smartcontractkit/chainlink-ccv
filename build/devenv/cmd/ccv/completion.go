@@ -18,11 +18,16 @@ func getCommands() []prompt.Suggest {
 		{Text: "db", Description: "Inspect Databases"},
 		{Text: "upload-on-chain-metrics", Description: "Temporarily serves all on-chain metrics as a Prometheus metrics endpoint so they can be scraped"},
 		{Text: "exit", Description: "Exit the interactive shell"},
+		{Text: "send", Description: "Send a vanilla CCIP message from one chain to another"},
 	}
 }
 
 func getSubCommands(parent string) []prompt.Suggest {
 	switch parent {
+	case "send":
+		return []prompt.Suggest{
+			{Text: "Chain selectors", Description: "source,dest - ex.: 3379446385462418246,12922642891491394802"},
+		}
 	case "addresses":
 		return []prompt.Suggest{
 			{Text: "addresses", Description: "Print all smart-contract addresses data (CLDF)"},
