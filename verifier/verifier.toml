@@ -1,25 +1,26 @@
 aggregator_address = "aggregator:50051"
+private_key = "dev-private-key-12345678901234567890"
 
 [blockchain_infos]
   [blockchain_infos.1337]
     ChainID = "1337"
     Type = "anvil"
     Family = "evm"
-    ContainerName = "blockchain-node-48b52"
+    ContainerName = "blockchain-src"
 
     [[blockchain_infos.1337.Nodes]]
       ExternalHTTPUrl = "http://127.0.0.1:8545"
-      InternalHTTPUrl = "http://blockchain-node-48b52:8545"
+      InternalHTTPUrl = "http://blockchain-src:8545"
       ExternalWSUrl = "ws://127.0.0.1:8545"
-      InternalWSUrl = "ws://blockchain-node-48b52:8545"
+      InternalWSUrl = "ws://blockchain-src:8545"
   [blockchain_infos.2337]
     ChainID = "2337"
     Type = "anvil"
     Family = "evm"
-    ContainerName = "blockchain-node-d8de2"
+    ContainerName = "blockchain-dst"
 
     [[blockchain_infos.2337.Nodes]]
       ExternalHTTPUrl = "http://127.0.0.1:8555"
-      InternalHTTPUrl = "http://blockchain-node-d8de2:8555"
+      InternalHTTPUrl = "http://blockchain-dst:8555"
       ExternalWSUrl = "ws://127.0.0.1:8555"
-      InternalWSUrl = "ws://blockchain-node-d8de2:8555"
+      InternalWSUrl = "ws://blockchain-dst:8555"
