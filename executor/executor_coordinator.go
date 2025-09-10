@@ -1,17 +1,18 @@
 package executor
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
 	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"
 	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/utils"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type Coordinator struct {
@@ -24,6 +25,7 @@ type Coordinator struct {
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
 	running             bool
+	delayedMessageHeap  *utils.MessageHeap
 }
 
 type Option func(*Coordinator)
@@ -87,6 +89,8 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 	ec.running = true
 	ctx, cancel := context.WithCancel(ctx)
 	ec.cancel = cancel
+	ec.delayedMessageHeap = &utils.MessageHeap{}
+	heap.Init(ec.delayedMessageHeap)
 
 	go ec.run(ctx)
 
@@ -121,6 +125,9 @@ func (ec *Coordinator) run(ctx context.Context) {
 		return
 	}
 
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -131,52 +138,39 @@ func (ec *Coordinator) run(ctx context.Context) {
 				ec.lggr.Warnw("messagesCh closed")
 				// TODO: handle reconnection logic
 			}
-			ec.ccvDataCh <- msg
-		case ccvData := <-ec.ccvDataCh:
-			ec.lggr.Infow("message received... sending for procesing")
-			err = ec.ProcessMessage(ctx, ccvData)
+
+			err = ec.executor.CheckValidMessage(ctx, msg)
 			if err != nil {
-				ec.lggr.Errorw("failed to process indexer payload", "error", err)
+				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+				continue
+			}
+
+			id, _ := msg.Message.MessageID()
+
+			// get message delay from leader elector
+			delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.VerifiedTimestamp)
+			ec.lggr.Infow("using delay", "delay", delay, "messageID", id)
+
+			ec.delayedMessageHeap.Push(&utils.MessageWithTimestamp{
+				Payload:   msg,
+				ReadyTime: delay + msg.VerifiedTimestamp,
+			})
+		case <-ticker.C:
+			// todo: get this current time from a single source across all executors
+			currentTime := time.Now().Unix()
+			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
+			for _, message := range readyMessages {
+				go func() {
+					message := message
+					id, _ := message.Message.MessageID()
+					err = ec.executor.ExecuteMessage(ctx, message)
+					if err != nil {
+						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
+					}
+				}()
 			}
 		}
 	}
-}
-
-func (ec *Coordinator) ProcessMessage(ctx context.Context, msg types.MessageWithCCVData) error {
-	// todo: perform some validations on the message
-	err := ec.executor.CheckValidMessage(ctx, msg)
-	if err != nil {
-		ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
-		return err
-	}
-
-	id, _ := msg.Message.MessageID()
-
-	// get message delay from leader elector
-	delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.ReadyTimestamp)
-	ec.lggr.Infow("using delay", "delay", delay, "messageID", id)
-
-	if delay+msg.ReadyTimestamp > time.Now().Unix() {
-		// TODO: CCIP-7104 - use a priority queue ordered by execution time adds them to ccvDataCh at the right time.
-		ec.lggr.Infow("message not ready yet", "messageID", id, "delay", delay)
-		go func() {
-			time.Sleep(time.Duration(delay+msg.ReadyTimestamp-time.Now().Unix()) * time.Second)
-
-			// if message is executable, send to executor
-			ec.lggr.Infow("passed delay for message, requeuing the message", "messageID", id)
-			ec.ccvDataCh <- msg
-		}()
-		return err
-	}
-
-	err = ec.executor.ExecuteMessage(ctx, msg)
-	if err != nil {
-		ec.lggr.Errorw("failed to execute message", "error", err, "messageID", id)
-		return err
-	} else {
-		ec.lggr.Infow("successfully executed message", "messageID", id)
-	}
-	return nil
 }
 
 // IsRunning returns whether the coordinator is running.

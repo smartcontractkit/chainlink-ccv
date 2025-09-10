@@ -2,7 +2,7 @@ package leaderelector
 
 import (
 	"math/rand"
-	
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 

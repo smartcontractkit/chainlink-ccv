@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"math/big"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
@@ -26,6 +27,7 @@ type EVMContractTransmitter struct {
 	Client        *ethclient.Client
 	Pk            *ecdsa.PrivateKey
 	CcvAggregator ccvAgg.CCVAggregator
+	mu            sync.Mutex
 }
 
 func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector uint64, client txmgr.TxManager) *EVMContractTransmitter {
@@ -100,6 +102,9 @@ func (ct *EVMContractTransmitter) GetTransactOpts() (*bind.TransactOpts, error) 
 }
 
 func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report exectypes.AbstractAggregatedReport) error {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	
 	contractCcvs := make([]common.Address, len(report.CCVS))
 	for _, ccv := range report.CCVS {
 		contractCcvs = append(contractCcvs, common.Address(ccv))

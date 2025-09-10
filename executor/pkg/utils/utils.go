@@ -44,7 +44,7 @@ func (sdp *ScheduledDataPusher) Run(ctx context.Context) {
 		case <-ticker.C:
 			// Generate and send a mock message
 			mockMessage := sdp.createMockMessage(messageCounter)
-			sdp.lggr.Infow("Generating mock message", "messageCounter", messageCounter, "timestamp", mockMessage.ReadyTimestamp)
+			sdp.lggr.Infow("Generating mock message", "messageCounter", messageCounter, "timestamp", mockMessage.VerifiedTimestamp)
 			sdp.messageChan <- mockMessage
 			// Message sent successfully
 			messageCounter++
@@ -97,8 +97,8 @@ func (sdp *ScheduledDataPusher) createMockMessage(counter uint64) types.MessageW
 	}
 
 	return types.MessageWithCCVData{
-		CCVData:        ccvData,
-		Message:        *message,
-		ReadyTimestamp: timestamp,
+		CCVData:           ccvData,
+		Message:           *message,
+		VerifiedTimestamp: timestamp,
 	}
 }
