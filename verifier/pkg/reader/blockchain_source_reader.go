@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
@@ -35,7 +34,6 @@ type BlockchainSourceReader struct {
 	logger          logger.Logger
 
 	// Contract interaction
-	ccvProxyABI  abi.ABI
 	contractAddr common.Address
 
 	// Event monitoring
@@ -60,18 +58,11 @@ func NewBlockchainSourceReader(
 	chainSelector protocol.ChainSelector,
 	logger logger.Logger,
 ) *BlockchainSourceReader {
-	// Parse the contract ABI
-	ccvProxyABI, err := abi.JSON(strings.NewReader(CCVProxyABI))
-	if err != nil {
-		logger.Panicw("Failed to parse CCVProxy ABI", "error", err)
-	}
-
 	return &BlockchainSourceReader{
 		chainClient:          chainClient,
 		contractAddress:      contractAddress,
 		chainSelector:        chainSelector,
 		logger:               logger,
-		ccvProxyABI:          ccvProxyABI,
 		contractAddr:         common.HexToAddress(contractAddress),
 		ccipMessageSentTopic: "0xa816f7e08da08b1aa0143155f28f728327e40df7f707f612cb3566ab91229820",
 		pollInterval:         3 * time.Second,
@@ -311,8 +302,13 @@ func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 	}
 
 	// Parse the event data using the ABI
-	event := &CCVProxyCCIPMessageSent{}
-	err := r.ccvProxyABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
+	event := &ccv_proxy.CCVProxyCCIPMessageSent{}
+	abi, err := ccv_proxy.CCVProxyMetaData.GetAbi()
+	if err != nil {
+		r.logger.Errorw("❌ Failed to get ABI", "error", err)
+		return
+	}
+	err = abi.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 	if err != nil {
 		r.logger.Errorw("❌ Failed to unpack CCIPMessageSent event", "error", err)
 		return
