@@ -67,9 +67,10 @@ jobs:
         # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
         if: needs.pr-check.outputs.number != 'null'
         run: |
-          git fetch origin ${{ github.base_ref }}
+          # cannot use ${{ github.base_ref }} because the trigger is on push.
+          git fetch origin ${{ github.event.repository.default_branch }}
           git branch -a
-          git checkout ${{ github.base_ref }}
+          git checkout ${{ github.event.repository.default_branch }}
           # COVERAGE_FILE=coverage_target.out just test-coverage
           go test -shuffle on -v -coverprofile=coverage_target.out ./...
           total=$(go tool cover -func=coverage_target.out | grep total | awk '{print $3}')
@@ -110,6 +111,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `| Metric | \`${{ github.head_ref }}\` | \`${{ github.base_ref }}\` |\n|--|--|--|\n| **Coverage** | ${coverage} | ${coverage_target} |`
+              # cannot use ${{ github.base_ref }} because the trigger is on push.
+              body: `| Metric | \`${{ github.head_ref }}\` | \`${{ github.event.repository.default_branch }}\` |\n|--|--|--|\n| **Coverage** | ${coverage} | ${coverage_target} |`
             });
 
