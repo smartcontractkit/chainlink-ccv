@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/binary"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -23,6 +25,10 @@ type BlockchainSourceReader struct {
 	contractAddress string
 	chainSelector   protocol.ChainSelector
 	logger          logger.Logger
+
+	// Contract interaction
+	ccvProxyABI  abi.ABI
+	contractAddr common.Address
 
 	// Event monitoring
 	ccipMessageSentTopic string
@@ -46,11 +52,19 @@ func NewBlockchainSourceReader(
 	chainSelector protocol.ChainSelector,
 	logger logger.Logger,
 ) *BlockchainSourceReader {
+	// Parse the contract ABI
+	ccvProxyABI, err := abi.JSON(strings.NewReader(CCVProxyABI))
+	if err != nil {
+		logger.Panicw("Failed to parse CCVProxy ABI", "error", err)
+	}
+
 	return &BlockchainSourceReader{
 		chainClient:          chainClient,
 		contractAddress:      contractAddress,
 		chainSelector:        chainSelector,
 		logger:               logger,
+		ccvProxyABI:          ccvProxyABI,
+		contractAddr:         common.HexToAddress(contractAddress),
 		ccipMessageSentTopic: "0xa816f7e08da08b1aa0143155f28f728327e40df7f707f612cb3566ab91229820",
 		pollInterval:         3 * time.Second,
 		verificationTaskCh:   make(chan types.VerificationTask, 100),
@@ -161,7 +175,7 @@ func (r *BlockchainSourceReader) eventMonitoringLoop(ctx context.Context) {
 		}
 	}()
 
-	contractAddr := common.HexToAddress(r.contractAddress)
+	contractAddr := r.contractAddr
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 
@@ -266,7 +280,7 @@ func (r *BlockchainSourceReader) processEventCycle(ctx context.Context, contract
 	}
 }
 
-// processCC IPMessageSentEvent processes a single CCIPMessageSent event
+// processCCIPMessageSentEvent processes a single CCIPMessageSent event
 func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 	r.logger.Infow("🎉 Found CCIPMessageSent event!",
 		"chainSelector", r.chainSelector,
@@ -288,15 +302,119 @@ func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 			"sequenceNumber", sequenceNumber)
 	}
 
-	// Create a mock message for now - in a real implementation, you'd parse the event data
-	// to extract the full message details
-	senderAddr, _ := protocol.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
-	receiverAddr, _ := protocol.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
-	onRampAddr, _ := protocol.NewUnknownAddressFromHex(r.contractAddress)
-	offRampAddr, _ := protocol.NewUnknownAddressFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	// Parse the event data using the ABI
+	event := &CCVProxyCCIPMessageSent{}
+	err := r.ccvProxyABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
+	if err != nil {
+		r.logger.Errorw("❌ Failed to unpack CCIPMessageSent event", "error", err)
+		return
+	}
 
-	// Create empty token transfer
-	tokenTransfer := protocol.NewEmptyTokenTransfer()
+	r.logger.Infow("📋 Parsed event data - Message Header",
+		"messageId", common.Bytes2Hex(event.Message.Header.MessageId[:]),
+		"sourceChainSelector", event.Message.Header.SourceChainSelector,
+		"destChainSelector", event.Message.Header.DestChainSelector,
+		"sequenceNumber", event.Message.Header.SequenceNumber)
+
+	r.logger.Infow("📋 Parsed event data - Message Body",
+		"sender", event.Message.Sender.Hex(),
+		"receiver", string(event.Message.Receiver),
+		"receiverHex", common.Bytes2Hex(event.Message.Receiver),
+		"data", string(event.Message.Data),
+		"dataHex", common.Bytes2Hex(event.Message.Data),
+		"dataLength", len(event.Message.Data))
+
+	r.logger.Infow("📋 Parsed event data - Fee Information",
+		"feeToken", event.Message.FeeToken.Hex(),
+		"feeTokenAmount", event.Message.FeeTokenAmount.String(),
+		"feeValueJuels", event.Message.FeeValueJuels.String())
+
+	r.logger.Infow("📋 Parsed event data - Token Transfers",
+		"tokenTransferCount", len(event.Message.TokenTransfer))
+
+	for i, tt := range event.Message.TokenTransfer {
+		r.logger.Infow("📦 Token Transfer",
+			"index", i,
+			"sourceTokenAddress", tt.SourceTokenAddress.Hex(),
+			"destTokenAddress", string(tt.DestTokenAddress),
+			"destTokenAddressHex", common.Bytes2Hex(tt.DestTokenAddress),
+			"amount", tt.Amount.String(),
+			"extraData", string(tt.ExtraData),
+			"extraDataHex", common.Bytes2Hex(tt.ExtraData),
+			"receipt_issuer", tt.Receipt.Issuer.Hex(),
+			"receipt_destGasLimit", tt.Receipt.DestGasLimit,
+			"receipt_destBytesOverhead", tt.Receipt.DestBytesOverhead,
+			"receipt_feeTokenAmount", tt.Receipt.FeeTokenAmount.String(),
+			"receipt_extraArgs", common.Bytes2Hex(tt.Receipt.ExtraArgs))
+	}
+
+	r.logger.Infow("📋 Parsed event data - Verifier Receipts",
+		"verifierReceiptCount", len(event.Message.VerifierReceipts))
+
+	for i, vr := range event.Message.VerifierReceipts {
+		r.logger.Infow("🧾 Verifier Receipt",
+			"index", i,
+			"issuer", vr.Issuer.Hex(),
+			"destGasLimit", vr.DestGasLimit,
+			"destBytesOverhead", vr.DestBytesOverhead,
+			"feeTokenAmount", vr.FeeTokenAmount.String(),
+			"extraArgs", common.Bytes2Hex(vr.ExtraArgs),
+			"extraArgsLength", len(vr.ExtraArgs))
+	}
+
+	r.logger.Infow("📋 Parsed event data - Executor Receipt",
+		"executor_issuer", event.Message.ExecutorReceipt.Issuer.Hex(),
+		"executor_destGasLimit", event.Message.ExecutorReceipt.DestGasLimit,
+		"executor_destBytesOverhead", event.Message.ExecutorReceipt.DestBytesOverhead,
+		"executor_feeTokenAmount", event.Message.ExecutorReceipt.FeeTokenAmount.String(),
+		"executor_extraArgs", common.Bytes2Hex(event.Message.ExecutorReceipt.ExtraArgs),
+		"executor_extraArgsLength", len(event.Message.ExecutorReceipt.ExtraArgs))
+
+	r.logger.Infow("📋 Parsed event data - Receipt Blobs",
+		"receiptBlobCount", len(event.ReceiptBlobs))
+
+	for i, blob := range event.ReceiptBlobs {
+		r.logger.Infow("🗂️ Receipt Blob",
+			"index", i,
+			"length", len(blob),
+			"data", string(blob),
+			"dataHex", common.Bytes2Hex(blob))
+	}
+
+	// Create addresses from the parsed data
+	senderAddr, err := protocol.NewUnknownAddressFromHex(event.Message.Sender.Hex())
+	if err != nil {
+		r.logger.Errorw("❌ Failed to create sender address", "error", err)
+		return
+	}
+
+	receiverAddr, err := protocol.NewUnknownAddressFromHex(string(event.Message.Receiver))
+	if err != nil {
+		// If receiver is not a valid address, create a mock one
+		receiverAddr, _ = protocol.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
+	}
+
+	onRampAddr, _ := protocol.NewUnknownAddressFromHex(r.contractAddress)
+
+	// Extract offRamp from executorReceipt if available, otherwise use a default
+	var offRampAddr protocol.UnknownAddress
+	if event.Message.ExecutorReceipt.Issuer != (common.Address{}) {
+		offRampAddr, _ = protocol.NewUnknownAddressFromHex(event.Message.ExecutorReceipt.Issuer.Hex())
+	} else {
+		offRampAddr, _ = protocol.NewUnknownAddressFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	}
+
+	// Convert token transfers to protocol format and create TokenTransfer
+	var tokenTransfer *protocol.TokenTransfer
+	if len(event.Message.TokenTransfer) > 0 {
+		// For now, we'll create an empty token transfer since the protocol expects encoded bytes
+		// In a full implementation, you'd properly encode the token transfer data
+		tokenTransfer = protocol.NewEmptyTokenTransfer()
+		r.logger.Infow("📦 Token transfers found but using empty transfer for now",
+			"tokenTransferCount", len(event.Message.TokenTransfer))
+	} else {
+		tokenTransfer = protocol.NewEmptyTokenTransfer()
+	}
 
 	// Create message
 	message, err := protocol.NewMessage(
@@ -305,11 +423,11 @@ func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 		protocol.SeqNum(sequenceNumber),
 		onRampAddr,
 		offRampAddr,
-		0, // finality
+		0, // finality - would need to calculate this
 		senderAddr,
 		receiverAddr,
-		[]byte("parsed-dest-blob"), // This would be parsed from log.Data
-		[]byte("parsed-data"),      // This would be parsed from log.Data
+		event.Message.Receiver, // dest blob
+		event.Message.Data,     // data
 		tokenTransfer,
 	)
 	if err != nil {
@@ -317,15 +435,48 @@ func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 		return
 	}
 
-	// Create receipt blobs - this would typically be parsed from the event data
-	receiptBlobs := []protocol.ReceiptWithBlob{
-		{
-			Issuer:            onRampAddr,
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("parsed-receipt-blob"), // This would be parsed from log.Data
-			ExtraArgs:         []byte{},
-		},
+	// Create receipt blobs from verifier receipts and receipt blobs
+	var receiptBlobs []protocol.ReceiptWithBlob
+
+	// Process verifier receipts
+	for i, vr := range event.Message.VerifierReceipts {
+		var blob []byte
+		if i < len(event.ReceiptBlobs) {
+			blob = event.ReceiptBlobs[i]
+		} else {
+			blob = []byte("no-blob-available")
+		}
+
+		issuerAddr, _ := protocol.NewUnknownAddressFromHex(vr.Issuer.Hex())
+		receiptBlob := protocol.ReceiptWithBlob{
+			Issuer:            issuerAddr,
+			DestGasLimit:      vr.DestGasLimit,
+			DestBytesOverhead: vr.DestBytesOverhead,
+			Blob:              blob,
+			ExtraArgs:         vr.ExtraArgs,
+		}
+		receiptBlobs = append(receiptBlobs, receiptBlob)
+	}
+
+	// Add executor receipt if available
+	if event.Message.ExecutorReceipt.Issuer != (common.Address{}) {
+		// Use the last blob for executor or create a default one
+		var executorBlob []byte
+		if len(event.ReceiptBlobs) > len(event.Message.VerifierReceipts) {
+			executorBlob = event.ReceiptBlobs[len(event.Message.VerifierReceipts)]
+		} else {
+			executorBlob = []byte("executor-receipt-blob")
+		}
+
+		issuerAddr, _ := protocol.NewUnknownAddressFromHex(event.Message.ExecutorReceipt.Issuer.Hex())
+		executorReceipt := protocol.ReceiptWithBlob{
+			Issuer:            issuerAddr,
+			DestGasLimit:      event.Message.ExecutorReceipt.DestGasLimit,
+			DestBytesOverhead: event.Message.ExecutorReceipt.DestBytesOverhead,
+			Blob:              executorBlob,
+			ExtraArgs:         event.Message.ExecutorReceipt.ExtraArgs,
+		}
+		receiptBlobs = append(receiptBlobs, executorReceipt)
 	}
 
 	// Create verification task
@@ -340,7 +491,8 @@ func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 		r.logger.Infow("✅ Verification task sent to channel",
 			"sourceChain", r.chainSelector,
 			"destChain", destChainSelector,
-			"sequenceNumber", sequenceNumber)
+			"sequenceNumber", sequenceNumber,
+			"receiptsCount", len(receiptBlobs))
 	default:
 		r.logger.Warnw("⚠️ Verification task channel full, dropping event",
 			"sourceChain", r.chainSelector,
