@@ -73,6 +73,8 @@ type VerifierConfig struct {
 	AggregatorAddress string                                 `toml:"aggregator_address"`
 	PrivateKey        string                                 `toml:"private_key"`
 	BlockchainInfos   map[string]*commontypes.BlockchainInfo `toml:"blockchain_infos"`
+	CCVProxy1337      string                                 `toml:"ccv_proxy_1337"`
+	CCVProxy2337      string                                 `toml:"ccv_proxy_2337"`
 }
 
 type VerifierInput struct {

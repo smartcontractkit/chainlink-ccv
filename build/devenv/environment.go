@@ -1,11 +1,18 @@
 package ccv
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -151,46 +158,133 @@ func NewEnvironment() (*Cfg, error) {
 	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
+	track.Record("[changeset] configured nodes network")
+	_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
+	}
+
+	in.Verifier.BlockchainOutputs = blockchainOutputs
+	in.Verifier.VerifierConfig = services.VerifierConfig{
+		AggregatorAddress: aggregatorOutput.Address,
+		BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+		PrivateKey:        "dev-private-key-12345678901234567890",
+	}
+
+	in.Verifier2.BlockchainOutputs = blockchainOutputs
+	in.Verifier2.VerifierConfig = services.VerifierConfig{
+		AggregatorAddress: aggregatorOutput.Address,
+		BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+		PrivateKey:        "dev-private-key2-12345678901234567890",
+	}
+	in.Verifier2.ContainerName = "verifier2"
+	in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
+
+	track.Record("[infra] deployed CL nodes")
+	if err := DefaultProductConfiguration(in, ConfigureProductContractsJobs); err != nil {
+		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
+	}
+	track.Record("[changeset] deployed product contracts")
 	// Start services that need blockchain outputs
 	eg.Go(func() error {
 		// Wait for blockchain outputs to be ready
 		<-blockchainOutputsReady
 		<-aggregatorReady
-
-		in.Verifier.BlockchainOutputs = blockchainOutputs
-		in.Verifier.VerifierConfig = services.VerifierConfig{
-			AggregatorAddress: aggregatorOutput.Address,
-			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
-			PrivateKey:        "dev-private-key-12345678901234567890",
-		}
 		_, err = services.NewVerifier(in.Verifier)
 		if err != nil {
 			return fmt.Errorf("failed to create verifier service: %w", err)
 		}
-		in.Verifier2.BlockchainOutputs = blockchainOutputs
-		in.Verifier2.VerifierConfig = services.VerifierConfig{
-			AggregatorAddress: aggregatorOutput.Address,
-			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
-			PrivateKey:        "dev-private-key2-12345678901234567890",
-		}
-		in.Verifier2.ContainerName = "verifier2"
-		in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
 		_, err = services.NewVerifier(in.Verifier2)
 		if err != nil {
 			return fmt.Errorf("failed to create verifier 2 service: %w", err)
 		}
 		return nil
 	})
-	track.Record("[changeset] configured nodes network")
-	_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
-	}
-	track.Record("[infra] deployed CL nodes")
-	if err := DefaultProductConfiguration(in, ConfigureProductContractsJobs); err != nil {
-		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
-	}
-	track.Record("[changeset] deployed product contracts")
+	go func() {
+		for {
+			// Wait for services to be fully started
+			time.Sleep(10 * time.Second)
+			ccvAddress := in.Verifier.VerifierConfig.BlockchainInfos["1337"].CCVProxyAddress
+			url := blockchainOutputs[0].Nodes[0].ExternalHTTPUrl
+			client, err := ethclient.Dial(url)
+			if err != nil {
+				fmt.Println("Error creating eth client:", err)
+				return
+			}
+			proxy, err := ccv_proxy.NewCCVProxy(common.HexToAddress(ccvAddress), client)
+			if err != nil {
+				fmt.Println("Error creating CCV proxy:", err)
+				return
+			}
+
+			// Create a new account
+			newPrivateKey, err := crypto.GenerateKey()
+			if err != nil {
+				fmt.Println("Error generating new private key:", err)
+				return
+			}
+
+			// Get the new account's address
+			newAddress := crypto.PubkeyToAddress(newPrivateKey.PublicKey)
+			fmt.Printf("Created new account: %s\n", newAddress.Hex())
+
+			// Fund the new account using the existing function
+			// Get the current network private key to fund from
+			fundingPrivateKey := getNetworkPrivateKey()
+			err = FundNodeEIP1559(client, fundingPrivateKey, newAddress.Hex(), 1.0) // Fund with 1 ETH
+			if err != nil {
+				fmt.Printf("Error funding new account: %v\n", err)
+				return
+			}
+			fmt.Printf("Successfully funded new account %s with 1 ETH\n", newAddress.Hex())
+
+			// Create a transactor for the new account
+			chainID, err := client.ChainID(context.Background())
+			if err != nil {
+				fmt.Printf("Error getting chain ID: %v\n", err)
+				return
+			}
+
+			auth, err := bind.NewKeyedTransactorWithChainID(newPrivateKey, chainID)
+			if err != nil {
+				fmt.Printf("Error creating transactor: %v\n", err)
+				return
+			}
+
+			// Set gas settings
+			gasPrice, err := client.SuggestGasPrice(context.Background())
+			if err != nil {
+				fmt.Printf("Error getting gas price: %v\n", err)
+				return
+			}
+			auth.GasPrice = gasPrice
+			auth.GasLimit = uint64(100000) // Set a reasonable gas limit
+
+			// Call DevSend with the new account as sender
+			// DevSend signature: DevSend(opts *bind.TransactOpts, destChainSelector uint64, data []byte, receiver common.Address) (*types.Transaction, error)
+			fmt.Printf("Calling DevSend from account: %s\n", newAddress.Hex())
+			destChainSelector := uint64(2337)                                             // Destination chain
+			data := []byte("test message data")                                           // Test data
+			receiver := common.HexToAddress("0x1234567890123456789012345678901234567890") // Test receiver address
+
+			tx, err := proxy.DevSend(auth, destChainSelector, data, receiver)
+			if err != nil {
+				fmt.Printf("Error calling DevSend: %v\n", err)
+				return
+			}
+
+			fmt.Printf("DevSend transaction sent: %s\n", tx.Hash().Hex())
+
+			// Wait for transaction to be mined
+			receipt, err := bind.WaitMined(context.Background(), client, tx)
+			if err != nil {
+				fmt.Printf("Error waiting for transaction to be mined: %v\n", err)
+				return
+			}
+
+			fmt.Printf("DevSend transaction mined in block %d\n", receipt.BlockNumber.Uint64())
+		}
+	}()
 	track.Print()
 	if err := PrintCLDFAddresses(in); err != nil {
 		return nil, err

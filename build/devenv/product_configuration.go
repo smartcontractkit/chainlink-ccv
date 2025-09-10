@@ -446,39 +446,42 @@ func writeCCVProxyAddressesToConfig(in *Cfg) error {
 		return fmt.Errorf("no CCVProxy addresses found in CLDF deployment")
 	}
 
-	in.Verifier.VerifierConfig.BlockchainInfos["1337"].CCVProxyAddress = ccvProxyAddresses["1337"]
-	in.Verifier.VerifierConfig.BlockchainInfos["2337"].CCVProxyAddress = ccvProxyAddresses["2337"]
-	// Update verifier config with CCVProxy addresses
-	configPath := "../../verifier/verifier.toml"
+	in.Verifier.VerifierConfig.BlockchainInfos["1337"].CCVProxyAddress = ccvProxyAddresses["3379446385462418246"]
+	in.Verifier.VerifierConfig.BlockchainInfos["2337"].CCVProxyAddress = ccvProxyAddresses["12922642891491394802"]
+	in.Verifier.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
+	in.Verifier.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
 
-	// Create config content with CCVProxy addresses
-	content := `aggregator_address = "http://localhost:8080"
-private_key = "test-key-for-development"
+	// 	// Update verifier config with CCVProxy addresses
+	// 	configPath := "../../verifier/verifier.toml"
 
-ccv_proxy_1337 = "%s"
-ccv_proxy_2337 = "%s"
+	// 	// Create config content with CCVProxy addresses
+	// 	content := `aggregator_address = "http://localhost:8080"
+	// private_key = "test-key-for-development"
 
-[blockchain_infos]
-# Blockchain info populated by devenv
-`
+	// ccv_proxy_1337 = "%s"
+	// ccv_proxy_2337 = "%s"
 
-	// Get CCVProxy addresses
-	ccvProxy1337 := ccvProxyAddresses["1337"]
-	ccvProxy2337 := ccvProxyAddresses["2337"]
+	// [blockchain_infos]
+	// # Blockchain info populated by devenv
+	// `
 
-	// Write config with CCVProxy addresses
-	configContent := fmt.Sprintf(content, ccvProxy1337, ccvProxy2337)
+	// 	// Get CCVProxy addresses
+	// 	ccvProxy1337 := ccvProxyAddresses["1337"]
+	// 	ccvProxy2337 := ccvProxyAddresses["2337"]
 
-	err = os.WriteFile(configPath, []byte(configContent), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write verifier config: %w", err)
-	}
+	// 	// Write config with CCVProxy addresses
+	// 	configContent := fmt.Sprintf(content, ccvProxy1337, ccvProxy2337)
 
-	Plog.Info().
-		Str("path", configPath).
-		Str("ccvProxy1337", ccvProxy1337).
-		Str("ccvProxy2337", ccvProxy2337).
-		Msg("Updated verifier.toml with CCVProxy addresses from CLDF")
+	// 	err = os.WriteFile(configPath, []byte(configContent), 0644)
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to write verifier config: %w", err)
+	// 	}
+
+	// 	Plog.Info().
+	// 		Str("path", configPath).
+	// 		Str("ccvProxy1337", ccvProxy1337).
+	// 		Str("ccvProxy2337", ccvProxy2337).
+	// 		Msg("Updated verifier.toml with CCVProxy addresses from CLDF")
 
 	return nil
 }
