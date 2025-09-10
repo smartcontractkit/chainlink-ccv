@@ -2,6 +2,7 @@ package utils
 
 import (
 	"container/heap"
+
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 )
 
