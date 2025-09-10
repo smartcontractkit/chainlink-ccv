@@ -140,7 +140,7 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 	)
 	e.OperationsBundle = bundle
 	out, err := changesets.DeployChainContracts.Apply(*e, changesets.DeployChainContractsCfg{
-		ChainSel: selector,
+		ChainSelector: selector,
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
 			RMNRemote:     sequences.RMNRemoteParams{},
@@ -161,16 +161,19 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
 				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
-					Threshold: 3,
-					Signers: []common.Address{
-						common.HexToAddress("0x02"),
-						common.HexToAddress("0x03"),
-						common.HexToAddress("0x04"),
-						common.HexToAddress("0x05"),
+					{
+						// OCR3 or something else?
+						ConfigDigest: [32]byte{0x01},
+						F:            1,
+						Signers: []common.Address{
+							common.HexToAddress("0x02"),
+							common.HexToAddress("0x03"),
+							common.HexToAddress("0x04"),
+							common.HexToAddress("0x05"),
+						},
 					},
 				},
 			},
-			ExecutorOnRamp: sequences.ExecutorOnRampParams{},
 		},
 	})
 	if err != nil {
