@@ -27,6 +27,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
 
@@ -163,6 +164,31 @@ func MultiplyEIP1559GasPrices(client *ethclient.Client, fcMult, tcMult int64) (*
 	}
 
 	return new(big.Int).Mul(feeCap, big.NewInt(fcMult)), new(big.Int).Mul(tipCap, big.NewInt(tcMult)), nil
+}
+
+func NewCLDFBundle(e *deployment.Environment) operations.Bundle {
+	return operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+}
+
+func GetRouterForSelector(in *Cfg, selector uint64) (common.Address, error) {
+	var routerAddr common.Address
+	for _, addr := range in.CCV.Addresses {
+		var refs []datastore.AddressRef
+		err := json.Unmarshal([]byte(addr), &refs)
+		if err != nil {
+			return common.Address{}, err
+		}
+		for _, ref := range refs {
+			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(router.ContractType) {
+				routerAddr = common.HexToAddress(ref.Address)
+			}
+		}
+	}
+	return routerAddr, nil
 }
 
 // FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).

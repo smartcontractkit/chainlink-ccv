@@ -1,17 +1,15 @@
 package e2e
 
 import (
-	"context"
+	"bytes"
 	"math/big"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/stretchr/testify/require"
 
 	routerBind "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/router"
@@ -24,105 +22,103 @@ type ContractsBind struct {
 	Router *routerBind.Router
 }
 
-func loadContracts(ethClient *ethclient.Client, ethAuth *bind.TransactOpts, contractRefs []datastore.AddressRef) (*ContractsBind, error) {
-	var (
-		routerAddr string
-		linkAddr   string
-	)
-	for _, contract := range contractRefs {
-		if contract.Type == "Router" {
-			routerAddr = contract.Address
-		}
-		if contract.Type == "LINK" {
-			linkAddr = contract.Address
-		}
-	}
-	routerContract, err := routerBind.NewRouter(common.HexToAddress(routerAddr), ethClient)
+type GenericExtraArgsV2 struct {
+	GasLimit                 *big.Int
+	AllowOutOfOrderExecution bool
+}
+
+func prepareExtraArgsV2(args GenericExtraArgsV2) ([]byte, error) {
+	const clientABI = `
+		[
+			{
+				"name": "encodeGenericExtraArgsV2",
+				"type": "function",
+				"inputs": [
+					{
+						"components": [
+							{
+								"name": "gasLimit",
+								"type": "uint256"
+							},
+							{
+								"name": "allowOutOfOrderExecution",
+								"type": "bool"
+							}
+						],
+						"name": "args",
+						"type": "tuple"
+					}
+				],
+				"outputs": [],
+				"stateMutability": "pure"
+			}
+		]
+	`
+
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(clientABI)))
 	if err != nil {
 		return nil, err
 	}
-	linkContract, err := linkBind.NewLinkToken(common.HexToAddress(linkAddr), ethClient)
+
+	encoded, err := parsedABI.Methods["encodeGenericExtraArgsV2"].Inputs.Pack(args)
 	if err != nil {
 		return nil, err
 	}
-	tx, err := linkContract.GrantMintRole(ethAuth, common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
-	if err != nil {
-		return nil, err
-	}
-	_, err = bind.WaitMined(context.Background(), ethClient, tx)
-	if err != nil {
-		return nil, err
-	}
-	tx, err = linkContract.Mint(ethAuth, common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"), big.NewInt(100))
-	if err != nil {
-		return nil, err
-	}
-	_, err = bind.WaitMined(context.Background(), ethClient, tx)
-	if err != nil {
-		return nil, err
-	}
-	balance, err := linkContract.BalanceOf(&bind.CallOpts{}, common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"))
-	if err != nil {
-		return nil, err
-	}
-	ccv.Plog.Info().Any("LINK Balance", balance).Send()
-	return &ContractsBind{
-		Link:   linkContract,
-		Router: routerContract,
-	}, nil
+
+	tag := []byte{0x18, 0x1d, 0xcf, 0x10} // GENERIC_EXTRA_ARGS_V2_TAG
+	tag = append(tag, encoded...)
+	return tag, nil
 }
 
 func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
-	srcEthClient, srcAuth, _, err := ccv.ETHClient(in.Blockchains[0].Out.Nodes[0].ExternalWSUrl, in.CCV.GasSettings)
+	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
 	require.NoError(t, err)
-	contracts, err := ccv.GetCLDFAddressesPerSelector(in)
-	contractsSrc, err := loadContracts(srcEthClient, srcAuth, contracts[0]) // all the source contracts
+	chains := e.BlockChains.EVMChains()
+	require.NotNil(t, chains)
+	srcChain := chains[selectors[0]]
+	dstChain := chains[selectors[1]]
+	b := ccv.NewCLDFBundle(e)
+	e.OperationsBundle = b
+	routerAddr, err := ccv.GetRouterForSelector(in, srcChain.Selector)
 	require.NoError(t, err)
 
-	details, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[0].ChainID, chainsel.FamilyEVM)
-	require.NoError(t, err)
-	dstSelector := details.ChainSelector
-
-	msgArgs := &types.EVMExtraArgsV3{
-		RequiredCCV: []types.CCV{
-			{
-				CCVAddress: []byte{},
-				Args:       []byte{},
-				ArgsLen:    0,
-			},
-		},
-		OptionalCCV: []types.CCV{
-			{
-				CCVAddress: []byte{},
-				Args:       []byte{},
-				ArgsLen:    0,
-			},
-		},
-		Executor:       []byte{},
-		ExecutorArgs:   []byte{},
-		TokenArgs:      []byte{},
-		FinalityConfig: 1,
-		RequiredCCVLen: 1,
-		TokenArgsLen:   1,
-	}
-	msgArgsBytes := msgArgs.ToBytes()
-
-	tx, err := contractsSrc.Router.CcipSend(srcAuth, dstSelector, routerBind.ClientEVM2AnyMessage{
-		Receiver: []byte("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
-		Data:     []byte("Hello from another chain!"),
-		TokenAmounts: []routerBind.ClientEVMTokenAmount{
-			{
-				Token:  contractsSrc.Link.Address(),
-				Amount: big.NewInt(1),
-			},
-		},
-		FeeToken:  contractsSrc.Link.Address(),
-		ExtraArgs: msgArgsBytes,
+	argsv2, err := prepareExtraArgsV2(GenericExtraArgsV2{
+		GasLimit:                 big.NewInt(1_000_000),
+		AllowOutOfOrderExecution: true,
 	})
 	require.NoError(t, err)
-	rc, err := bind.WaitMined(context.Background(), srcEthClient, tx)
+
+	ccipSendArgs := router.CCIPSendArgs{
+		DestChainSelector: dstChain.Selector,
+		EVM2AnyMessage: router.EVM2AnyMessage{
+			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
+			Data:         []byte{},
+			TokenAmounts: []router.EVMTokenAmount{},
+			ExtraArgs:    argsv2,
+		},
+	}
+
+	feeReport, err := operations.ExecuteOperation(b, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+		ChainSelector: srcChain.Selector,
+		Address:       routerAddr,
+		Args:          ccipSendArgs,
+	})
 	require.NoError(t, err)
-	spew.Dump(rc)
+
+	// Send CCIP message with value
+	ccipSendArgs.Value = feeReport.Output
+	sendReport, err := operations.ExecuteOperation(b, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+		ChainSelector: srcChain.Selector,
+		Address:       routerAddr,
+		Args:          ccipSendArgs,
+	})
+	require.NoError(t, err)
+
+	ccv.Plog.Info().Bool("Executed", sendReport.Output.Executed).
+		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
+		Uint64("DestChainSelector", dstChain.Selector).
+		Str("SrcRouter", sendReport.Output.Tx.To).
+		Msg("CCIP message sent!")
 }
