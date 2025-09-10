@@ -118,9 +118,80 @@ func main() {
 		logBlockchainInfo(blockchainHelper, lggr)
 	}
 
-	// Test multinode chain client connection
+	// Create verifier addresses before source readers setup
+	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy1337)
+	if err != nil {
+		lggr.Errorw("Failed to create verifier address", "error", err)
+		os.Exit(1)
+	}
+
+	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy2337)
+	if err != nil {
+		lggr.Errorw("Failed to create verifier address", "error", err)
+		os.Exit(1)
+	}
+
+	// Test multinode chain client connection and create real source readers
+	var sourceReaders map[protocol.ChainSelector]reader.SourceReader
 	if blockchainHelper != nil {
-		testMultinodeChainClient(ctx, blockchainHelper, verifierConfig, lggr)
+		chainClient := testMultinodeChainClient(ctx, blockchainHelper, verifierConfig, lggr)
+		if chainClient != nil && (verifierConfig.CCVProxy1337 != "" || verifierConfig.CCVProxy2337 != "") {
+			// Create blockchain source readers instead of mock ones
+			sourceReaders = make(map[protocol.ChainSelector]reader.SourceReader)
+
+			if verifierConfig.CCVProxy1337 != "" {
+				blockchainSourceReader1337 := reader.NewBlockchainSourceReader(
+					chainClient,
+					verifierConfig.CCVProxy1337,
+					protocol.ChainSelector(1337),
+					lggr,
+				)
+				sourceReaders[protocol.ChainSelector(1337)] = blockchainSourceReader1337
+			}
+
+			if verifierConfig.CCVProxy2337 != "" {
+				blockchainSourceReader2337 := reader.NewBlockchainSourceReader(
+					chainClient,
+					verifierConfig.CCVProxy2337,
+					protocol.ChainSelector(2337),
+					lggr,
+				)
+				sourceReaders[protocol.ChainSelector(2337)] = blockchainSourceReader2337
+			}
+
+			var chains []int
+			for chainSelector := range sourceReaders {
+				chains = append(chains, int(chainSelector))
+			}
+			lggr.Infow("✅ Created blockchain source readers", "chains", chains)
+		} else {
+			lggr.Warnw("⚠️ Chain client not available, falling back to mock source readers")
+			// Fallback to mock readers
+			mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
+			mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
+
+			sourceReaders = map[protocol.ChainSelector]reader.SourceReader{
+				protocol.ChainSelector(1337): mockSetup1337.Reader,
+				protocol.ChainSelector(2337): mockSetup2337.Reader,
+			}
+
+			// Start mock message generators for development
+			internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
+			internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
+		}
+	} else {
+		// No blockchain helper, use mock readers
+		mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
+		mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
+
+		sourceReaders = map[protocol.ChainSelector]reader.SourceReader{
+			protocol.ChainSelector(1337): mockSetup1337.Reader,
+			protocol.ChainSelector(2337): mockSetup2337.Reader,
+		}
+
+		// Start mock message generators for development
+		internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
+		internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
 	}
 
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
@@ -129,28 +200,6 @@ func main() {
 		os.Exit(1)
 	}
 	storageWriter := storage
-
-	// Create mock source readers for two chains (matching devenv setup)
-	mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
-	mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
-
-	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
-		protocol.ChainSelector(1337): mockSetup1337.Reader,
-		protocol.ChainSelector(2337): mockSetup2337.Reader,
-	}
-
-	// Create verifier address
-	verifierAddr, err := protocol.NewUnknownAddressFromHex("0xAAAA22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
-	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
-		os.Exit(1)
-	}
-
-	verifierAddr2, err := protocol.NewUnknownAddressFromHex("0xBBBB22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
-	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
-		os.Exit(1)
-	}
 
 	// Create coordinator configuration
 	config := verifiertypes.CoordinatorConfig{
@@ -205,10 +254,6 @@ func main() {
 		lggr.Errorw("Failed to start verification coordinator", "error", err)
 		os.Exit(1)
 	}
-
-	// Start mock message generators for development
-	internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
-	internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -269,15 +314,15 @@ func main() {
 
 func ptr[T any](t T) *T { return &t }
 
-// testMultinodeChainClient tests the multinode chain client connection
-func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, config *config.Configuration, lggr logger.Logger) {
+// testMultinodeChainClient tests the multinode chain client connection and returns the client
+func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, config *config.Configuration, lggr logger.Logger) client.Client {
 	// Test for chain 1337
 	chainSelector := protocol.ChainSelector(1337)
 
 	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
-		return
+		return nil
 	}
 
 	noNewHeadsThreshold := 3 * time.Minute
@@ -317,7 +362,7 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 
 	if err != nil {
 		lggr.Errorw("Failed to create multinode chain client", "error", err)
-		return
+		return nil
 	}
 	// defer chainClient.Close()
 
@@ -328,14 +373,14 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 	err = chainClient.Dial(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to dial multinode chain client", "error", err)
-		return
+		return nil
 	}
 
 	// Test 1: Get latest block using multinode's SelectRPC
 	latestBlock, err := chainClient.LatestBlockHeight(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to get latest block", "error", err)
-		return
+		return nil
 	}
 	lggr.Infow("📦 Latest block (via multinode)", "blockNumber", latestBlock)
 
@@ -347,7 +392,7 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 	header, err := chainClient.HeadByNumber(ctx, latestBlock)
 	if err != nil {
 		lggr.Errorw("Failed to get block header", "error", err)
-		return
+		return nil
 	}
 	lggr.Infow("📋 Block header",
 		"number", header.Number,
@@ -356,7 +401,7 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 
 	// Test 4: Subscribe to CCVProxy events if configured
 	if config.CCVProxy1337 != "" {
-		testEventSubscription(ctx, chainClient, config.CCVProxy1337, "CCVProxy", lggr)
+		// testEventSubscription(ctx, chainClient, config.CCVProxy1337, "CCVProxy", lggr)
 
 		// Continuous event monitoring (can be enabled/disabled via flag)
 		if enableContinuousEventMonitoring {
@@ -375,7 +420,7 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 					"nodeStates", chainClient.NodeStates())
 			} else {
 				lggr.Infow("✅ Multinode client RPC test successful, starting continuous monitoring")
-				go startContinuousEventLoop(ctx, chainClient, config.CCVProxy1337, lggr)
+				// go startContinuousEventLoop(ctx, chainClient, config.CCVProxy1337, lggr)
 			}
 		} else {
 			lggr.Infow("ℹ️ Continuous event monitoring is disabled (enableContinuousEventMonitoring=false)")
@@ -384,6 +429,7 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 	}
 
 	lggr.Infow("✅ Multinode chain client tests completed successfully!")
+	return chainClient
 }
 
 // testEventSubscription tests subscribing to CCIPMessageSent events
