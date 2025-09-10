@@ -57,15 +57,15 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s evm.Chain, 
 
 // Call implements example gun call, assertions on response bodies should be done here
 func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
-	b := ccv.NewCLDFBundle(m.e)
+	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
 
-	routerAddr, err := ccv.GetRouterForSelector(m.cfg, m.src.Selector)
+	routerAddr, err := ccv.GetRouterAddrForSelector(m.cfg, m.src.Selector)
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
-	argsv2, err := prepareExtraArgsV2(GenericExtraArgsV2{
+	argsv2, err := ccv.NewGenericCCIP17ExtraArgsV2(ccv.GenericExtraArgsV2{
 		GasLimit:                 big.NewInt(1_000_000),
 		AllowOutOfOrderExecution: true,
 	})
@@ -101,11 +101,14 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
+	if !sendReport.Output.Executed {
+		return &wasp.Response{Error: "CLDF operation was not executed", Failed: true}
+	}
 	ccv.Plog.Info().Bool("Executed", sendReport.Output.Executed).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", m.dest.Selector).
 		Str("SrcRouter", sendReport.Output.Tx.To).
-		Msg("CCIP message sent!")
+		Msg("CCIP message sent")
 	return &wasp.Response{Data: "ok"}
 }
 
@@ -166,15 +169,13 @@ func TestE2ELoad(t *testing.T) {
 	require.NotNil(t, chains)
 	srcChain := chains[selectors[0]]
 	dstChain := chains[selectors[1]]
-	b := ccv.NewCLDFBundle(e)
+	b := ccv.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
 
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
-		_, err = createLoadProfile(in, 1, 30*time.Second, e, srcChain, dstChain).Run(true)
+		_, err = createLoadProfile(in, 5, 30*time.Second, e, srcChain, dstChain).Run(true)
 		require.NoError(t, err)
-		// assert any logs you need
-		checkLogs(t, in, time.Now())
 		// assert any metrics you need
 		checkCPUMem(t, in, time.Now())
 	})

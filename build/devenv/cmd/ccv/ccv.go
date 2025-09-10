@@ -257,7 +257,7 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
-		return ccv.SendMessage(in, src, dest)
+		return ccv.SendExampleArgsV2Message(in, src, dest)
 	},
 }
 
@@ -281,7 +281,10 @@ var monitorContractsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		return ccv.ServeOnChainEventsPrometheusFor(in, 10*time.Second)
+		if err := ccv.MonitorOnChainLogs(in); err != nil {
+			return err
+		}
+		return ccv.ExposePrometheusMetricsFor(10 * time.Second)
 	},
 }
 

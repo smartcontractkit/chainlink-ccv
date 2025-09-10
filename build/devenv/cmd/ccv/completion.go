@@ -26,7 +26,9 @@ func getSubCommands(parent string) []prompt.Suggest {
 	switch parent {
 	case "send":
 		return []prompt.Suggest{
-			{Text: "Chain selectors", Description: "source,dest - ex.: 3379446385462418246,12922642891491394802"},
+			{Text: "Chain selectors", Description: "source,destination"},
+			{Text: "3379446385462418246,12922642891491394802", Description: "send default Anvil 1337 -> Anvil 2337"},
+			{Text: "12922642891491394802,3379446385462418246", Description: "send default Anvil 1337 <- Anvil 2337"},
 		}
 	case "addresses":
 		return []prompt.Suggest{
