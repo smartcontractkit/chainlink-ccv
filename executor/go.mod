@@ -15,9 +15,7 @@ require (
 	github.com/ethereum/go-ethereum v1.16.3 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/smartcontractkit/chain-selectors v1.0.62 // indirect
 	github.com/smartcontractkit/libocr v0.0.0-20250408131511-c90716988ee0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect

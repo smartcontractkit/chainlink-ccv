@@ -16,9 +16,9 @@ type ContractAddresses map[string]map[uint64]string
 
 // MessageWithCCVData is a struct that represents the data in between the indexer and executor.
 type MessageWithCCVData struct {
-	CCVData        []types.CCVData
-	Message        types.Message
-	ReadyTimestamp int64
+	CCVData           []types.CCVData
+	Message           types.Message
+	VerifiedTimestamp int64
 }
 
 type CcvAddressInfo struct {

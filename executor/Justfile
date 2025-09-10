@@ -29,13 +29,10 @@ mod-download: ensure-go
     go mod download
 
 test: ensure-go
-    go test -race -fullpath -shuffle on -v ./...
+    go test -v -race -fullpath -shuffle on -v ./...
 
 test-coverage:
-    # TODO: skip generated code (mocks, protobuf...).
-    # TODO: fix the data race issues.
-    # go test -race -fullpath -shuffle on 
-    go test -shuffle on -v -coverprofile={{coverage_file}} ./...
+    go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
 
 build-rc:
     docker build -f Dockerfile -t executor:rc ..

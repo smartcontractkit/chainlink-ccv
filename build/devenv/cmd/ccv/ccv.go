@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/docker/docker/client"
 	"github.com/spf13/cobra"
@@ -196,7 +199,7 @@ var obsRestartCmd = &cobra.Command{
 	},
 }
 
-var indexerDBShell = &cobra.Command{
+var indexerDBShellCmd = &cobra.Command{
 	Use:     "db-shell",
 	Aliases: []string{"db"},
 	Short:   "Inspect Service Database",
@@ -216,8 +219,6 @@ var indexerDBShell = &cobra.Command{
 			url = services.DefaultAggregatorDBConnectionString
 		case "verifier":
 			url = services.DefaultVerifierDBConnectionString
-		case "executor":
-			url = services.DefaultExecutorDBConnectionString
 		default:
 			return fmt.Errorf("service %s is unknown, choose between indexer, aggregator, verifier, executor", args[0])
 		}
@@ -233,7 +234,34 @@ var indexerDBShell = &cobra.Command{
 	},
 }
 
-var printAddresses = &cobra.Command{
+var sendCmd = &cobra.Command{
+	Use:     "send",
+	Aliases: []string{"s"},
+	Args:    cobra.RangeArgs(1, 1),
+	Short:   "Send a message",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		sels := strings.Split(args[0], ",")
+		if len(sels) != 2 {
+			return fmt.Errorf("expected 2 chain selectors, got %d", len(sels))
+		}
+		src, err := strconv.ParseUint(sels[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse source chain selector: %w", err)
+		}
+		dest, err := strconv.ParseUint(sels[1], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse destination chain selector: %w", err)
+		}
+
+		return ccv.SendMessage(in, src, dest)
+	},
+}
+
+var printAddressesCmd = &cobra.Command{
 	Use:   "addresses",
 	Short: "Pretty-print all on-chain contract addresses data",
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -242,6 +270,18 @@ var printAddresses = &cobra.Command{
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
 		return ccv.PrintCLDFAddresses(in)
+	},
+}
+
+var monitorContractsCmd = &cobra.Command{
+	Use:   "upload-on-chain-metrics",
+	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		return ccv.ServeOnChainEventsPrometheusFor(in, 10*time.Second)
 	},
 }
 
@@ -267,8 +307,12 @@ func init() {
 	rootCmd.AddCommand(downCmd)
 
 	// utility
-	rootCmd.AddCommand(indexerDBShell)
-	rootCmd.AddCommand(printAddresses)
+	rootCmd.AddCommand(indexerDBShellCmd)
+	rootCmd.AddCommand(printAddressesCmd)
+	rootCmd.AddCommand(sendCmd)
+
+	// on-chain monitoring
+	rootCmd.AddCommand(monitorContractsCmd)
 }
 
 func checkDockerIsRunning() {

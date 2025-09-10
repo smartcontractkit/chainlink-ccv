@@ -36,7 +36,7 @@ type TestCaseBuilder struct {
 	signerFixtures []*fixtures.SignerFixture
 	committeeID    string
 	verifications  []string // participant IDs that signed
-	f              uint8
+	threshold      uint8
 	expectedValid  bool
 	expectedError  bool
 }
@@ -51,10 +51,10 @@ func WithSignerFixtures(fixtures ...*fixtures.SignerFixture) TestCaseOption {
 	}
 }
 
-// WithF sets the fault tolerance value.
-func WithF(f uint8) TestCaseOption {
+// WithThreshold sets the fault tolerance value.
+func WithThreshold(threshold uint8) TestCaseOption {
 	return func(b *TestCaseBuilder) {
-		b.f = f
+		b.threshold = threshold
 	}
 }
 
@@ -90,7 +90,7 @@ func ExpectError() TestCaseOption {
 func NewTestCase(opts ...TestCaseOption) *TestCaseBuilder {
 	b := &TestCaseBuilder{
 		committeeID:   "committee1",
-		f:             0,
+		threshold:     1,
 		expectedValid: true,
 		expectedError: false,
 	}
@@ -116,7 +116,7 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 					"1": {
 						OfframpAddress: "0x00000000000000000000000000000000000000000",
 						Signers:        signers,
-						Threshold:      b.f,
+						Threshold:      b.threshold,
 					},
 				},
 			},
@@ -208,7 +208,7 @@ func TestValidateSignature(t *testing.T) {
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
-							Threshold:      0,
+							Threshold:      1,
 							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
@@ -236,7 +236,7 @@ func TestValidateSignature(t *testing.T) {
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
-							Threshold:      0,
+							Threshold:      1,
 							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
@@ -266,7 +266,7 @@ func TestValidateSignature(t *testing.T) {
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
-							Threshold:      0,
+							Threshold:      1,
 							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
@@ -314,7 +314,7 @@ func TestValidateSignature(t *testing.T) {
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
-							Threshold:      0,
+							Threshold:      1,
 							OfframpAddress: "0x00000000000000000000000000000000000000000",
 						},
 					},
@@ -344,42 +344,35 @@ func TestCheckQuorum(t *testing.T) {
 		name          string
 		signers       []string
 		verifications []string
-		f             uint8
+		threshold     uint8
 		expectedValid bool
 	}{
 		{
-			name:          "single signer, f=0, one verification",
+			name:          "single signer, threshold=1, one verification",
 			signers:       []string{"signer1"},
-			f:             0,
+			threshold:     1,
 			verifications: []string{"signer1"},
 			expectedValid: true,
 		},
 		{
-			name:          "single signer, f=0, no verification",
+			name:          "single signer, threshold=1, no verification",
 			signers:       []string{"signer1"},
-			f:             0,
+			threshold:     1,
 			verifications: []string{},
 			expectedValid: false,
 		},
 		{
-			name:          "three signers, f=1, two verifications",
+			name:          "three signers, threshold=2, two verifications",
 			signers:       []string{"signer1", "signer2", "signer3"},
-			f:             1,
+			threshold:     2,
 			verifications: []string{"signer1", "signer2"},
 			expectedValid: true,
 		},
 		{
-			name:          "three signers, f=1, one verification (insufficient)",
+			name:          "three signers, threshold=2, one verification (insufficient)",
 			signers:       []string{"signer1", "signer2", "signer3"},
-			f:             1,
+			threshold:     2,
 			verifications: []string{"signer1"},
-			expectedValid: false,
-		},
-		{
-			name:          "three signers, f=0, two verification (too many)",
-			signers:       []string{"signer1", "signer2", "signer3"},
-			f:             0,
-			verifications: []string{"signer1", "signer2"},
 			expectedValid: false,
 		},
 	}
@@ -394,7 +387,7 @@ func TestCheckQuorum(t *testing.T) {
 
 			NewTestCase(
 				WithSignerFixtures(signerFixtures...),
-				WithF(tt.f),
+				WithThreshold(tt.threshold),
 				WithVerifications(tt.verifications...),
 				ExpectValid(tt.expectedValid),
 			).Run(t)
