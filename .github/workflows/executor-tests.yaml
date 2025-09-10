@@ -76,7 +76,6 @@ jobs:
       - name: Remove previous coverage comments
         uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
-        if: needs.pr-check.outputs.number != 'null'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
