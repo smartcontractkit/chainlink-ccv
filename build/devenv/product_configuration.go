@@ -446,6 +446,8 @@ func writeCCVProxyAddressesToConfig(in *Cfg) error {
 		return fmt.Errorf("no CCVProxy addresses found in CLDF deployment")
 	}
 
+	in.Verifier.VerifierConfig.BlockchainInfos["1337"].CCVProxyAddress = ccvProxyAddresses["1337"]
+	in.Verifier.VerifierConfig.BlockchainInfos["2337"].CCVProxyAddress = ccvProxyAddresses["2337"]
 	// Update verifier config with CCVProxy addresses
 	configPath := "../../verifier/verifier.toml"
 

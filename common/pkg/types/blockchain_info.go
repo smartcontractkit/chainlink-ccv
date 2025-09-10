@@ -16,11 +16,12 @@ type Node struct {
 
 // BlockchainInfo represents blockchain connection information.
 type BlockchainInfo struct {
-	ChainID       string  `json:"chain_id"`
-	Type          string  `json:"type"`
-	Family        string  `json:"family"`
-	ContainerName string  `json:"container_name"`
-	Nodes         []*Node `json:"nodes"`
+	ChainID         string  `json:"chain_id"`
+	Type            string  `json:"type"`
+	Family          string  `json:"family"`
+	ContainerName   string  `json:"container_name"`
+	Nodes           []*Node `json:"nodes"`
+	CCVProxyAddress string  `json:"ccv_proxy_address,omitempty"`
 }
 
 // BlockchainHelper provides utilities for working with blockchain information.

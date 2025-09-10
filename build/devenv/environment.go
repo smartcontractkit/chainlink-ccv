@@ -122,6 +122,35 @@ func NewEnvironment() (*Cfg, error) {
 		return nil
 	})
 
+	eg.Go(func() error {
+		// Wait for blockchain outputs to be ready
+		<-blockchainOutputsReady
+
+		// TODO: Pass blockchain outputs to executor if needed
+		_, err = services.NewExecutor(in.Executor)
+		if err != nil {
+			return fmt.Errorf("failed to create executor service: %w", err)
+		}
+		return nil
+	})
+
+	// TODO: we need access to pre-built JD image in CI
+	//eg.Go(func() error {
+	//	_, err = jd.NewJD(in.JD)
+	//	if err != nil {
+	//		return fmt.Errorf("failed to create job distributor: %w", err)
+	//	}
+	//	return nil
+	//})
+
+	// Wait for all services to be created
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	track.Record("[infra] deploying blockchains")
+	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork); err != nil {
+		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
+	}
 	// Start services that need blockchain outputs
 	eg.Go(func() error {
 		// Wait for blockchain outputs to be ready
@@ -152,36 +181,6 @@ func NewEnvironment() (*Cfg, error) {
 		}
 		return nil
 	})
-
-	eg.Go(func() error {
-		// Wait for blockchain outputs to be ready
-		<-blockchainOutputsReady
-
-		// TODO: Pass blockchain outputs to executor if needed
-		_, err = services.NewExecutor(in.Executor)
-		if err != nil {
-			return fmt.Errorf("failed to create executor service: %w", err)
-		}
-		return nil
-	})
-
-	// TODO: we need access to pre-built JD image in CI
-	//eg.Go(func() error {
-	//	_, err = jd.NewJD(in.JD)
-	//	if err != nil {
-	//		return fmt.Errorf("failed to create job distributor: %w", err)
-	//	}
-	//	return nil
-	//})
-
-	// Wait for all services to be created
-	if err := eg.Wait(); err != nil {
-		return nil, err
-	}
-	track.Record("[infra] deploying blockchains")
-	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork); err != nil {
-		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
-	}
 	track.Record("[changeset] configured nodes network")
 	_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
 	if err != nil {
