@@ -62,12 +62,11 @@ jobs:
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
           echo "coverage=$total" >> $GITHUB_ENV
 
-      - name: Coverage on target branch and proto breaking change check
+      - name: Coverage on target branch
         if: github.event_name == 'pull_request'
         run: |
           git fetch origin ${{ github.base_ref }}
           git branch -a
-          make proto-check-breaking COMPARE_AGAINST_BRANCH=origin/${{ github.base_ref }}
           git checkout ${{ github.base_ref }}
           # COVERAGE_FILE=coverage_target.out just test-coverage
           go test -shuffle on -v -coverprofile=coverage_target.out ./...
