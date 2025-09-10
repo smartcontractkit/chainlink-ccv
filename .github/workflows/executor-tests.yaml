@@ -57,18 +57,15 @@ jobs:
         run: COVERAGE_FILE=verifier_coverage.out just test-coverage
 
       - name: Generate coverage report
-        # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
-        if: needs.pr-check.outputs.number != 'null'
+        if: github.event_name == 'pull_request'
         run: |
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
           echo "coverage=$total" >> $GITHUB_ENV
 
       - name: Coverage on target branch
-        # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
-        if: needs.pr-check.outputs.number != 'null'
+        if: github.event_name == 'pull_request'
         run: |
-          # cannot use ${{ github.base_ref }} because the trigger is on push.
-          git fetch origin ${{ github.event.repository.default_branch }}
+          git fetch origin ${{ github.base_ref }}
           git branch -a
           git checkout ${{ github.event.repository.default_branch }}
           # COVERAGE_FILE=coverage_target.out just test-coverage
@@ -78,7 +75,7 @@ jobs:
 
       - name: Remove previous coverage comments
         uses: actions/github-script@v6
-        # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
+        if: github.event_name == 'pull_request'
         if: needs.pr-check.outputs.number != 'null'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -101,8 +98,7 @@ jobs:
             }
       - name: Display coverage in PR comment
         uses: actions/github-script@v6
-        # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
-        if: needs.pr-check.outputs.number != 'null'
+        if: github.event_name == 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -112,7 +108,6 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              # cannot use ${{ github.base_ref }} because the trigger is on push.
-              body: `| Metric | \`${{ github.head_ref }}\` | \`${{ github.event.repository.default_branch }}\` |\n|--|--|--|\n| **Coverage** | ${coverage} | ${coverage_target} |`
+              body: `| Metric | \`${{ github.head_ref }}\` | \`${{ github.base_ref }}\` |\n|--|--|--|\n| **Coverage** | ${coverage} | ${coverage_target} |`
             });
 
