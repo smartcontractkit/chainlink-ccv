@@ -20,17 +20,17 @@ func (_m *MockLeaderElector) EXPECT() *MockLeaderElector_Expecter {
 	return &MockLeaderElector_Expecter{mock: &_m.Mock}
 }
 
-// GetDelay provides a mock function with given fields: messageID, destSelector, readyTimestamp
-func (_m *MockLeaderElector) GetDelay(messageID types.Bytes32, destSelector types.ChainSelector, readyTimestamp int64) int64 {
-	ret := _m.Called(messageID, destSelector, readyTimestamp)
+// GetReadyTimestamp provides a mock function with given fields: messageID, message, verifierTimestamp
+func (_m *MockLeaderElector) GetReadyTimestamp(messageID types.Bytes32, message types.Message, verifierTimestamp int64) int64 {
+	ret := _m.Called(messageID, message, verifierTimestamp)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetDelay")
+		panic("no return value specified for GetReadyTimestamp")
 	}
 
 	var r0 int64
-	if rf, ok := ret.Get(0).(func(types.Bytes32, types.ChainSelector, int64) int64); ok {
-		r0 = rf(messageID, destSelector, readyTimestamp)
+	if rf, ok := ret.Get(0).(func(types.Bytes32, types.Message, int64) int64); ok {
+		r0 = rf(messageID, message, verifierTimestamp)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
@@ -38,32 +38,32 @@ func (_m *MockLeaderElector) GetDelay(messageID types.Bytes32, destSelector type
 	return r0
 }
 
-// MockLeaderElector_GetDelay_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDelay'
-type MockLeaderElector_GetDelay_Call struct {
+// MockLeaderElector_GetReadyTimestamp_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReadyTimestamp'
+type MockLeaderElector_GetReadyTimestamp_Call struct {
 	*mock.Call
 }
 
-// GetDelay is a helper method to define mock.On call
+// GetReadyTimestamp is a helper method to define mock.On call
 //   - messageID types.Bytes32
-//   - destSelector types.ChainSelector
-//   - readyTimestamp int64
-func (_e *MockLeaderElector_Expecter) GetDelay(messageID interface{}, destSelector interface{}, readyTimestamp interface{}) *MockLeaderElector_GetDelay_Call {
-	return &MockLeaderElector_GetDelay_Call{Call: _e.mock.On("GetDelay", messageID, destSelector, readyTimestamp)}
+//   - message types.Message
+//   - verifierTimestamp int64
+func (_e *MockLeaderElector_Expecter) GetReadyTimestamp(messageID interface{}, message interface{}, verifierTimestamp interface{}) *MockLeaderElector_GetReadyTimestamp_Call {
+	return &MockLeaderElector_GetReadyTimestamp_Call{Call: _e.mock.On("GetReadyTimestamp", messageID, message, verifierTimestamp)}
 }
 
-func (_c *MockLeaderElector_GetDelay_Call) Run(run func(messageID types.Bytes32, destSelector types.ChainSelector, readyTimestamp int64)) *MockLeaderElector_GetDelay_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID types.Bytes32, message types.Message, verifierTimestamp int64)) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(types.Bytes32), args[1].(types.ChainSelector), args[2].(int64))
+		run(args[0].(types.Bytes32), args[1].(types.Message), args[2].(int64))
 	})
 	return _c
 }
 
-func (_c *MockLeaderElector_GetDelay_Call) Return(_a0 int64) *MockLeaderElector_GetDelay_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) Return(_a0 int64) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockLeaderElector_GetDelay_Call) RunAndReturn(run func(types.Bytes32, types.ChainSelector, int64) int64) *MockLeaderElector_GetDelay_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(types.Bytes32, types.Message, int64) int64) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Return(run)
 	return _c
 }
