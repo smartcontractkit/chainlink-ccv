@@ -16,6 +16,7 @@ type MessageWithTimestamp struct {
 func (mh MessageHeap) Len() int {
 	return len(mh)
 }
+
 func (mh MessageHeap) Less(i, j int) bool {
 	return mh[i].ReadyTime < mh[j].ReadyTime
 }
@@ -27,7 +28,11 @@ func (mh MessageHeap) Swap(i, j int) {
 func (mh *MessageHeap) Push(x any) {
 	// Push and Pop use pointer receivers because they modify the slice's length,
 	// not just its contents.
-	*mh = append(*mh, x.(*MessageWithTimestamp))
+	val, ok := x.(*MessageWithTimestamp)
+	if !ok {
+		return
+	}
+	*mh = append(*mh, val)
 }
 
 func (mh *MessageHeap) Pop() any {
@@ -45,7 +50,10 @@ func (mh *MessageHeap) IsEmpty() bool {
 func (mh *MessageHeap) PopAllReady(timestamp int64) []types.MessageWithCCVData {
 	var readyMessages []types.MessageWithCCVData
 	for mh.Len() > 0 && mh.PeekTime() <= timestamp {
-		msg := heap.Pop(mh).(types.MessageWithCCVData)
+		msg, ok := heap.Pop(mh).(types.MessageWithCCVData)
+		if !ok {
+			continue
+		}
 		readyMessages = append(readyMessages, msg)
 	}
 	return readyMessages

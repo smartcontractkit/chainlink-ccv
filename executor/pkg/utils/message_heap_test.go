@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+
 	protocoltypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// Helper function to create a test message
-func createTestMessage(seqNum uint64, sourceChain, destChain uint64) types.MessageWithCCVData {
+func createTestMessage(seqNum, sourceChain, destChain uint64) types.MessageWithCCVData {
 	return types.MessageWithCCVData{
 		CCVData: []protocoltypes.CCVData{},
 		Message: protocoltypes.Message{
@@ -23,7 +23,6 @@ func createTestMessage(seqNum uint64, sourceChain, destChain uint64) types.Messa
 	}
 }
 
-// Helper function to create MessageWithTimestamp
 func createMessageWithTimestamp(readyTime int64, seqNum uint64) *MessageWithTimestamp {
 	return &MessageWithTimestamp{
 		ReadyTime: readyTime,
@@ -153,7 +152,6 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 	}
 }
 
-// Integration test for heap operations
 func TestMessageHeap_Integration(t *testing.T) {
 	var mh MessageHeap
 	heap.Init(&mh)

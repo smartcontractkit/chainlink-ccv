@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"time"
 
-	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"
-	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
-	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/utils"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"
+	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
+	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 )
 
 type Coordinator struct {
@@ -150,7 +151,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 
 			// get message delay from leader elector
 			delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.VerifiedTimestamp)
-			ec.lggr.Infow("waiting delay", "delay", delay, "messageID", id)
+			ec.lggr.Infow("waiting delay before processing message", "delay", delay, "messageID", id)
 
 			ec.delayedMessageHeap.Push(&utils.MessageWithTimestamp{
 				Payload:   msg,
