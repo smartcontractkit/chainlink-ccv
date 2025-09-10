@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/utils"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"sync"
 	"time"
 
+	th "github.com/smartcontractkit/chainlink-ccv/executor/internal/timestamp_heap"
 	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"
 	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
@@ -26,7 +26,7 @@ type Coordinator struct {
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
 	running             bool
-	delayedMessageHeap  *utils.MessageHeap
+	delayedMessageHeap  *th.MessageHeap
 	mu                  sync.RWMutex
 }
 
@@ -93,7 +93,7 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 	ec.running = true
 	ctx, cancel := context.WithCancel(ctx)
 	ec.cancel = cancel
-	ec.delayedMessageHeap = &utils.MessageHeap{}
+	ec.delayedMessageHeap = &th.MessageHeap{}
 	heap.Init(ec.delayedMessageHeap)
 
 	go ec.run(ctx)
@@ -158,12 +158,12 @@ func (ec *Coordinator) run(ctx context.Context) {
 			id, _ := msg.Message.MessageID()
 
 			// get message delay from leader elector
-			delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.VerifiedTimestamp)
-			ec.lggr.Infow("waiting delay before processing message", "delay", delay, "messageID", id)
+			readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
+			ec.lggr.Infow("waiting before processing message", "readyTimestamp", readyTimestamp, "messageID", id)
 
-			ec.delayedMessageHeap.Push(&utils.MessageWithTimestamp{
+			heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
 				Payload:   msg,
-				ReadyTime: delay + msg.VerifiedTimestamp,
+				ReadyTime: readyTimestamp,
 			})
 		case <-ticker.C:
 			// todo: get this current time from a single source across all executors

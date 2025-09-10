@@ -5,6 +5,6 @@ import (
 )
 
 type LeaderElector interface {
-	// GetDelay to check again
-	GetDelay(messageID types.Bytes32, destSelector types.ChainSelector, readyTimestamp int64) int64
+	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
+	GetReadyTimestamp(messageID types.Bytes32, message types.Message, verifierTimestamp int64) int64
 }

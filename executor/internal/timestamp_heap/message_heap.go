@@ -1,4 +1,4 @@
-package utils
+package timestamp_heap
 
 import (
 	"container/heap"
@@ -40,7 +40,7 @@ func (mh *MessageHeap) Pop() any {
 	n := len(old)
 	x := old[n-1]
 	*mh = old[0 : n-1]
-	return x.Payload
+	return x
 }
 
 func (mh *MessageHeap) IsEmpty() bool {
@@ -50,15 +50,18 @@ func (mh *MessageHeap) IsEmpty() bool {
 func (mh *MessageHeap) PopAllReady(timestamp int64) []types.MessageWithCCVData {
 	var readyMessages []types.MessageWithCCVData
 	for mh.Len() > 0 && mh.PeekTime() <= timestamp {
-		msg, ok := heap.Pop(mh).(types.MessageWithCCVData)
+		msg, ok := heap.Pop(mh).(*MessageWithTimestamp)
 		if !ok {
 			continue
 		}
-		readyMessages = append(readyMessages, msg)
+		readyMessages = append(readyMessages, msg.Payload)
 	}
 	return readyMessages
 }
 
 func (mh *MessageHeap) PeekTime() int64 {
+	if mh.Len() == 0 {
+		return 0
+	}
 	return (*mh)[0].ReadyTime
 }

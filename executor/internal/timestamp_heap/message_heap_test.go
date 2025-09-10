@@ -1,4 +1,4 @@
-package utils
+package timestamp_heap
 
 import (
 	"container/heap"
@@ -86,8 +86,8 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		{
 			name: "no messages ready",
 			heap: MessageHeap{
-				createMessageWithTimestamp(200, 1),
 				createMessageWithTimestamp(300, 2),
+				createMessageWithTimestamp(200, 1),
 			},
 			timestamp:       100,
 			expectedCount:   0,
@@ -97,10 +97,10 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		{
 			name: "some messages ready",
 			heap: MessageHeap{
+				createMessageWithTimestamp(300, 4),
+				createMessageWithTimestamp(200, 3),
 				createMessageWithTimestamp(50, 1),
 				createMessageWithTimestamp(100, 2),
-				createMessageWithTimestamp(200, 3),
-				createMessageWithTimestamp(300, 4),
 			},
 			timestamp:       150,
 			expectedCount:   2,
@@ -110,9 +110,9 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		{
 			name: "all messages ready",
 			heap: MessageHeap{
+				createMessageWithTimestamp(150, 3),
 				createMessageWithTimestamp(50, 1),
 				createMessageWithTimestamp(100, 2),
-				createMessageWithTimestamp(150, 3),
 			},
 			timestamp:       200,
 			expectedCount:   3,
@@ -163,19 +163,18 @@ func TestMessageHeap_Integration(t *testing.T) {
 
 	// Push some messages out of order
 	messages := []*MessageWithTimestamp{
+		createMessageWithTimestamp(50, 0),
 		createMessageWithTimestamp(300, 3),
 		createMessageWithTimestamp(100, 1),
 		createMessageWithTimestamp(200, 2),
-		createMessageWithTimestamp(50, 0),
 	}
 
 	for _, msg := range messages {
 		heap.Push(&mh, msg)
-	}
-
-	// Verify heap property - should always return earliest time
-	if mh.PeekTime() != 50 {
-		t.Errorf("PeekTime() = %v, want 50", mh.PeekTime())
+		// Verify heap property - should always return earliest time
+		if mh.PeekTime() != 50 {
+			t.Errorf("PeekTime() = %v, want 50", mh.PeekTime())
+		}
 	}
 
 	// Pop all messages and verify they come out in timestamp order
@@ -193,14 +192,14 @@ func TestMessageHeap_Integration(t *testing.T) {
 		}
 
 		result := heap.Pop(&mh)
-		msg, ok := result.(types.MessageWithCCVData)
+		msg, ok := result.(*MessageWithTimestamp)
 		if !ok {
 			t.Errorf("Pop() returned wrong type: %T", result)
 			continue
 		}
 
-		if uint64(msg.Message.SequenceNumber) != expectedSeqNums[i] {
-			t.Errorf("Pop() at iteration %v returned seq %v, want %v", i, msg.Message.SequenceNumber, expectedSeqNums[i])
+		if uint64(msg.Payload.Message.SequenceNumber) != expectedSeqNums[i] {
+			t.Errorf("Pop() at iteration %v returned seq %v, want %v", i, msg.Payload.Message.SequenceNumber, expectedSeqNums[i])
 		}
 	}
 
