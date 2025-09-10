@@ -108,3 +108,12 @@ Services chaos
 ```bash
 go test -v -run TestE2ELoad/services_chaos
 ```
+
+### On-Chain Monitoring
+Implement any on-chain transformations in [CollectAndObserveEvents](monitoring.go) + define `promauto`
+
+Then upload all the metrics to a local `Prometheus`
+```
+upload-on-chain-metrics
+```
+Go to [dashboards](dashboards) and render your metrics

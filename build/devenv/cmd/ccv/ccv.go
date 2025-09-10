@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 
 	"github.com/docker/docker/client"
 	"github.com/spf13/cobra"
@@ -246,14 +247,14 @@ var printAddressesCmd = &cobra.Command{
 }
 
 var monitorContractsCmd = &cobra.Command{
-	Use:   "monitor",
-	Short: "Reads on-chain EVM contract events and exposes them as Prometheus metrics endpoint",
+	Use:   "upload-on-chain-metrics",
+	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		return ccv.ServeEvents(in)
+		return ccv.ServeOnChainEventsPrometheusFor(in, 10*time.Second)
 	},
 }
 

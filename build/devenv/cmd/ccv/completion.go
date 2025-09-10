@@ -16,7 +16,7 @@ func getCommands() []prompt.Suggest {
 		{Text: "bs", Description: "Manage the Blockscout EVM block explorer"},
 		{Text: "obs", Description: "Manage the observability stack"},
 		{Text: "db", Description: "Inspect Databases"},
-		{Text: "publish-events", Description: "Publish all the on-chain events from blockchains to Loki"},
+		{Text: "upload-on-chain-metrics", Description: "Temporarily serves all on-chain metrics as a Prometheus metrics endpoint so they can be scraped"},
 		{Text: "exit", Description: "Exit the interactive shell"},
 	}
 }
