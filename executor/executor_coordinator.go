@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"
 	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 )
 
 type Coordinator struct {
@@ -133,62 +133,50 @@ func (ec *Coordinator) run(ctx context.Context) {
 			}
 			ec.ccvDataCh <- msg
 		case ccvData := <-ec.ccvDataCh:
-			err := ec.ProcessMessage(ctx)
+			ec.lggr.Infow("message received... sending for procesing")
+			err = ec.ProcessMessage(ctx, ccvData)
 			if err != nil {
 				ec.lggr.Errorw("failed to process indexer payload", "error", err)
-			} else {
-				ec.lggr.Infow("successfully processed indexer payload", "data", ccvData)
 			}
 		}
 	}
 }
 
-func (ec *Coordinator) ProcessMessage(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			ec.lggr.Infow("executor main loop context done, exiting")
-			return nil
-		case msg, ok := <-ec.ccvDataCh:
-			if !ok {
-				ec.lggr.Warnw("ccvDataCh closed, exiting processMessage")
-				return nil
-			}
-
-			// todo: perform some validations on the message
-			id, err := msg.Message.MessageID()
-			if err != nil {
-				ec.lggr.Errorw("invalid message, failed to generate ID", "error", err, "message", msg)
-				continue
-			}
-
-			err = ec.executor.CheckValidMessage(ctx, msg)
-			if err != nil {
-				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
-				continue
-			}
-
-			// get message delay from leader elector
-			delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.ReadyTimestamp)
-			if delay+msg.ReadyTimestamp > time.Now().Unix() {
-				// TODO: CCIP-7104 - use a priority queue ordered by execution time adds them to ccvDataCh at the right time.
-				ec.lggr.Infow("message not ready yet, requeuing", "message", msg, "delay", delay)
-				go func() {
-					time.Sleep(time.Duration(delay+msg.ReadyTimestamp-time.Now().Unix()) * time.Second)
-					ec.ccvDataCh <- msg
-				}()
-				continue
-			}
-			// if message is executable, send to executor
-
-			err = ec.executor.ExecuteMessage(ctx, msg)
-			if err != nil {
-				ec.lggr.Errorw("failed to execute message", "error", err, "message", msg)
-			} else {
-				ec.lggr.Infow("successfully executed message", "message", msg)
-			}
-		}
+func (ec *Coordinator) ProcessMessage(ctx context.Context, msg types.MessageWithCCVData) error {
+	// todo: perform some validations on the message
+	err := ec.executor.CheckValidMessage(ctx, msg)
+	if err != nil {
+		ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+		return err
 	}
+
+	id, _ := msg.Message.MessageID()
+
+	// get message delay from leader elector
+	delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.ReadyTimestamp)
+	ec.lggr.Infow("using delay", "delay", delay, "messageID", id)
+
+	if delay+msg.ReadyTimestamp > time.Now().Unix() {
+		// TODO: CCIP-7104 - use a priority queue ordered by execution time adds them to ccvDataCh at the right time.
+		ec.lggr.Infow("message not ready yet", "messageID", id, "delay", delay)
+		go func() {
+			time.Sleep(time.Duration(delay+msg.ReadyTimestamp-time.Now().Unix()) * time.Second)
+
+			// if message is executable, send to executor
+			ec.lggr.Infow("passed delay for message, requeuing the message", "messageID", id)
+			ec.ccvDataCh <- msg
+		}()
+		return err
+	}
+
+	err = ec.executor.ExecuteMessage(ctx, msg)
+	if err != nil {
+		ec.lggr.Errorw("failed to execute message", "error", err, "messageID", id)
+		return err
+	} else {
+		ec.lggr.Infow("successfully executed message", "messageID", id)
+	}
+	return nil
 }
 
 // IsRunning returns whether the coordinator is running.

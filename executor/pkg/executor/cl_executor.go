@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ct "github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -44,6 +44,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, messageWith
 }
 
 func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error {
+	cle.lggr.Infow("executing message", "message", messageWithCCVData)
 	destinationChain := messageWithCCVData.Message.DestChainSelector
 	messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 		ctx,
