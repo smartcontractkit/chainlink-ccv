@@ -19,6 +19,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // BlockchainSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain
 type BlockchainSourceReader struct {
 	chainClient     client.Client
@@ -438,13 +446,73 @@ func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 	// Create receipt blobs from verifier receipts and receipt blobs
 	var receiptBlobs []protocol.ReceiptWithBlob
 
+	// Check if onRamp address exists in any receipt issuer
+	onRampFound := false
+	r.logger.Infow("🔍 Checking for onRamp address in receipts",
+		"onRampAddress", r.contractAddress,
+		"verifierReceiptCount", len(event.Message.VerifierReceipts),
+		"executorReceiptIssuer", event.Message.ExecutorReceipt.Issuer.Hex())
+
+	for i, vr := range event.Message.VerifierReceipts {
+		r.logger.Infow("🔍 Verifier receipt issuer check",
+			"index", i,
+			"issuer", vr.Issuer.Hex(),
+			"matchesOnRamp", vr.Issuer.Hex() == r.contractAddress)
+		if vr.Issuer.Hex() == r.contractAddress {
+			onRampFound = true
+			break
+		}
+	}
+	if !onRampFound && event.Message.ExecutorReceipt.Issuer.Hex() == r.contractAddress {
+		onRampFound = true
+		r.logger.Infow("✅ OnRamp address found in executor receipt")
+	}
+
+	// If onRamp address not found in receipts, add it as the first receipt
+	if !onRampFound {
+		r.logger.Infow("⚠️ OnRamp address not found in receipts, adding synthetic receipt",
+			"onRampAddress", r.contractAddress)
+
+		onRampAddr, _ := protocol.NewUnknownAddressFromHex(r.contractAddress)
+		var syntheticBlob []byte
+		if len(event.ReceiptBlobs) > 0 && len(event.ReceiptBlobs[0]) > 0 {
+			syntheticBlob = event.ReceiptBlobs[0]
+		} else {
+			// Create a meaningful synthetic blob with message data
+			syntheticBlob = append(event.Message.Data, event.Message.Receiver...)
+			if len(syntheticBlob) == 0 {
+				syntheticBlob = []byte("synthetic-onramp-receipt-with-message-data")
+			}
+		}
+
+		r.logger.Infow("📋 Creating synthetic receipt",
+			"blobLength", len(syntheticBlob),
+			"blobPreview", string(syntheticBlob[:min(50, len(syntheticBlob))]))
+
+		syntheticReceipt := protocol.ReceiptWithBlob{
+			Issuer:            onRampAddr,
+			DestGasLimit:      300000, // Default gas limit
+			DestBytesOverhead: 100,    // Default overhead
+			Blob:              syntheticBlob,
+			ExtraArgs:         []byte{},
+		}
+		receiptBlobs = append(receiptBlobs, syntheticReceipt)
+	}
+
 	// Process verifier receipts
 	for i, vr := range event.Message.VerifierReceipts {
 		var blob []byte
-		if i < len(event.ReceiptBlobs) {
+		if i < len(event.ReceiptBlobs) && len(event.ReceiptBlobs[i]) > 0 {
 			blob = event.ReceiptBlobs[i]
 		} else {
-			blob = []byte("no-blob-available")
+			// Create a meaningful blob from message data if receipt blob is empty/missing
+			blob = append(event.Message.Data, event.Message.Receiver...)
+			if len(blob) == 0 {
+				blob = []byte("verifier-receipt-with-message-data")
+			}
+			r.logger.Warnw("⚠️ Empty or missing receipt blob, created synthetic one",
+				"verifierIndex", i,
+				"syntheticBlobLength", len(blob))
 		}
 
 		issuerAddr, _ := protocol.NewUnknownAddressFromHex(vr.Issuer.Hex())
@@ -456,16 +524,29 @@ func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 			ExtraArgs:         vr.ExtraArgs,
 		}
 		receiptBlobs = append(receiptBlobs, receiptBlob)
+
+		r.logger.Infow("📋 Processed verifier receipt",
+			"index", i,
+			"issuer", vr.Issuer.Hex(),
+			"blobLength", len(blob),
+			"isOnRamp", vr.Issuer.Hex() == r.contractAddress)
 	}
 
 	// Add executor receipt if available
 	if event.Message.ExecutorReceipt.Issuer != (common.Address{}) {
 		// Use the last blob for executor or create a default one
 		var executorBlob []byte
-		if len(event.ReceiptBlobs) > len(event.Message.VerifierReceipts) {
+		if len(event.ReceiptBlobs) > len(event.Message.VerifierReceipts) &&
+			len(event.ReceiptBlobs[len(event.Message.VerifierReceipts)]) > 0 {
 			executorBlob = event.ReceiptBlobs[len(event.Message.VerifierReceipts)]
 		} else {
-			executorBlob = []byte("executor-receipt-blob")
+			// Create a meaningful blob from message data
+			executorBlob = append(event.Message.Data, event.Message.Receiver...)
+			if len(executorBlob) == 0 {
+				executorBlob = []byte("executor-receipt-with-message-data")
+			}
+			r.logger.Warnw("⚠️ Empty or missing executor receipt blob, created synthetic one",
+				"syntheticBlobLength", len(executorBlob))
 		}
 
 		issuerAddr, _ := protocol.NewUnknownAddressFromHex(event.Message.ExecutorReceipt.Issuer.Hex())
@@ -477,6 +558,11 @@ func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 			ExtraArgs:         event.Message.ExecutorReceipt.ExtraArgs,
 		}
 		receiptBlobs = append(receiptBlobs, executorReceipt)
+
+		r.logger.Infow("📋 Processed executor receipt",
+			"issuer", event.Message.ExecutorReceipt.Issuer.Hex(),
+			"blobLength", len(executorBlob),
+			"isOnRamp", event.Message.ExecutorReceipt.Issuer.Hex() == r.contractAddress)
 	}
 
 	// Create verification task
