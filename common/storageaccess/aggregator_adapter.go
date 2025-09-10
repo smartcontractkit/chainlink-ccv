@@ -127,11 +127,10 @@ func NewAggregatorWriter(address string, lggr logger.Logger) (*AggregatorWriter,
 
 type AggregatorReader struct {
 	client aggregator.CCVDataClient
-	conn   *grpc.ClientConn
 	lggr   logger.Logger
-
-	since int64
-	token string
+	conn   *grpc.ClientConn
+	token  string
+	since  int64
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
