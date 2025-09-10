@@ -2,6 +2,7 @@ package storageaccess
 
 import (
 	"context"
+	"fmt"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -11,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type AggregatorWriterAdapter struct {
+type AggregatorWriter struct {
 	client aggregator.AggregatorClient
 	conn   *grpc.ClientConn
 	lggr   logger.Logger
@@ -42,7 +43,7 @@ func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*aggregator.Receip
 }
 
 // WriteCCVData implements common.OffchainStorageWriter.
-func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
+func (a *AggregatorWriter) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
 		receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
@@ -96,29 +97,119 @@ func (a *AggregatorWriterAdapter) WriteCCVData(ctx context.Context, ccvDataList 
 	return nil
 }
 
-func (a *AggregatorWriterAdapter) GetStats() map[string]any {
+func (a *AggregatorWriter) GetStats() map[string]any {
 	return make(map[string]any)
 }
 
 // Close closes the gRPC connection to the aggregator server.
-func (a *AggregatorWriterAdapter) Close() error {
+func (a *AggregatorWriter) Close() error {
 	if a.conn != nil {
 		return a.conn.Close()
 	}
 	return nil
 }
 
-// CreateAggregatorAdapter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
-func CreateAggregatorAdapter(address string, lggr logger.Logger) (*AggregatorWriterAdapter, error) {
+// NewAggregatorWriter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
+func NewAggregatorWriter(address string, lggr logger.Logger) (*AggregatorWriter, error) {
 	// Create a gRPC connection to the aggregator server
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
 
-	return &AggregatorWriterAdapter{
+	return &AggregatorWriter{
 		client: aggregator.NewAggregatorClient(conn),
 		conn:   conn,
 		lggr:   lggr,
 	}, nil
+}
+
+type AggregatorReader struct {
+	client aggregator.CCVDataClient
+	conn   *grpc.ClientConn
+	lggr   logger.Logger
+
+	since int64
+	token string
+}
+
+// NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
+func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+
+	return &AggregatorReader{
+		client: aggregator.NewCCVDataClient(conn),
+		conn:   conn,
+		lggr:   lggr,
+		since:  since,
+	}, nil
+}
+
+// Close closes the gRPC connection to the aggregator server.
+func (a *AggregatorReader) Close() error {
+	if a.conn != nil {
+		return a.conn.Close()
+	}
+	return nil
+}
+
+// ReadCCVData returns the next available CCV data entries.
+func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
+	resp, err := a.client.GetMessagesSince(ctx, &aggregator.GetMessagesSinceRequest{
+		Since: a.since,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error calling GetMessagesSince: %w", err)
+	}
+
+	// Convert the response to []types.QueryResponse
+	results := make([]types.QueryResponse, 0, len(resp.Results))
+	for i, result := range resp.Results {
+		results[i] = types.QueryResponse{
+			Timestamp: nil,
+			Data: types.CCVData{
+				Message: types.Message{
+					Version:              uint8(result.Message.Version),
+					SourceChainSelector:  types.ChainSelector(result.Message.SourceChainSelector),
+					DestChainSelector:    types.ChainSelector(result.Message.DestChainSelector),
+					SequenceNumber:       types.SeqNum(result.Message.SequenceNumber),
+					OnRampAddressLength:  uint8(result.Message.OnRampAddressLength),
+					OnRampAddress:        result.Message.OnRampAddress[:],
+					OffRampAddressLength: uint8(result.Message.OffRampAddressLength),
+					OffRampAddress:       result.Message.OffRampAddress[:],
+					Finality:             uint16(result.Message.Finality),
+					SenderLength:         uint8(result.Message.SenderLength),
+					Sender:               result.Message.Sender[:],
+					ReceiverLength:       uint8(result.Message.ReceiverLength),
+					Receiver:             result.Message.Receiver[:],
+					DestBlobLength:       uint16(result.Message.DestBlobLength),
+					DestBlob:             result.Message.DestBlob[:],
+					TokenTransferLength:  uint16(result.Message.TokenTransferLength),
+					TokenTransfer:        result.Message.TokenTransfer[:],
+					DataLength:           uint16(result.Message.DataLength),
+					Data:                 result.Message.Data[:],
+				},
+				CCVData: result.CcvData,
+				/*
+					// Missing fields...?
+					MessageId:             result.MessageID[:],
+					CcvData:               result.CCVData,
+					BlobData:              result.BlobData,
+					Timestamp:             result.Timestamp,
+
+					// Extra fields...?
+					result.DestVerifierAddress
+					result.SourceVerifierAddress
+				*/
+			},
+		}
+	}
+
+	// Update token for next call.
+	a.token = resp.NextToken
+
+	return results, nil
 }
