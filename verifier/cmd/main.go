@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
@@ -18,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
@@ -103,6 +106,11 @@ func main() {
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
+	}
+
+	// Test multinode chain client connection
+	if blockchainHelper != nil {
+		testMultinodeChainClient(ctx, blockchainHelper, lggr)
 	}
 
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
@@ -247,4 +255,94 @@ func main() {
 	}
 
 	lggr.Infow("✅ Verifier service stopped gracefully")
+}
+
+func ptr[T any](t T) *T { return &t }
+
+// testMultinodeChainClient tests the multinode chain client connection
+func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger) {
+	// Test for chain 1337
+	chainSelector := protocol.ChainSelector(1337)
+
+	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+	if err != nil {
+		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
+		return
+	}
+
+	noNewHeadsThreshold := 3 * time.Minute
+	selectionMode := ptr("HighestHead")
+	leaseDuration := 0 * time.Second
+	pollFailureThreshold := ptr(uint32(5))
+	pollInterval := 10 * time.Second
+	syncThreshold := ptr(uint32(5))
+	nodeIsSyncingEnabled := ptr(false)
+	chainTypeStr := blockchainInfo.Type
+	finalizedBlockOffset := ptr[uint32](16)
+	enforceRepeatableRead := ptr(true)
+	deathDeclarationDelay := time.Second * 3
+	noNewFinalizedBlocksThreshold := time.Second * 5
+	finalizedBlockPollInterval := time.Second * 4
+	newHeadsPollInterval := time.Second * 4
+	confirmationTimeout := time.Second * 60
+	wsURL, _ := blockchainHelper.GetInternalWebsocketEndpoint(chainSelector)
+	httpURL, _ := blockchainHelper.GetInternalRPCEndpoint(chainSelector)
+	nodeConfigs := []client.NodeConfig{
+		{
+			Name:    ptr(blockchainInfo.ContainerName),
+			WSURL:   ptr(wsURL),
+			HTTPURL: ptr(httpURL),
+		},
+	}
+	finalityDepth := ptr(uint32(10))
+	safeDepth := ptr(uint32(6))
+	finalityTagEnabled := ptr(true)
+	lggr.Infow("🔍 Testing multinode chain client", "chainSelector", chainSelector, "wsURL", wsURL, "httpURL", httpURL)
+	chainCfg, nodePool, nodes, err := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
+		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
+		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
+		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
+
+	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, big.NewInt(1337), nodes, chaintype.ChainType(chainTypeStr))
+
+	if err != nil {
+		lggr.Errorw("Failed to create multinode chain client", "error", err)
+		return
+	}
+	defer chainClient.Close()
+
+	lggr.Infow("✅ Multinode chain client created successfully",
+		"chainSelector", chainSelector,
+		"nodeStates", chainClient.NodeStates())
+
+	err = chainClient.Dial(ctx)
+	if err != nil {
+		lggr.Errorw("Failed to dial multinode chain client", "error", err)
+		return
+	}
+
+	// Test 1: Get latest block using multinode's SelectRPC
+	latestBlock, err := chainClient.LatestBlockHeight(ctx)
+	if err != nil {
+		lggr.Errorw("Failed to get latest block", "error", err)
+		return
+	}
+	lggr.Infow("📦 Latest block (via multinode)", "blockNumber", latestBlock)
+
+	// Test 2: Get chain ID
+	chainID := chainClient.ConfiguredChainID()
+	lggr.Infow("🔗 Chain ID", "chainID", chainID)
+
+	// Test 3: Get a specific block header
+	header, err := chainClient.HeadByNumber(ctx, latestBlock)
+	if err != nil {
+		lggr.Errorw("Failed to get block header", "error", err)
+		return
+	}
+	lggr.Infow("📋 Block header",
+		"number", header.Number,
+		"hash", header.Hash.Hex(),
+		"timestamp", header.Timestamp)
+
+	lggr.Infow("✅ Multinode chain client tests completed successfully!")
 }
