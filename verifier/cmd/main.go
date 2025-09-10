@@ -31,6 +31,11 @@ import (
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
+// Configuration flags
+const (
+	enableContinuousEventMonitoring = true // Set to true when RPC connectivity is stable
+)
+
 func loadConfiguration(filepath string) (*config.Configuration, error) {
 	var config config.Configuration
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
@@ -314,7 +319,7 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 		lggr.Errorw("Failed to create multinode chain client", "error", err)
 		return
 	}
-	defer chainClient.Close()
+	// defer chainClient.Close()
 
 	lggr.Infow("✅ Multinode chain client created successfully",
 		"chainSelector", chainSelector,
@@ -352,6 +357,30 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 	// Test 4: Subscribe to CCVProxy events if configured
 	if config.CCVProxy1337 != "" {
 		testEventSubscription(ctx, chainClient, config.CCVProxy1337, "CCVProxy", lggr)
+
+		// Continuous event monitoring (can be enabled/disabled via flag)
+		if enableContinuousEventMonitoring {
+			// Start continuous event monitoring loop using the same multinode client
+			// Only start if the client is properly connected and can make RPC calls
+			lggr.Infow("🔗 Testing multinode client RPC connectivity before starting continuous monitoring")
+
+			// Test if we can actually make an RPC call
+			testCtx, testCancel := context.WithTimeout(ctx, 10*time.Second)
+			_, err := chainClient.LatestBlockHeight(testCtx)
+			testCancel()
+
+			if err != nil {
+				lggr.Warnw("⚠️ Multinode client cannot make RPC calls, skipping continuous event monitoring",
+					"error", err.Error(),
+					"nodeStates", chainClient.NodeStates())
+			} else {
+				lggr.Infow("✅ Multinode client RPC test successful, starting continuous monitoring")
+				go startContinuousEventLoop(ctx, chainClient, config.CCVProxy1337, lggr)
+			}
+		} else {
+			lggr.Infow("ℹ️ Continuous event monitoring is disabled (enableContinuousEventMonitoring=false)")
+			lggr.Infow("💡 To enable: set enableContinuousEventMonitoring=true when RPC connectivity is stable")
+		}
 	}
 
 	lggr.Infow("✅ Multinode chain client tests completed successfully!")
@@ -450,4 +479,172 @@ func parseCCIPMessageSentEvent(log ethtypes.Log, contractType string, lggr logge
 	}
 
 	lggr.Infow("✅ CCIPMessageSent event parsing completed", "contractType", contractType)
+}
+
+// startContinuousEventLoop starts a continuous loop to monitor CCIPMessageSent events using the existing multinode client
+func startContinuousEventLoop(ctx context.Context, chainClient client.Client, contractAddress string, lggr logger.Logger) {
+	lggr.Infow("🔄 Starting continuous CCIPMessageSent event monitoring with multinode client")
+
+	// Check if client is properly connected first
+	if chainClient == nil {
+		lggr.Errorw("❌ Chain client is nil, cannot start continuous event monitoring")
+		return
+	}
+
+	// Add panic recovery to handle multinode client panics gracefully
+	defer func() {
+		if r := recover(); r != nil {
+			lggr.Errorw("❌ [MULTINODE CONTINUOUS] Recovered from panic in event monitoring",
+				"panic", r,
+				"nodeStates", chainClient.NodeStates())
+		}
+	}()
+
+	// Parse contract address
+	contractAddr := common.HexToAddress(contractAddress)
+
+	// Calculate CCIPMessageSent event topic
+	ccipMessageSentTopic := "0xa816f7e08da08b1aa0143155f28f728327e40df7f707f612cb3566ab91229820"
+
+	lggr.Infow("✅ Started continuous CCIPMessageSent event monitoring with multinode client using FilterLogs",
+		"contract", contractAddress,
+		"topic", ccipMessageSentTopic)
+
+	// Track the last processed block to avoid duplicates
+	var lastProcessedBlock *big.Int
+
+	// Continuous event monitoring loop using FilterLogs
+	ticker := time.NewTicker(15 * time.Second) // Poll every 15 seconds to reduce load further
+	// defer ticker.Stop()
+
+	// Add initial delay to let the client fully establish connections
+	time.Sleep(10 * time.Second)
+	lggr.Infow("⏳ Initial delay completed, starting event monitoring cycles")
+	for {
+		select {
+		case <-ctx.Done():
+			lggr.Infow("🛑 Stopping continuous event monitoring due to context cancellation")
+			return
+
+		case <-ticker.C:
+			// Wrap the entire cycle in a function with its own panic recovery
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						lggr.Warnw("⚠️ [MULTINODE CONTINUOUS] Recovered from panic in monitoring cycle, will retry",
+							"panic", r)
+					}
+				}()
+
+				lggr.Infow("⏱️ [MULTINODE CONTINUOUS] Starting new monitoring cycle",
+					"contract", contractAddress,
+					"lastProcessedBlock", lastProcessedBlock.String())
+				// Check client connection status before making requests
+				if len(chainClient.NodeStates()) == 0 {
+					lggr.Warnw("⚠️ [MULTINODE CONTINUOUS] No nodes available, skipping this cycle")
+					return
+				}
+
+				// Get current block number with error handling and timeout
+				blockCtx, blockCancel := context.WithTimeout(ctx, 5*time.Second)
+				currentBlock, err := chainClient.LatestBlockHeight(blockCtx)
+				blockCancel()
+
+				lggr.Infow("⏱️ [MULTINODE CONTINUOUS] Fetched latest block",
+					"blockNumber", currentBlock.String())
+
+				if err != nil {
+					lggr.Warnw("⚠️ [MULTINODE CONTINUOUS] Failed to get latest block, will retry",
+						"error", err.Error(),
+						"nodeStates", chainClient.NodeStates())
+					return
+				}
+
+				// Set query range - look at recent blocks
+				var fromBlock *big.Int
+				if lastProcessedBlock == nil {
+					// For the first run, look at last 100 blocks to catch recent events (reduced further)
+					if currentBlock.Cmp(big.NewInt(100)) > 0 {
+						fromBlock = new(big.Int).Sub(currentBlock, big.NewInt(100))
+					} else {
+						fromBlock = big.NewInt(1)
+					}
+				} else {
+					fromBlock = new(big.Int).Add(lastProcessedBlock, big.NewInt(1))
+				}
+
+				// Only query if there are new blocks
+				if fromBlock.Cmp(currentBlock) > 0 {
+					return
+				}
+
+				// Create query with block range
+				rangeQuery := ethereum.FilterQuery{
+					FromBlock: fromBlock,
+					ToBlock:   currentBlock,
+					Addresses: []common.Address{contractAddr},
+					Topics:    [][]common.Hash{{common.HexToHash(ccipMessageSentTopic)}},
+				}
+
+				lggr.Infow("🔍 [MULTINODE CONTINUOUS] Querying logs",
+					"fromBlock", fromBlock.String(),
+					"toBlock", currentBlock.String())
+
+				// Query for logs using FilterLogs with error handling and timeout
+				logsCtx, logsCancel := context.WithTimeout(ctx, 5*time.Second)
+				logs, err := chainClient.FilterLogs(logsCtx, rangeQuery)
+				logsCancel()
+
+				if err != nil {
+					lggr.Warnw("⚠️ [MULTINODE CONTINUOUS] Failed to filter logs, will retry",
+						"error", err.Error(),
+						"fromBlock", fromBlock.String(),
+						"toBlock", currentBlock.String())
+					return
+				}
+
+				if len(logs) == 0 {
+					lggr.Infow("🔍 [MULTINODE CONTINUOUS] No CCIPMessageSent events found in this cycle",
+						"fromBlock", fromBlock.String(),
+						"toBlock", currentBlock.String())
+				}
+
+				// Process any found logs
+				for _, log := range logs {
+					lggr.Infow("🎉 [MULTINODE CONTINUOUS] Found CCIPMessageSent event!",
+						"blockNumber", log.BlockNumber,
+						"txHash", log.TxHash.Hex(),
+						"contract", log.Address.Hex(),
+						"topicCount", len(log.Topics),
+						"dataLength", len(log.Data))
+
+					// Parse indexed topics for quick info
+					if len(log.Topics) >= 3 {
+						destChainSelector := binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
+						sequenceNumber := binary.BigEndian.Uint64(log.Topics[2][24:])    // Last 8 bytes
+
+						lggr.Infow("📊 [MULTINODE CONTINUOUS] Event details",
+							"destChainSelector", destChainSelector,
+							"sequenceNumber", sequenceNumber,
+							"timestamp", time.Now().Format("15:04:05.000"))
+					}
+				}
+
+				// Update last processed block
+				lastProcessedBlock = new(big.Int).Set(currentBlock)
+
+				if len(logs) > 0 {
+					lggr.Infow("📈 [MULTINODE CONTINUOUS] Processed block range",
+						"fromBlock", fromBlock.String(),
+						"toBlock", currentBlock.String(),
+						"eventsFound", len(logs))
+				} else {
+					// Log successful query even if no events found (less verbose)
+					lggr.Infow("🔍 [MULTINODE CONTINUOUS] No events found in range",
+						"fromBlock", fromBlock.String(),
+						"toBlock", currentBlock.String())
+				}
+			}()
+		}
+	}
 }
