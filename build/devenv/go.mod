@@ -12,7 +12,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.67
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250829142202-abffbe23b9f7
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250910133306-732b03617dce
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.4
 	github.com/smartcontractkit/chainlink-deployments-framework v0.37.1
@@ -319,7 +319,7 @@ require (
 	github.com/sigurn/crc16 v0.0.0-20211026045750-20ab5afb07e3 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/smartcontractkit/chainlink-aptos v0.0.0-20250414155853-651b4e583ee9 // indirect
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250829142202-abffbe23b9f7 // indirect
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250910133306-732b03617dce // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250805210128-7f8a0f403c3a // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20250805210128-7f8a0f403c3a // indirect
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000 // indirect
@@ -442,6 +442,7 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
+	//github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment => ../../../chainlink-ccip/chains/evm/deployment
 	github.com/smartcontractkit/chainlink-ccv/common => ../../common
 	github.com/smartcontractkit/chainlink-ccv/protocol => ../../protocol
 	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4

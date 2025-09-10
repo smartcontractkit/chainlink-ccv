@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"math/big"
 	"net/http"
 	"os"
@@ -10,6 +11,10 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 	"go.uber.org/zap"
 
@@ -110,7 +115,7 @@ func main() {
 
 	// Test multinode chain client connection
 	if blockchainHelper != nil {
-		testMultinodeChainClient(ctx, blockchainHelper, lggr)
+		testMultinodeChainClient(ctx, blockchainHelper, verifierConfig, lggr)
 	}
 
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
@@ -260,7 +265,7 @@ func main() {
 func ptr[T any](t T) *T { return &t }
 
 // testMultinodeChainClient tests the multinode chain client connection
-func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger) {
+func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, config *config.Configuration, lggr logger.Logger) {
 	// Test for chain 1337
 	chainSelector := protocol.ChainSelector(1337)
 
@@ -344,5 +349,105 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 		"hash", header.Hash.Hex(),
 		"timestamp", header.Timestamp)
 
+	// Test 4: Subscribe to CCVProxy events if configured
+	if config.CCVProxy1337 != "" {
+		testEventSubscription(ctx, chainClient, config.CCVProxy1337, "CCVProxy", lggr)
+	}
+
 	lggr.Infow("✅ Multinode chain client tests completed successfully!")
+}
+
+// testEventSubscription tests subscribing to CCIPMessageSent events
+func testEventSubscription(ctx context.Context, chainClient client.Client, contractAddress string, contractType string, lggr logger.Logger) {
+	lggr.Infow("📡 Testing event subscription", "contractType", contractType, "contract", contractAddress)
+
+	// Parse contract address
+	contractAddr := common.HexToAddress(contractAddress)
+
+	// Calculate CCIPMessageSent event topic
+	ccipMessageSentTopic := crypto.Keccak256Hash([]byte(
+		"CCIPMessageSent(uint64,uint64,((bytes32,uint64,uint64,uint64),address,bytes,bytes,address,uint256,uint256,((address,bytes,uint256,bytes,(address,uint64,uint32,uint256,bytes)))[],((address,uint64,uint32,uint256,bytes))[],((address,uint64,uint32,uint256,bytes))),bytes[])",
+	))
+
+	// Create filter query
+	query := ethereum.FilterQuery{
+		Addresses: []common.Address{contractAddr},
+		Topics:    [][]common.Hash{{ccipMessageSentTopic}},
+	}
+
+	// Create channel for receiving logs
+	logsCh := make(chan ethtypes.Log, 10)
+
+	// Subscribe to events
+	subscription, err := chainClient.SubscribeFilterLogs(ctx, query, logsCh)
+	if err != nil {
+		lggr.Errorw("Failed to subscribe to CCIPMessageSent events", "error", err, "contractType", contractType)
+		return
+	}
+	defer subscription.Unsubscribe()
+
+	lggr.Infow("✅ Successfully subscribed to CCIPMessageSent events", "contractType", contractType, "topic", ccipMessageSentTopic.Hex())
+
+	// Test sending a message to trigger an event (in background)
+	go func() {
+		time.Sleep(2 * time.Second) // Let subscription setup
+		sendTestMessage(chainClient, contractAddr, contractType, lggr)
+	}()
+
+	// Wait for event with timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	select {
+	case log := <-logsCh:
+		lggr.Infow("🎉 Received SimpleCCVProxy CCIPMessageSent event!",
+			"blockNumber", log.BlockNumber,
+			"txHash", log.TxHash.Hex(),
+			"topicCount", len(log.Topics),
+			"dataLength", len(log.Data))
+
+		// Parse the event data
+		parseCCIPMessageSentEvent(log, contractType, lggr)
+
+	case <-timeoutCtx.Done():
+		lggr.Warnw("⏱️ Timeout waiting for CCIPMessageSent event", "timeout", "30s", "contractType", contractType)
+
+	case err := <-subscription.Err():
+		lggr.Errorw("❌ Subscription error", "error", err)
+	}
+}
+
+// sendTestMessage sends a test message to trigger an event
+func sendTestMessage(chainClient client.Client, contractAddr common.Address, contractType string, lggr logger.Logger) {
+	lggr.Infow("📤 Sending test message", "contractType", contractType, "contract", contractAddr.Hex())
+
+	// For now, just log that we would send a message
+	// In a full implementation, we'd create a transaction here to call dev_send() or send()
+	lggr.Infow("📝 Test message would be sent here (transaction creation not implemented in this test)")
+}
+
+// parseCCIPMessageSentEvent parses and logs the CCIPMessageSent event data
+func parseCCIPMessageSentEvent(log ethtypes.Log, contractType string, lggr logger.Logger) {
+	lggr.Infow("🔍 Parsing CCIPMessageSent event",
+		"contractType", contractType,
+		"address", log.Address.Hex(),
+		"topics", len(log.Topics),
+		"dataSize", len(log.Data))
+
+	// Parse indexed topics
+	if len(log.Topics) >= 3 {
+		// Topic 0 is the event signature
+		// Topic 1 is indexed destChainSelector
+		// Topic 2 is indexed sequenceNumber
+		destChainSelector := binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
+		sequenceNumber := binary.BigEndian.Uint64(log.Topics[2][24:])    // Last 8 bytes
+
+		lggr.Infow("📊 Event details",
+			"contractType", contractType,
+			"destChainSelector", destChainSelector,
+			"sequenceNumber", sequenceNumber,
+			"eventSignature", log.Topics[0].Hex())
+	}
+
+	lggr.Infow("✅ CCIPMessageSent event parsing completed", "contractType", contractType)
 }

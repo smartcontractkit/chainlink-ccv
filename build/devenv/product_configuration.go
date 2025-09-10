@@ -140,7 +140,7 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 	)
 	e.OperationsBundle = bundle
 	out, err := changesets.DeployChainContracts.Apply(*e, changesets.DeployChainContractsCfg{
-		ChainSelector: selector,
+		ChainSel: selector,
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
 			RMNRemote:     sequences.RMNRemoteParams{},
@@ -161,19 +161,16 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
 				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
-					{
-						// OCR3 or something else?
-						ConfigDigest: [32]byte{0x01},
-						F:            1,
-						Signers: []common.Address{
-							common.HexToAddress("0x02"),
-							common.HexToAddress("0x03"),
-							common.HexToAddress("0x04"),
-							common.HexToAddress("0x05"),
-						},
+					Threshold: 3,
+					Signers: []common.Address{
+						common.HexToAddress("0x02"),
+						common.HexToAddress("0x03"),
+						common.HexToAddress("0x04"),
+						common.HexToAddress("0x05"),
 					},
 				},
 			},
+			ExecutorOnRamp: sequences.ExecutorOnRampParams{},
 		},
 	})
 	if err != nil {
@@ -405,10 +402,78 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
 			Plog.Info().Str("Node", n.Node.ExternalURL).Send()
 		}
+		// Write CCVProxy addresses from CLDF deployment to verifier config
+		if err := writeCCVProxyAddressesToConfig(in); err != nil {
+			Plog.Warn().Err(err).Msg("Failed to write CCVProxy addresses to verifier.toml")
+		}
+
 		if err := verifyEnvironment(in); err != nil {
 			return err
 		}
 		return nil
 	}
+	return nil
+}
+
+// writeCCVProxyAddressesToConfig writes CCVProxy addresses from CLDF deployment to verifier.toml
+func writeCCVProxyAddressesToConfig(in *Cfg) error {
+	// Get CLDF addresses
+	addresses, err := GetCLDFAddressesPerSelector(in)
+	if err != nil {
+		return fmt.Errorf("failed to get CLDF addresses: %w", err)
+	}
+
+	// Find CCVProxy addresses for chains 1337 and 2337
+	ccvProxyAddresses := make(map[string]string)
+
+	for _, addrRefs := range addresses {
+		for _, ref := range addrRefs {
+			if ref.Type == "CCVProxy" {
+				chainKey := fmt.Sprintf("%d", ref.ChainSelector)
+				ccvProxyAddresses[chainKey] = ref.Address
+				Plog.Info().
+					Uint64("chainSelector", ref.ChainSelector).
+					Str("address", ref.Address).
+					Msg("Found CCVProxy address from CLDF")
+			}
+		}
+	}
+
+	if len(ccvProxyAddresses) == 0 {
+		return fmt.Errorf("no CCVProxy addresses found in CLDF deployment")
+	}
+
+	// Update verifier config with CCVProxy addresses
+	configPath := "../../verifier/verifier.toml"
+
+	// Create config content with CCVProxy addresses
+	content := `aggregator_address = "http://localhost:8080"
+private_key = "test-key-for-development"
+
+ccv_proxy_1337 = "%s"
+ccv_proxy_2337 = "%s"
+
+[blockchain_infos]
+# Blockchain info populated by devenv
+`
+
+	// Get CCVProxy addresses
+	ccvProxy1337 := ccvProxyAddresses["1337"]
+	ccvProxy2337 := ccvProxyAddresses["2337"]
+
+	// Write config with CCVProxy addresses
+	configContent := fmt.Sprintf(content, ccvProxy1337, ccvProxy2337)
+
+	err = os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write verifier config: %w", err)
+	}
+
+	Plog.Info().
+		Str("path", configPath).
+		Str("ccvProxy1337", ccvProxy1337).
+		Str("ccvProxy2337", ccvProxy2337).
+		Msg("Updated verifier.toml with CCVProxy addresses from CLDF")
+
 	return nil
 }
