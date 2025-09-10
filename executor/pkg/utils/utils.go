@@ -30,7 +30,7 @@ func (sdp *ScheduledDataPusher) SubscribeMessages() (chan types.MessageWithCCVDa
 
 // Run will push messages to the channel every 10 seconds
 func (sdp *ScheduledDataPusher) Run(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	messageCounter := uint64(1)
@@ -48,7 +48,6 @@ func (sdp *ScheduledDataPusher) Run(ctx context.Context) {
 			sdp.messageChan <- mockMessage
 			// Message sent successfully
 			messageCounter++
-
 		}
 	}
 }

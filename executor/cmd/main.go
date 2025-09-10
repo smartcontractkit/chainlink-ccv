@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	chainBRpc                  = "http://blockchain-node-d821c:8555"
+	chainBRpc                  = "http://blockchain-dst:8555"
 	chainBPk                   = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 	chainSelB                  = protocol.ChainSelector(12922642891491394802)
 	chainBCcvAggregatorAddress = "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0"

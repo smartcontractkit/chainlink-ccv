@@ -149,7 +149,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 
 			// get message delay from leader elector
 			delay := ec.leaderElector.GetDelay(id, msg.Message.DestChainSelector, msg.VerifiedTimestamp)
-			ec.lggr.Infow("using delay", "delay", delay, "messageID", id)
+			ec.lggr.Infow("waiting delay", "delay", delay, "messageID", id)
 
 			ec.delayedMessageHeap.Push(&utils.MessageWithTimestamp{
 				Payload:   msg,
@@ -163,6 +163,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 				go func() {
 					message := message
 					id, _ := message.Message.MessageID()
+					ec.lggr.Infow("processing message", "messageID", id)
 					err = ec.executor.ExecuteMessage(ctx, message)
 					if err != nil {
 						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)

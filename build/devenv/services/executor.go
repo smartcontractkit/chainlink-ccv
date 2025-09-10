@@ -8,32 +8,17 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/testcontainers/testcontainers-go"
 )
 
 const (
-	DefaultExecutorName    = "executor"
-	DefaultExecutorDBName  = "executor-db"
-	DefaultExecutorImage   = "executor:dev"
-	DefaultExecutorPort    = 8101
-	DefaultExecutorDBPort  = 9432
-	DefaultExecutorSQLInit = "init.sql"
-
-	DefaultExecutorDBImage = "postgres:16-alpine"
+	DefaultExecutorName  = "executor"
+	DefaultExecutorImage = "executor:dev"
+	DefaultExecutorPort  = 8101
 )
 
-var DefaultExecutorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-	DefaultExecutorName, DefaultExecutorName, DefaultExecutorDBPort, DefaultExecutorName)
-
-type ExecutorDBInput struct {
-	Image string `toml:"image"`
-}
-
 type ExecutorInput struct {
-	DB             *DBInput        `toml:"db"`
 	Out            *ExecutorOutput `toml:"-"`
 	Image          string          `toml:"image"`
 	SourceCodePath string          `toml:"source_code_path"`
@@ -43,12 +28,10 @@ type ExecutorInput struct {
 }
 
 type ExecutorOutput struct {
-	ContainerName      string `toml:"container_name"`
-	ExternalHTTPURL    string `toml:"http_url"`
-	InternalHTTPURL    string `toml:"internal_http_url"`
-	DBURL              string `toml:"db_url"`
-	DBConnectionString string `toml:"db_connection_string"`
-	UseCache           bool   `toml:"use_cache"`
+	ContainerName   string `toml:"container_name"`
+	ExternalHTTPURL string `toml:"http_url"`
+	InternalHTTPURL string `toml:"internal_http_url"`
+	UseCache        bool   `toml:"use_cache"`
 }
 
 func executorDefaults(in *ExecutorInput) {
@@ -61,11 +44,6 @@ func executorDefaults(in *ExecutorInput) {
 	if in.ContainerName == "" {
 		in.ContainerName = DefaultExecutorName
 	}
-	if in.DB == nil {
-		in.DB = &DBInput{
-			Image: DefaultExecutorDBImage,
-		}
-	}
 }
 
 func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
@@ -77,28 +55,6 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
-	}
-
-	/* Database */
-	_, err = postgres.Run(ctx,
-		in.DB.Image,
-		testcontainers.WithName(DefaultExecutorDBName),
-		testcontainers.WithExposedPorts("5432/tcp"),
-		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				"5432/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(DefaultExecutorDBPort)},
-				},
-			}
-		}),
-		testcontainers.WithLabels(framework.DefaultTCLabels()),
-		postgres.WithDatabase(DefaultExecutorName),
-		postgres.WithUsername(DefaultExecutorName),
-		postgres.WithPassword(DefaultExecutorName),
-		postgres.WithInitScripts(filepath.Join(p, DefaultExecutorSQLInit)),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
 	/* Service */
@@ -160,9 +116,8 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	}
 
 	return &ExecutorOutput{
-		ContainerName:      in.ContainerName,
-		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
-		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
-		DBConnectionString: DefaultExecutorDBConnectionString,
+		ContainerName:   in.ContainerName,
+		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
+		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
 	}, nil
 }

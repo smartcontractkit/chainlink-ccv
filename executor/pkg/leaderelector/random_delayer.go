@@ -14,5 +14,5 @@ func (s *RandomDelayLeader) GetDelay(messageID types.Bytes32, destSelector types
 	// This ensures different messages get different delays but the same message always gets the same delay
 	r := rand.New(rand.NewSource(int64(destSelector) + readyTimestamp))
 
-	return r.Int63n(5)
+	return r.Int63n(10)
 }

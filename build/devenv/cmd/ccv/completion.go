@@ -45,7 +45,6 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "indexer", Description: "Inspect Indexer Database"},
 			{Text: "aggregator", Description: "Inspect Aggregator Database"},
 			{Text: "verifier", Description: "Inspect Verifier Database"},
-			{Text: "executor", Description: "Inspect Executor Database"},
 		}
 	case "u":
 		fallthrough

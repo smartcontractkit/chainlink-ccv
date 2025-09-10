@@ -44,8 +44,8 @@ func (mh *MessageHeap) IsEmpty() bool {
 func (mh *MessageHeap) PopAllReady(timestamp int64) []types.MessageWithCCVData {
 	var readyMessages []types.MessageWithCCVData
 	for mh.Len() > 0 && mh.PeekTime() <= timestamp {
-		msg := heap.Pop(mh).(*MessageWithTimestamp)
-		readyMessages = append(readyMessages, msg.Payload)
+		msg := heap.Pop(mh).(types.MessageWithCCVData)
+		readyMessages = append(readyMessages, msg)
 	}
 	return readyMessages
 }
