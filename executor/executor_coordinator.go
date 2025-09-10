@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
@@ -24,6 +25,8 @@ type Coordinator struct {
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
 	running             bool
+
+	mu sync.RWMutex
 }
 
 type Option func(*Coordinator)
@@ -80,6 +83,8 @@ func NewCoordinator(options ...Option) (*Coordinator, error) {
 }
 
 func (ec *Coordinator) Start(ctx context.Context) error {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	if ec.running {
 		return fmt.Errorf("Coordinator already running")
 	}
@@ -96,9 +101,12 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 }
 
 func (ec *Coordinator) Stop() error {
+	ec.mu.RLock()
 	if !ec.running {
+		ec.mu.RUnlock()
 		return fmt.Errorf("Coordinator not started")
 	}
+	ec.mu.RUnlock()
 
 	ec.lggr.Infow("Coordinator stopping")
 	ec.cancel()
@@ -112,6 +120,8 @@ func (ec *Coordinator) run(ctx context.Context) {
 	defer close(ec.doneCh)
 	defer func() {
 		ec.lggr.Infow("Coordinator run loop exited")
+		ec.mu.Lock()
+		defer ec.mu.Unlock()
 		ec.running = false
 	}()
 
@@ -193,5 +203,7 @@ func (ec *Coordinator) ProcessMessage(ctx context.Context) error {
 
 // IsRunning returns whether the coordinator is running.
 func (ec *Coordinator) IsRunning() bool {
+	ec.mu.RLock()
+	defer ec.mu.RUnlock()
 	return ec.running
 }

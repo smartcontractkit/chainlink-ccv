@@ -119,22 +119,22 @@ func TestLifecycle(t *testing.T) {
 		return ec
 	}
 
-	{
+	t.Run("context cancelled", func(t *testing.T) {
 		ec := getReader()
 		ctx, cancel := context.WithCancel(t.Context())
 		require.NoError(t, ec.Start(ctx))
 		require.True(t, ec.IsRunning())
 		cancel()
 		require.Eventuallyf(t, func() bool { return ec.IsRunning() == false }, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
-	}
+	})
 
-	{
+	t.Run("stop called", func(t *testing.T) {
 		ec := getReader()
 		require.NoError(t, ec.Start(t.Context()))
 		require.True(t, ec.IsRunning())
 		require.NoError(t, ec.Stop())
 		require.Eventuallyf(t, func() bool { return ec.IsRunning() == false }, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
-	}
+	})
 }
 
 func TestSubscribeMessagesError(t *testing.T) {
