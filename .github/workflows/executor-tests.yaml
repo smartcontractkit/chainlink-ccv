@@ -1,7 +1,7 @@
 name: Executor Tests
 
 on:
-  push:
+  pull_request:
     paths:
       - '.github/**'
       - 'protocol/**'
@@ -75,6 +75,7 @@ jobs:
           go test -shuffle on -v -coverprofile=coverage_target.out ./...
           total=$(go tool cover -func=coverage_target.out | grep total | awk '{print $3}')
           echo "coverage_target=$total" >> $GITHUB_ENV
+
       - name: Remove previous coverage comments
         uses: actions/github-script@v6
         # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
