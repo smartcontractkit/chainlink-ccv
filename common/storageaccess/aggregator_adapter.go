@@ -175,41 +175,41 @@ func mapMessage(msg *aggregator.Message) (types.Message, error) {
 	}
 
 	if msg.Version > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("Version %d exceeds uint8 max", msg.Version)
+		return types.Message{}, fmt.Errorf("field Version %d exceeds uint8 max", msg.Version)
 	}
 	result.Version = uint8(msg.Version)
 	if msg.OnRampAddressLength > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("OnRampAddressLength %d exceeds uint8 max",
+		return types.Message{}, fmt.Errorf("field OnRampAddressLength %d exceeds uint8 max",
 			msg.OnRampAddressLength)
 	}
 	result.OnRampAddressLength = uint8(msg.OnRampAddressLength)
 	if msg.OffRampAddressLength > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("OffRampAddressLength %d exceeds uint8 max",
+		return types.Message{}, fmt.Errorf("field OffRampAddressLength %d exceeds uint8 max",
 			msg.OffRampAddressLength)
 	}
 	result.OffRampAddressLength = uint8(msg.OffRampAddressLength)
 	if msg.Finality > math.MaxUint16 {
-		return types.Message{}, fmt.Errorf("Finality %d exceeds uint16 max", msg.Finality)
+		return types.Message{}, fmt.Errorf("field Finality %d exceeds uint16 max", msg.Finality)
 	}
 	result.Finality = uint16(msg.Finality)
 	if msg.SenderLength > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("SenderLength %d exceeds uint8 max", msg.SenderLength)
+		return types.Message{}, fmt.Errorf("field SenderLength %d exceeds uint8 max", msg.SenderLength)
 	}
 	result.SenderLength = uint8(msg.SenderLength)
 	if msg.ReceiverLength > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("ReceiverLength %d exceeds uint8 max", msg.ReceiverLength)
+		return types.Message{}, fmt.Errorf("field ReceiverLength %d exceeds uint8 max", msg.ReceiverLength)
 	}
 	result.ReceiverLength = uint8(msg.ReceiverLength)
 	if msg.DestBlobLength > math.MaxUint16 {
-		return types.Message{}, fmt.Errorf("DestBlobLength %d exceeds uint16 max", msg.DestBlobLength)
+		return types.Message{}, fmt.Errorf("field DestBlobLength %d exceeds uint16 max", msg.DestBlobLength)
 	}
 	result.DestBlobLength = uint16(msg.DestBlobLength)
 	if msg.TokenTransferLength > math.MaxUint16 {
-		return types.Message{}, fmt.Errorf("TokenTransferLength %d exceeds uint16 max", msg.TokenTransferLength)
+		return types.Message{}, fmt.Errorf("field TokenTransferLength %d exceeds uint16 max", msg.TokenTransferLength)
 	}
 	result.TokenTransferLength = uint16(msg.TokenTransferLength)
 	if msg.DataLength > math.MaxUint16 {
-		return types.Message{}, fmt.Errorf("DataLength %d exceeds uint16 max", msg.DataLength)
+		return types.Message{}, fmt.Errorf("field DataLength %d exceeds uint16 max", msg.DataLength)
 	}
 	result.DataLength = uint16(msg.DataLength)
 
