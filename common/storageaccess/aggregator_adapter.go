@@ -174,53 +174,44 @@ func mapMessage(msg *aggregator.Message) (types.Message, error) {
 		Data:                msg.Data[:],
 	}
 
-	if msg.Version <= math.MaxUint8 {
-		result.Version = uint8(msg.Version)
-	} else {
+	if msg.Version > math.MaxUint8 {
 		return types.Message{}, fmt.Errorf("Version %d exceeds uint8 max", msg.Version)
 	}
-	if msg.OnRampAddressLength <= math.MaxUint8 {
-		result.OnRampAddressLength = uint8(msg.OnRampAddressLength)
-	} else {
+	result.Version = uint8(msg.Version)
+	if msg.OnRampAddressLength > math.MaxUint8 {
 		return types.Message{}, fmt.Errorf("OnRampAddressLength %d exceeds uint8 max",
 			msg.OnRampAddressLength)
 	}
-	if msg.OffRampAddressLength <= math.MaxUint8 {
-		result.OffRampAddressLength = uint8(msg.OffRampAddressLength)
-	} else {
+	result.OnRampAddressLength = uint8(msg.OnRampAddressLength)
+	if msg.OffRampAddressLength > math.MaxUint8 {
 		return types.Message{}, fmt.Errorf("OffRampAddressLength %d exceeds uint8 max",
 			msg.OffRampAddressLength)
 	}
-	if msg.Finality <= math.MaxUint16 {
-		result.Finality = uint16(msg.Finality)
-	} else {
+	result.OffRampAddressLength = uint8(msg.OffRampAddressLength)
+	if msg.Finality > math.MaxUint16 {
 		return types.Message{}, fmt.Errorf("Finality %d exceeds uint16 max", msg.Finality)
 	}
-	if msg.SenderLength <= math.MaxUint8 {
-		result.SenderLength = uint8(msg.SenderLength)
-	} else {
+	result.Finality = uint16(msg.Finality)
+	if msg.SenderLength > math.MaxUint8 {
 		return types.Message{}, fmt.Errorf("SenderLength %d exceeds uint8 max", msg.SenderLength)
 	}
-	if msg.ReceiverLength <= math.MaxUint8 {
-		result.ReceiverLength = uint8(msg.ReceiverLength)
-	} else {
+	result.SenderLength = uint8(msg.SenderLength)
+	if msg.ReceiverLength > math.MaxUint8 {
 		return types.Message{}, fmt.Errorf("ReceiverLength %d exceeds uint8 max", msg.ReceiverLength)
 	}
-	if msg.DestBlobLength <= math.MaxUint16 {
-		result.DestBlobLength = uint16(msg.DestBlobLength)
-	} else {
+	result.ReceiverLength = uint8(msg.ReceiverLength)
+	if msg.DestBlobLength > math.MaxUint16 {
 		return types.Message{}, fmt.Errorf("DestBlobLength %d exceeds uint16 max", msg.DestBlobLength)
 	}
-	if msg.TokenTransferLength <= math.MaxUint16 {
-		result.TokenTransferLength = uint16(msg.TokenTransferLength)
-	} else {
+	result.DestBlobLength = uint16(msg.DestBlobLength)
+	if msg.TokenTransferLength > math.MaxUint16 {
 		return types.Message{}, fmt.Errorf("TokenTransferLength %d exceeds uint16 max", msg.TokenTransferLength)
 	}
-	if msg.DataLength <= math.MaxUint16 {
-		result.DataLength = uint16(msg.DataLength)
-	} else {
+	result.TokenTransferLength = uint16(msg.TokenTransferLength)
+	if msg.DataLength > math.MaxUint16 {
 		return types.Message{}, fmt.Errorf("DataLength %d exceeds uint16 max", msg.DataLength)
 	}
+	result.DataLength = uint16(msg.DataLength)
 
 	return result, nil
 }
