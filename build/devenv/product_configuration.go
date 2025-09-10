@@ -556,37 +556,5 @@ func writeCCVProxyAddressesToConfig(in *Cfg) error {
 	in.Verifier2.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
 	in.Verifier2.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
 
-	// 	// Update verifier config with CCVProxy addresses
-	// 	configPath := "../../verifier/verifier.toml"
-
-	// 	// Create config content with CCVProxy addresses
-	// 	content := `aggregator_address = "http://localhost:8080"
-	// private_key = "test-key-for-development"
-
-	// ccv_proxy_1337 = "%s"
-	// ccv_proxy_2337 = "%s"
-
-	// [blockchain_infos]
-	// # Blockchain info populated by devenv
-	// `
-
-	// 	// Get CCVProxy addresses
-	// 	ccvProxy1337 := ccvProxyAddresses["1337"]
-	// 	ccvProxy2337 := ccvProxyAddresses["2337"]
-
-	// 	// Write config with CCVProxy addresses
-	// 	configContent := fmt.Sprintf(content, ccvProxy1337, ccvProxy2337)
-
-	// 	err = os.WriteFile(configPath, []byte(configContent), 0644)
-	// 	if err != nil {
-	// 		return fmt.Errorf("failed to write verifier config: %w", err)
-	// 	}
-
-	// 	Plog.Info().
-	// 		Str("path", configPath).
-	// 		Str("ccvProxy1337", ccvProxy1337).
-	// 		Str("ccvProxy2337", ccvProxy2337).
-	// 		Msg("Updated verifier.toml with CCVProxy addresses from CLDF")
-
 	return nil
 }
