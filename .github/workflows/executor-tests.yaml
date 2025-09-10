@@ -57,13 +57,15 @@ jobs:
         run: COVERAGE_FILE=verifier_coverage.out just test-coverage
 
       - name: Generate coverage report
-        if: github.event_name == 'pull_request'
+        # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
+        if: needs.pr-check.outputs.number != 'null'
         run: |
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
           echo "coverage=$total" >> $GITHUB_ENV
 
       - name: Coverage on target branch
-        #if: github.event_name == 'pull_request'
+        # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
+        if: needs.pr-check.outputs.number != 'null'
         run: |
           git fetch origin ${{ github.base_ref }}
           git branch -a
@@ -74,7 +76,8 @@ jobs:
           echo "coverage_target=$total" >> $GITHUB_ENV
       - name: Remove previous coverage comments
         uses: actions/github-script@v6
-        #if: github.event_name == 'pull_request'
+        # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
+        if: needs.pr-check.outputs.number != 'null'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -96,7 +99,8 @@ jobs:
             }
       - name: Display coverage in PR comment
         uses: actions/github-script@v6
-        #if: github.event_name == 'pull_request'
+        # cannot use if: github.event_name == 'pull_request' because the trigger is on push.
+        if: needs.pr-check.outputs.number != 'null'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
