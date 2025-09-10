@@ -63,7 +63,7 @@ jobs:
           echo "coverage=$total" >> $GITHUB_ENV
 
       - name: Coverage on target branch
-        if: github.event_name == 'pull_request'
+        #if: github.event_name == 'pull_request'
         run: |
           git fetch origin ${{ github.base_ref }}
           git branch -a
@@ -74,7 +74,7 @@ jobs:
           echo "coverage_target=$total" >> $GITHUB_ENV
       - name: Remove previous coverage comments
         uses: actions/github-script@v6
-        if: github.event_name == 'pull_request'
+        #if: github.event_name == 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -96,7 +96,7 @@ jobs:
             }
       - name: Display coverage in PR comment
         uses: actions/github-script@v6
-        if: github.event_name == 'pull_request'
+        #if: github.event_name == 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
