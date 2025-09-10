@@ -234,19 +234,9 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 		results[i] = types.QueryResponse{
 			Timestamp: nil,
 			Data: types.CCVData{
-				Message: msg,
-				CCVData: result.CcvData,
-				/*
-					// Missing fields...?
-					MessageId:             result.MessageID[:],
-					CcvData:               result.CCVData,
-					BlobData:              result.BlobData,
-					Timestamp:             result.Timestamp,
-
-					// Extra fields...?
-					result.DestVerifierAddress
-					result.SourceVerifierAddress
-				*/
+				Message:   msg,
+				CCVData:   result.CcvData,
+				Timestamp: result.Timestamp,
 			},
 		}
 	}
