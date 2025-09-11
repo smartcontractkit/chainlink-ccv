@@ -27,6 +27,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
 
@@ -119,6 +120,7 @@ const (
 )
 
 // ETHClient creates a basic Ethereum client using PRIVATE_KEY env var and tip/cap gas settings.
+// used for common operations like funding where creating CLDF environment makes no sense.
 func ETHClient(wsURL string, gasSettings *GasSettings) (*ethclient.Client, *bind.TransactOpts, string, error) {
 	client, err := ethclient.Dial(wsURL)
 	if err != nil {
@@ -163,6 +165,45 @@ func MultiplyEIP1559GasPrices(client *ethclient.Client, fcMult, tcMult int64) (*
 	}
 
 	return new(big.Int).Mul(feeCap, big.NewInt(fcMult)), new(big.Int).Mul(tipCap, big.NewInt(tcMult)), nil
+}
+
+func blockchainsByChainID(in *Cfg) (map[string]*ethclient.Client, error) {
+	bcByChainID := make(map[string]*ethclient.Client)
+	for _, bc := range in.Blockchains {
+		c, err := ethclient.Dial(bc.Out.Nodes[0].ExternalHTTPUrl)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to Ethereum: %w", err)
+		}
+		bcByChainID[bc.ChainID] = c
+	}
+	return bcByChainID, nil
+}
+
+// NewDefaultCLDFBundle creates a new default CLDF bundle
+func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
+	return operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+}
+
+// GetRouterAddrForSelector get router address for chain selector, mostly used in testing or tools
+func GetRouterAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
+	var routerAddr common.Address
+	for _, addr := range in.CCV.Addresses {
+		var refs []datastore.AddressRef
+		err := json.Unmarshal([]byte(addr), &refs)
+		if err != nil {
+			return common.Address{}, err
+		}
+		for _, ref := range refs {
+			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(router.ContractType) {
+				routerAddr = common.HexToAddress(ref.Address)
+			}
+		}
+	}
+	return routerAddr, nil
 }
 
 // FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).
@@ -231,29 +272,23 @@ func FundNodeEIP1559(c *ethclient.Client, pkey, recipientAddress string, amountO
 }
 
 /*
-This stuff should be exposed by Atlas as a transformation function that can work independently from any backend (PostgreSQL or Prometheus, etc)
-But for now we use these functions to expose on-chain events (logs) as a custom aggregated metrics in Prometheus
+Ideally, these functions should be exposed by Atlas as a transformation function that can work independently of any backend (PostgreSQL, Kafka or Prometheus)
+But for now we use these functions to expose on-chain events (logs) as a custom aggregated metrics (between two on-chain events, for example) in Prometheus
 */
 
-type UnpackedLog struct {
+// UnpackedLog is an extension of log containing log(event), contract name and chain ID
+type UnpackedLog[T any] struct {
 	types.Log
-	Name         string         `json:"name"`
-	ChainID      int64          `json:"chainId"`
-	BlkTimestamp uint64         `json:"blkTimestamp"`
-	UnpackedData map[string]any `json:"unpackedData"`
+	Name         string `json:"name"`
+	ChainID      int64  `json:"chainId"`
+	UnpackedData T      `json:"unpackedData"`
 }
 
-type LogSpec struct {
-	EventName string
-	ABI       string
-	Client    *ethclient.Client
-}
-type LogsByContractName map[string]LogSpec
+var prometheusOnce = &sync.Once{}
 
-var once = &sync.Once{}
-
-func exposePrometheusMetricsFor(interval time.Duration) error {
-	once.Do(func() {
+// ExposePrometheusMetricsFor temporarily exposes Prometheus endpoint so metrics can be scraped
+func ExposePrometheusMetricsFor(interval time.Duration) error {
+	prometheusOnce.Do(func() {
 		http.Handle("/on-chain-metrics", promhttp.Handler())
 	})
 	go http.ListenAndServe(":9112", nil)
@@ -263,32 +298,8 @@ func exposePrometheusMetricsFor(interval time.Duration) error {
 	return nil
 }
 
-// ServeOnChainEventsPrometheusFor is serving all the on-chain events we collect as a Prometheus custom handle "/on-chain-metrics"
-func ServeOnChainEventsPrometheusFor(in *Cfg, interval time.Duration) error {
-	bcs, err := blockchainsByChainID(in)
-	if err != nil {
-		return err
-	}
-	if err := CollectAndObserveEvents(in, bcs, nil, nil); err != nil {
-		return fmt.Errorf("failed to collect events: %w", err)
-	}
-	return exposePrometheusMetricsFor(interval)
-}
-
-func blockchainsByChainID(in *Cfg) (map[string]*ethclient.Client, error) {
-	bcByChainID := make(map[string]*ethclient.Client)
-	for _, bc := range in.Blockchains {
-		c, err := ethclient.Dial(bc.Out.Nodes[0].ExternalHTTPUrl)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to Ethereum: %w", err)
-		}
-		bcByChainID[bc.ChainID] = c
-	}
-	return bcByChainID, nil
-}
-
-// FilterUnpackEvents filters and returns all the logs from block X to block Y
-func FilterUnpackEvents(ctx context.Context, c *ethclient.Client, abiStr, contractAddr, eventName string, from, to *big.Int) ([]types.Log, []*UnpackedLog, error) {
+// FilterUnpackEventsWithMeta filters and returns all the logs from block X to block Y with additional metadata
+func FilterUnpackEventsWithMeta[T any](ctx context.Context, c *ethclient.Client, abiStr, contractAddr, eventName string, from, to *big.Int) ([]types.Log, []*UnpackedLog[T], error) {
 	parsedABI, err := abi.JSON(strings.NewReader(abiStr))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse ABI: %w", err)
@@ -311,98 +322,60 @@ func FilterUnpackEvents(ctx context.Context, c *ethclient.Client, abiStr, contra
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to filter logs: %w", err)
 	}
-	unpacked := make([]*UnpackedLog, 0)
+	unpacked := make([]*UnpackedLog[T], 0)
 	for _, l := range logs {
-		blk, err := c.HeaderByNumber(context.Background(), big.NewInt(int64(l.BlockNumber)))
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get block by number: %w", err)
+		unpack := &UnpackedLog[T]{
+			Log:     l,
+			Name:    eventName,
+			ChainID: cID.Int64(),
 		}
-		unpack := &UnpackedLog{
-			Log:          l,
-			Name:         eventName,
-			ChainID:      cID.Int64(),
-			BlkTimestamp: blk.Time,
-		}
-		unpackedData := make(map[string]any)
-		err = parsedABI.UnpackIntoMap(unpackedData, eventName, l.Data)
+		var payload T
+
+		err = parsedABI.UnpackIntoInterface(&payload, eventName, l.Data)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to unpack event data: %w", err)
 		}
-		unpack.UnpackedData = unpackedData
+		unpack.UnpackedData = payload
 		unpacked = append(unpacked, unpack)
 	}
 	return logs, unpacked, nil
 }
 
-// filterContractEventsPerSelector filters all contract events and decodes them using go-ethereum generated binding package
-func filterContractEventsPerSelector(in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName string, eventName string, from, to *big.Int) ([]types.Log, []*UnpackedLog, error) {
+// FilterContractEventsAllChains filters all contract events across all available chains and decodes them using go-ethereum generated binding package, adds contract name and chain ID
+func FilterContractEventsAllChains[T any](in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName string, eventName string, from, to *big.Int) ([]*UnpackedLog[T], error) {
 	refsBySelector, err := GetCLDFAddressesPerSelector(in)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load addresses per selector: %w", err)
+		return nil, fmt.Errorf("failed to load addresses per selector: %w", err)
 	}
-	allLogs, allLogsUnpacked := make([]types.Log, 0), make([]*UnpackedLog, 0)
+	allLogsUnpacked := make([]*UnpackedLog[T], 0)
 	for _, ref := range refsBySelector {
-		for _, contract := range ref {
-			if contract.Type.String() == contractName {
-				cID, err := chainsel.GetChainIDFromSelector(contract.ChainSelector)
+		for _, r := range ref {
+			if r.Type.String() == contractName {
+				cID, err := chainsel.GetChainIDFromSelector(r.ChainSelector)
 				if err != nil {
-					return nil, nil, fmt.Errorf("failed to get chain ID: %w", err)
+					return nil, fmt.Errorf("failed to get chain ID: %w", err)
 				}
-				logs, data, err := FilterUnpackEvents(context.Background(), bcByChainID[cID], abi, contract.Address, eventName, from, to)
+				_, data, err := FilterUnpackEventsWithMeta[T](context.Background(), bcByChainID[cID], abi, r.Address, eventName, from, to)
 				if err != nil {
-					return nil, nil, fmt.Errorf("failed to filter logs: %w", err)
+					return nil, fmt.Errorf("failed to filter logs: %w", err)
 				}
-				allLogs = append(allLogs, logs...)
 				allLogsUnpacked = append(allLogsUnpacked, data...)
 			}
 		}
 	}
-	return allLogs, allLogsUnpacked, nil
+	return allLogsUnpacked, nil
 }
 
-func SendMessage(in *Cfg, src uint64, dest uint64) error {
-	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
-	if err != nil {
-		return fmt.Errorf("creating CLDF operations environment: %w", err)
-	}
+/*
+CCIPv17 (CCV) specific helpers
+*/
 
-	chains := e.BlockChains.EVMChains()
-	if chains == nil {
-		return errors.New("no EVM chains found")
-	}
+type GenericExtraArgsV2 struct {
+	GasLimit                 *big.Int
+	AllowOutOfOrderExecution bool
+}
 
-	if !slices.Contains(selectors, src) {
-		return fmt.Errorf("source selector %d not found in environment selectors %v", src, selectors)
-	}
-	if !slices.Contains(selectors, dest) {
-		return fmt.Errorf("destination selector %d not found in environment selectors %v", dest, selectors)
-	}
-
-	srcChain := chains[src]
-
-	bundle := operations.NewBundle(
-		func() context.Context { return context.Background() },
-		e.Logger,
-		operations.NewMemoryReporter(),
-	)
-	e.OperationsBundle = bundle
-
-	var routerAddr common.Address
-	for _, addr := range in.CCV.Addresses {
-		var refs []datastore.AddressRef
-		if err := json.Unmarshal([]byte(addr), &refs); err != nil {
-			return fmt.Errorf("failed to unmarshal address: %w", err)
-		}
-		for _, ref := range refs {
-			if ref.ChainSelector == src && ref.Type == datastore.ContractType(router.ContractType) {
-				routerAddr = common.HexToAddress(ref.Address)
-			}
-		}
-	}
-	if routerAddr == (common.Address{}) {
-		return fmt.Errorf("router address not found for selector %d", src)
-	}
-
+func NewGenericCCIP17ExtraArgsV2(args GenericExtraArgsV2) ([]byte, error) {
 	const clientABI = `
 		[
 			{
@@ -432,29 +405,61 @@ func SendMessage(in *Cfg, src uint64, dest uint64) error {
 
 	parsedABI, err := abi.JSON(bytes.NewReader([]byte(clientABI)))
 	if err != nil {
-		return fmt.Errorf("failed to parse ABI: %w", err)
+		return nil, err
 	}
 
-	genericExtraArgsV2 := struct {
-		GasLimit                 *big.Int
-		AllowOutOfOrderExecution bool
-	}{
-		GasLimit:                 big.NewInt(1_000_000),
-		AllowOutOfOrderExecution: true,
-	}
-	encoded, err := parsedABI.Methods["encodeGenericExtraArgsV2"].Inputs.Pack(genericExtraArgsV2)
+	encoded, err := parsedABI.Methods["encodeGenericExtraArgsV2"].Inputs.Pack(args)
 	if err != nil {
-		return fmt.Errorf("failed to pack arguments: %w", err)
+		return nil, err
 	}
 
 	tag := []byte{0x18, 0x1d, 0xcf, 0x10} // GENERIC_EXTRA_ARGS_V2_TAG
+	tag = append(tag, encoded...)
+	return tag, nil
+}
+
+// SendExampleArgsV2Message sends an example message between two chains (selectors) using ArgsV2
+func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
+	}
+
+	chains := e.BlockChains.EVMChains()
+	if chains == nil {
+		return errors.New("no EVM chains found")
+	}
+	if !slices.Contains(selectors, src) {
+		return fmt.Errorf("source selector %d not found in environment selectors %v", src, selectors)
+	}
+	if !slices.Contains(selectors, dest) {
+		return fmt.Errorf("destination selector %d not found in environment selectors %v", dest, selectors)
+	}
+
+	srcChain := chains[src]
+
+	bundle := NewDefaultCLDFBundle(e)
+	e.OperationsBundle = bundle
+
+	routerAddr, err := GetRouterAddrForSelector(in, srcChain.Selector)
+	if err != nil {
+		return fmt.Errorf("failed to get router address: %w", err)
+	}
+	argsv2, err := NewGenericCCIP17ExtraArgsV2(GenericExtraArgsV2{
+		GasLimit:                 big.NewInt(1_000_000),
+		AllowOutOfOrderExecution: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to generate GenericExtraArgsV2: %w", err)
+	}
+
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
 			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    append(tag, encoded...),
+			ExtraArgs:    argsv2,
 		},
 	}
 
@@ -482,7 +487,7 @@ func SendMessage(in *Cfg, src uint64, dest uint64) error {
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
-		Msg("CCIP message sent!")
+		Msg("CCIP message sent")
 
 	return nil
 }

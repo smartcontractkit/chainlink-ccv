@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	LocalWASPLoadDashboard = "http://localhost:3000/d/WASPLoadTests/wasp-load-test?orgId=1&from=1756927942705&to=1756928229431"
+	LocalWASPLoadDashboard = "http://localhost:3000/d/WASPLoadTests/wasp-load-test?orgId=1&from=now-5m&to=now&refresh=5s"
 	LocalCCVDashboard      = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/ccv-services?orgId=1&refresh=5s"
 )
 
@@ -257,7 +257,7 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
-		return ccv.SendMessage(in, src, dest)
+		return ccv.SendExampleArgsV2Message(in, src, dest)
 	},
 }
 
@@ -281,7 +281,10 @@ var monitorContractsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		return ccv.ServeOnChainEventsPrometheusFor(in, 10*time.Second)
+		if err := ccv.MonitorOnChainLogs(in); err != nil {
+			return err
+		}
+		return ccv.ExposePrometheusMetricsFor(10 * time.Second)
 	},
 }
 
