@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"go.uber.org/zap"
@@ -48,7 +49,20 @@ func main() {
 	)
 
 	// Start the Scanner processing
-	scanner.Start(ctx)
+	ccvDataCh := scanner.Start(ctx)
+	indexerStorage := storage.NewInMemoryStorage()
+
+	// Need to tidy up
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ccvData := <-ccvDataCh:
+				indexerStorage.InsertCCVData(ctx, ccvData)
+			}
+		}
+	}()
 
 	// TODO: Add the Read API here, which will query the indexer storage for CCV data
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

@@ -62,11 +62,11 @@ func NewScanner(opts ...Option) *Scanner {
 	return s
 }
 
-func (s *Scanner) Start(ctx context.Context) *chan types.CCVData {
+func (s *Scanner) Start(ctx context.Context) chan types.CCVData {
 	go s.run(ctx)
 	s.lggr.Info("Scanner started")
 
-	return &s.ccvDataCh
+	return s.ccvDataCh
 }
 
 func (s *Scanner) Stop() {
