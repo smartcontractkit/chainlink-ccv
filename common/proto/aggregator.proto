@@ -81,6 +81,7 @@ message MessageWithCCVData {
   bytes source_verifier_address = 2;
   bytes dest_verifier_address = 3;
   bytes ccv_data = 4;
+  int64 timestamp = 5;
 }
 
 message WriteCommitCCVNodeDataRequest {
