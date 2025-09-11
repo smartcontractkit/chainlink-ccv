@@ -2,6 +2,8 @@ set fallback
 
 import '../tools/lib/utils.justfile'
 
+coverage_file := env_var_or_default('COVERAGE_FILE', 'verifier_coverage.out')
+
 # Default: show available recipes
 default:
     just --list
@@ -27,10 +29,10 @@ mod-download: ensure-go
     go mod download
 
 test: ensure-go
-    go test -v -race ./...
+    go test -v -race -fullpath -shuffle on -v ./...
 
 test-coverage:
-    go test -v -race -coverprofile=coverage.out ./...
+    go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
 
 build-rc:
     docker build -f Dockerfile -t executor:rc ..
