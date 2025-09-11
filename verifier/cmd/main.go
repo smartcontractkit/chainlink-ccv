@@ -120,7 +120,7 @@ func main() {
 
 	// Create verifier addresses before source readers setup
 	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy1337)
-	storage, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
+	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
@@ -149,13 +149,6 @@ func main() {
 	}
 	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
-
-	storage, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
-	if err != nil {
-		lggr.Errorw("Failed to create storage writer", "error", err)
-		os.Exit(1)
-	}
-	storageWriter := storage
 
 	// Create coordinator configuration
 	config := verifiertypes.CoordinatorConfig{
@@ -229,7 +222,7 @@ func main() {
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		stats := storage.GetStats()
+		stats := storageWriter.GetStats()
 		lggr.Infow("📊 Storage Statistics:\n")
 		for key, value := range stats {
 			lggr.Infow("%s: %v\n", key, value)
