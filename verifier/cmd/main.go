@@ -120,6 +120,7 @@ func main() {
 
 	// Create verifier addresses before source readers setup
 	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy1337)
+	storage, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
