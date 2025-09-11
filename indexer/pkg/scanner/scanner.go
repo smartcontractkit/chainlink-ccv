@@ -1,0 +1,126 @@
+package scanner
+
+import (
+	"context"
+	"time"
+
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+type Scanner struct {
+	readerDiscovery common.ReaderDiscovery
+	config          ScannerConfig
+	lggr            logger.Logger
+	ccvDataCh       chan types.CCVData
+	stopCh          chan struct{}
+	doneCh          chan struct{}
+}
+
+type ScannerConfig struct {
+	ScanInterval time.Duration
+}
+
+// Option is the functional option type for Scanner.
+type Option func(*Scanner)
+
+// WithReaderDiscovery sets the reader discovery method.
+func WithReaderDiscovery(readerDiscovery common.ReaderDiscovery) Option {
+	return func(s *Scanner) {
+		s.readerDiscovery = readerDiscovery
+	}
+}
+
+// WithLogger sets the logger.
+func WithLogger(lggr logger.Logger) Option {
+	return func(s *Scanner) {
+		s.lggr = lggr
+	}
+}
+
+// WithConfig sets the scanner configuration.
+func WithConfig(config ScannerConfig) Option {
+	return func(s *Scanner) {
+		s.config = config
+	}
+}
+
+// NewScanner creates a new Scanner with the given options.
+func NewScanner(opts ...Option) *Scanner {
+	s := &Scanner{
+		ccvDataCh: make(chan types.CCVData, 1000),
+		stopCh:    make(chan struct{}),
+		doneCh:    make(chan struct{}),
+	}
+
+	// Apply all options
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s
+}
+
+func (s *Scanner) Start(ctx context.Context) *chan types.CCVData {
+	go s.run(ctx)
+	s.lggr.Info("Scanner started")
+
+	return &s.ccvDataCh
+}
+
+func (s *Scanner) Stop() {
+	close(s.stopCh)
+
+	// Wait for processing to stop
+	<-s.doneCh
+	s.lggr.Info("Scanner stopped")
+}
+
+// Main loop for the Scanner.
+func (s *Scanner) run(ctx context.Context) {
+	defer close(s.doneCh)
+
+	s.lggr.Info("Scanner discovering readers")
+	readerDiscoveryCh := s.readerDiscovery.DiscoverReaders(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.lggr.Info("Scanner stopped due to context cancellation")
+			return
+		case <-s.stopCh:
+			s.lggr.Info("Scanner stopped due to stop signal")
+			return
+		case reader := <-readerDiscoveryCh:
+			s.lggr.Info("Scanner discovered reader!")
+			go s.handleReader(reader)
+		}
+	}
+}
+
+func (s *Scanner) handleReader(reader types.OffchainStorageReader) {
+	// Create a ticker based on the scan interval configured
+	ticker := time.NewTicker(s.config.ScanInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			queryResponse, err := reader.ReadCCVData(context.Background())
+			s.lggr.Debug("Scanner read CCV data from reader")
+
+			if err != nil {
+				s.lggr.Errorw("Error reading CCV data from reader", "error", err)
+				continue
+			}
+
+			for _, response := range queryResponse {
+				s.lggr.Infow("Scanner populated CCV data channel with new data", "messageID", response.Data.MessageID)
+				s.ccvDataCh <- response.Data
+			}
+		}
+	}
+}
