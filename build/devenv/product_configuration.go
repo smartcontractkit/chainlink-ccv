@@ -505,10 +505,52 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
 			Plog.Info().Str("Node", n.Node.ExternalURL).Send()
 		}
+		// Write CCVProxy addresses from CLDF deployment to verifier config
+		if err := writeCCVProxyAddressesToConfig(in); err != nil {
+			Plog.Warn().Err(err).Msg("Failed to write CCVProxy addresses to verifier.toml")
+		}
+
 		if err := verifyEnvironment(in); err != nil {
 			return err
 		}
 		return nil
 	}
+	return nil
+}
+
+// writeCCVProxyAddressesToConfig writes CCVProxy addresses from CLDF deployment to verifier.toml
+func writeCCVProxyAddressesToConfig(in *Cfg) error {
+	// Get CLDF addresses
+	addresses, err := GetCLDFAddressesPerSelector(in)
+	if err != nil {
+		return fmt.Errorf("failed to get CLDF addresses: %w", err)
+	}
+
+	// Find CCVProxy addresses for chains 1337 and 2337
+	ccvProxyAddresses := make(map[string]string)
+
+	for _, addrRefs := range addresses {
+		for _, ref := range addrRefs {
+			if ref.Type == "CCVProxy" {
+				chainKey := fmt.Sprintf("%d", ref.ChainSelector)
+				ccvProxyAddresses[chainKey] = ref.Address
+				Plog.Info().
+					Uint64("chainSelector", ref.ChainSelector).
+					Str("address", ref.Address).
+					Msg("Found CCVProxy address from CLDF")
+			}
+		}
+	}
+
+	if len(ccvProxyAddresses) == 0 {
+		return fmt.Errorf("no CCVProxy addresses found in CLDF deployment")
+	}
+
+	in.Verifier.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
+	in.Verifier.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
+
+	in.Verifier2.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
+	in.Verifier2.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
+
 	return nil
 }

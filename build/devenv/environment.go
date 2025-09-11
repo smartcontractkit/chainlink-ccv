@@ -19,7 +19,7 @@ type Cfg struct {
 	JD          *jd.Input                 `toml:"jd"`
 	Fake        *services.FakeInput       `toml:"fake"             validate:"required"`
 	Verifier    *services.VerifierInput   `toml:"verifier"         validate:"required"`
-	Verifier2       *services.VerifierInput   `toml:"verifier2"        validate:"required"`
+	Verifier2   *services.VerifierInput   `toml:"verifier2"        validate:"required"`
 	Executor    *services.ExecutorInput   `toml:"executor"         validate:"required"`
 	Indexer     *services.IndexerInput    `toml:"indexer"          validate:"required"`
 	Aggregator  *services.AggregatorInput `toml:"aggregator"       validate:"required"`
@@ -120,37 +120,6 @@ func NewEnvironment() (*Cfg, error) {
 		return nil
 	})
 
-	// Start services that need blockchain outputs
-	eg.Go(func() error {
-		// Wait for blockchain outputs to be ready
-		<-blockchainOutputsReady
-		<-aggregatorReady
-
-		in.Verifier.BlockchainOutputs = blockchainOutputs
-		in.Verifier.VerifierConfig = services.VerifierConfig{
-			AggregatorAddress: aggregatorOutput.Address,
-			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
-			PrivateKey:        "dev-private-key-12345678901234567890",
-		}
-		_, err = services.NewVerifier(in.Verifier)
-		if err != nil {
-			return fmt.Errorf("failed to create verifier service: %w", err)
-		}
-		in.Verifier2.BlockchainOutputs = blockchainOutputs
-		in.Verifier2.VerifierConfig = services.VerifierConfig{
-			AggregatorAddress: aggregatorOutput.Address,
-			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
-			PrivateKey:        "dev-private-key2-12345678901234567890",
-		}
-		in.Verifier2.ContainerName = "verifier2"
-		in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
-		_, err = services.NewVerifier(in.Verifier2)
-		if err != nil {
-			return fmt.Errorf("failed to create verifier 2 service: %w", err)
-		}
-		return nil
-	})
-
 	eg.Go(func() error {
 		// Wait for blockchain outputs to be ready
 		<-blockchainOutputsReady
@@ -185,11 +154,48 @@ func NewEnvironment() (*Cfg, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
 	}
+
+	in.Verifier.BlockchainOutputs = blockchainOutputs
+	in.Verifier.VerifierConfig = services.VerifierConfig{
+		AggregatorAddress: aggregatorOutput.Address,
+		BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+		PrivateKey:        "dev-private-key-12345678901234567890",
+	}
+
+	in.Verifier2.BlockchainOutputs = blockchainOutputs
+	in.Verifier2.VerifierConfig = services.VerifierConfig{
+		AggregatorAddress: aggregatorOutput.Address,
+		BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+		PrivateKey:        "dev-private-key2-12345678901234567890",
+	}
+	in.Verifier2.ContainerName = "verifier2"
+	in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
+
 	track.Record("[infra] deployed CL nodes")
 	if err := DefaultProductConfiguration(in, ConfigureProductContractsJobs); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
 	track.Record("[changeset] deployed product contracts")
+	// Start services that need blockchain outputs
+	eg.Go(func() error {
+		// Wait for blockchain outputs to be ready
+		<-blockchainOutputsReady
+		<-aggregatorReady
+		_, err = services.NewVerifier(in.Verifier)
+		if err != nil {
+			return fmt.Errorf("failed to create verifier service: %w", err)
+		}
+		_, err = services.NewVerifier(in.Verifier2)
+		if err != nil {
+			return fmt.Errorf("failed to create verifier 2 service: %w", err)
+		}
+		return nil
+	})
+	// wait for verifier
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
 	track.Print()
 	if err := PrintCLDFAddresses(in); err != nil {
 		return nil, err

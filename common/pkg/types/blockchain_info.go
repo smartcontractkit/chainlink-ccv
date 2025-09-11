@@ -144,3 +144,22 @@ func (bh *BlockchainHelper) GetInternalRPCEndpoint(chainSelector protocltypes.Ch
 
 	return info.Nodes[0].InternalHTTPUrl, nil
 }
+
+// GetInternalWebsocketEndpoint returns the internal websocket endpoint for a blockchain by chain selector
+// Useful for container-to-container communication.
+func (bh *BlockchainHelper) GetInternalWebsocketEndpoint(chainSelector protocltypes.ChainSelector) (string, error) {
+	info, err := bh.GetBlockchainByChainSelector(chainSelector)
+	if err != nil {
+		return "", err
+	}
+
+	if len(info.Nodes) == 0 {
+		return "", fmt.Errorf("no nodes found for chain %d", uint64(chainSelector))
+	}
+
+	if info.Nodes[0].InternalWSUrl == "" {
+		return "", fmt.Errorf("no internal HTTP URL found for chain %d", uint64(chainSelector))
+	}
+
+	return info.Nodes[0].InternalWSUrl, nil
+}
