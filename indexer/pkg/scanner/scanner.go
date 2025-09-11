@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -80,6 +81,7 @@ func (s *Scanner) Stop() {
 // Main loop for the Scanner.
 func (s *Scanner) run(ctx context.Context) {
 	defer close(s.doneCh)
+	var wg sync.WaitGroup
 
 	s.lggr.Info("Scanner discovering readers")
 	readerDiscoveryCh := s.readerDiscovery.DiscoverReaders(ctx)
@@ -88,21 +90,25 @@ func (s *Scanner) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.lggr.Info("Scanner stopped due to context cancellation")
+			wg.Wait()
 			return
 		case <-s.stopCh:
 			s.lggr.Info("Scanner stopped due to stop signal")
+			wg.Wait()
 			return
 		case reader := <-readerDiscoveryCh:
 			s.lggr.Info("Scanner discovered reader!")
-			go s.handleReader(reader)
+			wg.Add(1)
+			go s.handleReader(reader, &wg)
 		}
 	}
 }
 
-func (s *Scanner) handleReader(reader types.OffchainStorageReader) {
+func (s *Scanner) handleReader(reader types.OffchainStorageReader, wg *sync.WaitGroup) {
 	// Create a ticker based on the scan interval configured
 	ticker := time.NewTicker(s.config.ScanInterval)
 	defer ticker.Stop()
+	defer wg.Done()
 
 	for {
 		select {
