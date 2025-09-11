@@ -1,17 +1,18 @@
-package ccv_streamer
+package ccvstreamer
 
 import (
 	"context"
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	protocol_types "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // OffchainStorageStreamer implements the Streamer interface using an OffchainStorageReader.
-func OffchainStorageStreamer(reader protocol_types.OffchainStorageReader, backoff time.Duration) Streamer {
+func OffchainStorageStreamer(reader protocol_types.OffchainStorageReader, backoff time.Duration) executor.CCVResultStreamer {
 	return func(
 		ctx context.Context,
 		lggr logger.Logger,

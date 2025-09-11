@@ -1,4 +1,4 @@
-package ccv_streamer
+package executor
 
 import (
 	"context"
@@ -8,7 +8,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type Streamer func(
+// CCVResultStreamer produces a channel of MessageWithCCVData objects, the
+// channel should only close if there is an error.
+type CCVResultStreamer func(
 	ctx context.Context,
 	lggr logger.Logger,
 	wg *sync.WaitGroup,
