@@ -120,7 +120,6 @@ func main() {
 
 	// Create verifier addresses before source readers setup
 	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy1337)
-	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
@@ -130,6 +129,11 @@ func main() {
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
+	}
+
+	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
+	if err != nil {
+		lggr.Errorw("Failed to create storage writer", "error", err)
 	}
 
 	// Create source readers - either blockchain-based or mock

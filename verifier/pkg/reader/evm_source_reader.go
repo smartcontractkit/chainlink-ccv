@@ -10,14 +10,14 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
 // EVMSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain.
@@ -25,7 +25,7 @@ type EVMSourceReader struct {
 	chainClient          client.Client
 	logger               logger.Logger
 	lastProcessedBlock   *big.Int
-	verificationTaskCh   chan types.VerificationTask
+	verificationTaskCh   chan verifiertypes.VerificationTask
 	stopCh               chan struct{}
 	ccipMessageSentTopic string
 	contractAddress      string
@@ -46,7 +46,7 @@ func NewEVMSourceReader(
 	return &EVMSourceReader{
 		chainClient:          chainClient,
 		logger:               logger,
-		verificationTaskCh:   make(chan types.VerificationTask, 100),
+		verificationTaskCh:   make(chan verifiertypes.VerificationTask, 100),
 		stopCh:               make(chan struct{}),
 		pollInterval:         3 * time.Second,
 		chainSelector:        chainSelector,
@@ -106,7 +106,7 @@ func (r *EVMSourceReader) Stop() error {
 }
 
 // VerificationTaskChannel returns the channel where new message events are delivered.
-func (r *EVMSourceReader) VerificationTaskChannel() <-chan types.VerificationTask {
+func (r *EVMSourceReader) VerificationTaskChannel() <-chan verifiertypes.VerificationTask {
 	return r.verificationTaskCh
 }
 
@@ -256,7 +256,7 @@ func (r *EVMSourceReader) processEventCycle(ctx context.Context, contractAddr co
 }
 
 // processCCIPMessageSentEvent processes a single CCIPMessageSent event.
-func (r *EVMSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
+func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 	r.logger.Infow("🎉 Found CCIPMessageSent event!",
 		"chainSelector", r.chainSelector,
 		"blockNumber", log.BlockNumber,
@@ -538,7 +538,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 	}
 
 	// Create verification task
-	task := types.VerificationTask{
+	task := verifiertypes.VerificationTask{
 		Message:      *message,
 		ReceiptBlobs: receiptBlobs,
 	}
