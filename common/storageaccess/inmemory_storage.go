@@ -171,12 +171,6 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]types.Quer
 			continue
 		}
 
-		s.lggr.Debugw("Filtering CCV data",
-			"destChains", s.destChainSelectors,
-			"sourceChains", s.sourceChainSelectors,
-			"entry", entry.CCVData,
-		)
-
 		if len(s.destChainSelectors) > 0 {
 			// Filter by destination chain
 			found := false
