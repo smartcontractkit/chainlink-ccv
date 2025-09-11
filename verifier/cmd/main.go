@@ -28,7 +28,8 @@ import (
 
 // Configuration flags
 const (
-	enableContinuousEventMonitoring = true // Set to true when RPC connectivity is stable
+	chainSelectorA = protocol.ChainSelector(1337)
+	chainSelectorB = protocol.ChainSelector(2337)
 )
 
 func loadConfiguration(filepath string) (*verifier_config.Configuration, error) {
@@ -104,7 +105,8 @@ func main() {
 
 	// Use actual blockchain information from configuration
 	var blockchainHelper *types.BlockchainHelper
-	var chainClient client.Client
+	var chainClient1 client.Client
+	var chainClient2 client.Client
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
@@ -112,7 +114,8 @@ func main() {
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
-		chainClient = createHealthyMultiNodeClient(ctx, blockchainHelper, lggr)
+		chainClient1 = createHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainSelectorA)
+		chainClient2 = createHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainSelectorB)
 	}
 
 	// Create verifier addresses before source readers setup
@@ -129,14 +132,28 @@ func main() {
 	}
 
 	// Create source readers - either blockchain-based or mock
-	var sourceReaders map[protocol.ChainSelector]reader.SourceReader
+	var sourceReaders = make(map[protocol.ChainSelector]reader.SourceReader)
 
 	// Try to create blockchain source readers if possible
-	if chainClient != nil && (verifierConfig.CCVProxy1337 != "" || verifierConfig.CCVProxy2337 != "") {
-		sourceReaders = createEVMSourceReaders(chainClient, verifierConfig, lggr)
+	if chainClient1 != nil && verifierConfig.CCVProxy1337 != "" {
+		sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainSelectorA, lggr)
+		lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 	} else {
+		lggr.Infow("✅ Creating mock source reader", "chain", 1337)
+		mockSetup1337 := internal.SetupDevSourceReader(chainSelectorA)
+		sourceReaders[chainSelectorA] = mockSetup1337.Reader
+		internal.StartMockMessageGenerator(ctx, mockSetup1337, chainSelectorA, verifierAddr, lggr)
+	}
+
+	if chainClient2 != nil && verifierConfig.CCVProxy2337 != "" {
+		sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
+		lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
+	} else {
+		lggr.Infow("✅ Creating mock source reader", "chain", 2337)
 		// No blockchain helper, use mock readers with traffic generation
-		sourceReaders = createMockSourceReaders(ctx, verifierAddr, verifierAddr2, lggr, true)
+		mockSetup2337 := internal.SetupDevSourceReader(chainSelectorB)
+		sourceReaders[chainSelectorB] = mockSetup2337.Reader
+		internal.StartMockMessageGenerator(ctx, mockSetup2337, chainSelectorB, verifierAddr2, lggr)
 	}
 
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
@@ -150,10 +167,10 @@ func main() {
 	config := verifiertypes.CoordinatorConfig{
 		VerifierID: "dev-verifier-1",
 		SourceConfigs: map[protocol.ChainSelector]verifiertypes.SourceConfig{
-			protocol.ChainSelector(1337): {
+			chainSelectorA: {
 				VerifierAddress: verifierAddr,
 			},
-			protocol.ChainSelector(2337): {
+			chainSelectorB: {
 				VerifierAddress: verifierAddr2,
 			},
 		},
@@ -259,63 +276,19 @@ func main() {
 
 func ptr[T any](t T) *T { return &t }
 
-// createEVMSourceReaders creates blockchain source readers from chain client and config
-func createEVMSourceReaders(chainClient client.Client, config *verifier_config.Configuration, lggr logger.Logger) map[protocol.ChainSelector]reader.SourceReader {
-	sourceReaders := make(map[protocol.ChainSelector]reader.SourceReader)
-
-	if config.CCVProxy1337 != "" {
-		blockchainSourceReader1337 := reader.NewEVMSourceReader(
-			chainClient,
-			config.CCVProxy1337,
-			protocol.ChainSelector(1337),
-			lggr,
-		)
-		sourceReaders[protocol.ChainSelector(1337)] = blockchainSourceReader1337
-	}
-
-	if config.CCVProxy2337 != "" {
-		blockchainSourceReader2337 := reader.NewEVMSourceReader(
-			chainClient,
-			config.CCVProxy2337,
-			protocol.ChainSelector(2337),
-			lggr,
-		)
-		sourceReaders[protocol.ChainSelector(2337)] = blockchainSourceReader2337
-	}
-
-	var chains []int
-	for chainSelector := range sourceReaders {
-		chains = append(chains, int(chainSelector))
-	}
-	lggr.Infow("✅ Created blockchain source readers", "chains", chains)
-
-	return sourceReaders
-}
-
-// createMockSourceReaders creates mock source readers and starts message generators
-func createMockSourceReaders(ctx context.Context, verifierAddr, verifierAddr2 protocol.UnknownAddress, lggr logger.Logger, generateTraffic bool) map[protocol.ChainSelector]reader.SourceReader {
-	mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
-	mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
-
-	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
-		protocol.ChainSelector(1337): mockSetup1337.Reader,
-		protocol.ChainSelector(2337): mockSetup2337.Reader,
-	}
-
-	if generateTraffic {
-		// Start mock message generators for development
-		internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
-		internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
-	}
-
-	return sourceReaders
+// createEVMSourceReader creates a blockchain source reader for a specific chain client and chain
+func createEVMSourceReader(chainClient client.Client, ccvProxyAddress string, chainSelector protocol.ChainSelector, lggr logger.Logger) reader.SourceReader {
+	blockchainSourceReader := reader.NewEVMSourceReader(
+		chainClient,
+		ccvProxyAddress,
+		chainSelector,
+		lggr,
+	)
+	return blockchainSourceReader
 }
 
 // createHealthyMultiNodeClient tests the multinode chain client connection and returns the client if it's healthy
-func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger) client.Client {
-	// Test for chain 1337
-	chainSelector := protocol.ChainSelector(1337)
-
+func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger, chainSelector protocol.ChainSelector) client.Client {
 	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
@@ -355,7 +328,7 @@ func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.B
 		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
 		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
 
-	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, big.NewInt(1337), nodes, chaintype.ChainType(chainTypeStr))
+	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, big.NewInt(int64(chainSelector)), nodes, chaintype.ChainType(chainTypeStr))
 
 	if err != nil {
 		lggr.Errorw("Failed to create multinode chain client", "error", err)
@@ -396,6 +369,6 @@ func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.B
 		"hash", header.Hash.Hex(),
 		"timestamp", header.Timestamp)
 
-	lggr.Infow("✅ Multinode chain client tests completed successfully!")
+	lggr.Infow("✅ Multinode chain client tests completed successfully!", "chainSelector", chainSelector)
 	return chainClient
 }
