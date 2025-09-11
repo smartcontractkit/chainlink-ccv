@@ -191,6 +191,10 @@ func NewEnvironment() (*Cfg, error) {
 		}
 		return nil
 	})
+	// wait for verifier
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
 
 	track.Print()
 	if err := PrintCLDFAddresses(in); err != nil {

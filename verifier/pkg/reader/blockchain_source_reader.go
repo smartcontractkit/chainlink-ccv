@@ -3,6 +3,7 @@ package reader
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -18,23 +19,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// BlockchainSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain
-type BlockchainSourceReader struct {
+// EVMSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain
+type EVMSourceReader struct {
 	chainClient     client.Client
 	contractAddress string
 	chainSelector   protocol.ChainSelector
 	logger          logger.Logger
-
-	// Contract interaction
-	contractAddr common.Address
 
 	// Event monitoring
 	ccipMessageSentTopic string
@@ -51,20 +41,19 @@ type BlockchainSourceReader struct {
 	mu        sync.RWMutex
 }
 
-// NewBlockchainSourceReader creates a new blockchain-based source reader
-func NewBlockchainSourceReader(
+// NewEVMSourceReader creates a new blockchain-based source reader
+func NewEVMSourceReader(
 	chainClient client.Client,
 	contractAddress string,
 	chainSelector protocol.ChainSelector,
 	logger logger.Logger,
-) *BlockchainSourceReader {
-	return &BlockchainSourceReader{
+) *EVMSourceReader {
+	return &EVMSourceReader{
 		chainClient:          chainClient,
 		contractAddress:      contractAddress,
 		chainSelector:        chainSelector,
 		logger:               logger,
-		contractAddr:         common.HexToAddress(contractAddress),
-		ccipMessageSentTopic: "0xa816f7e08da08b1aa0143155f28f728327e40df7f707f612cb3566ab91229820",
+		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
 		pollInterval:         3 * time.Second,
 		verificationTaskCh:   make(chan types.VerificationTask, 100),
 		stopCh:               make(chan struct{}),
@@ -72,7 +61,7 @@ func NewBlockchainSourceReader(
 }
 
 // Start begins reading messages and pushing them to the messages channel
-func (r *BlockchainSourceReader) Start(ctx context.Context) error {
+func (r *EVMSourceReader) Start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -80,7 +69,7 @@ func (r *BlockchainSourceReader) Start(ctx context.Context) error {
 		return nil // Already running
 	}
 
-	r.logger.Infow("🔄 Starting BlockchainSourceReader",
+	r.logger.Infow("🔄 Starting EVMSourceReader",
 		"chainSelector", r.chainSelector,
 		"contract", r.contractAddress,
 		"topic", r.ccipMessageSentTopic)
@@ -96,12 +85,12 @@ func (r *BlockchainSourceReader) Start(ctx context.Context) error {
 
 	go r.eventMonitoringLoop(ctx)
 
-	r.logger.Infow("✅ BlockchainSourceReader started successfully")
+	r.logger.Infow("✅ EVMSourceReader started successfully")
 	return nil
 }
 
 // Stop stops the reader and closes the messages channel
-func (r *BlockchainSourceReader) Stop() error {
+func (r *EVMSourceReader) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -109,7 +98,7 @@ func (r *BlockchainSourceReader) Stop() error {
 		return nil // Already stopped
 	}
 
-	r.logger.Infow("🛑 Stopping BlockchainSourceReader")
+	r.logger.Infow("🛑 Stopping EVMSourceReader")
 
 	close(r.stopCh)
 	r.wg.Wait()
@@ -117,17 +106,17 @@ func (r *BlockchainSourceReader) Stop() error {
 
 	r.isRunning = false
 
-	r.logger.Infow("✅ BlockchainSourceReader stopped successfully")
+	r.logger.Infow("✅ EVMSourceReader stopped successfully")
 	return nil
 }
 
 // VerificationTaskChannel returns the channel where new message events are delivered
-func (r *BlockchainSourceReader) VerificationTaskChannel() <-chan types.VerificationTask {
+func (r *EVMSourceReader) VerificationTaskChannel() <-chan types.VerificationTask {
 	return r.verificationTaskCh
 }
 
 // HealthCheck returns the current health status of the reader
-func (r *BlockchainSourceReader) HealthCheck(ctx context.Context) error {
+func (r *EVMSourceReader) HealthCheck(ctx context.Context) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -140,14 +129,14 @@ func (r *BlockchainSourceReader) HealthCheck(ctx context.Context) error {
 }
 
 // testConnectivity tests if we can connect to the blockchain client
-func (r *BlockchainSourceReader) testConnectivity(ctx context.Context) error {
+func (r *EVMSourceReader) testConnectivity(ctx context.Context) error {
 	if r.chainClient == nil {
 		return nil // No client configured
 	}
 
 	if len(r.chainClient.NodeStates()) == 0 {
 		r.logger.Warnw("⚠️ No nodes available for connectivity test")
-		return nil // Don't fail health check for this
+		return fmt.Errorf("no nodes available")
 	}
 
 	// Test if we can make an RPC call
@@ -157,14 +146,14 @@ func (r *BlockchainSourceReader) testConnectivity(ctx context.Context) error {
 	_, err := r.chainClient.LatestBlockHeight(testCtx)
 	if err != nil {
 		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
-		// Don't return error - this is a soft failure
+		return fmt.Errorf("connectivity test failed: %w", err)
 	}
 
 	return nil
 }
 
 // eventMonitoringLoop runs the continuous event monitoring
-func (r *BlockchainSourceReader) eventMonitoringLoop(ctx context.Context) {
+func (r *EVMSourceReader) eventMonitoringLoop(ctx context.Context) {
 	defer r.wg.Done()
 
 	// Add panic recovery
@@ -174,7 +163,7 @@ func (r *BlockchainSourceReader) eventMonitoringLoop(ctx context.Context) {
 		}
 	}()
 
-	contractAddr := r.contractAddr
+	contractAddr := common.HexToAddress(r.contractAddress)
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 
@@ -199,17 +188,10 @@ func (r *BlockchainSourceReader) eventMonitoringLoop(ctx context.Context) {
 }
 
 // processEventCycle processes a single cycle of event monitoring
-func (r *BlockchainSourceReader) processEventCycle(ctx context.Context, contractAddr common.Address) {
-	// Wrap in panic recovery
-	defer func() {
-		if rec := recover(); rec != nil {
-			r.logger.Warnw("⚠️ Recovered from panic in monitoring cycle", "panic", rec)
-		}
-	}()
-
+func (r *EVMSourceReader) processEventCycle(ctx context.Context, contractAddr common.Address) {
 	// Check client connectivity
 	if r.chainClient == nil || len(r.chainClient.NodeStates()) == 0 {
-		r.logger.Debugw("🔍 No nodes available, skipping cycle")
+		r.logger.Errorw("🔍 No nodes available, skipping cycle")
 		return
 	}
 
@@ -225,19 +207,18 @@ func (r *BlockchainSourceReader) processEventCycle(ctx context.Context, contract
 
 	// Set query range
 	var fromBlock *big.Int
-	if r.lastProcessedBlock == nil {
-		// First run - look at last 100 blocks
-		if currentBlock.Cmp(big.NewInt(100)) > 0 {
-			fromBlock = new(big.Int).Sub(currentBlock, big.NewInt(100))
-		} else {
-			fromBlock = big.NewInt(1)
-		}
-	} else {
+	if r.lastProcessedBlock != nil {
 		fromBlock = new(big.Int).Add(r.lastProcessedBlock, big.NewInt(1))
+	} else if currentBlock.Cmp(big.NewInt(100)) > 0 {
+		fromBlock = new(big.Int).Sub(currentBlock, big.NewInt(100))
+	} else {
+		fromBlock = big.NewInt(1)
 	}
 
 	// Only query if there are new blocks
 	if fromBlock.Cmp(currentBlock) > 0 {
+		r.logger.Debugw("🔍 No new blocks to process", "fromBlock", fromBlock.String(),
+			"currentBlock", currentBlock.String())
 		return
 	}
 
@@ -280,7 +261,7 @@ func (r *BlockchainSourceReader) processEventCycle(ctx context.Context, contract
 }
 
 // processCCIPMessageSentEvent processes a single CCIPMessageSent event
-func (r *BlockchainSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
+func (r *EVMSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 	r.logger.Infow("🎉 Found CCIPMessageSent event!",
 		"chainSelector", r.chainSelector,
 		"blockNumber", log.BlockNumber,

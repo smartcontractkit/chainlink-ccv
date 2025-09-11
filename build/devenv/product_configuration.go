@@ -551,10 +551,5 @@ func writeCCVProxyAddressesToConfig(in *Cfg) error {
 	in.Verifier.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
 	in.Verifier.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
 
-	in.Verifier2.VerifierConfig.BlockchainInfos["1337"].CCVProxyAddress = ccvProxyAddresses["3379446385462418246"]
-	in.Verifier2.VerifierConfig.BlockchainInfos["2337"].CCVProxyAddress = ccvProxyAddresses["12922642891491394802"]
-	in.Verifier2.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
-	in.Verifier2.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
-
 	return nil
 }

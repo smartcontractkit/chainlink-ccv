@@ -17,8 +17,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/verifier_config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
@@ -31,8 +31,8 @@ const (
 	enableContinuousEventMonitoring = true // Set to true when RPC connectivity is stable
 )
 
-func loadConfiguration(filepath string) (*config.Configuration, error) {
-	var config config.Configuration
+func loadConfiguration(filepath string) (*verifier_config.Configuration, error) {
+	var config verifier_config.Configuration
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func main() {
 			sourceReaders = make(map[protocol.ChainSelector]reader.SourceReader)
 
 			if verifierConfig.CCVProxy1337 != "" {
-				blockchainSourceReader1337 := reader.NewBlockchainSourceReader(
+				blockchainSourceReader1337 := reader.NewEVMSourceReader(
 					chainClient,
 					verifierConfig.CCVProxy1337,
 					protocol.ChainSelector(1337),
@@ -145,7 +145,7 @@ func main() {
 			}
 
 			if verifierConfig.CCVProxy2337 != "" {
-				blockchainSourceReader2337 := reader.NewBlockchainSourceReader(
+				blockchainSourceReader2337 := reader.NewEVMSourceReader(
 					chainClient,
 					verifierConfig.CCVProxy2337,
 					protocol.ChainSelector(2337),
@@ -310,7 +310,7 @@ func main() {
 func ptr[T any](t T) *T { return &t }
 
 // testMultinodeChainClient tests the multinode chain client connection and returns the client
-func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, config *config.Configuration, lggr logger.Logger) client.Client {
+func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, config *verifier_config.Configuration, lggr logger.Logger) client.Client {
 	// Test for chain 1337
 	chainSelector := protocol.ChainSelector(1337)
 
