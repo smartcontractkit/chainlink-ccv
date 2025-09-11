@@ -1,5 +1,6 @@
 
 [[blockchains]]
+  container_name = "blockchain-src"
   chain_id = "43113"
   type = "anvil"
 
@@ -14,6 +15,7 @@
       ws_url = "wss://rpcs.cldev.sh/avalanche/fuji"
 
 [[blockchains]]
+  container_name = "blockchain-dst"
   chain_id = "4002"
   type = "anvil"
 
