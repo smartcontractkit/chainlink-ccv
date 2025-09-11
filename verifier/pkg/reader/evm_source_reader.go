@@ -11,37 +11,32 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
-// EVMSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain
+// EVMSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain.
 type EVMSourceReader struct {
-	chainClient     client.Client
-	contractAddress string
-	chainSelector   protocol.ChainSelector
-	logger          logger.Logger
-
-	// Event monitoring
-	ccipMessageSentTopic string
+	chainClient          client.Client
+	logger               logger.Logger
 	lastProcessedBlock   *big.Int
+	verificationTaskCh   chan types.VerificationTask
+	stopCh               chan struct{}
+	ccipMessageSentTopic string
+	contractAddress      string
+	wg                   sync.WaitGroup
 	pollInterval         time.Duration
-
-	// Channels and control
-	verificationTaskCh chan types.VerificationTask
-	stopCh             chan struct{}
-	wg                 sync.WaitGroup
-
-	// State
-	isRunning bool
-	mu        sync.RWMutex
+	chainSelector        protocol.ChainSelector
+	mu                   sync.RWMutex
+	isRunning            bool
 }
 
-// NewEVMSourceReader creates a new blockchain-based source reader
+// NewEVMSourceReader creates a new blockchain-based source reader.
 func NewEVMSourceReader(
 	chainClient client.Client,
 	contractAddress string,
@@ -50,17 +45,17 @@ func NewEVMSourceReader(
 ) *EVMSourceReader {
 	return &EVMSourceReader{
 		chainClient:          chainClient,
-		contractAddress:      contractAddress,
-		chainSelector:        chainSelector,
 		logger:               logger,
-		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
-		pollInterval:         3 * time.Second,
 		verificationTaskCh:   make(chan types.VerificationTask, 100),
 		stopCh:               make(chan struct{}),
+		pollInterval:         3 * time.Second,
+		chainSelector:        chainSelector,
+		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
+		contractAddress:      contractAddress,
 	}
 }
 
-// Start begins reading messages and pushing them to the messages channel
+// Start begins reading messages and pushing them to the messages channel.
 func (r *EVMSourceReader) Start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -89,7 +84,7 @@ func (r *EVMSourceReader) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the reader and closes the messages channel
+// Stop stops the reader and closes the messages channel.
 func (r *EVMSourceReader) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -110,12 +105,12 @@ func (r *EVMSourceReader) Stop() error {
 	return nil
 }
 
-// VerificationTaskChannel returns the channel where new message events are delivered
+// VerificationTaskChannel returns the channel where new message events are delivered.
 func (r *EVMSourceReader) VerificationTaskChannel() <-chan types.VerificationTask {
 	return r.verificationTaskCh
 }
 
-// HealthCheck returns the current health status of the reader
+// HealthCheck returns the current health status of the reader.
 func (r *EVMSourceReader) HealthCheck(ctx context.Context) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -128,7 +123,7 @@ func (r *EVMSourceReader) HealthCheck(ctx context.Context) error {
 	return r.testConnectivity(ctx)
 }
 
-// testConnectivity tests if we can connect to the blockchain client
+// testConnectivity tests if we can connect to the blockchain client.
 func (r *EVMSourceReader) testConnectivity(ctx context.Context) error {
 	if r.chainClient == nil {
 		return nil // No client configured
@@ -152,7 +147,7 @@ func (r *EVMSourceReader) testConnectivity(ctx context.Context) error {
 	return nil
 }
 
-// eventMonitoringLoop runs the continuous event monitoring
+// eventMonitoringLoop runs the continuous event monitoring.
 func (r *EVMSourceReader) eventMonitoringLoop(ctx context.Context) {
 	defer r.wg.Done()
 
@@ -187,7 +182,7 @@ func (r *EVMSourceReader) eventMonitoringLoop(ctx context.Context) {
 	}
 }
 
-// processEventCycle processes a single cycle of event monitoring
+// processEventCycle processes a single cycle of event monitoring.
 func (r *EVMSourceReader) processEventCycle(ctx context.Context, contractAddr common.Address) {
 	// Check client connectivity
 	if r.chainClient == nil || len(r.chainClient.NodeStates()) == 0 {
@@ -260,7 +255,7 @@ func (r *EVMSourceReader) processEventCycle(ctx context.Context, contractAddr co
 	}
 }
 
-// processCCIPMessageSentEvent processes a single CCIPMessageSent event
+// processCCIPMessageSentEvent processes a single CCIPMessageSent event.
 func (r *EVMSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 	r.logger.Infow("🎉 Found CCIPMessageSent event!",
 		"chainSelector", r.chainSelector,
@@ -421,7 +416,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log ethtypes.Log) {
 	}
 
 	// Create receipt blobs from verifier receipts and receipt blobs
-	var receiptBlobs []protocol.ReceiptWithBlob
+	receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.Message.VerifierReceipts)+2)
 
 	// Check if onRamp address exists in any receipt issuer
 	onRampFound := false

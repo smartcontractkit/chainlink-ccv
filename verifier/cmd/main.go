@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
@@ -21,12 +20,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/verifier_config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
-// Configuration flags
+// Configuration flags.
 const (
 	chainSelectorA = protocol.ChainSelector(1337)
 	chainSelectorB = protocol.ChainSelector(2337)
@@ -132,24 +132,22 @@ func main() {
 	}
 
 	// Create source readers - either blockchain-based or mock
-	var sourceReaders = make(map[protocol.ChainSelector]reader.SourceReader)
+	sourceReaders := make(map[protocol.ChainSelector]reader.SourceReader)
 
 	// Try to create blockchain source readers if possible
-	if chainClient1 != nil && verifierConfig.CCVProxy1337 != "" {
-		sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainSelectorA, lggr)
-		lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
-	} else {
+	if chainClient1 == nil || verifierConfig.CCVProxy1337 == "" {
 		lggr.Errorw("No chainclient or CCVProxy1337 address", "chain", 1337)
 		os.Exit(1)
 	}
+	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainSelectorA, lggr)
+	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 
-	if chainClient2 != nil && verifierConfig.CCVProxy2337 != "" {
-		sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
-		lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
-	} else {
+	if chainClient2 == nil || verifierConfig.CCVProxy2337 == "" {
 		lggr.Errorw("No chainclient or CCVProxy2337 address", "chain", 2337)
 		os.Exit(1)
 	}
+	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
+	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	storage, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
 	if err != nil {
@@ -271,7 +269,7 @@ func main() {
 
 func ptr[T any](t T) *T { return &t }
 
-// createHealthyMultiNodeClient tests the multinode chain client connection and returns the client if it's healthy
+// createHealthyMultiNodeClient tests the multinode chain client connection and returns the client if it's healthy.
 func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger, chainSelector protocol.ChainSelector) client.Client {
 	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
@@ -307,13 +305,12 @@ func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.B
 	safeDepth := ptr(uint32(6))
 	finalityTagEnabled := ptr(true)
 	lggr.Infow("🔍 Testing multinode chain client", "chainSelector", chainSelector, "wsURL", wsURL, "httpURL", httpURL)
-	chainCfg, nodePool, nodes, err := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
+	chainCfg, nodePool, nodes, _ := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
 		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
 		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
 		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
 
-	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, big.NewInt(int64(chainSelector)), nodes, chaintype.ChainType(chainTypeStr))
-
+	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, new(big.Int).SetUint64(uint64(chainSelector)), nodes, chaintype.ChainType(chainTypeStr))
 	if err != nil {
 		lggr.Errorw("Failed to create multinode chain client", "error", err)
 		return nil
