@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"math/big"
 	"net/http"
 	"os"
@@ -11,10 +10,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 	"go.uber.org/zap"
 
@@ -22,8 +17,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/verifier_config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
@@ -31,8 +26,14 @@ import (
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
-func loadConfiguration(filepath string) (*config.Configuration, error) {
-	var config config.Configuration
+// Configuration flags
+const (
+	chainSelectorA = protocol.ChainSelector(1337)
+	chainSelectorB = protocol.ChainSelector(2337)
+)
+
+func loadConfiguration(filepath string) (*verifier_config.Configuration, error) {
+	var config verifier_config.Configuration
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}
@@ -104,6 +105,8 @@ func main() {
 
 	// Use actual blockchain information from configuration
 	var blockchainHelper *types.BlockchainHelper
+	var chainClient1 client.Client
+	var chainClient2 client.Client
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
@@ -111,11 +114,41 @@ func main() {
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
+		chainClient1 = createHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainSelectorA)
+		chainClient2 = createHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainSelectorB)
 	}
 
-	// Test multinode chain client connection
-	if blockchainHelper != nil {
-		testMultinodeChainClient(ctx, blockchainHelper, verifierConfig, lggr)
+	// Create verifier addresses before source readers setup
+	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy1337)
+	if err != nil {
+		lggr.Errorw("Failed to create verifier address", "error", err)
+		os.Exit(1)
+	}
+
+	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy2337)
+	if err != nil {
+		lggr.Errorw("Failed to create verifier address", "error", err)
+		os.Exit(1)
+	}
+
+	// Create source readers - either blockchain-based or mock
+	var sourceReaders = make(map[protocol.ChainSelector]reader.SourceReader)
+
+	// Try to create blockchain source readers if possible
+	if chainClient1 != nil && verifierConfig.CCVProxy1337 != "" {
+		sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainSelectorA, lggr)
+		lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
+	} else {
+		lggr.Errorw("No chainclient or CCVProxy1337 address", "chain", 1337)
+		os.Exit(1)
+	}
+
+	if chainClient2 != nil && verifierConfig.CCVProxy2337 != "" {
+		sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
+		lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
+	} else {
+		lggr.Errorw("No chainclient or CCVProxy2337 address", "chain", 2337)
+		os.Exit(1)
 	}
 
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
@@ -125,36 +158,14 @@ func main() {
 	}
 	storageWriter := storage
 
-	// Create mock source readers for two chains (matching devenv setup)
-	mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
-	mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
-
-	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
-		protocol.ChainSelector(1337): mockSetup1337.Reader,
-		protocol.ChainSelector(2337): mockSetup2337.Reader,
-	}
-
-	// Create verifier address
-	verifierAddr, err := protocol.NewUnknownAddressFromHex("0xAAAA22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
-	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
-		os.Exit(1)
-	}
-
-	verifierAddr2, err := protocol.NewUnknownAddressFromHex("0xBBBB22bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
-	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
-		os.Exit(1)
-	}
-
 	// Create coordinator configuration
 	config := verifiertypes.CoordinatorConfig{
 		VerifierID: "dev-verifier-1",
 		SourceConfigs: map[protocol.ChainSelector]verifiertypes.SourceConfig{
-			protocol.ChainSelector(1337): {
+			chainSelectorA: {
 				VerifierAddress: verifierAddr,
 			},
-			protocol.ChainSelector(2337): {
+			chainSelectorB: {
 				VerifierAddress: verifierAddr2,
 			},
 		},
@@ -200,10 +211,6 @@ func main() {
 		lggr.Errorw("Failed to start verification coordinator", "error", err)
 		os.Exit(1)
 	}
-
-	// Start mock message generators for development
-	internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
-	internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -264,15 +271,12 @@ func main() {
 
 func ptr[T any](t T) *T { return &t }
 
-// testMultinodeChainClient tests the multinode chain client connection
-func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, config *config.Configuration, lggr logger.Logger) {
-	// Test for chain 1337
-	chainSelector := protocol.ChainSelector(1337)
-
+// createHealthyMultiNodeClient tests the multinode chain client connection and returns the client if it's healthy
+func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger, chainSelector protocol.ChainSelector) client.Client {
 	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
-		return
+		return nil
 	}
 
 	noNewHeadsThreshold := 3 * time.Minute
@@ -308,13 +312,13 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
 		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
 
-	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, big.NewInt(1337), nodes, chaintype.ChainType(chainTypeStr))
+	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, big.NewInt(int64(chainSelector)), nodes, chaintype.ChainType(chainTypeStr))
 
 	if err != nil {
 		lggr.Errorw("Failed to create multinode chain client", "error", err)
-		return
+		return nil
 	}
-	defer chainClient.Close()
+	// defer chainClient.Close()
 
 	lggr.Infow("✅ Multinode chain client created successfully",
 		"chainSelector", chainSelector,
@@ -323,14 +327,14 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 	err = chainClient.Dial(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to dial multinode chain client", "error", err)
-		return
+		return nil
 	}
 
 	// Test 1: Get latest block using multinode's SelectRPC
 	latestBlock, err := chainClient.LatestBlockHeight(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to get latest block", "error", err)
-		return
+		return nil
 	}
 	lggr.Infow("📦 Latest block (via multinode)", "blockNumber", latestBlock)
 
@@ -342,112 +346,13 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 	header, err := chainClient.HeadByNumber(ctx, latestBlock)
 	if err != nil {
 		lggr.Errorw("Failed to get block header", "error", err)
-		return
+		return nil
 	}
 	lggr.Infow("📋 Block header",
 		"number", header.Number,
 		"hash", header.Hash.Hex(),
 		"timestamp", header.Timestamp)
 
-	// Test 4: Subscribe to CCVProxy events if configured
-	if config.CCVProxy1337 != "" {
-		testEventSubscription(ctx, chainClient, config.CCVProxy1337, "CCVProxy", lggr)
-	}
-
-	lggr.Infow("✅ Multinode chain client tests completed successfully!")
-}
-
-// testEventSubscription tests subscribing to CCIPMessageSent events
-func testEventSubscription(ctx context.Context, chainClient client.Client, contractAddress string, contractType string, lggr logger.Logger) {
-	lggr.Infow("📡 Testing event subscription", "contractType", contractType, "contract", contractAddress)
-
-	// Parse contract address
-	contractAddr := common.HexToAddress(contractAddress)
-
-	// Calculate CCIPMessageSent event topic
-	ccipMessageSentTopic := crypto.Keccak256Hash([]byte(
-		"CCIPMessageSent(uint64,uint64,((bytes32,uint64,uint64,uint64),address,bytes,bytes,address,uint256,uint256,((address,bytes,uint256,bytes,(address,uint64,uint32,uint256,bytes)))[],((address,uint64,uint32,uint256,bytes))[],((address,uint64,uint32,uint256,bytes))),bytes[])",
-	))
-
-	// Create filter query
-	query := ethereum.FilterQuery{
-		Addresses: []common.Address{contractAddr},
-		Topics:    [][]common.Hash{{ccipMessageSentTopic}},
-	}
-
-	// Create channel for receiving logs
-	logsCh := make(chan ethtypes.Log, 10)
-
-	// Subscribe to events
-	subscription, err := chainClient.SubscribeFilterLogs(ctx, query, logsCh)
-	if err != nil {
-		lggr.Errorw("Failed to subscribe to CCIPMessageSent events", "error", err, "contractType", contractType)
-		return
-	}
-	defer subscription.Unsubscribe()
-
-	lggr.Infow("✅ Successfully subscribed to CCIPMessageSent events", "contractType", contractType, "topic", ccipMessageSentTopic.Hex())
-
-	// Test sending a message to trigger an event (in background)
-	go func() {
-		time.Sleep(2 * time.Second) // Let subscription setup
-		sendTestMessage(chainClient, contractAddr, contractType, lggr)
-	}()
-
-	// Wait for event with timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	select {
-	case log := <-logsCh:
-		lggr.Infow("🎉 Received SimpleCCVProxy CCIPMessageSent event!",
-			"blockNumber", log.BlockNumber,
-			"txHash", log.TxHash.Hex(),
-			"topicCount", len(log.Topics),
-			"dataLength", len(log.Data))
-
-		// Parse the event data
-		parseCCIPMessageSentEvent(log, contractType, lggr)
-
-	case <-timeoutCtx.Done():
-		lggr.Warnw("⏱️ Timeout waiting for CCIPMessageSent event", "timeout", "30s", "contractType", contractType)
-
-	case err := <-subscription.Err():
-		lggr.Errorw("❌ Subscription error", "error", err)
-	}
-}
-
-// sendTestMessage sends a test message to trigger an event
-func sendTestMessage(chainClient client.Client, contractAddr common.Address, contractType string, lggr logger.Logger) {
-	lggr.Infow("📤 Sending test message", "contractType", contractType, "contract", contractAddr.Hex())
-
-	// For now, just log that we would send a message
-	// In a full implementation, we'd create a transaction here to call dev_send() or send()
-	lggr.Infow("📝 Test message would be sent here (transaction creation not implemented in this test)")
-}
-
-// parseCCIPMessageSentEvent parses and logs the CCIPMessageSent event data
-func parseCCIPMessageSentEvent(log ethtypes.Log, contractType string, lggr logger.Logger) {
-	lggr.Infow("🔍 Parsing CCIPMessageSent event",
-		"contractType", contractType,
-		"address", log.Address.Hex(),
-		"topics", len(log.Topics),
-		"dataSize", len(log.Data))
-
-	// Parse indexed topics
-	if len(log.Topics) >= 3 {
-		// Topic 0 is the event signature
-		// Topic 1 is indexed destChainSelector
-		// Topic 2 is indexed sequenceNumber
-		destChainSelector := binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
-		sequenceNumber := binary.BigEndian.Uint64(log.Topics[2][24:])    // Last 8 bytes
-
-		lggr.Infow("📊 Event details",
-			"contractType", contractType,
-			"destChainSelector", destChainSelector,
-			"sequenceNumber", sequenceNumber,
-			"eventSignature", log.Topics[0].Hex())
-	}
-
-	lggr.Infow("✅ CCIPMessageSent event parsing completed", "contractType", contractType)
+	lggr.Infow("✅ Multinode chain client tests completed successfully!", "chainSelector", chainSelector)
+	return chainClient
 }

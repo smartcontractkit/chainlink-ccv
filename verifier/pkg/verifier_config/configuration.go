@@ -1,4 +1,4 @@
-package config
+package verifier_config
 
 import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"

@@ -94,3 +94,11 @@ build-jd-docker:
 # Rebuild CLI
 cli:
     pushd cmd/ccv > /dev/null && go install -ldflags="-X main.Version=1.0.0" . && popd > /dev/null
+
+# Rebuild all
+rebuild-all:
+    echo "Cleaning up old images..."
+    @just clean-docker-dev
+    echo "Building CLI and all services"
+    @just cli
+    @just build-docker-dev
