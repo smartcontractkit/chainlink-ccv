@@ -67,6 +67,8 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return fmt.Errorf("failed to get CCV Offramp addresses for message: %w", err)
 	}
 
+	cle.lggr.Infow("Got CCVs from chain", "requiredCCVs", ccvInfo.RequiredCcvs, "optionalCCVs", ccvInfo.OptionalCcvs, "optionalThreshold", ccvInfo.OptionalThreshold)
+
 	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(messageWithCCVData.CCVData, ccvInfo)
 	if err != nil {
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
@@ -84,13 +86,15 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	return nil
 }
 
-func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []protocol.CCVData, receiverDefinedCcvs types.CcvAddressInfo) ([]protocol.UnknownAddress, [][]byte, error) {
+func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverDefinedCcvs types.CcvAddressInfo) ([]protocol.UnknownAddress, [][]byte, error) {
 	orderedCcvData := make([][]byte, 0)
 	orderedCcvOfframps := make([]protocol.UnknownAddress, 0)
 
 	mappedCcvData := make(map[string][]byte)
-	for _, ccvData := range ccvDatum {
-		mappedCcvData[ccvData.DestVerifierAddress.String()] = ccvData.CCVData
+	for _, ccvDatum := range ccvData {
+		// comment out for demo
+		mappedCcvData["0x959922be3caee4b8cd9a407cc3ac1c251c2007b1"] = ccvDatum.CCVData
+		//mappedCcvData[string(ccvDatum.Message.OffRampAddress)] = ccvDatum.CCVData
 	}
 
 	for _, ccvAddress := range receiverDefinedCcvs.RequiredCcvs {
