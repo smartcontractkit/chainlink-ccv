@@ -162,7 +162,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 			ec.lggr.Infow("waiting before processing message", "readyTimestamp", readyTimestamp, "messageID", id)
 
 			heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
-				Payload:   msg,
+				Payload:   &msg,
 				ReadyTime: readyTimestamp,
 			})
 		case <-ticker.C:

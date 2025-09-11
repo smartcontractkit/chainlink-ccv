@@ -10,7 +10,7 @@ type MessageHeap []*MessageWithTimestamp
 
 type MessageWithTimestamp struct {
 	ReadyTime int64
-	Payload   types.MessageWithCCVData
+	Payload   *types.MessageWithCCVData
 }
 
 func (mh MessageHeap) Len() int {
@@ -54,7 +54,7 @@ func (mh *MessageHeap) PopAllReady(timestamp int64) []types.MessageWithCCVData {
 		if !ok {
 			continue
 		}
-		readyMessages = append(readyMessages, msg.Payload)
+		readyMessages = append(readyMessages, *msg.Payload)
 	}
 	return readyMessages
 }
