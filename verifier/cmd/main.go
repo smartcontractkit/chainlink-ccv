@@ -139,21 +139,16 @@ func main() {
 		sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainSelectorA, lggr)
 		lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 	} else {
-		lggr.Infow("✅ Creating mock source reader", "chain", 1337)
-		mockSetup1337 := internal.SetupDevSourceReader(chainSelectorA)
-		sourceReaders[chainSelectorA] = mockSetup1337.Reader
-		internal.StartMockMessageGenerator(ctx, mockSetup1337, chainSelectorA, verifierAddr, lggr)
+		lggr.Errorw("No chainclient or CCVProxy1337 address", "chain", 1337)
+		os.Exit(1)
 	}
 
 	if chainClient2 != nil && verifierConfig.CCVProxy2337 != "" {
 		sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
 		lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 	} else {
-		lggr.Infow("✅ Creating mock source reader", "chain", 2337)
-		// No blockchain helper, use mock readers with traffic generation
-		mockSetup2337 := internal.SetupDevSourceReader(chainSelectorB)
-		sourceReaders[chainSelectorB] = mockSetup2337.Reader
-		internal.StartMockMessageGenerator(ctx, mockSetup2337, chainSelectorB, verifierAddr2, lggr)
+		lggr.Errorw("No chainclient or CCVProxy2337 address", "chain", 2337)
+		os.Exit(1)
 	}
 
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
@@ -275,17 +270,6 @@ func main() {
 }
 
 func ptr[T any](t T) *T { return &t }
-
-// createEVMSourceReader creates a blockchain source reader for a specific chain client and chain
-func createEVMSourceReader(chainClient client.Client, ccvProxyAddress string, chainSelector protocol.ChainSelector, lggr logger.Logger) reader.SourceReader {
-	blockchainSourceReader := reader.NewEVMSourceReader(
-		chainClient,
-		ccvProxyAddress,
-		chainSelector,
-		lggr,
-	)
-	return blockchainSourceReader
-}
 
 // createHealthyMultiNodeClient tests the multinode chain client connection and returns the client if it's healthy
 func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger, chainSelector protocol.ChainSelector) client.Client {
