@@ -12,7 +12,8 @@ func getCommands() []prompt.Suggest {
 	return []prompt.Suggest{
 		{Text: "up", Description: "Spin up the development environment"},
 		{Text: "down", Description: "Tear down the development environment"},
-		{Text: "reconfigure", Description: "Reconfigure development environment"},
+		{Text: "restart", Description: "Restart the development environment"},
+		{Text: "test", Description: "Perform smoke or load/chaos testing"},
 		{Text: "bs", Description: "Manage the Blockscout EVM block explorer"},
 		{Text: "obs", Description: "Manage the observability stack"},
 		{Text: "db", Description: "Inspect Databases"},
@@ -30,6 +31,15 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "3379446385462418246,12922642891491394802", Description: "send default Anvil 1337 -> Anvil 2337"},
 			{Text: "12922642891491394802,3379446385462418246", Description: "send default Anvil 1337 <- Anvil 2337"},
 		}
+	case "test":
+		return []prompt.Suggest{
+			{Text: "smoke", Description: "Send an example ArgsV2 message from 1337 to 2337 local Anvil chain (EVM)"},
+			{Text: "load", Description: "Run the default load test (1msg/s) 1337 -> 2337 local Anvil chain (EVM)"},
+			{Text: "rpc-latency", Description: "Default load test + 400ms RPC latency (all chains)"},
+			{Text: "gas-spikes", Description: "Default load test + slow and fast gas spikes"},
+			{Text: "reorgs", Description: "Default load test + reorgs (Requires 'up env.toml,env-geth.toml' environment"},
+			{Text: "chaos", Description: "Default load test + chaos (restarts, latency, data loss between services)"},
+		}
 	case "addresses":
 		return []prompt.Suggest{
 			{Text: "addresses", Description: "Print all smart-contract addresses data (CLDF)"},
@@ -46,6 +56,7 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "up -f", Description: "Spin up full observability stack (Pyroscope, cadvisor, postgres exporter)"},
 			{Text: "down", Description: "Spin down observability stack"},
 			{Text: "restart", Description: "Restart observability stack"},
+			{Text: "restart -f", Description: "Restart full observability stack"},
 		}
 	case "db":
 		return []prompt.Suggest{

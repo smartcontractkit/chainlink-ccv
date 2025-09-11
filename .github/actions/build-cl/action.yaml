@@ -1,0 +1,51 @@
+name: 'Build CL Node Image'
+description: 'Build Chainlink node image with plugins'
+inputs:
+  ref:
+    description: 'Chainlink Core Repository Ref'
+    default: develop
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Chainlink repository
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        repository: smartcontractkit/chainlink
+        path: chainlink-repo
+
+    - name: Set up Go
+      uses: actions/setup-go@v6 # v6
+      with:
+        go-version-file: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/go.mod
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-cl-${{ hashFiles('/home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/go.mod') }}
+        restore-keys: |
+          ${{ runner.os }}-go-cl-
+
+    - name: Download Go modules
+      working-directory: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo
+      shell: bash
+      run: go mod download
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+    - name: Build and Load Docker Image
+      uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+      with:
+        cache-from: type=gha,scope=ccv
+        cache-to: type=gha,scope=ccv,mode=max
+        context: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo
+        file: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/plugins/chainlink.Dockerfile
+        load: true
+        tags: local
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1

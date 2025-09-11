@@ -342,28 +342,36 @@ func FilterUnpackEventsWithMeta[T any](ctx context.Context, c *ethclient.Client,
 }
 
 // FilterContractEventsAllChains filters all contract events across all available chains and decodes them using go-ethereum generated binding package, adds contract name and chain ID
-func FilterContractEventsAllChains[T any](in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName string, eventName string, from, to *big.Int) ([]*UnpackedLog[T], error) {
+func FilterContractEventsAllChains[T any](in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName string, eventName string, from, to *big.Int) ([]interface{}, []interface{}, []*UnpackedLog[T], error) {
 	refsBySelector, err := GetCLDFAddressesPerSelector(in)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load addresses per selector: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to load addresses per selector: %w", err)
 	}
-	allLogsUnpacked := make([]*UnpackedLog[T], 0)
+	// to simplify the user-facing API we prepare data for both Loki pushes and Prometheus observations
+	unpackedPromStream := make([]*UnpackedLog[T], 0)
+	rawLokiStream := make([]interface{}, 0)
+	unpackedLokiStream := make([]interface{}, 0)
+	// find all events for all the contract across the chains
 	for _, ref := range refsBySelector {
 		for _, r := range ref {
 			if r.Type.String() == contractName {
 				cID, err := chainsel.GetChainIDFromSelector(r.ChainSelector)
 				if err != nil {
-					return nil, fmt.Errorf("failed to get chain ID: %w", err)
+					return nil, nil, nil, fmt.Errorf("failed to get chain ID: %w", err)
 				}
 				_, data, err := FilterUnpackEventsWithMeta[T](context.Background(), bcByChainID[cID], abi, r.Address, eventName, from, to)
 				if err != nil {
-					return nil, fmt.Errorf("failed to filter logs: %w", err)
+					return nil, nil, nil, fmt.Errorf("failed to filter logs: %w", err)
 				}
-				allLogsUnpacked = append(allLogsUnpacked, data...)
+				unpackedPromStream = append(unpackedPromStream, data...)
 			}
 		}
 	}
-	return allLogsUnpacked, nil
+	for _, event := range unpackedPromStream {
+		rawLokiStream = append(rawLokiStream, event)
+		unpackedLokiStream = append(unpackedLokiStream, event.UnpackedData)
+	}
+	return rawLokiStream, unpackedLokiStream, unpackedPromStream, nil
 }
 
 /*

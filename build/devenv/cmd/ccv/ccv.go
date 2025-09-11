@@ -30,11 +30,11 @@ var rootCmd = &cobra.Command{
 	Short: "A CCV local environment tool",
 }
 
-var reconfigureCmd = &cobra.Command{
-	Use:     "reconfigure",
+var restartCmd = &cobra.Command{
+	Use:     "restart",
 	Aliases: []string{"r"},
 	Args:    cobra.RangeArgs(0, 1),
-	Short:   "Reconfigure development environment, remove apps and apply new configuration",
+	Short:   "Restart development environment, remove apps and apply default configuration again",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var configFile string
 		if len(args) > 0 {
@@ -199,6 +199,57 @@ var obsRestartCmd = &cobra.Command{
 	},
 }
 
+var testCmd = &cobra.Command{
+	Use:     "test",
+	Aliases: []string{"t"},
+	Short:   "Run the tests",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			return fmt.Errorf("specify the test suite: smoke or load")
+		}
+		var testPattern string
+		switch args[0] {
+		case "smoke":
+			testPattern = "TestE2ESmoke"
+		case "load":
+			testPattern = "TestE2ELoad/clean"
+		case "rpc-latency":
+			testPattern = "TestE2ELoad/rpc_latency"
+		case "gas-spikes":
+			testPattern = "TestE2ELoad/gas"
+		case "reorg":
+			testPattern = "TestE2ELoad/reorg"
+		case "chaos":
+			testPattern = "TestE2ELoad/chaos"
+		default:
+			return fmt.Errorf("test suite %s is unknown, choose between smoke or load", args[0])
+		}
+		originalDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+		defer os.Chdir(originalDir)
+		if err := os.Chdir("tests/e2e"); err != nil {
+			return fmt.Errorf("failed to change to tests/e2e directory: %w", err)
+		}
+		testCmd := exec.Command("go", "test", "-v", "-run", testPattern)
+		testCmd.Stdout = os.Stdout
+		testCmd.Stderr = os.Stderr
+		testCmd.Stdin = os.Stdin
+
+		if err := testCmd.Run(); err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+					os.Exit(status.ExitStatus())
+				}
+				os.Exit(1)
+			}
+			return fmt.Errorf("failed to run test command: %w", err)
+		}
+		return nil
+	},
+}
+
 var indexerDBShellCmd = &cobra.Command{
 	Use:     "db-shell",
 	Aliases: []string{"db"},
@@ -306,10 +357,11 @@ func init() {
 
 	// main env commands
 	rootCmd.AddCommand(upCmd)
-	rootCmd.AddCommand(reconfigureCmd)
+	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(downCmd)
 
 	// utility
+	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
 	rootCmd.AddCommand(sendCmd)

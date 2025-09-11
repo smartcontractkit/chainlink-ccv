@@ -22,13 +22,16 @@ var (
 	})
 )
 
-// MonitorOnChainLogs is serving all the on-chain events we collect as a Prometheus custom handle "/on-chain-metrics"
+// MonitorOnChainLogs is converting specified on-chain events (logs) to Loki/Prometheus data
+// it does not preserve original timestamps for observation and Loki pushes and scans/uploads the whole range
 func MonitorOnChainLogs(in *Cfg) error {
 	bcs, err := blockchainsByChainID(in)
 	if err != nil {
 		return err
 	}
-	msgSentEvents, err := FilterContractEventsAllChains[ccvProxy.CCVProxyCCIPMessageSent](
+	lp := NewLokiPusher()
+
+	msgSentRawLoki, msgSentUnpackedLoki, msgSentProm, err := FilterContractEventsAllChains[ccvProxy.CCVProxyCCIPMessageSent](
 		in,
 		bcs,
 		ccvProxy.CCVProxyMetaData.ABI,
@@ -37,7 +40,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 		nil,
 		nil,
 	)
-	execStateChangedEvent, err := FilterContractEventsAllChains[ccvAggregator.CCVAggregatorExecutionStateChanged](
+	_, _, stateChangedProm, err := FilterContractEventsAllChains[ccvAggregator.CCVAggregatorExecutionStateChanged](
 		in,
 		bcs,
 		ccvAggregator.CCVAggregatorMetaData.ABI,
@@ -49,8 +52,11 @@ func MonitorOnChainLogs(in *Cfg) error {
 	if err != nil {
 		return fmt.Errorf("failed to collect logs: %w", err)
 	}
+	if err := lp.PushRawAndDecoded(msgSentRawLoki, msgSentUnpackedLoki, "on-chain"); err != nil {
+		return fmt.Errorf("failed to push logs: %w", err)
+	}
 	logTimeByMsgID := make(map[[32]byte]uint64)
-	for _, l := range msgSentEvents {
+	for _, l := range msgSentProm {
 		Plog.Info().
 			Any("EventData", l).
 			Any("LogUnpackedData", l.UnpackedData).
@@ -66,7 +72,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 			}
 		}
 	}
-	for _, l := range execStateChangedEvent {
+	for _, l := range stateChangedProm {
 		_ = l
 		if l.ChainID == 2337 && l.Name == "ExecutionStateChanged" {
 			// TODO: get msgID and measure time for each variant of messages, no events emitted yet
