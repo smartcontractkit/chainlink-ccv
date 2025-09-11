@@ -271,8 +271,6 @@ require (
 	github.com/oklog/run v1.1.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
-	github.com/onsi/ginkgo/v2 v2.22.1 // indirect
-	github.com/onsi/gomega v1.36.2 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.116.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.116.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.116.0 // indirect
@@ -437,8 +435,6 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
-	//github.com/smartcontractkit/chainlink-ccip => ../../../chainlink-ccip
-	//github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment => ../../../chainlink-ccip/chains/evm/deployment
 	github.com/smartcontractkit/chainlink-ccv/common => ../../common
 	github.com/smartcontractkit/chainlink-ccv/protocol => ../../protocol
 	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
