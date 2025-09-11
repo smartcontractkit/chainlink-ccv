@@ -97,8 +97,10 @@ cli:
 
 # Rebuild all
 rebuild-all:
+    ccv d
     echo "Cleaning up old images..."
     @just clean-docker-dev
     echo "Building CLI and all services"
     @just cli
     @just build-docker-dev
+    ccv u
