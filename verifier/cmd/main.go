@@ -104,6 +104,7 @@ func main() {
 
 	// Use actual blockchain information from configuration
 	var blockchainHelper *types.BlockchainHelper
+	var chainClient client.Client
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
@@ -111,6 +112,7 @@ func main() {
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
+		chainClient = createHealthyMultiNodeClient(ctx, blockchainHelper, lggr)
 	}
 
 	// Create verifier addresses before source readers setup
@@ -126,67 +128,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Test multinode chain client connection and create real source readers
+	// Create source readers - either blockchain-based or mock
 	var sourceReaders map[protocol.ChainSelector]reader.SourceReader
-	if blockchainHelper != nil {
-		chainClient := testMultinodeChainClient(ctx, blockchainHelper, verifierConfig, lggr)
-		if chainClient != nil && (verifierConfig.CCVProxy1337 != "" || verifierConfig.CCVProxy2337 != "") {
-			// Create blockchain source readers instead of mock ones
-			sourceReaders = make(map[protocol.ChainSelector]reader.SourceReader)
 
-			if verifierConfig.CCVProxy1337 != "" {
-				blockchainSourceReader1337 := reader.NewEVMSourceReader(
-					chainClient,
-					verifierConfig.CCVProxy1337,
-					protocol.ChainSelector(1337),
-					lggr,
-				)
-				sourceReaders[protocol.ChainSelector(1337)] = blockchainSourceReader1337
-			}
-
-			if verifierConfig.CCVProxy2337 != "" {
-				blockchainSourceReader2337 := reader.NewEVMSourceReader(
-					chainClient,
-					verifierConfig.CCVProxy2337,
-					protocol.ChainSelector(2337),
-					lggr,
-				)
-				sourceReaders[protocol.ChainSelector(2337)] = blockchainSourceReader2337
-			}
-
-			var chains []int
-			for chainSelector := range sourceReaders {
-				chains = append(chains, int(chainSelector))
-			}
-			lggr.Infow("✅ Created blockchain source readers", "chains", chains)
-		} else {
-			lggr.Warnw("⚠️ Chain client not available, falling back to mock source readers")
-			// Fallback to mock readers
-			mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
-			mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
-
-			sourceReaders = map[protocol.ChainSelector]reader.SourceReader{
-				protocol.ChainSelector(1337): mockSetup1337.Reader,
-				protocol.ChainSelector(2337): mockSetup2337.Reader,
-			}
-
-			// Start mock message generators for development
-			internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
-			internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
-		}
+	// Try to create blockchain source readers if possible
+	if chainClient != nil && (verifierConfig.CCVProxy1337 != "" || verifierConfig.CCVProxy2337 != "") {
+		sourceReaders = createEVMSourceReaders(chainClient, verifierConfig, lggr)
 	} else {
-		// No blockchain helper, use mock readers
-		mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
-		mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
-
-		sourceReaders = map[protocol.ChainSelector]reader.SourceReader{
-			protocol.ChainSelector(1337): mockSetup1337.Reader,
-			protocol.ChainSelector(2337): mockSetup2337.Reader,
-		}
-
-		// Start mock message generators for development
-		internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
-		internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
+		// No blockchain helper, use mock readers with traffic generation
+		sourceReaders = createMockSourceReaders(ctx, verifierAddr, verifierAddr2, lggr, true)
 	}
 
 	storage, err := storageaccess.CreateAggregatorAdapter(verifierConfig.AggregatorAddress, lggr)
@@ -309,8 +259,60 @@ func main() {
 
 func ptr[T any](t T) *T { return &t }
 
-// testMultinodeChainClient tests the multinode chain client connection and returns the client
-func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, config *verifier_config.Configuration, lggr logger.Logger) client.Client {
+// createEVMSourceReaders creates blockchain source readers from chain client and config
+func createEVMSourceReaders(chainClient client.Client, config *verifier_config.Configuration, lggr logger.Logger) map[protocol.ChainSelector]reader.SourceReader {
+	sourceReaders := make(map[protocol.ChainSelector]reader.SourceReader)
+
+	if config.CCVProxy1337 != "" {
+		blockchainSourceReader1337 := reader.NewEVMSourceReader(
+			chainClient,
+			config.CCVProxy1337,
+			protocol.ChainSelector(1337),
+			lggr,
+		)
+		sourceReaders[protocol.ChainSelector(1337)] = blockchainSourceReader1337
+	}
+
+	if config.CCVProxy2337 != "" {
+		blockchainSourceReader2337 := reader.NewEVMSourceReader(
+			chainClient,
+			config.CCVProxy2337,
+			protocol.ChainSelector(2337),
+			lggr,
+		)
+		sourceReaders[protocol.ChainSelector(2337)] = blockchainSourceReader2337
+	}
+
+	var chains []int
+	for chainSelector := range sourceReaders {
+		chains = append(chains, int(chainSelector))
+	}
+	lggr.Infow("✅ Created blockchain source readers", "chains", chains)
+
+	return sourceReaders
+}
+
+// createMockSourceReaders creates mock source readers and starts message generators
+func createMockSourceReaders(ctx context.Context, verifierAddr, verifierAddr2 protocol.UnknownAddress, lggr logger.Logger, generateTraffic bool) map[protocol.ChainSelector]reader.SourceReader {
+	mockSetup1337 := internal.SetupDevSourceReader(protocol.ChainSelector(1337))
+	mockSetup2337 := internal.SetupDevSourceReader(protocol.ChainSelector(2337))
+
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
+		protocol.ChainSelector(1337): mockSetup1337.Reader,
+		protocol.ChainSelector(2337): mockSetup2337.Reader,
+	}
+
+	if generateTraffic {
+		// Start mock message generators for development
+		internal.StartMockMessageGenerator(ctx, mockSetup1337, protocol.ChainSelector(1337), verifierAddr, lggr)
+		internal.StartMockMessageGenerator(ctx, mockSetup2337, protocol.ChainSelector(2337), verifierAddr2, lggr)
+	}
+
+	return sourceReaders
+}
+
+// createHealthyMultiNodeClient tests the multinode chain client connection and returns the client if it's healthy
+func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger) client.Client {
 	// Test for chain 1337
 	chainSelector := protocol.ChainSelector(1337)
 
@@ -393,35 +395,6 @@ func testMultinodeChainClient(ctx context.Context, blockchainHelper *types.Block
 		"number", header.Number,
 		"hash", header.Hash.Hex(),
 		"timestamp", header.Timestamp)
-
-	// Test 4: Subscribe to CCVProxy events if configured
-	if config.CCVProxy1337 != "" {
-		// testEventSubscription(ctx, chainClient, config.CCVProxy1337, "CCVProxy", lggr)
-
-		// Continuous event monitoring (can be enabled/disabled via flag)
-		if enableContinuousEventMonitoring {
-			// Start continuous event monitoring loop using the same multinode client
-			// Only start if the client is properly connected and can make RPC calls
-			lggr.Infow("🔗 Testing multinode client RPC connectivity before starting continuous monitoring")
-
-			// Test if we can actually make an RPC call
-			testCtx, testCancel := context.WithTimeout(ctx, 10*time.Second)
-			_, err := chainClient.LatestBlockHeight(testCtx)
-			testCancel()
-
-			if err != nil {
-				lggr.Warnw("⚠️ Multinode client cannot make RPC calls, skipping continuous event monitoring",
-					"error", err.Error(),
-					"nodeStates", chainClient.NodeStates())
-			} else {
-				lggr.Infow("✅ Multinode client RPC test successful, starting continuous monitoring")
-				// go startContinuousEventLoop(ctx, chainClient, config.CCVProxy1337, lggr)
-			}
-		} else {
-			lggr.Infow("ℹ️ Continuous event monitoring is disabled (enableContinuousEventMonitoring=false)")
-			lggr.Infow("💡 To enable: set enableContinuousEventMonitoring=true when RPC connectivity is stable")
-		}
-	}
 
 	lggr.Infow("✅ Multinode chain client tests completed successfully!")
 	return chainClient
