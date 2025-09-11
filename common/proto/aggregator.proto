@@ -1,9 +1,10 @@
 syntax = "proto3";
-
+import "google/rpc/status.proto";
 option go_package = "pb/aggregator";
 
 service Aggregator {
   rpc WriteCommitCCVNodeData(WriteCommitCCVNodeDataRequest) returns (WriteCommitCCVNodeDataResponse);
+  rpc BatchWriteCommitCCVNodeData(BatchWriteCommitCCVNodeDataRequest) returns (BatchWriteCommitCCVNodeDataResponse);
   rpc ReadCommitCCVNodeData(ReadCommitCCVNodeDataRequest) returns (ReadCommitCCVNodeDataResponse);
   rpc WriteBlockCheckpoint(WriteBlockCheckpointRequest) returns (WriteBlockCheckpointResponse);
   rpc ReadBlockCheckpoint(ReadBlockCheckpointRequest) returns (ReadBlockCheckpointResponse);
@@ -82,6 +83,15 @@ message MessageWithCCVData {
   bytes dest_verifier_address = 3;
   bytes ccv_data = 4;
   int64 timestamp = 5;
+}
+
+message BatchWriteCommitCCVNodeDataRequest {
+  repeated WriteCommitCCVNodeDataRequest requests = 1;
+}
+
+message BatchWriteCommitCCVNodeDataResponse {
+  repeated WriteCommitCCVNodeDataResponse responses = 1;
+  repeated google.rpc.Status errors = 2;
 }
 
 message WriteCommitCCVNodeDataRequest {

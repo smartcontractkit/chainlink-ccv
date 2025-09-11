@@ -16,7 +16,7 @@ import (
 // VerificationCoordinator orchestrates the verification workflow using the new message format.
 type VerificationCoordinator struct {
 	verifier     types.Verifier
-	storage      protocol.OffchainStorageWriter
+	storage      protocol.CCVNodeDataWriter
 	lggr         logger.Logger
 	ccvDataCh    chan protocol.CCVData
 	stopCh       chan struct{}
@@ -61,7 +61,7 @@ func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader reader.S
 }
 
 // WithStorage sets the storage writer.
-func WithStorage(storage protocol.OffchainStorageWriter) Option {
+func WithStorage(storage protocol.CCVNodeDataWriter) Option {
 	return func(vc *VerificationCoordinator) {
 		vc.storage = storage
 	}
@@ -199,7 +199,7 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 			}
 
 			// Write CCVData to offchain storage
-			if err := vc.storage.WriteCCVData(ctx, []protocol.CCVData{ccvData}); err != nil {
+			if err := vc.storage.WriteCCVNodeData(ctx, []protocol.CCVData{ccvData}); err != nil {
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
 					"messageID", ccvData.MessageID,

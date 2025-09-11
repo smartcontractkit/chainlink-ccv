@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.32.0
-// source: proto/aggregator.proto
+// source: aggregator.proto
 
 package aggregator
 
@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Aggregator_WriteCommitCCVNodeData_FullMethodName = "/Aggregator/WriteCommitCCVNodeData"
-	Aggregator_ReadCommitCCVNodeData_FullMethodName  = "/Aggregator/ReadCommitCCVNodeData"
-	Aggregator_WriteBlockCheckpoint_FullMethodName   = "/Aggregator/WriteBlockCheckpoint"
-	Aggregator_ReadBlockCheckpoint_FullMethodName    = "/Aggregator/ReadBlockCheckpoint"
+	Aggregator_WriteCommitCCVNodeData_FullMethodName      = "/Aggregator/WriteCommitCCVNodeData"
+	Aggregator_BatchWriteCommitCCVNodeData_FullMethodName = "/Aggregator/BatchWriteCommitCCVNodeData"
+	Aggregator_ReadCommitCCVNodeData_FullMethodName       = "/Aggregator/ReadCommitCCVNodeData"
+	Aggregator_WriteBlockCheckpoint_FullMethodName        = "/Aggregator/WriteBlockCheckpoint"
+	Aggregator_ReadBlockCheckpoint_FullMethodName         = "/Aggregator/ReadBlockCheckpoint"
 )
 
 // AggregatorClient is the client API for Aggregator service.
@@ -30,6 +31,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AggregatorClient interface {
 	WriteCommitCCVNodeData(ctx context.Context, in *WriteCommitCCVNodeDataRequest, opts ...grpc.CallOption) (*WriteCommitCCVNodeDataResponse, error)
+	BatchWriteCommitCCVNodeData(ctx context.Context, in *BatchWriteCommitCCVNodeDataRequest, opts ...grpc.CallOption) (*BatchWriteCommitCCVNodeDataResponse, error)
 	ReadCommitCCVNodeData(ctx context.Context, in *ReadCommitCCVNodeDataRequest, opts ...grpc.CallOption) (*ReadCommitCCVNodeDataResponse, error)
 	WriteBlockCheckpoint(ctx context.Context, in *WriteBlockCheckpointRequest, opts ...grpc.CallOption) (*WriteBlockCheckpointResponse, error)
 	ReadBlockCheckpoint(ctx context.Context, in *ReadBlockCheckpointRequest, opts ...grpc.CallOption) (*ReadBlockCheckpointResponse, error)
@@ -47,6 +49,16 @@ func (c *aggregatorClient) WriteCommitCCVNodeData(ctx context.Context, in *Write
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(WriteCommitCCVNodeDataResponse)
 	err := c.cc.Invoke(ctx, Aggregator_WriteCommitCCVNodeData_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aggregatorClient) BatchWriteCommitCCVNodeData(ctx context.Context, in *BatchWriteCommitCCVNodeDataRequest, opts ...grpc.CallOption) (*BatchWriteCommitCCVNodeDataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchWriteCommitCCVNodeDataResponse)
+	err := c.cc.Invoke(ctx, Aggregator_BatchWriteCommitCCVNodeData_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +100,7 @@ func (c *aggregatorClient) ReadBlockCheckpoint(ctx context.Context, in *ReadBloc
 // for forward compatibility.
 type AggregatorServer interface {
 	WriteCommitCCVNodeData(context.Context, *WriteCommitCCVNodeDataRequest) (*WriteCommitCCVNodeDataResponse, error)
+	BatchWriteCommitCCVNodeData(context.Context, *BatchWriteCommitCCVNodeDataRequest) (*BatchWriteCommitCCVNodeDataResponse, error)
 	ReadCommitCCVNodeData(context.Context, *ReadCommitCCVNodeDataRequest) (*ReadCommitCCVNodeDataResponse, error)
 	WriteBlockCheckpoint(context.Context, *WriteBlockCheckpointRequest) (*WriteBlockCheckpointResponse, error)
 	ReadBlockCheckpoint(context.Context, *ReadBlockCheckpointRequest) (*ReadBlockCheckpointResponse, error)
@@ -103,6 +116,9 @@ type UnimplementedAggregatorServer struct{}
 
 func (UnimplementedAggregatorServer) WriteCommitCCVNodeData(context.Context, *WriteCommitCCVNodeDataRequest) (*WriteCommitCCVNodeDataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WriteCommitCCVNodeData not implemented")
+}
+func (UnimplementedAggregatorServer) BatchWriteCommitCCVNodeData(context.Context, *BatchWriteCommitCCVNodeDataRequest) (*BatchWriteCommitCCVNodeDataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchWriteCommitCCVNodeData not implemented")
 }
 func (UnimplementedAggregatorServer) ReadCommitCCVNodeData(context.Context, *ReadCommitCCVNodeDataRequest) (*ReadCommitCCVNodeDataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReadCommitCCVNodeData not implemented")
@@ -148,6 +164,24 @@ func _Aggregator_WriteCommitCCVNodeData_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AggregatorServer).WriteCommitCCVNodeData(ctx, req.(*WriteCommitCCVNodeDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Aggregator_BatchWriteCommitCCVNodeData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchWriteCommitCCVNodeDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AggregatorServer).BatchWriteCommitCCVNodeData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Aggregator_BatchWriteCommitCCVNodeData_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AggregatorServer).BatchWriteCommitCCVNodeData(ctx, req.(*BatchWriteCommitCCVNodeDataRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -218,6 +252,10 @@ var Aggregator_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Aggregator_WriteCommitCCVNodeData_Handler,
 		},
 		{
+			MethodName: "BatchWriteCommitCCVNodeData",
+			Handler:    _Aggregator_BatchWriteCommitCCVNodeData_Handler,
+		},
+		{
 			MethodName: "ReadCommitCCVNodeData",
 			Handler:    _Aggregator_ReadCommitCCVNodeData_Handler,
 		},
@@ -231,7 +269,7 @@ var Aggregator_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/aggregator.proto",
+	Metadata: "aggregator.proto",
 }
 
 const (
@@ -371,5 +409,5 @@ var CCVData_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/aggregator.proto",
+	Metadata: "aggregator.proto",
 }

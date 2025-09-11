@@ -43,57 +43,65 @@ func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*aggregator.Receip
 	return result, nil
 }
 
-// WriteCCVData implements common.OffchainStorageWriter.
-func (a *AggregatorWriter) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
+func mapCCVDataToCCVNodeDataProto(ccvData types.CCVData) (*aggregator.WriteCommitCCVNodeDataRequest, error) {
+	receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
+	if err != nil {
+		return nil, err
+	}
+	return &aggregator.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: &aggregator.MessageWithCCVNodeData{
+			MessageId:             ccvData.MessageID[:],
+			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
+			DestVerifierAddress:   ccvData.DestVerifierAddress[:],
+			CcvData:               ccvData.CCVData,
+			BlobData:              ccvData.BlobData,
+			Timestamp:             ccvData.Timestamp,
+			Message: &aggregator.Message{
+				Version:              uint32(ccvData.Message.Version),
+				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
+				DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
+				SequenceNumber:       uint64(ccvData.Message.SequenceNumber),
+				OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
+				OnRampAddress:        ccvData.Message.OnRampAddress[:],
+				OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
+				OffRampAddress:       ccvData.Message.OffRampAddress[:],
+				Finality:             uint32(ccvData.Message.Finality),
+				SenderLength:         uint32(ccvData.Message.SenderLength),
+				Sender:               ccvData.Message.Sender[:],
+				ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
+				Receiver:             ccvData.Message.Receiver[:],
+				DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
+				DestBlob:             ccvData.Message.DestBlob[:],
+				TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
+				TokenTransfer:        ccvData.Message.TokenTransfer[:],
+				DataLength:           uint32(ccvData.Message.DataLength),
+				Data:                 ccvData.Message.Data[:],
+			},
+			ReceiptBlobs: receiptBlobs,
+		},
+	}, nil
+}
+
+// WriteCCVNodeData writes CCV data to the aggregator via gRPC.
+func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []types.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
-		receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
+		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
 		if err != nil {
 			return err
 		}
-
-		res, err := a.client.WriteCommitCCVNodeData(ctx, &aggregator.WriteCommitCCVNodeDataRequest{
-			CcvNodeData: &aggregator.MessageWithCCVNodeData{
-				MessageId:             ccvData.MessageID[:],
-				SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
-				DestVerifierAddress:   ccvData.DestVerifierAddress[:],
-				CcvData:               ccvData.CCVData,
-				BlobData:              ccvData.BlobData,
-				Timestamp:             ccvData.Timestamp,
-				Message: &aggregator.Message{
-					Version:              uint32(ccvData.Message.Version),
-					SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
-					DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
-					SequenceNumber:       uint64(ccvData.Message.SequenceNumber),
-					OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
-					OnRampAddress:        ccvData.Message.OnRampAddress[:],
-					OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
-					OffRampAddress:       ccvData.Message.OffRampAddress[:],
-					Finality:             uint32(ccvData.Message.Finality),
-					SenderLength:         uint32(ccvData.Message.SenderLength),
-					Sender:               ccvData.Message.Sender[:],
-					ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
-					Receiver:             ccvData.Message.Receiver[:],
-					DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
-					DestBlob:             ccvData.Message.DestBlob[:],
-					TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
-					TokenTransfer:        ccvData.Message.TokenTransfer[:],
-					DataLength:           uint32(ccvData.Message.DataLength),
-					Data:                 ccvData.Message.Data[:],
-				},
-				ReceiptBlobs: receiptBlobs,
-			},
+		responses, err := a.client.BatchWriteCommitCCVNodeData(ctx, &aggregator.BatchWriteCommitCCVNodeDataRequest{
+			Requests: []*aggregator.WriteCommitCCVNodeDataRequest{req},
 		})
 		if err != nil {
-			a.lggr.Errorw("failed to store CCV data", "error", err)
-			return err
+			return fmt.Errorf("error calling BatchWriteCommitCCVNodeData: %w", err)
 		}
-
-		if res.GetStatus() != aggregator.WriteStatus_SUCCESS {
-			a.lggr.Errorw("failed to store CCV data", "error", err)
-			return err
+		for _, resp := range responses.Responses {
+			if resp.Status != aggregator.WriteStatus_SUCCESS {
+				return fmt.Errorf("failed to write CCV data for message ID %x: status %s", ccvData.MessageID, resp.Status.String())
+			}
+			a.lggr.Infow("Successfully stored CCV data", "messageID", ccvData.MessageID)
 		}
-		a.lggr.Infof("Successfully stored CCV data with MessageID: %x", ccvData.MessageID)
 	}
 	return nil
 }

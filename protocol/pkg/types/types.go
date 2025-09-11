@@ -390,6 +390,12 @@ type QueryResponse struct {
 	Data      CCVData `json:"data"`
 }
 
+// CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
+type CCVNodeDataWriter interface {
+	// WriteCCVNodeData stores multiple CCV node data entries in the offchain storage
+	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData) error
+}
+
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
 type OffchainStorageWriter interface {
 	// WriteCCVData stores multiple CCV data entries in the offchain storage
