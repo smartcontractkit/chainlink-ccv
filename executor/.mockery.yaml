@@ -7,9 +7,6 @@ packages:
     github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor:
         interfaces:
             Executor:
-    github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader:
-        interfaces:
-            CcvDataReader:
     github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter:
         interfaces:
             ContractTransmitter:

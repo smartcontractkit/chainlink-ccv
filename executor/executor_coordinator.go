@@ -6,19 +6,22 @@ import (
 	"errors"
 	"fmt"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	protocol_types "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"sync"
 	"time"
 
 	th "github.com/smartcontractkit/chainlink-ccv/executor/internal/timestamp_heap"
-	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"
 	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 )
 
+// BackoffDuration is the duration to backoff when there is an error reading from the ccv data reader.
+const BackoffDuration = 5 * time.Second
+
 type Coordinator struct {
 	executor            e.Executor
-	ccvDataReader       cdr.CcvDataReader
+	ccvDataReader       protocol_types.OffchainStorageReader
 	leaderElector       le.LeaderElector
 	lggr                logger.Logger
 	ccvDataCh           chan types.MessageWithCCVData
@@ -44,7 +47,7 @@ func WithExecutor(executor e.Executor) Option {
 	}
 }
 
-func WithCCVDataReader(ccvDataReader cdr.CcvDataReader) Option {
+func WithCCVDataReader(ccvDataReader protocol_types.OffchainStorageReader) Option {
 	return func(ec *Coordinator) {
 		ec.ccvDataReader = ccvDataReader
 	}
@@ -119,6 +122,48 @@ func (ec *Coordinator) Stop() error {
 	return nil
 }
 
+func startReading(
+	ctx context.Context,
+	lggr logger.Logger,
+	wg *sync.WaitGroup,
+	reader protocol_types.OffchainStorageReader,
+) <-chan protocol_types.QueryResponse {
+	messagesCh := make(chan protocol_types.QueryResponse)
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		defer close(messagesCh)
+
+		for {
+			select {
+			case <-ctx.Done():
+				// Context canceled, stop loop.
+				return
+			default:
+				// Non-blocking: call ReadCCVData
+				responses, err := reader.ReadCCVData(ctx)
+				if err != nil {
+					lggr.Errorw("failed to read ccv data", "error", err)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(BackoffDuration):
+					}
+					continue
+				}
+				for _, msg := range responses {
+					select {
+					case <-ctx.Done():
+						return
+					case messagesCh <- msg:
+					}
+				}
+			}
+		}
+	}()
+}
+
 func (ec *Coordinator) run(ctx context.Context) {
 	defer close(ec.doneCh)
 	defer func() {
@@ -128,11 +173,8 @@ func (ec *Coordinator) run(ctx context.Context) {
 		ec.running = false
 	}()
 
-	messagesCh, err := ec.ccvDataReader.SubscribeMessages()
-	if err != nil {
-		ec.lggr.Errorw("failed to get messages from ccvDataReader", "error", err)
-		return
-	}
+	var wg sync.WaitGroup
+	messagesCh := startReading(ctx, ec.lggr, &wg, ec.ccvDataReader)
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -149,7 +191,9 @@ func (ec *Coordinator) run(ctx context.Context) {
 				// TODO: support multiple sources
 			}
 
-			err = ec.executor.CheckValidMessage(ctx, msg)
+			// convert query response to message with ccv data
+
+			err := ec.executor.CheckValidMessage(ctx, msg)
 			if err != nil {
 				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
 				continue
