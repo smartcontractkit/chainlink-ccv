@@ -75,7 +75,7 @@ build-docker-rc:
 build-jd-docker:
     #!/usr/bin/env bash
     set -e
-    REPO_URL="https://github.com/smartcontractkit/job-distributor"
+    REPO_URL="org-25111032@github.com:smartcontractkit/job-distributor.git"
     REPO_DIR="job-distributor/"
     IMAGE_NAME="job-distributor:local"
     DOCKERFILE="e2e/Dockerfile.e2e"
