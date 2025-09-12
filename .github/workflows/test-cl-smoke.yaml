@@ -1,4 +1,4 @@
-name: On-demand Performance Tests
+name: Test Chainlink Node Integration
 
 on:
   pull_request:
@@ -9,10 +9,10 @@ defaults:
     working-directory: build/devenv
 
 jobs:
-  on-demand-performance:
+  cl-tests:
     if: |
       github.event_name == 'pull_request' && 
-      github.event.label.name == 'performance'
+      github.event.label.name == 'cl-node'
     permissions:
       id-token: write
       contents: read
@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         test: [
-          { name: "TestE2ELoad/rpc_latency", config: "env.toml" },
+          { name: "TestE2ESmoke", config: "env.toml,env-cl-ci.toml" },
         ]
       fail-fast: false
     steps:
@@ -28,6 +28,11 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
+
+      - name: Build CL Image For Ref
+        uses: ./.github/actions/build-cl
+        with:
+          ref: develop
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
@@ -43,11 +48,6 @@ jobs:
           role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
           aws-region: us-east-1
           registry-type: public
-
-      - name: Set up Go
-        uses: actions/setup-go@v6 # v6
-        with:
-          go-version-file: build/devenv/go.mod
 
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
@@ -75,9 +75,9 @@ jobs:
         run: |
           ccv u ${{ matrix.test.config }}
 
-      - name: Run perf test
+      - name: Run Smoke Test
         working-directory: build/devenv/tests/e2e
         env:
           LOKI_URL: http://localhost:3030/loki/api/v1/push
         run: |
-          go test -v -run ${{ matrix.test.name }} -timeout 1h
+          go test -v -run ${{ matrix.test.name }}

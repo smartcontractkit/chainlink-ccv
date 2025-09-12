@@ -88,13 +88,13 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	return nil
 }
 
-func (cle *ChainlinkExecutor) orderCcvData(ccvDatum []protocol.CCVData, receiverDefinedCcvs types.CcvAddressInfo) ([]protocol.UnknownAddress, [][]byte, error) {
+func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverDefinedCcvs types.CcvAddressInfo) ([]protocol.UnknownAddress, [][]byte, error) {
 	orderedCcvData := make([][]byte, 0)
 	orderedCcvOfframps := make([]protocol.UnknownAddress, 0)
 
 	mappedCcvData := make(map[string][]byte)
-	for _, ccvData := range ccvDatum {
-		mappedCcvData[ccvData.DestVerifierAddress.String()] = ccvData.CCVData
+	for _, datum := range ccvData {
+		mappedCcvData[datum.DestVerifierAddress.String()] = datum.CCVData
 	}
 
 	for _, ccvAddress := range receiverDefinedCcvs.RequiredCcvs {
