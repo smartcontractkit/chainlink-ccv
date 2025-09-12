@@ -9,8 +9,8 @@ import (
 type MessageHeap []*MessageWithTimestamp
 
 type MessageWithTimestamp struct {
-	ReadyTime int64
 	Payload   *types.MessageWithCCVData
+	ReadyTime int64
 }
 
 func (mh MessageHeap) Len() int {
