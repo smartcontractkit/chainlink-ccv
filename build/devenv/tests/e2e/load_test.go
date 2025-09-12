@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -65,7 +67,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
-	argsv2, err := ccv.NewGenericCCIP17ExtraArgsV2(ccv.GenericExtraArgsV2{
+	argsv2, err := ccv.NewGenericCCIP17ExtraArgsV2(protocol.GenericExtraArgsV2{
 		GasLimit:                 big.NewInt(1_000_000),
 		AllowOutOfOrderExecution: true,
 	})
@@ -160,6 +162,9 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 func TestE2ELoad(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
+	if os.Getenv("LOKI_URL") == "" {
+		_ = os.Setenv("LOKI_URL", ccv.DefaultLokiURL)
+	}
 	srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
 	dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
 

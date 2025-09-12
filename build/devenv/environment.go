@@ -49,7 +49,6 @@ func checkKeys(in *Cfg) error {
 
 // NewEnvironment creates a new CCIP CCV environment either locally in Docker or remotely in K8s.
 func NewEnvironment() (*Cfg, error) {
-	L.Info().Msg("INSIDE NewEnvironment")
 	if err := framework.DefaultNetwork(nil); err != nil {
 		return nil, err
 	}
