@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccv_streamer"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -23,7 +21,7 @@ const BackoffDuration = 5 * time.Second
 
 type Coordinator struct {
 	executor            e.Executor
-	ccvStreamer         ccvstreamer.Streamer
+	ccvStreamer         CCVResultStreamer
 	leaderElector       le.LeaderElector
 	lggr                logger.Logger
 	ccvDataCh           chan types.MessageWithCCVData
@@ -49,7 +47,7 @@ func WithExecutor(executor e.Executor) Option {
 	}
 }
 
-func WithCCVStreamer(streamer ccvstreamer.Streamer) Option {
+func WithCCVStreamer(streamer CCVResultStreamer) Option {
 	return func(ec *Coordinator) {
 		ec.ccvStreamer = streamer
 	}
