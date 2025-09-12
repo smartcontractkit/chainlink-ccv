@@ -5,10 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"sync"
 	"time"
+
+	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	th "github.com/smartcontractkit/chainlink-ccv/executor/internal/timestamp_heap"
 	cdr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvdatareader"

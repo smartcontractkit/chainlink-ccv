@@ -10,8 +10,8 @@ import (
 	protocoltypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-func createTestMessage(seqNum, sourceChain, destChain uint64) types.MessageWithCCVData {
-	return types.MessageWithCCVData{
+func createTestMessage(seqNum, sourceChain, destChain uint64) *types.MessageWithCCVData {
+	return &types.MessageWithCCVData{
 		CCVData: []protocoltypes.CCVData{},
 		Message: protocoltypes.Message{
 			SequenceNumber:      protocoltypes.SeqNum(seqNum),
