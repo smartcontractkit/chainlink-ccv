@@ -32,8 +32,8 @@ func createMessageWithTimestamp(readyTime int64, seqNum uint64) *MessageWithTime
 
 func TestMessageHeap_PeekTime(t *testing.T) {
 	tests := []struct {
-		heap     MessageHeap
 		name     string
+		heap     MessageHeap
 		expected int64
 	}{
 		{
@@ -68,11 +68,11 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 
 func TestMessageHeap_PopAllReady(t *testing.T) {
 	tests := []struct {
-		heap            MessageHeap
 		name            string
+		heap            MessageHeap
+		expectedSeqNums []uint64
 		timestamp       int64
 		expectedCount   int
-		expectedSeqNums []uint64
 		remainingCount  int
 	}{
 		{
