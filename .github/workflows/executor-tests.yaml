@@ -24,6 +24,7 @@ jobs:
       - name: Load tool versions
         id: tool-versions
         run: |
+          find .
           # Source the file into the environment
           set -a
           source ./tool-versions.env
