@@ -13,7 +13,7 @@ defaults:
     working-directory: executor
 
 jobs:
-  verifier-lint-and-test:
+  executor-lint-and-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -21,12 +21,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Load tool versions
+        id: tool-versions
+        run: |
+          # Source the file into the environment
+          set -a
+          source tool-versions.env
+          set +a
+
+          # Expose VERSION_GOLANGCI_LINT as a GitHub Action output
+          echo "golangci_lint_version=$VERSION_GOLANGCI_LINT" >> $GITHUB_OUTPUT
+
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
         with:
           cache: true
-          go-version-file: verifier/go.mod
-          cache-dependency-path: verifier/go.sum
+          go-version-file: executor/go.mod
+          cache-dependency-path: executor/go.sum
 
       - name: Populate go envs
         run: |
@@ -46,17 +57,6 @@ jobs:
 
       - name: Install just
         uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0
-
-      - name: Load tool versions
-        id: tool-versions
-        run: |
-          # Source the file into the environment
-          set -a
-          source tool-versions.env
-          set +a
-
-          # Expose VERSION_GOLANGCI_LINT as a GitHub Action output
-          echo "golangci_lint_version=$VERSION_GOLANGCI_LINT" >> $GITHUB_OUTPUT
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
