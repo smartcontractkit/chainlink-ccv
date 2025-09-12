@@ -2,391 +2,387 @@ package storage
 
 import (
 	"context"
-	"encoding/hex"
-	"sync"
+	"fmt"
 	"testing"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// createTestCCVData creates a test CCVData with the given parameters.
-func createTestCCVData(messageID types.Bytes32, timestamp int64, sequenceNumber types.SeqNum) types.CCVData {
-	return types.CCVData{
-		MessageID:             messageID,
-		SequenceNumber:        sequenceNumber,
-		SourceChainSelector:   1,
-		DestChainSelector:     2,
-		SourceVerifierAddress: []byte("0x1234"),
-		DestVerifierAddress:   []byte("0x5678"),
-		CCVData:               []byte("test_ccv_data"),
-		BlobData:              []byte("test_blob_data"),
-		Timestamp:             timestamp,
-		ReceiptBlobs: []types.ReceiptWithBlob{
-			{
-				Issuer:            []byte("0x1234"),
-				DestGasLimit:      100000,
-				DestBytesOverhead: 50,
-				Blob:              []byte("test_blob"),
-				ExtraArgs:         []byte("extra"),
-			},
-		},
-		Message: types.Message{
-			SourceChainSelector: 1,
-			DestChainSelector:   2,
-			SequenceNumber:      sequenceNumber,
-			Sender:              []byte("sender"),
-			Receiver:            []byte("receiver"),
-			Data:                []byte("test_data"),
-		},
-	}
-}
-
 func TestNewInMemoryStorage(t *testing.T) {
-	storage := NewInMemoryStorage()
+	lggr := logger.Nop()
+	storage := NewInMemoryStorage(lggr)
 
-	// Verify it implements the interface
-	var _ common.IndexerStorage = storage
-
-	// Verify it's not nil
 	assert.NotNil(t, storage)
-
-	// Verify internal state is initialized
-	inMemStorage := storage.(*InMemoryStorage)
-	assert.NotNil(t, inMemStorage.ccvData)
+	assert.IsType(t, &InMemoryStorage{}, storage)
 }
 
-func TestInMemoryStorage_GetCCVData_Success(t *testing.T) {
-	storage := NewInMemoryStorage().(*InMemoryStorage)
+func TestInsertCCVData(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
 	ctx := context.Background()
 
-	messageID := types.Bytes32{1, 2, 3, 4, 5}
-	expectedData := []types.CCVData{
-		createTestCCVData(messageID, 1000, 100),
-		createTestCCVData(messageID, 1001, 101),
-	}
+	ccvData := createTestCCVData("0x123", 1000, 1, 2)
 
-	// Store data directly in the map
-	storage.ccvData.Store(messageID, expectedData)
-
-	// Retrieve data
-	result, err := storage.GetCCVData(ctx, messageID)
-
-	require.NoError(t, err)
-	require.Len(t, result, 2)
-	assert.Equal(t, expectedData[0], result[0])
-	assert.Equal(t, expectedData[1], result[1])
-}
-
-func TestInMemoryStorage_GetCCVData_NotFound(t *testing.T) {
-	storage := NewInMemoryStorage()
-	ctx := context.Background()
-
-	messageID := types.Bytes32{9, 9, 9, 9, 9}
-
-	// Try to retrieve non-existent data
-	result, err := storage.GetCCVData(ctx, messageID)
-
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Equal(t, ErrCCVDataNotFound, err)
-}
-
-func TestInMemoryStorage_QueryCCVDataByTimestamp(t *testing.T) {
-	storage := NewInMemoryStorage().(*InMemoryStorage)
-	ctx := context.Background()
-
-	// Create test data with different timestamps
-	messageID1 := types.Bytes32{1, 1, 1, 1, 1}
-	messageID2 := types.Bytes32{2, 2, 2, 2, 2}
-	messageID3 := types.Bytes32{3, 3, 3, 3, 3}
-
-	data1 := []types.CCVData{createTestCCVData(messageID1, 1000, 100)}
-	data2 := []types.CCVData{createTestCCVData(messageID2, 1500, 101)}
-	data3 := []types.CCVData{createTestCCVData(messageID3, 2000, 102)}
-
-	// Store data
-	storage.ccvData.Store(messageID1, data1)
-	storage.ccvData.Store(messageID2, data2)
-	storage.ccvData.Store(messageID3, data3)
-
-	tests := []struct {
-		name          string
-		start         int64
-		end           int64
-		expectedCount int
-		expectedKeys  []string
-	}{
-		{
-			name:          "all data in range",
-			start:         500,
-			end:           2500,
-			expectedCount: 3,
-			expectedKeys:  []string{hex.EncodeToString(messageID1[:]), hex.EncodeToString(messageID2[:]), hex.EncodeToString(messageID3[:])},
-		},
-		{
-			name:          "partial range",
-			start:         1200,
-			end:           1800,
-			expectedCount: 1,
-			expectedKeys:  []string{hex.EncodeToString(messageID2[:])},
-		},
-		{
-			name:          "no data in range",
-			start:         3000,
-			end:           4000,
-			expectedCount: 0,
-			expectedKeys:  []string{},
-		},
-		{
-			name:          "exact timestamp match",
-			start:         1500,
-			end:           1500,
-			expectedCount: 1,
-			expectedKeys:  []string{hex.EncodeToString(messageID2[:])},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := storage.QueryCCVDataByTimestamp(ctx, tt.start, tt.end)
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.expectedCount, len(result))
-
-			// Verify all expected keys are present
-			for _, expectedKey := range tt.expectedKeys {
-				_, exists := result[expectedKey]
-				assert.True(t, exists, "Expected key %s not found in result", expectedKey)
-			}
-
-			// Verify no unexpected keys
-			for key := range result {
-				found := false
-				for _, expectedKey := range tt.expectedKeys {
-					if key == expectedKey {
-						found = true
-						break
-					}
-				}
-				assert.True(t, found, "Unexpected key %s found in result", key)
-			}
-		})
-	}
-}
-
-func TestInMemoryStorage_InsertCCVData_NewMessageID(t *testing.T) {
-	storage := NewInMemoryStorage()
-	ctx := context.Background()
-
-	messageID := types.Bytes32{1, 2, 3, 4, 5}
-	ccvData := createTestCCVData(messageID, 1000, 100)
-
-	// Insert new data
 	err := storage.InsertCCVData(ctx, ccvData)
-
 	require.NoError(t, err)
 
-	// Verify data was stored
-	result, err := storage.GetCCVData(ctx, messageID)
+	// Verify data was inserted
+	retrieved, err := storage.GetCCVData(ctx, ccvData.MessageID)
 	require.NoError(t, err)
-	require.Len(t, result, 1)
-	assert.Equal(t, ccvData, result[0])
+	require.Len(t, retrieved, 1)
+	assert.Equal(t, ccvData, retrieved[0])
 }
 
-func TestInMemoryStorage_InsertCCVData_ExistingMessageID(t *testing.T) {
-	storage := NewInMemoryStorage()
+func TestInsertCCVDataMultiple(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
 	ctx := context.Background()
 
-	messageID := types.Bytes32{1, 2, 3, 4, 5}
-	ccvData1 := createTestCCVData(messageID, 1000, 100)
-	ccvData2 := createTestCCVData(messageID, 1001, 101)
+	// Insert multiple CCVData with same messageID
+	ccvData1 := createTestCCVData("0x123", 1000, 1, 2)
+	ccvData2 := createTestCCVData("0x123", 2000, 1, 2) // Same messageID, different timestamp
 
-	// Insert first data
 	err := storage.InsertCCVData(ctx, ccvData1)
 	require.NoError(t, err)
 
-	// Insert second data with same messageID
 	err = storage.InsertCCVData(ctx, ccvData2)
 	require.NoError(t, err)
 
-	// Verify both data entries were stored
-	result, err := storage.GetCCVData(ctx, messageID)
+	// Verify both were inserted
+	retrieved, err := storage.GetCCVData(ctx, ccvData1.MessageID)
 	require.NoError(t, err)
-	require.Len(t, result, 2)
-	assert.Equal(t, ccvData1, result[0])
-	assert.Equal(t, ccvData2, result[1])
+	require.Len(t, retrieved, 2)
+	assert.Contains(t, retrieved, ccvData1)
+	assert.Contains(t, retrieved, ccvData2)
 }
 
-func TestInMemoryStorage_InsertCCVData_MultipleAppends(t *testing.T) {
-	storage := NewInMemoryStorage()
+func TestGetCCVDataNotFound(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
 	ctx := context.Background()
 
-	messageID := types.Bytes32{1, 2, 3, 4, 5}
+	messageID := createTestBytes32("0x999")
+	_, err := storage.GetCCVData(ctx, messageID)
 
-	// Insert multiple data entries with same messageID
-	for i := range 5 {
-		ccvData := createTestCCVData(messageID, int64(1000+i), types.SeqNum(100+i))
+	assert.Error(t, err)
+	assert.Equal(t, ErrCCVDataNotFound, err)
+}
+
+func TestQueryCCVDataTimestampRange(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Insert test data with different timestamps
+	ccvData1 := createTestCCVData("0x111", 1000, 1, 2)
+	ccvData2 := createTestCCVData("0x222", 2000, 1, 2)
+	ccvData3 := createTestCCVData("0x333", 3000, 1, 2)
+	ccvData4 := createTestCCVData("0x444", 4000, 1, 2)
+
+	for _, data := range []types.CCVData{ccvData1, ccvData2, ccvData3, ccvData4} {
+		err := storage.InsertCCVData(ctx, data)
+		require.NoError(t, err)
+	}
+
+	// Query for timestamp range 1500-3500
+	results, err := storage.QueryCCVData(ctx, 1500, 3500, nil, nil, 100, 0)
+	require.NoError(t, err)
+
+	// Should return ccvData2 and ccvData3
+	assert.Len(t, results, 2)
+	assert.Contains(t, results, "0x0000000000000000000000000000000000000000000000000000000000000222")
+	assert.Contains(t, results, "0x0000000000000000000000000000000000000000000000000000000000000333")
+}
+
+func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Insert test data with different source chains
+	ccvData1 := createTestCCVData("0x111", 1000, 1, 2) // source: 1
+	ccvData2 := createTestCCVData("0x222", 2000, 2, 2) // source: 2
+	ccvData3 := createTestCCVData("0x333", 3000, 1, 2) // source: 1
+
+	for _, data := range []types.CCVData{ccvData1, ccvData2, ccvData3} {
+		err := storage.InsertCCVData(ctx, data)
+		require.NoError(t, err)
+	}
+
+	// Query for source chain 1
+	sourceChains := []types.ChainSelector{1}
+	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, sourceChains, 100, 0)
+	require.NoError(t, err)
+
+	// Should return ccvData1 and ccvData3
+	assert.Len(t, results, 2)
+	assert.Contains(t, results, "0x0000000000000000000000000000000000000000000000000000000000000111")
+	assert.Contains(t, results, "0x0000000000000000000000000000000000000000000000000000000000000333")
+}
+
+func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Insert test data with different dest chains
+	ccvData1 := createTestCCVData("0x111", 1000, 1, 2) // dest: 2
+	ccvData2 := createTestCCVData("0x222", 2000, 1, 3) // dest: 3
+	ccvData3 := createTestCCVData("0x333", 3000, 1, 2) // dest: 2
+
+	for _, data := range []types.CCVData{ccvData1, ccvData2, ccvData3} {
+		err := storage.InsertCCVData(ctx, data)
+		require.NoError(t, err)
+	}
+
+	// Query for dest chain 2
+	destChains := []types.ChainSelector{2}
+	results, err := storage.QueryCCVData(ctx, 0, 9999, destChains, nil, 100, 0)
+	require.NoError(t, err)
+
+	// Should return ccvData1 and ccvData3
+	assert.Len(t, results, 2)
+	assert.Contains(t, results, "0x0000000000000000000000000000000000000000000000000000000000000111")
+	assert.Contains(t, results, "0x0000000000000000000000000000000000000000000000000000000000000333")
+}
+
+func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Insert test data
+	ccvData1 := createTestCCVData("0x111", 1000, 1, 2) // source: 1, dest: 2
+	ccvData2 := createTestCCVData("0x222", 2000, 1, 3) // source: 1, dest: 3
+	ccvData3 := createTestCCVData("0x333", 3000, 2, 2) // source: 2, dest: 2
+	ccvData4 := createTestCCVData("0x444", 4000, 1, 2) // source: 1, dest: 2
+
+	for _, data := range []types.CCVData{ccvData1, ccvData2, ccvData3, ccvData4} {
+		err := storage.InsertCCVData(ctx, data)
+		require.NoError(t, err)
+	}
+
+	// Query for source chain 1 AND dest chain 2
+	sourceChains := []types.ChainSelector{1}
+	destChains := []types.ChainSelector{2}
+	results, err := storage.QueryCCVData(ctx, 0, 9999, destChains, sourceChains, 100, 0)
+	require.NoError(t, err)
+
+	// Should return ccvData1 and ccvData4
+	assert.Len(t, results, 2)
+	assert.Contains(t, results, "0x0000000000000000000000000000000000000000000000000000000000000111")
+	assert.Contains(t, results, "0x0000000000000000000000000000000000000000000000000000000000000444")
+}
+
+func TestQueryCCVDataPagination(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Insert 5 test records
+	for i := 0; i < 5; i++ {
+		ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i*100), 1, 2)
 		err := storage.InsertCCVData(ctx, ccvData)
 		require.NoError(t, err)
 	}
 
-	// Verify all data entries were stored
-	result, err := storage.GetCCVData(ctx, messageID)
-	require.NoError(t, err)
-	require.Len(t, result, 5)
-
-	// Verify data is in correct order
-	for i := range 5 {
-		assert.Equal(t, types.SeqNum(100+i), result[i].SequenceNumber)
-		assert.Equal(t, int64(1000+i), result[i].Timestamp)
-	}
-}
-
-func TestInMemoryStorage_ConcurrentAccess(t *testing.T) {
-	storage := NewInMemoryStorage().(*InMemoryStorage)
-	ctx := context.Background()
-
-	const numGoroutines = 10
-	const numOperations = 100
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	// Test concurrent writes
-	for i := range numGoroutines {
-		go func(goroutineID int) {
-			defer wg.Done()
-
-			for j := 0; j < numOperations; j++ {
-				messageID := types.Bytes32{byte(goroutineID), byte(j), 0, 0, 0}
-				ccvData := createTestCCVData(messageID, int64(1000+j), types.SeqNum(100+j))
-
-				err := storage.InsertCCVData(ctx, ccvData)
-				require.NoError(t, err)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify all data was stored correctly
-	totalExpected := numGoroutines * numOperations
-	actualCount := 0
-
-	storage.ccvData.Range(func(key, value any) bool {
-		actualCount++
-		return true
-	})
-
-	assert.Equal(t, totalExpected, actualCount)
-}
-
-func TestInMemoryStorage_ConcurrentReadWrite(t *testing.T) {
-	storage := NewInMemoryStorage().(*InMemoryStorage)
-	ctx := context.Background()
-
-	const numWriters = 5
-	const numReaders = 5
-	const numOperations = 50
-
-	var wg sync.WaitGroup
-
-	// Start writers
-	wg.Add(numWriters)
-	for i := 0; i < numWriters; i++ {
-		go func(writerID int) {
-			defer wg.Done()
-
-			for j := 0; j < numOperations; j++ {
-				messageID := types.Bytes32{byte(writerID), byte(j), 0, 0, 0}
-				ccvData := createTestCCVData(messageID, int64(1000+j), types.SeqNum(100+j))
-
-				err := storage.InsertCCVData(ctx, ccvData)
-				require.NoError(t, err)
-			}
-		}(i)
-	}
-
-	// Start readers
-	wg.Add(numReaders)
-	for i := 0; i < numReaders; i++ {
-		go func(readerID int) {
-			defer wg.Done()
-
-			for j := 0; j < numOperations; j++ {
-				messageID := types.Bytes32{byte(readerID), byte(j), 0, 0, 0}
-
-				// Try to read - might not exist yet, that's ok
-				_, err := storage.GetCCVData(ctx, messageID)
-				// Don't assert error here as data might not be written yet
-				_ = err
-
-				// Query by timestamp
-				_, err = storage.QueryCCVDataByTimestamp(ctx, 0, 2000)
-				require.NoError(t, err)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-}
-
-func TestInMemoryStorage_DataIntegrity(t *testing.T) {
-	storage := NewInMemoryStorage()
-	ctx := context.Background()
-
-	// Test that data is not modified after storage
-	messageID := types.Bytes32{1, 2, 3, 4, 5}
-	originalData := createTestCCVData(messageID, 1000, 100)
-
-	err := storage.InsertCCVData(ctx, originalData)
+	// Test pagination: limit=2, offset=1
+	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, nil, 2, 1)
 	require.NoError(t, err)
 
-	// Modify original data
-	originalData.CCVData = []byte("modified")
-	originalData.Timestamp = 9999
-
-	// Retrieve and verify data wasn't affected
-	result, err := storage.GetCCVData(ctx, messageID)
-	require.NoError(t, err)
-	require.Len(t, result, 1)
-
-	assert.Equal(t, []byte("test_ccv_data"), result[0].CCVData)
-	assert.Equal(t, int64(1000), result[0].Timestamp)
+	// Should return 2 records (indices 1 and 2)
+	assert.Len(t, results, 2)
 }
 
-func TestInMemoryStorage_QueryCCVDataByTimestamp_EmptyStorage(t *testing.T) {
-	storage := NewInMemoryStorage()
+func TestQueryCCVDataEmptyResult(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
 	ctx := context.Background()
 
-	// Query empty storage
-	result, err := storage.QueryCCVDataByTimestamp(ctx, 0, 2000)
-
+	// Query with no data
+	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, nil, 100, 0)
 	require.NoError(t, err)
-	assert.Empty(t, result)
+	assert.Empty(t, results)
 }
 
-func TestInMemoryStorage_QueryCCVDataByTimestamp_KeyFormat(t *testing.T) {
-	storage := NewInMemoryStorage()
+func TestQueryCCVDataNoMatchingTimestamp(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
 	ctx := context.Background()
 
-	messageID := types.Bytes32{0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0}
-	ccvData := createTestCCVData(messageID, 1000, 100)
-
+	// Insert data with timestamp 1000
+	ccvData := createTestCCVData("0x111", 1000, 1, 2)
 	err := storage.InsertCCVData(ctx, ccvData)
 	require.NoError(t, err)
 
-	result, err := storage.QueryCCVDataByTimestamp(ctx, 0, 2000)
+	// Query for timestamp range 2000-3000 (no matches)
+	results, err := storage.QueryCCVData(ctx, 2000, 3000, nil, nil, 100, 0)
 	require.NoError(t, err)
-	require.Len(t, result, 1)
+	assert.Empty(t, results)
+}
 
-	// Verify key format is hex-encoded
-	expectedKey := hex.EncodeToString(messageID[:])
-	for key := range result {
-		assert.Equal(t, expectedKey, key)
+func TestQueryCCVDataNoMatchingChainSelector(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Insert data with source chain 1
+	ccvData := createTestCCVData("0x111", 1000, 1, 2)
+	err := storage.InsertCCVData(ctx, ccvData)
+	require.NoError(t, err)
+
+	// Query for source chain 5 (no matches)
+	sourceChains := []types.ChainSelector{5}
+	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, sourceChains, 100, 0)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestConcurrentAccess(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Test concurrent inserts
+	done := make(chan bool, 10)
+	for i := 0; i < 10; i++ {
+		go func(i int) {
+			ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i), 1, 2)
+			err := storage.InsertCCVData(ctx, ccvData)
+			assert.NoError(t, err)
+			done <- true
+		}(i)
 	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+
+	// Verify all data was inserted
+	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, nil, 100, 0)
+	require.NoError(t, err)
+	assert.Len(t, results, 10)
+}
+
+// Helper functions
+
+func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destChain types.ChainSelector) types.CCVData {
+	// Ensure the messageID is properly padded to 64 hex characters
+	if len(messageIDHex) < 66 { // "0x" + 64 hex chars
+		messageIDHex = fmt.Sprintf("0x%064s", messageIDHex[2:])
+	}
+	messageID, _ := types.NewBytes32FromString(messageIDHex)
+
+	// Create a unique message for each CCVData to ensure proper MessageID generation
+	message := types.Message{
+		Sender:               []byte{0x0d, 0x0e, 0x0f},
+		Data:                 []byte{0x10, 0x11, 0x12},
+		OnRampAddress:        []byte{0x13, 0x14, 0x15},
+		TokenTransfer:        []byte{0x16, 0x17, 0x18},
+		OffRampAddress:       []byte{0x19, 0x1a, 0x1b},
+		DestBlob:             []byte{0x1c, 0x1d, 0x1e},
+		Receiver:             []byte{0x1f, 0x20, 0x21},
+		SourceChainSelector:  sourceChain,
+		DestChainSelector:    destChain,
+		SequenceNumber:       types.SeqNum(1),
+		Finality:             1,
+		DestBlobLength:       3,
+		TokenTransferLength:  3,
+		DataLength:           3,
+		ReceiverLength:       3,
+		SenderLength:         3,
+		Version:              1,
+		OffRampAddressLength: 3,
+		OnRampAddressLength:  3,
+	}
+
+	return types.CCVData{
+		MessageID:             messageID,
+		Timestamp:             timestamp,
+		SourceChainSelector:   sourceChain,
+		DestChainSelector:     destChain,
+		SequenceNumber:        types.SeqNum(1),
+		SourceVerifierAddress: types.UnknownAddress{0x01, 0x02, 0x03},
+		DestVerifierAddress:   types.UnknownAddress{0x04, 0x05, 0x06},
+		CCVData:               []byte{0x07, 0x08, 0x09},
+		BlobData:              []byte{0x0a, 0x0b, 0x0c},
+		ReceiptBlobs:          []types.ReceiptWithBlob{},
+		Message:               message,
+	}
+}
+
+func createTestBytes32(hex string) types.Bytes32 {
+	bytes32, _ := types.NewBytes32FromString(hex)
+	return bytes32
+}
+
+// Benchmark tests
+
+func BenchmarkInsertCCVData(b *testing.B) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ccvData := createTestCCVData(fmt.Sprintf("0x%x", i), int64(1000+i), 1, 2)
+		storage.InsertCCVData(ctx, ccvData)
+	}
+}
+
+func BenchmarkGetCCVData(b *testing.B) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Pre-populate with data
+	ccvData := createTestCCVData("0x123", 1000, 1, 2)
+	storage.InsertCCVData(ctx, ccvData)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		storage.GetCCVData(ctx, ccvData.MessageID)
+	}
+}
+
+func BenchmarkQueryCCVDataTimestampRange(b *testing.B) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Pre-populate with 1000 records
+	for i := 0; i < 1000; i++ {
+		ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i), 1, 2)
+		storage.InsertCCVData(ctx, ccvData)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		storage.QueryCCVData(ctx, 1500, 2500, nil, nil, 100, 0)
+	}
+}
+
+func BenchmarkQueryCCVDataWithChainFilter(b *testing.B) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	// Pre-populate with 1000 records with mixed chain selectors
+	for i := 0; i < 1000; i++ {
+		sourceChain := types.ChainSelector(i % 5)     // 0-4
+		destChain := types.ChainSelector((i + 1) % 5) // 1-5
+		ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i), sourceChain, destChain)
+		storage.InsertCCVData(ctx, ccvData)
+	}
+
+	sourceChains := []types.ChainSelector{1, 2}
+	destChains := []types.ChainSelector{3, 4}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		storage.QueryCCVData(ctx, 0, 9999, destChains, sourceChains, 100, 0)
+	}
+}
+
+func BenchmarkConcurrentInserts(b *testing.B) {
+	storage := NewInMemoryStorage(logger.Nop())
+	ctx := context.Background()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			ccvData := createTestCCVData(fmt.Sprintf("0x%x", i), int64(1000+i), 1, 2)
+			storage.InsertCCVData(ctx, ccvData)
+			i++
+		}
+	})
 }

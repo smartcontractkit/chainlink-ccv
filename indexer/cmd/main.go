@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"net/http"
-	"os"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
@@ -21,7 +19,7 @@ func main() {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	})
 
 	if err != nil {
@@ -50,7 +48,7 @@ func main() {
 
 	// Start the Scanner processing
 	ccvDataCh := scanner.Start(ctx)
-	indexerStorage := storage.NewInMemoryStorage()
+	indexerStorage := storage.NewInMemoryStorage(lggr)
 
 	// Need to tidy up
 	go func() {
@@ -64,14 +62,6 @@ func main() {
 		}
 	}()
 
-	// TODO: Add the Read API here, which will query the indexer storage for CCV data
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Indexer is running!\n")
-	})
-
-	lggr.Infow("Indexer is running on port :8100")
-	if err := http.ListenAndServe(":8100", nil); err != nil {
-		lggr.Errorw("Failed to start indexer", "error", err)
-		os.Exit(1)
-	}
+	v1 := api.NewV1API(lggr, indexerStorage)
+	api.Serve(v1, 8100)
 }
