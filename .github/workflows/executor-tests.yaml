@@ -26,18 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FILE="${GITHUB_WORKSPACE}/tool-versions.env"   # adjust if you checked out into a subfolder
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          echo "Looking for: $FILE"
-          ls -la "$GITHUB_WORKSPACE" || true
-
-          if [[ ! -f "$FILE" ]]; then
-            echo "::error file=$FILE::tool-versions.env not found. Check defaults.run.working-directory or checkout.path."
-            exit 1
-          fi
-
-          # shellcheck disable=SC1090
-          source "$FILE"
+          source "${GITHUB_WORKSPACE}/tool-versions.env" 
 
           # Make it a step output
           echo "golangci_lint_version=$VERSION_GOLANGCI_LINT" >> "$GITHUB_OUTPUT"
@@ -72,6 +61,7 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: v${{ steps.tool-versions.outputs.golangci_lint_version }}
+          skip-run: true
 
       - name: Run lint
         run: just lint
