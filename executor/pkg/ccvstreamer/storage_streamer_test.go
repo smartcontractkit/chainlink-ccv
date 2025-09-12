@@ -4,7 +4,9 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
@@ -26,9 +28,10 @@ func TestNoReader(t *testing.T) {
 	require.ErrorContains(t, err, "reader not set")
 }
 
-func TestLifecycle(t *testing.T) {
+func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	reader := executor_mocks.NewMockOffchainStorageReader(t)
-	oss := ccvstreamer.NewOffchainStorageStreamer(reader, 0, 0)
+	reader.EXPECT().ReadCCVData(mock.Anything).Return(nil, nil)
+	oss := ccvstreamer.NewOffchainStorageStreamer(reader, 10*time.Millisecond, 0)
 	require.NotNil(t, oss)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -42,6 +45,9 @@ func TestLifecycle(t *testing.T) {
 	running, err := oss.Status()
 	require.NoError(t, err)
 	require.True(t, running)
+
+	// let it run a bit to ensure ReadCCVData is called
+	time.Sleep(200 * time.Millisecond)
 
 	cancel()
 	wg.Wait()

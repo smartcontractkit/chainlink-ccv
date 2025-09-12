@@ -66,12 +66,16 @@ func (oss *OffchainStorageStreamer) Start(
 			oss.mu.Unlock()
 		}()
 
+		duration := time.Duration(0)
 		for {
 			select {
 			case <-ctx.Done():
 				// Context canceled, stop loop.
 				return
-			case <-time.After(oss.pollingInterval):
+			case <-time.After(duration):
+				// Set duration to polling interval after the first iteration.
+				duration = oss.pollingInterval
+
 				// Non-blocking: call ReadCCVData
 				responses, err := oss.reader.ReadCCVData(ctx)
 				if err != nil {
