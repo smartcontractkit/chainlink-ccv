@@ -42,16 +42,12 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	_, err := oss.Start(ctx, lggr, &wg)
 
 	require.NoError(t, err)
-	running, err := oss.Status()
-	require.NoError(t, err)
-	require.True(t, running)
+	require.True(t, oss.IsRunning())
 
 	// let it run a bit to ensure ReadCCVData is called
 	time.Sleep(200 * time.Millisecond)
 
 	cancel()
 	wg.Wait()
-	running, err = oss.Status()
-	require.NoError(t, err)
-	require.False(t, running)
+	require.False(t, oss.IsRunning())
 }

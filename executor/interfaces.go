@@ -8,6 +8,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// StreamerResult is the result of a streaming operation, it contains either
+type StreamerResult struct {
+	Messages []types.MessageWithCCVData
+	Error    error
+}
+
 // CCVResultStreamer produces a channel of MessageWithCCVData objects, the
 // channel should only close if there is an error.
 type CCVResultStreamer interface {
@@ -17,11 +23,10 @@ type CCVResultStreamer interface {
 		ctx context.Context,
 		lggr logger.Logger,
 		wg *sync.WaitGroup,
-	) (<-chan types.MessageWithCCVData, error)
+	) (<-chan StreamerResult, error)
 
-	// Status of the streamer, returns whether or not it's running and a nil
-	// error if healthy.
-	Status() (bool, error)
+	// IsRunning returns whether or not the streamer is running.
+	IsRunning() bool
 }
 
 // Executor is responsible for executing validating messages.

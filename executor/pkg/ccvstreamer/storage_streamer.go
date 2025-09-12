@@ -17,28 +17,27 @@ import (
 var _ executor.CCVResultStreamer = &OffchainStorageStreamer{}
 
 func NewOffchainStorageStreamer(
-	reader protocol.OffchainStorageReader, pollilngInterval, backoff time.Duration,
+	reader protocol.OffchainStorageReader, pollingInterval, backoff time.Duration,
 ) *OffchainStorageStreamer {
 	return &OffchainStorageStreamer{
 		reader:          reader,
-		pollingInterval: pollilngInterval,
+		pollingInterval: pollingInterval,
 		backoff:         backoff,
 	}
 }
 
 type OffchainStorageStreamer struct {
 	reader          protocol.OffchainStorageReader
-	err             error
 	pollingInterval time.Duration
 	backoff         time.Duration
 	mu              sync.RWMutex
 	running         bool
 }
 
-func (oss *OffchainStorageStreamer) Status() (bool, error) {
+func (oss *OffchainStorageStreamer) IsRunning() bool {
 	oss.mu.RLock()
 	defer oss.mu.RUnlock()
-	return oss.running, oss.err
+	return oss.running
 }
 
 // Start implements the CCVResultStreamer interface using an OffchainStorageReader.
@@ -46,13 +45,13 @@ func (oss *OffchainStorageStreamer) Start(
 	ctx context.Context,
 	lggr logger.Logger,
 	wg *sync.WaitGroup,
-) (<-chan types.MessageWithCCVData, error) {
+) (<-chan executor.StreamerResult, error) {
 	// TODO: validate the reader?
 	if oss.reader == nil {
 		return nil, errors.New("reader not set")
 	}
 
-	messagesCh := make(chan types.MessageWithCCVData)
+	messagesCh := make(chan executor.StreamerResult)
 	wg.Add(1)
 	oss.running = true
 
@@ -66,39 +65,52 @@ func (oss *OffchainStorageStreamer) Start(
 			oss.mu.Unlock()
 		}()
 
-		duration := time.Duration(0)
 		for {
 			select {
 			case <-ctx.Done():
 				// Context canceled, stop loop.
 				return
-			case <-time.After(duration):
-				// Set duration to polling interval after the first iteration.
-				duration = oss.pollingInterval
-
+			default:
 				// Non-blocking: call ReadCCVData
 				responses, err := oss.reader.ReadCCVData(ctx)
-				if err != nil {
-					lggr.Errorw("OffchainStorageStreamer failed to read ccv data", "error", err)
-					oss.mu.Lock()
-					oss.err = err
-					oss.mu.Unlock()
 
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(oss.backoff):
-					}
-					continue
-				}
-				for _, msg := range responses {
+				msgs := make([]types.MessageWithCCVData, len(responses))
+				for i, msg := range responses {
 					// TODO: convert QueryResponse to MessageWithCCVData
 					var msg2 types.MessageWithCCVData
-					lggr.Infow("received message", "message", msg)
+					lggr.Infow("received message", "messageID", msg.Data.MessageID.String())
+					msgs[i] = msg2
+				}
+
+				result := executor.StreamerResult{
+					Messages: msgs,
+					Error:    err,
+				}
+
+				select {
+				case <-ctx.Done():
+					return
+				case messagesCh <- result:
+				}
+
+				// If there is no error, and there are results, read again immediately.
+				delay := time.Duration(0)
+
+				// there was an error, use the backoff duration.
+				if err != nil {
+					lggr.Errorw("OffchainStorageStreamer failed to read ccv data", "error", err)
+					delay = oss.backoff
+				} else if len(responses) == 0 {
+					// no results, use the polling interval.
+					delay = oss.pollingInterval
+				}
+
+				// maybe wait before the next read.
+				if delay != 0 {
 					select {
 					case <-ctx.Done():
 						return
-					case messagesCh <- msg2:
+					case <-time.After(delay):
 					}
 				}
 			}

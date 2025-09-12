@@ -13,7 +13,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -105,7 +104,7 @@ func TestLifecycle(t *testing.T) {
 		lggr := logger.Test(t)
 
 		ccvDataReader := executor_mocks.NewMockCCVResultStreamer(t)
-		messageChan := make(chan types.MessageWithCCVData)
+		messageChan := make(chan executor.StreamerResult)
 		ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(messageChan, nil)
 
 		ec, err := executor.NewCoordinator(
@@ -143,7 +142,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 
 	// Generate an error when SubscribeMessages() is called during Start().
 	ccvDataReader := executor_mocks.NewMockCCVResultStreamer(t)
-	messageChan := make(chan types.MessageWithCCVData)
+	messageChan := make(chan executor.StreamerResult)
 	sentinelError := fmt.Errorf("lilo & stitch")
 	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(messageChan, sentinelError)
 

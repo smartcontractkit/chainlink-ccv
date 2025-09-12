@@ -145,31 +145,35 @@ func (ec *Coordinator) run(ctx context.Context) {
 		case <-ctx.Done():
 			ec.lggr.Infow("Coordinator exiting")
 			return
-		case msg, ok := <-messagesCh:
+		case msgs, ok := <-messagesCh:
 			if !ok {
 				ec.lggr.Warnw("messagesCh closed")
 				// TODO: handle reconnection logic
 				// TODO: support multiple sources
 			}
 
-			// convert query response to message with ccv data
-
-			err := ec.executor.CheckValidMessage(ctx, msg)
-			if err != nil {
-				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
-				continue
+			if msgs.Error != nil {
+				ec.lggr.Errorw("error reading from ccv result streamer", "error", msgs.Error)
 			}
 
-			id, _ := msg.Message.MessageID()
+			for _, msg := range msgs.Messages {
+				err := ec.executor.CheckValidMessage(ctx, msg)
+				if err != nil {
+					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+					continue
+				}
 
-			// get message delay from leader elector
-			readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
-			ec.lggr.Infow("waiting before processing message", "readyTimestamp", readyTimestamp, "messageID", id)
+				id, _ := msg.Message.MessageID()
 
-			heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
-				Payload:   msg,
-				ReadyTime: readyTimestamp,
-			})
+				// get message delay from leader elector
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
+				ec.lggr.Infow("waiting before processing message", "readyTimestamp", readyTimestamp, "messageID", id)
+
+				heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
+					Payload:   msg,
+					ReadyTime: readyTimestamp,
+				})
+			}
 		case <-ticker.C:
 			// todo: get this current time from a single source across all executors
 			currentTime := time.Now().Unix()
