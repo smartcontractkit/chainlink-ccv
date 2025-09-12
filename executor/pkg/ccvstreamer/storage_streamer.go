@@ -8,15 +8,16 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
-	protocol_types "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Ensure OffchainStorageStreamer implements the CCVResultStreamer interface.
 var _ executor.CCVResultStreamer = &OffchainStorageStreamer{}
 
 func NewOffchainStorageStreamer(
-	reader protocol_types.OffchainStorageReader, pollilngInterval, backoff time.Duration,
+	reader protocol.OffchainStorageReader, pollilngInterval, backoff time.Duration,
 ) *OffchainStorageStreamer {
 	return &OffchainStorageStreamer{
 		reader:          reader,
@@ -26,13 +27,12 @@ func NewOffchainStorageStreamer(
 }
 
 type OffchainStorageStreamer struct {
-	reader          protocol_types.OffchainStorageReader
+	reader          protocol.OffchainStorageReader
+	err             error
 	pollingInterval time.Duration
 	backoff         time.Duration
-
-	mu      sync.RWMutex
-	err     error
-	running bool
+	mu              sync.RWMutex
+	running         bool
 }
 
 func (oss *OffchainStorageStreamer) Status() (bool, error) {

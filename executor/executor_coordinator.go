@@ -27,9 +27,9 @@ type Coordinator struct {
 	executableMessageCh chan types.MessageWithCCVData //nolint:unused //will be used by executor
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
-	running             bool
 	delayedMessageHeap  *th.MessageHeap
 	mu                  sync.RWMutex
+	running             bool
 }
 
 type Option func(*Coordinator)
