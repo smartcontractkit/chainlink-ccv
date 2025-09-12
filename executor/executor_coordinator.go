@@ -18,6 +18,7 @@ import (
 )
 
 type Coordinator struct {
+	delayedMessageHeap  *th.MessageHeap
 	executor            e.Executor
 	ccvDataReader       cdr.CcvDataReader
 	leaderElector       le.LeaderElector
@@ -27,7 +28,6 @@ type Coordinator struct {
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
 	running             bool
-	delayedMessageHeap  *th.MessageHeap
 	mu                  sync.RWMutex
 }
 
