@@ -47,7 +47,7 @@ func WithExecutor(executor e.Executor) Option {
 	}
 }
 
-func WithCCVStreamer(streamer CCVResultStreamer) Option {
+func WithCCVResultStreamer(streamer CCVResultStreamer) Option {
 	return func(ec *Coordinator) {
 		ec.ccvStreamer = streamer
 	}
@@ -78,7 +78,7 @@ func NewCoordinator(options ...Option) (*Coordinator, error) {
 	appendIfNil(ec.executor, "executor")
 	appendIfNil(ec.leaderElector, "leaderElector")
 	appendIfNil(ec.lggr, "logger")
-	appendIfNil(ec.ccvStreamer, "ccvStreamer")
+	appendIfNil(ec.ccvStreamer, "ccvResultStreamer")
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -132,7 +132,11 @@ func (ec *Coordinator) run(ctx context.Context) {
 	}()
 
 	var wg sync.WaitGroup
-	messagesCh := ec.ccvStreamer(ctx, ec.lggr, &wg)
+	messagesCh, err := ec.ccvStreamer.Start(ctx, ec.lggr, &wg)
+	if err != nil {
+		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
+		return
+	}
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
