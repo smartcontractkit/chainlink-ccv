@@ -26,7 +26,7 @@ jobs:
         run: |
           # Source the file into the environment
           set -a
-          source tool-versions.env
+          source ./tool-versions.env
           set +a
 
           # Expose VERSION_GOLANGCI_LINT as a GitHub Action output
