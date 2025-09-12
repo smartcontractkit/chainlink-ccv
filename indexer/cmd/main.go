@@ -35,7 +35,7 @@ func main() {
 	// Storage Discovery allows the indexer to add new off-chain storage readers without needing a restart
 	// Currently, this uses the configuration discovery method, which reads the off-chain storage readers from the configuration passed to it.
 	aggregatorReader, _ := storageaccess.NewAggregatorReader("aggregator:50051", lggr, 0)
-	readerDiscovery := discovery.NewConfigurationDiscovery([]types.OffchainStorageReader{aggregatorReader})
+	readerDiscovery := discovery.NewStaticDiscovery([]types.OffchainStorageReader{aggregatorReader})
 
 	// Initialize the indexer storage
 	indexerStorage := storage.NewInMemoryStorage(lggr)

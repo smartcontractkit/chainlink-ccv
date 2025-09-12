@@ -7,21 +7,21 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-var _ common.ReaderDiscovery = (*ConfigurationDiscovery)(nil)
+var _ common.ReaderDiscovery = (*StaticDiscovery)(nil)
 
-type ConfigurationDiscovery struct {
+type StaticDiscovery struct {
 	offChainStorageReaderCh chan types.OffchainStorageReader
 	readers                 []types.OffchainStorageReader
 }
 
-func NewConfigurationDiscovery(readers []types.OffchainStorageReader) common.ReaderDiscovery {
-	return &ConfigurationDiscovery{
+func NewStaticDiscovery(readers []types.OffchainStorageReader) common.ReaderDiscovery {
+	return &StaticDiscovery{
 		offChainStorageReaderCh: make(chan types.OffchainStorageReader, 1000),
 		readers:                 readers,
 	}
 }
 
-func (d *ConfigurationDiscovery) DiscoverReaders(ctx context.Context) chan types.OffchainStorageReader {
+func (d *StaticDiscovery) DiscoverReaders(ctx context.Context) chan types.OffchainStorageReader {
 	// Populate the offChainStorageReaderCh with the readers taken from the configuration
 	for _, reader := range d.readers {
 		d.offChainStorageReaderCh <- reader
@@ -30,7 +30,7 @@ func (d *ConfigurationDiscovery) DiscoverReaders(ctx context.Context) chan types
 	return d.offChainStorageReaderCh
 }
 
-func (d *ConfigurationDiscovery) Stop() error {
+func (d *StaticDiscovery) Stop() error {
 	close(d.offChainStorageReaderCh)
 	return nil
 }
