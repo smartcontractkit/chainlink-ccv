@@ -23,15 +23,24 @@ jobs:
 
       - name: Load tool versions
         id: tool-versions
+        shell: bash
         run: |
-          find .
-          # Source the file into the environment
-          set -a
-          source ./tool-versions.env
-          set +a
+          set -euo pipefail
+          FILE="${GITHUB_WORKSPACE}/tool-versions.env"   # adjust if you checked out into a subfolder
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "Looking for: $FILE"
+          ls -la "$GITHUB_WORKSPACE" || true
 
-          # Expose VERSION_GOLANGCI_LINT as a GitHub Action output
-          echo "golangci_lint_version=$VERSION_GOLANGCI_LINT" >> $GITHUB_OUTPUT
+          if [[ ! -f "$FILE" ]]; then
+            echo "::error file=$FILE::tool-versions.env not found. Check defaults.run.working-directory or checkout.path."
+            exit 1
+          fi
+
+          # shellcheck disable=SC1090
+          source "$FILE"
+
+          # Make it a step output
+          echo "golangci_lint_version=$VERSION_GOLANGCI_LINT" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
