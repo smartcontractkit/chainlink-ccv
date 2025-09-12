@@ -23,3 +23,11 @@ type CCVResultStreamer interface {
 	// error if healthy.
 	Status() (bool, error)
 }
+
+// Executor is responsible for executing validating messages.
+type Executor interface {
+	// ExecuteMessage executes the message
+	ExecuteMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error
+	// CheckValidMessage checks that message is valid
+	CheckValidMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -11,6 +12,9 @@ import (
 	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
+
+// Ensure ChainlinkExecutor implements the Executor interface.
+var _ executor.Executor = &ChainlinkExecutor{}
 
 type ChainlinkExecutor struct {
 	lggr                 logger.Logger

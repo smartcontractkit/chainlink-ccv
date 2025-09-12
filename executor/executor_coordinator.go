@@ -12,7 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	th "github.com/smartcontractkit/chainlink-ccv/executor/internal/timestamp_heap"
-	e "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 )
 
@@ -20,7 +19,7 @@ import (
 const BackoffDuration = 5 * time.Second
 
 type Coordinator struct {
-	executor            e.Executor
+	executor            Executor
 	ccvStreamer         CCVResultStreamer
 	leaderElector       le.LeaderElector
 	lggr                logger.Logger
@@ -41,7 +40,7 @@ func WithLogger(lggr logger.Logger) Option {
 	}
 }
 
-func WithExecutor(executor e.Executor) Option {
+func WithExecutor(executor Executor) Option {
 	return func(ec *Coordinator) {
 		ec.executor = executor
 	}

@@ -12,7 +12,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewOffchainStorageStreamer(reader protocol_types.OffchainStorageReader, backoff time.Duration) executor.CCVResultStreamer {
+// Ensure OffchainStorageStreamer implements the CCVResultStreamer interface.
+var _ executor.CCVResultStreamer = &OffchainStorageStreamer{}
+
+func NewOffchainStorageStreamer(reader protocol_types.OffchainStorageReader, backoff time.Duration) *OffchainStorageStreamer {
 	return &OffchainStorageStreamer{
 		reader:  reader,
 		backoff: backoff,
