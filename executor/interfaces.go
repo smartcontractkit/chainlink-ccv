@@ -8,10 +8,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// StreamerResult is the result of a streaming operation, it contains either
+// StreamerResult is the result of a streaming operation.
 type StreamerResult struct {
-	Messages []types.MessageWithCCVData
 	Error    error
+	Messages []types.MessageWithCCVData
 }
 
 // CCVResultStreamer produces a channel of MessageWithCCVData objects, the
