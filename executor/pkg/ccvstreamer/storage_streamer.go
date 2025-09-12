@@ -15,16 +15,20 @@ import (
 // Ensure OffchainStorageStreamer implements the CCVResultStreamer interface.
 var _ executor.CCVResultStreamer = &OffchainStorageStreamer{}
 
-func NewOffchainStorageStreamer(reader protocol_types.OffchainStorageReader, backoff time.Duration) *OffchainStorageStreamer {
+func NewOffchainStorageStreamer(
+	reader protocol_types.OffchainStorageReader, pollilngInterval, backoff time.Duration,
+) *OffchainStorageStreamer {
 	return &OffchainStorageStreamer{
-		reader:  reader,
-		backoff: backoff,
+		reader:          reader,
+		pollingInterval: pollilngInterval,
+		backoff:         backoff,
 	}
 }
 
 type OffchainStorageStreamer struct {
-	reader  protocol_types.OffchainStorageReader
-	backoff time.Duration
+	reader          protocol_types.OffchainStorageReader
+	pollingInterval time.Duration
+	backoff         time.Duration
 
 	mu      sync.RWMutex
 	err     error
@@ -67,7 +71,7 @@ func (oss *OffchainStorageStreamer) Start(
 			case <-ctx.Done():
 				// Context canceled, stop loop.
 				return
-			default:
+			case <-time.After(oss.pollingInterval):
 				// Non-blocking: call ReadCCVData
 				responses, err := oss.reader.ReadCCVData(ctx)
 				if err != nil {

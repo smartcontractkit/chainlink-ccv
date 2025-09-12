@@ -13,7 +13,7 @@ import (
 )
 
 func TestNoReader(t *testing.T) {
-	oss := ccvstreamer.NewOffchainStorageStreamer(nil, 0)
+	oss := ccvstreamer.NewOffchainStorageStreamer(nil, 0, 0)
 	require.NotNil(t, oss)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -28,7 +28,7 @@ func TestNoReader(t *testing.T) {
 
 func TestLifecycle(t *testing.T) {
 	reader := executor_mocks.NewMockOffchainStorageReader(t)
-	oss := ccvstreamer.NewOffchainStorageStreamer(reader, 0)
+	oss := ccvstreamer.NewOffchainStorageStreamer(reader, 0, 0)
 	require.NotNil(t, oss)
 
 	ctx, cancel := context.WithCancel(t.Context())
