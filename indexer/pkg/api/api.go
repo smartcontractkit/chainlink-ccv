@@ -18,9 +18,6 @@ func NewV1API(lggr logger.Logger, storage common.IndexerStorage) *gin.Engine {
 		c.JSON(200, gin.H{"message": "pong"})
 	})
 
-	statsV1Handler := v1Handlers.NewStatsV1Handler()
-	v1.GET("/stats", statsV1Handler.Handle)
-
 	ccvDataV1Handler := v1Handlers.NewCCVDataV1Handler(storage, lggr)
 	v1.GET("/ccvdata", ccvDataV1Handler.Handle)
 

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -33,7 +34,15 @@ func NewCCVDataV1Handler(storage common.IndexerStorage, lggr logger.Logger) *CCV
 }
 
 func (h *CCVDataV1Handler) Handle(c *gin.Context) {
-	var req CCVDataRequest
+	req := CCVDataRequest{
+		Start:                0,
+		End:                  time.Now().Unix(),
+		SourceChainSelectors: []types.ChainSelector{},
+		DestChainSelectors:   []types.ChainSelector{},
+		Limit:                100,
+		Offset:               0,
+	}
+
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

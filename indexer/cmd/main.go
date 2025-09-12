@@ -19,7 +19,7 @@ func main() {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 	})
 
 	if err != nil {
@@ -34,8 +34,11 @@ func main() {
 	// Initialize the indexer storage & create a reader discovery, which will discover the off-chain storage readers
 	// Storage Discovery allows the indexer to add new off-chain storage readers without needing a restart
 	// Currently, this uses the configuration discovery method, which reads the off-chain storage readers from the configuration passed to it.
-	inMemoryOffchainStorage := storageaccess.NewInMemoryOffchainStorage(lggr)
-	readerDiscovery := discovery.NewConfigurationDiscovery([]types.OffchainStorageReader{storageaccess.CreateReaderOnly(inMemoryOffchainStorage)})
+	aggregatorReader, _ := storageaccess.NewAggregatorReader("aggregator:50051", lggr, 0)
+	readerDiscovery := discovery.NewConfigurationDiscovery([]types.OffchainStorageReader{aggregatorReader})
+
+	// Initialize the indexer storage
+	indexerStorage := storage.NewInMemoryStorage(lggr)
 
 	// Create a scanner, which will poll the off-chain storage(s) for CCV data
 	scanner := scanner.NewScanner(
@@ -44,23 +47,40 @@ func main() {
 		scanner.WithConfig(scanner.ScannerConfig{
 			ScanInterval: 1 * time.Second,
 		}),
+		scanner.WithIndexerStorage(indexerStorage),
 	)
 
 	// Start the Scanner processing
-	ccvDataCh := scanner.Start(ctx)
-	indexerStorage := storage.NewInMemoryStorage(lggr)
+	scanner.Start(ctx)
 
-	// Need to tidy up
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case ccvData := <-ccvDataCh:
-				indexerStorage.InsertCCVData(ctx, ccvData)
-			}
-		}
-	}()
+	// go func() {
+	// 	ticker := time.NewTicker(1 * time.Millisecond)
+	// 	defer ticker.Stop()
+	// 	for {
+	// 		select {
+	// 		case <-ctx.Done():
+	// 			return
+	// 		case <-ticker.C:
+	// 			messageId := make([]byte, 32)
+	// 			rand.Read(messageId)
+	// 			inMemoryOffchainStorage.WriteCCVData(ctx, []types.CCVData{
+	// 				{
+	// 					SourceVerifierAddress: []byte{},
+	// 					DestVerifierAddress:   []byte{},
+	// 					CCVData:               []byte{},
+	// 					BlobData:              []byte{},
+	// 					ReceiptBlobs:          []types.ReceiptWithBlob{},
+	// 					Message:               types.Message{},
+	// 					SequenceNumber:        1,
+	// 					SourceChainSelector:   1,
+	// 					DestChainSelector:     2,
+	// 					Timestamp:             time.Now().Unix(),
+	// 					MessageID:             types.Bytes32(messageId),
+	// 				},
+	// 			})
+	// 		}
+	// 	}
+	// }()
 
 	v1 := api.NewV1API(lggr, indexerStorage)
 	api.Serve(v1, 8100)

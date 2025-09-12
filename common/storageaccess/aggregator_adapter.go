@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -218,12 +219,14 @@ func mapMessage(msg *aggregator.Message) (types.Message, error) {
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
 	resp, err := a.client.GetMessagesSince(ctx, &aggregator.GetMessagesSinceRequest{
-		Since: a.since,
+		Since:     a.since,
+		NextToken: a.token,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error calling GetMessagesSince: %w", err)
 	}
 
+	a.lggr.Debugw("Got messages since", "count", len(resp.Results))
 	// Convert the response to []types.QueryResponse
 	results := make([]types.QueryResponse, 0, len(resp.Results))
 	for i, result := range resp.Results {
@@ -231,17 +234,18 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 		if err != nil {
 			return nil, fmt.Errorf("error mapping message at index %d: %w", i, err)
 		}
-		results[i] = types.QueryResponse{
+		results = append(results, types.QueryResponse{
 			Timestamp: nil,
 			Data: types.CCVData{
 				Message:   msg,
 				CCVData:   result.CcvData,
 				Timestamp: result.Timestamp,
 			},
-		}
+		})
 	}
 
 	// Update token for next call.
+	a.since = time.Now().Unix()
 	a.token = resp.NextToken
 
 	return results, nil

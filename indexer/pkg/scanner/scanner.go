@@ -13,6 +13,7 @@ import (
 type Scanner struct {
 	readerDiscovery common.ReaderDiscovery
 	config          ScannerConfig
+	indexerStorage  common.IndexerStorage
 	lggr            logger.Logger
 	ccvDataCh       chan types.CCVData
 	stopCh          chan struct{}
@@ -47,6 +48,12 @@ func WithConfig(config ScannerConfig) Option {
 	}
 }
 
+func WithIndexerStorage(indexerStorage common.IndexerStorage) Option {
+	return func(s *Scanner) {
+		s.indexerStorage = indexerStorage
+	}
+}
+
 // NewScanner creates a new Scanner with the given options.
 func NewScanner(opts ...Option) *Scanner {
 	s := &Scanner{
@@ -63,11 +70,9 @@ func NewScanner(opts ...Option) *Scanner {
 	return s
 }
 
-func (s *Scanner) Start(ctx context.Context) chan types.CCVData {
+func (s *Scanner) Start(ctx context.Context) {
 	go s.run(ctx)
 	s.lggr.Info("Scanner started")
-
-	return s.ccvDataCh
 }
 
 func (s *Scanner) Stop() {
@@ -100,6 +105,10 @@ func (s *Scanner) run(ctx context.Context) {
 			s.lggr.Info("Scanner discovered reader!")
 			wg.Add(1)
 			go s.handleReader(reader, &wg)
+		case ccvData := <-s.ccvDataCh:
+			if err := s.indexerStorage.InsertCCVData(ctx, ccvData); err != nil {
+				s.lggr.Errorw("Error inserting CCV data into indexer storage", "error", err)
+			}
 		}
 	}
 }
