@@ -234,10 +234,18 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 		if err != nil {
 			return nil, fmt.Errorf("error mapping message at index %d: %w", i, err)
 		}
+
+		// Compute MessageId from the message
+		messageID, err := msg.MessageID()
+		if err != nil {
+			return nil, fmt.Errorf("error computing message ID at index %d: %w", i, err)
+		}
+
 		results = append(results, types.QueryResponse{
 			Timestamp: nil,
 			Data: types.CCVData{
 				Message:   msg,
+				MessageID: messageID,
 				CCVData:   result.CcvData,
 				Timestamp: result.Timestamp,
 			},
