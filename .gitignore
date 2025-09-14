@@ -1,4 +1,6 @@
-# golangci-lint report
+aggregator/aggregator.toml
+build/devenv/fakes/tmp/**
+verifier/verifier2.toml
 **/.build
 
 # Intellij IDEA project config
