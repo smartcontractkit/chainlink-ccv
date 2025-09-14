@@ -1,3 +1,5 @@
 tmp/
 ./main
 verifier/main
+verifier.toml
+verifier2.toml

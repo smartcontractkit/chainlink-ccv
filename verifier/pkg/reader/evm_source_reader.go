@@ -22,36 +22,39 @@ import (
 
 // EVMSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain.
 type EVMSourceReader struct {
-	chainClient          client.Client
-	logger               logger.Logger
-	lastProcessedBlock   *big.Int
-	verificationTaskCh   chan verifiertypes.VerificationTask
-	stopCh               chan struct{}
-	ccipMessageSentTopic string
-	contractAddress      string
-	wg                   sync.WaitGroup
-	pollInterval         time.Duration
-	chainSelector        protocol.ChainSelector
-	mu                   sync.RWMutex
-	isRunning            bool
+	chainClient            client.Client
+	logger                 logger.Logger
+	lastProcessedBlock     *big.Int
+	verificationTaskCh     chan verifiertypes.VerificationTask
+	stopCh                 chan struct{}
+	ccipMessageSentTopic   string
+	ccvProxyAddress        string
+	chainlinkOnrampAddress string
+	wg                     sync.WaitGroup
+	pollInterval           time.Duration
+	chainSelector          protocol.ChainSelector
+	mu                     sync.RWMutex
+	isRunning              bool
 }
 
 // NewEVMSourceReader creates a new blockchain-based source reader.
 func NewEVMSourceReader(
 	chainClient client.Client,
-	contractAddress string,
+	ccvProxyAddress string,
+	chainlinkOnrampAddress string,
 	chainSelector protocol.ChainSelector,
 	logger logger.Logger,
 ) *EVMSourceReader {
 	return &EVMSourceReader{
-		chainClient:          chainClient,
-		logger:               logger,
-		verificationTaskCh:   make(chan verifiertypes.VerificationTask, 100),
-		stopCh:               make(chan struct{}),
-		pollInterval:         3 * time.Second,
-		chainSelector:        chainSelector,
-		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
-		contractAddress:      contractAddress,
+		chainClient:            chainClient,
+		logger:                 logger,
+		verificationTaskCh:     make(chan verifiertypes.VerificationTask, 100),
+		stopCh:                 make(chan struct{}),
+		pollInterval:           3 * time.Second,
+		chainSelector:          chainSelector,
+		ccipMessageSentTopic:   ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
+		ccvProxyAddress:        ccvProxyAddress,
+		chainlinkOnrampAddress: chainlinkOnrampAddress,
 	}
 }
 
@@ -66,7 +69,7 @@ func (r *EVMSourceReader) Start(ctx context.Context) error {
 
 	r.logger.Infow("🔄 Starting EVMSourceReader",
 		"chainSelector", r.chainSelector,
-		"contract", r.contractAddress,
+		"contract", r.ccvProxyAddress,
 		"topic", r.ccipMessageSentTopic)
 
 	// Test connectivity before starting
@@ -158,7 +161,7 @@ func (r *EVMSourceReader) eventMonitoringLoop(ctx context.Context) {
 		}
 	}()
 
-	contractAddr := common.HexToAddress(r.contractAddress)
+	contractAddr := common.HexToAddress(r.ccvProxyAddress)
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 
@@ -374,7 +377,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		receiverAddr, _ = protocol.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
 	}
 
-	onRampAddr, _ := protocol.NewUnknownAddressFromHex(r.contractAddress)
+	ccvProxyAddress, _ := protocol.NewUnknownAddressFromHex(r.ccvProxyAddress)
 
 	// Extract offRamp from executorReceipt if available, otherwise use a default
 	var offRampAddr protocol.UnknownAddress
@@ -401,7 +404,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		r.chainSelector,
 		protocol.ChainSelector(destChainSelector),
 		protocol.SeqNum(sequenceNumber),
-		onRampAddr,
+		ccvProxyAddress,
 		offRampAddr,
 		0, // finality - would need to calculate this
 		senderAddr,
@@ -420,8 +423,9 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 
 	// Check if onRamp address exists in any receipt issuer
 	onRampFound := false
-	r.logger.Infow("🔍 Checking for onRamp address in receipts",
-		"onRampAddress", r.contractAddress,
+	r.logger.Infow("🔍 Checking for onRamp (CCVProxy) address in receipts",
+		"onRampAddress(CCVProxy)", r.ccvProxyAddress,
+		"chainlinkOnRamp Address", r.chainlinkOnrampAddress,
 		"verifierReceiptCount", len(event.Message.VerifierReceipts),
 		"executorReceiptIssuer", event.Message.ExecutorReceipt.Issuer.Hex())
 
@@ -429,23 +433,23 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		r.logger.Infow("🔍 Verifier receipt issuer check",
 			"index", i,
 			"issuer", vr.Issuer.Hex(),
-			"matchesOnRamp", vr.Issuer.Hex() == r.contractAddress)
-		if vr.Issuer.Hex() == r.contractAddress {
+			"matchesOnRamp", vr.Issuer.Hex() == r.chainlinkOnrampAddress)
+		if vr.Issuer.Hex() == r.chainlinkOnrampAddress {
 			onRampFound = true
 			break
 		}
 	}
-	if !onRampFound && event.Message.ExecutorReceipt.Issuer.Hex() == r.contractAddress {
+	if !onRampFound && event.Message.ExecutorReceipt.Issuer.Hex() == r.chainlinkOnrampAddress {
 		onRampFound = true
-		r.logger.Infow("✅ OnRamp address found in executor receipt")
+		r.logger.Infow("✅ Chainlink OnRamp address found in executor receipt")
 	}
 
 	// If onRamp address not found in receipts, add it as the first receipt
 	if !onRampFound {
-		r.logger.Infow("⚠️ OnRamp address not found in receipts, adding synthetic receipt",
-			"onRampAddress", r.contractAddress)
+		r.logger.Infow("⚠️ Chainlink OnRamp address not found in receipts, adding synthetic receipt",
+			"onRampAddress", r.chainlinkOnrampAddress)
 
-		onRampAddr, _ := protocol.NewUnknownAddressFromHex(r.contractAddress)
+		onRampAddr, _ := protocol.NewUnknownAddressFromHex(r.chainlinkOnrampAddress)
 		var syntheticBlob []byte
 		if len(event.ReceiptBlobs) > 0 && len(event.ReceiptBlobs[0]) > 0 {
 			syntheticBlob = event.ReceiptBlobs[0]
@@ -501,7 +505,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 			"index", i,
 			"issuer", vr.Issuer.Hex(),
 			"blobLength", len(blob),
-			"isOnRamp", vr.Issuer.Hex() == r.contractAddress)
+			"isOnRamp", vr.Issuer.Hex() == r.ccvProxyAddress)
 	}
 
 	// Add executor receipt if available
@@ -534,7 +538,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		r.logger.Infow("📋 Processed executor receipt",
 			"issuer", event.Message.ExecutorReceipt.Issuer.Hex(),
 			"blobLength", len(executorBlob),
-			"isOnRamp", event.Message.ExecutorReceipt.Issuer.Hex() == r.contractAddress)
+			"isOnRamp", event.Message.ExecutorReceipt.Issuer.Hex() == r.ccvProxyAddress)
 	}
 
 	// Create verification task

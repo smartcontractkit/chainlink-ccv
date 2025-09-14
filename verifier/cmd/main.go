@@ -121,13 +121,13 @@ func main() {
 	// Create verifier addresses before source readers setup
 	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy1337)
 	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
+		lggr.Errorw("Failed to create CCVProxy address", "error", err)
 		os.Exit(1)
 	}
 
 	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy2337)
 	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
+		lggr.Errorw("Failed to create CCVProxy address", "error", err)
 		os.Exit(1)
 	}
 
@@ -144,14 +144,14 @@ func main() {
 		lggr.Errorw("No chainclient or CCVProxy1337 address", "chain", 1337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainSelectorA, lggr)
+	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, verifierConfig.ChainlinkOnrampAddress1337, chainSelectorA, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 
 	if chainClient2 == nil || verifierConfig.CCVProxy2337 == "" {
 		lggr.Errorw("No chainclient or CCVProxy2337 address", "chain", 2337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
+	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, verifierConfig.ChainlinkOnrampAddress2337, chainSelectorB, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration
