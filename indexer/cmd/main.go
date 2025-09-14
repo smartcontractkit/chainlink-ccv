@@ -53,35 +53,6 @@ func main() {
 	// Start the Scanner processing
 	scanner.Start(ctx)
 
-	// go func() {
-	// 	ticker := time.NewTicker(1 * time.Millisecond)
-	// 	defer ticker.Stop()
-	// 	for {
-	// 		select {
-	// 		case <-ctx.Done():
-	// 			return
-	// 		case <-ticker.C:
-	// 			messageId := make([]byte, 32)
-	// 			rand.Read(messageId)
-	// 			inMemoryOffchainStorage.WriteCCVData(ctx, []types.CCVData{
-	// 				{
-	// 					SourceVerifierAddress: []byte{},
-	// 					DestVerifierAddress:   []byte{},
-	// 					CCVData:               []byte{},
-	// 					BlobData:              []byte{},
-	// 					ReceiptBlobs:          []types.ReceiptWithBlob{},
-	// 					Message:               types.Message{},
-	// 					SequenceNumber:        1,
-	// 					SourceChainSelector:   1,
-	// 					DestChainSelector:     2,
-	// 					Timestamp:             time.Now().Unix(),
-	// 					MessageID:             types.Bytes32(messageId),
-	// 				},
-	// 			})
-	// 		}
-	// 	}
-	// }()
-
 	v1 := api.NewV1API(lggr, indexerStorage)
 	api.Serve(v1, 8100)
 }
