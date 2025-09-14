@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	LocalWASPLoadDashboard = "http://localhost:3000/d/WASPLoadTests/wasp-load-test?orgId=1&from=1756927942705&to=1756928229431"
+	LocalWASPLoadDashboard = "http://localhost:3000/d/WASPLoadTests/wasp-load-test?orgId=1&from=now-5m&to=now&refresh=5s"
 	LocalCCVDashboard      = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/ccv-services?orgId=1&refresh=5s"
 )
 
@@ -30,11 +30,11 @@ var rootCmd = &cobra.Command{
 	Short: "A CCV local environment tool",
 }
 
-var reconfigureCmd = &cobra.Command{
-	Use:     "reconfigure",
+var restartCmd = &cobra.Command{
+	Use:     "restart",
 	Aliases: []string{"r"},
 	Args:    cobra.RangeArgs(0, 1),
-	Short:   "Reconfigure development environment, remove apps and apply new configuration",
+	Short:   "Restart development environment, remove apps and apply default configuration again",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var configFile string
 		if len(args) > 0 {
@@ -199,6 +199,57 @@ var obsRestartCmd = &cobra.Command{
 	},
 }
 
+var testCmd = &cobra.Command{
+	Use:     "test",
+	Aliases: []string{"t"},
+	Short:   "Run the tests",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			return fmt.Errorf("specify the test suite: smoke or load")
+		}
+		var testPattern string
+		switch args[0] {
+		case "smoke":
+			testPattern = "TestE2ESmoke"
+		case "load":
+			testPattern = "TestE2ELoad/clean"
+		case "rpc-latency":
+			testPattern = "TestE2ELoad/rpc_latency"
+		case "gas-spikes":
+			testPattern = "TestE2ELoad/gas"
+		case "reorg":
+			testPattern = "TestE2ELoad/reorg"
+		case "chaos":
+			testPattern = "TestE2ELoad/chaos"
+		default:
+			return fmt.Errorf("test suite %s is unknown, choose between smoke or load", args[0])
+		}
+		originalDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+		defer os.Chdir(originalDir)
+		if err := os.Chdir("tests/e2e"); err != nil {
+			return fmt.Errorf("failed to change to tests/e2e directory: %w", err)
+		}
+		testCmd := exec.Command("go", "test", "-v", "-run", testPattern)
+		testCmd.Stdout = os.Stdout
+		testCmd.Stderr = os.Stderr
+		testCmd.Stdin = os.Stdin
+
+		if err := testCmd.Run(); err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+					os.Exit(status.ExitStatus())
+				}
+				os.Exit(1)
+			}
+			return fmt.Errorf("failed to run test command: %w", err)
+		}
+		return nil
+	},
+}
+
 var indexerDBShellCmd = &cobra.Command{
 	Use:     "db-shell",
 	Aliases: []string{"db"},
@@ -257,7 +308,7 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
-		return ccv.SendMessage(in, src, dest)
+		return ccv.SendExampleArgsV2Message(in, src, dest)
 	},
 }
 
@@ -281,7 +332,10 @@ var monitorContractsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		return ccv.ServeOnChainEventsPrometheusFor(in, 10*time.Second)
+		if err := ccv.MonitorOnChainLogs(in); err != nil {
+			return err
+		}
+		return ccv.ExposePrometheusMetricsFor(10 * time.Second)
 	},
 }
 
@@ -303,10 +357,11 @@ func init() {
 
 	// main env commands
 	rootCmd.AddCommand(upCmd)
-	rootCmd.AddCommand(reconfigureCmd)
+	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(downCmd)
 
 	// utility
+	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
 	rootCmd.AddCommand(sendCmd)

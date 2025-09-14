@@ -55,7 +55,7 @@ func main() {
 	_, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Stop verification coordinator
+	// Stop execution coordinator
 	if err := coordinator.Stop(); err != nil {
 		lggr.Errorw("Execution coordinator stop error", "error", err)
 	}

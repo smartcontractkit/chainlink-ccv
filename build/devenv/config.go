@@ -29,6 +29,7 @@ const (
 	// EnvVarTestConfigs is the environment variable name to read config paths from, ex.: CTF_CONFIGS=env.toml,overrides.toml.
 	EnvVarTestConfigs = "CTF_CONFIGS"
 	DefaultAnvilKey   = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+	DefaultLokiURL    = "http://localhost:3030/loki/api/v1/push"
 )
 
 var L = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
@@ -39,7 +40,6 @@ func Load[T any]() (*T, error) {
 	var config T
 	paths := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	for _, path := range paths {
-		L.Info().Msg("INSIDE Load")
 		L.Info().Str("Path", path).Msg("Loading configuration input")
 		data, err := os.ReadFile(filepath.Join(DefaultConfigDir, path))
 		if err != nil {

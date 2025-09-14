@@ -1,5 +1,7 @@
 aggregator_address = "aggregator:50051"
 private_key = "dev-private-key-12345678901234567890"
+ccv_proxy_1337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+ccv_proxy_2337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
 
 [blockchain_infos]
   [blockchain_infos.1337]

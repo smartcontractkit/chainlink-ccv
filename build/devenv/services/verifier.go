@@ -73,6 +73,8 @@ type VerifierConfig struct {
 	AggregatorAddress string                                 `toml:"aggregator_address"`
 	PrivateKey        string                                 `toml:"private_key"`
 	BlockchainInfos   map[string]*commontypes.BlockchainInfo `toml:"blockchain_infos"`
+	CCVProxy1337      string                                 `toml:"ccv_proxy_1337"`
+	CCVProxy2337      string                                 `toml:"ccv_proxy_2337"`
 }
 
 type VerifierInput struct {
@@ -90,13 +92,12 @@ type VerifierInput struct {
 }
 
 type VerifierOutput struct {
-	BlockchainInfos    map[string]*commontypes.BlockchainInfo `toml:"-"`
-	ContainerName      string                                 `toml:"container_name"`
-	ExternalHTTPURL    string                                 `toml:"http_url"`
-	InternalHTTPURL    string                                 `toml:"internal_http_url"`
-	DBURL              string                                 `toml:"db_url"`
-	DBConnectionString string                                 `toml:"db_connection_string"`
-	UseCache           bool                                   `toml:"use_cache"`
+	ContainerName      string `toml:"container_name"`
+	ExternalHTTPURL    string `toml:"http_url"`
+	InternalHTTPURL    string `toml:"internal_http_url"`
+	DBURL              string `toml:"db_url"`
+	DBConnectionString string `toml:"db_connection_string"`
+	UseCache           bool   `toml:"use_cache"`
 }
 
 func verifierDefaults(in *VerifierInput) {
@@ -229,17 +230,10 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
-	// Convert blockchain outputs to simplified format
-	var blockchainInfos map[string]*commontypes.BlockchainInfo
-	if in.BlockchainOutputs != nil {
-		blockchainInfos = ConvertBlockchainOutputsToInfo(in.BlockchainOutputs)
-	}
-
 	return &VerifierOutput{
 		ContainerName:      in.ContainerName,
 		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultVerifierDBConnectionString,
-		BlockchainInfos:    blockchainInfos,
 	}, nil
 }
