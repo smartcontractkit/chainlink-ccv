@@ -10,6 +10,8 @@ import (
 type ReaderDiscovery interface {
 	// DiscoverReaders returns a channel that emits off-chain storage readers once they are discovered.
 	DiscoverReaders(ctx context.Context) chan types.OffchainStorageReader
+	// AddReader adds a new off-chain storage reader to the discovery channel
+	AddReader(reader types.OffchainStorageReader)
 	// Stop the reader discovery
 	Stop() error
 }

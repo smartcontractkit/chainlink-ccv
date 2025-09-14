@@ -30,6 +30,12 @@ func (d *StaticDiscovery) DiscoverReaders(ctx context.Context) chan types.Offcha
 	return d.offChainStorageReaderCh
 }
 
+func (d *StaticDiscovery) AddReader(reader types.OffchainStorageReader) {
+	// This is primarily used for replays from a given timeframe
+	d.readers = append(d.readers, reader)
+	d.offChainStorageReaderCh <- reader
+}
+
 func (d *StaticDiscovery) Stop() error {
 	close(d.offChainStorageReaderCh)
 	return nil
