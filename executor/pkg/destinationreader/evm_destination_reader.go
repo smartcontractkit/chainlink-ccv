@@ -2,13 +2,15 @@ package destinationreader
 
 import (
 	"context"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 type EvmDestinationReader struct {
