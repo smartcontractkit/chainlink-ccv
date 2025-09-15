@@ -4,6 +4,7 @@ package verifier_mocks
 
 import (
 	context "context"
+	big "math/big"
 
 	mock "github.com/stretchr/testify/mock"
 
@@ -65,6 +66,122 @@ func (_c *MockSourceReader_HealthCheck_Call) Return(_a0 error) *MockSourceReader
 }
 
 func (_c *MockSourceReader_HealthCheck_Call) RunAndReturn(run func(context.Context) error) *MockSourceReader_HealthCheck_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// LatestBlock provides a mock function with given fields: ctx
+func (_m *MockSourceReader) LatestBlock(ctx context.Context) (*big.Int, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LatestBlock")
+	}
+
+	var r0 *big.Int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*big.Int, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *big.Int); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*big.Int)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSourceReader_LatestBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LatestBlock'
+type MockSourceReader_LatestBlock_Call struct {
+	*mock.Call
+}
+
+// LatestBlock is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockSourceReader_Expecter) LatestBlock(ctx interface{}) *MockSourceReader_LatestBlock_Call {
+	return &MockSourceReader_LatestBlock_Call{Call: _e.mock.On("LatestBlock", ctx)}
+}
+
+func (_c *MockSourceReader_LatestBlock_Call) Run(run func(ctx context.Context)) *MockSourceReader_LatestBlock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockSourceReader_LatestBlock_Call) Return(_a0 *big.Int, _a1 error) *MockSourceReader_LatestBlock_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSourceReader_LatestBlock_Call) RunAndReturn(run func(context.Context) (*big.Int, error)) *MockSourceReader_LatestBlock_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// LatestFinalizedBlock provides a mock function with given fields: ctx
+func (_m *MockSourceReader) LatestFinalizedBlock(ctx context.Context) (*big.Int, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LatestFinalizedBlock")
+	}
+
+	var r0 *big.Int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*big.Int, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *big.Int); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*big.Int)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSourceReader_LatestFinalizedBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LatestFinalizedBlock'
+type MockSourceReader_LatestFinalizedBlock_Call struct {
+	*mock.Call
+}
+
+// LatestFinalizedBlock is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockSourceReader_Expecter) LatestFinalizedBlock(ctx interface{}) *MockSourceReader_LatestFinalizedBlock_Call {
+	return &MockSourceReader_LatestFinalizedBlock_Call{Call: _e.mock.On("LatestFinalizedBlock", ctx)}
+}
+
+func (_c *MockSourceReader_LatestFinalizedBlock_Call) Run(run func(ctx context.Context)) *MockSourceReader_LatestFinalizedBlock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockSourceReader_LatestFinalizedBlock_Call) Return(_a0 *big.Int, _a1 error) *MockSourceReader_LatestFinalizedBlock_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSourceReader_LatestFinalizedBlock_Call) RunAndReturn(run func(context.Context) (*big.Int, error)) *MockSourceReader_LatestFinalizedBlock_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -7,4 +7,3 @@ packages:
     github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader:
         interfaces:
             SourceReader:
-            FinalityAwareSourceReader:

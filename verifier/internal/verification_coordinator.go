@@ -87,6 +87,13 @@ func WithLogger(lggr logger.Logger) Option {
 	}
 }
 
+// WithFinalityCheckInterval sets the finality check interval.
+func WithFinalityCheckInterval(interval time.Duration) Option {
+	return func(vc *VerificationCoordinator) {
+		vc.finalityCheckInterval = interval
+	}
+}
+
 // NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error) {
 	vc := &VerificationCoordinator{
@@ -95,7 +102,7 @@ func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error
 		doneCh:                make(chan struct{}),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		pendingTasks:          make([]types.VerificationTask, 0),
-		finalityCheckInterval: 100 * time.Millisecond, // Similar to Python's 0.1 second
+		finalityCheckInterval: 3 * time.Second, // Default finality check interval
 	}
 
 	// Apply all options
@@ -480,24 +487,13 @@ func (vc *VerificationCoordinator) isMessageReadyForVerification(ctx context.Con
 		return false, fmt.Errorf("no source state found for chain %d", task.Message.SourceChainSelector)
 	}
 
-	// Check if source reader supports finality checking
-	finalityReader, ok := sourceState.reader.(reader.FinalityAwareSourceReader)
-	if !ok {
-		// If source reader doesn't support finality checking, process immediately (backward compatibility)
-		vc.lggr.Debugw("Source reader doesn't support finality checking, processing immediately",
-			"messageID", messageID,
-			"chainSelector", task.Message.SourceChainSelector,
-		)
-		return true, nil
-	}
-
 	// Get current blockchain state
-	latestBlock, err := finalityReader.LatestBlock(ctx)
+	latestBlock, err := sourceState.reader.LatestBlock(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to get latest block: %w", err)
 	}
 
-	latestFinalizedBlock, err := finalityReader.LatestFinalizedBlock(ctx)
+	latestFinalizedBlock, err := sourceState.reader.LatestFinalizedBlock(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to get latest finalized block: %w", err)
 	}
