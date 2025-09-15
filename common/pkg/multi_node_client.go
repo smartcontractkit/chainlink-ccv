@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
-	types2 "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
+
+	types2 "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 func ptr[T any](t T) *T { return &t }

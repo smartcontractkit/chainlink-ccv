@@ -9,19 +9,20 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/verifier_config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
 // Configuration flags.
