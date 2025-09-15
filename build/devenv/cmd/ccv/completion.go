@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -125,7 +126,17 @@ func completer(in prompt.Document) []prompt.Suggest {
 	}
 }
 
+// resetTerm resets terminal settings to Unix defaults
+func resetTerm() {
+	cmd := exec.Command("stty", "sane")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
+}
+
 func StartShell() {
+	defer resetTerm()
 	p := prompt.New(
 		executor,
 		completer,
@@ -143,6 +154,14 @@ func StartShell() {
 		prompt.OptionSuggestionTextColor(prompt.Green),
 		prompt.OptionScrollbarThumbColor(prompt.DarkGray),
 		prompt.OptionScrollbarBGColor(prompt.Black),
+		prompt.OptionAddKeyBind(prompt.KeyBind{
+			Key: prompt.ControlC,
+			Fn: func(buf *prompt.Buffer) {
+				fmt.Println("Interrupted, exiting...")
+				resetTerm()
+				os.Exit(0)
+			},
+		}),
 	)
 	p.Run()
 }
