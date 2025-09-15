@@ -402,6 +402,18 @@ type OffchainStorageReader interface {
 	ReadCCVData(ctx context.Context) ([]QueryResponse, error)
 }
 
+type IndexerStorageReader interface {
+	// Retrieval of CCV data using the messageID for a o(1) lookup
+	GetCCVData(ctx context.Context, messageID Bytes32) ([]CCVData, error)
+	// QueryCCVData retrieves all CCVData that matches the filter set
+	QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []ChainSelector, limit, offset uint64) (map[string][]CCVData, error)
+}
+
+type IndexerStorageWriter interface {
+	// InsertCCVData appends a new CCVData to the storage for the given messageID
+	InsertCCVData(ctx context.Context, ccvData CCVData) error
+}
+
 // Helper functions for creating empty/default values
 
 // NewEmptyTokenTransfer creates an empty token transfer.

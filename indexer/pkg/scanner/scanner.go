@@ -13,7 +13,7 @@ import (
 type Scanner struct {
 	readerDiscovery common.ReaderDiscovery
 	config          ScannerConfig
-	storageWriter   common.IndexerStorageWriter
+	storageWriter   types.IndexerStorageWriter
 	lggr            logger.Logger
 	ccvDataCh       chan types.CCVData
 	stopCh          chan struct{}
@@ -48,7 +48,7 @@ func WithConfig(config ScannerConfig) Option {
 	}
 }
 
-func WithStorageWriter(storageWriter common.IndexerStorageWriter) Option {
+func WithStorageWriter(storageWriter types.IndexerStorageWriter) Option {
 	return func(s *Scanner) {
 		s.storageWriter = storageWriter
 	}
