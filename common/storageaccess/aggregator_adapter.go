@@ -253,8 +253,15 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 	}
 
 	// Update token for next call.
-	a.since = time.Now().Unix()
+	a.since = a.getNextTimestamp(results)
 	a.token = resp.NextToken
 
 	return results, nil
+}
+
+func (a *AggregatorReader) getNextTimestamp(results []types.QueryResponse) int64 {
+	if len(results) > 0 {
+		return results[len(results)-1].Data.Timestamp + 1
+	}
+	return time.Now().Unix()
 }

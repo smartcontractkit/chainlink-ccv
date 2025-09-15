@@ -19,7 +19,7 @@ func main() {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	})
 
 	if err != nil {
