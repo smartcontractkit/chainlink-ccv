@@ -135,7 +135,7 @@ func TestValidateMessage(t *testing.T) {
 	message, err := protocol.NewMessage(
 		protocol.ChainSelector(1337),
 		protocol.ChainSelector(2337),
-		protocol.SeqNum(123),
+		protocol.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,

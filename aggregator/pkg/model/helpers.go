@@ -14,7 +14,7 @@ func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
 		Version:              uint8(m.Version), //nolint:gosec // G115: Protocol-defined conversion
 		SourceChainSelector:  types.ChainSelector(m.SourceChainSelector),
 		DestChainSelector:    types.ChainSelector(m.DestChainSelector),
-		SequenceNumber:       types.SeqNum(m.SequenceNumber),
+		Nonce:                types.Nonce(m.Nonce),
 		OnRampAddressLength:  uint8(m.OnRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OnRampAddress:        m.OnRampAddress,
 		OffRampAddressLength: uint8(m.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion

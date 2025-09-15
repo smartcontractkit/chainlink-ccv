@@ -52,13 +52,13 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 		ctx,
 		messageWithCCVData.Message.SourceChainSelector,
-		messageWithCCVData.Message.SequenceNumber,
+		messageWithCCVData.Message.Nonce,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to check if message is executed: %w", err)
 	}
 	if messageExecuted {
-		cle.lggr.Infof("message %d already executed on chain %d", messageWithCCVData.Message.SequenceNumber, messageWithCCVData.Message.DestChainSelector)
+		cle.lggr.Infof("message %d already executed on chain %d", messageWithCCVData.Message.Nonce, messageWithCCVData.Message.DestChainSelector)
 		return nil
 	}
 

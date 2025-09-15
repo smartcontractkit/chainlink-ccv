@@ -14,11 +14,11 @@ func (c ChainSelector) String() string {
 	return fmt.Sprintf("ChainSelector(%d)", c)
 }
 
-// SeqNum represents sequence number of the CCIP message.
-type SeqNum uint64
+// Nonce represents a monotonic counter used for adding entropy and uniqueness to a CCIP message.
+type Nonce uint64
 
-func (s SeqNum) String() string {
-	return strconv.FormatUint(uint64(s), 10)
+func (n Nonce) String() string {
+	return strconv.FormatUint(uint64(n), 10)
 }
 
 // UnknownAddress represents an address on an unknown chain.
