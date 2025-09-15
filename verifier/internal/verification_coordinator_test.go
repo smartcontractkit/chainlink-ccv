@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"math/big"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -183,6 +184,10 @@ func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetu
 
 	mockReader.EXPECT().Start(mock.Anything).Return(nil)
 	mockReader.EXPECT().VerificationTaskChannel().Return((<-chan types.VerificationTask)(channel))
+
+	// Add missing LatestBlock expectation to prevent timeout
+	mockReader.EXPECT().LatestBlock(mock.Anything).Return(big.NewInt(1000), nil).Maybe()
+	mockReader.EXPECT().LatestFinalizedBlock(mock.Anything).Return(big.NewInt(950), nil).Maybe()
 
 	if shouldClose {
 		mockReader.EXPECT().Stop().Run(func() {

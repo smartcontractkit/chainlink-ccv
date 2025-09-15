@@ -113,7 +113,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	// Should have processed the finalized message
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
-	require.Equal(t, processedCount, 1, "Should have processed the finalized message")
+	require.Equal(t, 1, processedCount, "Should have processed the finalized message")
 }
 
 func TestFinality_CustomFinality(t *testing.T) {
@@ -198,17 +198,19 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Should have processed the finalized message
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
-	require.Equal(t, processedCount, 0, "Should not have processed the non-finalized message")
+	require.Equal(t, 0, processedCount, "Should not have processed the non-finalized message")
 
 	// Update the shared variable to simulate finalized block advancing
+	setup.finalizedBlockMu.Lock()
 	setup.currentFinalizedBlock.SetInt64(int64(nonFinalizedBlock))
+	setup.finalizedBlockMu.Unlock()
 
-	// Wait for the finality check to run
+	// Wait for the finality check to run (finality check interval is 10ms)
 	time.Sleep(20 * time.Millisecond)
 
 	// Should have processed the now-finalized message
 	processedCount = setup.mockVerifier.getProcessedTaskCount()
-	require.Equal(t, processedCount, 1, "Should have processed the now finalized message")
+	require.Equal(t, 1, processedCount, "Should have processed the now finalized message")
 }
 
 type coordinatorTestSetup struct {
@@ -216,7 +218,8 @@ type coordinatorTestSetup struct {
 	mockSourceReader      *verifier_mocks.MockSourceReader
 	mockVerifier          *testVerifier
 	verificationTaskCh    chan types.VerificationTask
-	currentFinalizedBlock *big.Int // to control the return value of LatestFinalizedBlock
+	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlock
+	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
 
 func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetup {
@@ -236,8 +239,14 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	mockSourceReader.EXPECT().Stop().Return(nil)
 
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
+	finalizedBlockMu := &sync.RWMutex{}
 	mockSourceReader.EXPECT().LatestBlock(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
-	mockSourceReader.EXPECT().LatestFinalizedBlock(mock.Anything).Return(currentFinalizedBlock, nil).Maybe()
+	mockSourceReader.EXPECT().LatestFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*big.Int, error) {
+		// Return a copy with proper synchronization to avoid data races
+		finalizedBlockMu.RLock()
+		defer finalizedBlockMu.RUnlock()
+		return new(big.Int).Set(currentFinalizedBlock), nil
+	}).Maybe()
 
 	config := types.CoordinatorConfig{
 		SourceConfigs: map[protocol.ChainSelector]types.SourceConfig{
@@ -264,5 +273,6 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		mockVerifier:          mockVerifier,
 		verificationTaskCh:    verificationTaskCh,
 		currentFinalizedBlock: currentFinalizedBlock,
+		finalizedBlockMu:      finalizedBlockMu,
 	}
 }
