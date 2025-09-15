@@ -2,6 +2,7 @@ package reader
 
 import (
 	"context"
+	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
@@ -19,4 +20,15 @@ type SourceReader interface {
 
 	// HealthCheck returns the current health status of the reader
 	HealthCheck(ctx context.Context) error
+}
+
+// FinalityAwareSourceReader extends SourceReader with finality checking capabilities.
+type FinalityAwareSourceReader interface {
+	SourceReader
+
+	// LatestBlock returns the latest block height
+	LatestBlock(ctx context.Context) (*big.Int, error)
+
+	// LatestFinalizedBlock returns the latest finalized block height
+	LatestFinalizedBlock(ctx context.Context) (*big.Int, error)
 }

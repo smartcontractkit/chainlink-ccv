@@ -541,6 +541,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 	task := verifiertypes.VerificationTask{
 		Message:      *message,
 		ReceiptBlobs: receiptBlobs,
+		BlockNumber:  log.BlockNumber,
 	}
 
 	// Send to verification channel (non-blocking)
@@ -556,4 +557,31 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 			"sourceChain", r.chainSelector,
 			"sequenceNumber", sequenceNumber)
 	}
+}
+
+// LatestBlock returns the latest block height from the chain client.
+func (r *EVMSourceReader) LatestBlock(ctx context.Context) (*big.Int, error) {
+	if r.chainClient == nil {
+		return nil, fmt.Errorf("chain client not configured")
+	}
+	return r.chainClient.LatestBlockHeight(ctx)
+}
+
+// LatestFinalizedBlock returns the latest finalized block height from the chain client.
+func (r *EVMSourceReader) LatestFinalizedBlock(ctx context.Context) (*big.Int, error) {
+	if r.chainClient == nil {
+		return nil, fmt.Errorf("chain client not configured")
+	}
+
+	// Try to get finalized block using the client's finalized block method
+	head, err := r.chainClient.LatestFinalizedBlock(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest finalized block: %w", err)
+	}
+
+	if head == nil {
+		return nil, fmt.Errorf("finalized block head is nil")
+	}
+
+	return big.NewInt(head.Number), nil
 }

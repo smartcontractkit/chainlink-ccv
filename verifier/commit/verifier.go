@@ -92,7 +92,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 		return
 	}
 
-	cv.lggr.Infow("Message signed sccessfully",
+	cv.lggr.Infow("Message signed successfully",
 		"messageID", messageID,
 		"signerAddress", cv.signer.GetSignerAddress().String(),
 		"signatureLength", len(signature),

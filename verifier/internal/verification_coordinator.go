@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
@@ -13,7 +15,7 @@ import (
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// VerificationCoordinator orchestrates the verification workflow using the new message format.
+// VerificationCoordinator orchestrates the verification workflow using the new message format with finality awareness.
 type VerificationCoordinator struct {
 	verifier     types.Verifier
 	storage      protocol.OffchainStorageWriter
@@ -26,6 +28,10 @@ type VerificationCoordinator struct {
 	mu           sync.RWMutex
 	started      bool
 	stopped      bool
+	// Finality-aware queuing
+	pendingTasks          []types.VerificationTask
+	pendingMu             sync.RWMutex
+	finalityCheckInterval time.Duration
 }
 
 // Option is the functional option type for VerificationCoordinator.
@@ -84,10 +90,12 @@ func WithLogger(lggr logger.Logger) Option {
 // NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error) {
 	vc := &VerificationCoordinator{
-		ccvDataCh:    make(chan protocol.CCVData, 1000),
-		stopCh:       make(chan struct{}),
-		doneCh:       make(chan struct{}),
-		sourceStates: make(map[protocol.ChainSelector]*sourceState),
+		ccvDataCh:             make(chan protocol.CCVData, 1000),
+		stopCh:                make(chan struct{}),
+		doneCh:                make(chan struct{}),
+		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
+		pendingTasks:          make([]types.VerificationTask, 0),
+		finalityCheckInterval: 100 * time.Millisecond, // Similar to Python's 0.1 second
 	}
 
 	// Apply all options
@@ -125,10 +133,11 @@ func (vc *VerificationCoordinator) Start(ctx context.Context) error {
 
 	vc.started = true
 
-	// Start processing loop
+	// Start processing loop and finality checking
 	go vc.run(ctx)
+	go vc.finalityCheckingLoop(ctx)
 
-	vc.lggr.Infow("VerificationCoordinator started",
+	vc.lggr.Infow("VerificationCoordinator started with finality checking",
 		"coordinatorID", vc.config.VerifierID,
 	)
 
@@ -238,8 +247,8 @@ func (vc *VerificationCoordinator) processSourceMessages(ctx context.Context, wg
 				vc.lggr.Errorw("Message channel closed for source", "chainSelector", chainSelector)
 				return
 			}
-			// Process message event using the verifier asynchronously
-			go vc.verifier.VerifyMessage(ctx, verificationTask, vc.ccvDataCh, state.verificationErrorCh)
+			// Add to pending queue for finality checking
+			vc.addToPendingQueue(verificationTask, chainSelector)
 		}
 	}
 }
@@ -339,4 +348,217 @@ func (vc *VerificationCoordinator) HealthCheck(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// addToPendingQueue adds a verification task to the pending queue for finality checking.
+func (vc *VerificationCoordinator) addToPendingQueue(task types.VerificationTask, chainSelector protocol.ChainSelector) {
+	vc.pendingMu.Lock()
+	defer vc.pendingMu.Unlock()
+
+	vc.pendingTasks = append(vc.pendingTasks, task)
+
+	messageID, err := task.Message.MessageID()
+	if err != nil {
+		vc.lggr.Errorw("Failed to compute message ID for queuing", "error", err)
+		return
+	}
+
+	vc.lggr.Infow("📋 Message added to finality queue",
+		"messageID", messageID,
+		"chainSelector", chainSelector,
+		"blockNumber", task.BlockNumber,
+		"sequenceNumber", task.Message.SequenceNumber,
+		"queueSize", len(vc.pendingTasks),
+	)
+}
+
+// finalityCheckingLoop runs the finality checking loop similar to Python's _check_finalization_periodically.
+func (vc *VerificationCoordinator) finalityCheckingLoop(ctx context.Context) {
+	ticker := time.NewTicker(vc.finalityCheckInterval)
+	defer ticker.Stop()
+
+	vc.lggr.Infow("🔄 Starting finality checking loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			vc.lggr.Infow("🛑 Finality checking stopped due to context cancellation")
+			return
+		case <-vc.stopCh:
+			vc.lggr.Infow("🛑 Finality checking stopped")
+			return
+		case <-ticker.C:
+			vc.processFinalityQueue(ctx)
+		}
+	}
+}
+
+// processFinalityQueue processes the pending queue and verifies ready messages.
+func (vc *VerificationCoordinator) processFinalityQueue(ctx context.Context) {
+	vc.pendingMu.Lock()
+	defer vc.pendingMu.Unlock()
+
+	if len(vc.pendingTasks) == 0 {
+		return
+	}
+
+	var readyTasks []types.VerificationTask
+	var remainingTasks []types.VerificationTask
+
+	for _, task := range vc.pendingTasks {
+		ready, err := vc.isMessageReadyForVerification(ctx, task)
+		if err != nil {
+			messageID, _ := task.Message.MessageID()
+			vc.lggr.Warnw("Failed to check finality for message",
+				"messageID", messageID,
+				"error", err)
+			// Keep in queue to retry later
+			remainingTasks = append(remainingTasks, task)
+			continue
+		}
+
+		if ready {
+			readyTasks = append(readyTasks, task)
+		} else {
+			remainingTasks = append(remainingTasks, task)
+		}
+	}
+
+	// Update the pending queue
+	vc.pendingTasks = remainingTasks
+
+	if len(readyTasks) > 0 {
+		vc.lggr.Infow("✅ Processing finalized messages",
+			"readyCount", len(readyTasks),
+			"remainingCount", len(remainingTasks),
+		)
+
+		// Process ready tasks with verifier
+		for _, task := range readyTasks {
+			vc.processReadyTask(ctx, task)
+		}
+	}
+}
+
+// processReadyTask processes a task that has met its finality requirements.
+func (vc *VerificationCoordinator) processReadyTask(ctx context.Context, task types.VerificationTask) {
+	messageID, err := task.Message.MessageID()
+	if err != nil {
+		vc.lggr.Errorw("Failed to compute message ID for ready task", "error", err)
+		return
+	}
+
+	vc.lggr.Debugw("📤 Processing finalized message",
+		"messageID", messageID,
+		"blockNumber", task.BlockNumber,
+		"sequenceNumber", task.Message.SequenceNumber,
+	)
+
+	// Find the appropriate error channel for this chain
+	sourceState, exists := vc.sourceStates[task.Message.SourceChainSelector]
+	if !exists {
+		vc.lggr.Errorw("No source state found for finalized message",
+			"chainSelector", task.Message.SourceChainSelector)
+		return
+	}
+
+	// Process message event using the verifier asynchronously
+	go vc.verifier.VerifyMessage(ctx, task, vc.ccvDataCh, sourceState.verificationErrorCh)
+}
+
+// isMessageReadyForVerification determines if a message meets its finality requirements.
+// This implements the same logic as Python's commit_verifier.py finality checking.
+func (vc *VerificationCoordinator) isMessageReadyForVerification(ctx context.Context, task types.VerificationTask) (bool, error) {
+	messageID, err := task.Message.MessageID()
+	if err != nil {
+		return false, fmt.Errorf("failed to compute message ID: %w", err)
+	}
+
+	// Get the source reader for this chain to check finality
+	sourceState, exists := vc.sourceStates[task.Message.SourceChainSelector]
+	if !exists {
+		return false, fmt.Errorf("no source state found for chain %d", task.Message.SourceChainSelector)
+	}
+
+	// Check if source reader supports finality checking
+	finalityReader, ok := sourceState.reader.(reader.FinalityAwareSourceReader)
+	if !ok {
+		// If source reader doesn't support finality checking, process immediately (backward compatibility)
+		vc.lggr.Debugw("Source reader doesn't support finality checking, processing immediately",
+			"messageID", messageID,
+			"chainSelector", task.Message.SourceChainSelector,
+		)
+		return true, nil
+	}
+
+	// Get current blockchain state
+	latestBlock, err := finalityReader.LatestBlock(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get latest block: %w", err)
+	}
+
+	latestFinalizedBlock, err := finalityReader.LatestFinalizedBlock(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get latest finalized block: %w", err)
+	}
+
+	// Parse extra args to get finality configuration
+	finalityConfig, err := vc.extractFinalityConfig(task)
+	if err != nil {
+		vc.lggr.Debugw("Failed to extract finality config, using default finality",
+			"messageID", messageID,
+			"error", err)
+		// Use default finality (wait for chain finalization)
+		finalityConfig = 0
+	}
+
+	messageBlockNumber := new(big.Int).SetUint64(task.BlockNumber)
+
+	if finalityConfig == 0 {
+		// Default finality: wait for chain finalization
+		ready := messageBlockNumber.Cmp(latestFinalizedBlock) <= 0
+		if ready {
+			vc.lggr.Debugw("✅ Message meets default finality requirement",
+				"messageID", messageID,
+				"messageBlock", messageBlockNumber.String(),
+				"finalizedBlock", latestFinalizedBlock.String(),
+			)
+		}
+		return ready, nil
+	} else {
+		// Custom finality: message_block + finality_config <= latest_block
+		requiredBlock := new(big.Int).Add(messageBlockNumber, new(big.Int).SetUint64(uint64(finalityConfig)))
+		ready := requiredBlock.Cmp(latestBlock) <= 0
+		if ready {
+			vc.lggr.Debugw("✅ Message meets custom finality requirement",
+				"messageID", messageID,
+				"messageBlock", messageBlockNumber.String(),
+				"finalityConfig", finalityConfig,
+				"requiredBlock", requiredBlock.String(),
+				"latestBlock", latestBlock.String(),
+			)
+		}
+		return ready, nil
+	}
+}
+
+// extractFinalityConfig extracts the finality configuration from message extra args.
+func (vc *VerificationCoordinator) extractFinalityConfig(task types.VerificationTask) (uint32, error) {
+	// Look for extra args in receipt blobs to extract finality configuration
+	if len(task.ReceiptBlobs) == 0 {
+		return 0, fmt.Errorf("no receipt blobs available")
+	}
+
+	extraArgs := task.ReceiptBlobs[0].ExtraArgs
+	if len(extraArgs) == 0 {
+		return 0, nil // Default finality
+	}
+
+	// Try to parse as EVMExtraArgsV3
+	var evmExtraArgs protocol.EVMExtraArgsV3
+	if err := evmExtraArgs.FromBytes(extraArgs); err != nil {
+		return 0, fmt.Errorf("failed to parse EVMExtraArgsV3: %w", err)
+	}
+
+	return evmExtraArgs.FinalityConfig, nil
 }
