@@ -13,7 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
-// TestWriteBlockCheckpointContract tests the WriteBlockCheckpoint gRPC contract
+// TestWriteBlockCheckpointContract tests the WriteBlockCheckpoint gRPC contract.
 func TestWriteBlockCheckpointContract(t *testing.T) {
 	// This test will fail until implementation is complete
 	// Following RED-GREEN-REFACTOR: Write failing test first
@@ -161,7 +161,7 @@ func TestWriteBlockCheckpointContract(t *testing.T) {
 	})
 }
 
-// TestReadBlockCheckpointContract tests the ReadBlockCheckpoint gRPC contract
+// TestReadBlockCheckpointContract tests the ReadBlockCheckpoint gRPC contract.
 func TestReadBlockCheckpointContract(t *testing.T) {
 	// This test will fail until implementation is complete
 	// Following RED-GREEN-REFACTOR: Write failing test first
@@ -265,7 +265,7 @@ func TestReadBlockCheckpointContract(t *testing.T) {
 	})
 }
 
-// TestCheckpointOverrideContract tests the override behavior contract
+// TestCheckpointOverrideContract tests the override behavior contract.
 func TestCheckpointOverrideContract(t *testing.T) {
 	t.Run("duplicate_chain_selector_overrides_previous", func(t *testing.T) {
 		// Setup

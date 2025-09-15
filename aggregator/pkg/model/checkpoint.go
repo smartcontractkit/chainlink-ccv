@@ -31,7 +31,7 @@ func ValidateWriteBlockCheckpointRequest(req *pb.WriteBlockCheckpointRequest) er
 		return errors.New("request cannot be nil")
 	}
 
-	if req.Checkpoints == nil || len(req.Checkpoints) == 0 {
+	if len(req.Checkpoints) == 0 {
 		return errors.New("at least one checkpoint required")
 	}
 

@@ -8,7 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
-// TestBlockCheckpointValidation tests validation of BlockCheckpoint
+// TestBlockCheckpointValidation tests validation of BlockCheckpoint.
 func TestBlockCheckpointValidation(t *testing.T) {
 	t.Run("valid_checkpoint_passes", func(t *testing.T) {
 		checkpoint := &aggregator.BlockCheckpoint{
@@ -49,7 +49,7 @@ func TestBlockCheckpointValidation(t *testing.T) {
 	})
 }
 
-// TestWriteBlockCheckpointRequestValidation tests validation of write requests
+// TestWriteBlockCheckpointRequestValidation tests validation of write requests.
 func TestWriteBlockCheckpointRequestValidation(t *testing.T) {
 	t.Run("valid_request_passes", func(t *testing.T) {
 		req := &aggregator.WriteBlockCheckpointRequest{
@@ -122,7 +122,7 @@ func TestWriteBlockCheckpointRequestValidation(t *testing.T) {
 	})
 }
 
-// TestAPIKeyValidation tests API key validation
+// TestAPIKeyValidation tests API key validation.
 func TestAPIKeyValidation(t *testing.T) {
 	t.Run("valid_api_key_passes", func(t *testing.T) {
 		err := ValidateAPIKey("valid-api-key")
@@ -153,7 +153,7 @@ func TestAPIKeyValidation(t *testing.T) {
 	})
 }
 
-// TestCheckpointConversion tests conversion between proto and internal models
+// TestCheckpointConversion tests conversion between proto and internal models.
 func TestCheckpointConversion(t *testing.T) {
 	t.Run("proto_to_map_conversion", func(t *testing.T) {
 		checkpoints := []*aggregator.BlockCheckpoint{
@@ -204,7 +204,7 @@ func TestCheckpointConversion(t *testing.T) {
 	})
 }
 
-// TestDuplicateHandling tests handling of duplicate chain selectors
+// TestDuplicateHandling tests handling of duplicate chain selectors.
 func TestDuplicateHandling(t *testing.T) {
 	t.Run("duplicate_chain_selectors_in_request", func(t *testing.T) {
 		checkpoints := []*aggregator.BlockCheckpoint{

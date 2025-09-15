@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCheckpointStorage tests the CheckpointStorage implementation
+// TestCheckpointStorage tests the CheckpointStorage implementation.
 func TestCheckpointStorage(t *testing.T) {
 	t.Run("new_storage_is_empty", func(t *testing.T) {
 		storage := NewCheckpointStorage()
@@ -230,7 +230,7 @@ func TestCheckpointStorage(t *testing.T) {
 	})
 }
 
-// TestClientCheckpoints tests the ClientCheckpoints struct
+// TestClientCheckpoints tests the ClientCheckpoints struct.
 func TestClientCheckpoints(t *testing.T) {
 	t.Run("new_client_checkpoints", func(t *testing.T) {
 		client := NewClientCheckpoints()

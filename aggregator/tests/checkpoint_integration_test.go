@@ -11,7 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
 
-// TestCheckpointClientIsolation tests that clients can't access each other's data
+// TestCheckpointClientIsolation tests that clients can't access each other's data.
 func TestCheckpointClientIsolation(t *testing.T) {
 	t.Run("different_clients_isolated_data", func(t *testing.T) {
 		// Setup
@@ -154,7 +154,7 @@ func TestCheckpointClientIsolation(t *testing.T) {
 	})
 }
 
-// TestCheckpointConcurrency tests concurrent access to checkpoint operations
+// TestCheckpointConcurrency tests concurrent access to checkpoint operations.
 func TestCheckpointConcurrency(t *testing.T) {
 	t.Run("concurrent_writes_same_client", func(t *testing.T) {
 		// Setup

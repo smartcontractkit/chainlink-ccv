@@ -16,9 +16,9 @@ type CheckpointStorage struct {
 
 // ClientCheckpoints holds checkpoint data for a single client with thread-safe access.
 type ClientCheckpoints struct {
-	mu          sync.RWMutex
-	checkpoints map[uint64]uint64 // chain_selector -> finalized_block_height
 	lastUpdated time.Time
+	checkpoints map[uint64]uint64 // chain_selector -> finalized_block_height
+	mu          sync.RWMutex
 }
 
 // NewCheckpointStorage creates a new instance of CheckpointStorage.
@@ -45,7 +45,10 @@ func (s *CheckpointStorage) StoreCheckpoints(clientID string, checkpoints map[ui
 
 	// Get or create client storage
 	value, _ := s.clientData.LoadOrStore(clientID, NewClientCheckpoints())
-	clientStore := value.(*ClientCheckpoints)
+	clientStore, ok := value.(*ClientCheckpoints)
+	if !ok {
+		return fmt.Errorf("invalid client storage type for client %s", clientID)
+	}
 
 	// Store checkpoints atomically
 	clientStore.StoreCheckpoints(checkpoints)
@@ -61,7 +64,10 @@ func (s *CheckpointStorage) GetClientCheckpoints(clientID string) map[uint64]uin
 		return make(map[uint64]uint64)
 	}
 
-	clientStore := value.(*ClientCheckpoints)
+	clientStore, ok := value.(*ClientCheckpoints)
+	if !ok {
+		return make(map[uint64]uint64)
+	}
 	return clientStore.GetCheckpoints()
 }
 
@@ -128,8 +134,11 @@ func validateStoreCheckpointsInput(clientID string, checkpoints map[uint64]uint6
 func (s *CheckpointStorage) GetAllClients() []string {
 	var clients []string
 
-	s.clientData.Range(func(key, value interface{}) bool {
-		clientID := key.(string)
+	s.clientData.Range(func(key, value any) bool {
+		clientID, ok := key.(string)
+		if !ok {
+			return true // skip invalid entries
+		}
 		clients = append(clients, clientID)
 		return true
 	})
@@ -138,11 +147,14 @@ func (s *CheckpointStorage) GetAllClients() []string {
 }
 
 // GetStorageStats returns statistics about the storage for monitoring.
-func (s *CheckpointStorage) GetStorageStats() StorageStats {
-	stats := StorageStats{}
+func (s *CheckpointStorage) GetStorageStats() Stats {
+	stats := Stats{}
 
-	s.clientData.Range(func(key, value interface{}) bool {
-		clientStore := value.(*ClientCheckpoints)
+	s.clientData.Range(func(key, value any) bool {
+		clientStore, ok := value.(*ClientCheckpoints)
+		if !ok {
+			return true // skip invalid entries
+		}
 		clientStore.mu.RLock()
 		stats.TotalClients++
 		stats.TotalCheckpoints += len(clientStore.checkpoints)
@@ -156,14 +168,14 @@ func (s *CheckpointStorage) GetStorageStats() StorageStats {
 	return stats
 }
 
-// StorageStats provides statistics about checkpoint storage usage.
-type StorageStats struct {
+// Stats provides statistics about checkpoint storage usage.
+type Stats struct {
+	LastUpdate       time.Time
 	TotalClients     int
 	TotalCheckpoints int
-	LastUpdate       time.Time
 }
 
-func (s StorageStats) String() string {
+func (s Stats) String() string {
 	return fmt.Sprintf("CheckpointStorage{clients: %d, checkpoints: %d, last_update: %v}",
 		s.TotalClients, s.TotalCheckpoints, s.LastUpdate)
 }
