@@ -17,21 +17,20 @@ import (
 
 // VerificationCoordinator orchestrates the verification workflow using the new message format with finality awareness.
 type VerificationCoordinator struct {
-	verifier     types.Verifier
-	storage      protocol.OffchainStorageWriter
-	lggr         logger.Logger
-	ccvDataCh    chan protocol.CCVData
-	stopCh       chan struct{}
-	doneCh       chan struct{}
-	sourceStates map[protocol.ChainSelector]*sourceState
-	config       types.CoordinatorConfig
-	mu           sync.RWMutex
-	started      bool
-	stopped      bool
-	// Finality-aware queuing
+	verifier              types.Verifier
+	storage               protocol.OffchainStorageWriter
+	lggr                  logger.Logger
+	sourceStates          map[protocol.ChainSelector]*sourceState
+	stopCh                chan struct{}
+	doneCh                chan struct{}
+	ccvDataCh             chan protocol.CCVData
 	pendingTasks          []types.VerificationTask
-	pendingMu             sync.RWMutex
+	config                types.CoordinatorConfig
 	finalityCheckInterval time.Duration
+	mu                    sync.RWMutex
+	pendingMu             sync.RWMutex
+	started               bool
+	stopped               bool
 }
 
 // Option is the functional option type for VerificationCoordinator.
@@ -510,9 +509,10 @@ func (vc *VerificationCoordinator) isMessageReadyForVerification(ctx context.Con
 
 	messageBlockNumber := new(big.Int).SetUint64(task.BlockNumber)
 
+	ready := false
 	if finalityConfig == 0 {
 		// Default finality: wait for chain finalization
-		ready := messageBlockNumber.Cmp(latestFinalizedBlock) <= 0
+		ready = messageBlockNumber.Cmp(latestFinalizedBlock) <= 0
 		if ready {
 			vc.lggr.Debugw("✅ Message meets default finality requirement",
 				"messageID", messageID,
@@ -520,11 +520,10 @@ func (vc *VerificationCoordinator) isMessageReadyForVerification(ctx context.Con
 				"finalizedBlock", latestFinalizedBlock.String(),
 			)
 		}
-		return ready, nil
 	} else {
 		// Custom finality: message_block + finality_config <= latest_block
 		requiredBlock := new(big.Int).Add(messageBlockNumber, new(big.Int).SetUint64(uint64(finalityConfig)))
-		ready := requiredBlock.Cmp(latestBlock) <= 0
+		ready = requiredBlock.Cmp(latestBlock) <= 0
 		if ready {
 			vc.lggr.Debugw("✅ Message meets custom finality requirement",
 				"messageID", messageID,
@@ -534,8 +533,8 @@ func (vc *VerificationCoordinator) isMessageReadyForVerification(ctx context.Con
 				"latestBlock", latestBlock.String(),
 			)
 		}
-		return ready, nil
 	}
+	return ready, nil
 }
 
 // extractFinalityConfig extracts the finality configuration from message extra args.

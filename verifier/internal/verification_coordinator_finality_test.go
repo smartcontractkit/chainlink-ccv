@@ -163,7 +163,6 @@ func TestFinality_CustomFinality(t *testing.T) {
 	// Should have processed the ready message
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed the ready message")
-
 }
 
 func TestFinality_WaitingForFinality(t *testing.T) {
