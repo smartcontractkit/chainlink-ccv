@@ -37,7 +37,7 @@ message Message {
   uint32 version = 1;
   uint64 source_chain_selector = 2;
   uint64 dest_chain_selector = 3;
-  uint64 sequence_number = 4;
+  uint64 nonce = 4;
   uint32 on_ramp_address_length = 5;
   bytes on_ramp_address = 6;
   uint32 off_ramp_address_length = 7;

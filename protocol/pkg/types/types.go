@@ -154,7 +154,7 @@ type Message struct {
 	Receiver             []byte        `json:"receiver"`
 	SourceChainSelector  ChainSelector `json:"source_chain_selector"`
 	DestChainSelector    ChainSelector `json:"dest_chain_selector"`
-	SequenceNumber       SeqNum        `json:"sequence_number"`
+	Nonce                Nonce         `json:"nonce"`
 	Finality             uint16        `json:"finality"`
 	DestBlobLength       uint16        `json:"dest_blob_length"`
 	TokenTransferLength  uint16        `json:"token_transfer_length"`
@@ -173,14 +173,14 @@ func (m *Message) Encode() ([]byte, error) {
 	// Protocol header
 	_ = buf.WriteByte(m.Version)
 
-	// Chain selectors and sequence number (8 bytes each, big-endian)
+	// Chain selectors and nonce (8 bytes each, big-endian)
 	if err := binary.Write(&buf, binary.BigEndian, uint64(m.SourceChainSelector)); err != nil {
 		return nil, err
 	}
 	if err := binary.Write(&buf, binary.BigEndian, uint64(m.DestChainSelector)); err != nil {
 		return nil, err
 	}
-	if err := binary.Write(&buf, binary.BigEndian, uint64(m.SequenceNumber)); err != nil {
+	if err := binary.Write(&buf, binary.BigEndian, uint64(m.Nonce)); err != nil {
 		return nil, err
 	}
 
@@ -256,7 +256,7 @@ func DecodeMessage(data []byte) (*Message, error) {
 
 	msg.SourceChainSelector = ChainSelector(sourceChain)
 	msg.DestChainSelector = ChainSelector(destChain)
-	msg.SequenceNumber = SeqNum(seqNum)
+	msg.Nonce = Nonce(seqNum)
 
 	// Read on-ramp address
 	onRampLen, err := reader.ReadByte()
@@ -377,7 +377,7 @@ type CCVData struct {
 	BlobData              []byte            `json:"blob_data"`
 	ReceiptBlobs          []ReceiptWithBlob `json:"receipt_blobs"`
 	Message               Message           `json:"message"`
-	SequenceNumber        SeqNum            `json:"sequence_number"`
+	Nonce                 Nonce             `json:"nonce"`
 	SourceChainSelector   ChainSelector     `json:"source_chain_selector"`
 	DestChainSelector     ChainSelector     `json:"dest_chain_selector"`
 	Timestamp             int64             `json:"timestamp"`
@@ -423,7 +423,7 @@ func NewEmptyTokenTransfer() *TokenTransfer {
 // NewMessage creates a new message with the given parameters.
 func NewMessage(
 	sourceChain, destChain ChainSelector,
-	sequenceNumber SeqNum,
+	nonce Nonce,
 	onRampAddress, offRampAddress UnknownAddress,
 	finality uint16,
 	sender, receiver UnknownAddress,
@@ -457,7 +457,7 @@ func NewMessage(
 		Version:              MessageVersion,
 		SourceChainSelector:  sourceChain,
 		DestChainSelector:    destChain,
-		SequenceNumber:       sequenceNumber,
+		Nonce:                nonce,
 		OnRampAddressLength:  uint8(len(onRampAddress)),
 		OnRampAddress:        onRampAddress.Bytes(),
 		OffRampAddressLength: uint8(len(offRampAddress)),

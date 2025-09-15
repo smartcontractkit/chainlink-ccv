@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func createTestMessage(t *testing.T, seqNum types.SeqNum, sourceChainSelector, destChainSelector types.ChainSelector) types.Message {
+func createTestMessage(t *testing.T, nonce types.Nonce, sourceChainSelector, destChainSelector types.ChainSelector) types.Message {
 	// Create empty token transfer
 	tokenTransfer := types.NewEmptyTokenTransfer()
 
@@ -24,7 +24,7 @@ func createTestMessage(t *testing.T, seqNum types.SeqNum, sourceChainSelector, d
 	message, err := types.NewMessage(
 		sourceChainSelector,
 		destChainSelector,
-		seqNum,
+		nonce,
 		onRampAddr,
 		offRampAddr,
 		0, // finality
@@ -49,7 +49,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 	testData := []types.CCVData{
 		{
 			MessageID:             [32]byte{1, 2, 3},
-			SequenceNumber:        100,
+			Nonce:                 100,
 			SourceChainSelector:   1,
 			DestChainSelector:     2,
 			SourceVerifierAddress: verifierAddress,
@@ -70,7 +70,7 @@ func TestInMemoryOffchainStorage_WriteCCVData(t *testing.T) {
 		},
 		{
 			MessageID:             [32]byte{4, 5, 6},
-			SequenceNumber:        101,
+			Nonce:                 101,
 			SourceChainSelector:   1,
 			DestChainSelector:     2,
 			SourceVerifierAddress: verifierAddress,
@@ -131,7 +131,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		testData1 := []types.CCVData{
 			{
 				MessageID:             [32]byte{1},
-				SequenceNumber:        100,
+				Nonce:                 100,
 				SourceChainSelector:   1,
 				DestChainSelector:     2,
 				SourceVerifierAddress: verifierAddress,
@@ -152,7 +152,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		testData2 := []types.CCVData{
 			{
 				MessageID:             [32]byte{2},
-				SequenceNumber:        101,
+				Nonce:                 101,
 				SourceChainSelector:   1,
 				DestChainSelector:     2,
 				SourceVerifierAddress: verifierAddress,
@@ -172,7 +172,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		testData3 := []types.CCVData{
 			{
 				MessageID:             [32]byte{3},
-				SequenceNumber:        102,
+				Nonce:                 102,
 				SourceChainSelector:   1,
 				DestChainSelector:     2,
 				SourceVerifierAddress: verifierAddress,
@@ -189,64 +189,64 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		destChains    []types.ChainSelector
-		sourceChains  []types.ChainSelector
-		expectedSeqs  []types.SeqNum
-		startTime     int64
-		limit         int
-		offset        int
-		expectedCount int
+		name           string
+		destChains     []types.ChainSelector
+		sourceChains   []types.ChainSelector
+		expectedNonces []types.Nonce
+		startTime      int64
+		limit          int
+		offset         int
+		expectedCount  int
 	}{
 		{
-			name:          "all data",
-			startTime:     baseTime - 1,
-			destChains:    []types.ChainSelector{2},
-			sourceChains:  []types.ChainSelector{1},
-			limit:         100,
-			offset:        0,
-			expectedCount: 3,
-			expectedSeqs:  []types.SeqNum{100, 101, 102},
+			name:           "all data",
+			startTime:      baseTime - 1,
+			destChains:     []types.ChainSelector{2},
+			sourceChains:   []types.ChainSelector{1},
+			limit:          100,
+			offset:         0,
+			expectedCount:  3,
+			expectedNonces: []types.Nonce{100, 101, 102},
 		},
 		{
-			name:          "middle range",
-			startTime:     baseTime + 5000000, // 5 seconds later
-			destChains:    []types.ChainSelector{2},
-			sourceChains:  []types.ChainSelector{1},
-			limit:         100,
-			offset:        0,
-			expectedCount: 2,
-			expectedSeqs:  []types.SeqNum{101, 102},
+			name:           "middle range",
+			startTime:      baseTime + 5000000, // 5 seconds later
+			destChains:     []types.ChainSelector{2},
+			sourceChains:   []types.ChainSelector{1},
+			limit:          100,
+			offset:         0,
+			expectedCount:  2,
+			expectedNonces: []types.Nonce{101, 102},
 		},
 		{
-			name:          "no data in range",
-			startTime:     baseTime + 30000000, // 30 seconds later
-			destChains:    []types.ChainSelector{2},
-			sourceChains:  []types.ChainSelector{1},
-			limit:         100,
-			offset:        0,
-			expectedCount: 0,
-			expectedSeqs:  nil,
+			name:           "no data in range",
+			startTime:      baseTime + 30000000, // 30 seconds later
+			destChains:     []types.ChainSelector{2},
+			sourceChains:   []types.ChainSelector{1},
+			limit:          100,
+			offset:         0,
+			expectedCount:  0,
+			expectedNonces: nil,
 		},
 		{
-			name:          "pagination test - first page",
-			startTime:     baseTime - 1,
-			destChains:    []types.ChainSelector{2},
-			sourceChains:  []types.ChainSelector{1},
-			limit:         2,
-			offset:        0,
-			expectedCount: 2,
-			expectedSeqs:  []types.SeqNum{100, 101},
+			name:           "pagination test - first page",
+			startTime:      baseTime - 1,
+			destChains:     []types.ChainSelector{2},
+			sourceChains:   []types.ChainSelector{1},
+			limit:          2,
+			offset:         0,
+			expectedCount:  2,
+			expectedNonces: []types.Nonce{100, 101},
 		},
 		{
-			name:          "pagination test - second page",
-			startTime:     baseTime - 1,
-			destChains:    []types.ChainSelector{2},
-			sourceChains:  []types.ChainSelector{1},
-			limit:         2,
-			offset:        2,
-			expectedCount: 1,
-			expectedSeqs:  []types.SeqNum{102},
+			name:           "pagination test - second page",
+			startTime:      baseTime - 1,
+			destChains:     []types.ChainSelector{2},
+			sourceChains:   []types.ChainSelector{1},
+			limit:          2,
+			offset:         2,
+			expectedCount:  1,
+			expectedNonces: []types.Nonce{102},
 		},
 	}
 
@@ -260,9 +260,9 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			require.Equal(t, tt.expectedCount, len(response))
 
 			// Verify sequence numbers match expected by collecting from all destination chains
-			var actualSeqs []types.SeqNum
+			var actualSeqs []types.Nonce
 			for _, ccv := range response {
-				actualSeqs = append(actualSeqs, ccv.Data.SequenceNumber)
+				actualSeqs = append(actualSeqs, ccv.Data.Nonce)
 			}
 
 			// Sort actual sequences for comparison
@@ -270,7 +270,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 				return actualSeqs[i] < actualSeqs[j]
 			})
 
-			require.Equal(t, tt.expectedSeqs, actualSeqs)
+			require.Equal(t, tt.expectedNonces, actualSeqs)
 		})
 	}
 }
@@ -286,7 +286,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	testData := []types.CCVData{
 		{
 			MessageID:             messageID,
-			SequenceNumber:        100,
+			Nonce:                 100,
 			SourceChainSelector:   1,
 			DestChainSelector:     2,
 			SourceVerifierAddress: verifierAddress,
@@ -315,7 +315,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	result, err := storage.ReadCCVDataByMessageID(messageID)
 	require.NoError(t, err)
 	require.Equal(t, types.Bytes32(messageID), result.MessageID)
-	require.Equal(t, types.SeqNum(100), result.SequenceNumber)
+	require.Equal(t, types.Nonce(100), result.Nonce)
 
 	// Test finding non-existing message
 	nonExistentID := [32]byte{9, 9, 9}
@@ -337,14 +337,14 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	data1 := []types.CCVData{
 		{
 			MessageID:             [32]byte{1},
-			SequenceNumber:        100,
+			Nonce:                 100,
 			SourceVerifierAddress: verifier1,
 			CCVData:               []byte("sig1"),
 			Message:               createTestMessage(t, 100, 1, 2),
 		},
 		{
 			MessageID:             [32]byte{2},
-			SequenceNumber:        101,
+			Nonce:                 101,
 			SourceVerifierAddress: verifier1,
 			CCVData:               []byte("sig2"),
 			Message:               createTestMessage(t, 101, 1, 2),
@@ -354,7 +354,7 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	data2 := []types.CCVData{
 		{
 			MessageID:             [32]byte{3},
-			SequenceNumber:        200,
+			Nonce:                 200,
 			SourceVerifierAddress: verifier2,
 			CCVData:               []byte("sig3"),
 			Message:               createTestMessage(t, 200, 1, 2),
@@ -379,9 +379,9 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	require.Len(t, result2, 1)
 
 	// Verify data is separate
-	require.Equal(t, types.SeqNum(100), result1[0].SequenceNumber)
-	require.Equal(t, types.SeqNum(101), result1[1].SequenceNumber)
-	require.Equal(t, types.SeqNum(200), result2[0].SequenceNumber)
+	require.Equal(t, types.Nonce(100), result1[0].Nonce)
+	require.Equal(t, types.Nonce(101), result1[1].Nonce)
+	require.Equal(t, types.Nonce(200), result2[0].Nonce)
 }
 
 func TestInMemoryOffchainStorage_Clear(t *testing.T) {
@@ -490,7 +490,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	testData := []types.CCVData{
 		{
 			MessageID:             [32]byte{1, 2, 3},
-			SequenceNumber:        100,
+			Nonce:                 100,
 			SourceChainSelector:   1,
 			DestChainSelector:     2,
 			SourceVerifierAddress: verifierAddress,
@@ -541,7 +541,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 		testData1 := []types.CCVData{
 			{
 				MessageID:             [32]byte{1},
-				SequenceNumber:        100,
+				Nonce:                 100,
 				SourceChainSelector:   1,
 				DestChainSelector:     2,
 				SourceVerifierAddress: []byte("0x1234"),
@@ -639,13 +639,13 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 
 	{
 		// Add 1 more message, it should be returned by the next read.
-		seqNum := types.SeqNum(987654321)
+		Nonce := types.Nonce(987654321)
 		timeProvider := func() int64 { return baseTime + (10 * int64(100)) }
 		storage.timeProvider = timeProvider
 		testData1 := []types.CCVData{
 			{
 				MessageID:             [32]byte{1},
-				SequenceNumber:        seqNum,
+				Nonce:                 Nonce,
 				SourceChainSelector:   1,
 				DestChainSelector:     2,
 				SourceVerifierAddress: []byte("0x1234"),
@@ -661,7 +661,7 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 		results, err := storage.ReadCCVData(ctx)
 		require.NoError(t, err)
 		require.Len(t, results, 1)
-		require.Equal(t, seqNum, results[0].Data.SequenceNumber)
+		require.Equal(t, Nonce, results[0].Data.Nonce)
 	}
 }
 
@@ -678,7 +678,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 	testData := []common.CCVData{
 		{
 			MessageID:             [32]byte{1},
-			SequenceNumber:        100,
+			Nonce:        100,
 			SourceChainSelector:   1,
 			DestChainSelector:     10, // Chain 10
 			SourceVerifierAddress: verifierAddress,
@@ -687,7 +687,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 		},
 		{
 			MessageID:             [32]byte{2},
-			SequenceNumber:        101,
+			Nonce:        101,
 			SourceChainSelector:   1,
 			DestChainSelector:     20, // Chain 20
 			SourceVerifierAddress: verifierAddress,
@@ -696,7 +696,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 		},
 		{
 			MessageID:             [32]byte{3},
-			SequenceNumber:        102,
+			Nonce:        102,
 			SourceChainSelector:   1,
 			DestChainSelector:     10, // Chain 10 again
 			SourceVerifierAddress: verifierAddress,

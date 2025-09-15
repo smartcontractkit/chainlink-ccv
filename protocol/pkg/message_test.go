@@ -28,7 +28,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 	msg, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
-		types.SeqNum(123),
+		types.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10, // finality
@@ -53,7 +53,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 	assert.Equal(t, msg.Version, decoded.Version)
 	assert.Equal(t, msg.SourceChainSelector, decoded.SourceChainSelector)
 	assert.Equal(t, msg.DestChainSelector, decoded.DestChainSelector)
-	assert.Equal(t, msg.SequenceNumber, decoded.SequenceNumber)
+	assert.Equal(t, msg.Nonce, decoded.Nonce)
 	assert.Equal(t, msg.OnRampAddressLength, decoded.OnRampAddressLength)
 	assert.Equal(t, msg.OnRampAddress, decoded.OnRampAddress)
 	assert.Equal(t, msg.OffRampAddressLength, decoded.OffRampAddressLength)
@@ -86,7 +86,7 @@ func TestMessageID(t *testing.T) {
 	msg1, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
-		types.SeqNum(123),
+		types.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -101,7 +101,7 @@ func TestMessageID(t *testing.T) {
 	msg2, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
-		types.SeqNum(123),
+		types.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -120,11 +120,11 @@ func TestMessageID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, id1, id2)
 
-	// Different sequence number should give different message ID
+	// Different nonce should give different message ID
 	msg3, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
-		types.SeqNum(124), // Different sequence number
+		types.Nonce(124), // Different nonce
 		onRampAddr,
 		offRampAddr,
 		10,
