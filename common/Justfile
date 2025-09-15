@@ -23,7 +23,7 @@ mod-tidy: ensure-go
 mod-download: ensure-go
     go mod download
 
-proto: ensure-protoc mod-tidy
+proto: ensure-protoc
     ./proto.sh
 
 
