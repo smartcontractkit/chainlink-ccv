@@ -9,6 +9,7 @@ install-protoc:
 
 install-go-tools:
     go install github.com/jmank88/gomods@v$VERSION_GOMODS
+    go install github.com/jmank88/modgraph@v$VERSION_MODGRAPH
     go install google.golang.org/protobuf/cmd/protoc-gen-go@v$VERSION_PROTOC_GEN_GO
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v$VERSION_PROTOC_GEN_GO_GRPC
     go install github.com/bufbuild/buf/cmd/buf@v$VERSION_BUF
@@ -44,5 +45,6 @@ lint-all fix="":
     @echo "Linting devenv"
     @just ./build/devenv/lint {{fix}}
 
-mod-tidy-all: ensure-gomods
+mod-tidy-all: ensure-gomods ensure-modgraph
     gomods tidy
+    ./tools/bin/modgraph.sh > go.md
