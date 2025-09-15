@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/stretchr/testify/require"
 
@@ -27,7 +28,7 @@ func TestE2ESmoke(t *testing.T) {
 	routerAddr, err := ccv.GetRouterAddrForSelector(in, srcChain.Selector)
 	require.NoError(t, err)
 
-	argsv2, err := ccv.NewGenericCCIP17ExtraArgsV2(ccv.GenericExtraArgsV2{
+	argsv2, err := ccv.NewGenericCCIP17ExtraArgsV2(protocol.GenericExtraArgsV2{
 		GasLimit:                 big.NewInt(1_000_000),
 		AllowOutOfOrderExecution: true,
 	})

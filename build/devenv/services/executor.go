@@ -8,8 +8,9 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/testcontainers/testcontainers-go"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 const (
@@ -22,6 +23,7 @@ type ExecutorInput struct {
 	Out            *ExecutorOutput `toml:"-"`
 	Image          string          `toml:"image"`
 	SourceCodePath string          `toml:"source_code_path"`
+	RootPath       string          `toml:"root_path"`
 	ContainerName  string          `toml:"container_name"`
 	Port           int             `toml:"port"`
 	UseCache       bool            `toml:"use_cache"`

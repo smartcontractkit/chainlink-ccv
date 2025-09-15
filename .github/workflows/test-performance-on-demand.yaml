@@ -11,7 +11,8 @@ defaults:
 jobs:
   on-demand-performance:
     if: |
-      github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'performance')
+      github.event_name == 'pull_request' && 
+      github.event.label.name == 'performance'
     permissions:
       id-token: write
       contents: read

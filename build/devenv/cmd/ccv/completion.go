@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -12,13 +13,14 @@ func getCommands() []prompt.Suggest {
 	return []prompt.Suggest{
 		{Text: "up", Description: "Spin up the development environment"},
 		{Text: "down", Description: "Tear down the development environment"},
-		{Text: "reconfigure", Description: "Reconfigure development environment"},
+		{Text: "restart", Description: "Restart the development environment"},
+		{Text: "test", Description: "Perform smoke or load/chaos testing"},
 		{Text: "bs", Description: "Manage the Blockscout EVM block explorer"},
 		{Text: "obs", Description: "Manage the observability stack"},
 		{Text: "db", Description: "Inspect Databases"},
 		{Text: "upload-on-chain-metrics", Description: "Temporarily serves all on-chain metrics as a Prometheus metrics endpoint so they can be scraped"},
 		{Text: "exit", Description: "Exit the interactive shell"},
-		{Text: "send", Description: "Send a vanilla CCIP message from one chain to another"},
+		{Text: "send", Description: "Send an example CCIP ArgsV2 message from one chain to another"},
 	}
 }
 
@@ -29,6 +31,15 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "Chain selectors", Description: "source,destination"},
 			{Text: "3379446385462418246,12922642891491394802", Description: "send default Anvil 1337 -> Anvil 2337"},
 			{Text: "12922642891491394802,3379446385462418246", Description: "send default Anvil 1337 <- Anvil 2337"},
+		}
+	case "test":
+		return []prompt.Suggest{
+			{Text: "smoke", Description: "Send an example ArgsV2 message from 1337 to 2337 local Anvil chain (EVM)"},
+			{Text: "load", Description: "Run the default load test (1msg/s) 1337 -> 2337 local Anvil chain (EVM)"},
+			{Text: "rpc-latency", Description: "Default load test + 400ms RPC latency (all chains)"},
+			{Text: "gas-spikes", Description: "Default load test + slow and fast gas spikes"},
+			{Text: "reorgs", Description: "Default load test + reorgs (Requires 'up env.toml,env-geth.toml' environment"},
+			{Text: "chaos", Description: "Default load test + chaos (restarts, latency, data loss between services)"},
 		}
 	case "addresses":
 		return []prompt.Suggest{
@@ -46,6 +57,7 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "up -f", Description: "Spin up full observability stack (Pyroscope, cadvisor, postgres exporter)"},
 			{Text: "down", Description: "Spin down observability stack"},
 			{Text: "restart", Description: "Restart observability stack"},
+			{Text: "restart -f", Description: "Restart full observability stack"},
 		}
 	case "db":
 		return []prompt.Suggest{
@@ -114,7 +126,17 @@ func completer(in prompt.Document) []prompt.Suggest {
 	}
 }
 
+// resetTerm resets terminal settings to Unix defaults
+func resetTerm() {
+	cmd := exec.Command("stty", "sane")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
+}
+
 func StartShell() {
+	defer resetTerm()
 	p := prompt.New(
 		executor,
 		completer,
@@ -132,6 +154,14 @@ func StartShell() {
 		prompt.OptionSuggestionTextColor(prompt.Green),
 		prompt.OptionScrollbarThumbColor(prompt.DarkGray),
 		prompt.OptionScrollbarBGColor(prompt.Black),
+		prompt.OptionAddKeyBind(prompt.KeyBind{
+			Key: prompt.ControlC,
+			Fn: func(buf *prompt.Buffer) {
+				fmt.Println("Interrupted, exiting...")
+				resetTerm()
+				os.Exit(0)
+			},
+		}),
 	)
 	p.Run()
 }

@@ -82,6 +82,7 @@ type VerifierInput struct {
 	Out               *VerifierOutput      `toml:"out"`
 	Image             string               `toml:"image"`
 	SourceCodePath    string               `toml:"source_code_path"`
+	RootPath          string               `toml:"root_path"`
 	ContainerName     string               `toml:"container_name"`
 	VerifierConfig    VerifierConfig       `toml:"verifier_config"`
 	Port              int                  `toml:"port"`

@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -27,7 +27,7 @@ func TestConstructor(t *testing.T) {
 		{
 			name:    "missing every option",
 			options: []executor.Option{},
-			err:     []string{"executor is not set", "logger is not set", "leaderElector is not set", "ccvDataReader is not set"},
+			err:     []string{"executor is not set", "logger is not set", "leaderElector is not set", "ccvResultStreamer is not set"},
 		},
 		{
 			name: "happy",
@@ -35,7 +35,7 @@ func TestConstructor(t *testing.T) {
 				executor.WithLogger(lggr),
 				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-				executor.WithCCVDataReader(executor_mocks.NewMockCcvDataReader(t)),
+				executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
 			},
 			err: nil,
 		},
@@ -44,7 +44,7 @@ func TestConstructor(t *testing.T) {
 			options: []executor.Option{
 				executor.WithLogger(lggr),
 				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-				executor.WithCCVDataReader(executor_mocks.NewMockCcvDataReader(t)),
+				executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
 			},
 			err: []string{"executor is not set"},
 		},
@@ -53,7 +53,7 @@ func TestConstructor(t *testing.T) {
 			options: []executor.Option{
 				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-				executor.WithCCVDataReader(executor_mocks.NewMockCcvDataReader(t)),
+				executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
 			},
 			err: []string{"logger is not set"},
 		},
@@ -62,18 +62,18 @@ func TestConstructor(t *testing.T) {
 			options: []executor.Option{
 				executor.WithLogger(lggr),
 				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
-				executor.WithCCVDataReader(executor_mocks.NewMockCcvDataReader(t)),
+				executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
 			},
 			err: []string{"leaderElector is not set"},
 		},
 		{
-			name: "missing ccvDataReader",
+			name: "missing CCVResultStreamer",
 			options: []executor.Option{
 				executor.WithLogger(lggr),
 				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
 			},
-			err: []string{"ccvDataReader is not set"},
+			err: []string{"ccvResultStreamer is not set"},
 		},
 	}
 
@@ -103,15 +103,15 @@ func TestLifecycle(t *testing.T) {
 	getReader := func() *executor.Coordinator {
 		lggr := logger.Test(t)
 
-		ccvDataReader := executor_mocks.NewMockCcvDataReader(t)
-		messageChan := make(chan types.MessageWithCCVData)
-		ccvDataReader.EXPECT().SubscribeMessages().Return(messageChan, nil)
+		ccvDataReader := executor_mocks.NewMockCCVResultStreamer(t)
+		messageChan := make(chan executor.StreamerResult)
+		ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(messageChan, nil)
 
 		ec, err := executor.NewCoordinator(
 			executor.WithLogger(lggr),
 			executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 			executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-			executor.WithCCVDataReader(ccvDataReader),
+			executor.WithCCVResultStreamer(ccvDataReader),
 		)
 		require.NoError(t, err)
 		require.NotNil(t, ec)
@@ -141,16 +141,16 @@ func TestSubscribeMessagesError(t *testing.T) {
 	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
 
 	// Generate an error when SubscribeMessages() is called during Start().
-	ccvDataReader := executor_mocks.NewMockCcvDataReader(t)
-	messageChan := make(chan types.MessageWithCCVData)
+	ccvDataReader := executor_mocks.NewMockCCVResultStreamer(t)
+	messageChan := make(chan executor.StreamerResult)
 	sentinelError := fmt.Errorf("lilo & stitch")
-	ccvDataReader.EXPECT().SubscribeMessages().Return(messageChan, sentinelError)
+	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(messageChan, sentinelError)
 
 	ec, err := executor.NewCoordinator(
 		executor.WithLogger(lggr),
 		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-		executor.WithCCVDataReader(ccvDataReader),
+		executor.WithCCVResultStreamer(ccvDataReader),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -179,7 +179,7 @@ func TestStopNotRunning(t *testing.T) {
 		executor.WithLogger(lggr),
 		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-		executor.WithCCVDataReader(executor_mocks.NewMockCcvDataReader(t)),
+		executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
