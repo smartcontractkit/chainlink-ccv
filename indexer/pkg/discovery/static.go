@@ -21,7 +21,7 @@ func NewStaticDiscovery(readers []types.OffchainStorageReader) common.ReaderDisc
 	}
 }
 
-func (d *StaticDiscovery) DiscoverReaders(ctx context.Context) chan types.OffchainStorageReader {
+func (d *StaticDiscovery) Run(ctx context.Context) chan types.OffchainStorageReader {
 	// Populate the offChainStorageReaderCh with the readers taken from the configuration
 	for _, reader := range d.readers {
 		d.offChainStorageReaderCh <- reader
@@ -30,10 +30,13 @@ func (d *StaticDiscovery) DiscoverReaders(ctx context.Context) chan types.Offcha
 	return d.offChainStorageReaderCh
 }
 
-func (d *StaticDiscovery) AddReader(reader types.OffchainStorageReader) {
+func (d *StaticDiscovery) AddReaders(readers []types.OffchainStorageReader) {
 	// This is primarily used for replays from a given timeframe
-	d.readers = append(d.readers, reader)
-	d.offChainStorageReaderCh <- reader
+	d.readers = append(d.readers, readers...)
+
+	for _, reader := range readers {
+		d.offChainStorageReaderCh <- reader
+	}
 }
 
 func (d *StaticDiscovery) Stop() error {

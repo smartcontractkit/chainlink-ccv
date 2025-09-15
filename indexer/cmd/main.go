@@ -47,7 +47,7 @@ func main() {
 		scanner.WithConfig(scanner.ScannerConfig{
 			ScanInterval: 1 * time.Second,
 		}),
-		scanner.WithIndexerStorage(indexerStorage),
+		scanner.WithStorageWriter(indexerStorage),
 	)
 
 	// Start the Scanner processing

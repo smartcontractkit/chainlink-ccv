@@ -13,7 +13,7 @@ import (
 type Scanner struct {
 	readerDiscovery common.ReaderDiscovery
 	config          ScannerConfig
-	indexerStorage  common.IndexerStorage
+	storageWriter   common.IndexerStorageWriter
 	lggr            logger.Logger
 	ccvDataCh       chan types.CCVData
 	stopCh          chan struct{}
@@ -48,9 +48,9 @@ func WithConfig(config ScannerConfig) Option {
 	}
 }
 
-func WithIndexerStorage(indexerStorage common.IndexerStorage) Option {
+func WithStorageWriter(storageWriter common.IndexerStorageWriter) Option {
 	return func(s *Scanner) {
-		s.indexerStorage = indexerStorage
+		s.storageWriter = storageWriter
 	}
 }
 
@@ -89,7 +89,7 @@ func (s *Scanner) run(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	s.lggr.Info("Scanner discovering readers")
-	readerDiscoveryCh := s.readerDiscovery.DiscoverReaders(ctx)
+	readerDiscoveryCh := s.readerDiscovery.Run(ctx)
 
 	for {
 		select {
@@ -103,10 +103,9 @@ func (s *Scanner) run(ctx context.Context) {
 			return
 		case reader := <-readerDiscoveryCh:
 			s.lggr.Info("Scanner discovered reader!")
-			wg.Add(1)
 			go s.handleReader(reader, &wg)
 		case ccvData := <-s.ccvDataCh:
-			if err := s.indexerStorage.InsertCCVData(ctx, ccvData); err != nil {
+			if err := s.storageWriter.InsertCCVData(ctx, ccvData); err != nil {
 				s.lggr.Errorw("Error inserting CCV data into indexer storage", "error", err)
 			}
 		}
@@ -116,6 +115,7 @@ func (s *Scanner) run(ctx context.Context) {
 func (s *Scanner) handleReader(reader types.OffchainStorageReader, wg *sync.WaitGroup) {
 	// Create a ticker based on the scan interval configured
 	ticker := time.NewTicker(s.config.ScanInterval)
+	wg.Add(1)
 	defer ticker.Stop()
 	defer wg.Done()
 
