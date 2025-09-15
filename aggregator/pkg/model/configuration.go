@@ -2,7 +2,10 @@ package model
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -84,18 +87,132 @@ type ServerConfig struct {
 	Address string `toml:"address"`
 }
 
+// APIClient represents a configured client for API access.
+type APIClient struct {
+	ClientID    string `toml:"clientId"`
+	Description string `toml:"description,omitempty"`
+	Enabled     bool   `toml:"enabled"`
+}
+
+// APIKeyConfig represents the configuration for API key management.
+type APIKeyConfig struct {
+	// Clients maps API keys to client configurations
+	Clients map[string]*APIClient `toml:"clients"`
+	// MaxAPIKeyLength limits the length of API keys
+	MaxAPIKeyLength int `toml:"maxApiKeyLength"`
+}
+
+// CheckpointConfig represents the configuration for the checkpoint API.
+type CheckpointConfig struct {
+	// MaxCheckpointsPerRequest limits the number of checkpoints per write request
+	MaxCheckpointsPerRequest int `toml:"maxCheckpointsPerRequest"`
+}
+
+// GetClientByAPIKey returns the client configuration for a given API key.
+func (c *APIKeyConfig) GetClientByAPIKey(apiKey string) (*APIClient, bool) {
+	client, exists := c.Clients[apiKey]
+	if !exists || !client.Enabled {
+		return nil, false
+	}
+	return client, true
+}
+
+// ValidateAPIKey validates an API key against the configuration.
+func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
+	if strings.TrimSpace(apiKey) == "" {
+		return errors.New("api key cannot be empty")
+	}
+
+	if len(apiKey) > c.MaxAPIKeyLength {
+		return fmt.Errorf("api key too long (max %d characters)", c.MaxAPIKeyLength)
+	}
+
+	client, exists := c.GetClientByAPIKey(apiKey)
+	if !exists {
+		return errors.New("invalid or disabled api key")
+	}
+
+	if client.ClientID == "" {
+		return errors.New("client id cannot be empty")
+	}
+
+	return nil
+}
+
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
 	Committees        map[string]*Committee `toml:"committees"`
 	Server            ServerConfig          `toml:"server"`
 	Storage           StorageConfig         `toml:"storage"`
+	APIKeys           APIKeyConfig          `toml:"apiKeys"`
+	Checkpoints       CheckpointConfig      `toml:"checkpoints"`
 	DisableValidation bool                  `toml:"disableValidation"`
 	StubMode          bool                  `toml:"stubQuorumValidation"`
 }
 
+// SetDefaults sets default values for the configuration.
+func (c *AggregatorConfig) SetDefaults() {
+	if c.Checkpoints.MaxCheckpointsPerRequest == 0 {
+		c.Checkpoints.MaxCheckpointsPerRequest = 1000
+	}
+	if c.APIKeys.MaxAPIKeyLength == 0 {
+		c.APIKeys.MaxAPIKeyLength = 1000
+	}
+	if c.APIKeys.Clients == nil {
+		c.APIKeys.Clients = make(map[string]*APIClient)
+	}
+}
+
+// ValidateAPIKeyConfig validates the API key configuration.
+func (c *AggregatorConfig) ValidateAPIKeyConfig() error {
+	if c.APIKeys.MaxAPIKeyLength <= 0 {
+		return errors.New("apiKeys.maxApiKeyLength must be greater than 0")
+	}
+
+	// Validate each API key configuration
+	for apiKey, client := range c.APIKeys.Clients {
+		if strings.TrimSpace(apiKey) == "" {
+			return errors.New("api key cannot be empty")
+		}
+		if len(apiKey) > c.APIKeys.MaxAPIKeyLength {
+			return fmt.Errorf("api key '%s' exceeds maximum length of %d", apiKey, c.APIKeys.MaxAPIKeyLength)
+		}
+		if client == nil {
+			return fmt.Errorf("client configuration for api key '%s' cannot be nil", apiKey)
+		}
+		if strings.TrimSpace(client.ClientID) == "" {
+			return fmt.Errorf("client id for api key '%s' cannot be empty", apiKey)
+		}
+	}
+
+	return nil
+}
+
+// ValidateCheckpointConfig validates the checkpoint configuration.
+func (c *AggregatorConfig) ValidateCheckpointConfig() error {
+	if c.Checkpoints.MaxCheckpointsPerRequest <= 0 {
+		return errors.New("checkpoints.maxCheckpointsPerRequest must be greater than 0")
+	}
+
+	return nil
+}
+
 // Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
-	// TODO: Add Validate() method to AggregatorConfig to ensure configuration integrity
+	// Set defaults first
+	c.SetDefaults()
+
+	// Validate API key configuration
+	if err := c.ValidateAPIKeyConfig(); err != nil {
+		return fmt.Errorf("api key configuration error: %w", err)
+	}
+
+	// Validate checkpoint configuration
+	if err := c.ValidateCheckpointConfig(); err != nil {
+		return fmt.Errorf("checkpoint configuration error: %w", err)
+	}
+
+	// TODO: Add other validation logic
 	// Should validate:
 	// - No duplicate signers within the same QuorumConfig
 	// - StorageType is supported (memory, etc.)

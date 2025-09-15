@@ -32,6 +32,9 @@ type Server struct {
 	writeCommitCCVNodeDataHandler handlers.Handler[*aggregator.WriteCommitCCVNodeDataRequest, *aggregator.WriteCommitCCVNodeDataResponse]
 	getMessagesSinceHandler       handlers.Handler[*aggregator.GetMessagesSinceRequest, *aggregator.GetMessagesSinceResponse]
 	getCCVDataForMessageHandler   handlers.Handler[*aggregator.GetCCVDataForMessageRequest, *aggregator.MessageWithCCVData]
+	writeBlockCheckpointHandler   handlers.Handler[*aggregator.WriteBlockCheckpointRequest, *aggregator.WriteBlockCheckpointResponse]
+	readBlockCheckpointHandler    handlers.Handler[*aggregator.ReadBlockCheckpointRequest, *aggregator.ReadBlockCheckpointResponse]
+	checkpointStorage             *storage.CheckpointStorage
 	grpcServer                    *grpc.Server
 	closeChan                     chan struct{}
 	mu                            sync.Mutex
@@ -54,6 +57,16 @@ func (s *Server) GetCCVDataForMessage(ctx context.Context, req *aggregator.GetCC
 
 func (s *Server) GetMessagesSince(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
 	return s.getMessagesSinceHandler.Handle(ctx, req)
+}
+
+// WriteBlockCheckpoint handles requests to write blockchain checkpoints.
+func (s *Server) WriteBlockCheckpoint(ctx context.Context, req *aggregator.WriteBlockCheckpointRequest) (*aggregator.WriteBlockCheckpointResponse, error) {
+	return s.writeBlockCheckpointHandler.Handle(ctx, req)
+}
+
+// ReadBlockCheckpoint handles requests to read blockchain checkpoints.
+func (s *Server) ReadBlockCheckpoint(ctx context.Context, req *aggregator.ReadBlockCheckpointRequest) (*aggregator.ReadBlockCheckpointResponse, error) {
+	return s.readBlockCheckpointHandler.Handle(ctx, req)
 }
 
 func (s *Server) Start(lis net.Listener) error {
@@ -123,6 +136,9 @@ type SignatureAndQuorumValidator interface {
 
 // NewServer creates a new aggregator server with the specified logger and configuration.
 func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
+	// Set defaults for configuration
+	config.SetDefaults()
+
 	if config.Storage.StorageType != "memory" {
 		panic("unknown storage type")
 	}
@@ -147,6 +163,15 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	getMessagesSinceHandler := handlers.NewLoggingMiddleware(handlers.NewGetMessagesSinceHandler(store, config.Committees, l), l)
 	getCCVDataForMessageHandler := handlers.NewLoggingMiddleware(handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l), l)
 
+	// Initialize checkpoint storage
+	checkpointStorage := storage.NewCheckpointStorage()
+
+	// Initialize checkpoint handlers with configuration support
+	writeBlockCheckpointHandler := handlers.NewLoggingMiddleware(
+		handlers.NewWriteBlockCheckpointHandler(checkpointStorage, &config.APIKeys, &config.Checkpoints), l)
+	readBlockCheckpointHandler := handlers.NewLoggingMiddleware(
+		handlers.NewReadBlockCheckpointHandler(checkpointStorage, &config.APIKeys), l)
+
 	grpcServer := grpc.NewServer()
 	server := &Server{
 		l:                             l,
@@ -154,6 +179,9 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		writeCommitCCVNodeDataHandler: writeCommitCCVNodeDataHandler,
 		getMessagesSinceHandler:       getMessagesSinceHandler,
 		getCCVDataForMessageHandler:   getCCVDataForMessageHandler,
+		writeBlockCheckpointHandler:   writeBlockCheckpointHandler,
+		readBlockCheckpointHandler:    readBlockCheckpointHandler,
+		checkpointStorage:             checkpointStorage,
 		grpcServer:                    grpcServer,
 		started:                       false,
 		mu:                            sync.Mutex{},
