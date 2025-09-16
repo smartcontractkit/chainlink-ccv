@@ -3,7 +3,6 @@ package types
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"math/big"
 
@@ -12,9 +11,9 @@ import (
 
 var (
 	// ExtraArgs version tags.
-	EVMExtraArgsV1Tag    = hash.Keccak256([]byte("CCIP EVMExtraArgsV1"))[:4]
-	EVMExtraArgsV2Tag    = hash.Keccak256([]byte("CCIP EVMExtraArgsV2"))[:4]
-	EVMExtraArgsV3Tag, _ = hex.DecodeString("302326cb") // TODO: determine hash preimage
+	EVMExtraArgsV1Tag = hash.Keccak256([]byte("CCIP EVMExtraArgsV1"))[:4]
+	EVMExtraArgsV2Tag = hash.Keccak256([]byte("CCIP EVMExtraArgsV2"))[:4]
+	EVMExtraArgsV3Tag = hash.Keccak256([]byte("CCIP EVMExtraArgsV3"))[:4]
 )
 
 // EVMExtraArgsV1 represents the basic extra args format.
