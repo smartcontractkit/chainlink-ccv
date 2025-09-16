@@ -148,14 +148,14 @@ func main() {
 		lggr.Errorw("No chainclient or VerifierOnRamp1337 address", "chain", 1337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.VerifierOnRamp1337, chainIDA, lggr)
+	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainIDA, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 
 	if chainClient2 == nil || verifierConfig.VerifierOnRamp2337 == "" {
 		lggr.Errorw("No chainclient or VerifierOnRamp2337 address", "chain", 2337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.VerifierOnRamp2337, chainIDB, lggr)
+	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainIDB, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration

@@ -81,7 +81,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 		return
 	}
 
-	cv.lggr.Debugw("Message validation passed",
+	cv.lggr.Infow("Message validation passed",
 		"messageID", messageID,
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
 	)
