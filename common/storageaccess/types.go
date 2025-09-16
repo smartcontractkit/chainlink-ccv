@@ -12,10 +12,11 @@ type IndexerAPI interface {
 }
 
 type VerifierResultsRequest struct {
-	Start                int64                 `form:"start"`
-	End                  int64                 `form:"end"`
-	Limit                uint64                `form:"limit"`
-	Offset               uint64                `form:"offset"`
+	Start  int64  `form:"start"`
+	End    int64  `form:"end"`
+	Limit  uint64 `form:"limit"`
+	Offset uint64 `form:"offset"`
+
 	SourceChainSelectors []types.ChainSelector // Excluded from form due to gin parsing
 	DestChainSelectors   []types.ChainSelector // Excluded from form due to gin parsing
 }
