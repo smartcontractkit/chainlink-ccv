@@ -69,7 +69,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *types.Bl
 	// defer chainClient.Close()
 
 	lggr.Infow("✅ Multinode chain client created successfully",
-		"chainSelector", blockchainInfo.ChainID,
+		"chainID", blockchainInfo.ChainID,
 		"nodeStates", chainClient.NodeStates())
 
 	err = chainClient.Dial(ctx)
@@ -101,6 +101,6 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *types.Bl
 		"hash", header.Hash.Hex(),
 		"timestamp", header.Timestamp)
 
-	lggr.Infow("✅ Multinode chain client tests completed successfully!", "chainSelector", blockchainInfo.ChainID)
+	lggr.Infow("✅ Multinode chain client tests completed successfully!", "chainID", blockchainInfo.ChainID)
 	return chainClient
 }
