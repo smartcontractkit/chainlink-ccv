@@ -51,7 +51,7 @@ func (t *testVerifier) VerifyMessage(
 	messageID, _ := verificationTask.Message.MessageID()
 	ccvData := protocol.CCVData{
 		MessageID:             messageID,
-		SequenceNumber:        verificationTask.Message.SequenceNumber,
+		Nonce:                 verificationTask.Message.Nonce,
 		SourceChainSelector:   verificationTask.Message.SourceChainSelector,
 		DestChainSelector:     verificationTask.Message.DestChainSelector,
 		SourceVerifierAddress: protocol.UnknownAddress{},

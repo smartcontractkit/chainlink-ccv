@@ -21,7 +21,7 @@ type VerificationCoordinator struct {
 	storage               protocol.OffchainStorageWriter
 	lggr                  logger.Logger
 	sourceStates          map[protocol.ChainSelector]*sourceState
-	stopCh                chan struct{}
+	cancel                context.CancelFunc
 	doneCh                chan struct{}
 	ccvDataCh             chan protocol.CCVData
 	pendingTasks          []types.VerificationTask
@@ -97,7 +97,6 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error) {
 	vc := &VerificationCoordinator{
 		ccvDataCh:             make(chan protocol.CCVData, 1000),
-		stopCh:                make(chan struct{}),
 		doneCh:                make(chan struct{}),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		pendingTasks:          make([]types.VerificationTask, 0),
@@ -139,6 +138,9 @@ func (vc *VerificationCoordinator) Start(ctx context.Context) error {
 
 	vc.started = true
 
+	ctx, cancel := context.WithCancel(ctx)
+	vc.cancel = cancel
+
 	// Start processing loop and finality checking
 	go vc.run(ctx)
 	go vc.finalityCheckingLoop(ctx)
@@ -161,7 +163,6 @@ func (vc *VerificationCoordinator) Stop() error {
 
 	vc.stopped = true
 	vc.started = false
-	close(vc.stopCh)
 
 	// Stop all source readers and close error channels
 	for chainSelector, state := range vc.sourceStates {
@@ -173,6 +174,7 @@ func (vc *VerificationCoordinator) Stop() error {
 	}
 
 	// Wait for processing to finish
+	vc.cancel()
 	<-vc.doneCh
 
 	vc.lggr.Infow("VerificationCoordinator stopped")
@@ -200,10 +202,6 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			vc.lggr.Infow("VerificationCoordinator processing stopped due to context cancellation")
-			wg.Wait()
-			return
-		case <-vc.stopCh:
-			vc.lggr.Infow("VerificationCoordinator processing stopped due to stop signal")
 			wg.Wait()
 			return
 		case ccvData, ok := <-vc.ccvDataCh:
@@ -245,9 +243,6 @@ func (vc *VerificationCoordinator) processSourceMessages(ctx context.Context, wg
 		case <-ctx.Done():
 			vc.lggr.Debugw("Source message processor stopped due to context cancellation", "chainSelector", chainSelector)
 			return
-		case <-vc.stopCh:
-			vc.lggr.Debugw("Source message processor stopped due to stop signal", "chainSelector", chainSelector)
-			return
 		case verificationTask, ok := <-state.verificationTaskCh:
 			if !ok {
 				vc.lggr.Errorw("Message channel closed for source", "chainSelector", chainSelector)
@@ -271,9 +266,6 @@ func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *
 		select {
 		case <-ctx.Done():
 			vc.lggr.Debugw("Source error processor stopped due to context cancellation", "chainSelector", chainSelector)
-			return
-		case <-vc.stopCh:
-			vc.lggr.Debugw("Source error processor stopped due to stop signal", "chainSelector", chainSelector)
 			return
 		case verificationError, ok := <-state.verificationErrorCh:
 			if !ok {
@@ -373,7 +365,7 @@ func (vc *VerificationCoordinator) addToPendingQueue(task types.VerificationTask
 		"messageID", messageID,
 		"chainSelector", chainSelector,
 		"blockNumber", task.BlockNumber,
-		"sequenceNumber", task.Message.SequenceNumber,
+		"nonce", task.Message.Nonce,
 		"queueSize", len(vc.pendingTasks),
 	)
 }
@@ -389,9 +381,6 @@ func (vc *VerificationCoordinator) finalityCheckingLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			vc.lggr.Infow("🛑 Finality checking stopped due to context cancellation")
-			return
-		case <-vc.stopCh:
-			vc.lggr.Infow("🛑 Finality checking stopped")
 			return
 		case <-ticker.C:
 			vc.processFinalityQueue(ctx)
@@ -457,7 +446,7 @@ func (vc *VerificationCoordinator) processReadyTask(ctx context.Context, task ty
 	vc.lggr.Debugw("📤 Processing finalized message",
 		"messageID", messageID,
 		"blockNumber", task.BlockNumber,
-		"sequenceNumber", task.Message.SequenceNumber,
+		"nonce", task.Message.Nonce,
 	)
 
 	// Find the appropriate error channel for this chain
