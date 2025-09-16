@@ -400,8 +400,28 @@ func (vc *VerificationCoordinator) processFinalityQueue(ctx context.Context) {
 	var readyTasks []types.VerificationTask
 	var remainingTasks []types.VerificationTask
 
+	// Get latest blocks and finalized blocks for all chains
+	latestBlocks := make(map[protocol.ChainSelector]*big.Int)
+	for chainSelector, state := range vc.sourceStates {
+		latestBlock, err := state.reader.LatestBlock(ctx)
+		if err != nil {
+			vc.lggr.Errorw("Failed to get latest block", "error", err)
+			continue
+		}
+		latestBlocks[chainSelector] = latestBlock
+	}
+	latestFinalizedBlocks := make(map[protocol.ChainSelector]*big.Int)
+	for chainSelector, state := range vc.sourceStates {
+		latestFinalizedBlock, err := state.reader.LatestFinalizedBlock(ctx)
+		if err != nil {
+			vc.lggr.Errorw("Failed to get latest finalized block", "error", err)
+			continue
+		}
+		latestFinalizedBlocks[chainSelector] = latestFinalizedBlock
+	}
+
 	for _, task := range vc.pendingTasks {
-		ready, err := vc.isMessageReadyForVerification(ctx, task)
+		ready, err := vc.isMessageReadyForVerification(task, latestBlocks, latestFinalizedBlocks)
 		if err != nil {
 			messageID, _ := task.Message.MessageID()
 			vc.lggr.Warnw("Failed to check finality for message",
@@ -463,27 +483,24 @@ func (vc *VerificationCoordinator) processReadyTask(ctx context.Context, task ty
 
 // isMessageReadyForVerification determines if a message meets its finality requirements.
 // This implements the same logic as Python's commit_verifier.py finality checking.
-func (vc *VerificationCoordinator) isMessageReadyForVerification(ctx context.Context, task types.VerificationTask) (bool, error) {
+func (vc *VerificationCoordinator) isMessageReadyForVerification(
+	task types.VerificationTask,
+	latestBlocks map[protocol.ChainSelector]*big.Int,
+	latestFinalizedBlocks map[protocol.ChainSelector]*big.Int,
+) (bool, error) {
 	messageID, err := task.Message.MessageID()
 	if err != nil {
 		return false, fmt.Errorf("failed to compute message ID: %w", err)
 	}
 
-	// Get the source reader for this chain to check finality
-	sourceState, exists := vc.sourceStates[task.Message.SourceChainSelector]
-	if !exists {
-		return false, fmt.Errorf("no source state found for chain %d", task.Message.SourceChainSelector)
+	latestBlock, ok := latestBlocks[task.Message.SourceChainSelector]
+	if !ok {
+		return false, fmt.Errorf("no latest block found for chain %d", task.Message.SourceChainSelector)
 	}
 
-	// Get current blockchain state
-	latestBlock, err := sourceState.reader.LatestBlock(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to get latest block: %w", err)
-	}
-
-	latestFinalizedBlock, err := sourceState.reader.LatestFinalizedBlock(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to get latest finalized block: %w", err)
+	latestFinalizedBlock, ok := latestFinalizedBlocks[task.Message.SourceChainSelector]
+	if !ok {
+		return false, fmt.Errorf("no latest finalized block found for chain %d", task.Message.SourceChainSelector)
 	}
 
 	// Parse extra args to get finality configuration
