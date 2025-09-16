@@ -25,10 +25,15 @@ import (
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
-// Configuration flags.
+// Configuration flags
 const (
-	chainSelectorA = protocol.ChainSelector(1337)
-	chainSelectorB = protocol.ChainSelector(2337)
+	// Chain IDs for blockchain client connections
+	chainIDA = protocol.ChainSelector(1337)
+	chainIDB = protocol.ChainSelector(2337)
+
+	// Actual chain selectors used in CCIP messages
+	chainSelectorA = protocol.ChainSelector(3379446385462418246)  // Maps to chain ID 1337
+	chainSelectorB = protocol.ChainSelector(12922642891491394802) // Maps to chain ID 2337
 )
 
 func loadConfiguration(filepath string) (*verifier_config.Configuration, error) {
@@ -40,8 +45,8 @@ func loadConfiguration(filepath string) (*verifier_config.Configuration, error) 
 }
 
 func logBlockchainInfo(blockchainHelper *types.BlockchainHelper, lggr logger.Logger) {
-	for _, chainSelector := range []protocol.ChainSelector{1337, 2337} {
-		logChainInfo(blockchainHelper, chainSelector, lggr)
+	for _, chainID := range []protocol.ChainSelector{chainIDA, chainIDB} {
+		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
 
@@ -113,8 +118,8 @@ func main() {
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
-		chainClient1 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainSelectorA)
-		chainClient2 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainSelectorB)
+		chainClient1 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainIDA)
+		chainClient2 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainIDB)
 	}
 
 	// Create verifier addresses before source readers setup
@@ -143,14 +148,14 @@ func main() {
 		lggr.Errorw("No chainclient or CCVProxy1337 address", "chain", 1337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainSelectorA, lggr)
+	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainIDA, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 
 	if chainClient2 == nil || verifierConfig.CCVProxy2337 == "" {
 		lggr.Errorw("No chainclient or CCVProxy2337 address", "chain", 2337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
+	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainIDB, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration
@@ -198,7 +203,7 @@ func main() {
 	// Start the verification coordinator
 	lggr.Infow("🚀 Starting Verification Coordinator",
 		"verifierID", config.VerifierID,
-		"sourceChains", []protocol.ChainSelector{1337, 2337},
+		"sourceChains", []protocol.ChainSelector{chainSelectorA, chainSelectorB},
 		"verifierAddress", []string{verifierAddr.String(), verifierAddr2.String()},
 	)
 
@@ -211,7 +216,7 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		lggr.Infow("✅ CCV Verifier is running!\n")
 		lggr.Infow("Verifier ID: %s\n", config.VerifierID)
-		lggr.Infow("Source Chains: [1337, 2337]\n")
+		lggr.Infow("Source Chains: [%d, %d]\n", chainSelectorA, chainSelectorB)
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
