@@ -13,6 +13,7 @@ type Configuration struct {
 	PrivateKey      string                           `toml:"private_key"`
 	PollingInterval string                           `toml:"source_polling_interval"`
 	BackoffDuration string                           `toml:"source_backoff_duration"`
+	LookbackWindow  string                           `toml:"startup_lookback_window"`
 }
 
 func (c *Configuration) Validate() error {
@@ -37,6 +38,14 @@ func (c *Configuration) GetPollingInterval() time.Duration {
 	d, err := time.ParseDuration(c.PollingInterval)
 	if err != nil {
 		return 5 * time.Second
+	}
+	return d
+}
+
+func (c *Configuration) GetLookbackWindow() time.Duration {
+	d, err := time.ParseDuration(c.LookbackWindow)
+	if err != nil {
+		return 1 * time.Hour
 	}
 	return d
 }
