@@ -4,16 +4,38 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/BurntSushi/toml"
+	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	execconfig "github.com/smartcontractkit/chainlink-ccv/executor/pkg/configuration"
+	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
+var configPath = "executor_config.toml"
+
 func main() {
+	executorConfig, err := loadConfiguration(configPath)
+	if err != nil {
+		os.Exit(1)
+	}
+	if executorConfig.Validate() != nil {
+		os.Exit(1)
+	}
+
 	// Setup logging - always debug level for now
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
@@ -34,9 +56,57 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	contractTransmitters := make(map[protocol.ChainSelector]contracttransmitter.ContractTransmitter)
+	destReaders := make(map[protocol.ChainSelector]destinationreader.DestinationReader)
+	// create executor components
+	for strSel, chain := range executorConfig.BlockchainInfos {
+		selector, err := strconv.ParseUint(strSel, 10, 64)
+		if err != nil {
+			lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
+			continue
+		}
+
+		dr := destinationreader.NewEvmDestinationReaderFromChainInfo(ctx, lggr, selector, chain)
+
+		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
+			ctx,
+			lggr,
+			selector,
+			chain.Nodes[0].ExternalHTTPUrl,
+			executorConfig.PrivateKey,
+			common.HexToAddress(chain.OfframpRouter),
+		)
+		if err != nil {
+			lggr.Errorw("Failed to create contract transmitter", "error", err)
+			os.Exit(1)
+		}
+
+		destReaders[protocol.ChainSelector(selector)] = dr
+		contractTransmitters[protocol.ChainSelector(selector)] = ct
+	}
+
+	// create executor
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders)
+
+	// create dummy leader elector
+	le := leaderelector.RandomDelayLeader{}
+
+	// create ccv data reader
+	timestamp := time.Now().Unix()
+	storage, err := storageaccess.NewAggregatorReader("aggregator:50051", lggr, timestamp)
+	if err != nil {
+		lggr.Infow("Failed to create storage writer", "error", err)
+		os.Exit(1)
+	}
+
+	datastream := ccvstreamer.NewOffchainStorageStreamer(storage, executorConfig.GetPollingInterval(), executorConfig.GetBackoffDuration())
+
 	// Create executor coordinator
 	coordinator, err := executor.NewCoordinator(
 		executor.WithLogger(lggr),
+		executor.WithExecutor(ex),
+		executor.WithLeaderElector(&le),
+		executor.WithCCVResultStreamer(datastream),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)
@@ -61,4 +131,12 @@ func main() {
 	}
 
 	lggr.Infow("✅ Execution service stopped gracefully")
+}
+
+func loadConfiguration(filepath string) (*execconfig.Configuration, error) {
+	var config execconfig.Configuration
+	if _, err := toml.DecodeFile(filepath, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
 }
