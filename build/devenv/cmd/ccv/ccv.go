@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -308,7 +309,7 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
-		return ccv.SendExampleArgsV2Message(in, src, dest)
+		return ccv.SendExampleArgsV3Message(in, src, dest, 1, []byte{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
 	},
 }
 
