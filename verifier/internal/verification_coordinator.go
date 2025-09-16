@@ -504,14 +504,7 @@ func (vc *VerificationCoordinator) isMessageReadyForVerification(
 	}
 
 	// Parse extra args to get finality configuration
-	finalityConfig, err := vc.extractFinalityConfig(task)
-	if err != nil {
-		vc.lggr.Debugw("Failed to extract finality config, using default finality",
-			"messageID", messageID,
-			"error", err)
-		// Use default finality (wait for chain finalization)
-		finalityConfig = 0
-	}
+	finalityConfig := task.Message.Finality
 
 	messageBlockNumber := new(big.Int).SetUint64(task.BlockNumber)
 
@@ -541,25 +534,4 @@ func (vc *VerificationCoordinator) isMessageReadyForVerification(
 		}
 	}
 	return ready, nil
-}
-
-// extractFinalityConfig extracts the finality configuration from message extra args.
-func (vc *VerificationCoordinator) extractFinalityConfig(task types.VerificationTask) (uint32, error) {
-	// Look for extra args in receipt blobs to extract finality configuration
-	if len(task.ReceiptBlobs) == 0 {
-		return 0, fmt.Errorf("no receipt blobs available")
-	}
-
-	extraArgs := task.ReceiptBlobs[0].ExtraArgs
-	if len(extraArgs) == 0 {
-		return 0, nil // Default finality
-	}
-
-	// Try to parse as EVMExtraArgsV3
-	var evmExtraArgs protocol.EVMExtraArgsV3
-	if err := evmExtraArgs.FromBytes(extraArgs); err != nil {
-		return 0, fmt.Errorf("failed to parse EVMExtraArgsV3: %w", err)
-	}
-
-	return evmExtraArgs.FinalityConfig, nil
 }
