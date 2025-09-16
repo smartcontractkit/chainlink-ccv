@@ -3,6 +3,8 @@ package ccvstreamer
 import (
 	"context"
 	"errors"
+	"fmt"
+	mapset "github.com/deckarep/golang-set/v2"
 	"sync"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	storageaccess "github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -17,21 +20,26 @@ import (
 var _ executor.CCVResultStreamer = &IndexerStorageStreamer{}
 
 func NewIndexerStorageStreamer(
-	reader protocol.IndexerStorageReader, pollingInterval, backoff time.Duration,
+	indexerURI string, lggr logger.Logger, lastQueryTime int64, pollingInterval, backoff time.Duration,
 ) *IndexerStorageStreamer {
+	client := storageaccess.NewIndexerAPIReader(lggr, indexerURI)
+
 	return &IndexerStorageStreamer{
-		reader:          reader,
+		reader:          client,
+		lastQueryTime:   lastQueryTime,
 		pollingInterval: pollingInterval,
 		backoff:         backoff,
 	}
 }
 
 type IndexerStorageStreamer struct {
-	reader          protocol.IndexerStorageReader
+	reader          *storageaccess.IndexerAPIReader
+	lastQueryTime   int64
 	pollingInterval time.Duration
 	backoff         time.Duration
 	mu              sync.RWMutex
 	running         bool
+	querymu         sync.RWMutex
 }
 
 func (oss *IndexerStorageStreamer) IsRunning() bool {
@@ -40,13 +48,12 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 	return oss.running
 }
 
-// Start implements the CCVResultStreamer interface using an OffchainStorageReader.
+// Start implements the CCVResultStreamer interface.
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
 	lggr logger.Logger,
 	wg *sync.WaitGroup,
 ) (<-chan executor.StreamerResult, error) {
-	// TODO: validate the reader?
 	if oss.reader == nil {
 		return nil, errors.New("reader not set")
 	}
@@ -71,34 +78,47 @@ func (oss *IndexerStorageStreamer) Start(
 				// Context canceled, stop loop.
 				return
 			default:
+
+				// reset the last query time for new reads
+				newtime := time.Now().Unix()
+
 				msgs := make([]types.MessageWithCCVData, 0)
 				// Non-blocking: call ReadCCVData
-				responses, err := oss.reader.QueryCCVData(ctx, 0, 0, nil, nil, 0, 0)
+				lggr.Infow("IndexerStorageStreamer reading ccv data", "lastQueryTime", oss.lastQueryTime)
 
-				for id, msg := range responses {
-					// TODO: convert QueryResponse to MessageWithCCVData
-					if len(msg) < 1 {
-						lggr.Errorw("invalid message from reader", "messageID", id, "msg", msg)
+				responses, err := oss.reader.ReadVerifierResults(ctx, storageaccess.VerifierResultsRequest{
+					Limit:                0,
+					Offset:               0,
+					Start:                oss.lastQueryTime,
+					End:                  0,
+					SourceChainSelectors: nil,
+					DestChainSelectors:   nil,
+				})
+
+				for id, verifierResults := range responses {
+					if len(verifierResults) < 1 {
+						lggr.Errorw("invalid message from reader", "messageID", id, "verifierResults", verifierResults)
 						continue
 					}
 
-					lggr.Infow("received message", "messageID", id, "ccvData", msg)
+					if err := validateVerifierResults(verifierResults); err != nil {
+						lggr.Errorw("invalid verifier results from reader", "messageID", id, "error", err)
+						continue
+					}
+
+					lggr.Infow("received message", "messageID", id, "ccvData", verifierResults)
 					msgs = append(msgs, types.MessageWithCCVData{
-						Message:           msg[0].Message,
-						CCVData:           msg,
-						VerifiedTimestamp: msg[0].Timestamp,
+						Message:           verifierResults[0].Message,
+						CCVData:           verifierResults,
+						VerifiedTimestamp: verifierResults[0].Timestamp,
 					})
-					lggr.Infow("new messages is ", "msgs", msgs)
 				}
-				lggr.Infow("after looping, messages are ", "msgs", msgs)
 
 				result := executor.StreamerResult{
 					Messages: msgs,
 					Error:    err,
 				}
 
-				lggr.Infow("IndexerStorageStreamer read", "count", len(msgs), "error", err)
-				lggr.Infow("IndexerStorageStreamer writing ", "result", result)
 				select {
 				case <-ctx.Done():
 					return
@@ -125,9 +145,33 @@ func (oss *IndexerStorageStreamer) Start(
 					case <-time.After(delay):
 					}
 				}
+
+				oss.querymu.Lock()
+				oss.lastQueryTime = newtime
+				oss.querymu.Unlock()
 			}
 		}
 	}()
 
 	return messagesCh, nil
+}
+
+func validateVerifierResults(results []protocol.CCVData) error {
+	messageIds := mapset.NewSet[protocol.Bytes32]()
+	genMessageIds := mapset.NewSet[protocol.Bytes32]()
+	for _, res := range results {
+		messageIds.Add(res.MessageID)
+		genId, err := res.Message.MessageID()
+		if err != nil {
+			return fmt.Errorf("invalid generated messageId")
+		}
+		genMessageIds.Add(genId)
+	}
+	if messageIds.Cardinality() != 1 {
+		return fmt.Errorf("verifier results contain multiple message IDs")
+	}
+	if genMessageIds.Cardinality() != 1 {
+		return fmt.Errorf("verifier results contain multiple generated message IDs")
+	}
+	return nil
 }

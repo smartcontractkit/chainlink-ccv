@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
@@ -92,21 +91,28 @@ func main() {
 	le := leaderelector.RandomDelayLeader{}
 
 	// create ccv data reader
-	timestamp := time.Now().Unix()
-	storage, err := storageaccess.NewAggregatorReader("aggregator:50051", lggr, timestamp)
-	if err != nil {
-		lggr.Infow("Failed to create storage writer", "error", err)
-		os.Exit(1)
-	}
+	//timestamp := time.Now().Unix()
+	//storage, err := storageaccess.NewAggregatorReader("aggregator:50051", lggr, timestamp)
+	//if err != nil {
+	//	lggr.Infow("Failed to create storage writer", "error", err)
+	//	os.Exit(1)
+	//}
+	//
+	//datastream := ccvstreamer.NewOffchainStorageStreamer(storage, executorConfig.GetPollingInterval(), executorConfig.GetBackoffDuration())
 
-	datastream := ccvstreamer.NewOffchainStorageStreamer(storage, executorConfig.GetPollingInterval(), executorConfig.GetBackoffDuration())
+	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
+		executorConfig.IndexerAddress,
+		lggr,
+		time.Now().Add(-1*executorConfig.GetLookbackWindow()).Unix(),
+		executorConfig.GetPollingInterval(),
+		executorConfig.GetBackoffDuration())
 
 	// Create executor coordinator
 	coordinator, err := executor.NewCoordinator(
 		executor.WithLogger(lggr),
 		executor.WithExecutor(ex),
 		executor.WithLeaderElector(&le),
-		executor.WithCCVResultStreamer(datastream),
+		executor.WithCCVResultStreamer(indexerStream),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)
