@@ -167,7 +167,6 @@ func (ec *Coordinator) run(ctx context.Context) {
 
 				// get message delay from leader elector
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
-				ec.lggr.Infow("waiting before processing message", "readyTimestamp", readyTimestamp, "messageID", id)
 
 				heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
 					Payload:   &msg,

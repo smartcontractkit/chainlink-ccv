@@ -11,6 +11,7 @@ ccv_proxy_2337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
     Type = "anvil"
     Family = "evm"
     ContainerName = "blockchain-src"
+    OfframpRouter = ""
 
     [[blockchain_infos.1337.Nodes]]
       ExternalHTTPUrl = "http://127.0.0.1:8545"
@@ -22,6 +23,7 @@ ccv_proxy_2337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
     Type = "anvil"
     Family = "evm"
     ContainerName = "blockchain-dst"
+    OfframpRouter = ""
 
     [[blockchain_infos.2337.Nodes]]
       ExternalHTTPUrl = "http://127.0.0.1:8555"
