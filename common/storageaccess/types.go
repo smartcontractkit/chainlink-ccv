@@ -18,7 +18,7 @@ type VerifierResultsRequest struct {
 	End                  int64                 `form:"end"`
 	SourceChainSelectors []types.ChainSelector // Excluded from form due to gin parsing
 	DestChainSelectors   []types.ChainSelector // Excluded from form due to gin parsing
-}
+} //nolint:govet
 
 type VerifierResultsResponse struct {
 	CCVData map[string][]types.CCVData `json:"ccvData"`
