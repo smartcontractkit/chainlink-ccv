@@ -16,6 +16,7 @@ import (
 type Verifier struct {
 	signer pkg.MessageSigner
 	lggr   logger.Logger
+	// TODO: Use a separate config
 	config types.CoordinatorConfig
 }
 

@@ -365,25 +365,23 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 			"blobLength", len(blob))
 	}
 
-	if len(event.ExecutorReceipt.Issuer) == 0 {
+	if event.ExecutorReceipt.Issuer == (common.Address{}) {
 		r.logger.Errorw("❌ Empty or missing executor receipt")
 		return
 	}
 	// Add executor receipt if available
-	if len(event.ExecutorReceipt.Issuer) > 0 {
-		issuerAddr, _ := protocol.NewUnknownAddressFromHex(event.ExecutorReceipt.Issuer.Hex())
-		executorReceipt := protocol.ReceiptWithBlob{
-			Issuer:            issuerAddr,
-			DestGasLimit:      event.ExecutorReceipt.DestGasLimit,
-			DestBytesOverhead: event.ExecutorReceipt.DestBytesOverhead,
-			Blob:              []byte{},
-			ExtraArgs:         event.ExecutorReceipt.ExtraArgs,
-		}
-		receiptBlobs = append(receiptBlobs, executorReceipt)
-
-		r.logger.Infow("📋 Processed executor receipt",
-			"issuer", event.ExecutorReceipt.Issuer.Hex())
+	issuerAddr, _ := protocol.NewUnknownAddressFromHex(event.ExecutorReceipt.Issuer.Hex())
+	executorReceipt := protocol.ReceiptWithBlob{
+		Issuer:            issuerAddr,
+		DestGasLimit:      event.ExecutorReceipt.DestGasLimit,
+		DestBytesOverhead: event.ExecutorReceipt.DestBytesOverhead,
+		Blob:              []byte{},
+		ExtraArgs:         event.ExecutorReceipt.ExtraArgs,
 	}
+	receiptBlobs = append(receiptBlobs, executorReceipt)
+
+	r.logger.Infow("📋 Processed executor receipt",
+		"issuer", event.ExecutorReceipt.Issuer.Hex())
 
 	// Create verification task
 	task := verifiertypes.VerificationTask{
