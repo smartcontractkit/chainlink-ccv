@@ -40,12 +40,7 @@ func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReade
 
 func (i *IndexerAPIReader) ReadVerifierResults(
 	ctx context.Context,
-	startUnix int64,
-	endUnix int64,
-	sourceChainSelectors []types.ChainSelector,
-	destChainSelectors []types.ChainSelector,
-	limit uint64,
-	offset uint64,
+	queryData VerifierResultsRequest,
 ) (map[string][]types.CCVData, error) {
 	// Build the URL with query parameters
 	baseURL := strings.TrimSuffix(i.indexerURI, "/")
@@ -61,32 +56,38 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 	params := url.Values{}
 
 	// Add timestamps
-	params.Add("start", strconv.FormatInt(startUnix, 10))
-	params.Add("end", strconv.FormatInt(endUnix, 10))
+	if queryData.Start != 0 {
+		params.Add("start", strconv.FormatInt(queryData.Start, 10))
+	}
+	if queryData.End != 0 {
+		params.Add("end", strconv.FormatInt(queryData.End, 10))
+	}
+
+	if queryData.Limit != 0 {
+		params.Add("limit", strconv.FormatUint(queryData.Limit, 10))
+	}
+
+	if queryData.Offset != 0 {
+		params.Add("offset", strconv.FormatUint(queryData.Offset, 10))
+	}
 
 	// Add source chain selectors (comma-separated)
-	if len(sourceChainSelectors) > 0 {
+	if len(queryData.SourceChainSelectors) > 0 {
 		var sourceSelectors []string
-		for _, selector := range sourceChainSelectors {
+		for _, selector := range queryData.SourceChainSelectors {
 			sourceSelectors = append(sourceSelectors, strconv.FormatUint(uint64(selector), 10))
 		}
 		params.Add("sourceChainSelectors", strings.Join(sourceSelectors, ","))
 	}
 
 	// Add destination chain selectors (comma-separated)
-	if len(destChainSelectors) > 0 {
+	if len(queryData.DestChainSelectors) > 0 {
 		var destSelectors []string
-		for _, selector := range destChainSelectors {
+		for _, selector := range queryData.DestChainSelectors {
 			destSelectors = append(destSelectors, strconv.FormatUint(uint64(selector), 10))
 		}
 		params.Add("destChainSelectors", strings.Join(destSelectors, ","))
 	}
-
-	// Add limit (default: 100)
-	params.Add("limit", strconv.FormatUint(limit, 10))
-
-	// Add offset (default: 0)
-	params.Add("offset", strconv.FormatUint(offset, 10))
 
 	u.RawQuery = params.Encode()
 
