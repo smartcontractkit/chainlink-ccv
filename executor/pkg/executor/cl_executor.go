@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
@@ -93,11 +94,11 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverD
 
 	mappedCcvData := make(map[string][]byte)
 	for _, datum := range ccvData {
-		mappedCcvData[datum.DestVerifierAddress.String()] = datum.CCVData
+		mappedCcvData[strings.ToLower(datum.DestVerifierAddress.String())] = datum.CCVData
 	}
 
 	for _, ccvAddress := range receiverDefinedCcvs.RequiredCcvs {
-		strAddr := ccvAddress.String()
+		strAddr := strings.ToLower(string(ccvAddress))
 		if _, ok := mappedCcvData[strAddr]; !ok {
 			return nil, nil, fmt.Errorf("required CCV Offramp %s did not have an attestation", strAddr)
 		}
