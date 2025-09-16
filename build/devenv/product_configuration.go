@@ -527,30 +527,30 @@ func writeCCVProxyAddressesToConfig(in *Cfg) error {
 	}
 
 	// Find CCVProxy addresses for chains 1337 and 2337
-	ccvProxyAddresses := make(map[string]string)
+	verifierOnRampAddresses := make(map[string]string)
 
 	for _, addrRefs := range addresses {
 		for _, ref := range addrRefs {
-			if ref.Type == "CCVProxy" {
+			if ref.Type == "CommitOnRamp" {
 				chainKey := fmt.Sprintf("%d", ref.ChainSelector)
-				ccvProxyAddresses[chainKey] = ref.Address
+				verifierOnRampAddresses[chainKey] = ref.Address
 				Plog.Info().
 					Uint64("chainSelector", ref.ChainSelector).
 					Str("address", ref.Address).
-					Msg("Found CCVProxy address from CLDF")
+					Msg("Found CommitOnRamp address from CLDF")
 			}
 		}
 	}
 
-	if len(ccvProxyAddresses) == 0 {
-		return fmt.Errorf("no CCVProxy addresses found in CLDF deployment")
+	if len(verifierOnRampAddresses) == 0 {
+		return fmt.Errorf("no CommitOnRamp addresses found in CLDF deployment")
 	}
 
-	in.Verifier.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
-	in.Verifier.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
+	in.Verifier.VerifierConfig.VerifierOnRamp1337 = verifierOnRampAddresses["3379446385462418246"]
+	in.Verifier.VerifierConfig.VerifierOnRamp2337 = verifierOnRampAddresses["12922642891491394802"]
 
-	in.Verifier2.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
-	in.Verifier2.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
+	in.Verifier2.VerifierConfig.VerifierOnRamp1337 = verifierOnRampAddresses["3379446385462418246"]
+	in.Verifier2.VerifierConfig.VerifierOnRamp2337 = verifierOnRampAddresses["12922642891491394802"]
 
 	return nil
 }

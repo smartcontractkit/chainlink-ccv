@@ -17,10 +17,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/verifier_config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
@@ -36,8 +36,8 @@ const (
 	chainSelectorB = protocol.ChainSelector(12922642891491394802) // Maps to chain ID 2337
 )
 
-func loadConfiguration(filepath string) (*verifier_config.Configuration, error) {
-	var config verifier_config.Configuration
+func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
+	var config commontypes.VerifierConfig
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}
@@ -123,13 +123,13 @@ func main() {
 	}
 
 	// Create verifier addresses before source readers setup
-	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy1337)
+	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp1337)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
 	}
 
-	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy2337)
+	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp2337)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
@@ -144,18 +144,18 @@ func main() {
 	sourceReaders := make(map[protocol.ChainSelector]reader.SourceReader)
 
 	// Try to create blockchain source readers if possible
-	if chainClient1 == nil || verifierConfig.CCVProxy1337 == "" {
-		lggr.Errorw("No chainclient or CCVProxy1337 address", "chain", 1337)
+	if chainClient1 == nil || verifierConfig.VerifierOnRamp1337 == "" {
+		lggr.Errorw("No chainclient or VerifierOnRamp1337 address", "chain", 1337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainIDA, lggr)
+	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.VerifierOnRamp1337, chainIDA, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 
-	if chainClient2 == nil || verifierConfig.CCVProxy2337 == "" {
-		lggr.Errorw("No chainclient or CCVProxy2337 address", "chain", 2337)
+	if chainClient2 == nil || verifierConfig.VerifierOnRamp2337 == "" {
+		lggr.Errorw("No chainclient or VerifierOnRamp2337 address", "chain", 2337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainIDB, lggr)
+	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.VerifierOnRamp2337, chainIDB, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration
@@ -182,7 +182,7 @@ func main() {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		os.Exit(1)
 	}
-	lggr.Infow("Using verifier address", "address", signer.GetSignerAddress().String())
+	lggr.Infow("Using signer address", "address", signer.GetSignerAddress().String())
 
 	// Create commit verifier
 	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
