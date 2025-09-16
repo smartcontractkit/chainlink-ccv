@@ -38,9 +38,7 @@ func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReade
 	}
 }
 
-// Reads all CCVData that matches the provided query parameters. Returns a map of messageID to an array of all known CCVData for that messageID.
-// Does not provide a guarantee that the returned CCVData is enough to be executed.
-func (i *IndexerAPIReader) ReadCCVData(
+func (i *IndexerAPIReader) ReadVerifierResults(
 	ctx context.Context,
 	startUnix int64,
 	endUnix int64,
