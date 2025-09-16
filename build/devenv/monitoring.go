@@ -73,11 +73,11 @@ func MonitorOnChainLogs(in *Cfg) error {
 		if l.ChainID == 1337 && l.Name == "CCIPMessageSent" {
 			if payload, ok := any(l.UnpackedData).(ccvProxy.CCVProxyCCIPMessageSent); ok {
 				Plog.Info().
-					Str("MsgID", fmt.Sprintf("%x", payload.Message.Header.MessageId)).
+					Str("MsgID", fmt.Sprintf("%x", payload.MessageId)).
 					Uint64("BlockTimestamp", l.BlockTimestamp).
 					Msg("Received CCIPMessageSent log")
 				msgSentTotal.Inc()
-				logTimeByMsgID[payload.Message.Header.MessageId] = l.BlockTimestamp
+				logTimeByMsgID[payload.MessageId] = l.BlockTimestamp
 			}
 		}
 	}

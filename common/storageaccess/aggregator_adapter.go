@@ -61,7 +61,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData types.CCVData) (*aggregator.WriteCommi
 				Version:              uint32(ccvData.Message.Version),
 				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
 				DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
-				SequenceNumber:       uint64(ccvData.Message.SequenceNumber),
+				Nonce:                uint64(ccvData.Message.Nonce),
 				OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
 				OnRampAddress:        ccvData.Message.OnRampAddress[:],
 				OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
@@ -172,7 +172,7 @@ func mapMessage(msg *aggregator.Message) (types.Message, error) {
 	result := types.Message{
 		SourceChainSelector: types.ChainSelector(msg.SourceChainSelector),
 		DestChainSelector:   types.ChainSelector(msg.DestChainSelector),
-		SequenceNumber:      types.SeqNum(msg.SequenceNumber),
+		Nonce:               types.Nonce(msg.Nonce),
 		OnRampAddress:       msg.OnRampAddress[:],
 		OffRampAddress:      msg.OffRampAddress[:],
 		Sender:              msg.Sender[:],
@@ -257,7 +257,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 				CCVData:               result.CcvData,
 				// BlobData & ReceiptBlobs need to be added
 				Message:             msg,
-				SequenceNumber:      msg.SequenceNumber,
+				Nonce:               msg.Nonce,
 				SourceChainSelector: msg.SourceChainSelector,
 				DestChainSelector:   msg.DestChainSelector,
 				Timestamp:           result.Timestamp,

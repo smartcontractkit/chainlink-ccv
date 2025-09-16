@@ -265,16 +265,16 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 
 	// Parse indexed topics
 	var destChainSelector uint64
-	var sequenceNumber uint64
+	var nonce uint64
 
 	if len(log.Topics) >= 3 {
 		destChainSelector = binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
-		sequenceNumber = binary.BigEndian.Uint64(log.Topics[2][24:])    // Last 8 bytes
+		nonce = binary.BigEndian.Uint64(log.Topics[2][24:])             // Last 8 bytes
 
 		r.logger.Infow("📊 Event details",
 			"sourceChainSelector", r.chainSelector,
 			"destChainSelector", destChainSelector,
-			"sequenceNumber", sequenceNumber)
+			"nonce", nonce)
 	}
 
 	// Parse the event data using the ABI
@@ -294,7 +294,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		"messageId", common.Bytes2Hex(event.Message.Header.MessageId[:]),
 		"sourceChainSelector", event.Message.Header.SourceChainSelector,
 		"destChainSelector", event.Message.Header.DestChainSelector,
-		"sequenceNumber", event.Message.Header.SequenceNumber)
+		"nonce", event.Message.Header.SequenceNumber)
 
 	r.logger.Infow("📋 Parsed event data - Message Body",
 		"sender", event.Message.Sender.Hex(),
@@ -400,7 +400,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 	message, err := protocol.NewMessage(
 		r.chainSelector,
 		protocol.ChainSelector(destChainSelector),
-		protocol.SeqNum(sequenceNumber),
+		protocol.Nonce(nonce),
 		onRampAddr,
 		offRampAddr,
 		0, // finality - would need to calculate this
@@ -549,11 +549,11 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		r.logger.Infow("✅ Verification task sent to channel",
 			"sourceChain", r.chainSelector,
 			"destChain", destChainSelector,
-			"sequenceNumber", sequenceNumber,
+			"nonce", nonce,
 			"receiptsCount", len(receiptBlobs))
 	default:
 		r.logger.Warnw("⚠️ Verification task channel full, dropping event",
 			"sourceChain", r.chainSelector,
-			"sequenceNumber", sequenceNumber)
+			"nonce", nonce)
 	}
 }

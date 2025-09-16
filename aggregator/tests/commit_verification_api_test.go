@@ -171,7 +171,7 @@ func assertCCVDataFound(t *testing.T, ccvDataClient aggregator.CCVDataClient, me
 	require.Equal(t, message.Receiver, respCcvData.GetMessage().GetReceiver())
 	require.Equal(t, message.SenderLength, respCcvData.GetMessage().GetSenderLength())
 	require.Equal(t, message.Sender, respCcvData.GetMessage().GetSender())
-	require.Equal(t, message.SequenceNumber, respCcvData.GetMessage().GetSequenceNumber())
+	require.Equal(t, message.Nonce, respCcvData.GetMessage().GetNonce())
 	require.Equal(t, message.SourceChainSelector, respCcvData.GetMessage().GetSourceChainSelector())
 	require.Equal(t, message.DestChainSelector, respCcvData.GetMessage().GetDestChainSelector())
 	require.Equal(t, message.TokenTransferLength, respCcvData.GetMessage().GetTokenTransferLength())

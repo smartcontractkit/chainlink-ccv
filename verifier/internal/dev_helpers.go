@@ -69,7 +69,7 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 					}
 					lggr.Infow("Generated mock verification task",
 						"messageID", messageID,
-						"sequenceNumber", task.Message.SequenceNumber,
+						"nonce", task.Message.Nonce,
 						"sourceChain", task.Message.SourceChainSelector,
 						"destChain", task.Message.DestChainSelector,
 					)
@@ -104,7 +104,7 @@ func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelec
 	message, _ := protocol.NewMessage(
 		chainSelector,
 		destChain,
-		protocol.SeqNum(counter),
+		protocol.Nonce(counter),
 		onRampAddr,
 		offRampAddr,
 		0, // finality
