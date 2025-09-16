@@ -35,17 +35,17 @@ func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) 
 	return qc, exists
 }
 
-func FindSignersFromSelectorAndOfframp(committees map[string]*Committee, chainSelector uint64, offrampAddress []byte) []Signer {
+func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[string]*Committee, chainSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
 	for _, committee := range committees {
 		quorumConfig, exists := committee.GetQuorumConfig(chainSelector)
 		if !exists {
 			continue
 		}
 
-		if !bytes.Equal(quorumConfig.GetOfframpAddressBytes(), offrampAddress) {
+		if !bytes.Equal(quorumConfig.GetOnrampAddressBytes(), sourceVerifierAddress) {
 			continue
 		}
-		return quorumConfig.Signers
+		return quorumConfig
 	}
 	return nil
 }
@@ -53,6 +53,7 @@ func FindSignersFromSelectorAndOfframp(committees map[string]*Committee, chainSe
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
 	OfframpAddress string   `toml:"offrampAddress"`
+	OnrampAddress  string   `toml:"onrampAddress"`
 	Signers        []Signer `toml:"signers"`
 	Threshold      uint8    `toml:"threshold"`
 }
@@ -72,6 +73,13 @@ func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {
 
 func (q *QuorumConfig) GetOfframpAddressBytes() []byte {
 	return common.HexToAddress(q.OfframpAddress).Bytes()
+}
+
+func (q *QuorumConfig) GetOnrampAddressBytes() []byte {
+	rawAddress := q.OnrampAddress
+	address := common.HexToAddress(rawAddress)
+	byteAddress := address.Bytes()
+	return byteAddress
 }
 
 // StorageConfig represents the configuration for the storage backend.

@@ -16,6 +16,7 @@ import (
 type Verifier struct {
 	signer pkg.MessageSigner
 	lggr   logger.Logger
+	// TODO: Use a separate config
 	config types.CoordinatorConfig
 }
 
@@ -80,7 +81,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 		return
 	}
 
-	cv.lggr.Debugw("Message validation passed",
+	cv.lggr.Infow("Message validation passed",
 		"messageID", messageID,
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
 	)
