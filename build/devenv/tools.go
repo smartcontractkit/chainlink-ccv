@@ -574,7 +574,7 @@ func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte,
 	}
 	encodedArgs := encoded[4:]
 
-	tag := ccvTypes.EVMExtraArgsV3Tag
+	tag := []byte{0x30, 0x23, 0x26, 0xcb} // GENERIC_EXTRA_ARGS_V3_TAG
 	tag = append(tag, encodedArgs...)
 	return tag, nil
 }
