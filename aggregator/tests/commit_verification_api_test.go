@@ -157,7 +157,14 @@ func assertCCVDataNotFound(t *testing.T, ccvDataClient aggregator.CCVDataClient,
 	require.Nil(t, respCcvData, "expected nil response")
 }
 
-func assertCCVDataFound(t *testing.T, ccvDataClient aggregator.CCVDataClient, messageId types.Bytes32, message *aggregator.Message, sourceVerifierAddress []byte, destVerifierAddress []byte) {
+func assertCCVDataFound(
+	t *testing.T,
+	ccvDataClient aggregator.CCVDataClient,
+	messageId types.Bytes32,
+	message *aggregator.Message,
+	sourceVerifierAddress []byte,
+	destVerifierAddress []byte,
+) {
 	// Wait a moment for the aggregation to process
 	time.Sleep(50 * time.Millisecond)
 	respCcvData, err := ccvDataClient.GetCCVDataForMessage(t.Context(), &aggregator.GetCCVDataForMessageRequest{

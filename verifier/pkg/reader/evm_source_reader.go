@@ -266,18 +266,18 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 	// Parse indexed topics
 	var destChainSelector uint64
 	var nonce uint64
-	var messageId [32]byte
+	var messageID [32]byte
 
 	if len(log.Topics) >= 4 {
 		destChainSelector = binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
 		nonce = binary.BigEndian.Uint64(log.Topics[2][24:])             // Last 8 bytes
-		copy(messageId[:], log.Topics[3][:])                            // Full 32 bytes
+		copy(messageID[:], log.Topics[3][:])                            // Full 32 bytes
 
 		r.logger.Infow("📊 Event details",
 			"sourceChainSelector", r.chainSelector,
 			"destChainSelector", destChainSelector,
 			"nonce", nonce,
-			"messageId", common.Bytes2Hex(messageId[:]))
+			"messageId", common.Bytes2Hex(messageID[:]))
 	}
 
 	// Parse the event data using the ABI

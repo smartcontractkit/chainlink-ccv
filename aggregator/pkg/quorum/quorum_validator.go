@@ -186,11 +186,6 @@ func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Addres
 func (q *EVMQuorumValidator) getQuorumConfig(chainSelector types.ChainSelector, sourceVerifierAddress []byte) (*model.QuorumConfig, error) {
 	for _, committee := range q.Committees {
 		if config, exists := committee.GetQuorumConfig(uint64(chainSelector)); exists {
-			configBytes := config.GetOnrampAddressBytes()
-			fmt.Printf("Config bytes: %x (len=%d)\n", configBytes, len(configBytes))
-			fmt.Printf("Source bytes: %x (len=%d)\n", sourceVerifierAddress, len(sourceVerifierAddress))
-			fmt.Printf("Equal: %t\n", bytes.Equal(configBytes, sourceVerifierAddress))
-
 			if bytes.Equal(config.GetOnrampAddressBytes(), sourceVerifierAddress) {
 				return config, nil
 			}

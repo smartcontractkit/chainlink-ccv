@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )

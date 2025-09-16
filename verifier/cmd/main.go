@@ -12,7 +12,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
@@ -25,13 +24,13 @@ import (
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
-// Configuration flags
+// Configuration flags.
 const (
-	// Chain IDs for blockchain client connections
+	// Chain IDs for blockchain client connections.
 	chainIDA = protocol.ChainSelector(1337)
 	chainIDB = protocol.ChainSelector(2337)
 
-	// Actual chain selectors used in CCIP messages
+	// Actual chain selectors used in CCIP messages.
 	chainSelectorA = protocol.ChainSelector(3379446385462418246)  // Maps to chain ID 1337
 	chainSelectorB = protocol.ChainSelector(12922642891491394802) // Maps to chain ID 2337
 )
@@ -44,13 +43,13 @@ func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
 	return &config, nil
 }
 
-func logBlockchainInfo(blockchainHelper *types.BlockchainHelper, lggr logger.Logger) {
+func logBlockchainInfo(blockchainHelper *commontypes.BlockchainHelper, lggr logger.Logger) {
 	for _, chainID := range []protocol.ChainSelector{chainIDA, chainIDB} {
 		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *types.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo(blockchainHelper *commontypes.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
 	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
 		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
 	}
@@ -108,13 +107,13 @@ func main() {
 	}
 
 	// Use actual blockchain information from configuration
-	var blockchainHelper *types.BlockchainHelper
+	var blockchainHelper *commontypes.BlockchainHelper
 	var chainClient1 client.Client
 	var chainClient2 client.Client
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
-		blockchainHelper = types.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		blockchainHelper = commontypes.NewBlockchainHelper(verifierConfig.BlockchainInfos)
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)

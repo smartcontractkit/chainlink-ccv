@@ -33,14 +33,14 @@ func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregat
 
 // TestCaseBuilder helps build test cases using option pattern.
 type TestCaseBuilder struct {
-	signerFixtures        []*fixtures.SignerFixture
 	committeeID           string
-	verifications         []string // participant IDs that signed
+	signerFixtures        []*fixtures.SignerFixture
+	verifications         []string
+	sourceVerifierAddress []byte
+	destVerifierAddress   []byte
 	threshold             uint8
 	expectedValid         bool
 	expectedError         bool
-	sourceVerifierAddress []byte
-	destVerifierAddress   []byte
 }
 
 // TestCaseOption defines an option for configuring test cases.
