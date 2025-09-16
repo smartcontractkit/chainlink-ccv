@@ -109,9 +109,9 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
 
-	contractCcvs := make([]common.Address, len(report.CCVS))
+	contractCcvs := make([]common.Address, 0)
 	for _, ccv := range report.CCVS {
-		contractCcvs = append(contractCcvs, common.Address(ccv))
+		contractCcvs = append(contractCcvs, common.HexToAddress(string(ccv)))
 	}
 
 	opts, err := ct.GetTransactOpts()
@@ -120,7 +120,6 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	}
 
 	encodedMsg, _ := report.Message.Encode()
-
 	tx, err := ct.CcvAggregator.Execute(opts, encodedMsg, contractCcvs, report.CCVData)
 	if err != nil {
 		return err
