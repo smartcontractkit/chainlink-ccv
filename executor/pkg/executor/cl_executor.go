@@ -51,8 +51,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	destinationChain := messageWithCCVData.Message.DestChainSelector
 	messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 		ctx,
-		messageWithCCVData.Message.SourceChainSelector,
-		messageWithCCVData.Message.Nonce,
+		messageWithCCVData.Message,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to check if message is executed: %w", err)

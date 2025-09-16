@@ -75,11 +75,13 @@ func (oss *OffchainStorageStreamer) Start(
 				responses, err := oss.reader.ReadCCVData(ctx)
 
 				msgs := make([]types.MessageWithCCVData, len(responses))
-				for i, msg := range responses {
+				for _, msg := range responses {
 					// TODO: convert QueryResponse to MessageWithCCVData
-					var msg2 types.MessageWithCCVData
 					lggr.Infow("received message", "messageID", msg.Data.MessageID.String())
-					msgs[i] = msg2
+					msgs = append(msgs, types.MessageWithCCVData{
+						Message:           msg.Data.Message,
+						VerifiedTimestamp: *msg.Timestamp,
+					})
 				}
 
 				result := executor.StreamerResult{
@@ -87,6 +89,8 @@ func (oss *OffchainStorageStreamer) Start(
 					Error:    err,
 				}
 
+				lggr.Infow("OffchainStorageStreamer read", "count", len(msgs), "error", err)
+				lggr.Infow("OffchainStorageStreamer writing ", "result", result)
 				select {
 				case <-ctx.Done():
 					return
