@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestNewInMemoryStorage(t *testing.T) {
