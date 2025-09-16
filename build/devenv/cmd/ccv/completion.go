@@ -47,9 +47,11 @@ func getSubCommands(parent string) []prompt.Suggest {
 		}
 	case "bs":
 		return []prompt.Suggest{
-			{Text: "up", Description: "Spin up Blockscout"},
+			{Text: "up", Description: "Spin up Blockscout and listen to src chain (8545)"},
+			{Text: "up -u http://host.docker.internal:8555", Description: "Spin up Blockscout and listen to dst chain (8555)"},
 			{Text: "down", Description: "Spin down Blockscout"},
 			{Text: "restart", Description: "Restart Blockscout"},
+			{Text: "restart -u http://host.docker.internal:8555", Description: "Restart Blockscout and listen to dst chain (8555)"},
 		}
 	case "obs":
 		return []prompt.Suggest{

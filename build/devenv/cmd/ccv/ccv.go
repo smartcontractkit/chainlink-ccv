@@ -340,9 +340,9 @@ var monitorContractsCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringP("blockscout_url", "u", "http://host.docker.internal:8545", "EVM RPC node URL")
 
 	// Blockscout, on-chain debug
+	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8545", "EVM RPC node URL")
 	bsCmd.AddCommand(bsUpCmd)
 	bsCmd.AddCommand(bsDownCmd)
 	bsCmd.AddCommand(bsRestartCmd)
