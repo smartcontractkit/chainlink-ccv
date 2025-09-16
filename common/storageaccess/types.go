@@ -11,14 +11,14 @@ type IndexerAPI interface {
 	ReadVerifierResults(ctx context.Context, queryData VerifierResultsRequest) (map[string][]types.CCVData, error)
 }
 
-type VerifierResultsRequest struct {
+type VerifierResultsRequest struct { //nolint:govet
 	Limit                uint64                `form:"limit"`
 	Offset               uint64                `form:"offset"`
 	Start                int64                 `form:"start"`
 	End                  int64                 `form:"end"`
 	SourceChainSelectors []types.ChainSelector // Excluded from form due to gin parsing
 	DestChainSelectors   []types.ChainSelector // Excluded from form due to gin parsing
-} //nolint:govet
+}
 
 type VerifierResultsResponse struct {
 	CCVData map[string][]types.CCVData `json:"ccvData"`
