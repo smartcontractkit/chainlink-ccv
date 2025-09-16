@@ -3,24 +3,24 @@ package destinationreader
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	mockReceiver "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_receiver_v2"
+	mockreceiver "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_receiver_v2"
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 type EvmDestinationReader struct {
-	ctx           context.Context
 	lggr          logger.Logger
-	chainSelector uint64
+	ctx           context.Context
 	client        bind.ContractCaller
+	chainSelector uint64
 }
 
 func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *commontypes.BlockchainInfo) *EvmDestinationReader {
@@ -36,7 +36,8 @@ func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logge
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.
 // The ABI is defined here https://github.com/smartcontractkit/chainlink-ccip/blob/0e7fcfd20ab005d75d0eb863790470f91fa5b8d7/chains/evm/contracts/interfaces/IAny2EVMMessageReceiverV2.sol
 func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, sourceSelector protocol.ChainSelector, receiverAddress protocol.UnknownAddress) (types.CcvAddressInfo, error) {
-	receiverContract, err := mockReceiver.NewMockReceiverV2Caller(common.HexToAddress(receiverAddress.String()), dr.client)
+	_ = ctx
+	receiverContract, err := mockreceiver.NewMockReceiverV2Caller(common.HexToAddress(receiverAddress.String()), dr.client)
 	if err != nil {
 		return types.CcvAddressInfo{}, fmt.Errorf("failed to create receiver contract instance: %w", err)
 	}
@@ -65,7 +66,8 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, sourceSel
 }
 
 // IsMessageExecuted checks the destination chain to verify if a message has been executed
-// TODO: Implement this
+// TODO: Implement this.
 func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, sourceSelector protocol.ChainSelector, nonce protocol.Nonce) (bool, error) {
+	_ = ctx
 	return false, nil
 }
