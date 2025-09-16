@@ -109,14 +109,14 @@ func (ec *Coordinator) Stop() error {
 	ec.mu.RLock()
 	if !ec.running {
 		ec.mu.RUnlock()
-		return fmt.Errorf("Coordinator not started")
+		return fmt.Errorf("ExecutorCoordinator not started")
 	}
 	ec.mu.RUnlock()
 
 	ec.lggr.Infow("Coordinator stopping")
 	ec.cancel()
 	<-ec.doneCh
-	ec.lggr.Infow("Coordinator stopped")
+	ec.lggr.Infow("ExecutorCoordinator stopped")
 
 	return nil
 }
