@@ -100,8 +100,12 @@ func createTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, 
 	return createTestMessageWithVerifier(t, nonce, sourceChainSelector, destChainSelector, verifierAddress, finality)
 }
 
-func createTestMessageWithVerifier(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector,
-	verifierAddress string, finality uint16) protocol.Message {
+func createTestMessageWithVerifier(t *testing.T,
+	nonce protocol.Nonce,
+	sourceChainSelector,
+	destChainSelector protocol.ChainSelector,
+	verifierAddress string, finality uint16,
+) protocol.Message {
 	// Create empty token transfer
 	tokenTransfer := protocol.NewEmptyTokenTransfer()
 
