@@ -20,15 +20,15 @@ import (
 	exectypes "github.com/smartcontractkit/chainlink-ccv/executor/types"
 )
 
-type EVMContractTransmitter struct { //nolint:govet
+type EVMContractTransmitter struct {
 	ctx           context.Context
 	lggr          logger.Logger
-	chainSelector uint64
 	TxmClient     txmgr.TxManager
 	TransactOpts  *bind.TransactOpts
 	Client        *ethclient.Client
 	Pk            *ecdsa.PrivateKey
 	CcvAggregator ccvagg.CCVAggregator
+	chainSelector uint64
 	mu            sync.Mutex
 }
 
