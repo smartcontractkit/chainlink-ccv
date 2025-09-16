@@ -88,7 +88,6 @@ func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message p
 		&bind.CallOpts{
 			Context: ctx,
 			// TODO: Add FTF to this check
-			Pending: false,
 		},
 		uint64(message.SourceChainSelector),
 		uint64(message.Nonce),
@@ -98,9 +97,13 @@ func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message p
 		return false, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
 
-	if execState == MESSAGE_UNTOUCHED || execState == MESSAGE_SUCCESS {
+	if execState == MESSAGE_IN_PROGRESS || execState == MESSAGE_SUCCESS {
 		return true, nil
 	}
+	// TODO: check that MESSAGE_FAILURE is a re-tryable error
+	if execState == MESSAGE_FAILURE || execState == MESSAGE_UNTOUCHED {
+		return false, nil
+	}
 
-	return false, nil
+	return true, fmt.Errorf("unknown execution state: %d", execState)
 }
