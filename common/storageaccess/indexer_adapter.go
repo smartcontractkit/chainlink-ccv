@@ -111,7 +111,6 @@ func (i *IndexerAPIReader) ReadCCVData(
 		i.lggr.Errorw("Failed to make HTTP request", "error", err)
 		return nil, fmt.Errorf("failed to make HTTP request: %w", err)
 	}
-	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
@@ -130,6 +129,12 @@ func (i *IndexerAPIReader) ReadCCVData(
 	if !response.Success {
 		i.lggr.Errorw("Indexer returned error", "error", response.Error)
 		return nil, fmt.Errorf("indexer returned error: %s", response.Error)
+	}
+
+	err = resp.Body.Close()
+	if err != nil {
+		i.lggr.Errorw("Failed to close response body", "error", err)
+		return nil, fmt.Errorf("failed to close response body: %w", err)
 	}
 
 	i.lggr.Debugw("Successfully retrieved CCV data", "dataCount", len(response.CCVData))
