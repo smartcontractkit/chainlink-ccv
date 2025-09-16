@@ -26,7 +26,8 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
+	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -220,6 +221,24 @@ func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType de
 	return addr
 }
 
+// GetOffRampAddrForSelector get off ramp address for selector
+func GetOffRampAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
+	var routerAddr common.Address
+	for _, addr := range in.CCV.Addresses {
+		var refs []datastore.AddressRef
+		err := json.Unmarshal([]byte(addr), &refs)
+		if err != nil {
+			return common.Address{}, err
+		}
+		for _, ref := range refs {
+			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(ccv_aggregator.ContractType) {
+				routerAddr = common.HexToAddress(ref.Address)
+			}
+		}
+	}
+	return routerAddr, nil
+}
+
 // FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).
 // Uses EIP-1559 transaction type.
 func FundNodeEIP1559(c *ethclient.Client, pkey, recipientAddress string, amountOfFundsInETH float64) error {
@@ -403,22 +422,104 @@ func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChai
 CCIPv17 (CCV) specific helpers
 */
 
-func NewGenericCCIP17ExtraArgsV2(args protocol.GenericExtraArgsV2) ([]byte, error) {
+// NewV3ExtraArgs encodes v3 extra args params
+//
+//	// Helper function to create EVMExtraArgsV3 struct
+//	function _createV3ExtraArgs(
+//	  Client.CCV[] memory requiredCCVs,
+//	  Client.CCV[] memory optionalCCVs,
+//	  uint8 optionalThreshold
+//	) internal pure returns (Client.EVMExtraArgsV3 memory) {
+//	  return Client.EVMExtraArgsV3({
+//	    requiredCCV: requiredCCVs,
+//	    optionalCCV: optionalCCVs,
+//	    optionalThreshold: optionalThreshold,
+//	    finalityConfig: 12,
+//	    executor: address(0), // No executor specified.
+//	    executorArgs: "",
+//	    tokenArgs: ""
+//	  });
+//	}
+func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
 	const clientABI = `
 		[
 			{
-				"name": "encodeGenericExtraArgsV2",
+				"name": "encodeEVMExtraArgsV3",
 				"type": "function",
 				"inputs": [
 					{
 						"components": [
 							{
-								"name": "gasLimit",
-								"type": "uint256"
+								"name": "requiredCCV",
+								"type": "tuple[]",
+								"components": [
+									{
+										"name": "CCVAddress",
+										"type": "bytes"
+									},
+									{
+										"name": "Args",
+										"type": "bytes"
+									},
+									{
+										"name": "ArgsLen",
+										"type": "uint16"
+									}
+								]
 							},
 							{
-								"name": "allowOutOfOrderExecution",
-								"type": "bool"
+								"name": "optionalCCV",
+								"type": "tuple[]",
+								"components": [
+									{
+										"name": "CCVAddress",
+										"type": "bytes"
+									},
+									{
+										"name": "Args",
+										"type": "bytes"
+									},
+									{
+										"name": "ArgsLen",
+										"type": "uint16"
+									}
+								]
+							},
+							{
+								"name": "executor",
+								"type": "bytes"
+							},
+							{
+								"name": "executorArgs",
+								"type": "bytes"
+							},
+							{
+								"name": "tokenArgs",
+								"type": "bytes"
+							},
+							{
+								"name": "finalityConfig",
+								"type": "uint32"
+							},
+							{
+								"name": "requiredCCVLen",
+								"type": "uint16"
+							},
+							{
+								"name": "optionalCCVLen",
+								"type": "uint16"
+							},
+							{
+								"name": "executorArgsLen",
+								"type": "uint16"
+							},
+							{
+								"name": "tokenArgsLen",
+								"type": "uint16"
+							},
+							{
+								"name": "optionalThreshold",
+								"type": "uint8"
 							}
 						],
 						"name": "args",
@@ -436,18 +537,50 @@ func NewGenericCCIP17ExtraArgsV2(args protocol.GenericExtraArgsV2) ([]byte, erro
 		return nil, err
 	}
 
-	encoded, err := parsedABI.Methods["encodeGenericExtraArgsV2"].Inputs.Pack(args)
-	if err != nil {
-		return nil, err
+	requiredCCVLen := uint16(len(requiredCCVs))
+	optionalCCVLen := uint16(len(optionalCCVs))
+	executorArgsLen := uint16(len(execArgs))
+	tokenArgsLen := uint16(len(tokenArgs))
+
+	packArgs := struct {
+		RequiredCCV       []ccvTypes.CCV
+		OptionalCCV       []ccvTypes.CCV
+		Executor          []byte
+		ExecutorArgs      []byte
+		TokenArgs         []byte
+		FinalityConfig    uint32
+		RequiredCCVLen    uint16
+		OptionalCCVLen    uint16
+		ExecutorArgsLen   uint16
+		TokenArgsLen      uint16
+		OptionalThreshold uint8
+	}{
+		RequiredCCV:       requiredCCVs,
+		OptionalCCV:       optionalCCVs,
+		Executor:          execAddr,
+		ExecutorArgs:      execArgs,
+		TokenArgs:         tokenArgs,
+		FinalityConfig:    finalityConfig,
+		RequiredCCVLen:    requiredCCVLen,
+		OptionalCCVLen:    optionalCCVLen,
+		ExecutorArgsLen:   executorArgsLen,
+		TokenArgsLen:      tokenArgsLen,
+		OptionalThreshold: optionalThreshold,
 	}
 
-	tag := []byte{0x18, 0x1d, 0xcf, 0x10} // GENERIC_EXTRA_ARGS_V2_TAG
-	tag = append(tag, encoded...)
+	encoded, err := parsedABI.Pack("encodeEVMExtraArgsV3", packArgs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack encodeEVMExtraArgsV3: %w", err)
+	}
+	encodedArgs := encoded[4:]
+
+	tag := ccvTypes.EVMExtraArgsV3Tag
+	tag = append(tag, encodedArgs...)
 	return tag, nil
 }
 
-// SendExampleArgsV2Message sends an example message between two chains (selectors) using ArgsV2
-func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
+// SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3
+func SendExampleArgsV3Message(in *Cfg, src uint64, dest uint64, finality uint32, execAddr, execArgs, tokenArgs []byte, ccv []ccvTypes.CCV, optCcv []ccvTypes.CCV, threshold uint8) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -473,12 +606,9 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
-	argsv2, err := NewGenericCCIP17ExtraArgsV2(protocol.GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(1_000_000),
-		AllowOutOfOrderExecution: true,
-	})
+	argsV3, err := NewV3ExtraArgs(finality, execAddr, execArgs, tokenArgs, ccv, optCcv, threshold)
 	if err != nil {
-		return fmt.Errorf("failed to generate GenericExtraArgsV2: %w", err)
+		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
 	}
 	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 
@@ -488,7 +618,7 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsv2,
+			ExtraArgs:    argsV3,
 		},
 	}
 

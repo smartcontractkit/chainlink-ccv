@@ -12,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -67,10 +67,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
-	argsv2, err := ccv.NewGenericCCIP17ExtraArgsV2(protocol.GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(1_000_000),
-		AllowOutOfOrderExecution: true,
-	})
+	argsV3, err := ccv.NewV3ExtraArgs(1, []byte{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
@@ -81,7 +78,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 			Receiver:     common.LeftPadBytes(m.src.DeployerKey.From.Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsv2,
+			ExtraArgs:    argsV3,
 		},
 	}
 
