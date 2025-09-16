@@ -20,6 +20,10 @@ func (c *CommitAggregatedReport) GetOffRampAddress() []byte {
 	return c.GetMessage().OffRampAddress
 }
 
+func (c *CommitAggregatedReport) GetSourceVerifierAddress() []byte {
+	return c.Verifications[0].SourceVerifierAddress
+}
+
 func (c *CommitAggregatedReport) GetMessage() *aggregator.Message {
 	return c.Verifications[0].Message
 }

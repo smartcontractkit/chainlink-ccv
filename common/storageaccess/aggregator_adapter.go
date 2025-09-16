@@ -46,7 +46,7 @@ func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*aggregator.Receip
 
 // WriteCCVData implements common.OffchainStorageWriter.
 func (a *AggregatorWriter) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
-	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
+	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList), "messages", ccvDataList)
 	for _, ccvData := range ccvDataList {
 		receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
 		if err != nil {
@@ -57,7 +57,6 @@ func (a *AggregatorWriter) WriteCCVData(ctx context.Context, ccvDataList []types
 			CcvNodeData: &aggregator.MessageWithCCVNodeData{
 				MessageId:             ccvData.MessageID[:],
 				SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
-				DestVerifierAddress:   ccvData.DestVerifierAddress[:],
 				CcvData:               ccvData.CCVData,
 				BlobData:              ccvData.BlobData,
 				Timestamp:             ccvData.Timestamp,

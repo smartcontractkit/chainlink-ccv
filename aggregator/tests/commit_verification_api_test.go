@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,6 +17,7 @@ import (
 )
 
 func TestReadWriteCommitVerification(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 	signer1 := NewSignerFixture(t, "node1")
 	config := map[string]*model.Committee{
 		"committee1": {
@@ -25,7 +27,8 @@ func TestReadWriteCommitVerification(t *testing.T) {
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
-					OfframpAddress: "0x00000000000000000000000000000000000000000",
+					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -37,7 +40,7 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	message := NewProtocolMessage(t)
 	messageId, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
-	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer1))
+	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
 
 	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: ccvNodeData1,
@@ -46,10 +49,11 @@ func TestReadWriteCommitVerification(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData1.GetMessage())
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData1.GetMessage(), sourceVerifierAddress, destVerifierAddress)
 }
 
 func TestAggregationHappyPath(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 	signer1 := NewSignerFixture(t, "node1")
 	signer2 := NewSignerFixture(t, "node2")
 	config := map[string]*model.Committee{
@@ -61,7 +65,8 @@ func TestAggregationHappyPath(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					OfframpAddress: "0x00000000000000000000000000000000000000000",
+					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -73,7 +78,7 @@ func TestAggregationHappyPath(t *testing.T) {
 	message := NewProtocolMessage(t)
 	messageId, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
-	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer1))
+	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
 
 	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: ccvNodeData1,
@@ -82,7 +87,7 @@ func TestAggregationHappyPath(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer2))
+	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
 
 	require.NoError(t, err, "failed to compute message ID")
 	assertCCVDataNotFound(t, ccvDataClient, messageId)
@@ -105,6 +110,7 @@ func TestAggregationHappyPath(t *testing.T) {
 }
 
 func TestIdempotency(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 	signer1 := NewSignerFixture(t, "node1")
 	config := map[string]*model.Committee{
 		"committee1": {
@@ -114,7 +120,8 @@ func TestIdempotency(t *testing.T) {
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
-					OfframpAddress: "0x00000000000000000000000000000000000000000",
+					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -124,7 +131,7 @@ func TestIdempotency(t *testing.T) {
 	require.NoError(t, err, "failed to create server and client")
 
 	message := NewProtocolMessage(t)
-	ccvNodeData := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer1))
+	ccvNodeData := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
 
 	for i := 0; i < 2; i++ {
 		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
@@ -150,7 +157,7 @@ func assertCCVDataNotFound(t *testing.T, ccvDataClient aggregator.CCVDataClient,
 	require.Nil(t, respCcvData, "expected nil response")
 }
 
-func assertCCVDataFound(t *testing.T, ccvDataClient aggregator.CCVDataClient, messageId types.Bytes32, message *aggregator.Message) {
+func assertCCVDataFound(t *testing.T, ccvDataClient aggregator.CCVDataClient, messageId types.Bytes32, message *aggregator.Message, sourceVerifierAddress []byte, destVerifierAddress []byte) {
 	// Wait a moment for the aggregation to process
 	time.Sleep(50 * time.Millisecond)
 	respCcvData, err := ccvDataClient.GetCCVDataForMessage(t.Context(), &aggregator.GetCCVDataForMessageRequest{
@@ -178,14 +185,15 @@ func assertCCVDataFound(t *testing.T, ccvDataClient aggregator.CCVDataClient, me
 	require.True(t, bytes.Equal(message.TokenTransfer, respCcvData.GetMessage().GetTokenTransfer()))
 	require.Equal(t, message.Version, respCcvData.GetMessage().GetVersion())
 
-	require.Equal(t, respCcvData.DestVerifierAddress, message.OffRampAddress)
-	require.Equal(t, respCcvData.SourceVerifierAddress, message.OnRampAddress)
+	require.Equal(t, respCcvData.DestVerifierAddress, destVerifierAddress)
+	require.Equal(t, respCcvData.SourceVerifierAddress, sourceVerifierAddress)
 	// TODO: Validate signatures
 	require.NotNil(t, respCcvData.CcvData)
 }
 
 // Test where a valid signer sign but is later removed from the committee and another valider signs but aggregation should not complete. Only when we sign with a third valid signer it succeeds.
 func TestChangingCommitteeBeforeAggregation(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 	signer1 := NewSignerFixture(t, "node1")
 	signer2 := NewSignerFixture(t, "node2")
 	signer3 := NewSignerFixture(t, "node3")
@@ -198,7 +206,8 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					OfframpAddress: "0x00000000000000000000000000000000000000000",
+					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -210,7 +219,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	message := NewProtocolMessage(t)
 	messageId, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
-	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer1))
+	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
 
 	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: ccvNodeData1,
@@ -228,10 +237,11 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 			signer2.Signer,
 			signer3.Signer,
 		},
-		OfframpAddress: "0x00000000000000000000000000000000000000000",
+		OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 	}
 
-	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer2))
+	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
 
 	resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: ccvNodeData2,
@@ -241,7 +251,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 
 	assertCCVDataNotFound(t, ccvDataClient, messageId)
 
-	ccvNodeData3 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer3))
+	ccvNodeData3 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer3))
 
 	resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: ccvNodeData3,
@@ -249,10 +259,11 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData3.GetMessage())
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData3.GetMessage(), sourceVerifierAddress, destVerifierAddress)
 }
 
 func TestChangingCommitteeAfterAggregation(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 	signer1 := NewSignerFixture(t, "node1")
 	signer2 := NewSignerFixture(t, "node2")
 	signer3 := NewSignerFixture(t, "node3")
@@ -265,7 +276,8 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					OfframpAddress: "0x00000000000000000000000000000000000000000",
+					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -277,7 +289,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	message := NewProtocolMessage(t)
 	messageId, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
-	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer1))
+	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
 
 	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: ccvNodeData1,
@@ -288,7 +300,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 
 	assertCCVDataNotFound(t, ccvDataClient, messageId)
 
-	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer2))
+	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
 
 	resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: ccvNodeData2,
@@ -297,7 +309,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage())
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress)
 
 	// Change committee to remove signer1 and add signer3
 	config["committee1"].QuorumConfigs["2"] = &model.QuorumConfig{
@@ -306,13 +318,14 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 			signer2.Signer,
 			signer3.Signer,
 		},
-		OfframpAddress: "0x00000000000000000000000000000000000000000",
+		OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 	}
 
-	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage())
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress)
 
 	// Ensure that we can still write new signatures with the updated committee
-	ccvNodeData3 := NewMessageWithCCVNodeData(t, message, WithSignatureFrom(t, signer3))
+	ccvNodeData3 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer3))
 
 	resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: ccvNodeData3,
@@ -320,5 +333,5 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData3.GetMessage())
+	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData3.GetMessage(), sourceVerifierAddress, destVerifierAddress)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
@@ -51,7 +52,12 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		}
 	}
 
-	signers := FindSignersFromSelectorAndOfframp(committees, report.GetDestinationSelector(), report.GetMessage().OffRampAddress)
+	quorumConfig := FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees, report.GetDestinationSelector(), report.GetSourceVerifierAddress())
+	if quorumConfig == nil {
+		return nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", report.GetDestinationSelector(), common.BytesToAddress(report.GetSourceVerifierAddress()).Hex())
+	}
+
+	signers := quorumConfig.Signers
 
 	rs := make([][32]byte, 0, len(signers))
 	ss := make([][32]byte, 0, len(signers))
@@ -72,8 +78,8 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 
 	return &aggregator.MessageWithCCVData{
 		Message:               report.GetMessage(),
-		SourceVerifierAddress: report.GetMessage().OnRampAddress,
-		DestVerifierAddress:   report.GetMessage().OffRampAddress,
+		SourceVerifierAddress: report.GetSourceVerifierAddress(),
+		DestVerifierAddress:   quorumConfig.GetOfframpAddressBytes(),
 		CcvData:               encodedSignatures,
 		Timestamp:             report.Timestamp,
 	}, nil
