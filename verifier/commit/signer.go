@@ -64,8 +64,8 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 
 	// 3. Extract nonce from the correct receipt blob using the verifier index
 	var verifierBlob []byte
-	if verifierIndex >= len(verificationTask.ReceiptBlobs) || len(verificationTask.ReceiptBlobs[verifierIndex].Blob) <= 0 {
-		return nil, nil, fmt.Errorf("receipt blob at index %d is empty", verifierIndex)
+	if verifierIndex >= len(verificationTask.ReceiptBlobs) {
+		return nil, nil, fmt.Errorf("no receipt blob found for verifier index: %d", verifierIndex)
 	}
 	verifierBlob = verificationTask.ReceiptBlobs[verifierIndex].Blob
 
