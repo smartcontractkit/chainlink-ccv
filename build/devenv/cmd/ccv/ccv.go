@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/spf13/cobra"
 
@@ -309,7 +310,21 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
-		return ccv.SendExampleArgsV3Message(in, src, dest, 1, []byte{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
+		return ccv.SendExampleArgsV3Message(in, src, dest, 1, nil, nil, nil,
+			[]types.CCV{
+				{
+					CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
+					Args:       []byte{},
+					ArgsLen:    0,
+				},
+			},
+			[]types.CCV{
+				{
+					CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
+					Args:       []byte{},
+					ArgsLen:    0,
+				},
+			}, 0)
 	},
 }
 

@@ -429,109 +429,104 @@ CCIPv17 (CCV) specific helpers
 //	}
 func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
 	const clientABI = `
-		[
-			{
-				"name": "encodeEVMExtraArgsV3",
-				"type": "function",
-				"inputs": [
-					{
-						"components": [
-							{
-								"name": "requiredCCV",
-								"type": "tuple[]",
-								"components": [
-									{
-										"name": "CCVAddress",
-										"type": "bytes"
-									},
-									{
-										"name": "Args",
-										"type": "bytes"
-									},
-									{
-										"name": "ArgsLen",
-										"type": "uint16"
-									}
-								]
-							},
-							{
-								"name": "optionalCCV",
-								"type": "tuple[]",
-								"components": [
-									{
-										"name": "CCVAddress",
-										"type": "bytes"
-									},
-									{
-										"name": "Args",
-										"type": "bytes"
-									},
-									{
-										"name": "ArgsLen",
-										"type": "uint16"
-									}
-								]
-							},
-							{
-								"name": "executor",
-								"type": "bytes"
-							},
-							{
-								"name": "executorArgs",
-								"type": "bytes"
-							},
-							{
-								"name": "tokenArgs",
-								"type": "bytes"
-							},
-							{
-								"name": "finalityConfig",
-								"type": "uint32"
-							},
-							{
-								"name": "requiredCCVLen",
-								"type": "uint16"
-							},
-							{
-								"name": "optionalCCVLen",
-								"type": "uint16"
-							},
-							{
-								"name": "executorArgsLen",
-								"type": "uint16"
-							},
-							{
-								"name": "tokenArgsLen",
-								"type": "uint16"
-							},
-							{
-								"name": "optionalThreshold",
-								"type": "uint8"
-							}
-						],
-						"name": "args",
-						"type": "tuple"
-					}
-				],
-				"outputs": [],
-				"stateMutability": "pure"
-			}
-		]
-	`
+    [
+        {
+            "name": "encodeEVMExtraArgsV3",
+            "type": "function",
+            "inputs": [
+                {
+                    "components": [
+                        {
+                            "name": "requiredCCV",
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "CCVAddress", "type": "bytes"},
+                                {"name": "Args", "type": "bytes"},
+                                {"name": "ArgsLen", "type": "uint16"}
+                            ]
+                        },
+                        {
+                            "name": "optionalCCV", 
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "CCVAddress", "type": "bytes"},
+                                {"name": "Args", "type": "bytes"},
+                                {"name": "ArgsLen", "type": "uint16"}
+                            ]
+                        },
+                        {"name": "executor", "type": "bytes"},
+                        {"name": "executorArgs", "type": "bytes"},
+                        {"name": "tokenArgs", "type": "bytes"},
+                        {"name": "finalityConfig", "type": "uint32"},
+                        {"name": "requiredCCVLen", "type": "uint16"},
+                        {"name": "optionalCCVLen", "type": "uint16"},
+                        {"name": "executorArgsLen", "type": "uint16"},
+                        {"name": "tokenArgsLen", "type": "uint16"},
+                        {"name": "optionalThreshold", "type": "uint8"}
+                    ],
+                    "name": "args",
+                    "type": "tuple"
+                }
+            ],
+            "outputs": [{"type": "bytes"}],
+            "stateMutability": "pure"
+        }
+    ]
+    `
 
 	parsedABI, err := abi.JSON(bytes.NewReader([]byte(clientABI)))
 	if err != nil {
 		return nil, err
 	}
 
-	requiredCCVLen := uint16(len(requiredCCVs))
-	optionalCCVLen := uint16(len(optionalCCVs))
-	executorArgsLen := uint16(len(execArgs))
-	tokenArgsLen := uint16(len(tokenArgs))
+	// Convert CCV slices to the expected format
+	requiredCCV := make([]struct {
+		CCVAddress []byte
+		Args       []byte
+		ArgsLen    uint16
+	}, len(requiredCCVs))
 
-	packArgs := struct {
-		RequiredCCV       []ccvTypes.CCV
-		OptionalCCV       []ccvTypes.CCV
+	for i, ccv := range requiredCCVs {
+		requiredCCV[i] = struct {
+			CCVAddress []byte
+			Args       []byte
+			ArgsLen    uint16
+		}{
+			CCVAddress: ccv.CCVAddress,
+			Args:       ccv.Args,
+			ArgsLen:    ccv.ArgsLen,
+		}
+	}
+
+	optionalCCV := make([]struct {
+		CCVAddress []byte
+		Args       []byte
+		ArgsLen    uint16
+	}, len(optionalCCVs))
+
+	for i, ccv := range optionalCCVs {
+		optionalCCV[i] = struct {
+			CCVAddress []byte
+			Args       []byte
+			ArgsLen    uint16
+		}{
+			CCVAddress: ccv.CCVAddress,
+			Args:       ccv.Args,
+			ArgsLen:    ccv.ArgsLen,
+		}
+	}
+
+	args := struct {
+		RequiredCCV []struct {
+			CCVAddress []byte
+			Args       []byte
+			ArgsLen    uint16
+		}
+		OptionalCCV []struct {
+			CCVAddress []byte
+			Args       []byte
+			ArgsLen    uint16
+		}
 		Executor          []byte
 		ExecutorArgs      []byte
 		TokenArgs         []byte
@@ -542,27 +537,26 @@ func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte,
 		TokenArgsLen      uint16
 		OptionalThreshold uint8
 	}{
-		RequiredCCV:       requiredCCVs,
-		OptionalCCV:       optionalCCVs,
+		RequiredCCV:       requiredCCV,
+		OptionalCCV:       optionalCCV,
 		Executor:          execAddr,
 		ExecutorArgs:      execArgs,
 		TokenArgs:         tokenArgs,
 		FinalityConfig:    finalityConfig,
-		RequiredCCVLen:    requiredCCVLen,
-		OptionalCCVLen:    optionalCCVLen,
-		ExecutorArgsLen:   executorArgsLen,
-		TokenArgsLen:      tokenArgsLen,
+		RequiredCCVLen:    uint16(len(requiredCCVs)),
+		OptionalCCVLen:    uint16(len(optionalCCVs)),
+		ExecutorArgsLen:   uint16(len(execArgs)),
+		TokenArgsLen:      uint16(len(tokenArgs)),
 		OptionalThreshold: optionalThreshold,
 	}
 
-	encoded, err := parsedABI.Pack("encodeEVMExtraArgsV3", packArgs)
+	encoded, err := parsedABI.Methods["encodeEVMExtraArgsV3"].Inputs.Pack(args)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pack encodeEVMExtraArgsV3: %w", err)
+		return nil, err
 	}
-	encodedArgs := encoded[4:]
 
-	tag := []byte{0x30, 0x23, 0x26, 0xcb} // GENERIC_EXTRA_ARGS_V3_TAG
-	tag = append(tag, encodedArgs...)
+	tag := []byte{0x30, 0x23, 0x26, 0xcb}
+	tag = append(tag, encoded...)
 	return tag, nil
 }
 
@@ -608,17 +602,18 @@ func SendExampleArgsV3Message(in *Cfg, src uint64, dest uint64, finality uint32,
 		},
 	}
 
-	feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
-		ChainSelector: srcChain.Selector,
-		Address:       routerAddr,
-		Args:          ccipSendArgs,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get fee: %w", err)
-	}
+	// TODO: not supported right now
+	//feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+	//	ChainSelector: srcChain.Selector,
+	//	Address:       routerAddr,
+	//	Args:          ccipSendArgs,
+	//})
+	//if err != nil {
+	//	return fmt.Errorf("failed to get fee: %w", err)
+	//}
+	//ccipSendArgs.Value = feeReport.Output
 
 	// Send CCIP message with value
-	ccipSendArgs.Value = feeReport.Output
 	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
 		ChainSelector: src,
 		Address:       routerAddr,
