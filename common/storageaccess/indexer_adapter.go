@@ -22,12 +22,6 @@ type IndexerAPIReader struct {
 	indexerURI string
 }
 
-type VerifierResultsResponse struct {
-	Success bool                       `json:"success"`
-	Error   string                     `json:"error,omitempty"`
-	CCVData map[string][]types.CCVData `json:"ccvData"`
-}
-
 func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReader {
 	return &IndexerAPIReader{
 		lggr:       lggr,
