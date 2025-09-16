@@ -5,13 +5,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	v1Handlers "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	v1Handlers "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 )
 
 func NewV1API(lggr logger.Logger, storage common.IndexerStorage) *gin.Engine {
 	router := gin.Default()
+	router.Use(middleware.RateLimit())
+
 	v1 := router.Group("/v1")
 
 	v1.GET("/ping", func(c *gin.Context) {
