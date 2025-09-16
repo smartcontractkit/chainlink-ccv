@@ -22,6 +22,7 @@ type FakeInput struct {
 	Image          string      `toml:"image"`
 	Port           int         `toml:"port"`
 	SourceCodePath string      `toml:"source_code_path"`
+	RootPath       string      `toml:"root_path"`
 	ContainerName  string      `toml:"container_name"`
 	UseCache       bool        `toml:"use_cache"`
 	Out            *FakeOutput `toml:"-"`
@@ -75,7 +76,7 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = GoSourcePathMounts(p, AppPathInsideContainer)
+		req.Mounts = GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

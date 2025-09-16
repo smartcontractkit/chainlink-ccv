@@ -85,7 +85,7 @@ func createTestSigner(t *testing.T) pkg.MessageSigner {
 	return signer
 }
 
-func createTestMessage(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector) protocol.Message {
+func createTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector) protocol.Message {
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
 	switch sourceChainSelector {
@@ -97,10 +97,10 @@ func createTestMessage(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector
 		verifierAddress = "0x1234" // Default fallback
 	}
 
-	return createTestMessageWithVerifier(t, seqNum, sourceChainSelector, destChainSelector, verifierAddress)
+	return createTestMessageWithVerifier(t, nonce, sourceChainSelector, destChainSelector, verifierAddress)
 }
 
-func createTestMessageWithVerifier(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector, verifierAddress string) protocol.Message {
+func createTestMessageWithVerifier(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, verifierAddress string) protocol.Message {
 	// Create empty token transfer
 	tokenTransfer := protocol.NewEmptyTokenTransfer()
 
@@ -112,7 +112,7 @@ func createTestMessageWithVerifier(t *testing.T, seqNum protocol.SeqNum, sourceC
 	message, err := protocol.NewMessage(
 		sourceChainSelector,
 		destChainSelector,
-		seqNum,
+		nonce,
 		onRampAddr,
 		offRampAddr,
 		0, // finality
@@ -126,12 +126,11 @@ func createTestMessageWithVerifier(t *testing.T, seqNum protocol.SeqNum, sourceC
 	return *message
 }
 
-func createTestVerificationTask(t *testing.T, seqNum protocol.SeqNum, sourceChainSelector, destChainSelector protocol.ChainSelector) types.VerificationTask {
-	message := createTestMessage(t, seqNum, sourceChainSelector, destChainSelector)
+func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector) types.VerificationTask {
+	message := createTestMessage(t, nonce, sourceChainSelector, destChainSelector)
 
 	// Create receipt blob with nonce using canonical encoding
-	nonce := uint64(seqNum)
-	receiptBlob, err := commit.EncodeVerifierBlob(nonce)
+	receiptBlob, err := commit.EncodeVerifierBlob(uint64(nonce))
 	require.NoError(t, err)
 
 	// Determine the correct verifier address based on source chain

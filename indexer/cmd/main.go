@@ -1,30 +1,58 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
-	"os"
+	"context"
+	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"go.uber.org/zap"
 )
 
 func main() {
-	// just an example service to demo automatic reload with Air
-	lvlStr := os.Getenv("INDEXER_LOG_LEVEL")
-	if lvlStr == "" {
-		lvlStr = "info"
-	}
-	lvl, err := zerolog.ParseLevel(lvlStr)
+	// Setup logging
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		config.Development = true
+		config.Encoding = "console"
+		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	})
+
 	if err != nil {
 		panic(err)
 	}
-	l := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(lvl)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Indexer is running!\n")
-	})
+	ctx := context.Background()
 
-	l.Info().Msgf("Indexer is running on port %s", ":8100")
-	log.Fatal().Err(http.ListenAndServe(":8100", nil)).Send()
+	// Use SugaredLogger for better API
+	lggr = logger.Sugared(lggr)
+
+	// Initialize the indexer storage & create a reader discovery, which will discover the off-chain storage readers
+	// Storage Discovery allows the indexer to add new off-chain storage readers without needing a restart
+	// Currently, this uses the configuration discovery method, which reads the off-chain storage readers from the configuration passed to it.
+	aggregatorReader, _ := storageaccess.NewAggregatorReader("aggregator:50051", lggr, 0)
+	readerDiscovery := discovery.NewStaticDiscovery([]types.OffchainStorageReader{aggregatorReader})
+
+	// Initialize the indexer storage
+	indexerStorage := storage.NewInMemoryStorage(lggr)
+
+	// Create a scanner, which will poll the off-chain storage(s) for CCV data
+	scanner := scanner.NewScanner(
+		scanner.WithReaderDiscovery(readerDiscovery),
+		scanner.WithLogger(lggr),
+		scanner.WithConfig(scanner.ScannerConfig{
+			ScanInterval: 1 * time.Second,
+		}),
+		scanner.WithStorageWriter(indexerStorage),
+	)
+
+	// Start the Scanner processing
+	scanner.Start(ctx)
+
+	v1 := api.NewV1API(lggr, indexerStorage)
+	api.Serve(v1, 8100)
 }

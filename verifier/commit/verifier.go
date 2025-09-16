@@ -57,7 +57,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 
 	cv.lggr.Debugw("Starting message verification",
 		"messageID", messageID,
-		"sequenceNumber", message.SequenceNumber,
+		"nonce", message.Nonce,
 		"sourceChain", message.SourceChainSelector,
 		"destChain", message.DestChainSelector,
 	)
@@ -111,7 +111,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 	case ccvDataCh <- *ccvData:
 		cv.lggr.Infow("CCV data sent to storage channel",
 			"messageID", messageID,
-			"sequenceNumber", message.SequenceNumber,
+			"nonce", message.Nonce,
 			"sourceChain", message.SourceChainSelector,
 			"destChain", message.DestChainSelector,
 			"timestamp", ccvData.Timestamp,
@@ -119,7 +119,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 	case <-ctx.Done():
 		cv.lggr.Debugw("Context cancelled while sending CCV data",
 			"messageID", messageID,
-			"sequenceNumber", message.SequenceNumber,
+			"nonce", message.Nonce,
 			"sourceChain", message.SourceChainSelector,
 		)
 	}

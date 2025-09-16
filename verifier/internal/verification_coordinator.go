@@ -218,13 +218,13 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
 					"messageID", ccvData.MessageID,
-					"sequenceNumber", ccvData.SequenceNumber,
+					"nonce", ccvData.Nonce,
 					"sourceChain", ccvData.SourceChainSelector,
 				)
 			} else {
 				vc.lggr.Infow("CCV data stored successfully",
 					"messageID", ccvData.MessageID,
-					"sequenceNumber", ccvData.SequenceNumber,
+					"nonce", ccvData.Nonce,
 					"sourceChain", ccvData.SourceChainSelector,
 				)
 			}
@@ -291,7 +291,7 @@ func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *
 			vc.lggr.Errorw("Verification error received",
 				"error", verificationError.Error,
 				"messageID", messageID,
-				"sequenceNumber", message.SequenceNumber,
+				"nonce", message.Nonce,
 				"sourceChain", message.SourceChainSelector,
 				"destChain", message.DestChainSelector,
 				"timestamp", verificationError.Timestamp,

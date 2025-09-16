@@ -172,7 +172,7 @@ func CreateCCVData(verificationTask *types.VerificationTask, signature, verifier
 	}
 	return &protocol.CCVData{
 		MessageID:             messageID,
-		SequenceNumber:        message.SequenceNumber,
+		Nonce:                 message.Nonce,
 		SourceChainSelector:   message.SourceChainSelector,
 		DestChainSelector:     message.DestChainSelector,
 		SourceVerifierAddress: sourceVerifierAddress,

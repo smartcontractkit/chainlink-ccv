@@ -292,7 +292,7 @@ type Message struct {
 	Version              uint32                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
 	SourceChainSelector  uint64                 `protobuf:"varint,2,opt,name=source_chain_selector,json=sourceChainSelector,proto3" json:"source_chain_selector,omitempty"`
 	DestChainSelector    uint64                 `protobuf:"varint,3,opt,name=dest_chain_selector,json=destChainSelector,proto3" json:"dest_chain_selector,omitempty"`
-	SequenceNumber       uint64                 `protobuf:"varint,4,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number,omitempty"`
+	Nonce                uint64                 `protobuf:"varint,4,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	OnRampAddressLength  uint32                 `protobuf:"varint,5,opt,name=on_ramp_address_length,json=onRampAddressLength,proto3" json:"on_ramp_address_length,omitempty"`
 	OnRampAddress        []byte                 `protobuf:"bytes,6,opt,name=on_ramp_address,json=onRampAddress,proto3" json:"on_ramp_address,omitempty"`
 	OffRampAddressLength uint32                 `protobuf:"varint,7,opt,name=off_ramp_address_length,json=offRampAddressLength,proto3" json:"off_ramp_address_length,omitempty"`
@@ -363,9 +363,9 @@ func (x *Message) GetDestChainSelector() uint64 {
 	return 0
 }
 
-func (x *Message) GetSequenceNumber() uint64 {
+func (x *Message) GetNonce() uint64 {
 	if x != nil {
-		return x.SequenceNumber
+		return x.Nonce
 	}
 	return 0
 }
@@ -1075,12 +1075,12 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\x0e2\f.WriteStatusR\x06status\"\x1c\n" +
 	"\x1aReadBlockCheckpointRequest\"Q\n" +
 	"\x1bReadBlockCheckpointResponse\x122\n" +
-	"\vcheckpoints\x18\x01 \x03(\v2\x10.BlockCheckpointR\vcheckpoints\"\xe3\x05\n" +
+	"\vcheckpoints\x18\x01 \x03(\v2\x10.BlockCheckpointR\vcheckpoints\"\xd0\x05\n" +
 	"\aMessage\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x122\n" +
 	"\x15source_chain_selector\x18\x02 \x01(\x04R\x13sourceChainSelector\x12.\n" +
-	"\x13dest_chain_selector\x18\x03 \x01(\x04R\x11destChainSelector\x12'\n" +
-	"\x0fsequence_number\x18\x04 \x01(\x04R\x0esequenceNumber\x123\n" +
+	"\x13dest_chain_selector\x18\x03 \x01(\x04R\x11destChainSelector\x12\x14\n" +
+	"\x05nonce\x18\x04 \x01(\x04R\x05nonce\x123\n" +
 	"\x16on_ramp_address_length\x18\x05 \x01(\rR\x13onRampAddressLength\x12&\n" +
 	"\x0fon_ramp_address\x18\x06 \x01(\fR\ronRampAddress\x125\n" +
 	"\x17off_ramp_address_length\x18\a \x01(\rR\x14offRampAddressLength\x12(\n" +
