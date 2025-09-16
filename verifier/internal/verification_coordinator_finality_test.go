@@ -93,7 +93,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	defer setup.coordinator.Stop()
 
 	// Message at block 940 (< finalized 950) should be processed immediately
-	finalizedMessage := createTestMessage(t, 1, 1337, 2337)
+	finalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
 	finalizedTask := types.VerificationTask{
 		Message: finalizedMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
@@ -126,24 +126,9 @@ func TestFinality_CustomFinality(t *testing.T) {
 	require.NoError(t, err)
 	defer setup.coordinator.Stop()
 
-	customFinality := uint32(15)
-	// Create EVMExtraArgsV3 with custom finality of 15 blocks
-	extraArgs := &protocol.EVMExtraArgsV3{
-		RequiredCCV:       []protocol.CCV{},
-		OptionalCCV:       []protocol.CCV{},
-		Executor:          make(protocol.UnknownAddress, 20),
-		ExecutorArgs:      []byte{},
-		TokenArgs:         []byte{},
-		FinalityConfig:    customFinality, // Custom finality of 15 blocks
-		RequiredCCVLen:    0,
-		OptionalCCVLen:    0,
-		ExecutorArgsLen:   0,
-		TokenArgsLen:      0,
-		OptionalThreshold: 0,
-	}
-	extraArgsBytes := extraArgs.ToBytes()
+	customFinality := uint16(15)
 
-	readyMessage := createTestMessage(t, 1, 1337, 2337)
+	readyMessage := createTestMessage(t, 1, 1337, 2337, customFinality)
 	readyTask := types.VerificationTask{
 		Message: readyMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
@@ -151,7 +136,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 			DestGasLimit:      300000,
 			DestBytesOverhead: 100,
 			Blob:              []byte("test-blob"),
-			ExtraArgs:         extraArgsBytes,
+			ExtraArgs:         []byte{},
 		}},
 		BlockNumber: uint64(InitialLatestBlock - customFinality), // should be ready
 	}
@@ -175,7 +160,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	require.NoError(t, err)
 	defer setup.coordinator.Stop()
 
-	nonFinalizedMessage := createTestMessage(t, 1, 1337, 2337)
+	nonFinalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
 	nonFinalizedTask := types.VerificationTask{
 		Message: nonFinalizedMessage,
