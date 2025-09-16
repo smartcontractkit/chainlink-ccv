@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -17,15 +18,6 @@ type CCVDataV1Handler struct {
 	lggr    logger.Logger
 }
 
-type CCVDataRequest struct {
-	Start                int64                 `form:"start"`
-	End                  int64                 `form:"end"`
-	SourceChainSelectors []types.ChainSelector // Excluded from form due to gin parsing
-	DestChainSelectors   []types.ChainSelector // Excluded from form due to gin parsing
-	Limit                uint64                `form:"limit"`
-	Offset               uint64                `form:"offset"`
-}
-
 func NewCCVDataV1Handler(storage common.IndexerStorage, lggr logger.Logger) *CCVDataV1Handler {
 	return &CCVDataV1Handler{
 		storage: storage,
@@ -34,7 +26,7 @@ func NewCCVDataV1Handler(storage common.IndexerStorage, lggr logger.Logger) *CCV
 }
 
 func (h *CCVDataV1Handler) Handle(c *gin.Context) {
-	req := CCVDataRequest{
+	req := storageaccess.VerifierResultsRequest{
 		Start:                0,
 		End:                  time.Now().Unix(),
 		SourceChainSelectors: []types.ChainSelector{},
