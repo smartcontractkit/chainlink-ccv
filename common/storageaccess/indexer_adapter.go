@@ -17,15 +17,15 @@ import (
 var _ IndexerAPI = (*IndexerAPIReader)(nil)
 
 type IndexerAPIReader struct {
+	httpClient *http.Client
 	lggr       logger.Logger
 	indexerURI string
-	httpClient *http.Client
 }
 
 type CCVDataResponse struct {
 	Success bool                       `json:"success"`
-	CCVData map[string][]types.CCVData `json:"ccvData"`
 	Error   string                     `json:"error,omitempty"`
+	CCVData map[string][]types.CCVData `json:"ccvData"`
 }
 
 func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReader {
