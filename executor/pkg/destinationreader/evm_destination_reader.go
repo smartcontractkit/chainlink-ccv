@@ -18,7 +18,6 @@ import (
 
 type EvmDestinationReader struct {
 	lggr          logger.Logger
-	ctx           context.Context
 	client        bind.ContractCaller
 	chainSelector uint64
 }
