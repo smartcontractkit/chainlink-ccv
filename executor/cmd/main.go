@@ -71,7 +71,7 @@ func main() {
 			ctx,
 			lggr,
 			selector,
-			chain.Nodes[0].ExternalHTTPUrl,
+			chain.Nodes[0].InternalHTTPUrl,
 			executorConfig.PrivateKey,
 			common.HexToAddress(chain.OfframpRouter),
 		)

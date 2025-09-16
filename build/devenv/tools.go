@@ -191,7 +191,12 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 
 // GetRouterAddrForSelector get router address for chain selector, mostly used in testing or tools
 func GetRouterAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
-	var routerAddr common.Address
+	return GetContractAddressForSelector(in, selector, router.ContractType)
+}
+
+// GetContractAddressForSelector get address for chain selector, mostly used in testing or tools
+func GetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) (common.Address, error) {
+	var contractAddr common.Address
 	for _, addr := range in.CCV.Addresses {
 		var refs []datastore.AddressRef
 		err := json.Unmarshal([]byte(addr), &refs)
@@ -200,11 +205,11 @@ func GetRouterAddrForSelector(in *Cfg, selector uint64) (common.Address, error) 
 		}
 		for _, ref := range refs {
 			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(router.ContractType) {
-				routerAddr = common.HexToAddress(ref.Address)
+				contractAddr = common.HexToAddress(ref.Address)
 			}
 		}
 	}
-	return routerAddr, nil
+	return contractAddr, nil
 }
 
 // FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).
@@ -467,11 +472,12 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 	if err != nil {
 		return fmt.Errorf("failed to generate GenericExtraArgsV2: %w", err)
 	}
+	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
+			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
 			ExtraArgs:    argsv2,
