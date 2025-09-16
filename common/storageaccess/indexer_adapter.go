@@ -22,7 +22,7 @@ type IndexerAPIReader struct {
 	indexerURI string
 }
 
-type CCVDataResponse struct {
+type VerifierResultsResponse struct {
 	Success bool                       `json:"success"`
 	Error   string                     `json:"error,omitempty"`
 	CCVData map[string][]types.CCVData `json:"ccvData"`
@@ -117,7 +117,7 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 	}
 
 	// Parse JSON response
-	var response CCVDataResponse
+	var response VerifierResultsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		i.lggr.Errorw("Failed to decode JSON response", "error", err)
 		return nil, fmt.Errorf("failed to decode JSON response: %w", err)
