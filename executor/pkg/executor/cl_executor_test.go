@@ -24,7 +24,7 @@ type mockDestinationReader struct {
 	executed    bool
 }
 
-func (m *mockDestinationReader) IsMessageExecuted(ctx context.Context, src protocol.ChainSelector, nonce protocol.Nonce) (bool, error) {
+func (m *mockDestinationReader) IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error) {
 	return m.executed, m.executedErr
 }
 

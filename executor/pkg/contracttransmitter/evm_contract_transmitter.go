@@ -3,6 +3,7 @@ package contracttransmitter
 import (
 	"context"
 	"crypto/ecdsa"
+	"fmt"
 	"math/big"
 	"sync"
 
@@ -14,12 +15,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
-	selectors "github.com/smartcontractkit/chain-selectors"
-	ccvAgg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	chainselectors "github.com/smartcontractkit/chain-selectors"
+	ccvagg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	exectypes "github.com/smartcontractkit/chainlink-ccv/executor/types"
 )
 
-type EVMContractTransmitter struct {
+type EVMContractTransmitter struct { //nolint:govet
 	ctx           context.Context
 	lggr          logger.Logger
 	chainSelector uint64
@@ -27,7 +28,7 @@ type EVMContractTransmitter struct {
 	TransactOpts  *bind.TransactOpts
 	Client        *ethclient.Client
 	Pk            *ecdsa.PrivateKey
-	CcvAggregator ccvAgg.CCVAggregator
+	CcvAggregator ccvagg.CCVAggregator
 	mu            sync.Mutex
 }
 
@@ -52,18 +53,18 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 		return nil, err
 	}
 
-	id, err := selectors.GetChainIDFromSelector(chainSelector)
+	id, err := chainselectors.GetChainIDFromSelector(chainSelector)
 	if err != nil {
 		return nil, err
 	}
-	chainIdInt := big.NewInt(0)
-	chainIdInt.SetString(id, 10)
+	chainIDInt := big.NewInt(0)
+	chainIDInt.SetString(id, 10)
 
-	auth := bind.NewKeyedTransactor(pk, chainIdInt)
+	auth := bind.NewKeyedTransactor(pk, chainIDInt)
 	auth.Value = big.NewInt(0)
 	auth.GasLimit = uint64(300000) // in units
 
-	boundContract, err := ccvAgg.NewCCVAggregator(ccvAggregatorAddress, client)
+	boundContract, err := ccvagg.NewCCVAggregator(ccvAggregatorAddress, client)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +82,10 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 
 func (ct *EVMContractTransmitter) GetTransactOpts() (*bind.TransactOpts, error) {
 	publicKey := ct.Pk.Public()
-	publicKeyECDSA, _ := publicKey.(*ecdsa.PublicKey)
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("invalid private key")
+	}
 
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 	nonce, err := ct.Client.PendingNonceAt(ct.ctx, fromAddress)
@@ -95,7 +99,7 @@ func (ct *EVMContractTransmitter) GetTransactOpts() (*bind.TransactOpts, error) 
 	}
 
 	auth := ct.TransactOpts
-	auth.Nonce = big.NewInt(int64(nonce))
+	auth.Nonce = big.NewInt(int64(nonce)) //nolint:gosec // G115 will replace with txm
 	auth.GasPrice = gasPrice
 
 	return auth, nil
@@ -115,7 +119,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 		return err
 	}
 
-	encodedMsg, err := report.Message.Encode()
+	encodedMsg, _ := report.Message.Encode()
 
 	tx, err := ct.CcvAggregator.Execute(opts, encodedMsg, contractCcvs, report.CCVData)
 	if err != nil {

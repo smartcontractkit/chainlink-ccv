@@ -90,16 +90,6 @@ func main() {
 	// create dummy leader elector
 	le := leaderelector.RandomDelayLeader{}
 
-	// create ccv data reader
-	//timestamp := time.Now().Unix()
-	//storage, err := storageaccess.NewAggregatorReader("aggregator:50051", lggr, timestamp)
-	//if err != nil {
-	//	lggr.Infow("Failed to create storage writer", "error", err)
-	//	os.Exit(1)
-	//}
-	//
-	//datastream := ccvstreamer.NewOffchainStorageStreamer(storage, executorConfig.GetPollingInterval(), executorConfig.GetBackoffDuration())
-
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		executorConfig.IndexerAddress,
 		lggr,

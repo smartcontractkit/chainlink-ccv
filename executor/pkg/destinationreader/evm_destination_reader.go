@@ -79,7 +79,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, sourceSel
 	}, nil
 }
 
-// IsMessageExecuted checks the destination chain to verify if a message has been executed
+// IsMessageExecuted checks the destination chain to verify if a message has been executed.
 func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error) {
 	_ = ctx
 

@@ -4,15 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	mapset "github.com/deckarep/golang-set/v2"
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	storageaccess "github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -157,20 +156,20 @@ func (oss *IndexerStorageStreamer) Start(
 }
 
 func validateVerifierResults(results []protocol.CCVData) error {
-	messageIds := mapset.NewSet[protocol.Bytes32]()
-	genMessageIds := mapset.NewSet[protocol.Bytes32]()
+	messageIDs := make(map[protocol.Bytes32]struct{}, 0)
+	generatedIDs := make(map[protocol.Bytes32]struct{}, 0)
 	for _, res := range results {
-		messageIds.Add(res.MessageID)
-		genId, err := res.Message.MessageID()
+		messageIDs[res.MessageID] = struct{}{}
+		genID, err := res.Message.MessageID()
 		if err != nil {
 			return fmt.Errorf("invalid generated messageId")
 		}
-		genMessageIds.Add(genId)
+		generatedIDs[genID] = struct{}{}
 	}
-	if messageIds.Cardinality() != 1 {
+	if len(messageIDs) != 1 {
 		return fmt.Errorf("verifier results contain multiple message IDs")
 	}
-	if genMessageIds.Cardinality() != 1 {
+	if len(generatedIDs) != 1 {
 		return fmt.Errorf("verifier results contain multiple generated message IDs")
 	}
 	return nil
