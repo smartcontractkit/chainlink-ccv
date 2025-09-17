@@ -143,6 +143,6 @@ runs:
 
     - name: Cleanup
       shell: bash
-      working-directory: ../${{ inputs.working-directory }}
+      working-directory: /
       run: |
         echo "Post step cleanup completed"
