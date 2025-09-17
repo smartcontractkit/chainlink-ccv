@@ -69,7 +69,7 @@ func defaults(in *IndexerInput) {
 	}
 }
 
-// NewIndexer creates and starts a new Service container using testcontainers
+// NewIndexer creates and starts a new Service container using testcontainers.
 func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil

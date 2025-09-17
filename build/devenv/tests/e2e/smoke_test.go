@@ -27,7 +27,7 @@ func TestE2ESmoke(t *testing.T) {
 	e.OperationsBundle = b
 	routerAddr := ccv.MustGetContractAddressForSelector(in, srcChain.Selector, router.ContractType)
 
-	argsV3, err := ccv.NewV3ExtraArgs(1, []byte{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
+	argsV3, err := ccv.NewV3ExtraArgs(1, common.Address{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
 	require.NoError(t, err)
 
 	ccipSendArgs := router.CCIPSendArgs{

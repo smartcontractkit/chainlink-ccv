@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"fmt"
 	"math/big"
 	"os"
@@ -57,14 +56,14 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s, d evm.Chai
 	}
 }
 
-// Call implements example gun call, assertions on response bodies should be done here
+// Call implements example gun call, assertions on response bodies should be done here.
 func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
 
 	routerAddr := ccv.MustGetContractAddressForSelector(m.cfg, m.src.Selector, router.ContractType)
 
-	argsV3, err := ccv.NewV3ExtraArgs(1, []byte{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
+	argsV3, err := ccv.NewV3ExtraArgs(1, common.Address{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
@@ -406,16 +405,17 @@ func TestE2ELoad(t *testing.T) {
 	})
 }
 
-func checkLogs(t *testing.T, in *ccv.Cfg, end time.Time) {
-	logs, err := f.NewLokiQueryClient(f.LocalLokiBaseURL, "", f.BasicAuth{}, f.QueryParams{
-		Query:     "{job=\"ctf\",container=\"don-node1\"}",
-		StartTime: end.Add(-time.Minute),
-		EndTime:   end,
-		Limit:     100,
-	}).QueryRange(context.Background())
-	require.NoError(t, err)
-	fmt.Println(logs)
-}
+// checkLogs is currently unused but kept for future debugging purposes.
+// func checkLogs(t *testing.T, in *ccv.Cfg, end time.Time) {
+//	logs, err := f.NewLokiQueryClient(f.LocalLokiBaseURL, "", f.BasicAuth{}, f.QueryParams{
+//		Query:     "{job=\"ctf\",container=\"don-node1\"}",
+//		StartTime: end.Add(-time.Minute),
+//		EndTime:   end,
+//		Limit:     100,
+//	}).QueryRange(context.Background())
+//	require.NoError(t, err)
+//	fmt.Println(logs)
+// }
 
 func checkCPUMem(t *testing.T, in *ccv.Cfg, end time.Time) {
 	pc := f.NewPrometheusQueryClient(f.LocalPrometheusBaseURL)

@@ -182,7 +182,7 @@ func blockchainsByChainID(in *Cfg) (map[string]*ethclient.Client, error) {
 	return bcByChainID, nil
 }
 
-// NewDefaultCLDFBundle creates a new default CLDF bundle
+// NewDefaultCLDFBundle creates a new default CLDF bundle.
 func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 	return operations.NewBundle(
 		func() context.Context { return context.Background() },
@@ -191,7 +191,7 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 	)
 }
 
-// GetContractAddrForSelector get contract address by type and chain selector
+// GetContractAddrForSelector get contract address by type and chain selector.
 func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore.ContractType) (common.Address, error) {
 	var contractAddr common.Address
 	for _, addr := range in.CCV.Addresses {
@@ -287,7 +287,7 @@ Ideally, these functions should be exposed by Atlas as a transformation function
 But for now we use these functions to expose on-chain events (logs) as a custom aggregated metrics (between two on-chain events, for example) in Prometheus
 */
 
-// DecodedLog is an extension of log containing log(event), contract name and chain ID
+// DecodedLog is an extension of log containing log(event), contract name and chain ID.
 type DecodedLog[T any] struct {
 	types.Log
 	Name         string `json:"name"`
@@ -295,7 +295,7 @@ type DecodedLog[T any] struct {
 	UnpackedData T      `json:"unpackedData"`
 }
 
-// LogStream aggregates all the data we need to import in Loki and Prometheus
+// LogStream aggregates all the data we need to import in Loki and Prometheus.
 type LogStream[T any] struct {
 	RawLoki     []any
 	DecodedLoki []any
@@ -304,7 +304,7 @@ type LogStream[T any] struct {
 
 var prometheusOnce = &sync.Once{}
 
-// ExposePrometheusMetricsFor temporarily exposes Prometheus endpoint so metrics can be scraped
+// ExposePrometheusMetricsFor temporarily exposes Prometheus endpoint so metrics can be scraped.
 func ExposePrometheusMetricsFor(interval time.Duration) error {
 	prometheusOnce.Do(func() {
 		http.Handle("/on-chain-metrics", promhttp.Handler())
@@ -316,7 +316,7 @@ func ExposePrometheusMetricsFor(interval time.Duration) error {
 	return nil
 }
 
-// FilterUnpackEventsWithMeta filters and returns all the logs from block X to block Y with additional metadata
+// FilterUnpackEventsWithMeta filters and returns all the logs from block X to block Y with additional metadata.
 func FilterUnpackEventsWithMeta[T any](ctx context.Context, c *ethclient.Client, abiStr, contractAddr, eventName string, from, to *big.Int) ([]types.Log, []*DecodedLog[T], error) {
 	parsedABI, err := abi.JSON(strings.NewReader(abiStr))
 	if err != nil {
@@ -359,7 +359,7 @@ func FilterUnpackEventsWithMeta[T any](ctx context.Context, c *ethclient.Client,
 	return logs, unpacked, nil
 }
 
-// FilterContractEventsAllChains filters all contract events across all available chains and decodes them using go-ethereum generated binding package, adds contract name and chain ID
+// FilterContractEventsAllChains filters all contract events across all available chains and decodes them using go-ethereum generated binding package, adds contract name and chain ID.
 func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName, eventName string, from, to *big.Int) (*LogStream[DecodedLog[T]], error) {
 	refsBySelector, err := GetCLDFAddressesPerSelector(in)
 	if err != nil {
@@ -418,7 +418,8 @@ CCIPv17 (CCV) specific helpers
 //	    tokenArgs: ""
 //	  });
 //	}
-func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig uint16, execAddr common.Address, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
+	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
     [
         {
@@ -431,31 +432,25 @@ func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte,
                             "name": "requiredCCV",
                             "type": "tuple[]",
                             "components": [
-                                {"name": "CCVAddress", "type": "bytes"},
-                                {"name": "Args", "type": "bytes"},
-                                {"name": "ArgsLen", "type": "uint16"}
+                                {"name": "ccvAddress", "type": "address"},
+                                {"name": "args", "type": "bytes"}
                             ]
                         },
                         {
                             "name": "optionalCCV", 
                             "type": "tuple[]",
                             "components": [
-                                {"name": "CCVAddress", "type": "bytes"},
-                                {"name": "Args", "type": "bytes"},
-                                {"name": "ArgsLen", "type": "uint16"}
+                                {"name": "ccvAddress", "type": "address"},
+                                {"name": "args", "type": "bytes"}
                             ]
                         },
-                        {"name": "executor", "type": "bytes"},
+                        {"name": "optionalThreshold", "type": "uint8"},
+                        {"name": "finalityConfig", "type": "uint16"},
+                        {"name": "executor", "type": "address"},
                         {"name": "executorArgs", "type": "bytes"},
-                        {"name": "tokenArgs", "type": "bytes"},
-                        {"name": "finalityConfig", "type": "uint32"},
-                        {"name": "requiredCCVLen", "type": "uint16"},
-                        {"name": "optionalCCVLen", "type": "uint16"},
-                        {"name": "executorArgsLen", "type": "uint16"},
-                        {"name": "tokenArgsLen", "type": "uint16"},
-                        {"name": "optionalThreshold", "type": "uint8"}
+                        {"name": "tokenArgs", "type": "bytes"}
                     ],
-                    "name": "args",
+                    "name": "extraArgs",
                     "type": "tuple"
                 }
             ],
@@ -470,88 +465,73 @@ func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte,
 		return nil, err
 	}
 
-	// Convert CCV slices to the expected format
+	// Convert CCV slices to match Solidity CCV struct exactly
 	requiredCCV := make([]struct {
-		CCVAddress []byte
+		CcvAddress common.Address
 		Args       []byte
-		ArgsLen    uint16
 	}, len(requiredCCVs))
 
 	for i, ccv := range requiredCCVs {
 		requiredCCV[i] = struct {
-			CCVAddress []byte
+			CcvAddress common.Address
 			Args       []byte
-			ArgsLen    uint16
 		}{
-			CCVAddress: ccv.CCVAddress,
+			CcvAddress: common.BytesToAddress(ccv.CCVAddress),
 			Args:       ccv.Args,
-			ArgsLen:    ccv.ArgsLen,
 		}
 	}
 
 	optionalCCV := make([]struct {
-		CCVAddress []byte
+		CcvAddress common.Address
 		Args       []byte
-		ArgsLen    uint16
 	}, len(optionalCCVs))
 
 	for i, ccv := range optionalCCVs {
 		optionalCCV[i] = struct {
-			CCVAddress []byte
+			CcvAddress common.Address
 			Args       []byte
-			ArgsLen    uint16
 		}{
-			CCVAddress: ccv.CCVAddress,
+			CcvAddress: common.BytesToAddress(ccv.CCVAddress),
 			Args:       ccv.Args,
-			ArgsLen:    ccv.ArgsLen,
 		}
 	}
 
-	args := struct {
+	// Struct matching exactly the Solidity EVMExtraArgsV3 order and types
+	extraArgs := struct {
 		RequiredCCV []struct {
-			CCVAddress []byte
+			CcvAddress common.Address
 			Args       []byte
-			ArgsLen    uint16
 		}
 		OptionalCCV []struct {
-			CCVAddress []byte
+			CcvAddress common.Address
 			Args       []byte
-			ArgsLen    uint16
 		}
-		Executor          []byte
+		OptionalThreshold uint8
+		FinalityConfig    uint16
+		Executor          common.Address
 		ExecutorArgs      []byte
 		TokenArgs         []byte
-		FinalityConfig    uint32
-		RequiredCCVLen    uint16
-		OptionalCCVLen    uint16
-		ExecutorArgsLen   uint16
-		TokenArgsLen      uint16
-		OptionalThreshold uint8
 	}{
 		RequiredCCV:       requiredCCV,
 		OptionalCCV:       optionalCCV,
+		OptionalThreshold: optionalThreshold,
+		FinalityConfig:    finalityConfig,
 		Executor:          execAddr,
 		ExecutorArgs:      execArgs,
 		TokenArgs:         tokenArgs,
-		FinalityConfig:    finalityConfig,
-		RequiredCCVLen:    uint16(len(requiredCCVs)),
-		OptionalCCVLen:    uint16(len(optionalCCVs)),
-		ExecutorArgsLen:   uint16(len(execArgs)),
-		TokenArgsLen:      uint16(len(tokenArgs)),
-		OptionalThreshold: optionalThreshold,
 	}
 
-	encoded, err := parsedABI.Methods["encodeEVMExtraArgsV3"].Inputs.Pack(args)
+	encoded, err := parsedABI.Methods["encodeEVMExtraArgsV3"].Inputs.Pack(extraArgs)
 	if err != nil {
 		return nil, err
 	}
 
+	// Prepend the GENERIC_EXTRA_ARGS_V3_TAG
 	tag := []byte{0x30, 0x23, 0x26, 0xcb}
-	tag = append(tag, encoded...)
-	return tag, nil
+	return append(tag, encoded...), nil
 }
 
-// SendExampleArgsV2Message sends an example message between two chains (selectors) using ArgsV2
+// SendExampleArgsV2Message sends an example message between two chains (selectors) using ArgsV2.
 func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
@@ -585,10 +565,11 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 		AllowOutOfOrderExecution: false,
 	}
 
+	receiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
+			Receiver:     common.LeftPadBytes(common.HexToAddress(receiver).Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
 			ExtraArgs:    argsV2.ToBytes(),
@@ -614,8 +595,8 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 	return nil
 }
 
-// SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3
-func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint32, execAddr, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
+// SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3.
+func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr common.Address, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -641,6 +622,7 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint32, execAd
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
+
 	argsV3, err := NewV3ExtraArgs(finality, execAddr, execArgs, tokenArgs, ccv, optCcv, threshold)
 	if err != nil {
 		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)

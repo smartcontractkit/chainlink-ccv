@@ -102,7 +102,7 @@ func executor(in string) {
 	}
 }
 
-// completer provides autocomplete suggestions for multi-word commands
+// completer provides autocomplete suggestions for multi-word commands.
 func completer(in prompt.Document) []prompt.Suggest {
 	text := in.TextBeforeCursor()
 	words := strings.Fields(text)
@@ -131,7 +131,7 @@ func completer(in prompt.Document) []prompt.Suggest {
 	}
 }
 
-// resetTerm resets terminal settings to Unix defaults
+// resetTerm resets terminal settings to Unix defaults.
 func resetTerm() {
 	cmd := exec.Command("stty", "sane")
 	cmd.Stdin = os.Stdin

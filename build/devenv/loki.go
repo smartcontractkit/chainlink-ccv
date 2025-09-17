@@ -10,31 +10,31 @@ import (
 )
 
 // LokiPusher handles pushing logs to Loki
-// it does not use Promtail client specifically to avoid dep hell between Prometheus/Loki go deps
+// it does not use Promtail client specifically to avoid dep hell between Prometheus/Loki go deps.
 type LokiPusher struct {
 	lokiURL string
 	client  *resty.Client
 }
 
-// LogEntry represents a single log entry for Loki
+// LogEntry represents a single log entry for Loki.
 type LogEntry struct {
 	Timestamp time.Time         `json:"timestamp"`
 	Message   any               `json:"message"`
 	Labels    map[string]string `json:"labels,omitempty"`
 }
 
-// LokiStream represents a stream of log entries with labels
+// LokiStream represents a stream of log entries with labels.
 type LokiStream struct {
 	Stream map[string]string `json:"stream"`
 	Values [][]string        `json:"values"` // [timestamp, log line]
 }
 
-// LokiPayload represents the payload structure for Loki API
+// LokiPayload represents the payload structure for Loki API.
 type LokiPayload struct {
 	Streams []LokiStream `json:"streams"`
 }
 
-// NewLokiPusher creates a new LokiPusher instance
+// NewLokiPusher creates a new LokiPusher instance.
 func NewLokiPusher() *LokiPusher {
 	lokiURL := os.Getenv("LOKI_URL")
 	if lokiURL == "" {
@@ -46,7 +46,7 @@ func NewLokiPusher() *LokiPusher {
 	}
 }
 
-// PushRawAndDecoded sends both raw and decoded messages to Loki in a structured format
+// PushRawAndDecoded sends both raw and decoded messages to Loki in a structured format.
 func (lp *LokiPusher) PushRawAndDecoded(rawMessages, decodedMessages []any, jobStreamName string) error {
 	if len(rawMessages) != len(decodedMessages) {
 		return fmt.Errorf("raw and decoded messages must have the same length")
