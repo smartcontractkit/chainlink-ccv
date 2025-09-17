@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 
@@ -145,7 +146,7 @@ func (e *EVMExtraArgsV3) ToBytes() []byte {
 
 	// Encode remaining fields
 	data = append(data, e.OptionalThreshold)
-	data = binary.BigEndian.AppendUint32(data, e.FinalityConfig)
+	data = binary.BigEndian.AppendUint16(data, e.FinalityConfig)
 	data = append(data, e.Executor...)
 	data = binary.BigEndian.AppendUint16(data, e.ExecutorArgsLen)
 	data = append(data, e.ExecutorArgs...)
@@ -250,11 +251,11 @@ func (e *EVMExtraArgsV3) FromBytes(data []byte) error {
 	}
 	e.OptionalThreshold = threshold[0]
 
-	finality, err := readNextBytes(4)
+	finality, err := readNextBytes(2)
 	if err != nil {
 		return fmt.Errorf("failed to read finality config: %w", err)
 	}
-	e.FinalityConfig = binary.BigEndian.Uint32(finality)
+	e.FinalityConfig = binary.BigEndian.Uint16(finality)
 
 	executor, err := readNextBytes(20)
 	if err != nil {
