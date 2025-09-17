@@ -185,10 +185,10 @@ func NewEnvironment() (*Cfg, error) {
 		if err != nil {
 			return fmt.Errorf("failed to create verifier service: %w", err)
 		}
-		//_, err = services.NewVerifier(in.Verifier2)
-		//if err != nil {
-		//	return fmt.Errorf("failed to create verifier 2 service: %w", err)
-		//}
+		_, err = services.NewVerifier(in.Verifier2)
+		if err != nil {
+			return fmt.Errorf("failed to create verifier 2 service: %w", err)
+		}
 		return nil
 	})
 	// wait for verifier

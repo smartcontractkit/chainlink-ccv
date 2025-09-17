@@ -438,7 +438,9 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
+	github.com/smartcontractkit/chainlink-ccip => ../../../chainlink-ccip
 	github.com/smartcontractkit/chainlink-ccv/common => ../../common
 	github.com/smartcontractkit/chainlink-ccv/protocol => ../../protocol
+
 	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
 )
