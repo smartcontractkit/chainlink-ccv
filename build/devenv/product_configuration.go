@@ -181,7 +181,7 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 				USDPerWETH:                     usdPerWeth,
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
+				SignatureConfigArgs: commit_offramp.SetSignatureConfigArgs{
 					Threshold: 1,
 					Signers: []common.Address{
 						common.HexToAddress("0x02"),

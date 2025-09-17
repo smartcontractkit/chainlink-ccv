@@ -26,6 +26,8 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/verification"
+	evm_verification "github.com/smartcontractkit/chainlink-ccv/devenv/verification/evm"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -517,6 +519,69 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
 		Msg("CCIP message sent")
+
+	return nil
+}
+
+func VerifyContracts(in *Cfg) error {
+	chainIDToExplorerURL := map[uint64]string{}
+	pollInterval := 5 * time.Second
+	verifiables := make([]verification.Verifiable, 0)
+
+	for _, addr := range in.CCV.Addresses {
+		var refs []datastore.AddressRef
+		err := json.Unmarshal([]byte(addr), &refs)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal address refs: %w", err)
+		}
+		for _, ref := range refs {
+			v, err := evm_verification.NewBlockscoutContractVerifier(
+				chainIDToExplorerURL[ref.ChainSelector],
+				ref.Address,
+				deployment.ContractType(ref.Type),
+				ref.Version,
+				pollInterval,
+				Plog,
+			)
+			if err != nil {
+				Plog.Warn().
+					Str("address", ref.Address).
+					Str("type", ref.Type.String()).
+					Str("version", ref.Version.String()).
+					Err(err).
+					Msg("Failed to create blockscout verifier for contract")
+				continue
+			}
+			verifiables = append(verifiables, v)
+		}
+	}
+
+	for _, v := range verifiables {
+		verified, err := v.IsVerified(context.Background())
+		if err != nil {
+			Plog.Error().
+				Err(err).
+				Str("contract", v.String()).
+				Msg("Failed to check verification status")
+			continue
+		}
+		if verified {
+			Plog.Info().
+				Str("contract", v.String()).
+				Msg("Already verified")
+			continue
+		}
+		if err := v.Verify(context.Background()); err != nil {
+			Plog.Error().
+				Err(err).
+				Str("contract", v.String()).
+				Msg("Failed to verify")
+			continue
+		}
+		Plog.Info().
+			Str("contract", v.String()).
+			Msg("Verification successful")
+	}
 
 	return nil
 }
