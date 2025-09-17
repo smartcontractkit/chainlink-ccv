@@ -72,20 +72,24 @@ runs:
 
     - name: Run lint
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: just lint
 
     - name: Run proto-check
       if: inputs.run-proto-check == 'true'
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: just proto-check
 
     - name: Run tests
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: COVERAGE_FILE=coverage.out just test-coverage
 
     - name: Generate coverage report
       if: github.event_name == 'pull_request'
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
         total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
         echo "coverage=$total" >> $GITHUB_ENV
