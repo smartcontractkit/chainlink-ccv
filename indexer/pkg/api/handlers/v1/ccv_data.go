@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -74,7 +75,8 @@ func (h *CCVDataV1Handler) parseSelectorTypes(c *gin.Context, paramName string) 
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Bad Request", "status": http.StatusBadRequest})
 				return nil, false
 			}
-			selectorTypes = append(selectorTypes, types.ChainSelector(i))
+
+			selectorTypes = append(selectorTypes, types.ChainSelector(i)) // #nosec G115
 		}
 	}
 	return selectorTypes, true

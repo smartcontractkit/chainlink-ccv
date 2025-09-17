@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"os"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
@@ -11,7 +14,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -21,7 +23,6 @@ func main() {
 		config.Encoding = "console"
 		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	})
-
 	if err != nil {
 		panic(err)
 	}
@@ -54,5 +55,8 @@ func main() {
 	scanner.Start(ctx)
 
 	v1 := api.NewV1API(lggr, indexerStorage)
-	api.Serve(v1, 8100)
+	if err := api.Serve(v1, 8100); err != nil {
+		lggr.Errorw("Failed to serve API", "error", err)
+		os.Exit(1)
+	}
 }
