@@ -102,6 +102,8 @@ func (ct *EVMContractTransmitter) GetTransactOpts() (*bind.TransactOpts, error) 
 	auth := ct.TransactOpts
 	auth.Nonce = big.NewInt(int64(nonce)) //nolint:gosec // G115 will replace with txm
 	auth.GasPrice = gasPrice
+	//TODO: Use a proper limit
+	auth.GasLimit = uint64(10000000) // in units
 
 	return auth, nil
 }

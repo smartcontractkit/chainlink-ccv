@@ -50,7 +50,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 		nil,
 		nil,
 	)
-	_, err = FilterContractEventsAllChains[ccvAggregator.CCVAggregatorExecutionStateChanged](
+	executionStateChangedStreams, err := FilterContractEventsAllChains[ccvAggregator.CCVAggregatorExecutionStateChanged](
 		ctx,
 		in,
 		bcs,
@@ -67,6 +67,9 @@ func MonitorOnChainLogs(in *Cfg) error {
 	if err := lp.PushRawAndDecoded(msgSentStreams.RawLoki, msgSentStreams.DecodedLoki, "on-chain"); err != nil {
 		return fmt.Errorf("failed to push logs: %w", err)
 	}
+	if err := lp.PushRawAndDecoded(executionStateChangedStreams.RawLoki, executionStateChangedStreams.DecodedLoki, "on-chain"); err != nil {
+		return fmt.Errorf("failed to push logs: %w", err)
+	}
 	// process Prom metrics
 	logTimeByMsgID := make(map[[32]byte]uint64)
 	for _, l := range msgSentStreams.DecodedProm {
@@ -81,11 +84,15 @@ func MonitorOnChainLogs(in *Cfg) error {
 			}
 		}
 	}
-	for _, l := range msgSentStreams.DecodedProm {
-		_ = l
+	for _, l := range executionStateChangedStreams.DecodedProm {
 		if l.ChainID == 2337 && l.Name == "ExecutionStateChanged" {
-			// TODO: get msgID and measure time for each variant of messages, no events emitted yet
-			//srcDstLatency.Observe(float64(l.BlockTimestamp))
+			if payload, ok := any(l.UnpackedData).(ccvAggregator.CCVAggregatorExecutionStateChanged); ok {
+				Plog.Info().
+					Str("MsgID", fmt.Sprintf("%x", payload.MessageId)).
+					Uint64("BlockTimestamp", l.BlockTimestamp).
+					Msg("Received ExecutionStateChanged log")
+				// srcDstLatency.Observe(float64(l.BlockTimestamp))
+			}
 		}
 	}
 	Plog.Info().Str("LokiStreamURL", LokiOnChainStreamURL).Send()
