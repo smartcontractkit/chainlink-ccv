@@ -45,7 +45,7 @@ func main() {
 	scanner := scanner.NewScanner(
 		scanner.WithReaderDiscovery(readerDiscovery),
 		scanner.WithLogger(lggr),
-		scanner.WithConfig(scanner.ScannerConfig{
+		scanner.WithConfig(scanner.Config{
 			ScanInterval: 1 * time.Second,
 		}),
 		scanner.WithStorageWriter(indexerStorage),
