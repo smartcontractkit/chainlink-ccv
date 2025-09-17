@@ -22,6 +22,9 @@ func TestAggregationHappyPath(t *testing.T) {
 	signer2 := NewSignerFixture(t, "node2")
 	config := map[string]*model.Committee{
 		"committee1": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
 					Threshold: 2,
@@ -30,7 +33,6 @@ func TestAggregationHappyPath(t *testing.T) {
 						signer2.Signer,
 					},
 					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
-					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -78,6 +80,9 @@ func TestIdempotency(t *testing.T) {
 	signer1 := NewSignerFixture(t, "node1")
 	config := map[string]*model.Committee{
 		"committee1": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
 					Threshold: 2,
@@ -85,7 +90,6 @@ func TestIdempotency(t *testing.T) {
 						signer1.Signer,
 					},
 					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
-					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -170,6 +174,9 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	signer3 := NewSignerFixture(t, "node3")
 	config := map[string]*model.Committee{
 		"committee1": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
 					Threshold: 2,
@@ -178,7 +185,6 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 						signer2.Signer,
 					},
 					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
-					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -209,7 +215,6 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 			signer3.Signer,
 		},
 		OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
-		OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 	}
 
 	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
@@ -240,6 +245,9 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	signer3 := NewSignerFixture(t, "node3")
 	config := map[string]*model.Committee{
 		"committee1": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"2": {
 					Threshold: 2,
@@ -248,7 +256,6 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 						signer2.Signer,
 					},
 					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
-					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -290,7 +297,6 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 			signer3.Signer,
 		},
 		OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
-		OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
 	}
 
 	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress)

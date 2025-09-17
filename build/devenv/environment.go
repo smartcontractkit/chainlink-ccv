@@ -168,6 +168,9 @@ func NewEnvironment() (*Cfg, error) {
 	}
 
 	configBuilder := committeeBuilder.ConfigureOnchain(in)
+	if configBuilder == nil {
+		return nil, fmt.Errorf("failed to configure committee onchain: configBuilder is nil")
+	}
 
 	track.Record("[changeset] deployed product contracts")
 	// Start services that need blockchain outputs
@@ -206,10 +209,13 @@ func NewEnvironment() (*Cfg, error) {
 	})
 
 	eg.Go(func() error {
+		Plog.Info().Msg("Starting aggregator creation")
 		aggCommitteeConfig, err := configBuilder.AggregatorCommittee()
 		if err != nil {
+			Plog.Error().Err(err).Msg("Failed to get aggregator committee config")
 			return fmt.Errorf("failed to get aggregator committee: %w", err)
 		}
+		Plog.Info().Msg("Got aggregator committee config, creating aggregator service")
 		aggConfig := services.AggregatorConfig{
 			Server: services.ServerConfig{
 				Address: ":50051",
@@ -222,8 +228,10 @@ func NewEnvironment() (*Cfg, error) {
 		in.Aggregator.AggregatorConfig = &aggConfig
 		_, err = services.NewAggregator(in.Aggregator)
 		if err != nil {
+			Plog.Error().Err(err).Msg("Failed to create aggregator service")
 			return fmt.Errorf("failed to create aggregator service: %w", err)
 		}
+		Plog.Info().Msg("Aggregator service created successfully")
 		close(aggregatorReady)
 		return nil
 	})
