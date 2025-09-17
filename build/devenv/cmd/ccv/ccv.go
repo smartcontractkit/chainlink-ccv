@@ -338,22 +338,8 @@ var sendCmd = &cobra.Command{
 					},
 				}, 0)
 		} else {
-			// V2 format - use default finality config of 1
-			return ccv.SendExampleArgsV3Message(in, src, dest, 1, nil, nil, nil,
-				[]types.CCV{
-					{
-						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				[]types.CCV{
-					{
-						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				}, 0)
+			// V2 format - use the dedicated V2 function
+			return ccv.SendExampleArgsV2Message(in, src, dest)
 		}
 	},
 }
