@@ -136,7 +136,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 				t.Errorf("After PopAllReady(), heap has %v messages, want %v", tt.heap.Len(), tt.remainingCount)
 			}
 
-			// Check that returned messages have expected sequence numbers
+			// Check that returned messages have expected nonces
 			var actualNonces []uint64
 			for _, msg := range result {
 				actualNonces = append(actualNonces, uint64(msg.Message.Nonce))
@@ -146,7 +146,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 				if len(actualNonces) == 0 && len(tt.expectedNonces) == 0 {
 					return
 				}
-				t.Errorf("PopAllReady() returned sequence numbers %v, want %v", actualNonces, tt.expectedNonces)
+				t.Errorf("PopAllReady() returned nonces %v, want %v", actualNonces, tt.expectedNonces)
 			}
 		})
 	}
@@ -199,7 +199,7 @@ func TestMessageHeap_Integration(t *testing.T) {
 		}
 
 		if uint64(msg.Payload.Message.Nonce) != expectedNonces[i] {
-			t.Errorf("Pop() at iteration %v returned seq %v, want %v", i, msg.Payload.Message.Nonce, expectedNonces[i])
+			t.Errorf("Pop() at iteration %v returned nonce %v, want %v", i, msg.Payload.Message.Nonce, expectedNonces[i])
 		}
 	}
 

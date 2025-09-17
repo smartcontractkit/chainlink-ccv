@@ -1,18 +1,25 @@
-name: Common CI
+name: Go Modules Tidy Check
 
 on:
-  push:
+  pull_request:
     paths:
-      - '.github/**'
-      - 'protocol/**'
-      - 'common/**'
-
-defaults:
-  run:
-    working-directory: common
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'Justfile'
+      - 'tools/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'Justfile'
+      - 'tools/**'
 
 jobs:
-  common-lint-and-test:
+  mod-tidy-all:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -23,9 +30,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
         with:
-          go-version-file: common/go.mod
           cache: true
-          cache-dependency-path: common/go.sum
+          go-version: '1.24.6'
 
       - name: Populate go envs
         run: |
@@ -47,12 +53,21 @@ jobs:
         uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0
 
       - name: Install go-tools
+        run: just install-go-tools
+
+      - name: Run repo-wide go mod tidy
+        run: just mod-tidy-all
+
+      - name: Verify go.mod and go.sum across all modules
         run: |
-          just install-protoc
-          just install-go-tools
-
-      - name: Run lint
-        run: just lint
-
-      - name: Run proto-check
-        run: just proto-check
+          files=$(git ls-files | grep -E '(^|/)go\.(mod|sum)$' || true)
+          if [ -z "$files" ]; then
+            echo "No go.mod or go.sum files found."
+            exit 0
+          fi
+          if ! git diff --exit-code -- $files; then
+            echo "❌ Some go.mod or go.sum files changed after running 'just mod-tidy-all'."
+            echo "Please run 'just mod-tidy-all' locally and commit the results."
+            git diff -- $files | cat
+            exit 1
+          fi
