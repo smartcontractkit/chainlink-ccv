@@ -6,7 +6,6 @@ on:
 jobs:
   executor-tests:
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.changed_files, 'executor/')
     steps:
       - name: Lint and Test Executor
         uses: ./.github/actions/lint-test-component
@@ -18,7 +17,6 @@ jobs:
 
   indexer-tests:
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.changed_files, 'indexer/')
     steps:
       - name: Lint and Test Indexer
         uses: ./.github/actions/lint-test-component
@@ -30,7 +28,6 @@ jobs:
 
   verifier-tests:
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.changed_files, 'verifier/')
     steps:
       - name: Lint and Test Verifier
         uses: ./.github/actions/lint-test-component
@@ -42,7 +39,6 @@ jobs:
 
   aggregator-tests:
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.changed_files, 'aggregator/')
     steps:
       - name: Lint and Test Aggregator
         uses: ./.github/actions/lint-test-component
@@ -54,7 +50,6 @@ jobs:
 
   common-tests:
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.changed_files, 'common/') || contains(github.event.pull_request.changed_files, 'protocol/')
     steps:
       - name: Lint and Test Common
         uses: ./.github/actions/lint-test-component
