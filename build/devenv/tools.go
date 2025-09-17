@@ -23,14 +23,15 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
-	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
-	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 /*
@@ -202,8 +203,6 @@ func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore
 		for _, ref := range refs {
 			if ref.ChainSelector == selector && ref.Type == contractType {
 				contractAddr = common.HexToAddress(ref.Address)
-			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(contractType) {
-				contractAddr = common.HexToAddress(ref.Address)
 			}
 		}
 	}
@@ -211,7 +210,7 @@ func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore
 }
 
 func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) common.Address {
-	addr, err := GetContractAddressForSelector(in, selector, contractType)
+	addr, err := GetContractAddrForSelector(in, selector, datastore.ContractType(contractType))
 	if err != nil {
 		Plog.Fatal().Err(err).Msg("Failed to get contract address")
 	}
@@ -298,8 +297,8 @@ type DecodedLog[T any] struct {
 
 // LogStream aggregates all the data we need to import in Loki and Prometheus
 type LogStream[T any] struct {
-	RawLoki     []interface{}
-	DecodedLoki []interface{}
+	RawLoki     []any
+	DecodedLoki []any
 	DecodedProm []*T
 }
 
@@ -361,15 +360,15 @@ func FilterUnpackEventsWithMeta[T any](ctx context.Context, c *ethclient.Client,
 }
 
 // FilterContractEventsAllChains filters all contract events across all available chains and decodes them using go-ethereum generated binding package, adds contract name and chain ID
-func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName string, eventName string, from, to *big.Int) (*LogStream[DecodedLog[T]], error) {
+func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName, eventName string, from, to *big.Int) (*LogStream[DecodedLog[T]], error) {
 	refsBySelector, err := GetCLDFAddressesPerSelector(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load addresses per selector: %w", err)
 	}
 	// to simplify the user-facing API we prepare data for both Loki pushes and Prometheus observations
 	decodedPromStream := make([]*DecodedLog[T], 0)
-	rawLokiStream := make([]interface{}, 0)
-	decodedLokiStream := make([]interface{}, 0)
+	rawLokiStream := make([]any, 0)
+	decodedLokiStream := make([]any, 0)
 	// find all events for all the contract across the chains
 	for _, ref := range refsBySelector {
 		for _, r := range ref {
@@ -553,7 +552,7 @@ func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte,
 }
 
 // SendExampleArgsV2Message sends an example message between two chains (selectors) using ArgsV2
-func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
+func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -616,7 +615,7 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 }
 
 // SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3
-func SendExampleArgsV3Message(in *Cfg, src uint64, dest uint64, finality uint32, execAddr, execArgs, tokenArgs []byte, ccv []ccvTypes.CCV, optCcv []ccvTypes.CCV, threshold uint8) error {
+func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint32, execAddr, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)

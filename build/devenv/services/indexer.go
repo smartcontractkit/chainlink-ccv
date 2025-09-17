@@ -25,10 +25,8 @@ const (
 	DefaultIndexerDBImage = "postgres:16-alpine"
 )
 
-var (
-	DefaultIndexerDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		DefaultIndexerName, DefaultIndexerName, DefaultIndexerDBPort, DefaultIndexerName)
-)
+var DefaultIndexerDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+	DefaultIndexerName, DefaultIndexerName, DefaultIndexerDBPort, DefaultIndexerName)
 
 type DBInput struct {
 	Image string `toml:"image"`

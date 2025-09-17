@@ -19,7 +19,7 @@ type LokiPusher struct {
 // LogEntry represents a single log entry for Loki
 type LogEntry struct {
 	Timestamp time.Time         `json:"timestamp"`
-	Message   interface{}       `json:"message"`
+	Message   any               `json:"message"`
 	Labels    map[string]string `json:"labels,omitempty"`
 }
 
@@ -47,7 +47,7 @@ func NewLokiPusher() *LokiPusher {
 }
 
 // PushRawAndDecoded sends both raw and decoded messages to Loki in a structured format
-func (lp *LokiPusher) PushRawAndDecoded(rawMessages []interface{}, decodedMessages []interface{}, jobStreamName string) error {
+func (lp *LokiPusher) PushRawAndDecoded(rawMessages, decodedMessages []any, jobStreamName string) error {
 	if len(rawMessages) != len(decodedMessages) {
 		return fmt.Errorf("raw and decoded messages must have the same length")
 	}
@@ -57,7 +57,7 @@ func (lp *LokiPusher) PushRawAndDecoded(rawMessages []interface{}, decodedMessag
 	values := make([][]string, 0, len(rawMessages))
 
 	for i := 0; i < len(rawMessages); i++ {
-		combinedMessage := map[string]interface{}{
+		combinedMessage := map[string]any{
 			"raw":     rawMessages[i],
 			"decoded": decodedMessages[i],
 			"ts":      time.Now().Format(time.RFC3339Nano),

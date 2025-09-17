@@ -10,20 +10,20 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	"github.com/stretchr/testify/require"
-
-	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 type ChaosTestCase struct {
@@ -48,7 +48,7 @@ type EVMTXGun struct {
 	dest evm.Chain
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s evm.Chain, d evm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s, d evm.Chain) *EVMTXGun {
 	return &EVMTXGun{
 		cfg:  cfg,
 		e:    e,
@@ -62,10 +62,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
 
-	routerAddr, err := ccv.GetRouterAddrForSelector(m.cfg, m.src.Selector)
-	if err != nil {
-		return &wasp.Response{Error: err.Error(), Failed: true}
-	}
+	routerAddr := ccv.MustGetContractAddressForSelector(m.cfg, m.src.Selector, router.ContractType)
 
 	argsV3, err := ccv.NewV3ExtraArgs(1, []byte{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
 	if err != nil {
@@ -138,7 +135,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, s evm.Chain, d evm.Chain) *wasp.Profile {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, s, d evm.Chain) *wasp.Profile {
 	return wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,

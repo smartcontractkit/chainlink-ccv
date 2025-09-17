@@ -27,10 +27,8 @@ const (
 	DefaultAggregatorDBImage = "postgres:16-alpine"
 )
 
-var (
-	DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBPort, DefaultAggregatorName)
-)
+var DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+	DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBPort, DefaultAggregatorName)
 
 type AggregatorDBInput struct {
 	Image string `toml:"image"`

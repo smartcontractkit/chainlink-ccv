@@ -14,10 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -366,7 +364,6 @@ var monitorContractsCmd = &cobra.Command{
 }
 
 func init() {
-
 	// Blockscout, on-chain debug
 	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8555", "EVM RPC node URL (default to dst chain on 8555")
 	bsCmd.PersistentFlags().StringP("chain-id", "c", "2337", "RPC's Chain ID")

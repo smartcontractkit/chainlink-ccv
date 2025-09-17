@@ -4,14 +4,14 @@ import (
 	"errors"
 	"fmt"
 
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
+
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
