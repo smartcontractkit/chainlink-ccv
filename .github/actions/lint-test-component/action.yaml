@@ -36,6 +36,16 @@ runs:
         go-version-file: ${{ inputs.go-mod-path }}
         cache-dependency-path: ${{ inputs.go-sum-path }}
 
+    - name: Load tool versions
+      id: tool-versions
+      shell: bash
+      run: |
+        set -euo pipefail
+        source "${GITHUB_WORKSPACE}/tool-versions.env" 
+
+        # Make it a step output
+        echo "golangci_lint_version=$VERSION_GOLANGCI_LINT" >> "$GITHUB_OUTPUT"
+
     - name: Populate go envs
       shell: bash
       run: |
@@ -56,13 +66,19 @@ runs:
     - name: Install just
       uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0
 
-    - name: Install go-tools
+    - name: Install protoc
       shell: bash
       run: |
         if [ "${{ inputs.install-protoc }}" = "true" ]; then
           just install-protoc
         fi
-        just install-go-tools
+
+    - name: Install golangci-lint
+      shell: bash
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+          | sh -s -- -b $(go env GOPATH)/bin v${{ steps.tool-versions.outputs.golangci_lint_version }}
+        golangci-lint version
 
     - name: Run lint
       shell: bash
