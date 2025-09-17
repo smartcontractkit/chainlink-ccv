@@ -125,7 +125,7 @@ func (e *EVMExtraArgsV3) ToBytes() []byte {
 	data = append(data, EVMExtraArgsV3Tag...)
 
 	// Encode required CCVs
-	data = binary.BigEndian.AppendUint16(data, uint16(len(e.RequiredCCV)))
+	data = binary.BigEndian.AppendUint16(data, uint16(len(e.RequiredCCV))) //nolint:gosec // G115: Protocol-defined conversion
 	for _, ccv := range e.RequiredCCV {
 		data = append(data, ccv.CCVAddress...)
 		data = binary.BigEndian.AppendUint16(data, ccv.ArgsLen)
@@ -133,7 +133,7 @@ func (e *EVMExtraArgsV3) ToBytes() []byte {
 	}
 
 	// Encode optional CCVs
-	data = binary.BigEndian.AppendUint16(data, uint16(len(e.OptionalCCV)))
+	data = binary.BigEndian.AppendUint16(data, uint16(len(e.OptionalCCV))) //nolint:gosec // G115: Protocol-defined conversion
 	for _, ccv := range e.OptionalCCV {
 		data = append(data, ccv.CCVAddress...)
 		data = binary.BigEndian.AppendUint16(data, ccv.ArgsLen)
@@ -144,9 +144,9 @@ func (e *EVMExtraArgsV3) ToBytes() []byte {
 	data = append(data, e.OptionalThreshold)
 	data = binary.BigEndian.AppendUint16(data, e.FinalityConfig)
 	data = append(data, e.Executor...)
-	data = binary.BigEndian.AppendUint16(data, uint16(len(e.ExecutorArgs)))
+	data = binary.BigEndian.AppendUint16(data, uint16(len(e.ExecutorArgs))) //nolint:gosec // G115: Protocol-defined conversion
 	data = append(data, e.ExecutorArgs...)
-	data = binary.BigEndian.AppendUint16(data, uint16(len(e.TokenArgs)))
+	data = binary.BigEndian.AppendUint16(data, uint16(len(e.TokenArgs))) //nolint:gosec // G115: Protocol-defined conversion
 	data = append(data, e.TokenArgs...)
 
 	return data
