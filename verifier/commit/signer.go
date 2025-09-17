@@ -83,7 +83,7 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask type
 	}
 
 	// 7. Create signature data with signer address
-	signatures := []signature.SignatureData{
+	signatures := []signature.Data{
 		{
 			R:      r,
 			S:      s,

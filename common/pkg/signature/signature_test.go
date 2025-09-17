@@ -39,7 +39,7 @@ func TestSignV27(t *testing.T) {
 
 func TestSortSignaturesBySigner(t *testing.T) {
 	// Create test signatures with different signer addresses
-	signatures := []SignatureData{
+	signatures := []Data{
 		{
 			R:      [32]byte{0x03},
 			S:      [32]byte{0x04},
@@ -77,7 +77,7 @@ func TestSortSignaturesBySigner(t *testing.T) {
 func TestEncodeDecodeSignaturesABI(t *testing.T) {
 	// Create test data
 	ccvArgs := []byte("test ccv args")
-	signatures := []SignatureData{
+	signatures := []Data{
 		{
 			R:      [32]byte{0x01},
 			S:      [32]byte{0x02},
@@ -128,7 +128,8 @@ func TestRecoverSigners(t *testing.T) {
 	copy(hashArray[:], hash[:])
 
 	// Sign with each private key using V27 compatibility
-	var rs, ss [][32]byte
+	rs := make([][32]byte, 0)
+	ss := make([][32]byte, 0)
 	for _, pk := range privateKeys {
 		r, s, _, err := SignV27(hashArray[:], pk)
 		require.NoError(t, err)
@@ -163,12 +164,12 @@ func TestEndToEndSignatureFlow(t *testing.T) {
 	ccvArgs := []byte("test ccv arguments")
 
 	// Sign with each key
-	var signatures []SignatureData
+	signatures := make([]Data, 0)
 	for _, pk := range privateKeys {
 		r, s, addr, err := SignV27(hashArray[:], pk)
 		require.NoError(t, err)
 
-		signatures = append(signatures, SignatureData{
+		signatures = append(signatures, Data{
 			R:      r,
 			S:      s,
 			Signer: addr,

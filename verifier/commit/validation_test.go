@@ -46,12 +46,12 @@ func TestSignatureEncodingErrors(t *testing.T) {
 	tests := []struct {
 		name       string
 		expectErr  string
-		signatures []signature.SignatureData
+		signatures []signature.Data
 		ccvArgs    []byte
 	}{
 		{
 			name:       "empty_signatures",
-			signatures: []signature.SignatureData{},
+			signatures: []signature.Data{},
 			ccvArgs:    []byte("test"),
 			expectErr:  "no signatures provided",
 		},

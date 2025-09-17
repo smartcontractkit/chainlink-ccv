@@ -123,7 +123,7 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		}
 
 		// Create signature data with dummy signer address
-		sigData := []signature.SignatureData{
+		sigData := []signature.Data{
 			{
 				R:      to32ByteArray(r),
 				S:      to32ByteArray(s),

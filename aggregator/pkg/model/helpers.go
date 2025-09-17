@@ -36,13 +36,13 @@ func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
 }
 
 func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*aggregator.MessageWithCCVData, error) {
-	participantSignatures := make(map[string]signature.SignatureData)
+	participantSignatures := make(map[string]signature.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
 			return nil, fmt.Errorf("missing IdentifierSigner in verification record")
 		}
 
-		participantSignatures[verification.IdentifierSigner.ParticipantID] = signature.SignatureData{
+		participantSignatures[verification.IdentifierSigner.ParticipantID] = signature.Data{
 			R:      verification.IdentifierSigner.SignatureR,
 			S:      verification.IdentifierSigner.SignatureS,
 			Signer: common.Address(verification.IdentifierSigner.Address),
@@ -56,7 +56,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 
 	signers := quorumConfig.Signers
 
-	var signatures []signature.SignatureData
+	var signatures []signature.Data
 	// make sure all ccvData in reports are the same
 	blobData := report.Verifications[0].BlobData
 	for _, verification := range report.Verifications {
@@ -75,7 +75,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	}
 
 	// Sort signatures by signer address for onchain compatibility
-	sortedSignatures := make([]signature.SignatureData, len(signatures))
+	sortedSignatures := make([]signature.Data, len(signatures))
 	copy(sortedSignatures, signatures)
 	signature.SortSignaturesBySigner(sortedSignatures)
 

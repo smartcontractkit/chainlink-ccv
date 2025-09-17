@@ -12,8 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// SignatureData represents a signature with its associated signer address.
-type SignatureData struct {
+// curve order n for secp256k1.
+var secpN = crypto.S256().Params().N
+
+// Data represents a signature with its associated signer address.
+type Data struct {
 	R      [32]byte
 	S      [32]byte
 	Signer common.Address
@@ -27,14 +30,11 @@ func Keccak256(data []byte) [32]byte {
 	return result
 }
 
-// curve order n for secp256k1
-var secpN = crypto.S256().Params().N
-
 // NormalizeToV27 takes a standard 65-byte Ethereum signature (R||S||V) and
 // rewrites it so that it is valid for ecrecover(hash, 27, r, s) on-chain.
 // If V == 28 (or == 1 if your signer returns 0/1), we flip s := n - s and set V := 27.
 // Output r,s are 32-byte big-endian scalars suitable for Solidity bytes32.
-func NormalizeToV27(sig65 []byte) (r32 [32]byte, s32 [32]byte, err error) {
+func NormalizeToV27(sig65 []byte) (r32, s32 [32]byte, err error) {
 	if len(sig65) != 65 {
 		return r32, s32, errors.New("signature must be 65 bytes")
 	}
@@ -73,7 +73,7 @@ func NormalizeToV27(sig65 []byte) (r32 [32]byte, s32 [32]byte, err error) {
 
 // SignV27 signs hash with priv and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
 // This is equivalent to signing normally, then applying NormalizeToV27.
-func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32 [32]byte, s32 [32]byte, addr common.Address, err error) {
+func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, addr common.Address, err error) {
 	// go-ethereum's crypto.Sign returns 65 bytes: R||S||V, where V is 0/1 (recovery id).
 	sig, err := crypto.Sign(hash, priv)
 	if err != nil {
@@ -107,7 +107,7 @@ func leftPad32(b []byte) []byte {
 
 // SortSignaturesBySigner sorts signatures by signer address in ascending order.
 // This is required for onchain validation which expects ordered signatures.
-func SortSignaturesBySigner(signatures []SignatureData) {
+func SortSignaturesBySigner(signatures []Data) {
 	sort.Slice(signatures, func(i, j int) bool {
 		// Compare addresses as big integers (uint160)
 		addrI := signatures[i].Signer.Big()
@@ -117,8 +117,8 @@ func SortSignaturesBySigner(signatures []SignatureData) {
 }
 
 // EncodeSignaturesABI encodes signatures using ABI encoding compatible with onchain validation.
-// The format matches the expected ccvData structure: abi.encode(ccvArgs, rs, ss)
-func EncodeSignaturesABI(ccvArgs []byte, signatures []SignatureData) ([]byte, error) {
+// The format matches the expected ccvData structure: abi.encode(ccvArgs, rs, ss).
+func EncodeSignaturesABI(ccvArgs []byte, signatures []Data) ([]byte, error) {
 	if len(signatures) == 0 {
 		return nil, fmt.Errorf("no signatures provided")
 	}
@@ -236,7 +236,7 @@ func RecoverSigners(hash [32]byte, rs, ss [][32]byte) ([]common.Address, error) 
 	return signers, nil
 }
 
-func RecoverSigner(hash [32]byte, r, s [32]byte) (common.Address, error) {
+func RecoverSigner(hash, r, s [32]byte) (common.Address, error) {
 	// Create signature with v=0 (crypto.Ecrecover expects 0/1, not 27/28)
 	sig := make([]byte, 65)
 	copy(sig[0:32], r[:])
