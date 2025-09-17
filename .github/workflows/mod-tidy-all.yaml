@@ -9,6 +9,7 @@ on:
       - 'Justfile'
       - 'tool-versions.env'
       - 'tools/**'
+      - '.github/**'
   push:
     branches:
       - main
@@ -19,6 +20,8 @@ on:
       - 'Justfile'
       - 'tool-versions.env'
       - 'tools/**'
+      - '.github/**'
+  workflow_dispatch:
 
 jobs:
   mod-tidy-all:
