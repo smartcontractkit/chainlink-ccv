@@ -120,7 +120,7 @@ func SortSignaturesBySigner(signatures []Data) {
 // The format matches the expected ccvData structure: abi.encode(ccvArgs, rs, ss).
 func EncodeSignaturesABI(ccvArgs []byte, signatures []Data) ([]byte, error) {
 	if len(signatures) == 0 {
-		return nil, fmt.Errorf("no signatures to encode")
+		return nil, fmt.Errorf("no signatures provided")
 	}
 
 	// Extract rs and ss arrays
