@@ -43,6 +43,7 @@ jobs:
           go-sum-path: verifier/go.sum
           job-name: verifier-lint-and-test
 
+
   aggregator-tests:
     runs-on: ubuntu-latest
     steps:
