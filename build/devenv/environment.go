@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -110,16 +109,6 @@ func NewEnvironment() (*Cfg, error) {
 		return nil
 	})
 
-	var aggregatorOutput *services.AggregatorOutput
-	eg.Go(func() error {
-		aggregatorOutput, err = services.NewAggregator(in.Aggregator)
-		if err != nil {
-			return fmt.Errorf("failed to create aggregator service: %w", err)
-		}
-		close(aggregatorReady)
-		return nil
-	})
-
 	eg.Go(func() error {
 		// Wait for blockchain outputs to be ready
 		<-blockchainOutputsReady
@@ -141,12 +130,14 @@ func NewEnvironment() (*Cfg, error) {
 	//	return nil
 	//})
 
+	<-blockchainOutputsReady
+	committeeBuilder := NewCommitteeBuilder(services.ConvertBlockchainOutputsToInfo(blockchainOutputs), DefaultCommittee())
 	// Wait for all services to be created
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
 	track.Record("[infra] deploying blockchains")
-	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork); err != nil {
+	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork, committeeBuilder); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
 	track.Record("[changeset] configured nodes network")
@@ -155,42 +146,88 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
 	}
 
-	in.Verifier.BlockchainOutputs = blockchainOutputs
-	in.Verifier.VerifierConfig = commontypes.VerifierConfig{
-		AggregatorAddress: aggregatorOutput.Address,
-		BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
-		PrivateKey:        "dev-private-key-12345678901234567890",
-	}
+	// in.Verifier.BlockchainOutputs = blockchainOutputs
+	// in.Verifier.VerifierConfig = commontypes.VerifierConfig{
+	// 	AggregatorAddress: aggregatorOutput.Address,
+	// 	BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+	// 	PrivateKey:        "dev-private-key-12345678901234567890",
+	// }
 
-	in.Verifier2.BlockchainOutputs = blockchainOutputs
-	in.Verifier2.VerifierConfig = commontypes.VerifierConfig{
-		AggregatorAddress: aggregatorOutput.Address,
-		BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
-		PrivateKey:        "dev-private-key2-12345678901234567890",
-	}
-	in.Verifier2.ContainerName = "verifier2"
-	in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
+	// in.Verifier2.BlockchainOutputs = blockchainOutputs
+	// in.Verifier2.VerifierConfig = commontypes.VerifierConfig{
+	// 	AggregatorAddress: aggregatorOutput.Address,
+	// 	BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+	// 	PrivateKey:        "dev-private-key2-12345678901234567890",
+	// }
+	// in.Verifier2.ContainerName = "verifier2"
+	// in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
 
 	track.Record("[infra] deployed CL nodes")
-	if err := DefaultProductConfiguration(in, ConfigureProductContractsJobs); err != nil {
+	if err := DefaultProductConfiguration(in, ConfigureProductContractsJobs, committeeBuilder); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
+
+	configBuilder := committeeBuilder.ConfigureOnchain(in)
+
 	track.Record("[changeset] deployed product contracts")
 	// Start services that need blockchain outputs
 	eg.Go(func() error {
 		// Wait for blockchain outputs to be ready
-		<-blockchainOutputsReady
+		// <-blockchainOutputsReady
 		<-aggregatorReady
-		_, err = services.NewVerifier(in.Verifier)
+
+		verifiers, err := configBuilder.VerifierConfigs()
 		if err != nil {
-			return fmt.Errorf("failed to create verifier service: %w", err)
+			return fmt.Errorf("failed to get verifier configs: %w", err)
 		}
-		_, err = services.NewVerifier(in.Verifier2)
-		if err != nil {
-			return fmt.Errorf("failed to create verifier 2 service: %w", err)
+
+		for i, v := range verifiers {
+			input := services.VerifierInput{
+				Image:          "verifier:dev",
+				ContainerName:  fmt.Sprintf("verifier%d", i+1),
+				Port:           8100 + (i * 100),
+				SourceCodePath: "../verifier",
+				RootPath:       "../../",
+				DB: &services.VerifierDBInput{
+					Image: "postgres:16-alpine",
+					Name:  fmt.Sprintf("verifier%d_db", i+1),
+					Port:  8432 + i,
+				},
+				BlockchainOutputs: blockchainOutputs,
+				VerifierConfig:    v,
+				ConfigFilePath:    fmt.Sprintf("/app/verifier%d.toml", i+1),
+			}
+			_, err = services.NewVerifier(&input)
+			if err != nil {
+				return fmt.Errorf("failed to create verifier service: %w", err)
+			}
 		}
 		return nil
 	})
+
+	eg.Go(func() error {
+		aggCommitteeConfig, err := configBuilder.AggregatorCommittee()
+		if err != nil {
+			return fmt.Errorf("failed to get aggregator committee: %w", err)
+		}
+		aggConfig := services.AggregatorConfig{
+			Server: services.ServerConfig{
+				Address: ":50051",
+			},
+			Storage: services.StorageConfig{
+				StorageType: "memory",
+			},
+			Committees: aggCommitteeConfig,
+		}
+		in.Aggregator.AggregatorConfig = &aggConfig
+		_, err = services.NewAggregator(in.Aggregator)
+		if err != nil {
+			return fmt.Errorf("failed to create aggregator service: %w", err)
+		}
+		close(aggregatorReady)
+		return nil
+	})
+
 	// wait for verifier
 	if err := eg.Wait(); err != nil {
 		return nil, err

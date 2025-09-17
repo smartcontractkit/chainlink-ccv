@@ -111,6 +111,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
 				continue
 			}
+			q.logger(ctx).Tracef("Recovered address: %s", address.Hex())
 
 			for _, signer := range quorumConfig.Signers {
 				for _, s := range signer.Addresses {

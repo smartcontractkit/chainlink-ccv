@@ -18,7 +18,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
@@ -138,7 +137,7 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 	return selectors, &e, nil
 }
 
-func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64) (datastore.DataStore, error) {
+func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64, committeeBuilder *CommitteeBuilder) (datastore.DataStore, error) {
 	L.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
@@ -154,6 +153,11 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 	usdPerWeth, ok := new(big.Int).SetString("2000000000000000000000", 10) // $2000
 	if !ok {
 		return nil, errors.New("failed to parse USDPerWETH")
+	}
+
+	committeeConfig, err := committeeBuilder.GetOffRampConfigsForSelector(selector)
+	if err != nil {
+		return nil, err
 	}
 
 	out, err := changesets.DeployChainContracts.Apply(*e, changesets.DeployChainContractsCfg{
@@ -182,13 +186,7 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 				USDPerWETH:                     usdPerWeth,
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
-					Threshold: 2,
-					Signers: []common.Address{
-						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
-						common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
-					},
-				},
+				SignatureConfigArgs: *committeeConfig[0],
 			},
 		},
 	})
@@ -314,7 +312,7 @@ func setupFakes(fakeServiceURL string) error {
 // DefaultProductConfiguration is default product configuration that includes:
 // - CL nodes config generation
 // - On-chain part deployment using CLDF.
-func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
+func DefaultProductConfiguration(in *Cfg, phase ConfigPhase, committeeBuilder *CommitteeBuilder) error {
 	Plog.Info().Msg("Generating CL nodes config")
 	pkey := getNetworkPrivateKey()
 	if pkey == "" {
@@ -465,7 +463,7 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		runningDS := datastore.NewMemoryDataStore()
 		for _, sel := range selectors {
 			eg.Go(func() error {
-				ds, err := deployContractsForSelector(in, e, sel)
+				ds, err := deployContractsForSelector(in, e, sel, committeeBuilder)
 				if err != nil {
 					return fmt.Errorf("could not configure contracts for chain selector %d: %w", sel, err)
 				}
@@ -505,37 +503,11 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
 			Plog.Info().Str("Node", n.Node.ExternalURL).Send()
 		}
-		// Write CCVProxy addresses from CLDF deployment to verifier config
-		if err := writeCCVProxyAddressesToConfig(in); err != nil {
-			Plog.Warn().Err(err).Msg("Failed to write CCVProxy addresses to verifier.toml")
-		}
 
 		if err := verifyEnvironment(in); err != nil {
 			return err
 		}
 		return nil
 	}
-	return nil
-}
-
-// writeCCVProxyAddressesToConfig writes CCVProxy addresses from CLDF deployment to verifier.toml.
-func writeCCVProxyAddressesToConfig(in *Cfg) error {
-	verifierOnRamp1337 := MustGetContractAddressForSelector(in, 3379446385462418246, commit_onramp.ContractType).String()
-	verifierOnRamp2337 := MustGetContractAddressForSelector(in, 12922642891491394802, commit_onramp.ContractType).String()
-	ccvProxy1337 := MustGetContractAddressForSelector(in, 3379446385462418246, ccv_proxy.ContractType).String()
-	ccvProxy2337 := MustGetContractAddressForSelector(in, 12922642891491394802, ccv_proxy.ContractType).String()
-
-	// First verifier
-	in.Verifier.VerifierConfig.VerifierOnRamp1337 = verifierOnRamp1337
-	in.Verifier.VerifierConfig.VerifierOnRamp2337 = verifierOnRamp2337
-	in.Verifier.VerifierConfig.CCVProxy1337 = ccvProxy1337
-	in.Verifier.VerifierConfig.CCVProxy2337 = ccvProxy2337
-
-	// Second verifier
-	in.Verifier2.VerifierConfig.VerifierOnRamp1337 = verifierOnRamp1337
-	in.Verifier2.VerifierConfig.VerifierOnRamp2337 = verifierOnRamp2337
-	in.Verifier2.VerifierConfig.CCVProxy1337 = ccvProxy1337
-	in.Verifier2.VerifierConfig.CCVProxy2337 = ccvProxy2337
-
 	return nil
 }
