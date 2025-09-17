@@ -190,13 +190,8 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 	)
 }
 
-// GetRouterAddrForSelector get router address for chain selector, mostly used in testing or tools
-func GetRouterAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
-	return GetContractAddressForSelector(in, selector, router.ContractType)
-}
-
-// GetContractAddressForSelector get address for chain selector, mostly used in testing or tools
-func GetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) (common.Address, error) {
+// GetContractAddrForSelector get contract address by type and chain selector
+func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore.ContractType) (common.Address, error) {
 	var contractAddr common.Address
 	for _, addr := range in.CCV.Addresses {
 		var refs []datastore.AddressRef
@@ -205,6 +200,8 @@ func GetContractAddressForSelector(in *Cfg, selector uint64, contractType deploy
 			return common.Address{}, err
 		}
 		for _, ref := range refs {
+			if ref.ChainSelector == selector && ref.Type == contractType {
+				contractAddr = common.HexToAddress(ref.Address)
 			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(contractType) {
 				contractAddr = common.HexToAddress(ref.Address)
 			}
@@ -219,24 +216,6 @@ func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType de
 		Plog.Fatal().Err(err).Msg("Failed to get contract address")
 	}
 	return addr
-}
-
-// GetOffRampAddrForSelector get off ramp address for selector
-func GetOffRampAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
-	var routerAddr common.Address
-	for _, addr := range in.CCV.Addresses {
-		var refs []datastore.AddressRef
-		err := json.Unmarshal([]byte(addr), &refs)
-		if err != nil {
-			return common.Address{}, err
-		}
-		for _, ref := range refs {
-			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(ccv_aggregator.ContractType) {
-				routerAddr = common.HexToAddress(ref.Address)
-			}
-		}
-	}
-	return routerAddr, nil
 }
 
 // FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).
@@ -573,6 +552,69 @@ func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte,
 	return tag, nil
 }
 
+// SendExampleArgsV2Message sends an example message between two chains (selectors) using ArgsV2
+func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
+	}
+
+	chains := e.BlockChains.EVMChains()
+	if chains == nil {
+		return errors.New("no EVM chains found")
+	}
+	if !slices.Contains(selectors, src) {
+		return fmt.Errorf("source selector %d not found in environment selectors %v", src, selectors)
+	}
+	if !slices.Contains(selectors, dest) {
+		return fmt.Errorf("destination selector %d not found in environment selectors %v", dest, selectors)
+	}
+
+	srcChain := chains[src]
+
+	bundle := NewDefaultCLDFBundle(e)
+	e.OperationsBundle = bundle
+
+	routerAddr, err := GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
+	if err != nil {
+		return fmt.Errorf("failed to get router address: %w", err)
+	}
+
+	// Create V2 extra args (default gas limit, no out-of-order execution)
+	argsV2 := &ccvTypes.GenericExtraArgsV2{
+		GasLimit:                 big.NewInt(200_000),
+		AllowOutOfOrderExecution: false,
+	}
+
+	ccipSendArgs := router.CCIPSendArgs{
+		DestChainSelector: dest,
+		EVM2AnyMessage: router.EVM2AnyMessage{
+			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
+			Data:         []byte{},
+			TokenAmounts: []router.EVMTokenAmount{},
+			ExtraArgs:    argsV2.ToBytes(),
+		},
+	}
+
+	// Send CCIP message with value
+	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+		ChainSelector: src,
+		Address:       routerAddr,
+		Args:          ccipSendArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send CCIP message: %w", err)
+	}
+
+	Plog.Info().Bool("Executed", sendReport.Output.Executed).
+		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
+		Uint64("DestChainSelector", dest).
+		Str("SrcRouter", sendReport.Output.Tx.To).
+		Msg("CCIP message sent")
+
+	return nil
+}
+
 // SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3
 func SendExampleArgsV3Message(in *Cfg, src uint64, dest uint64, finality uint32, execAddr, execArgs, tokenArgs []byte, ccv []ccvTypes.CCV, optCcv []ccvTypes.CCV, threshold uint8) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
@@ -596,7 +638,7 @@ func SendExampleArgsV3Message(in *Cfg, src uint64, dest uint64, finality uint32,
 	bundle := NewDefaultCLDFBundle(e)
 	e.OperationsBundle = bundle
 
-	routerAddr, err := GetRouterAddrForSelector(in, srcChain.Selector)
+	routerAddr, err := GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
