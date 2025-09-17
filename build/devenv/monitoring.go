@@ -139,11 +139,11 @@ func MonitorOnChainLogs(in *Cfg) error {
 	}
 	for msgId, msgSent := range msgSentEvents {
 		msgSig, okSig := msgSigEvents[msgId]
-		_, okExec := msgExecEvents[msgId]
-		if !okSig && !okExec {
-			Plog.Warn().Str("msg", "No corresponding sig and exec found").Send()
-			continue
-		}
+		//_, okExec := msgExecEvents[msgId]
+		//if !okSig && !okExec {
+		//	Plog.Warn().Str("msg", "No corresponding sig and exec found").Send()
+		//	continue
+		//}
 		spans := make([]Span, 0, 2)
 		traceId := randHex(16)
 		rootSpan := randHex(8)
@@ -154,7 +154,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 			SpanId:            rootSpan,
 			Name:              "msg_exec",
 			StartTimeUnixNano: msgSent.BlockTimestamp * 1_000_000_000,
-			EndTimeUnixNano:   (uint64(msgSig.Timestamp) + (uint64(msgSig.Timestamp) - msgSent.BlockTimestamp)) * 1_000_000_000,
+			EndTimeUnixNano:   (msgSent.BlockTimestamp + 30) * 1_000_000_000,
 			Kind:              2,
 			Attributes: []Attribute{
 				{
@@ -198,6 +198,36 @@ func MonitorOnChainLogs(in *Cfg) error {
 						Key: "destChainSelector",
 						Value: map[string]any{
 							"stringValue": msgSig.DestChainSelector.String(),
+						},
+					},
+					{
+						Key: "messageId",
+						Value: map[string]any{
+							"stringValue": msgId.String(),
+						},
+					},
+				},
+			})
+		} else {
+			spans = append(spans, Span{
+				TraceId:           traceId,
+				ParentSpanId:      rootSpan,
+				SpanId:            randHex(8),
+				Name:              "msg_sig",
+				StartTimeUnixNano: msgSent.BlockTimestamp * 1_000_000_000,
+				EndTimeUnixNano:   (msgSent.BlockTimestamp + 10) * 1_000_000_000,
+				Kind:              2,
+				Attributes: []Attribute{
+					{
+						Key: "sourceChainSelector",
+						Value: map[string]any{
+							"stringValue": strconv.FormatUint(evmChain.ChainSelector, 10),
+						},
+					},
+					{
+						Key: "destChainSelector",
+						Value: map[string]any{
+							"stringValue": strconv.FormatUint(msgSent.UnpackedData.DestChainSelector, 10),
 						},
 					},
 					{
