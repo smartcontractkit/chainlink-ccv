@@ -184,10 +184,8 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
 					Threshold: 1,
 					Signers: []common.Address{
-						common.HexToAddress("0x02"),
-						common.HexToAddress("0x03"),
-						common.HexToAddress("0x04"),
-						common.HexToAddress("0x05"),
+						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
+						common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
 					},
 				},
 			},

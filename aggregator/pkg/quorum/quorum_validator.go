@@ -83,19 +83,13 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 		return nil, nil, err
 	}
 
-	blob, err := q.getReceiptBlobForVerifier(report)
-	if err != nil {
-		q.logger(ctx).Errorw("Failed to get receipt blob for verifier", "error", err)
-		return nil, nil, err
-	}
-
-	signatureHash := q.calculateSignatureHash(messageHash, blob)
-
-	_, rs, ss, _, err := signature.DecodeSignaturesABI(ccvData)
+	ccvArgs, rs, ss, err := signature.DecodeSignaturesABI(ccvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
 		return nil, nil, err
 	}
+
+	signatureHash := q.calculateSignatureHash(messageHash, ccvArgs)
 
 	if len(rs) != len(ss) {
 		q.logger(ctx).Error("Mismatched signature lengths")
@@ -123,7 +117,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 					signerAddress := common.HexToAddress(s)
 
 					if signerAddress == address {
-						q.logger(ctx).Debugw("Recovered address from signature", "address", address.Hex())
+						q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
 						identifiedSigners = append(identifiedSigners, &model.IdentifierSigner{
 							Signer:     signer,
 							Address:    signerAddress.Bytes(),
@@ -152,12 +146,10 @@ func keccak256(data []byte) [32]byte {
 	return result
 }
 
-func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, verifierBlob []byte) [32]byte {
-	// Canonical encoding: simply concatenate the two 32-byte hashes
+func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, ccvArgs []byte) [32]byte {
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
-	buf.Write(verifierBlob[:])
-
+	buf.Write(ccvArgs)
 	return keccak256(buf.Bytes())
 }
 

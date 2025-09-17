@@ -160,20 +160,20 @@ func EncodeSignaturesABI(ccvArgs []byte, signatures []SignatureData) ([]byte, er
 
 // DecodeSignaturesABI decodes ABI-encoded signature data.
 // Returns ccvArgs, rs, ss arrays, and signer addresses (in the same order as signatures).
-func DecodeSignaturesABI(data []byte) ([]byte, [][32]byte, [][32]byte, []common.Address, error) {
+func DecodeSignaturesABI(data []byte) ([]byte, [][32]byte, [][32]byte, error) {
 	if len(data) == 0 {
-		return nil, nil, nil, nil, fmt.Errorf("empty signature data")
+		return nil, nil, nil, fmt.Errorf("empty signature data")
 	}
 
 	// Define ABI types for decoding
 	bytes32ArrayType, err := abi.NewType("bytes32[]", "", nil)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to create bytes32[] type: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create bytes32[] type: %w", err)
 	}
 
 	bytesType, err := abi.NewType("bytes", "", nil)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to create bytes type: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create bytes type: %w", err)
 	}
 
 	// Create arguments for ABI decoding
@@ -186,35 +186,35 @@ func DecodeSignaturesABI(data []byte) ([]byte, [][32]byte, [][32]byte, []common.
 	// Decode using ABI
 	decoded, err := arguments.Unpack(data)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to ABI decode signatures: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to ABI decode signatures: %w", err)
 	}
 
 	if len(decoded) != 3 {
-		return nil, nil, nil, nil, fmt.Errorf("expected 3 decoded values, got %d", len(decoded))
+		return nil, nil, nil, fmt.Errorf("expected 3 decoded values, got %d", len(decoded))
 	}
 
 	ccvArgs, ok := decoded[0].([]byte)
 	if !ok {
-		return nil, nil, nil, nil, fmt.Errorf("failed to decode ccvArgs as bytes")
+		return nil, nil, nil, fmt.Errorf("failed to decode ccvArgs as bytes")
 	}
 
 	rs, ok := decoded[1].([][32]byte)
 	if !ok {
-		return nil, nil, nil, nil, fmt.Errorf("failed to decode rs as [][32]byte")
+		return nil, nil, nil, fmt.Errorf("failed to decode rs as [][32]byte")
 	}
 
 	ss, ok := decoded[2].([][32]byte)
 	if !ok {
-		return nil, nil, nil, nil, fmt.Errorf("failed to decode ss as [][32]byte")
+		return nil, nil, nil, fmt.Errorf("failed to decode ss as [][32]byte")
 	}
 
 	if len(rs) != len(ss) {
-		return nil, nil, nil, nil, fmt.Errorf("rs and ss arrays have different lengths: %d vs %d", len(rs), len(ss))
+		return nil, nil, nil, fmt.Errorf("rs and ss arrays have different lengths: %d vs %d", len(rs), len(ss))
 	}
 
 	// For decoding, we can't recover signer addresses without the original hash
 	// The caller will need to provide the hash if they need signer addresses
-	return ccvArgs, rs, ss, nil, nil
+	return ccvArgs, rs, ss, nil
 }
 
 // RecoverSigners recovers signer addresses from signatures and a hash.

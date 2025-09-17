@@ -23,12 +23,13 @@ func Keccak256(data []byte) [32]byte {
 }
 
 // CalculateSignatureHash calculates signature hash using canonical binary encoding:
-// keccak256(messageHash || verifierBlob).
-// on-chain counterpart: https://github.com/smartcontractkit/chainlink-ccip/blob/1e31a94258cbbcc75042457ee4f626bbbf1f85f4/chains/evm/contracts/offRamp/CommitOffRamp.sol#L42-L43
-func CalculateSignatureHash(messageHash protocol.Bytes32, verifierBlob []byte) ([32]byte, error) {
+// keccak256(messageHash || ccvArgs).
+// This matches the onchain validation in CommitOffRamp.sol:42:
+// _validateSignatures(keccak256(bytes.concat(messageHash, ccvArgs)), rs, ss);
+func CalculateSignatureHash(messageHash protocol.Bytes32, ccvArgs []byte) ([32]byte, error) {
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
-	buf.Write(verifierBlob[:])
+	buf.Write(ccvArgs)
 	return Keccak256(buf.Bytes()), nil
 }
 

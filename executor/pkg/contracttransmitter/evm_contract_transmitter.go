@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
@@ -113,6 +114,13 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	for _, ccv := range report.CCVS {
 		contractCcvs = append(contractCcvs, common.HexToAddress(string(ccv)))
 	}
+	ccvArgs, _, _, err := signature.DecodeSignaturesABI(report.CCVData[0])
+	if err != nil {
+		ct.lggr.Errorw("failed to decode signatures", "error", err)
+		return err
+	}
+
+	ct.lggr.Infow("CCV Args from signature", "args", ccvArgs)
 
 	opts, err := ct.GetTransactOpts()
 	if err != nil {
