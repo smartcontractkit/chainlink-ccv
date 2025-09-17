@@ -318,7 +318,7 @@ func TestValidateSignature(t *testing.T) {
 		assert.Contains(t, err.Error(), "quorum config not found for chain selector")
 	})
 
-	t.Run("missing receipt blob", func(t *testing.T) {
+	t.Run("receipt blob is not part of the signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
@@ -344,10 +344,11 @@ func TestValidateSignature(t *testing.T) {
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoBlob)
 
-		signer, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
-		assert.Error(t, err)
-		assert.Nil(t, signer)
-		assert.Contains(t, err.Error(), "receipt blob not found for verifier")
+		signers, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
+		assert.NoError(t, err)
+		assert.NotNil(t, signers)
+		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
+		assert.Equal(t, signerFixture.Signer.Addresses, signers[0].Addresses)
 	})
 }
 

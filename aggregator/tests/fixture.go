@@ -6,9 +6,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -33,30 +31,6 @@ func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
 type SignerFixture struct {
 	key    *ecdsa.PrivateKey
 	Signer model.Signer
-}
-
-func (sf *SignerFixture) Sign(t *testing.T, message *types.Message, verifierBlob []byte) ([]byte, []byte, error) {
-	messageHash, err := message.MessageID()
-	assert.NoError(t, err)
-
-	// Calculate signature hash (message hash || keccak256(verifierBlob))
-	verifierBlobHash := crypto.Keccak256(verifierBlob)
-	var signatureHashInput bytes.Buffer
-	signatureHashInput.Write(messageHash[:])
-	signatureHashInput.Write(verifierBlobHash)
-	signatureHash := crypto.Keccak256(signatureHashInput.Bytes())
-
-	// Create valid signature
-	validSignature, err := crypto.Sign(signatureHash, sf.key)
-	assert.NoError(t, err)
-
-	// Encode signature in the expected format
-	// Note: crypto.Sign returns [R || S || V] where V is the recovery ID
-	rBytes := [32]byte{}
-	sBytes := [32]byte{}
-	copy(rBytes[:], validSignature[0:32])
-	copy(sBytes[:], validSignature[32:64])
-	return rBytes[:], sBytes[:], nil
 }
 
 func NewSignerFixture(t *testing.T, name string) *SignerFixture {
@@ -113,27 +87,32 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 	return func(m *aggregator.MessageWithCCVNodeData) *aggregator.MessageWithCCVNodeData {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
 
-		r, s, err := signer.Sign(t, protocolMessage, m.BlobData)
-		require.NoError(t, err, "failed to sign message")
+		// Get message hash
+		messageHash, err := protocolMessage.MessageID()
+		require.NoError(t, err, "failed to get message ID")
 
-		to32ByteArray := func(b []byte) [32]byte {
-			var arr [32]byte
-			copy(arr[:], b)
-			return arr
-		}
-
-		// Create signature data with dummy signer address
-		sigData := []signature.Data{
-			{
-				R:      to32ByteArray(r),
-				S:      to32ByteArray(s),
-				Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
-			},
-		}
-
-		// Create dummy ccvArgs (nonce as 8 bytes)
+		// Create dummy ccvArgs (nonce as 8 bytes) - must be done before signing
 		ccvArgs := make([]byte, 8)
 		binary.BigEndian.PutUint64(ccvArgs, 123) // dummy nonce
+
+		// Calculate signature hash (message hash || ccvArgs) to match validator logic
+		var signatureHashInput bytes.Buffer
+		signatureHashInput.Write(messageHash[:])
+		signatureHashInput.Write(ccvArgs)
+		signatureHash := signature.Keccak256(signatureHashInput.Bytes())
+
+		// Use SignV27 for proper signature creation and normalization
+		r32, s32, signerAddr, err := signature.SignV27(signatureHash[:], signer.key)
+		require.NoError(t, err, "failed to sign message")
+
+		// Create signature data with actual signer address
+		sigData := []signature.Data{
+			{
+				R:      r32,
+				S:      s32,
+				Signer: signerAddr,
+			},
+		}
 
 		m.CcvData, err = signature.EncodeSignaturesABI(ccvArgs, sigData)
 		require.NoError(t, err, "failed to encode signatures")
