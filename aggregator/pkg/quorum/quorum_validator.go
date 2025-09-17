@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -66,8 +67,8 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 // It can return multiple signers from the same participant if they have multiple addresses in the config.
 func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	q.logger(ctx).Debug("Validating signature for report")
-	signature := report.CcvData
-	if signature == nil {
+	ccvData := report.CcvData
+	if ccvData == nil {
 		q.logger(ctx).Error("Missing signature in report")
 		return nil, nil, fmt.Errorf("missing signature in report")
 	}
@@ -82,19 +83,13 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 		return nil, nil, err
 	}
 
-	blob, err := q.getReceiptBlobForVerifier(report)
-	if err != nil {
-		q.logger(ctx).Errorw("Failed to get receipt blob for verifier", "error", err)
-		return nil, nil, err
-	}
-
-	signatureHash := q.calculateSignatureHash(messageHash, blob)
-
-	rs, ss, err := model.DecodeSignatures(signature)
+	ccvArgs, rs, ss, err := signature.DecodeSignaturesABI(ccvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
 		return nil, nil, err
 	}
+
+	signatureHash := q.calculateSignatureHash(messageHash, ccvArgs)
 
 	if len(rs) != len(ss) {
 		q.logger(ctx).Error("Mismatched signature lengths")
@@ -122,7 +117,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 					signerAddress := common.HexToAddress(s)
 
 					if signerAddress == address {
-						q.logger(ctx).Debugw("Recovered address from signature", "address", address.Hex())
+						q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
 						identifiedSigners = append(identifiedSigners, &model.IdentifierSigner{
 							Signer:     signer,
 							Address:    signerAddress.Bytes(),
@@ -151,25 +146,11 @@ func keccak256(data []byte) [32]byte {
 	return result
 }
 
-func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, verifierBlob []byte) [32]byte {
-	verifierBlobHash := keccak256(verifierBlob)
-
-	// Canonical encoding: simply concatenate the two 32-byte hashes
+func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, ccvArgs []byte) [32]byte {
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
-	buf.Write(verifierBlobHash[:])
-
+	buf.Write(ccvArgs)
 	return keccak256(buf.Bytes())
-}
-
-func (q *EVMQuorumValidator) getReceiptBlobForVerifier(report *aggregator.MessageWithCCVNodeData) ([]byte, error) {
-	sourceVerifier := report.SourceVerifierAddress
-	for _, blob := range report.ReceiptBlobs {
-		if bytes.Equal(blob.Issuer, sourceVerifier) {
-			return blob.Blob, nil
-		}
-	}
-	return nil, fmt.Errorf("receipt blob not found for verifier: %x", sourceVerifier)
 }
 
 func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {

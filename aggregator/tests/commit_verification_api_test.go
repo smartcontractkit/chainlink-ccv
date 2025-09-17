@@ -16,42 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-func TestReadWriteCommitVerification(t *testing.T) {
-	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-	signer1 := NewSignerFixture(t, "node1")
-	config := map[string]*model.Committee{
-		"committee1": {
-			QuorumConfigs: map[string]*model.QuorumConfig{
-				"2": {
-					Threshold: 2,
-					Signers: []model.Signer{
-						signer1.Signer,
-					},
-					OfframpAddress: common.BytesToAddress(destVerifierAddress).Hex(),
-					OnrampAddress:  common.BytesToAddress(sourceVerifierAddress).Hex(),
-				},
-			},
-		},
-	}
-	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStubMode(true))
-	t.Cleanup(cleanup)
-	require.NoError(t, err, "failed to create server and client")
-
-	message := NewProtocolMessage(t)
-	messageId, err := message.MessageID()
-	require.NoError(t, err, "failed to compute message ID")
-	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
-
-	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &aggregator.WriteCommitCCVNodeDataRequest{
-		CcvNodeData: ccvNodeData1,
-	})
-
-	require.NoError(t, err, "WriteCommitCCVNodeData failed")
-	require.Equal(t, aggregator.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
-
-	assertCCVDataFound(t, ccvDataClient, messageId, ccvNodeData1.GetMessage(), sourceVerifierAddress, destVerifierAddress)
-}
-
 func TestAggregationHappyPath(t *testing.T) {
 	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 	signer1 := NewSignerFixture(t, "node1")

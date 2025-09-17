@@ -93,7 +93,7 @@ func (a *AggregatorWriter) WriteCCVData(ctx context.Context, ccvDataList []types
 			a.lggr.Errorw("failed to store CCV data", "error", err)
 			return err
 		}
-		a.lggr.Infof("Successfully stored CCV data with MessageID: %x", ccvData.MessageID)
+		a.lggr.Infow("Successfully stored CCV data", "messageID", ccvData.MessageID)
 	}
 	return nil
 }
