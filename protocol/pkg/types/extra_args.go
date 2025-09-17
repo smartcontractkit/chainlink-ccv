@@ -109,11 +109,15 @@ type CCV struct {
 type EVMExtraArgsV3 struct {
 	RequiredCCV       []CCV
 	OptionalCCV       []CCV
-	OptionalThreshold uint8
-	FinalityConfig    uint16
 	Executor          UnknownAddress
 	ExecutorArgs      []byte
 	TokenArgs         []byte
+	FinalityConfig    uint32
+	RequiredCCVLen    uint16
+	OptionalCCVLen    uint16
+	ExecutorArgsLen   uint16
+	TokenArgsLen      uint16
+	OptionalThreshold uint8
 }
 
 // ToBytes encodes EVMExtraArgsV3 to bytes.
@@ -125,7 +129,7 @@ func (e *EVMExtraArgsV3) ToBytes() []byte {
 	data = append(data, EVMExtraArgsV3Tag...)
 
 	// Encode required CCVs
-	data = binary.BigEndian.AppendUint16(data, uint16(len(e.RequiredCCV)))
+	data = binary.BigEndian.AppendUint16(data, e.RequiredCCVLen)
 	for _, ccv := range e.RequiredCCV {
 		data = append(data, ccv.CCVAddress...)
 		data = binary.BigEndian.AppendUint16(data, ccv.ArgsLen)
@@ -133,7 +137,7 @@ func (e *EVMExtraArgsV3) ToBytes() []byte {
 	}
 
 	// Encode optional CCVs
-	data = binary.BigEndian.AppendUint16(data, uint16(len(e.OptionalCCV)))
+	data = binary.BigEndian.AppendUint16(data, e.OptionalCCVLen)
 	for _, ccv := range e.OptionalCCV {
 		data = append(data, ccv.CCVAddress...)
 		data = binary.BigEndian.AppendUint16(data, ccv.ArgsLen)
@@ -142,11 +146,11 @@ func (e *EVMExtraArgsV3) ToBytes() []byte {
 
 	// Encode remaining fields
 	data = append(data, e.OptionalThreshold)
-	data = binary.BigEndian.AppendUint16(data, e.FinalityConfig)
+	data = binary.BigEndian.AppendUint32(data, e.FinalityConfig)
 	data = append(data, e.Executor...)
-	data = binary.BigEndian.AppendUint16(data, uint16(len(e.ExecutorArgs)))
+	data = binary.BigEndian.AppendUint16(data, e.ExecutorArgsLen)
 	data = append(data, e.ExecutorArgs...)
-	data = binary.BigEndian.AppendUint16(data, uint16(len(e.TokenArgs)))
+	data = binary.BigEndian.AppendUint16(data, e.TokenArgsLen)
 	data = append(data, e.TokenArgs...)
 
 	return data
@@ -189,6 +193,7 @@ func (e *EVMExtraArgsV3) FromBytes(data []byte) error {
 	}
 	count := binary.BigEndian.Uint16(requiredCCVCount)
 	e.RequiredCCV = make([]CCV, count)
+	e.RequiredCCVLen = count
 	for i := uint16(0); i < count; i++ {
 		addr, err := readNextBytes(20)
 		if err != nil {
@@ -204,7 +209,7 @@ func (e *EVMExtraArgsV3) FromBytes(data []byte) error {
 			return fmt.Errorf("failed to read required CCV args: %w", err)
 		}
 		e.RequiredCCV[i] = CCV{
-			CCVAddress: addr,
+			CCVAddress: UnknownAddress(addr),
 			Args:       args,
 			ArgsLen:    argsLen,
 		}
@@ -217,6 +222,7 @@ func (e *EVMExtraArgsV3) FromBytes(data []byte) error {
 	}
 	count = binary.BigEndian.Uint16(optionalCCVCount)
 	e.OptionalCCV = make([]CCV, count)
+	e.OptionalCCVLen = count
 	for i := uint16(0); i < count; i++ {
 		addr, err := readNextBytes(20)
 		if err != nil {
@@ -232,7 +238,7 @@ func (e *EVMExtraArgsV3) FromBytes(data []byte) error {
 			return fmt.Errorf("failed to read optional CCV args: %w", err)
 		}
 		e.OptionalCCV[i] = CCV{
-			CCVAddress: addr,
+			CCVAddress: UnknownAddress(addr),
 			Args:       args,
 			ArgsLen:    argsLen,
 		}
@@ -245,11 +251,11 @@ func (e *EVMExtraArgsV3) FromBytes(data []byte) error {
 	}
 	e.OptionalThreshold = threshold[0]
 
-	finality, err := readNextBytes(2)
+	finality, err := readNextBytes(4)
 	if err != nil {
 		return fmt.Errorf("failed to read finality config: %w", err)
 	}
-	e.FinalityConfig = binary.BigEndian.Uint16(finality)
+	e.FinalityConfig = binary.BigEndian.Uint32(finality)
 
 	executor, err := readNextBytes(20)
 	if err != nil {
@@ -261,8 +267,8 @@ func (e *EVMExtraArgsV3) FromBytes(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to read executor args length: %w", err)
 	}
-	execLen := binary.BigEndian.Uint16(execArgsLen)
-	e.ExecutorArgs, err = readNextBytes(int(execLen))
+	e.ExecutorArgsLen = binary.BigEndian.Uint16(execArgsLen)
+	e.ExecutorArgs, err = readNextBytes(int(e.ExecutorArgsLen))
 	if err != nil {
 		return fmt.Errorf("failed to read executor args: %w", err)
 	}
@@ -271,8 +277,8 @@ func (e *EVMExtraArgsV3) FromBytes(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to read token args length: %w", err)
 	}
-	tokenLen := binary.BigEndian.Uint16(tokenArgsLen)
-	e.TokenArgs, err = readNextBytes(int(tokenLen))
+	e.TokenArgsLen = binary.BigEndian.Uint16(tokenArgsLen)
+	e.TokenArgs, err = readNextBytes(int(e.TokenArgsLen))
 	if err != nil {
 		return fmt.Errorf("failed to read token args: %w", err)
 	}
