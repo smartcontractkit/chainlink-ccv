@@ -11,8 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
@@ -102,7 +102,7 @@ func (ct *EVMContractTransmitter) GetTransactOpts() (*bind.TransactOpts, error) 
 	auth := ct.TransactOpts
 	auth.Nonce = big.NewInt(int64(nonce)) //nolint:gosec // G115 will replace with txm
 	auth.GasPrice = gasPrice
-	//TODO: Use a proper limit
+	// TODO: Use a proper limit
 	auth.GasLimit = uint64(10000000) // in units
 
 	return auth, nil

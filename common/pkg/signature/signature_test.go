@@ -96,7 +96,7 @@ func TestEncodeDecodeSignaturesABI(t *testing.T) {
 	require.NotEmpty(t, encoded)
 
 	// Decode
-	decodedArgs, rs, ss, _, err := DecodeSignaturesABI(encoded)
+	decodedArgs, rs, ss, err := DecodeSignaturesABI(encoded)
 	require.NoError(t, err)
 	require.Equal(t, ccvArgs, decodedArgs)
 	require.Len(t, rs, 2)
@@ -180,7 +180,7 @@ func TestEndToEndSignatureFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Decode signatures
-	decodedArgs, rs, ss, _, err := DecodeSignaturesABI(encoded)
+	decodedArgs, rs, ss, err := DecodeSignaturesABI(encoded)
 	require.NoError(t, err)
 	require.Equal(t, ccvArgs, decodedArgs)
 

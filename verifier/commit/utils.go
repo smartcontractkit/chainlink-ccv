@@ -25,7 +25,7 @@ func Keccak256(data []byte) [32]byte {
 // CalculateSignatureHash calculates signature hash using canonical binary encoding:
 // keccak256(messageHash || ccvArgs).
 // This matches the onchain validation in CommitOffRamp.sol:42:
-// _validateSignatures(keccak256(bytes.concat(messageHash, ccvArgs)), rs, ss);
+// _validateSignatures(keccak256(bytes.concat(messageHash, ccvArgs)), rs, ss);.
 func CalculateSignatureHash(messageHash protocol.Bytes32, ccvArgs []byte) ([32]byte, error) {
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
