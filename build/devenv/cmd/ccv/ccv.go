@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -157,6 +160,101 @@ var obsUpCmd = &cobra.Command{
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
 		ccv.Plog.Info().Msgf("CCV Load Test Dashboard: %s", LocalWASPLoadDashboard)
 		return nil
+	},
+}
+
+var deployCommitVerifierCmd = &cobra.Command{
+	Use:   "deploy-commit-contracts",
+	Short: "Deploy contracts for a new commit verifier across all chains with a signature quorum to the existing environment",
+	Args:  cobra.RangeArgs(1, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		prevEnv := os.Getenv(ccv.EnvVarTestConfigs)
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		err = os.Setenv(ccv.EnvVarTestConfigs, prevEnv) // restore previous env var, LoadOutput mutates it
+		if err != nil {
+			return fmt.Errorf("failed to restore previous config env var: %w", err)
+		}
+		components := strings.Split(args[0], ",")
+		if len(components) < 2 {
+			return fmt.Errorf("expected at least 2 arguments (threshold,signer1), got %d", len(components))
+		}
+
+		threshold, err := strconv.ParseUint(components[0], 10, 8)
+		if err != nil {
+			return fmt.Errorf("failed to parse threshold: %w", err)
+		}
+		var addresses []common.Address
+		for _, addr := range components[1:] {
+			if !common.IsHexAddress(addr) {
+				return fmt.Errorf("invalid address: %s", addr)
+			}
+			addresses = append(addresses, common.HexToAddress(addr))
+		}
+
+		return ccv.DeployAndConfigureNewCommitCCV(in, commit_offramp.SignatureConfigArgs{
+			Threshold: uint8(threshold),
+			Signers:   addresses,
+		})
+	},
+}
+
+var deployReceiverCmd = &cobra.Command{
+	Use:   "deploy-mock-receiver",
+	Short: "Deploy a mock receiver contract to a given chain selector with a specific config",
+	Args:  cobra.RangeArgs(1, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		prevEnv := os.Getenv(ccv.EnvVarTestConfigs)
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		err = os.Setenv(ccv.EnvVarTestConfigs, prevEnv) // restore previous env var, LoadOutput mutates it
+		if err != nil {
+			return fmt.Errorf("failed to restore previous config env var: %w", err)
+		}
+
+		components := strings.Split(args[0], ",")
+		if len(components) < 2 {
+			return fmt.Errorf("expected at least 2 arguments (chainSelector,required1,optionalThreshold), got %d", len(components))
+		}
+		selector, err := strconv.ParseUint(components[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse chain selector: %w", err)
+		}
+		var required, optional []common.Address
+		var optionalThreshold uint64
+		if len(components) >= 2 {
+			for _, addr := range strings.Split(components[1], ";") {
+				if !common.IsHexAddress(addr) {
+					return fmt.Errorf("invalid required verifier address: %s", addr)
+				}
+				required = append(required, common.HexToAddress(addr))
+			}
+		}
+		if len(components) >= 3 {
+			for _, addr := range strings.Split(components[2], ";") {
+				if !common.IsHexAddress(addr) {
+					return fmt.Errorf("invalid optional verifier address: %s", addr)
+				}
+				optional = append(optional, common.HexToAddress(addr))
+			}
+		}
+		if len(components) >= 4 {
+			optionalThreshold, err = strconv.ParseUint(components[3], 10, 8)
+			if err != nil {
+				return fmt.Errorf("failed to parse optional threshold: %w", err)
+			}
+		}
+		constructorArgs := mock_receiver.ConstructorArgs{
+			RequiredVerifiers: required,
+			OptionalVerifiers: optional,
+			OptionalThreshold: uint8(optionalThreshold),
+		}
+
+		return ccv.DeployMockReceiver(in, selector, constructorArgs)
 	},
 }
 
@@ -363,6 +461,10 @@ func init() {
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
+
+	// contract management
+	rootCmd.AddCommand(deployCommitVerifierCmd)
+	rootCmd.AddCommand(deployReceiverCmd)
 }
 
 func checkDockerIsRunning() {
