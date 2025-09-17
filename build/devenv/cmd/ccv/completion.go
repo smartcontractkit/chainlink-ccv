@@ -47,11 +47,11 @@ func getSubCommands(parent string) []prompt.Suggest {
 		}
 	case "bs":
 		return []prompt.Suggest{
-			{Text: "up", Description: "Spin up Blockscout and listen to src chain (8545)"},
-			{Text: "up -u http://host.docker.internal:8555", Description: "Spin up Blockscout and listen to dst chain (8555)"},
-			{Text: "down", Description: "Spin down Blockscout"},
-			{Text: "restart", Description: "Restart Blockscout"},
-			{Text: "restart -u http://host.docker.internal:8555", Description: "Restart Blockscout and listen to dst chain (8555)"},
+			{Text: "up", Description: "Spin up Blockscout and listen to dst chain (8555)"},
+			{Text: "up -u http://host.docker.internal:8545 -c 1337", Description: "Spin up Blockscout and listen to src chain (8545)"},
+			{Text: "down", Description: "Remove Blockscout stack"},
+			{Text: "restart", Description: "Restart Blockscout and listen to dst chain (8555)"},
+			{Text: "restart -u http://host.docker.internal:8545 -c 1337", Description: "Restart Blockscout and listen to src chain (8545)"},
 		}
 	case "obs":
 		return []prompt.Suggest{
@@ -73,9 +73,10 @@ func getSubCommands(parent string) []prompt.Suggest {
 		fallthrough
 	case "r":
 		fallthrough
-	case "reconfigure":
+	case "restart":
 		return []prompt.Suggest{
-			{Text: "Config", Description: `Select the configuration file, ex.: env.toml,override.toml`},
+			{Text: "env.toml,env-geth.toml", Description: "Configure devenv to use Geth <> Geth local chains (clique)"},
+			{Text: "env.toml,env-fuji-fantom.toml", Description: "Configure devenv to use testnets: Fuji <> Fantom"},
 		}
 	default:
 		return []prompt.Suggest{}
