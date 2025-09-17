@@ -111,7 +111,6 @@ runs:
     - name: Remove previous coverage comments
       uses: actions/github-script@v6
       if: github.event_name == 'pull_request'
-      working-directory: ${{ inputs.working-directory }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -135,7 +134,6 @@ runs:
     - name: Display coverage in PR comment
       uses: actions/github-script@v6
       if: github.event_name == 'pull_request'
-      working-directory: ${{ inputs.working-directory }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
