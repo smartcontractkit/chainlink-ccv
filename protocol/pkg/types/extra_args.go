@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/binary"
 	"fmt"
 	"math/big"
@@ -112,7 +113,7 @@ type EVMExtraArgsV3 struct {
 	Executor          UnknownAddress
 	ExecutorArgs      []byte
 	TokenArgs         []byte
-	FinalityConfig    uint32
+	FinalityConfig    uint16
 	RequiredCCVLen    uint16
 	OptionalCCVLen    uint16
 	ExecutorArgsLen   uint16

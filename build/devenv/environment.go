@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -155,14 +156,14 @@ func NewEnvironment() (*Cfg, error) {
 	}
 
 	in.Verifier.BlockchainOutputs = blockchainOutputs
-	in.Verifier.VerifierConfig = services.VerifierConfig{
+	in.Verifier.VerifierConfig = commontypes.VerifierConfig{
 		AggregatorAddress: aggregatorOutput.Address,
 		BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
 		PrivateKey:        "dev-private-key-12345678901234567890",
 	}
 
 	in.Verifier2.BlockchainOutputs = blockchainOutputs
-	in.Verifier2.VerifierConfig = services.VerifierConfig{
+	in.Verifier2.VerifierConfig = commontypes.VerifierConfig{
 		AggregatorAddress: aggregatorOutput.Address,
 		BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
 		PrivateKey:        "dev-private-key2-12345678901234567890",

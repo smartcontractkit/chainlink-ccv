@@ -22,7 +22,6 @@ func validateWriteRequest(req *aggregator.WriteCommitCCVNodeDataRequest) error {
 	err = validation.ValidateStruct(
 		verificationRecord,
 		validation.Field(&verificationRecord.MessageId, validation.Required, validation.Length(32, 32)),
-		validation.Field(&verificationRecord.BlobData, validation.Required),
 		validation.Field(&verificationRecord.CcvData, validation.Required),
 		// TODO: Check valid selector (needs to be in our configuration)
 		// validation.Field(&verificationRecord.DestVerifierAddress, validation.Required, validation.Length(20, 20)),
