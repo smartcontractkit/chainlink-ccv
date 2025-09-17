@@ -26,7 +26,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -189,8 +189,8 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 	)
 }
 
-// GetRouterAddrForSelector get router address for chain selector, mostly used in testing or tools
-func GetRouterAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
+// GetContractAddrForSelector get contract address by type and chain selector
+func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore.ContractType) (common.Address, error) {
 	return GetContractAddressForSelector(in, selector, router.ContractType)
 }
 
@@ -403,45 +403,153 @@ func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChai
 CCIPv17 (CCV) specific helpers
 */
 
-func NewGenericCCIP17ExtraArgsV2(args protocol.GenericExtraArgsV2) ([]byte, error) {
+// NewV3ExtraArgs encodes v3 extra args params
+//
+//	// Helper function to create EVMExtraArgsV3 struct
+//	function _createV3ExtraArgs(
+//	  Client.CCV[] memory requiredCCVs,
+//	  Client.CCV[] memory optionalCCVs,
+//	  uint8 optionalThreshold
+//	) internal pure returns (Client.EVMExtraArgsV3 memory) {
+//	  return Client.EVMExtraArgsV3({
+//	    requiredCCV: requiredCCVs,
+//	    optionalCCV: optionalCCVs,
+//	    optionalThreshold: optionalThreshold,
+//	    finalityConfig: 12,
+//	    executor: address(0), // No executor specified.
+//	    executorArgs: "",
+//	    tokenArgs: ""
+//	  });
+//	}
+func NewV3ExtraArgs(finalityConfig uint32, execAddr, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
 	const clientABI = `
-		[
-			{
-				"name": "encodeGenericExtraArgsV2",
-				"type": "function",
-				"inputs": [
-					{
-						"components": [
-							{
-								"name": "gasLimit",
-								"type": "uint256"
-							},
-							{
-								"name": "allowOutOfOrderExecution",
-								"type": "bool"
-							}
-						],
-						"name": "args",
-						"type": "tuple"
-					}
-				],
-				"outputs": [],
-				"stateMutability": "pure"
-			}
-		]
-	`
+    [
+        {
+            "name": "encodeEVMExtraArgsV3",
+            "type": "function",
+            "inputs": [
+                {
+                    "components": [
+                        {
+                            "name": "requiredCCV",
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "CCVAddress", "type": "bytes"},
+                                {"name": "Args", "type": "bytes"},
+                                {"name": "ArgsLen", "type": "uint16"}
+                            ]
+                        },
+                        {
+                            "name": "optionalCCV", 
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "CCVAddress", "type": "bytes"},
+                                {"name": "Args", "type": "bytes"},
+                                {"name": "ArgsLen", "type": "uint16"}
+                            ]
+                        },
+                        {"name": "executor", "type": "bytes"},
+                        {"name": "executorArgs", "type": "bytes"},
+                        {"name": "tokenArgs", "type": "bytes"},
+                        {"name": "finalityConfig", "type": "uint32"},
+                        {"name": "requiredCCVLen", "type": "uint16"},
+                        {"name": "optionalCCVLen", "type": "uint16"},
+                        {"name": "executorArgsLen", "type": "uint16"},
+                        {"name": "tokenArgsLen", "type": "uint16"},
+                        {"name": "optionalThreshold", "type": "uint8"}
+                    ],
+                    "name": "args",
+                    "type": "tuple"
+                }
+            ],
+            "outputs": [{"type": "bytes"}],
+            "stateMutability": "pure"
+        }
+    ]
+    `
 
 	parsedABI, err := abi.JSON(bytes.NewReader([]byte(clientABI)))
 	if err != nil {
 		return nil, err
 	}
 
-	encoded, err := parsedABI.Methods["encodeGenericExtraArgsV2"].Inputs.Pack(args)
+	// Convert CCV slices to the expected format
+	requiredCCV := make([]struct {
+		CCVAddress []byte
+		Args       []byte
+		ArgsLen    uint16
+	}, len(requiredCCVs))
+
+	for i, ccv := range requiredCCVs {
+		requiredCCV[i] = struct {
+			CCVAddress []byte
+			Args       []byte
+			ArgsLen    uint16
+		}{
+			CCVAddress: ccv.CCVAddress,
+			Args:       ccv.Args,
+			ArgsLen:    ccv.ArgsLen,
+		}
+	}
+
+	optionalCCV := make([]struct {
+		CCVAddress []byte
+		Args       []byte
+		ArgsLen    uint16
+	}, len(optionalCCVs))
+
+	for i, ccv := range optionalCCVs {
+		optionalCCV[i] = struct {
+			CCVAddress []byte
+			Args       []byte
+			ArgsLen    uint16
+		}{
+			CCVAddress: ccv.CCVAddress,
+			Args:       ccv.Args,
+			ArgsLen:    ccv.ArgsLen,
+		}
+	}
+
+	args := struct {
+		RequiredCCV []struct {
+			CCVAddress []byte
+			Args       []byte
+			ArgsLen    uint16
+		}
+		OptionalCCV []struct {
+			CCVAddress []byte
+			Args       []byte
+			ArgsLen    uint16
+		}
+		Executor          []byte
+		ExecutorArgs      []byte
+		TokenArgs         []byte
+		FinalityConfig    uint32
+		RequiredCCVLen    uint16
+		OptionalCCVLen    uint16
+		ExecutorArgsLen   uint16
+		TokenArgsLen      uint16
+		OptionalThreshold uint8
+	}{
+		RequiredCCV:       requiredCCV,
+		OptionalCCV:       optionalCCV,
+		Executor:          execAddr,
+		ExecutorArgs:      execArgs,
+		TokenArgs:         tokenArgs,
+		FinalityConfig:    finalityConfig,
+		RequiredCCVLen:    uint16(len(requiredCCVs)),
+		OptionalCCVLen:    uint16(len(optionalCCVs)),
+		ExecutorArgsLen:   uint16(len(execArgs)),
+		TokenArgsLen:      uint16(len(tokenArgs)),
+		OptionalThreshold: optionalThreshold,
+	}
+
+	encoded, err := parsedABI.Methods["encodeEVMExtraArgsV3"].Inputs.Pack(args)
 	if err != nil {
 		return nil, err
 	}
 
-	tag := []byte{0x18, 0x1d, 0xcf, 0x10} // GENERIC_EXTRA_ARGS_V2_TAG
+	tag := []byte{0x30, 0x23, 0x26, 0xcb}
 	tag = append(tag, encoded...)
 	return tag, nil
 }
@@ -469,16 +577,15 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 	bundle := NewDefaultCLDFBundle(e)
 	e.OperationsBundle = bundle
 
-	routerAddr, err := GetRouterAddrForSelector(in, srcChain.Selector)
+	routerAddr, err := GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
-	argsv2, err := NewGenericCCIP17ExtraArgsV2(protocol.GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(1_000_000),
-		AllowOutOfOrderExecution: true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to generate GenericExtraArgsV2: %w", err)
+
+	// Create V2 extra args (default gas limit, no out-of-order execution)
+	argsV2 := &ccvTypes.GenericExtraArgsV2{
+		GasLimit:                 big.NewInt(200_000),
+		AllowOutOfOrderExecution: false,
 	}
 	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 
@@ -488,21 +595,83 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsv2,
+			ExtraArgs:    argsV2.ToBytes(),
 		},
 	}
 
-	feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
-		ChainSelector: srcChain.Selector,
+	// Send CCIP message with value
+	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+		ChainSelector: src,
 		Address:       routerAddr,
 		Args:          ccipSendArgs,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to get fee: %w", err)
+		return fmt.Errorf("failed to send CCIP message: %w", err)
 	}
 
+	Plog.Info().Bool("Executed", sendReport.Output.Executed).
+		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
+		Uint64("DestChainSelector", dest).
+		Str("SrcRouter", sendReport.Output.Tx.To).
+		Msg("CCIP message sent")
+
+	return nil
+}
+
+// SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3
+func SendExampleArgsV3Message(in *Cfg, src uint64, dest uint64, finality uint32, execAddr, execArgs, tokenArgs []byte, ccv []ccvTypes.CCV, optCcv []ccvTypes.CCV, threshold uint8) error {
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
+	}
+
+	chains := e.BlockChains.EVMChains()
+	if chains == nil {
+		return errors.New("no EVM chains found")
+	}
+	if !slices.Contains(selectors, src) {
+		return fmt.Errorf("source selector %d not found in environment selectors %v", src, selectors)
+	}
+	if !slices.Contains(selectors, dest) {
+		return fmt.Errorf("destination selector %d not found in environment selectors %v", dest, selectors)
+	}
+
+	srcChain := chains[src]
+
+	bundle := NewDefaultCLDFBundle(e)
+	e.OperationsBundle = bundle
+
+	routerAddr, err := GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
+	if err != nil {
+		return fmt.Errorf("failed to get router address: %w", err)
+	}
+	argsV3, err := NewV3ExtraArgs(finality, execAddr, execArgs, tokenArgs, ccv, optCcv, threshold)
+	if err != nil {
+		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
+	}
+
+	ccipSendArgs := router.CCIPSendArgs{
+		DestChainSelector: dest,
+		EVM2AnyMessage: router.EVM2AnyMessage{
+			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
+			Data:         []byte{},
+			TokenAmounts: []router.EVMTokenAmount{},
+			ExtraArgs:    argsV3,
+		},
+	}
+
+	// TODO: not supported right now
+	//feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+	//	ChainSelector: srcChain.Selector,
+	//	Address:       routerAddr,
+	//	Args:          ccipSendArgs,
+	//})
+	//if err != nil {
+	//	return fmt.Errorf("failed to get fee: %w", err)
+	//}
+	//ccipSendArgs.Value = feeReport.Output
+
 	// Send CCIP message with value
-	ccipSendArgs.Value = feeReport.Output
 	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
 		ChainSelector: src,
 		Address:       routerAddr,
