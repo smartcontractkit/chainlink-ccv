@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -66,8 +67,8 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 // It can return multiple signers from the same participant if they have multiple addresses in the config.
 func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	q.logger(ctx).Debug("Validating signature for report")
-	signature := report.CcvData
-	if signature == nil {
+	ccvData := report.CcvData
+	if ccvData == nil {
 		q.logger(ctx).Error("Missing signature in report")
 		return nil, nil, fmt.Errorf("missing signature in report")
 	}
@@ -90,7 +91,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 
 	signatureHash := q.calculateSignatureHash(messageHash, blob)
 
-	rs, ss, err := model.DecodeSignatures(signature)
+	_, rs, ss, _, err := signature.DecodeSignaturesABI(ccvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
 		return nil, nil, err

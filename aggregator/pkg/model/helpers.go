@@ -1,13 +1,14 @@
 package model
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -60,19 +61,62 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 
 	signers := quorumConfig.Signers
 
-	rs := make([][32]byte, 0, len(signers))
-	ss := make([][32]byte, 0, len(signers))
+	// Create signature data - we need to recover signer addresses from the signatures
+	// First, prepare the message hash and verifier blob for signature recovery
+	message := report.GetMessage()
+	protocolMessage := MapProtoMessageToProtocolMessage(message)
+	messageHash, err := protocolMessage.MessageID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute message ID: %w", err)
+	}
+
+	// Create ccvArgs from the verifier blob (nonce data)
+	// For now, let's encode the nonce as ccvArgs (this should match what the verifier sends)
+	nonce := message.GetNonce()
+	ccvArgs := make([]byte, 8)
+	binary.BigEndian.PutUint64(ccvArgs, uint64(nonce))
+
+	// Calculate signature hash (same as verifier does)
+	verifierBlobHash := signature.Keccak256(ccvArgs)
+	var buf []byte
+	buf = append(buf, messageHash[:]...)
+	buf = append(buf, verifierBlobHash[:]...)
+	signatureHash := signature.Keccak256(buf)
+
+	var signatures []signature.SignatureData
 	for _, signer := range signers {
 		sig, exists := participantSignatures[signer.ParticipantID]
 		if !exists {
 			// Skipping missing signatures (not all participants may have signed)
 			continue
 		}
-		rs = append(rs, sig.r)
-		ss = append(ss, sig.s)
+
+		// Recover signer address from signature
+		sigBytes := make([]byte, 65)
+		copy(sigBytes[0:32], sig.r[:])
+		copy(sigBytes[32:64], sig.s[:])
+		sigBytes[64] = 0 // Assume v=0 for now, might need to try both 0 and 1
+
+		pubKey, err := crypto.SigToPub(signatureHash[:], sigBytes)
+		if err != nil {
+			// Try with v=1
+			sigBytes[64] = 1
+			pubKey, err = crypto.SigToPub(signatureHash[:], sigBytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to recover signer address for participant %s: %w", signer.ParticipantID, err)
+			}
+		}
+
+		signerAddr := crypto.PubkeyToAddress(*pubKey)
+
+		signatures = append(signatures, signature.SignatureData{
+			R:      sig.r,
+			S:      sig.s,
+			Signer: signerAddr,
+		})
 	}
 
-	encodedSignatures, err := EncodeSignatures(rs, ss)
+	encodedSignatures, err := signature.EncodeSignaturesABI(ccvArgs, signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}
@@ -84,61 +128,4 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		CcvData:               encodedSignatures,
 		Timestamp:             report.Timestamp,
 	}, nil
-}
-
-func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
-	if len(rs) != len(ss) {
-		return nil, fmt.Errorf("rs and ss arrays must have the same length")
-	}
-
-	var buf bytes.Buffer
-
-	// Encode array length as uint16 (big-endian)
-	arrayLen := uint16(len(rs)) //nolint:gosec // G115: Protocol-defined conversion
-	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
-		return nil, err
-	}
-
-	// Encode rs array
-	for _, r := range rs {
-		buf.Write(r[:])
-	}
-
-	// Encode ss array
-	for _, s := range ss {
-		buf.Write(s[:])
-	}
-
-	return buf.Bytes(), nil
-}
-
-func DecodeSignatures(data []byte) (rs, ss [][32]byte, err error) {
-	if len(data) < 2 {
-		return nil, nil, fmt.Errorf("data too short to contain length")
-	}
-
-	// Read array length
-	arrayLen := binary.BigEndian.Uint16(data[:2])
-	expectedLen := 2 + int(arrayLen)*32*2
-	if len(data) != expectedLen {
-		return nil, nil, fmt.Errorf("invalid data length: expected %d, got %d", expectedLen, len(data))
-	}
-
-	rs = make([][32]byte, arrayLen)
-	ss = make([][32]byte, arrayLen)
-
-	// Offsets
-	offset := 2
-	// Decode rs
-	for i := 0; i < int(arrayLen); i++ {
-		copy(rs[i][:], data[offset:offset+32])
-		offset += 32
-	}
-	// Decode ss
-	for i := 0; i < int(arrayLen); i++ {
-		copy(ss[i][:], data[offset:offset+32])
-		offset += 32
-	}
-
-	return rs, ss, nil
 }

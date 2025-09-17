@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 
@@ -75,22 +76,23 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 		return nil, nil, fmt.Errorf("failed to calculate signature hash: %w", err)
 	}
 
-	// 6. Sign the signature hash
-	signature, err := crypto.Sign(signatureHash[:], s.privateKey)
+	// 6. Sign the signature hash with v=27 normalization
+	r, sig_s, signerAddress, err := signature.SignV27(signatureHash[:], s.privateKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// 7. Extract r and s from signature and format as required
-	rBytes := [32]byte{}
-	sBytes := [32]byte{}
-	copy(rBytes[:], signature[0:32])
-	copy(sBytes[:], signature[32:64])
+	// 7. Create signature data with signer address
+	signatures := []signature.SignatureData{
+		{
+			R:      r,
+			S:      sig_s,
+			Signer: signerAddress,
+		},
+	}
 
-	// 8. Encode signature in the format expected by the system
-	rs := [][32]byte{rBytes}
-	ss := [][32]byte{sBytes}
-	encodedSignature, err := EncodeSignatures(rs, ss)
+	// 8. Encode signature using ABI encoding with ccvArgs (verifier blob)
+	encodedSignature, err := signature.EncodeSignaturesABI(verifierBlob, signatures)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encode signature: %w", err)
 	}

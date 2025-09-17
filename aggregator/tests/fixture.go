@@ -3,14 +3,17 @@ package tests
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"encoding/binary"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -119,7 +122,20 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 			return arr
 		}
 
-		m.CcvData, err = model.EncodeSignatures([][32]byte{to32ByteArray(r)}, [][32]byte{to32ByteArray(s)})
+		// Create signature data with dummy signer address
+		sigData := []signature.SignatureData{
+			{
+				R:      to32ByteArray(r),
+				S:      to32ByteArray(s),
+				Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
+			},
+		}
+
+		// Create dummy ccvArgs (nonce as 8 bytes)
+		ccvArgs := make([]byte, 8)
+		binary.BigEndian.PutUint64(ccvArgs, 123) // dummy nonce
+
+		m.CcvData, err = signature.EncodeSignaturesABI(ccvArgs, sigData)
 		require.NoError(t, err, "failed to encode signatures")
 
 		return m
