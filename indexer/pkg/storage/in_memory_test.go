@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -109,7 +110,7 @@ func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
 
 	// Query for source chain 1
 	sourceChains := []types.ChainSelector{1}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, sourceChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), sourceChains, []types.ChainSelector{}, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -134,7 +135,7 @@ func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
 
 	// Query for dest chain 2
 	destChains := []types.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, destChains, nil, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), []types.ChainSelector{}, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -161,7 +162,7 @@ func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
 	// Query for source chain 1 AND dest chain 2
 	sourceChains := []types.ChainSelector{1}
 	destChains := []types.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, destChains, sourceChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, 9999, sourceChains, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData4
