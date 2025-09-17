@@ -48,7 +48,7 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 }
 
 // SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress types2.UnknownAddress) ([]byte, []byte, error) {
+func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress types2.UnknownAddress) ([]byte, []byte, error) {
 	message := verificationTask.Message
 
 	// 1. Calculate message hash using the new chain-agnostic method
@@ -77,7 +77,7 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 	}
 
 	// 6. Sign the signature hash with v=27 normalization
-	r, sig_s, signerAddress, err := signature.SignV27(signatureHash[:], s.privateKey)
+	r, s, signerAddress, err := signature.SignV27(signatureHash[:], ecdsa.privateKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to sign message: %w", err)
 	}
@@ -86,7 +86,7 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 	signatures := []signature.SignatureData{
 		{
 			R:      r,
-			S:      sig_s,
+			S:      s,
 			Signer: signerAddress,
 		},
 	}
@@ -101,6 +101,6 @@ func (s *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.Ve
 }
 
 // GetSignerAddress returns the address of the signer.
-func (s *ECDSASigner) GetSignerAddress() types2.UnknownAddress {
-	return s.address
+func (ecdsa *ECDSASigner) GetSignerAddress() types2.UnknownAddress {
+	return ecdsa.address
 }

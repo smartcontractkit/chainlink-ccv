@@ -1,11 +1,10 @@
 package model
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
@@ -37,20 +36,16 @@ func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
 }
 
 func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*aggregator.MessageWithCCVData, error) {
-	participantSignatures := make(map[string]struct {
-		r [32]byte
-		s [32]byte
-	})
+	participantSignatures := make(map[string]signature.SignatureData)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
 			return nil, fmt.Errorf("missing IdentifierSigner in verification record")
 		}
-		participantSignatures[verification.IdentifierSigner.ParticipantID] = struct {
-			r [32]byte
-			s [32]byte
-		}{
-			r: verification.IdentifierSigner.SignatureR,
-			s: verification.IdentifierSigner.SignatureS,
+
+		participantSignatures[verification.IdentifierSigner.ParticipantID] = signature.SignatureData{
+			R:      verification.IdentifierSigner.SignatureR,
+			S:      verification.IdentifierSigner.SignatureS,
+			Signer: common.Address(verification.IdentifierSigner.Address),
 		}
 	}
 
@@ -61,62 +56,30 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 
 	signers := quorumConfig.Signers
 
-	// Create signature data - we need to recover signer addresses from the signatures
-	// First, prepare the message hash and verifier blob for signature recovery
-	message := report.GetMessage()
-	protocolMessage := MapProtoMessageToProtocolMessage(message)
-	messageHash, err := protocolMessage.MessageID()
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute message ID: %w", err)
+	var signatures []signature.SignatureData
+	// make sure all ccvArgs in reports are the same
+	ccvArgs := report.Verifications[0].CcvData
+	for _, verification := range report.Verifications {
+		if !bytes.Equal(ccvArgs[:], verification.CcvData[:]) {
+			return nil, fmt.Errorf("ccvArgs are not the same between signers")
+		}
 	}
 
-	// Create ccvArgs from the verifier blob (nonce data)
-	// For now, let's encode the nonce as ccvArgs (this should match what the verifier sends)
-	nonce := message.GetNonce()
-	ccvArgs := make([]byte, 8)
-	binary.BigEndian.PutUint64(ccvArgs, uint64(nonce))
-
-	// Calculate signature hash (same as verifier does)
-	verifierBlobHash := signature.Keccak256(ccvArgs)
-	var buf []byte
-	buf = append(buf, messageHash[:]...)
-	buf = append(buf, verifierBlobHash[:]...)
-	signatureHash := signature.Keccak256(buf)
-
-	var signatures []signature.SignatureData
 	for _, signer := range signers {
 		sig, exists := participantSignatures[signer.ParticipantID]
 		if !exists {
 			// Skipping missing signatures (not all participants may have signed)
 			continue
 		}
-
-		// Recover signer address from signature
-		sigBytes := make([]byte, 65)
-		copy(sigBytes[0:32], sig.r[:])
-		copy(sigBytes[32:64], sig.s[:])
-		sigBytes[64] = 0 // Assume v=0 for now, might need to try both 0 and 1
-
-		pubKey, err := crypto.SigToPub(signatureHash[:], sigBytes)
-		if err != nil {
-			// Try with v=1
-			sigBytes[64] = 1
-			pubKey, err = crypto.SigToPub(signatureHash[:], sigBytes)
-			if err != nil {
-				return nil, fmt.Errorf("failed to recover signer address for participant %s: %w", signer.ParticipantID, err)
-			}
-		}
-
-		signerAddr := crypto.PubkeyToAddress(*pubKey)
-
-		signatures = append(signatures, signature.SignatureData{
-			R:      sig.r,
-			S:      sig.s,
-			Signer: signerAddr,
-		})
+		signatures = append(signatures, sig)
 	}
 
-	encodedSignatures, err := signature.EncodeSignaturesABI(ccvArgs, signatures)
+	// Sort signatures by signer address for onchain compatibility
+	sortedSignatures := make([]signature.SignatureData, len(signatures))
+	copy(sortedSignatures, signatures)
+	signature.SortSignaturesBySigner(sortedSignatures)
+
+	encodedSignatures, err := signature.EncodeSignaturesABI(ccvArgs, sortedSignatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}

@@ -123,15 +123,10 @@ func EncodeSignaturesABI(ccvArgs []byte, signatures []SignatureData) ([]byte, er
 		return nil, fmt.Errorf("no signatures provided")
 	}
 
-	// Sort signatures by signer address for onchain compatibility
-	sortedSignatures := make([]SignatureData, len(signatures))
-	copy(sortedSignatures, signatures)
-	SortSignaturesBySigner(sortedSignatures)
-
 	// Extract rs and ss arrays
-	rs := make([][32]byte, len(sortedSignatures))
-	ss := make([][32]byte, len(sortedSignatures))
-	for i, sig := range sortedSignatures {
+	rs := make([][32]byte, len(signatures))
+	ss := make([][32]byte, len(signatures))
+	for i, sig := range signatures {
 		rs[i] = sig.R
 		ss[i] = sig.S
 	}
@@ -231,26 +226,36 @@ func RecoverSigners(hash [32]byte, rs, ss [][32]byte) ([]common.Address, error) 
 
 	signers := make([]common.Address, len(rs))
 	for i := 0; i < len(rs); i++ {
-		// Create signature with v=0 (crypto.Ecrecover expects 0/1, not 27/28)
-		sig := make([]byte, 65)
-		copy(sig[0:32], rs[i][:])
-		copy(sig[32:64], ss[i][:])
-		sig[64] = 0 // Always use v=0 since we normalize all signatures to v=27
-
-		// Recover public key
-		pubKey, err := crypto.Ecrecover(hash[:], sig)
+		signer, err := RecoverSigner(hash, rs[i], ss[i])
 		if err != nil {
-			return nil, fmt.Errorf("failed to recover public key for signature %d: %w", i, err)
+			return nil, fmt.Errorf("failed to recover signer for signature %d: %w", i, err)
 		}
-
-		// Convert to address
-		unmarshalledPub, err := crypto.UnmarshalPubkey(pubKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal public key for signature %d: %w", i, err)
-		}
-
-		signers[i] = crypto.PubkeyToAddress(*unmarshalledPub)
+		signers[i] = signer
 	}
 
 	return signers, nil
+}
+
+func RecoverSigner(hash [32]byte, r, s [32]byte) (common.Address, error) {
+	// Create signature with v=0 (crypto.Ecrecover expects 0/1, not 27/28)
+	sig := make([]byte, 65)
+	copy(sig[0:32], r[:])
+	copy(sig[32:64], s[:])
+	sig[64] = 0 // Always use v=0 since we normalize all signatures to v=27
+
+	// Recover public key
+	pubKey, err := crypto.Ecrecover(hash[:], sig)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to recover public key for signature: %w", err)
+	}
+
+	// Convert to address
+	unmarshalledPub, err := crypto.UnmarshalPubkey(pubKey)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to unmarshal public key for signature: %w", err)
+	}
+
+	signer := crypto.PubkeyToAddress(*unmarshalledPub)
+
+	return signer, nil
 }
