@@ -11,6 +11,7 @@ import (
 
 func getCommands() []prompt.Suggest {
 	return []prompt.Suggest{
+		{Text: "", Description: "Choose command, press <space> for more options after selecting command"},
 		{Text: "up", Description: "Spin up the development environment"},
 		{Text: "down", Description: "Tear down the development environment"},
 		{Text: "restart", Description: "Restart the development environment"},
@@ -63,6 +64,7 @@ func getSubCommands(parent string) []prompt.Suggest {
 		}
 	case "db":
 		return []prompt.Suggest{
+			{Text: "", Description: "Press <space> for more options"},
 			{Text: "indexer", Description: "Inspect Indexer Database"},
 			{Text: "aggregator", Description: "Inspect Aggregator Database"},
 			{Text: "verifier", Description: "Inspect Verifier Database"},
@@ -75,8 +77,12 @@ func getSubCommands(parent string) []prompt.Suggest {
 		fallthrough
 	case "restart":
 		return []prompt.Suggest{
-			{Text: "env.toml,env-geth.toml", Description: "Configure devenv to use Geth <> Geth local chains (clique)"},
-			{Text: "env.toml,env-fuji-fantom.toml", Description: "Configure devenv to use testnets: Fuji <> Fantom"},
+			{Text: "env-single-node.toml", Description: "Spin up Anvil <> Anvil local chains, 1 CL node"},
+			{Text: "env-single-node.toml,env-single-node-rebuild.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 4 CL nodes"},
+			{Text: "env.toml", Description: "Spin up Anvil <> Anvil local chains, all services, 4 CL nodes"},
+			{Text: "env.toml,env-cl-rebuild.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 4 CL nodes"},
+			{Text: "env.toml,env-geth.toml", Description: "Spin up Geth <> Geth local chains (clique), all services, 4 CL nodes"},
+			{Text: "env.toml,env-fuji-fantom.toml", Description: "Spin up testnets: Fuji <> Fantom, all services, 4 CL nodes"},
 		}
 	default:
 		return []prompt.Suggest{}

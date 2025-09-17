@@ -163,6 +163,9 @@ func aggregatorDefaults(in *AggregatorInput) {
 }
 
 func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
+	if in == nil {
+		return nil, nil
+	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
