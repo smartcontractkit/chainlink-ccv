@@ -56,7 +56,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 
 	signers := quorumConfig.Signers
 
-	var signatures []signature.Data
+	signatures := make([]signature.Data, 0)
 	// make sure all ccvData in reports are the same
 	blobData := report.Verifications[0].BlobData
 	for _, verification := range report.Verifications {

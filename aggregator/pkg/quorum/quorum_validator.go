@@ -153,16 +153,6 @@ func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, c
 	return keccak256(buf.Bytes())
 }
 
-func (q *EVMQuorumValidator) getReceiptBlobForVerifier(report *aggregator.MessageWithCCVNodeData) ([]byte, error) {
-	sourceVerifier := report.SourceVerifierAddress
-	for _, blob := range report.ReceiptBlobs {
-		if bytes.Equal(blob.Issuer, sourceVerifier) {
-			return blob.Blob, nil
-		}
-	}
-	return nil, fmt.Errorf("receipt blob not found for verifier: %x", sourceVerifier)
-}
-
 func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {
 	pubKeyBytes, err := crypto.Ecrecover(msgHash, signature)
 	if err != nil {
