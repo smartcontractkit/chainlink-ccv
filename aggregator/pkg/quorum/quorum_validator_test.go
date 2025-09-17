@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -22,7 +23,6 @@ func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregat
 	return aggregator.MessageWithCCVNodeData{
 		MessageId:             src.MessageId,
 		SourceVerifierAddress: src.SourceVerifierAddress,
-		DestVerifierAddress:   src.DestVerifierAddress,
 		Message:               src.Message,
 		BlobData:              src.BlobData,
 		CcvData:               src.CcvData,
@@ -33,12 +33,14 @@ func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregat
 
 // TestCaseBuilder helps build test cases using option pattern.
 type TestCaseBuilder struct {
-	signerFixtures []*fixtures.SignerFixture
-	committeeID    string
-	verifications  []string // participant IDs that signed
-	threshold      uint8
-	expectedValid  bool
-	expectedError  bool
+	committeeID           string
+	signerFixtures        []*fixtures.SignerFixture
+	verifications         []string
+	sourceVerifierAddress []byte
+	destVerifierAddress   []byte
+	threshold             uint8
+	expectedValid         bool
+	expectedError         bool
 }
 
 // TestCaseOption defines an option for configuring test cases.
@@ -87,12 +89,15 @@ func ExpectError() TestCaseOption {
 }
 
 // NewTestCase creates a new test case builder with defaults.
-func NewTestCase(opts ...TestCaseOption) *TestCaseBuilder {
+func NewTestCase(t *testing.T, opts ...TestCaseOption) *TestCaseBuilder {
+	sourceVerifierAddress, destVerifierAddress := fixtures.GenerateVerifierAddresses(t)
 	b := &TestCaseBuilder{
-		committeeID:   "committee1",
-		threshold:     1,
-		expectedValid: true,
-		expectedError: false,
+		committeeID:           "committee1",
+		threshold:             1,
+		expectedValid:         true,
+		expectedError:         false,
+		sourceVerifierAddress: sourceVerifierAddress,
+		destVerifierAddress:   destVerifierAddress,
 	}
 
 	for _, opt := range opts {
@@ -114,7 +119,8 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 			b.committeeID: {
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					"1": {
-						OfframpAddress: "0x00000000000000000000000000000000000000000",
+						OfframpAddress: common.Bytes2Hex(b.destVerifierAddress),
+						OnrampAddress:  common.Bytes2Hex(b.sourceVerifierAddress),
 						Signers:        signers,
 						Threshold:      b.threshold,
 					},
@@ -142,7 +148,8 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 			// Create a dummy verification record for unknown signers
 			verifications[i] = &model.CommitVerificationRecord{
 				MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{
-					MessageId: []byte{1},
+					MessageId:             []byte{1},
+					SourceVerifierAddress: b.sourceVerifierAddress,
 					Message: &aggregator.Message{
 						DestChainSelector: 1,
 					},
@@ -157,7 +164,7 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 			return m
 		})
 
-		messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
+		messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, b.sourceVerifierAddress,
 			fixtures.WithSignatureFrom(t, signerFixture))
 
 		verificationRecord := &model.CommitVerificationRecord{}
@@ -189,6 +196,7 @@ func (b *TestCaseBuilder) Run(t *testing.T) {
 }
 
 func TestValidateSignature(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := fixtures.GenerateVerifierAddresses(t)
 	// Create signer fixture
 	signerFixture := fixtures.NewSignerFixture(t, "signer1")
 	committeeID := "committee1"
@@ -197,7 +205,7 @@ func TestValidateSignature(t *testing.T) {
 	protocolMessage := fixtures.NewProtocolMessage(t)
 
 	// Create MessageWithCCVNodeData using fixtures with signature
-	messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
+	messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
 		fixtures.WithSignatureFrom(t, signerFixture))
 
 	t.Run("valid signature", func(t *testing.T) {
@@ -209,7 +217,8 @@ func TestValidateSignature(t *testing.T) {
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							Threshold:      1,
-							OfframpAddress: "0x00000000000000000000000000000000000000000",
+							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
+							OnrampAddress:  common.Bytes2Hex(sourceVerifierAddress),
 						},
 					},
 				},
@@ -237,7 +246,8 @@ func TestValidateSignature(t *testing.T) {
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							Threshold:      1,
-							OfframpAddress: "0x00000000000000000000000000000000000000000",
+							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
+							OnrampAddress:  common.Bytes2Hex(sourceVerifierAddress),
 						},
 					},
 				},
@@ -247,7 +257,7 @@ func TestValidateSignature(t *testing.T) {
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Create message data without signature
-		messageDataNoSig := fixtures.NewMessageWithCCVNodeData(t, protocolMessage)
+		messageDataNoSig := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress)
 		messageDataNoSig.CcvData = nil // Remove signature
 
 		record := &model.CommitVerificationRecord{}
@@ -267,7 +277,8 @@ func TestValidateSignature(t *testing.T) {
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							Threshold:      1,
-							OfframpAddress: "0x00000000000000000000000000000000000000000",
+							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
+							OnrampAddress:  common.Bytes2Hex(sourceVerifierAddress),
 						},
 					},
 				},
@@ -278,7 +289,7 @@ func TestValidateSignature(t *testing.T) {
 
 		// Create different signer for invalid signature
 		invalidSignerFixture := fixtures.NewSignerFixture(t, "invalid_signer")
-		invalidMessageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
+		invalidMessageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
 			fixtures.WithSignatureFrom(t, invalidSignerFixture))
 
 		record := &model.CommitVerificationRecord{}
@@ -315,7 +326,8 @@ func TestValidateSignature(t *testing.T) {
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							Threshold:      1,
-							OfframpAddress: "0x00000000000000000000000000000000000000000",
+							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
+							OnrampAddress:  common.Bytes2Hex(sourceVerifierAddress),
 						},
 					},
 				},
@@ -325,7 +337,7 @@ func TestValidateSignature(t *testing.T) {
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Create message data without receipt blobs
-		messageDataNoBlob := fixtures.NewMessageWithCCVNodeData(t, protocolMessage,
+		messageDataNoBlob := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
 			fixtures.WithSignatureFrom(t, signerFixture))
 		messageDataNoBlob.ReceiptBlobs = []*aggregator.ReceiptBlob{} // Empty receipt blobs
 
@@ -386,6 +398,7 @@ func TestCheckQuorum(t *testing.T) {
 			}
 
 			NewTestCase(
+				t,
 				WithSignerFixtures(signerFixtures...),
 				WithThreshold(tt.threshold),
 				WithVerifications(tt.verifications...),

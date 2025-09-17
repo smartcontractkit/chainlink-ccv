@@ -106,12 +106,9 @@ var bsUpCmd = &cobra.Command{
 	Aliases: []string{"u"},
 	Short:   "Spin up Blockscout EVM block explorer",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		remote, _ := rootCmd.Flags().GetBool("remote")
 		url, _ := bsCmd.Flags().GetString("url")
-		if remote {
-			return fmt.Errorf("remote mode: %v, Blockscout can only be used in 'local' mode", remote)
-		}
-		return framework.BlockScoutUp(url)
+		chainID, _ := bsCmd.Flags().GetString("chain-id")
+		return framework.BlockScoutUp(url, chainID)
 	},
 }
 
@@ -120,11 +117,7 @@ var bsDownCmd = &cobra.Command{
 	Aliases: []string{"d"},
 	Short:   "Spin down Blockscout EVM block explorer",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		remote, _ := rootCmd.Flags().GetBool("remote")
 		url, _ := bsCmd.Flags().GetString("url")
-		if remote {
-			return fmt.Errorf("remote mode: %v, Blockscout can only be used in 'local' mode", remote)
-		}
 		return framework.BlockScoutDown(url)
 	},
 }
@@ -135,10 +128,11 @@ var bsRestartCmd = &cobra.Command{
 	Short:   "Restart the Blockscout EVM block explorer",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		url, _ := bsCmd.Flags().GetString("url")
+		chainID, _ := bsCmd.Flags().GetString("chain-id")
 		if err := framework.BlockScoutDown(url); err != nil {
 			return err
 		}
-		return framework.BlockScoutUp(url)
+		return framework.BlockScoutUp(url, chainID)
 	},
 }
 
@@ -371,9 +365,10 @@ var monitorContractsCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringP("blockscout_url", "u", "http://host.docker.internal:8545", "EVM RPC node URL")
 
 	// Blockscout, on-chain debug
+	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8555", "EVM RPC node URL (default to dst chain on 8555")
+	bsCmd.PersistentFlags().StringP("chain-id", "c", "2337", "RPC's Chain ID")
 	bsCmd.AddCommand(bsUpCmd)
 	bsCmd.AddCommand(bsDownCmd)
 	bsCmd.AddCommand(bsRestartCmd)

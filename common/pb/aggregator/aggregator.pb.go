@@ -555,14 +555,13 @@ type MessageWithCCVNodeData struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	MessageId             []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	SourceVerifierAddress []byte                 `protobuf:"bytes,2,opt,name=source_verifier_address,json=sourceVerifierAddress,proto3" json:"source_verifier_address,omitempty"`
-	DestVerifierAddress   []byte                 `protobuf:"bytes,3,opt,name=dest_verifier_address,json=destVerifierAddress,proto3" json:"dest_verifier_address,omitempty"`
 	// ccv_data is the signature from the commit verifier node of the message data and the blob data
-	CcvData []byte `protobuf:"bytes,4,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
-	// blob_data is the encoded nonce from the source chain
-	BlobData      []byte         `protobuf:"bytes,5,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
-	Timestamp     int64          `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Message       *Message       `protobuf:"bytes,7,opt,name=message,proto3" json:"message,omitempty"`
-	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,8,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
+	CcvData []byte `protobuf:"bytes,3,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
+	// blob_data is the verifier's proof/verification of the message data on chain
+	BlobData      []byte         `protobuf:"bytes,4,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
+	Timestamp     int64          `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Message       *Message       `protobuf:"bytes,6,opt,name=message,proto3" json:"message,omitempty"`
+	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,7,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -607,13 +606,6 @@ func (x *MessageWithCCVNodeData) GetMessageId() []byte {
 func (x *MessageWithCCVNodeData) GetSourceVerifierAddress() []byte {
 	if x != nil {
 		return x.SourceVerifierAddress
-	}
-	return nil
-}
-
-func (x *MessageWithCCVNodeData) GetDestVerifierAddress() []byte {
-	if x != nil {
-		return x.DestVerifierAddress
 	}
 	return nil
 }
@@ -1104,17 +1096,16 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x13dest_bytes_overhead\x18\x03 \x01(\rR\x11destBytesOverhead\x12\x12\n" +
 	"\x04blob\x18\x04 \x01(\fR\x04blob\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x05 \x01(\fR\textraArgs\"\xd0\x02\n" +
+	"extra_args\x18\x05 \x01(\fR\textraArgs\"\x9c\x02\n" +
 	"\x16MessageWithCCVNodeData\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\fR\tmessageId\x126\n" +
-	"\x17source_verifier_address\x18\x02 \x01(\fR\x15sourceVerifierAddress\x122\n" +
-	"\x15dest_verifier_address\x18\x03 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
-	"\bccv_data\x18\x04 \x01(\fR\accvData\x12\x1b\n" +
-	"\tblob_data\x18\x05 \x01(\fR\bblobData\x12\x1c\n" +
-	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\"\n" +
-	"\amessage\x18\a \x01(\v2\b.MessageR\amessage\x121\n" +
-	"\rreceipt_blobs\x18\b \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xdd\x01\n" +
+	"\x17source_verifier_address\x18\x02 \x01(\fR\x15sourceVerifierAddress\x12\x19\n" +
+	"\bccv_data\x18\x03 \x01(\fR\accvData\x12\x1b\n" +
+	"\tblob_data\x18\x04 \x01(\fR\bblobData\x12\x1c\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12\"\n" +
+	"\amessage\x18\x06 \x01(\v2\b.MessageR\amessage\x121\n" +
+	"\rreceipt_blobs\x18\a \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xdd\x01\n" +
 	"\x12MessageWithCCVData\x12\"\n" +
 	"\amessage\x18\x01 \x01(\v2\b.MessageR\amessage\x126\n" +
 	"\x17source_verifier_address\x18\x02 \x01(\fR\x15sourceVerifierAddress\x122\n" +

@@ -14,6 +14,19 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
+func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
+	// Generate valid Ethereum addresses using private keys
+	sourceKey, err := crypto.GenerateKey()
+	require.NoError(t, err, "failed to generate source private key")
+	sourceVerifierAddress := crypto.PubkeyToAddress(sourceKey.PublicKey)
+
+	destKey, err := crypto.GenerateKey()
+	require.NoError(t, err, "failed to generate destination private key")
+	destVerifierAddress := crypto.PubkeyToAddress(destKey.PublicKey)
+
+	return sourceVerifierAddress.Bytes(), destVerifierAddress.Bytes()
+}
+
 type SignerFixture struct {
 	key    *ecdsa.PrivateKey
 	Signer model.Signer
@@ -113,14 +126,13 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 	}
 }
 
-func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, options ...MessageWithCCVNodeDataOption) *aggregator.MessageWithCCVNodeData {
+func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *aggregator.MessageWithCCVNodeData {
 	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 
 	ccvNodeData := &aggregator.MessageWithCCVNodeData{
 		MessageId:             messageID[:],
-		SourceVerifierAddress: make([]byte, 20),
-		DestVerifierAddress:   make([]byte, 20),
+		SourceVerifierAddress: sourceVerifierAddress,
 		Message: &aggregator.Message{
 			Version:              uint32(message.Version),
 			SourceChainSelector:  uint64(message.SourceChainSelector),
@@ -147,7 +159,7 @@ func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, options ...
 		Timestamp: 1234567890,
 		ReceiptBlobs: []*aggregator.ReceiptBlob{
 			{
-				Issuer: make([]byte, 20),
+				Issuer: sourceVerifierAddress,
 				Blob:   []byte("test blob data"),
 			},
 		},

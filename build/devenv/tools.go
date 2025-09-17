@@ -192,6 +192,11 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 
 // GetContractAddrForSelector get contract address by type and chain selector
 func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore.ContractType) (common.Address, error) {
+	return GetContractAddressForSelector(in, selector, router.ContractType)
+}
+
+// GetContractAddressForSelector get address for chain selector, mostly used in testing or tools
+func GetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) (common.Address, error) {
 	var contractAddr common.Address
 	for _, addr := range in.CCV.Addresses {
 		var refs []datastore.AddressRef
@@ -200,7 +205,7 @@ func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore
 			return common.Address{}, err
 		}
 		for _, ref := range refs {
-			if ref.ChainSelector == selector && ref.Type == contractType {
+			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(contractType) {
 				contractAddr = common.HexToAddress(ref.Address)
 			}
 		}
@@ -208,14 +213,12 @@ func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore
 	return contractAddr, nil
 }
 
-// GetRouterAddrForSelector get router address for chain selector, mostly used in testing or tools
-func GetRouterAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
-	return GetContractAddrForSelector(in, selector, datastore.ContractType(router.ContractType))
-}
-
-// GetOffRampAddrForSelector get off ramp address for selector
-func GetOffRampAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
-	return GetContractAddrForSelector(in, selector, datastore.ContractType(ccv_aggregator.ContractType))
+func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) common.Address {
+	addr, err := GetContractAddressForSelector(in, selector, contractType)
+	if err != nil {
+		Plog.Fatal().Err(err).Msg("Failed to get contract address")
+	}
+	return addr
 }
 
 // FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).
@@ -585,11 +588,12 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 		GasLimit:                 big.NewInt(200_000),
 		AllowOutOfOrderExecution: false,
 	}
+	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
+			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
 			ExtraArgs:    argsV2.ToBytes(),
