@@ -15,7 +15,8 @@ jobs:
           dir: executor
           go-mod-path: executor/go.mod
           go-sum-path: executor/go.sum
-          job-name: executor-lint-and-test
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
   indexer-tests:
     runs-on: ubuntu-latest
@@ -28,7 +29,8 @@ jobs:
           dir: indexer
           go-mod-path: indexer/go.mod
           go-sum-path: indexer/go.sum
-          job-name: indexer-lint-and-test
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
   verifier-tests:
     runs-on: ubuntu-latest
@@ -41,8 +43,8 @@ jobs:
           dir: verifier
           go-mod-path: verifier/go.mod
           go-sum-path: verifier/go.sum
-          job-name: verifier-lint-and-test
-
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
   aggregator-tests:
     runs-on: ubuntu-latest
@@ -55,7 +57,8 @@ jobs:
           dir: aggregator
           go-mod-path: aggregator/go.mod
           go-sum-path: aggregator/go.sum
-          job-name: aggregator-lint-and-test
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
   common-tests:
     runs-on: ubuntu-latest
@@ -68,6 +71,7 @@ jobs:
           dir: common
           go-mod-path: common/go.mod
           go-sum-path: common/go.sum
-          job-name: common-lint-and-test
           install-protoc: "true"
           run-proto-check: "true"
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0

@@ -11,9 +11,6 @@ inputs:
   go-sum-path:
     description: "Path to go.sum file for dependency caching (e.g., executor/go.sum)"
     required: true
-  job-name:
-    description: "Name for the job (e.g., executor-lint-and-test)"
-    required: true
   install-protoc:
     description: "Whether to install protoc (for common component)"
     required: false
