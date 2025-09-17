@@ -338,7 +338,6 @@ var sendCmd = &cobra.Command{
 					},
 				}, 0)
 		} else {
-			// V2 format - use the dedicated V2 function
 			return ccv.SendExampleArgsV2Message(in, src, dest)
 		}
 	},
