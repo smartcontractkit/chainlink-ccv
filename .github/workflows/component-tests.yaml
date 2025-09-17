@@ -1,0 +1,75 @@
+name: Component Tests
+
+on:
+  pull_request:
+    paths:
+      - '.github/**'
+      - 'protocol/**'
+      - 'common/**'
+      - 'executor/**'
+      - 'indexer/**'
+      - 'verifier/**'
+      - 'aggregator/**'
+
+jobs:
+  executor-tests:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, 'executor/')
+    steps:
+      - name: Lint and Test Executor
+        uses: ./.github/actions/lint-test-component
+        with:
+          working-directory: executor
+          go-mod-path: executor/go.mod
+          go-sum-path: executor/go.sum
+          job-name: executor-lint-and-test
+
+  indexer-tests:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, 'indexer/')
+    steps:
+      - name: Lint and Test Indexer
+        uses: ./.github/actions/lint-test-component
+        with:
+          working-directory: indexer
+          go-mod-path: indexer/go.mod
+          go-sum-path: indexer/go.sum
+          job-name: indexer-lint-and-test
+
+  verifier-tests:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, 'verifier/')
+    steps:
+      - name: Lint and Test Verifier
+        uses: ./.github/actions/lint-test-component
+        with:
+          working-directory: verifier
+          go-mod-path: verifier/go.mod
+          go-sum-path: verifier/go.sum
+          job-name: verifier-lint-and-test
+
+  aggregator-tests:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, 'aggregator/')
+    steps:
+      - name: Lint and Test Aggregator
+        uses: ./.github/actions/lint-test-component
+        with:
+          working-directory: aggregator
+          go-mod-path: aggregator/go.mod
+          go-sum-path: aggregator/go.sum
+          job-name: aggregator-lint-and-test
+
+  common-tests:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, 'common/') || contains(github.event.pull_request.changed_files, 'protocol/')
+    steps:
+      - name: Lint and Test Common
+        uses: ./.github/actions/lint-test-component
+        with:
+          working-directory: common
+          go-mod-path: common/go.mod
+          go-sum-path: common/go.sum
+          job-name: common-lint-and-test
+          install-protoc: "true"
+          run-proto-check: "true"
