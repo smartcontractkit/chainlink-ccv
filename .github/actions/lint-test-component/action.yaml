@@ -22,6 +22,10 @@ inputs:
     description: "Whether to run proto-check (for common component)"
     required: false
     default: "false"
+  github-token:
+    description: "The `GITHUB_TOKEN` issued for the workflow."
+    default: ${{ github.token }}
+    required: false
 
 runs:
   using: "composite"
@@ -103,7 +107,7 @@ runs:
       uses: actions/github-script@v6
       if: github.event_name == 'pull_request'
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ inputs.github-token }}
         script: |
           const { owner, repo, number: issue_number } = context.issue;
           const comments = await github.rest.issues.listComments({
@@ -126,7 +130,7 @@ runs:
       uses: actions/github-script@v6
       if: github.event_name == 'pull_request'
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ inputs.github-token }}
         script: |
           const coverage = process.env.coverage;
           const coverage_target = process.env.coverage_target;
