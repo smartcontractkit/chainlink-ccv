@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/stretchr/testify/require"
@@ -62,7 +63,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
 
-	routerAddr, err := ccv.GetRouterAddrForSelector(m.cfg, m.src.Selector)
+	routerAddr, err := ccv.GetContractAddrForSelector(m.cfg, m.src.Selector, datastore.ContractType(router.ContractType))
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}

@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/stretchr/testify/require"
 
@@ -24,7 +25,7 @@ func TestE2ESmoke(t *testing.T) {
 	dstChain := chains[selectors[1]]
 	b := ccv.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
-	routerAddr, err := ccv.GetRouterAddrForSelector(in, srcChain.Selector)
+	routerAddr, err := ccv.GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
 	require.NoError(t, err)
 
 	argsV3, err := ccv.NewV3ExtraArgs(1, []byte{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
