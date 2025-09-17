@@ -57,11 +57,11 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	signers := quorumConfig.Signers
 
 	var signatures []signature.SignatureData
-	// make sure all ccvArgs in reports are the same
-	ccvArgs := report.Verifications[0].CcvData
+	// make sure all ccvData in reports are the same
+	blobData := report.Verifications[0].BlobData
 	for _, verification := range report.Verifications {
-		if !bytes.Equal(ccvArgs[:], verification.CcvData[:]) {
-			return nil, fmt.Errorf("ccvArgs are not the same between signers")
+		if !bytes.Equal(blobData[:], verification.BlobData[:]) {
+			return nil, fmt.Errorf("blobData are not the same between signers")
 		}
 	}
 
@@ -79,7 +79,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	copy(sortedSignatures, signatures)
 	signature.SortSignaturesBySigner(sortedSignatures)
 
-	encodedSignatures, err := signature.EncodeSignaturesABI(ccvArgs, sortedSignatures)
+	encodedSignatures, err := signature.EncodeSignaturesABI(blobData, sortedSignatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}

@@ -23,15 +23,12 @@ func Keccak256(data []byte) [32]byte {
 }
 
 // CalculateSignatureHash calculates signature hash using canonical binary encoding:
-// keccak256(messageHash || keccak256(verifierBlob)).
+// keccak256(messageHash || verifierBlob).
+// on-chain counterpart: https://github.com/smartcontractkit/chainlink-ccip/blob/1e31a94258cbbcc75042457ee4f626bbbf1f85f4/chains/evm/contracts/offRamp/CommitOffRamp.sol#L42-L43
 func CalculateSignatureHash(messageHash protocol.Bytes32, verifierBlob []byte) ([32]byte, error) {
-	verifierBlobHash := Keccak256(verifierBlob)
-
-	// Canonical encoding: simply concatenate the two 32-byte hashes
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
-	buf.Write(verifierBlobHash[:])
-
+	buf.Write(verifierBlob[:])
 	return Keccak256(buf.Bytes()), nil
 }
 

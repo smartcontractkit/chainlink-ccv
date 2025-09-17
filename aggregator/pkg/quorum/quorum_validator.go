@@ -153,12 +153,10 @@ func keccak256(data []byte) [32]byte {
 }
 
 func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, verifierBlob []byte) [32]byte {
-	verifierBlobHash := keccak256(verifierBlob)
-
 	// Canonical encoding: simply concatenate the two 32-byte hashes
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
-	buf.Write(verifierBlobHash[:])
+	buf.Write(verifierBlob[:])
 
 	return keccak256(buf.Bytes())
 }
