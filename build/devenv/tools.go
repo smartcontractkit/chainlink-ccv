@@ -204,12 +204,20 @@ func GetContractAddressForSelector(in *Cfg, selector uint64, contractType deploy
 			return common.Address{}, err
 		}
 		for _, ref := range refs {
-			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(router.ContractType) {
+			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(contractType) {
 				contractAddr = common.HexToAddress(ref.Address)
 			}
 		}
 	}
 	return contractAddr, nil
+}
+
+func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) common.Address {
+	addr, err := GetContractAddressForSelector(in, selector, contractType)
+	if err != nil {
+		Plog.Fatal().Err(err).Msg("Failed to get contract address")
+	}
+	return addr
 }
 
 // FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).

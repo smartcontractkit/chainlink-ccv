@@ -145,10 +145,11 @@ func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 
 // Message represents the chain-agnostic CCIP message format.
 type Message struct {
-	Sender               []byte        `json:"sender"`
-	Data                 []byte        `json:"data"`
-	OnRampAddress        []byte        `json:"on_ramp_address"`
-	TokenTransfer        []byte        `json:"token_transfer"`
+	Sender        []byte `json:"sender"`
+	Data          []byte `json:"data"`
+	OnRampAddress []byte `json:"on_ramp_address"`
+	TokenTransfer []byte `json:"token_transfer"`
+	// This is CCVAggregator
 	OffRampAddress       []byte        `json:"off_ramp_address"`
 	DestBlob             []byte        `json:"dest_blob"`
 	Receiver             []byte        `json:"receiver"`
