@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strconv"
 
@@ -64,7 +65,6 @@ type Signer struct {
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
 	OfframpAddress string   `toml:"offrampAddress"`
-	OnrampAddress  string   `toml:"onrampAddress"`
 	Signers        []Signer `toml:"signers"`
 	Threshold      uint8    `toml:"threshold"`
 }
@@ -75,7 +75,8 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
+	QuorumConfigs           map[string]*QuorumConfig `toml:"quorumConfigs"`
+	SourceVerifierAddresses map[string]string        `toml:"sourceVerifierAddresses"`
 }
 
 // StorageConfig represents the configuration for the storage backend.
@@ -111,6 +112,15 @@ func aggregatorDefaults(in *AggregatorInput) {
 			Image: DefaultAggregatorDBImage,
 		}
 	}
+	log.Default().Printf("Aggregator config - Committees: %+v", in.AggregatorConfig.Committees)
+	for committeeName, committee := range in.AggregatorConfig.Committees {
+		log.Default().Printf("Committee '%s': SourceVerifierAddresses: %+v", committeeName, committee.SourceVerifierAddresses)
+		log.Default().Printf("Committee '%s': QuorumConfigs: %+v", committeeName, committee.QuorumConfigs)
+		for quorumKey, quorumConfig := range committee.QuorumConfigs {
+			log.Default().Printf("  QuorumConfig '%s': OfframpAddress: %s, Threshold: %d, Signers: %+v",
+				quorumKey, quorumConfig.OfframpAddress, quorumConfig.Threshold, quorumConfig.Signers)
+		}
+	}
 	if in.AggregatorConfig == nil {
 		in.AggregatorConfig = &AggregatorConfig{
 			Server: ServerConfig{
@@ -121,6 +131,10 @@ func aggregatorDefaults(in *AggregatorInput) {
 			},
 			Committees: map[string]*Committee{
 				"default": {
+					SourceVerifierAddresses: map[string]string{
+						"12922642891491394802": "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
+						"3379446385462418246":  "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
+					},
 					QuorumConfigs: map[string]*QuorumConfig{
 						"1337": {
 							OfframpAddress: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
@@ -139,7 +153,6 @@ func aggregatorDefaults(in *AggregatorInput) {
 						},
 						"12922642891491394802": {
 							OfframpAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-							OnrampAddress:  "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
 							Signers: []Signer{
 								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
 								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
@@ -148,7 +161,6 @@ func aggregatorDefaults(in *AggregatorInput) {
 						},
 						"3379446385462418246": {
 							OfframpAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-							OnrampAddress:  "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
 							Signers: []Signer{
 								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
 								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
@@ -195,10 +207,13 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
+	log.Default().Printf("Starting aggregator config encoding")
 	var aggreagtorConfigBuf bytes.Buffer
 	if err := toml.NewEncoder(&aggreagtorConfigBuf).Encode(in.AggregatorConfig); err != nil {
+		log.Default().Printf("Failed to encode aggregator config: %v", err)
 		return nil, fmt.Errorf("failed to encode aggregator config: %w", err)
 	}
+	log.Default().Printf("Aggregator config encoded successfully, config size: %d bytes", aggreagtorConfigBuf.Len())
 
 	/* Service */
 	req := testcontainers.ContainerRequest{

@@ -117,10 +117,12 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 	return &model.AggregatorConfig{
 		Committees: map[string]*model.Committee{
 			b.committeeID: {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(b.sourceVerifierAddress),
+				},
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					"1": {
 						OfframpAddress: common.Bytes2Hex(b.destVerifierAddress),
-						OnrampAddress:  common.Bytes2Hex(b.sourceVerifierAddress),
 						Signers:        signers,
 						Threshold:      b.threshold,
 					},
@@ -213,12 +215,14 @@ func TestValidateSignature(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
+					SourceVerifierAddresses: map[string]string{
+						"1": common.Bytes2Hex(sourceVerifierAddress),
+					},
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							Threshold:      1,
 							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
-							OnrampAddress:  common.Bytes2Hex(sourceVerifierAddress),
 						},
 					},
 				},
@@ -242,12 +246,14 @@ func TestValidateSignature(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
+					SourceVerifierAddresses: map[string]string{
+						"1": common.Bytes2Hex(sourceVerifierAddress),
+					},
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							Threshold:      1,
 							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
-							OnrampAddress:  common.Bytes2Hex(sourceVerifierAddress),
 						},
 					},
 				},
@@ -273,12 +279,14 @@ func TestValidateSignature(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
+					SourceVerifierAddresses: map[string]string{
+						"1": common.Bytes2Hex(sourceVerifierAddress),
+					},
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							Threshold:      1,
 							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
-							OnrampAddress:  common.Bytes2Hex(sourceVerifierAddress),
 						},
 					},
 				},
@@ -322,12 +330,14 @@ func TestValidateSignature(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committees: map[string]*model.Committee{
 				committeeID: {
+					SourceVerifierAddresses: map[string]string{
+						"1": common.Bytes2Hex(sourceVerifierAddress),
+					},
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
 							Signers:        []model.Signer{signerFixture.Signer},
 							Threshold:      1,
 							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
-							OnrampAddress:  common.Bytes2Hex(sourceVerifierAddress),
 						},
 					},
 				},

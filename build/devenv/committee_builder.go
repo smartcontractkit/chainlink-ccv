@@ -82,16 +82,16 @@ func (cb *CommitteeBuilder) ConfigureOnchain(in *Cfg) *CommitteeBuilderWithOncha
 		CCVAggregator string
 	})
 
-	allSourceVerifierAddresses := make(map[uint64]string)
-
 	for _, chain := range in.Blockchains {
 		chainID, err := strconv.ParseUint(chain.ChainID, 10, 64)
 		if err != nil {
-			return nil // Return nil instead of panicking
+			Plog.Error().Err(err).Str("chainID", chain.ChainID).Msg("Failed to parse chain ID")
+			continue // Skip invalid chain instead of returning nil
 		}
 		c, exists := chain_selectors.ChainByEvmChainID(chainID)
 		if !exists {
-			return nil // Return nil if chain selector is not found
+			Plog.Warn().Uint64("chainID", chainID).Msg("Chain selector not found, skipping")
+			continue // Skip unknown chain instead of returning nil
 		}
 
 		ccvProxy := MustGetContractAddressForSelector(in, c.Selector, ccv_proxy.ContractType)
@@ -104,23 +104,14 @@ func (cb *CommitteeBuilder) ConfigureOnchain(in *Cfg) *CommitteeBuilderWithOncha
 			CCVAddress:    ccvProxy.Hex(),
 			CCVAggregator: ccvAggregator.Hex(),
 		}
-
-		onramp := MustGetContractAddressForSelector(in, c.Selector, commit_onramp.ContractType)
-		allSourceVerifierAddresses[c.Selector] = onramp.Hex()
 	}
 
 	for _, committee := range cb.Committees {
 		for selector, config := range committee.OnChainAddresses {
 			destVerifierAddress := MustGetContractAddressForSelector(in, selector, commit_offramp.ContractType)
 			config.DestVerifierAddress = destVerifierAddress.Hex()
-			// Set source verifier address - this should be from a different chain
-			// For now, use the first available source address that's not the current selector
-			for s, addr := range allSourceVerifierAddresses {
-				if s != selector {
-					config.SourceVerifierAddress = addr
-					break // Take the first one, don't overwrite with subsequent ones
-				}
-			}
+			onramp := MustGetContractAddressForSelector(in, selector, commit_onramp.ContractType)
+			config.SourceVerifierAddress = onramp.Hex()
 		}
 	}
 
@@ -160,7 +151,12 @@ func (cb *CommitteeBuilderWithOnchainAddresses) AggregatorCommittee() (map[strin
 	for name, config := range cb.Committees {
 		// Initialize committee once per name
 		serviceCommittees[name] = &services.Committee{
-			QuorumConfigs: make(map[string]*services.QuorumConfig),
+			QuorumConfigs:           make(map[string]*services.QuorumConfig),
+			SourceVerifierAddresses: make(map[string]string),
+		}
+
+		for selector, addresses := range config.OnChainAddresses {
+			serviceCommittees[name].SourceVerifierAddresses[fmt.Sprintf("%d", selector)] = addresses.SourceVerifierAddress
 		}
 
 		signers, err := config.GenerateSigners(name)
@@ -174,7 +170,6 @@ func (cb *CommitteeBuilderWithOnchainAddresses) AggregatorCommittee() (map[strin
 				Threshold:      config.Threshold,
 				Signers:        make([]services.Signer, config.SignerCount),
 				OfframpAddress: addresses.DestVerifierAddress,
-				OnrampAddress:  addresses.SourceVerifierAddress,
 			}
 
 			for i := 0; i < config.SignerCount; i++ {
