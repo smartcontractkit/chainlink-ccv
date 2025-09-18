@@ -2,7 +2,7 @@ package ccv
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -139,50 +139,77 @@ func MonitorOnChainLogs(in *Cfg) error {
 	}
 	for msgId, msgSent := range msgSentEvents {
 		msgSig, okSig := msgSigEvents[msgId]
-		//_, okExec := msgExecEvents[msgId]
-		//if !okSig && !okExec {
-		//	Plog.Warn().Str("msg", "No corresponding sig and exec found").Send()
-		//	continue
-		//}
+		msgExec, okExec := msgExecEvents[msgId]
 		spans := make([]Span, 0, 2)
-		traceId := randHex(16)
-		rootSpan := randHex(8)
-		evmChain, _ := chain_selectors.GetChainDetailsByChainIDAndFamily(strconv.FormatInt(msgSent.ChainID, 10), chain_selectors.FamilyEVM)
-		// TODO don't mock data
-		spans = append(spans, Span{
-			TraceId:           traceId,
-			SpanId:            rootSpan,
-			Name:              "msg_exec",
-			StartTimeUnixNano: msgSent.BlockTimestamp * 1_000_000_000,
-			EndTimeUnixNano:   (msgSent.BlockTimestamp + 30) * 1_000_000_000,
-			Kind:              2,
-			Attributes: []Attribute{
-				{
-					Key: "sourceChainSelector",
-					Value: map[string]any{
-						"stringValue": strconv.FormatUint(evmChain.ChainSelector, 10),
+		traceId := TraceIDFromMessage(msgId)
+		rootSpan := SpanID(msgId, "msg_sent")
+		sourceChain, _ := chain_selectors.GetChainDetailsByChainIDAndFamily(strconv.FormatInt(msgSent.ChainID, 10), chain_selectors.FamilyEVM)
+		sourceChainSelector := sourceChain.ChainSelector
+		if okExec {
+			spans = append(spans, Span{
+				TraceId:           traceId,
+				SpanId:            rootSpan,
+				Name:              "msg_exec",
+				StartTimeUnixNano: msgSent.BlockTimestamp * 1_000_000_000,
+				EndTimeUnixNano:   msgExec.BlockTimestamp * 1_000_000_000,
+				Kind:              2,
+				Attributes: []Attribute{
+					{
+						Key: "sourceChainSelector",
+						Value: map[string]any{
+							"stringValue": strconv.FormatUint(sourceChainSelector, 10),
+						},
+					},
+					{
+						Key: "destChainSelector",
+						Value: map[string]any{
+							"stringValue": strconv.FormatUint(msgSent.UnpackedData.DestChainSelector, 10),
+						},
+					},
+					{
+						Key: "messageId",
+						Value: map[string]any{
+							"stringValue": msgId.String(),
+						},
 					},
 				},
-				{
-					Key: "destChainSelector",
-					Value: map[string]any{
-						"stringValue": strconv.FormatUint(msgSent.UnpackedData.DestChainSelector, 10),
+			})
+		} else {
+			// open span
+			spans = append(spans, Span{
+				TraceId:           traceId,
+				SpanId:            rootSpan,
+				Name:              "msg_exec",
+				StartTimeUnixNano: msgSent.BlockTimestamp * 1_000_000_000,
+				EndTimeUnixNano:   msgSent.BlockTimestamp * 1_000_000_000,
+				Kind:              2,
+				Attributes: []Attribute{
+					{
+						Key: "sourceChainSelector",
+						Value: map[string]any{
+							"stringValue": strconv.FormatUint(sourceChainSelector, 10),
+						},
+					},
+					{
+						Key: "destChainSelector",
+						Value: map[string]any{
+							"stringValue": strconv.FormatUint(msgSent.UnpackedData.DestChainSelector, 10),
+						},
+					},
+					{
+						Key: "messageId",
+						Value: map[string]any{
+							"stringValue": msgId.String(),
+						},
 					},
 				},
-				{
-					Key: "messageId",
-					Value: map[string]any{
-						"stringValue": msgId.String(),
-					},
-				},
-			},
-		})
-
+			})
+		}
 		if okSig {
 			spans = append(spans, Span{
 				TraceId:           traceId,
 				ParentSpanId:      rootSpan,
-				SpanId:            randHex(8),
+				SpanId:            SpanID(msgId, "msg_sig"),
 				Name:              "msg_sig",
 				StartTimeUnixNano: msgSent.BlockTimestamp * 1_000_000_000,
 				EndTimeUnixNano:   uint64(msgSig.Timestamp) * 1_000_000_000,
@@ -208,36 +235,6 @@ func MonitorOnChainLogs(in *Cfg) error {
 					},
 				},
 			})
-		} else {
-			spans = append(spans, Span{
-				TraceId:           traceId,
-				ParentSpanId:      rootSpan,
-				SpanId:            randHex(8),
-				Name:              "msg_sig",
-				StartTimeUnixNano: msgSent.BlockTimestamp * 1_000_000_000,
-				EndTimeUnixNano:   (msgSent.BlockTimestamp + 10) * 1_000_000_000,
-				Kind:              2,
-				Attributes: []Attribute{
-					{
-						Key: "sourceChainSelector",
-						Value: map[string]any{
-							"stringValue": strconv.FormatUint(evmChain.ChainSelector, 10),
-						},
-					},
-					{
-						Key: "destChainSelector",
-						Value: map[string]any{
-							"stringValue": strconv.FormatUint(msgSent.UnpackedData.DestChainSelector, 10),
-						},
-					},
-					{
-						Key: "messageId",
-						Value: map[string]any{
-							"stringValue": msgId.String(),
-						},
-					},
-				},
-			})
 		}
 		if err := tp.PushTrace(spans); err != nil {
 			return fmt.Errorf("failed to push traces: %w", err)
@@ -248,8 +245,47 @@ func MonitorOnChainLogs(in *Cfg) error {
 	return nil
 }
 
-func randHex(nBytes int) string {
-	b := make([]byte, nBytes)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b) // lowercase, no hyphens
+// TraceIDFromMessage derives traceId from messageId
+// Input: [32]byte messageId
+// Output: 32 hex chars (traceId), 16 hex chars (spanId)
+func TraceIDFromMessage(msgID [32]byte) string {
+	sum := sha256.Sum256(msgID[:])
+	trace := sum[:16]
+	// Disallow all-zero (spec)
+	allZero := true
+	for _, b := range trace {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		trace[0] = 1
+	}
+
+	return hex.EncodeToString(trace) // 32 hex chars
+}
+
+// SpanID derives a deterministic 8-byte span id from message id + span name.
+// If key == nil or empty, falls back to plain SHA-256.
+func SpanID(msgID [32]byte, spanName string) string {
+	h := sha256.New()
+	h.Write(msgID[:])
+	h.Write([]byte(spanName))
+	sum := h.Sum(nil)
+	span := sum[len(sum)-8:] // take last 8 bytes
+
+	// Disallow all-zero span id (spec)
+	allZero := true
+	for _, b := range span {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		span[0] = 1
+	}
+
+	return hex.EncodeToString(span) // 16 hex chars
 }
