@@ -65,11 +65,20 @@ func MonitorOnChainLogs(in *Cfg) error {
 	if err != nil {
 		return fmt.Errorf("failed to collect logs: %w", err)
 	}
+
+	Plog.Info().
+		Int("Raw", len(msgSentStreams.RawLoki)).
+		Int("Decoded", len(msgSentStreams.DecodedLoki)).
+		Msg("Received CCIPMessageSent log")
+	Plog.Info().
+		Int("Raw", len(executionStateChangedStreams.RawLoki)).
+		Int("Decoded", len(executionStateChangedStreams.DecodedLoki)).
+		Msg("Received ExecutionStateChanged log")
 	// process Loki streams
 	if err := lp.PushRawAndDecoded(msgSentStreams.RawLoki, msgSentStreams.DecodedLoki, "on-chain"); err != nil {
 		return fmt.Errorf("failed to push logs: %w", err)
 	}
-	if err := lp.PushRawAndDecoded(executionStateChangedStreams.RawLoki, executionStateChangedStreams.DecodedLoki, "on-chain"); err != nil {
+	if err := lp.PushRawAndDecoded(executionStateChangedStreams.RawLoki, executionStateChangedStreams.DecodedLoki, "on-chain-exec"); err != nil {
 		return fmt.Errorf("failed to push logs: %w", err)
 	}
 	// process Prom metrics

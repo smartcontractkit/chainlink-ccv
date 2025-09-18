@@ -5,17 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/docker/docker/client"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -206,6 +203,10 @@ var testCmd = &cobra.Command{
 		switch args[0] {
 		case "smoke":
 			testPattern = "TestE2ESmoke"
+		case "smoke-v2":
+			testPattern = "TestE2ESmoke/test_argsv2_messages"
+		case "smoke-v3":
+			testPattern = "TestE2ESmoke/test_argsv3_messages"
 		case "load":
 			testPattern = "TestE2ELoad/clean"
 		case "rpc-latency":
@@ -280,56 +281,6 @@ var indexerDBShellCmd = &cobra.Command{
 	},
 }
 
-var sendCmd = &cobra.Command{
-	Use:     "send",
-	Aliases: []string{"s"},
-	Args:    cobra.RangeArgs(1, 1),
-	Short:   "Send a message",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
-		if err != nil {
-			return fmt.Errorf("failed to load environment output: %w", err)
-		}
-		sels := strings.Split(args[0], ",")
-
-		// Support both V2 (2 params) and V3 (3 params) formats
-		if len(sels) != 2 && len(sels) != 3 {
-			return fmt.Errorf("expected 2 or 3 parameters (src,dest for V2 or src,dest,finality for V3), got %d", len(sels))
-		}
-
-		src, err := strconv.ParseUint(sels[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("failed to parse source chain selector: %w", err)
-		}
-		dest, err := strconv.ParseUint(sels[1], 10, 64)
-		if err != nil {
-			return fmt.Errorf("failed to parse destination chain selector: %w", err)
-		}
-
-		// Use V3 if finality config is provided, otherwise use V2
-		if len(sels) == 3 {
-			// V3 format with finality config
-			finality, err := strconv.ParseUint(sels[2], 10, 32)
-			if err != nil {
-				return fmt.Errorf("failed to parse finality config: %w", err)
-			}
-
-			return ccv.SendExampleArgsV3Message(in, src, dest, uint16(finality), common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"), nil, nil,
-				[]types.CCV{
-					{
-						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				[]types.CCV{}, 0)
-		} else {
-			// V2 format - use the dedicated V2 function
-			return ccv.SendExampleArgsV2Message(in, src, dest)
-		}
-	},
-}
-
 var printAddressesCmd = &cobra.Command{
 	Use:   "addresses",
 	Short: "Pretty-print all on-chain contract addresses data",
@@ -382,7 +333,6 @@ func init() {
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
-	rootCmd.AddCommand(sendCmd)
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
