@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -69,12 +70,12 @@ func (h *CCVDataV1Handler) parseSelectorTypes(c *gin.Context, paramName string) 
 	selectorTypesAsArrayOfStrings = strings.Split(selectorTypesAsString, ",")
 	if success {
 		for _, propertyTypeAsString := range selectorTypesAsArrayOfStrings {
-			i, err := strconv.Atoi(propertyTypeAsString)
+			u, err := strconv.ParseUint(propertyTypeAsString, 10, 64)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Bad Request", "status": http.StatusBadRequest})
 				return nil, false
 			}
-			selectorTypes = append(selectorTypes, types.ChainSelector(i))
+			selectorTypes = append(selectorTypes, types.ChainSelector(u))
 		}
 	}
 	return selectorTypes, true
