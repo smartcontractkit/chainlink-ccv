@@ -14,7 +14,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	chainsel "github.com/smartcontractkit/chain-selectors"
+	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
@@ -23,16 +25,15 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
-	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
+	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 )
 
 const (
@@ -182,12 +183,10 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
 				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
-					Threshold: 1,
+					Threshold: 2,
 					Signers: []common.Address{
-						common.HexToAddress("0x02"),
-						common.HexToAddress("0x03"),
-						common.HexToAddress("0x04"),
-						common.HexToAddress("0x05"),
+						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
+						common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
 					},
 				},
 			},
@@ -198,6 +197,9 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 	}
 
 	addresses, err := out.DataStore.Addresses().Fetch()
+	if err != nil {
+		return nil, err
+	}
 	in.CCV.AddressesMu.Lock()
 	defer in.CCV.AddressesMu.Unlock()
 	a, err := json.Marshal(addresses)
@@ -311,7 +313,7 @@ func setupFakes(fakeServiceURL string) error {
 
 // DefaultProductConfiguration is default product configuration that includes:
 // - CL nodes config generation
-// - On-chain part deployment using CLDF
+// - On-chain part deployment using CLDF.
 func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 	Plog.Info().Msg("Generating CL nodes config")
 	pkey := getNetworkPrivateKey()
@@ -415,7 +417,6 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		if err != nil {
 			return fmt.Errorf("connecting to CL nodes: %w", err)
 		}
-		transmittersSrc, transmittersDst := make([]common.Address, 0), make([]common.Address, 0)
 		ethKeyAddressesSrc, ethKeyAddressesDst := make([]string, 0), make([]string, 0)
 		for i, nc := range nodeClients {
 			addrSrc, err := nc.ReadPrimaryETHKey(in.Blockchains[0].ChainID)
@@ -423,13 +424,11 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 				return fmt.Errorf("getting primary ETH key from OCR node %d (src chain): %w", i, err)
 			}
 			ethKeyAddressesSrc = append(ethKeyAddressesSrc, addrSrc.Attributes.Address)
-			transmittersSrc = append(transmittersSrc, common.HexToAddress(addrSrc.Attributes.Address))
 			addrDst, err := nc.ReadPrimaryETHKey(in.Blockchains[1].ChainID)
 			if err != nil {
 				return fmt.Errorf("getting primary ETH key from OCR node %d (dst chain): %w", i, err)
 			}
 			ethKeyAddressesDst = append(ethKeyAddressesDst, addrDst.Attributes.Address)
-			transmittersDst = append(transmittersDst, common.HexToAddress(addrDst.Attributes.Address))
 			Plog.Info().
 				Int("Idx", i).
 				Str("ETHKeySrc", addrSrc.Attributes.Address).
@@ -519,7 +518,7 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 	return nil
 }
 
-// writeCCVProxyAddressesToConfig writes CCVProxy addresses from CLDF deployment to verifier.toml
+// writeCCVProxyAddressesToConfig writes CCVProxy addresses from CLDF deployment to verifier.toml.
 func writeCCVProxyAddressesToConfig(in *Cfg) error {
 	verifierOnRamp1337 := MustGetContractAddressForSelector(in, 3379446385462418246, commit_onramp.ContractType).String()
 	verifierOnRamp2337 := MustGetContractAddressForSelector(in, 12922642891491394802, commit_onramp.ContractType).String()

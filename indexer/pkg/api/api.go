@@ -25,6 +25,9 @@ func NewV1API(lggr logger.Logger, storage common.IndexerStorage) *gin.Engine {
 	return router
 }
 
-func Serve(router *gin.Engine, port int) error {
-	return router.Run(fmt.Sprintf(":%d", port))
+func Serve(router *gin.Engine, port int) {
+	err := router.Run(fmt.Sprintf(":%d", port))
+	if err != nil {
+		panic(err)
+	}
 }

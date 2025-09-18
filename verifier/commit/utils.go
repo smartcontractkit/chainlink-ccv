@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -24,15 +23,13 @@ func Keccak256(data []byte) [32]byte {
 }
 
 // CalculateSignatureHash calculates signature hash using canonical binary encoding:
-// keccak256(messageHash || keccak256(verifierBlob)).
-func CalculateSignatureHash(messageHash protocol.Bytes32, verifierBlob []byte) ([32]byte, error) {
-	verifierBlobHash := Keccak256(verifierBlob)
-
-	// Canonical encoding: simply concatenate the two 32-byte hashes
+// keccak256(messageHash || ccvArgs).
+// This matches the onchain validation in CommitOffRamp.sol:42:
+// _validateSignatures(keccak256(bytes.concat(messageHash, ccvArgs)), rs, ss);.
+func CalculateSignatureHash(messageHash protocol.Bytes32, ccvArgs []byte) ([32]byte, error) {
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
-	buf.Write(verifierBlobHash[:])
-
+	buf.Write(ccvArgs)
 	return Keccak256(buf.Bytes()), nil
 }
 
@@ -130,37 +127,6 @@ func DecodeVerifierBlobData(receiptBlob []byte) (*VerifierBlobData, error) {
 	// Future versions can read additional fields here based on version
 
 	return blob, nil
-}
-
-// EncodeSignatures encodes r and s arrays into signature format using canonical binary encoding.
-func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
-	rsLen := len(rs)
-	if rsLen != len(ss) {
-		return nil, fmt.Errorf("rs and ss arrays must have the same length")
-	}
-
-	var buf bytes.Buffer
-
-	// Encode array length as uint16 (big-endian)
-	if rsLen > math.MaxUint16 {
-		return nil, fmt.Errorf("rs and ss arrays exceeds maximum length")
-	}
-	arrayLen := uint16(rsLen)
-	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
-		return nil, err
-	}
-
-	// Encode rs array
-	for _, r := range rs {
-		buf.Write(r[:])
-	}
-
-	// Encode ss array
-	for _, s := range ss {
-		buf.Write(s[:])
-	}
-
-	return buf.Bytes(), nil
 }
 
 // CreateCCVData creates CCVData from verification task, signature, and blob using the new format.
