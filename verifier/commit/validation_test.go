@@ -6,59 +6,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// TestReceiptBlobDecodingErrors tests receipt blob decoding error conditions.
-func TestReceiptBlobDecodingErrors(t *testing.T) {
-	tests := []struct {
-		name      string
-		expectErr string
-		data      []byte
-	}{
-		{
-			name:      "empty_data",
-			data:      []byte{},
-			expectErr: "receipt blob too short",
-		},
-		{
-			name:      "too_short",
-			data:      []byte{0}, // Less than 2 bytes for length
-			expectErr: "receipt blob too short",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := DecodeReceiptBlob(tt.data)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.expectErr)
-		})
-	}
-}
-
 // TestSignatureEncodingErrors tests signature encoding error conditions.
 func TestSignatureEncodingErrors(t *testing.T) {
 	tests := []struct {
-		name      string
-		expectErr string
-		rs        [][32]byte
-		ss        [][32]byte
+		name       string
+		expectErr  string
+		signatures []signature.Data
+		ccvArgs    []byte
 	}{
 		{
-			name:      "mismatched_lengths",
-			rs:        [][32]byte{{}},
-			ss:        [][32]byte{{}, {}}, // Different length
-			expectErr: "rs and ss arrays must have the same length",
+			name:       "empty_signatures",
+			signatures: []signature.Data{},
+			ccvArgs:    []byte("test"),
+			expectErr:  "no signatures provided",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := EncodeSignatures(tt.rs, tt.ss)
+			_, err := signature.EncodeSignaturesABI(tt.ccvArgs, tt.signatures)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectErr)
 		})
@@ -135,7 +108,7 @@ func TestValidateMessage(t *testing.T) {
 	message, err := protocol.NewMessage(
 		protocol.ChainSelector(1337),
 		protocol.ChainSelector(2337),
-		protocol.SeqNum(123),
+		protocol.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,

@@ -69,27 +69,19 @@ type VerifierDBInput struct {
 	Port  int    `toml:"port"`
 }
 
-type VerifierConfig struct {
-	AggregatorAddress string                                 `toml:"aggregator_address"`
-	PrivateKey        string                                 `toml:"private_key"`
-	BlockchainInfos   map[string]*commontypes.BlockchainInfo `toml:"blockchain_infos"`
-	CCVProxy1337      string                                 `toml:"ccv_proxy_1337"`
-	CCVProxy2337      string                                 `toml:"ccv_proxy_2337"`
-}
-
 type VerifierInput struct {
-	DB                *VerifierDBInput     `toml:"db"`
-	Out               *VerifierOutput      `toml:"out"`
-	Image             string               `toml:"image"`
-	SourceCodePath    string               `toml:"source_code_path"`
-	RootPath          string               `toml:"root_path"`
-	ContainerName     string               `toml:"container_name"`
-	VerifierConfig    VerifierConfig       `toml:"verifier_config"`
-	Port              int                  `toml:"port"`
-	UseCache          bool                 `toml:"use_cache"`
-	ConfigFilePath    string               `toml:"config_file_path"`
-	BlockchainOutputs []*blockchain.Output `toml:"-"`
-	AggregatorAddress string               `toml:"aggregator_address"`
+	DB                *VerifierDBInput           `toml:"db"`
+	Out               *VerifierOutput            `toml:"out"`
+	Image             string                     `toml:"image"`
+	SourceCodePath    string                     `toml:"source_code_path"`
+	RootPath          string                     `toml:"root_path"`
+	ContainerName     string                     `toml:"container_name"`
+	VerifierConfig    commontypes.VerifierConfig `toml:"verifier_config"`
+	Port              int                        `toml:"port"`
+	UseCache          bool                       `toml:"use_cache"`
+	ConfigFilePath    string                     `toml:"config_file_path"`
+	BlockchainOutputs []*blockchain.Output       `toml:"-"`
+	AggregatorAddress string                     `toml:"aggregator_address"`
 }
 
 type VerifierOutput struct {

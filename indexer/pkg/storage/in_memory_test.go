@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewInMemoryStorage(t *testing.T) {
@@ -109,7 +111,7 @@ func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
 
 	// Query for source chain 1
 	sourceChains := []types.ChainSelector{1}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, sourceChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), sourceChains, []types.ChainSelector{}, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -134,7 +136,7 @@ func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
 
 	// Query for dest chain 2
 	destChains := []types.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, destChains, nil, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), []types.ChainSelector{}, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -161,7 +163,7 @@ func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
 	// Query for source chain 1 AND dest chain 2
 	sourceChains := []types.ChainSelector{1}
 	destChains := []types.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, destChains, sourceChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, 9999, sourceChains, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData4
@@ -276,7 +278,7 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 		Receiver:             []byte{0x1f, 0x20, 0x21},
 		SourceChainSelector:  sourceChain,
 		DestChainSelector:    destChain,
-		SequenceNumber:       types.SeqNum(1),
+		Nonce:                types.Nonce(1),
 		Finality:             1,
 		DestBlobLength:       3,
 		TokenTransferLength:  3,
@@ -293,7 +295,7 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 		Timestamp:             timestamp,
 		SourceChainSelector:   sourceChain,
 		DestChainSelector:     destChain,
-		SequenceNumber:        types.SeqNum(1),
+		Nonce:                 types.Nonce(1),
 		SourceVerifierAddress: types.UnknownAddress{0x01, 0x02, 0x03},
 		DestVerifierAddress:   types.UnknownAddress{0x04, 0x05, 0x06},
 		CCVData:               []byte{0x07, 0x08, 0x09},

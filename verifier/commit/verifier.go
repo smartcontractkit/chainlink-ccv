@@ -16,6 +16,7 @@ import (
 type Verifier struct {
 	signer pkg.MessageSigner
 	lggr   logger.Logger
+	// TODO: Use a separate config
 	config types.CoordinatorConfig
 }
 
@@ -57,7 +58,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 
 	cv.lggr.Debugw("Starting message verification",
 		"messageID", messageID,
-		"sequenceNumber", message.SequenceNumber,
+		"nonce", message.Nonce,
 		"sourceChain", message.SourceChainSelector,
 		"destChain", message.DestChainSelector,
 	)
@@ -80,27 +81,27 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 		return
 	}
 
-	cv.lggr.Debugw("Message validation passed",
+	cv.lggr.Infow("Message validation passed",
 		"messageID", messageID,
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
 	)
 
 	// 3. Sign the message event using the new chain-agnostic method
-	signature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
+	encodedSignature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
 	if err != nil {
 		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to sign message event: %w", err), verificationErrorCh, cv.lggr)
 		return
 	}
 
-	cv.lggr.Infow("Message signed sccessfully",
+	cv.lggr.Infow("Message signed successfully",
 		"messageID", messageID,
 		"signerAddress", cv.signer.GetSignerAddress().String(),
-		"signatureLength", len(signature),
+		"signatureLength", len(encodedSignature),
 		"blobLength", len(verifierBlob),
 	)
 
 	// 4. Create CCV data with all required fields
-	ccvData, err := CreateCCVData(&verificationTask, signature, verifierBlob, sourceConfig.VerifierAddress)
+	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, verifierBlob, sourceConfig.VerifierAddress)
 	if err != nil {
 		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to create CCV data: %w", err), verificationErrorCh, cv.lggr)
 		return
@@ -111,7 +112,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 	case ccvDataCh <- *ccvData:
 		cv.lggr.Infow("CCV data sent to storage channel",
 			"messageID", messageID,
-			"sequenceNumber", message.SequenceNumber,
+			"nonce", message.Nonce,
 			"sourceChain", message.SourceChainSelector,
 			"destChain", message.DestChainSelector,
 			"timestamp", ccvData.Timestamp,
@@ -119,7 +120,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 	case <-ctx.Done():
 		cv.lggr.Debugw("Context cancelled while sending CCV data",
 			"messageID", messageID,
-			"sequenceNumber", message.SequenceNumber,
+			"nonce", message.Nonce,
 			"sourceChain", message.SourceChainSelector,
 		)
 	}

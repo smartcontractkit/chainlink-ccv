@@ -10,11 +10,11 @@ import (
 	protocoltypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-func createTestMessage(seqNum, sourceChain, destChain uint64) *types.MessageWithCCVData {
+func createTestMessage(nonce, sourceChain, destChain uint64) *types.MessageWithCCVData {
 	return &types.MessageWithCCVData{
 		CCVData: []protocoltypes.CCVData{},
 		Message: protocoltypes.Message{
-			SequenceNumber:      protocoltypes.SeqNum(seqNum),
+			Nonce:               protocoltypes.Nonce(nonce),
 			SourceChainSelector: protocoltypes.ChainSelector(sourceChain),
 			DestChainSelector:   protocoltypes.ChainSelector(destChain),
 			Version:             1,
@@ -23,10 +23,10 @@ func createTestMessage(seqNum, sourceChain, destChain uint64) *types.MessageWith
 	}
 }
 
-func createMessageWithTimestamp(readyTime int64, seqNum uint64) *MessageWithTimestamp {
+func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimestamp {
 	return &MessageWithTimestamp{
 		ReadyTime: readyTime,
-		Payload:   createTestMessage(seqNum, 1, 2),
+		Payload:   createTestMessage(nonce, 1, 2),
 	}
 }
 
@@ -68,20 +68,20 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 
 func TestMessageHeap_PopAllReady(t *testing.T) {
 	tests := []struct {
-		name            string
-		heap            MessageHeap
-		expectedSeqNums []uint64
-		timestamp       int64
-		expectedCount   int
-		remainingCount  int
+		name           string
+		heap           MessageHeap
+		expectedNonces []uint64
+		timestamp      int64
+		expectedCount  int
+		remainingCount int
 	}{
 		{
-			name:            "empty heap",
-			heap:            MessageHeap{},
-			timestamp:       100,
-			expectedCount:   0,
-			expectedSeqNums: []uint64{},
-			remainingCount:  0,
+			name:           "empty heap",
+			heap:           MessageHeap{},
+			timestamp:      100,
+			expectedCount:  0,
+			expectedNonces: []uint64{},
+			remainingCount: 0,
 		},
 		{
 			name: "no messages ready",
@@ -89,10 +89,10 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 				createMessageWithTimestamp(300, 2),
 				createMessageWithTimestamp(200, 1),
 			},
-			timestamp:       100,
-			expectedCount:   0,
-			expectedSeqNums: []uint64{},
-			remainingCount:  2,
+			timestamp:      100,
+			expectedCount:  0,
+			expectedNonces: []uint64{},
+			remainingCount: 2,
 		},
 		{
 			name: "some messages ready",
@@ -102,10 +102,10 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 				createMessageWithTimestamp(50, 1),
 				createMessageWithTimestamp(100, 2),
 			},
-			timestamp:       150,
-			expectedCount:   2,
-			expectedSeqNums: []uint64{1, 2},
-			remainingCount:  2,
+			timestamp:      150,
+			expectedCount:  2,
+			expectedNonces: []uint64{1, 2},
+			remainingCount: 2,
 		},
 		{
 			name: "all messages ready",
@@ -114,10 +114,10 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 				createMessageWithTimestamp(50, 1),
 				createMessageWithTimestamp(100, 2),
 			},
-			timestamp:       200,
-			expectedCount:   3,
-			expectedSeqNums: []uint64{1, 2, 3},
-			remainingCount:  0,
+			timestamp:      200,
+			expectedCount:  3,
+			expectedNonces: []uint64{1, 2, 3},
+			remainingCount: 0,
 		},
 	}
 
@@ -136,17 +136,17 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 				t.Errorf("After PopAllReady(), heap has %v messages, want %v", tt.heap.Len(), tt.remainingCount)
 			}
 
-			// Check that returned messages have expected sequence numbers
-			var actualSeqNums []uint64
+			// Check that returned messages have expected nonces
+			var actualNonces []uint64
 			for _, msg := range result {
-				actualSeqNums = append(actualSeqNums, uint64(msg.Message.SequenceNumber))
+				actualNonces = append(actualNonces, uint64(msg.Message.Nonce))
 			}
 
-			if !reflect.DeepEqual(actualSeqNums, tt.expectedSeqNums) {
-				if len(actualSeqNums) == 0 && len(tt.expectedSeqNums) == 0 {
+			if !reflect.DeepEqual(actualNonces, tt.expectedNonces) {
+				if len(actualNonces) == 0 && len(tt.expectedNonces) == 0 {
 					return
 				}
-				t.Errorf("PopAllReady() returned sequence numbers %v, want %v", actualSeqNums, tt.expectedSeqNums)
+				t.Errorf("PopAllReady() returned nonces %v, want %v", actualNonces, tt.expectedNonces)
 			}
 		})
 	}
@@ -179,7 +179,7 @@ func TestMessageHeap_Integration(t *testing.T) {
 
 	// Pop all messages and verify they come out in timestamp order
 	expectedOrder := []int64{50, 100, 200, 300}
-	expectedSeqNums := []uint64{0, 1, 2, 3}
+	expectedNonces := []uint64{0, 1, 2, 3}
 
 	for i := 0; i < len(expectedOrder); i++ {
 		if mh.IsEmpty() {
@@ -198,8 +198,8 @@ func TestMessageHeap_Integration(t *testing.T) {
 			continue
 		}
 
-		if uint64(msg.Payload.Message.SequenceNumber) != expectedSeqNums[i] {
-			t.Errorf("Pop() at iteration %v returned seq %v, want %v", i, msg.Payload.Message.SequenceNumber, expectedSeqNums[i])
+		if uint64(msg.Payload.Message.Nonce) != expectedNonces[i] {
+			t.Errorf("Pop() at iteration %v returned nonce %v, want %v", i, msg.Payload.Message.Nonce, expectedNonces[i])
 		}
 	}
 

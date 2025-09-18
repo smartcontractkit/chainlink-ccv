@@ -11,6 +11,7 @@ import (
 type VerificationTask struct {
 	ReceiptBlobs []types.ReceiptWithBlob `json:"receipt_blobs"`
 	Message      types.Message           `json:"message"`
+	BlockNumber  uint64                  `json:"block_number"` // Block number when the message was included
 }
 
 // SourceReaderConfig contains configuration for the EVM source reader.
