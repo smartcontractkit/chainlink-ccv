@@ -11,7 +11,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 )
@@ -77,6 +76,39 @@ func WithCommittee(name string, signerCount int, threshold uint8, selectors []ui
 }
 
 func (cb *CommitteeBuilder) ConfigureOnchain(in *Cfg) *CommitteeBuilderWithOnchainAddresses {
+	for name, committee := range cb.Committees {
+		config := commit_offramp.SignatureConfigArgs{
+			Threshold: committee.Threshold,
+			Signers:   make([]common.Address, committee.SignerCount),
+		}
+
+		// Generate signers for this committee to populate the config
+		signers, err := committee.GenerateSigners(name)
+		if err != nil {
+			Plog.Error().Err(err).Str("committee", name).Msg("Failed to generate signers for committee")
+			continue
+		}
+
+		// Populate the signers in the config
+		for i := 0; i < committee.SignerCount; i++ {
+			address := crypto.PubkeyToAddress(signers[i].PublicKey)
+			config.Signers[i] = address
+		}
+
+		deploymentResults, err := DeployAndConfigureNewCommitCCV(in, config)
+		if err != nil {
+			Plog.Error().Err(err).Str("committee", name).Msg("Failed to deploy and configure new commit CCV")
+			continue
+		}
+
+		// Populate the committee configuration with the deployed contract addresses
+		for selector, result := range deploymentResults.Results {
+			if quorumConfig, exists := committee.OnChainAddresses[selector]; exists {
+				quorumConfig.SourceVerifierAddress = result.OnRampAddress
+				quorumConfig.DestVerifierAddress = result.OffRampAddress
+			}
+		}
+	}
 	addresses := make(map[string]struct {
 		CCVAddress    string
 		CCVAggregator string
@@ -103,15 +135,6 @@ func (cb *CommitteeBuilder) ConfigureOnchain(in *Cfg) *CommitteeBuilderWithOncha
 		}{
 			CCVAddress:    ccvProxy.Hex(),
 			CCVAggregator: ccvAggregator.Hex(),
-		}
-	}
-
-	for _, committee := range cb.Committees {
-		for selector, config := range committee.OnChainAddresses {
-			destVerifierAddress := MustGetContractAddressForSelector(in, selector, commit_offramp.ContractType)
-			config.DestVerifierAddress = destVerifierAddress.Hex()
-			onramp := MustGetContractAddressForSelector(in, selector, commit_onramp.ContractType)
-			config.SourceVerifierAddress = onramp.Hex()
 		}
 	}
 
@@ -215,7 +238,11 @@ func (cb *CommitteeBuilderWithOnchainAddresses) VerifierConfigs() ([]commontypes
 }
 
 func DefaultCommittee() CommitteeBuilderOption {
-	return WithCommittee("default", 2, 2, []uint64{12922642891491394802, 3379446385462418246})
+	return func(cb *CommitteeBuilder) *CommitteeBuilder {
+		WithCommittee("default", 2, 2, []uint64{12922642891491394802, 3379446385462418246})(cb)
+		WithCommittee("test", 2, 2, []uint64{12922642891491394802, 3379446385462418246})(cb)
+		return cb
+	}
 }
 
 func NewCommitteeBuilder(blockchainInfos map[string]*commontypes.BlockchainInfo, options ...CommitteeBuilderOption) *CommitteeBuilder {

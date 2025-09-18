@@ -575,14 +575,31 @@ func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.Constructor
 	return Store(in)
 }
 
-func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SignatureConfigArgs) error {
+// DeploymentResult contains the deployed contract addresses for a specific chain selector
+type DeploymentResult struct {
+	ChainSelector  uint64
+	OnRampAddress  string
+	OffRampAddress string
+}
+
+// CommitCCVDeploymentResults contains all deployment results grouped by chain selector
+type CommitCCVDeploymentResults struct {
+	Results map[uint64]*DeploymentResult
+}
+
+func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SignatureConfigArgs) (*CommitCCVDeploymentResults, error) {
 	in.CCV.AddressesMu = &sync.Mutex{}
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
-		return fmt.Errorf("creating CLDF operations environment: %w", err)
+		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 	bundle := NewDefaultCLDFBundle(e)
 	e.OperationsBundle = bundle
+
+	// Initialize the results structure
+	results := &CommitCCVDeploymentResults{
+		Results: make(map[uint64]*DeploymentResult),
+	}
 
 	for _, sel := range selectors {
 		onRamp, offRamp, err := deployCommitVerifierForSelector(
@@ -601,7 +618,14 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 			signatureConfigArgs,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to deploy commit onramp and offramp for selector %d: %w", sel, err)
+			return nil, fmt.Errorf("failed to deploy commit onramp and offramp for selector %d: %w", sel, err)
+		}
+
+		// Store the deployment results
+		results.Results[sel] = &DeploymentResult{
+			ChainSelector:  sel,
+			OnRampAddress:  onRamp.Address,
+			OffRampAddress: offRamp.Address,
 		}
 
 		var destConfigArgs []commit_onramp.DestChainConfigArgs
@@ -618,14 +642,19 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 
 		err = configureCommitVerifierOnSelectorForLanes(e, sel, common.HexToAddress(onRamp.Address), destConfigArgs)
 		if err != nil {
-			return fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
+			return nil, fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
 		}
 
 		err = SaveContractRefsForSelector(in, sel, []datastore.AddressRef{onRamp, offRamp})
 		if err != nil {
-			return fmt.Errorf("failed to save contract refs for selector %d: %w", sel, err)
+			return nil, fmt.Errorf("failed to save contract refs for selector %d: %w", sel, err)
 		}
 	}
 
-	return Store(in)
+	err = Store(in)
+	if err != nil {
+		return nil, fmt.Errorf("failed to store configuration: %w", err)
+	}
+
+	return results, nil
 }
