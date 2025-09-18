@@ -75,7 +75,7 @@ func (h *CCVDataV1Handler) parseSelectorTypes(c *gin.Context, paramName string) 
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Bad Request", "status": http.StatusBadRequest})
 				return nil, false
 			}
-			selectorTypes = append(selectorTypes, types.ChainSelector(u))
+			selectorTypes = append(selectorTypes, types.ChainSelector(u)) // #nosec G115
 		}
 	}
 	return selectorTypes, true
