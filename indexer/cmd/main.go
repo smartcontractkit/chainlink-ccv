@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -55,8 +54,5 @@ func main() {
 	scanner.Start(ctx)
 
 	v1 := api.NewV1API(lggr, indexerStorage)
-	if err := api.Serve(v1, 8100); err != nil {
-		lggr.Errorw("Failed to serve API", "error", err)
-		os.Exit(1)
-	}
+	api.Serve(v1, 8100)
 }
