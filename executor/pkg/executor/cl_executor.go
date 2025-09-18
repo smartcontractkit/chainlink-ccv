@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
@@ -21,6 +22,8 @@ type ChainlinkExecutor struct {
 	lggr                 logger.Logger
 	contractTransmitters map[protocol.ChainSelector]ct.ContractTransmitter
 	destinationReaders   map[protocol.ChainSelector]dr.DestinationReader
+	vMap                 map[protocol.Bytes32][]protocol.CCVData
+	mapMu                sync.RWMutex
 }
 
 func NewChainlinkExecutor(
@@ -28,10 +31,13 @@ func NewChainlinkExecutor(
 	contractTransmitters map[protocol.ChainSelector]ct.ContractTransmitter,
 	destinationReaders map[protocol.ChainSelector]dr.DestinationReader,
 ) *ChainlinkExecutor {
+	// Initialize vMap to store CCVData by MessageID
+	vMap := make(map[protocol.Bytes32][]protocol.CCVData)
 	return &ChainlinkExecutor{
 		lggr:                 lggr,
 		contractTransmitters: contractTransmitters,
 		destinationReaders:   destinationReaders,
+		vMap:                 vMap,
 	}
 }
 
@@ -62,6 +68,13 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return nil
 	}
 
+	for _, ccvDatum := range messageWithCCVData.CCVData {
+		cle.mapMu.Lock()
+		cle.vMap[messageWithCCVData.CCVData[0].MessageID] = append(cle.vMap[messageWithCCVData.CCVData[0].MessageID], ccvDatum)
+		cle.mapMu.Unlock()
+		cle.lggr.Infow("new ccv data for", "messageid", ccvDatum.MessageID, "data", cle.vMap[messageWithCCVData.CCVData[0].MessageID])
+	}
+
 	ccvInfo, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
 		ctx,
 		messageWithCCVData.Message.SourceChainSelector,
@@ -71,7 +84,8 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return fmt.Errorf("failed to get CCV Offramp addresses for message: %w", err)
 	}
 
-	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(messageWithCCVData.CCVData, ccvInfo)
+	cle.lggr.Infow("all ccv data for", "messageid", messageWithCCVData.CCVData[0].MessageID, "len", len(cle.vMap[messageWithCCVData.CCVData[0].MessageID]), "required", len(ccvInfo.RequiredCcvs))
+	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(cle.vMap[messageWithCCVData.CCVData[0].MessageID], ccvInfo)
 	if err != nil {
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
 	}

@@ -56,7 +56,7 @@ func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, m
 }
 
 func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
-	id := hex.EncodeToString(report.MessageID)
+	id := hex.EncodeToString(report.MessageID) + report.CommitteeID
 	s.aggregatedReports.Store(id, report)
 	return nil
 }
