@@ -406,7 +406,12 @@ var sendCmd = &cobra.Command{
 			return ccv.SendExampleArgsV3Message(in, src, dest, uint16(finality), common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"), nil, nil,
 				[]types.CCV{
 					{
-						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
+						CCVAddress: common.HexToAddress("0x67d269191c92Caf3cD7723F116c85e6E9bf55933").Bytes(),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+					{
+						CCVAddress: common.HexToAddress("0x9E545E3C0baAB3E08CdfD552C960A1050f373042").Bytes(),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},

@@ -31,7 +31,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -660,8 +659,8 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAd
 	if err != nil {
 		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
 	}
-	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
-
+	//receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+	receiverAddress := "0xf5059a5D33d5853360D16C683c16e67980206f36"
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
@@ -783,7 +782,7 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 				continue
 			}
 			destConfigArgs = append(destConfigArgs, commit_onramp.DestChainConfigArgs{
-				AllowlistEnabled:  true,
+				AllowlistEnabled:  false,
 				Router:            MustGetContractAddressForSelector(in, sel, router.ContractType),
 				DestChainSelector: destSel,
 			})
