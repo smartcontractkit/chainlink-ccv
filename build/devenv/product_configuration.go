@@ -219,7 +219,7 @@ func deployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 	return report.Output, nil
 }
 
-func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64, committeeBuilder *CommitteeBuilder) (datastore.DataStore, error) {
+func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64) (datastore.DataStore, error) {
 	L.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
@@ -235,11 +235,6 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 	usdPerWeth, ok := new(big.Int).SetString("2000000000000000000000", 10) // $2000
 	if !ok {
 		return nil, errors.New("failed to parse USDPerWETH")
-	}
-
-	committeeConfig, err := committeeBuilder.GetOffRampConfigsForSelector(selector)
-	if err != nil {
-		return nil, err
 	}
 
 	out, err := changesets.DeployChainContracts.Apply(*e, changesets.DeployChainContractsCfg{
@@ -268,7 +263,13 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 				USDPerWETH:                     usdPerWeth,
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: *committeeConfig[0],
+				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
+					Threshold: 2,
+					Signers: []common.Address{
+						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
+						common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
+					},
+				},
 			},
 		},
 	})
@@ -394,7 +395,7 @@ func setupFakes(fakeServiceURL string) error {
 // DefaultProductConfiguration is default product configuration that includes:
 // - CL nodes config generation
 // - On-chain part deployment using CLDF.
-func DefaultProductConfiguration(in *Cfg, phase ConfigPhase, committeeBuilder *CommitteeBuilder) error {
+func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 	Plog.Info().Msg("Generating CL nodes config")
 	pkey := getNetworkPrivateKey()
 	if pkey == "" {
@@ -545,7 +546,7 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase, committeeBuilder *C
 		runningDS := datastore.NewMemoryDataStore()
 		for _, sel := range selectors {
 			eg.Go(func() error {
-				ds, err := deployContractsForSelector(in, e, sel, committeeBuilder)
+				ds, err := deployContractsForSelector(in, e, sel)
 				if err != nil {
 					return fmt.Errorf("could not configure contracts for chain selector %d: %w", sel, err)
 				}

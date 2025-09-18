@@ -189,10 +189,11 @@ var deployCommitVerifierCmd = &cobra.Command{
 			addresses = append(addresses, common.HexToAddress(addr))
 		}
 
-		return ccv.DeployAndConfigureNewCommitCCV(in, commit_offramp.SignatureConfigArgs{
+		_, err = ccv.DeployAndConfigureNewCommitCCV(in, commit_offramp.SignatureConfigArgs{
 			Threshold: uint8(threshold),
 			Signers:   addresses,
 		})
+		return err
 	},
 }
 

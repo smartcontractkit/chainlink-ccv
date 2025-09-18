@@ -139,7 +139,7 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, err
 	}
 	track.Record("[infra] deploying blockchains")
-	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork, committeeBuilder); err != nil {
+	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
 	track.Record("[changeset] configured nodes network")
@@ -165,7 +165,7 @@ func NewEnvironment() (*Cfg, error) {
 	// in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
 
 	track.Record("[infra] deployed CL nodes")
-	if err := DefaultProductConfiguration(in, ConfigureProductContractsJobs, committeeBuilder); err != nil {
+	if err := DefaultProductConfiguration(in, ConfigureProductContractsJobs); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
 
