@@ -103,8 +103,8 @@ func (s *InMemoryOffchainStorage) WaitForStore(ctx context.Context) error {
 	}
 }
 
-// WriteCCVData stores multiple CCV data entries in the offchain storage.
-func (s *InMemoryOffchainStorage) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
+// WriteCCVNodeData stores multiple CCV data entries in the offchain storage.
+func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []types.CCVData) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -385,5 +385,5 @@ type WriterOnlyView struct {
 }
 
 func (w *WriterOnlyView) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
-	return w.storage.WriteCCVData(ctx, ccvDataList)
+	return w.storage.WriteCCVNodeData(ctx, ccvDataList)
 }
