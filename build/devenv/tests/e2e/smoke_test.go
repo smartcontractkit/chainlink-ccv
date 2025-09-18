@@ -1,15 +1,15 @@
 package e2e
 
 import (
-	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	"github.com/stretchr/testify/require"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
@@ -25,13 +25,9 @@ func TestE2ESmoke(t *testing.T) {
 	dstChain := chains[selectors[1]]
 	b := ccv.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
-	routerAddr, err := ccv.GetRouterAddrForSelector(in, srcChain.Selector)
-	require.NoError(t, err)
+	routerAddr := ccv.MustGetContractAddressForSelector(in, srcChain.Selector, router.ContractType)
 
-	argsv2, err := ccv.NewGenericCCIP17ExtraArgsV2(protocol.GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(1_000_000),
-		AllowOutOfOrderExecution: true,
-	})
+	argsV3, err := ccv.NewV3ExtraArgs(1, common.Address{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
 	require.NoError(t, err)
 
 	ccipSendArgs := router.CCIPSendArgs{
@@ -40,7 +36,7 @@ func TestE2ESmoke(t *testing.T) {
 			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsv2,
+			ExtraArgs:    argsV3,
 		},
 	}
 

@@ -3,8 +3,9 @@ package services_test
 import (
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 )
 
 func TestServiceIndexer(t *testing.T) {

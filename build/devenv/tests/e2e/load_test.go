@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"fmt"
 	"math/big"
 	"os"
@@ -10,20 +9,20 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	"github.com/stretchr/testify/require"
-
-	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 type ChaosTestCase struct {
@@ -48,7 +47,7 @@ type EVMTXGun struct {
 	dest evm.Chain
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s evm.Chain, d evm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s, d evm.Chain) *EVMTXGun {
 	return &EVMTXGun{
 		cfg:  cfg,
 		e:    e,
@@ -57,20 +56,14 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s evm.Chain, 
 	}
 }
 
-// Call implements example gun call, assertions on response bodies should be done here
+// Call implements example gun call, assertions on response bodies should be done here.
 func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
 
-	routerAddr, err := ccv.GetRouterAddrForSelector(m.cfg, m.src.Selector)
-	if err != nil {
-		return &wasp.Response{Error: err.Error(), Failed: true}
-	}
+	routerAddr := ccv.MustGetContractAddressForSelector(m.cfg, m.src.Selector, router.ContractType)
 
-	argsv2, err := ccv.NewGenericCCIP17ExtraArgsV2(protocol.GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(1_000_000),
-		AllowOutOfOrderExecution: true,
-	})
+	argsV3, err := ccv.NewV3ExtraArgs(1, common.Address{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
@@ -81,7 +74,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 			Receiver:     common.LeftPadBytes(m.src.DeployerKey.From.Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsv2,
+			ExtraArgs:    argsV3,
 		},
 	}
 
@@ -141,7 +134,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, s evm.Chain, d evm.Chain) *wasp.Profile {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, s, d evm.Chain) *wasp.Profile {
 	return wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,
@@ -412,16 +405,17 @@ func TestE2ELoad(t *testing.T) {
 	})
 }
 
-func checkLogs(t *testing.T, in *ccv.Cfg, end time.Time) {
-	logs, err := f.NewLokiQueryClient(f.LocalLokiBaseURL, "", f.BasicAuth{}, f.QueryParams{
-		Query:     "{job=\"ctf\",container=\"don-node1\"}",
-		StartTime: end.Add(-time.Minute),
-		EndTime:   end,
-		Limit:     100,
-	}).QueryRange(context.Background())
-	require.NoError(t, err)
-	fmt.Println(logs)
-}
+// checkLogs is currently unused but kept for future debugging purposes.
+// func checkLogs(t *testing.T, in *ccv.Cfg, end time.Time) {
+//	logs, err := f.NewLokiQueryClient(f.LocalLokiBaseURL, "", f.BasicAuth{}, f.QueryParams{
+//		Query:     "{job=\"ctf\",container=\"don-node1\"}",
+//		StartTime: end.Add(-time.Minute),
+//		EndTime:   end,
+//		Limit:     100,
+//	}).QueryRange(context.Background())
+//	require.NoError(t, err)
+//	fmt.Println(logs)
+// }
 
 func checkCPUMem(t *testing.T, in *ccv.Cfg, end time.Time) {
 	pc := f.NewPrometheusQueryClient(f.LocalPrometheusBaseURL)
