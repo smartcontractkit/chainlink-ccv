@@ -2,11 +2,13 @@
 package tests
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
@@ -377,4 +379,11 @@ func TestCheckpointConcurrency(t *testing.T) {
 		require.GreaterOrEqual(t, finalValue, uint64(1000), "final value should be from one of the updates")
 		require.LessOrEqual(t, finalValue, uint64(1000+numUpdates-1), "final value should be within expected range")
 	})
+}
+
+// Helper functions
+
+func contextWithAPIKey(apiKey string) context.Context {
+	md := metadata.New(map[string]string{"api-key": apiKey})
+	return metadata.NewOutgoingContext(context.Background(), md)
 }
