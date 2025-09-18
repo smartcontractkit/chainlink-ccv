@@ -34,11 +34,10 @@ const (
 
 var L = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
 
-// Load loads TOML configurations from environment variable, ex.: CTF_CONFIGS=env.toml,overrides.toml
+// Load loads TOML configurations from a list of paths, i.e. env.toml,overrides.toml
 // and unmarshalls the files from left to right overriding keys.
-func Load[T any]() (*T, error) {
+func Load[T any](paths []string) (*T, error) {
 	var config T
-	paths := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	for _, path := range paths {
 		L.Info().Str("Path", path).Msg("Loading configuration input")
 		data, err := os.ReadFile(filepath.Join(DefaultConfigDir, path))
@@ -90,9 +89,8 @@ func Store[T any](cfg *T) error {
 }
 
 // LoadOutput loads config output file from path.
-func LoadOutput[T any](path string) (*T, error) {
-	_ = os.Setenv(EnvVarTestConfigs, path)
-	return Load[T]()
+func LoadOutput[T any](outputPath string) (*T, error) {
+	return Load[T]([]string{outputPath})
 }
 
 // BaseConfigPath returns base config path, ex. env.toml,overrides.toml -> env.toml.
