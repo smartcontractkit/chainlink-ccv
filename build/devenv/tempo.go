@@ -45,13 +45,13 @@ type Attribute struct {
 	Value map[string]any `json:"value"`
 }
 
-// TempoPusher handles pushing traces to Tempo
+// TempoPusher handles pushing traces to Tempo.
 type TempoPusher struct {
 	tempoURL string
 	client   *resty.Client
 }
 
-// NewTempoPusher creates a new TempoPusher instance
+// NewTempoPusher creates a new TempoPusher instance.
 func NewTempoPusher() *TempoPusher {
 	tempoURL := os.Getenv("TEMPO_URL")
 	if tempoURL == "" {

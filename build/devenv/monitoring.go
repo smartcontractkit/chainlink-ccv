@@ -10,14 +10,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"go.uber.org/zap"
 
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
-	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 )
 
 const (
@@ -54,6 +55,9 @@ func MonitorOnChainLogs(in *Cfg) error {
 		config.Encoding = "console"
 		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	})
+	if err != nil {
+		return err
+	}
 
 	storageReader, err := storageaccess.NewAggregatorReader("localhost:50051", lggr, 0)
 	if err != nil {
@@ -71,7 +75,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to collect logs: %w", err)
+		return fmt.Errorf("failed to collect msg_sent logs: %w", err)
 	}
 	msgExecStreams, err := FilterContractEventsAllChains[ccvAggregator.CCVAggregatorExecutionStateChanged](
 		ctx,
@@ -83,6 +87,9 @@ func MonitorOnChainLogs(in *Cfg) error {
 		nil,
 		nil,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to collect msg_exec logs: %w", err)
+	}
 	ccv, err := storageReader.ReadCCVData(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to collect logs: %w", err)
@@ -101,6 +108,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 	logTimeByMsgID := make(map[types.Bytes32]uint64)
 	for _, l := range msgSentStreams.DecodedProm {
 		if l.Name == "CCIPMessageSent" {
+			//nolint:govet // these fields are not populated, better keep them populated
 			if payload, ok := any(l.UnpackedData).(ccvProxy.CCVProxyCCIPMessageSent); ok {
 				payload.DestChainSelector = binary.BigEndian.Uint64(l.Topics[1][24:]) // Last 8 bytes
 				payload.SequenceNumber = binary.BigEndian.Uint64(l.Topics[2][24:])    // Last 8 bytes
@@ -117,6 +125,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 	}
 	for _, l := range msgExecStreams.DecodedProm {
 		if l.Name == "ExecutionStateChanged" {
+			//nolint:govet // these fields are not populated, better keep them populated
 			if payload, ok := any(l.UnpackedData).(ccvAggregator.CCVAggregatorExecutionStateChanged); ok {
 				payload.SourceChainSelector = binary.BigEndian.Uint64(l.Topics[1][24:]) // Last 8 bytes
 				payload.SequenceNumber = binary.BigEndian.Uint64(l.Topics[2][24:])      // Last 8 bytes
@@ -247,7 +256,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 
 // TraceIDFromMessage derives traceId from messageId
 // Input: [32]byte messageId
-// Output: 32 hex chars (traceId), 16 hex chars (spanId)
+// Output: 32 hex chars (traceId), 16 hex chars (spanId).
 func TraceIDFromMessage(msgID [32]byte) string {
 	sum := sha256.Sum256(msgID[:])
 	trace := sum[:16]
