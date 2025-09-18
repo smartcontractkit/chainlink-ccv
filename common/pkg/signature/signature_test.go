@@ -195,11 +195,6 @@ func TestEndToEndSignatureFlow(t *testing.T) {
 		crypto.PubkeyToAddress(privateKeys[1].PublicKey),
 	}
 
-	// Sort expected addresses to match the sorted output
-	if expectedAddresses[0].Big().Cmp(expectedAddresses[1].Big()) > 0 {
-		expectedAddresses[0], expectedAddresses[1] = expectedAddresses[1], expectedAddresses[0]
-	}
-
 	// Verify recovered addresses match expected (in sorted order)
 	require.Equal(t, expectedAddresses, recoveredAddresses)
 }
