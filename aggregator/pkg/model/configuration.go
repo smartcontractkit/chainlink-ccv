@@ -21,6 +21,7 @@ type IdentifierSigner struct {
 	Address    []byte
 	SignatureR [32]byte
 	SignatureS [32]byte
+	Committee  string
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -29,7 +30,13 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
+	QuorumConfigs           map[string]*QuorumConfig `toml:"quorumConfigs"`
+	SourceVerifierAddresses map[string]string        `toml:"sourceVerifierAddresses"`
+}
+
+func (c *Committee) GetSourceVerifierAddress(sourceSelector uint64) (string, bool) {
+	address, exists := c.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
+	return address, exists
 }
 
 func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) {
@@ -38,14 +45,18 @@ func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) 
 	return qc, exists
 }
 
-func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[string]*Committee, chainSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
+func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[string]*Committee, sourceSelector, destSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
 	for _, committee := range committees {
-		quorumConfig, exists := committee.GetQuorumConfig(chainSelector)
-		if !exists {
+		sourceAddress, ok := committee.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
+		if !ok {
+			continue
+		}
+		if !bytes.Equal(common.HexToAddress(sourceAddress).Bytes(), sourceVerifierAddress) {
 			continue
 		}
 
-		if !bytes.Equal(quorumConfig.GetOnrampAddressBytes(), sourceVerifierAddress) {
+		quorumConfig, exists := committee.GetQuorumConfig(destSelector)
+		if !exists {
 			continue
 		}
 		return quorumConfig

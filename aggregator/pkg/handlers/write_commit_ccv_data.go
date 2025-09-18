@@ -21,7 +21,7 @@ type SignatureValidator interface {
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
 	// CheckAggregation triggers the aggregation process for the specified message ID.
-	CheckAggregation(messageID model.MessageID) error
+	CheckAggregation(messageID model.MessageID, committee string) error
 }
 
 // WriteCommitCCVNodeDataHandler handles requests to write commit verification records.
@@ -65,9 +65,11 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 	for _, signer := range signers {
 		signerCtx := scope.WithAddress(ctx, signer.Address)
 		signerCtx = scope.WithParticipantID(signerCtx, signer.ParticipantID)
+		signerCtx = scope.WithCommitteeID(signerCtx, signer.Committee)
 		record := model.CommitVerificationRecord{
 			MessageWithCCVNodeData: *req.GetCcvNodeData(),
 			IdentifierSigner:       signer,
+			CommitteeID:            signer.Committee,
 		}
 		err := h.storage.SaveCommitVerification(signerCtx, &record)
 		if err != nil {
@@ -78,7 +80,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 		h.logger(signerCtx).Infof("Successfully saved commit verification record")
 	}
 
-	if err := h.aggregator.CheckAggregation(req.CcvNodeData.GetMessageId()); err != nil {
+	if err := h.aggregator.CheckAggregation(req.CcvNodeData.GetMessageId(), signers[0].Committee); err != nil {
 		return &aggregator.WriteCommitCCVNodeDataResponse{
 			Status: aggregator.WriteStatus_FAILED,
 		}, err

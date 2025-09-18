@@ -25,6 +25,7 @@ func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
 type CommitVerificationRecord struct {
 	IdentifierSigner *IdentifierSigner
 	aggregator.MessageWithCCVNodeData
+	CommitteeID string
 }
 
 // GetID retrieves the unique identifier for the commit verification record.
