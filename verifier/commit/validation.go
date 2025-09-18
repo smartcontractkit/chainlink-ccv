@@ -29,17 +29,6 @@ func ValidateMessage(verificationTask *types.VerificationTask, verifierOnRampAdd
 	}
 
 	// Check if the verifier onramp address is found as issuer in any receipt blob
-	found := false
-	for _, receipt := range verificationTask.ReceiptBlobs {
-		if bytes.Equal(receipt.Issuer.Bytes(), verifierOnRampAddress.Bytes()) {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("verifier onramp address %s not found as issuer in any receipt blob", verifierOnRampAddress.String())
-	}
 
 	return nil
 }

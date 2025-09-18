@@ -44,10 +44,10 @@ func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.Comm
 }
 
 // ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID.
-func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, messageID model.MessageID) ([]*model.CommitVerificationRecord, error) {
+func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
 	var results []*model.CommitVerificationRecord
 	s.records.Range(func(key, value any) bool {
-		if record, ok := value.(*model.CommitVerificationRecord); ok && bytes.Equal(record.MessageId, messageID) {
+		if record, ok := value.(*model.CommitVerificationRecord); ok && bytes.Equal(record.MessageId, messageID) && record.CommitteeId == committee {
 			results = append(results, record)
 		}
 		return true

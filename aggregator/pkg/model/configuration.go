@@ -19,6 +19,7 @@ type IdentifierSigner struct {
 	Address    []byte
 	SignatureR [32]byte
 	SignatureS [32]byte
+	Committee  string
 }
 
 // Committee represents a group of signers participating in the commit verification process.

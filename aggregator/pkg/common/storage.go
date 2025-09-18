@@ -14,7 +14,7 @@ type CommitVerificationStore interface {
 	// GetCommitVerification retrieves a commit verification record by its identifier.
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)
 	// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID and committee ID.
-	ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID) ([]*model.CommitVerificationRecord, error)
+	ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error)
 }
 
 type CommitVerificationAggregatedStore interface {
