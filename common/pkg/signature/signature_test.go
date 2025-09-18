@@ -79,13 +79,13 @@ func TestEncodeDecodeSignaturesABI(t *testing.T) {
 	ccvArgs := []byte("test ccv args")
 	signatures := []Data{
 		{
-			R:      [32]byte{0x03},
-			S:      [32]byte{0x04},
+			R:      [32]byte{0x01},
+			S:      [32]byte{0x02},
 			Signer: common.HexToAddress("0x0000000000000000000000000000000000000001"),
 		},
 		{
-			R:      [32]byte{0x01},
-			S:      [32]byte{0x02},
+			R:      [32]byte{0x03},
+			S:      [32]byte{0x04},
 			Signer: common.HexToAddress("0x0000000000000000000000000000000000000002"),
 		},
 	}
@@ -102,12 +102,13 @@ func TestEncodeDecodeSignaturesABI(t *testing.T) {
 	require.Len(t, rs, 2)
 	require.Len(t, ss, 2)
 
+	// Verify signatures are sorted by signer address
 	// Address 0x...0001 should come first
-	require.Equal(t, [32]byte{0x03}, rs[0])
-	require.Equal(t, [32]byte{0x04}, ss[0])
+	require.Equal(t, [32]byte{0x01}, rs[0])
+	require.Equal(t, [32]byte{0x02}, ss[0])
 	// Address 0x...0002 should come second
-	require.Equal(t, [32]byte{0x01}, rs[1])
-	require.Equal(t, [32]byte{0x02}, ss[1])
+	require.Equal(t, [32]byte{0x03}, rs[1])
+	require.Equal(t, [32]byte{0x04}, ss[1])
 }
 
 func TestRecoverSigners(t *testing.T) {
