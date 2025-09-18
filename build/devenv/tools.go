@@ -26,6 +26,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/nonce_manager"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -207,6 +212,33 @@ func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore
 		}
 	}
 	return contractAddr, nil
+}
+
+func SaveContractRefsForSelector(in *Cfg, sel uint64, refs []datastore.AddressRef) error {
+	var addresses []datastore.AddressRef
+	var idx int
+	for i, addressesForSelector := range in.CCV.Addresses {
+		var refs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addressesForSelector), &refs); err != nil {
+			return fmt.Errorf("failed to unmarshal addresses: %w", err)
+		}
+		if len(refs) > 0 && refs[0].ChainSelector == sel {
+			addresses = refs
+			idx = i
+			break
+		}
+	}
+	for _, r := range refs {
+		addresses = append(addresses, r)
+	}
+	addrBytes, err := json.Marshal(addresses)
+	if err != nil {
+		return fmt.Errorf("failed to marshal addresses: %w", err)
+	}
+	in.CCV.AddressesMu.Lock()
+	in.CCV.Addresses[idx] = string(addrBytes)
+	in.CCV.AddressesMu.Unlock()
+	return nil
 }
 
 func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) common.Address {
@@ -667,4 +699,81 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAd
 		Msg("CCIP message sent")
 
 	return nil
+}
+
+func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.ConstructorArgs) error {
+	in.CCV.AddressesMu = &sync.Mutex{}
+	_, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
+	}
+	bundle := NewDefaultCLDFBundle(e)
+	e.OperationsBundle = bundle
+
+	receiver, err := deployReceiverForSelector(e, selector, args)
+	if err != nil {
+		return fmt.Errorf("failed to deploy mock receiver for selector %d: %w", selector, err)
+	}
+
+	err = SaveContractRefsForSelector(in, selector, []datastore.AddressRef{receiver})
+	if err != nil {
+		return fmt.Errorf("failed to save contract refs for selector %d: %w", selector, err)
+	}
+
+	return Store(in)
+}
+
+func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SignatureConfigArgs) error {
+	in.CCV.AddressesMu = &sync.Mutex{}
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
+	}
+	bundle := NewDefaultCLDFBundle(e)
+	e.OperationsBundle = bundle
+
+	for _, sel := range selectors {
+		onRamp, offRamp, err := deployCommitVerifierForSelector(
+			e,
+			sel,
+			commit_onramp.ConstructorArgs{
+				DynamicConfig: commit_onramp.DynamicConfig{
+					FeeQuoter:      MustGetContractAddressForSelector(in, sel, fee_quoter_v2.ContractType),
+					FeeAggregator:  e.BlockChains.EVMChains()[sel].DeployerKey.From,
+					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
+				},
+			},
+			commit_offramp.ConstructorArgs{
+				NonceManager: MustGetContractAddressForSelector(in, sel, nonce_manager.ContractType),
+			},
+			signatureConfigArgs,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to deploy commit onramp and offramp for selector %d: %w", sel, err)
+		}
+
+		var destConfigArgs []commit_onramp.DestChainConfigArgs
+		for _, destSel := range selectors {
+			if destSel == sel {
+				continue
+			}
+			destConfigArgs = append(destConfigArgs, commit_onramp.DestChainConfigArgs{
+				AllowlistEnabled:  false,
+				Router:            MustGetContractAddressForSelector(in, sel, router.ContractType),
+				DestChainSelector: destSel,
+			})
+		}
+
+		err = configureCommitVerifierOnSelectorForLanes(e, sel, common.HexToAddress(onRamp.Address), destConfigArgs)
+		if err != nil {
+			return fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
+		}
+
+		err = SaveContractRefsForSelector(in, sel, []datastore.AddressRef{onRamp, offRamp})
+		if err != nil {
+			return fmt.Errorf("failed to save contract refs for selector %d: %w", sel, err)
+		}
+	}
+
+	return Store(in)
 }
