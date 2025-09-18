@@ -86,7 +86,7 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 		return make(map[string][]types.CCVData), nil
 	}
 
-	startPos, endPos := int(offset), int(offset+limit)
+	startPos, endPos := int(offset), int(offset+limit) // #nosec G115
 	if endPos > len(candidates) {
 		endPos = len(candidates)
 	}
