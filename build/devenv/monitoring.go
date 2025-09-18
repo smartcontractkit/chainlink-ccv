@@ -25,16 +25,17 @@ const (
 	PromMetrics          = "http://localhost:3000/explore?panes=%7B%22UYG%22:%7B%22datasource%22:%22PBFA97CFB590B2093%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22expr%22:%22on_chain_ccip_msg_sent_total%22,%22range%22:true,%22datasource%22:%7B%22type%22:%22prometheus%22,%22uid%22:%22PBFA97CFB590B2093%22%7D,%22editorMode%22:%22code%22,%22legendFormat%22:%22__auto%22%7D%5D,%22range%22:%7B%22from%22:%22now-30m%22,%22to%22:%22now%22%7D%7D%7D&schemaVersion=1&orgId=1"
 )
 
-var msgSentTotal = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "on_chain_ccip_msg_sent_total",
-	Help: "Total number of CCIP messages sent",
-})
-
-// srcDstLatency = promauto.NewHistogram(prometheus.HistogramOpts{
-// 	Name:    "on_chain_src_dst_total_latency_milliseconds",
-// 	Help:    "Total duration of processing message from src to dst chain",
-// 	Buckets: prometheus.DefBuckets,
-// }).
+var (
+	msgSentTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "on_chain_ccip_msg_sent_total",
+		Help: "Total number of CCIP messages sent",
+	})
+	srcDstLatency = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "on_chain_src_dst_total_latency_milliseconds",
+		Help:    "Total duration of processing message from src to dst chain",
+		Buckets: prometheus.DefBuckets,
+	})
+)
 
 // MonitorOnChainLogs is converting specified on-chain events (logs) to Loki/Prometheus data
 // it does not preserve original timestamps for observation and Loki pushes and scans/uploads the whole range
@@ -125,8 +126,6 @@ func MonitorOnChainLogs(in *Cfg) error {
 					Uint64("BlockTimestamp", l.BlockTimestamp).
 					Msg("Received ExecutionStateChanged log")
 				msgExecEvents[payload.MessageId] = l
-				// TODO: get msgID and measure time for each variant of messages, no events emitted yet
-				//srcDstLatency.Observe(float64(l.BlockTimestamp))
 			}
 		}
 	}
@@ -146,6 +145,7 @@ func MonitorOnChainLogs(in *Cfg) error {
 		sourceChain, _ := chain_selectors.GetChainDetailsByChainIDAndFamily(strconv.FormatInt(msgSent.ChainID, 10), chain_selectors.FamilyEVM)
 		sourceChainSelector := sourceChain.ChainSelector
 		if okExec {
+			srcDstLatency.Observe(float64(msgExec.BlockTimestamp - msgSent.BlockTimestamp))
 			spans = append(spans, Span{
 				TraceId:           traceId,
 				SpanId:            rootSpan,
