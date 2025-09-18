@@ -78,7 +78,7 @@ func (t *testVerifier) getProcessedTaskCount() int {
 // testStorage for testing.
 type testStorage struct{}
 
-func (m *testStorage) WriteCCVData(ctx context.Context, data []protocol.CCVData) error {
+func (m *testStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData) error {
 	return nil
 }
 
