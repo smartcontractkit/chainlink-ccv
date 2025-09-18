@@ -559,12 +559,6 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
 
-	// Create V2 extra args (default gas limit, no out-of-order execution)
-	argsV2 := &ccvTypes.GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(200_000),
-		AllowOutOfOrderExecution: false,
-	}
-
 	receiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
@@ -572,7 +566,7 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 			Receiver:     common.LeftPadBytes(common.HexToAddress(receiver).Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsV2.ToBytes(),
+			ExtraArgs:    []byte{},
 		},
 	}
 
