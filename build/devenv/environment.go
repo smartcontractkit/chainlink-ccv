@@ -6,28 +6,28 @@ import (
 	"os"
 	"strings"
 
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
+
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
 type Cfg struct {
-	CCV         *CCV                      `toml:"ccv"              validate:"required"`
+	CCV         *CCV                      `toml:"ccv"         validate:"required"`
 	JD          *jd.Input                 `toml:"jd"`
-	Fake        *services.FakeInput       `toml:"fake"             validate:"required"`
-	Verifier    *services.VerifierInput   `toml:"verifier"         validate:"required"`
-	Verifier2   *services.VerifierInput   `toml:"verifier2"        validate:"required"`
-	Executor    *services.ExecutorInput   `toml:"executor"         validate:"required"`
-	Indexer     *services.IndexerInput    `toml:"indexer"          validate:"required"`
-	Aggregator  *services.AggregatorInput `toml:"aggregator"       validate:"required"`
-	Blockchains []*blockchain.Input       `toml:"blockchains"      validate:"required"`
-	NodeSets    []*ns.Input               `toml:"nodesets"         validate:"required"`
+	Fake        *services.FakeInput       `toml:"fake"        validate:"required"`
+	Verifier    *services.VerifierInput   `toml:"verifier"    validate:"required"`
+	Verifier2   *services.VerifierInput   `toml:"verifier2"   validate:"required"`
+	Executor    *services.ExecutorInput   `toml:"executor"    validate:"required"`
+	Indexer     *services.IndexerInput    `toml:"indexer"     validate:"required"`
+	Aggregator  *services.AggregatorInput `toml:"aggregator"  validate:"required"`
+	Blockchains []*blockchain.Input       `toml:"blockchains" validate:"required"`
+	NodeSets    []*ns.Input               `toml:"nodesets"    validate:"required"`
 }
 
 // verifyEnvironment internal function describing how to verify your environment is working.
