@@ -370,6 +370,13 @@ type ReceiptWithBlob struct {
 	DestBytesOverhead uint32         `json:"dest_bytes_overhead"`
 }
 
+// CCV represents a Cross-Chain Verifier configuration.
+type CCV struct {
+	CCVAddress UnknownAddress
+	Args       []byte
+	ArgsLen    uint16
+}
+
 // CCVData represents Cross-Chain Verification data.
 type CCVData struct {
 	SourceVerifierAddress UnknownAddress    `json:"source_verifier_address"`
