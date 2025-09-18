@@ -30,7 +30,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *types.Bl
 	selectionMode := ptr("HighestHead")
 	leaseDuration := 0 * time.Second
 	pollFailureThreshold := ptr(uint32(5))
-	pollInterval := 10 * time.Second
+	pollInterval := 2 * time.Second
 	syncThreshold := ptr(uint32(5))
 	nodeIsSyncingEnabled := ptr(false)
 	chainTypeStr := blockchainInfo.Type
