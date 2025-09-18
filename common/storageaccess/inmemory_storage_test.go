@@ -259,18 +259,18 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 
 			require.Equal(t, tt.expectedCount, len(response))
 
-			// Verify sequence numbers match expected by collecting from all destination chains
-			var actualSeqs []types.Nonce
+			// Verify nonces match expected by collecting from all destination chains
+			var actualNonces []types.Nonce
 			for _, ccv := range response {
-				actualSeqs = append(actualSeqs, ccv.Data.Nonce)
+				actualNonces = append(actualNonces, ccv.Data.Nonce)
 			}
 
-			// Sort actual sequences for comparison
-			sort.Slice(actualSeqs, func(i, j int) bool {
-				return actualSeqs[i] < actualSeqs[j]
+			// Sort actual nonces for comparison
+			sort.Slice(actualNonces, func(i, j int) bool {
+				return actualNonces[i] < actualNonces[j]
 			})
 
-			require.Equal(t, tt.expectedNonces, actualSeqs)
+			require.Equal(t, tt.expectedNonces, actualNonces)
 		})
 	}
 }

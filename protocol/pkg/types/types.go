@@ -243,21 +243,21 @@ func DecodeMessage(data []byte) (*Message, error) {
 	}
 	msg.Version = version
 
-	// Read chain selectors and sequence number
-	var sourceChain, destChain, seqNum uint64
+	// Read chain selectors and nonce
+	var sourceChain, destChain, nonce uint64
 	if err := binary.Read(reader, binary.BigEndian, &sourceChain); err != nil {
 		return nil, fmt.Errorf("failed to read source chain selector: %w", err)
 	}
 	if err := binary.Read(reader, binary.BigEndian, &destChain); err != nil {
 		return nil, fmt.Errorf("failed to read dest chain selector: %w", err)
 	}
-	if err := binary.Read(reader, binary.BigEndian, &seqNum); err != nil {
-		return nil, fmt.Errorf("failed to read sequence number: %w", err)
+	if err := binary.Read(reader, binary.BigEndian, &nonce); err != nil {
+		return nil, fmt.Errorf("failed to read nonce: %w", err)
 	}
 
 	msg.SourceChainSelector = ChainSelector(sourceChain)
 	msg.DestChainSelector = ChainSelector(destChain)
-	msg.Nonce = Nonce(seqNum)
+	msg.Nonce = Nonce(nonce)
 
 	// Read on-ramp address
 	onRampLen, err := reader.ReadByte()
