@@ -67,14 +67,13 @@ message ReceiptBlob {
 message MessageWithCCVNodeData {
   bytes message_id = 1;
   bytes source_verifier_address = 2;
-  bytes dest_verifier_address = 3;
   // ccv_data is the signature from the commit verifier node of the message data and the blob data
-  bytes ccv_data = 4;
-  // blob_data is the encoded nonce from the source chain
-  bytes blob_data = 5;
-  int64 timestamp = 6;
-  Message message = 7;
-  repeated ReceiptBlob receipt_blobs = 8;
+  bytes ccv_data = 3;
+  // blob_data is the verifier's proof/verification of the message data on chain
+  bytes blob_data = 4;
+  int64 timestamp = 5;
+  Message message = 6;
+  repeated ReceiptBlob receipt_blobs = 7;
 }
 
 message MessageWithCCVData {

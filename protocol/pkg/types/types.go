@@ -145,10 +145,11 @@ func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 
 // Message represents the chain-agnostic CCIP message format.
 type Message struct {
-	Sender               []byte        `json:"sender"`
-	Data                 []byte        `json:"data"`
-	OnRampAddress        []byte        `json:"on_ramp_address"`
-	TokenTransfer        []byte        `json:"token_transfer"`
+	Sender        []byte `json:"sender"`
+	Data          []byte `json:"data"`
+	OnRampAddress []byte `json:"on_ramp_address"`
+	TokenTransfer []byte `json:"token_transfer"`
+	// This is CCVAggregator
 	OffRampAddress       []byte        `json:"off_ramp_address"`
 	DestBlob             []byte        `json:"dest_blob"`
 	Receiver             []byte        `json:"receiver"`
@@ -242,21 +243,21 @@ func DecodeMessage(data []byte) (*Message, error) {
 	}
 	msg.Version = version
 
-	// Read chain selectors and sequence number
-	var sourceChain, destChain, seqNum uint64
+	// Read chain selectors and nonce
+	var sourceChain, destChain, nonce uint64
 	if err := binary.Read(reader, binary.BigEndian, &sourceChain); err != nil {
 		return nil, fmt.Errorf("failed to read source chain selector: %w", err)
 	}
 	if err := binary.Read(reader, binary.BigEndian, &destChain); err != nil {
 		return nil, fmt.Errorf("failed to read dest chain selector: %w", err)
 	}
-	if err := binary.Read(reader, binary.BigEndian, &seqNum); err != nil {
-		return nil, fmt.Errorf("failed to read sequence number: %w", err)
+	if err := binary.Read(reader, binary.BigEndian, &nonce); err != nil {
+		return nil, fmt.Errorf("failed to read nonce: %w", err)
 	}
 
 	msg.SourceChainSelector = ChainSelector(sourceChain)
 	msg.DestChainSelector = ChainSelector(destChain)
-	msg.Nonce = Nonce(seqNum)
+	msg.Nonce = Nonce(nonce)
 
 	// Read on-ramp address
 	onRampLen, err := reader.ReadByte()

@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -103,12 +104,9 @@ var bsUpCmd = &cobra.Command{
 	Aliases: []string{"u"},
 	Short:   "Spin up Blockscout EVM block explorer",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		remote, _ := rootCmd.Flags().GetBool("remote")
 		url, _ := bsCmd.Flags().GetString("url")
-		if remote {
-			return fmt.Errorf("remote mode: %v, Blockscout can only be used in 'local' mode", remote)
-		}
-		return framework.BlockScoutUp(url)
+		chainID, _ := bsCmd.Flags().GetString("chain-id")
+		return framework.BlockScoutUp(url, chainID)
 	},
 }
 
@@ -117,11 +115,7 @@ var bsDownCmd = &cobra.Command{
 	Aliases: []string{"d"},
 	Short:   "Spin down Blockscout EVM block explorer",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		remote, _ := rootCmd.Flags().GetBool("remote")
 		url, _ := bsCmd.Flags().GetString("url")
-		if remote {
-			return fmt.Errorf("remote mode: %v, Blockscout can only be used in 'local' mode", remote)
-		}
 		return framework.BlockScoutDown(url)
 	},
 }
@@ -132,10 +126,11 @@ var bsRestartCmd = &cobra.Command{
 	Short:   "Restart the Blockscout EVM block explorer",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		url, _ := bsCmd.Flags().GetString("url")
+		chainID, _ := bsCmd.Flags().GetString("chain-id")
 		if err := framework.BlockScoutDown(url); err != nil {
 			return err
 		}
-		return framework.BlockScoutUp(url)
+		return framework.BlockScoutUp(url, chainID)
 	},
 }
 
@@ -296,9 +291,12 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
 		sels := strings.Split(args[0], ",")
-		if len(sels) != 2 {
-			return fmt.Errorf("expected 2 chain selectors, got %d", len(sels))
+
+		// Support both V2 (2 params) and V3 (3 params) formats
+		if len(sels) != 2 && len(sels) != 3 {
+			return fmt.Errorf("expected 2 or 3 parameters (src,dest for V2 or src,dest,finality for V3), got %d", len(sels))
 		}
+
 		src, err := strconv.ParseUint(sels[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("failed to parse source chain selector: %w", err)
@@ -308,7 +306,27 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
-		return ccv.SendExampleArgsV2Message(in, src, dest)
+		// Use V3 if finality config is provided, otherwise use V2
+		if len(sels) == 3 {
+			// V3 format with finality config
+			finality, err := strconv.ParseUint(sels[2], 10, 32)
+			if err != nil {
+				return fmt.Errorf("failed to parse finality config: %w", err)
+			}
+
+			return ccv.SendExampleArgsV3Message(in, src, dest, uint16(finality), common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"), nil, nil,
+				[]types.CCV{
+					{
+						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+				[]types.CCV{}, 0)
+		} else {
+			// V2 format - use the dedicated V2 function
+			return ccv.SendExampleArgsV2Message(in, src, dest)
+		}
 	},
 }
 
@@ -340,9 +358,9 @@ var monitorContractsCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringP("blockscout_url", "u", "http://host.docker.internal:8545", "EVM RPC node URL")
-
 	// Blockscout, on-chain debug
+	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8555", "EVM RPC node URL (default to dst chain on 8555")
+	bsCmd.PersistentFlags().StringP("chain-id", "c", "2337", "RPC's Chain ID")
 	bsCmd.AddCommand(bsUpCmd)
 	bsCmd.AddCommand(bsDownCmd)
 	bsCmd.AddCommand(bsRestartCmd)

@@ -20,7 +20,7 @@ func getCommands() []prompt.Suggest {
 		{Text: "db", Description: "Inspect Databases"},
 		{Text: "upload-on-chain-metrics", Description: "Temporarily serves all on-chain metrics as a Prometheus metrics endpoint so they can be scraped"},
 		{Text: "exit", Description: "Exit the interactive shell"},
-		{Text: "send", Description: "Send an example CCIP ArgsV2 message from one chain to another"},
+		{Text: "send", Description: "Send an example CCIP ArgsV2/V3 message from one chain to another"},
 	}
 }
 
@@ -28,9 +28,11 @@ func getSubCommands(parent string) []prompt.Suggest {
 	switch parent {
 	case "send":
 		return []prompt.Suggest{
-			{Text: "Chain selectors", Description: "source,destination"},
-			{Text: "3379446385462418246,12922642891491394802", Description: "send default Anvil 1337 -> Anvil 2337"},
-			{Text: "12922642891491394802,3379446385462418246", Description: "send default Anvil 1337 <- Anvil 2337"},
+			{Text: "Chain selectors", Description: "V2: source,destination or V3: source,destination,finality"},
+			{Text: "3379446385462418246,12922642891491394802", Description: "V2: send default Anvil 1337 -> Anvil 2337"},
+			{Text: "12922642891491394802,3379446385462418246", Description: "V2: send default Anvil 1337 <- Anvil 2337"},
+			{Text: "3379446385462418246,12922642891491394802,12", Description: "V3: send Anvil 1337 -> Anvil 2337 with finality=12"},
+			{Text: "12922642891491394802,3379446385462418246,5", Description: "V3: send Anvil 1337 <- Anvil 2337 with finality=5"},
 		}
 	case "test":
 		return []prompt.Suggest{
@@ -47,9 +49,11 @@ func getSubCommands(parent string) []prompt.Suggest {
 		}
 	case "bs":
 		return []prompt.Suggest{
-			{Text: "up", Description: "Spin up Blockscout"},
-			{Text: "down", Description: "Spin down Blockscout"},
-			{Text: "restart", Description: "Restart Blockscout"},
+			{Text: "up", Description: "Spin up Blockscout and listen to dst chain (8555)"},
+			{Text: "up -u http://host.docker.internal:8545 -c 1337", Description: "Spin up Blockscout and listen to src chain (8545)"},
+			{Text: "down", Description: "Remove Blockscout stack"},
+			{Text: "restart", Description: "Restart Blockscout and listen to dst chain (8555)"},
+			{Text: "restart -u http://host.docker.internal:8545 -c 1337", Description: "Restart Blockscout and listen to src chain (8545)"},
 		}
 	case "obs":
 		return []prompt.Suggest{
@@ -71,9 +75,10 @@ func getSubCommands(parent string) []prompt.Suggest {
 		fallthrough
 	case "r":
 		fallthrough
-	case "reconfigure":
+	case "restart":
 		return []prompt.Suggest{
-			{Text: "Config", Description: `Select the configuration file, ex.: env.toml,override.toml`},
+			{Text: "env.toml,env-geth.toml", Description: "Configure devenv to use Geth <> Geth local chains (clique)"},
+			{Text: "env.toml,env-fuji-fantom.toml", Description: "Configure devenv to use testnets: Fuji <> Fantom"},
 		}
 	default:
 		return []prompt.Suggest{}
@@ -97,7 +102,7 @@ func executor(in string) {
 	}
 }
 
-// completer provides autocomplete suggestions for multi-word commands
+// completer provides autocomplete suggestions for multi-word commands.
 func completer(in prompt.Document) []prompt.Suggest {
 	text := in.TextBeforeCursor()
 	words := strings.Fields(text)
@@ -126,7 +131,7 @@ func completer(in prompt.Document) []prompt.Suggest {
 	}
 }
 
-// resetTerm resets terminal settings to Unix defaults
+// resetTerm resets terminal settings to Unix defaults.
 func resetTerm() {
 	cmd := exec.Command("stty", "sane")
 	cmd.Stdin = os.Stdin

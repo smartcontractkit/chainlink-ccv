@@ -149,6 +149,7 @@ linters:
       enable-all: true
       disable:
         - shadow
+        - fieldalignment
 
     # https://golangci-lint.run/usage/linters/#grouper
     grouper:
@@ -451,6 +452,7 @@ formatters:
     goimports:
       local-prefixes:
         - github.com/smartcontractkit/chainlink
+        - github.com/smartcontractkit
 
   exclusions:
     generated: lax

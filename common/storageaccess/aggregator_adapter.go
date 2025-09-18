@@ -53,7 +53,6 @@ func mapCCVDataToCCVNodeDataProto(ccvData types.CCVData) (*aggregator.WriteCommi
 		CcvNodeData: &aggregator.MessageWithCCVNodeData{
 			MessageId:             ccvData.MessageID[:],
 			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
-			DestVerifierAddress:   ccvData.DestVerifierAddress[:],
 			CcvData:               ccvData.CCVData,
 			BlobData:              ccvData.BlobData,
 			Timestamp:             ccvData.Timestamp,
