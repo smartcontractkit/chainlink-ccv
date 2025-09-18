@@ -562,7 +562,7 @@ func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.Constructor
 	bundle := NewDefaultCLDFBundle(e)
 	e.OperationsBundle = bundle
 
-	receiver, err := deployReceiverForSelector(in, e, selector, args)
+	receiver, err := deployReceiverForSelector(e, selector, args)
 	if err != nil {
 		return fmt.Errorf("failed to deploy mock receiver for selector %d: %w", selector, err)
 	}

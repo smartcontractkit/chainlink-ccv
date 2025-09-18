@@ -168,14 +168,9 @@ var deployCommitVerifierCmd = &cobra.Command{
 	Short: "Deploy contracts for a new commit verifier across all chains with a signature quorum to the existing environment",
 	Args:  cobra.RangeArgs(1, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		prevEnv := os.Getenv(ccv.EnvVarTestConfigs)
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
-		}
-		err = os.Setenv(ccv.EnvVarTestConfigs, prevEnv) // restore previous env var, LoadOutput mutates it
-		if err != nil {
-			return fmt.Errorf("failed to restore previous config env var: %w", err)
 		}
 		components := strings.Split(args[0], ",")
 		if len(components) < 2 {
@@ -206,14 +201,9 @@ var deployReceiverCmd = &cobra.Command{
 	Short: "Deploy a mock receiver contract to a given chain selector with a specific config",
 	Args:  cobra.RangeArgs(1, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		prevEnv := os.Getenv(ccv.EnvVarTestConfigs)
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
-		}
-		err = os.Setenv(ccv.EnvVarTestConfigs, prevEnv) // restore previous env var, LoadOutput mutates it
-		if err != nil {
-			return fmt.Errorf("failed to restore previous config env var: %w", err)
 		}
 
 		components := strings.Split(args[0], ",")
@@ -235,19 +225,20 @@ var deployReceiverCmd = &cobra.Command{
 			}
 		}
 		if len(components) >= 3 {
-			for _, addr := range strings.Split(components[2], ";") {
+			optionalThreshold, err = strconv.ParseUint(components[2], 10, 8)
+			if err != nil {
+				return fmt.Errorf("failed to parse optional threshold: %w", err)
+			}
+		}
+		if len(components) >= 4 {
+			for _, addr := range strings.Split(components[3], ";") {
 				if !common.IsHexAddress(addr) {
 					return fmt.Errorf("invalid optional verifier address: %s", addr)
 				}
 				optional = append(optional, common.HexToAddress(addr))
 			}
 		}
-		if len(components) >= 4 {
-			optionalThreshold, err = strconv.ParseUint(components[3], 10, 8)
-			if err != nil {
-				return fmt.Errorf("failed to parse optional threshold: %w", err)
-			}
-		}
+
 		constructorArgs := mock_receiver.ConstructorArgs{
 			RequiredVerifiers: required,
 			OptionalVerifiers: optional,
@@ -484,6 +475,8 @@ func checkDockerIsRunning() {
 func main() {
 	checkDockerIsRunning()
 	if len(os.Args) == 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
+		_ = os.Setenv("CTF_CONFIGS", "env.toml") // Set default config for shell
+
 		StartShell()
 		return
 	}

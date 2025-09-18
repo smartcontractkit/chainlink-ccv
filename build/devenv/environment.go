@@ -3,6 +3,8 @@ package ccv
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"golang.org/x/sync/errgroup"
@@ -53,7 +55,7 @@ func NewEnvironment() (*Cfg, error) {
 	if err := framework.DefaultNetwork(nil); err != nil {
 		return nil, err
 	}
-	in, err := Load[Cfg]()
+	in, err := Load[Cfg](strings.Split(os.Getenv(EnvVarTestConfigs), ","))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}

@@ -204,7 +204,7 @@ func configureCommitVerifierOnSelectorForLanes(e *deployment.Environment, select
 }
 
 // deployReceiverForSelector deploys a new mock receiver to the given chain selector
-func deployReceiverForSelector(in *Cfg, e *deployment.Environment, selector uint64, args mock_receiver.ConstructorArgs) (datastore.AddressRef, error) {
+func deployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver.ConstructorArgs) (datastore.AddressRef, error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return datastore.AddressRef{}, fmt.Errorf("no EVM chain found for selector %d", selector)

@@ -34,7 +34,7 @@ func getSubCommands(parent string) []prompt.Suggest {
 		}
 	case "deploy-mock-receiver":
 		return []prompt.Suggest{
-			{Text: "<chainSelector>,<required1>;<required2>,<optional1>;<optional2>,<optionalThreshold>", Description: "Deploy a mock receiver contract to a given chain selector with a specific config (i.e. 3379446385462418246,0xabc...,0xdef...,1)"},
+			{Text: "<chainSelector>,<ccv_offramp1>;<ccv_offramp2>,<optionalThreshold>,<ccv_offramp3>;<ccv_offramp4>", Description: "Deploy a mock receiver contract to a given chain selector with a specific config (i.e. 3379446385462418246,0xabc...,1,0xdef...)"},
 		}
 	case "send":
 		return []prompt.Suggest{
