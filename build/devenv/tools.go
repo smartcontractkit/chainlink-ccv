@@ -758,7 +758,7 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 				continue
 			}
 			destConfigArgs = append(destConfigArgs, commit_onramp.DestChainConfigArgs{
-				AllowlistEnabled:  true,
+				AllowlistEnabled:  false,
 				Router:            MustGetContractAddressForSelector(in, sel, router.ContractType),
 				DestChainSelector: destSel,
 			})
