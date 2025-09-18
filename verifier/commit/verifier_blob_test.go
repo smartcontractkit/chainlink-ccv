@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestVerifierBlobEncoding tests the new length-prefixed verifier blob structure
+// TestVerifierBlobEncoding tests the new length-prefixed verifier blob structure.
 func TestVerifierBlobEncoding(t *testing.T) {
 	nonce := uint64(12345)
 
@@ -31,7 +31,7 @@ func TestVerifierBlobEncoding(t *testing.T) {
 	assert.Equal(t, nonce, decodedBlob.Nonce)
 }
 
-// TestVerifierBlobVersionValidation tests version validation
+// TestVerifierBlobVersionValidation tests version validation.
 func TestVerifierBlobVersionValidation(t *testing.T) {
 	// Create blob with invalid version using length-prefixed format
 	var content bytes.Buffer
@@ -52,7 +52,7 @@ func TestVerifierBlobVersionValidation(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported verifier blob version")
 }
 
-// TestVerifierBlobRoundTrip tests round-trip encoding with various nonce values
+// TestVerifierBlobRoundTrip tests round-trip encoding with various nonce values.
 func TestVerifierBlobRoundTrip(t *testing.T) {
 	testCases := []uint64{
 		0,          // minimum
@@ -76,7 +76,7 @@ func TestVerifierBlobRoundTrip(t *testing.T) {
 	}
 }
 
-// TestLengthPrefixedBlobEdgeCases tests edge cases for the length-prefixed verifier blob format
+// TestLengthPrefixedBlobEdgeCases tests edge cases for the length-prefixed verifier blob format.
 func TestLengthPrefixedBlobEdgeCases(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -147,7 +147,7 @@ func TestLengthPrefixedBlobEdgeCases(t *testing.T) {
 	}
 }
 
-// TestLengthPrefixedBlobFlexibility tests that the format can handle different content sizes
+// TestLengthPrefixedBlobFlexibility tests that the format can handle different content sizes.
 func TestLengthPrefixedBlobFlexibility(t *testing.T) {
 	// Test that we can create blobs with additional data beyond just nonce
 	tests := []struct {
@@ -211,7 +211,7 @@ func TestLengthPrefixedBlobFlexibility(t *testing.T) {
 	}
 }
 
-// TestMaximumBlobSize tests handling of large blobs
+// TestMaximumBlobSize tests handling of large blobs.
 func TestMaximumBlobSize(t *testing.T) {
 	// Test maximum uint16 length (65535 bytes)
 	maxContentSize := int(^uint16(0)) // 65535
@@ -245,7 +245,7 @@ func TestMaximumBlobSize(t *testing.T) {
 	assert.Equal(t, maxContentSize+2, len(encoded)) // +2 for length prefix
 }
 
-// TestVerifierBlobStructure tests the internal structure of verifier blobs
+// TestVerifierBlobStructure tests the internal structure of verifier blobs.
 func TestVerifierBlobStructure(t *testing.T) {
 	nonce := uint64(0xDEADBEEFCAFEBABE)
 
@@ -277,7 +277,7 @@ func TestVerifierBlobStructure(t *testing.T) {
 	assert.Equal(t, 0, reader.Len())
 }
 
-// TestVerifierBlobCompactness tests that the format is as compact as possible
+// TestVerifierBlobCompactness tests that the format is as compact as possible.
 func TestVerifierBlobCompactness(t *testing.T) {
 	testCases := []struct {
 		nonce        uint64
