@@ -2,26 +2,9 @@ name: Go Modules Tidy Check
 
 on:
   pull_request:
-    paths:
-      - '**/*.go'
-      - '**/go.mod'
-      - '**/go.sum'
-      - 'Justfile'
-      - 'tool-versions.env'
-      - 'tools/**'
-      - '.github/**'
   push:
     branches:
       - main
-    paths:
-      - '**/*.go'
-      - '**/go.mod'
-      - '**/go.sum'
-      - 'Justfile'
-      - 'tool-versions.env'
-      - 'tools/**'
-      - '.github/**'
-  workflow_dispatch:
 
 jobs:
   mod-tidy-all:
