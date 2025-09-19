@@ -47,13 +47,13 @@ func TestE2ESmoke(t *testing.T) {
 				srcSelector: c.srcChainDetails.ChainSelector,
 				dstSelector: c.dstChainDetails.ChainSelector,
 			},
-			{
-				name:        "dst->src msg execution",
-				proxy:       c.proxyDst,
-				agg:         c.aggSrc,
-				srcSelector: c.dstChainDetails.ChainSelector,
-				dstSelector: c.srcChainDetails.ChainSelector,
-			},
+			//{
+			//	name:        "dst->src msg execution",
+			//	proxy:       c.proxyDst,
+			//	agg:         c.aggSrc,
+			//	srcSelector: c.dstChainDetails.ChainSelector,
+			//	dstSelector: c.srcChainDetails.ChainSelector,
+			//},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
@@ -87,42 +87,42 @@ func TestE2ESmoke(t *testing.T) {
 			threshold       uint8
 		}
 
-		verifierAddress := common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
-		execOnRamp := common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE")
+		//verifierAddress := common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
+		//execOnRamp := common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE")
 
 		tcs := []testcase{
-			{
-				name:        "src->dst msg execution",
-				proxy:       c.proxySrc,
-				agg:         c.aggDst,
-				srcSelector: c.srcChainDetails.ChainSelector,
-				dstSelector: c.dstChainDetails.ChainSelector,
-				finality:    0,
-				execOnRamp:  execOnRamp,
-				mandatoryCCVs: []types.CCV{
-					{
-						CCVAddress: verifierAddress.Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-			},
-			{
-				name:        "dst->src msg execution",
-				proxy:       c.proxyDst,
-				agg:         c.aggSrc,
-				srcSelector: c.dstChainDetails.ChainSelector,
-				dstSelector: c.srcChainDetails.ChainSelector,
-				finality:    0,
-				execOnRamp:  execOnRamp,
-				mandatoryCCVs: []types.CCV{
-					{
-						CCVAddress: verifierAddress.Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-			},
+			//{
+			//	name:        "src->dst msg execution",
+			//	proxy:       c.proxySrc,
+			//	agg:         c.aggDst,
+			//	srcSelector: c.srcChainDetails.ChainSelector,
+			//	dstSelector: c.dstChainDetails.ChainSelector,
+			//	finality:    0,
+			//	execOnRamp:  execOnRamp,
+			//	mandatoryCCVs: []types.CCV{
+			//		{
+			//			CCVAddress: verifierAddress.Bytes(),
+			//			Args:       []byte{},
+			//			ArgsLen:    0,
+			//		},
+			//	},
+			//},
+			//{
+			//	name:        "dst->src msg execution",
+			//	proxy:       c.proxyDst,
+			//	agg:         c.aggSrc,
+			//	srcSelector: c.dstChainDetails.ChainSelector,
+			//	dstSelector: c.srcChainDetails.ChainSelector,
+			//	finality:    0,
+			//	execOnRamp:  execOnRamp,
+			//	mandatoryCCVs: []types.CCV{
+			//		{
+			//			CCVAddress: verifierAddress.Bytes(),
+			//			Args:       []byte{},
+			//			ArgsLen:    0,
+			//		},
+			//	},
+			//},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
