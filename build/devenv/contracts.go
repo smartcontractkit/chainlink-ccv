@@ -1,4 +1,4 @@
-package e2e
+package ccv
 
 import (
 	"context"
@@ -12,20 +12,19 @@ import (
 	ccvProxyOps "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
 type Contracts struct {
-	srcChainDetails chainsel.ChainDetails
-	dstChainDetails chainsel.ChainDetails
-	proxySrc        *ccvProxy.CCVProxy
-	proxyDst        *ccvProxy.CCVProxy
-	aggSrc          *ccvAggregator.CCVAggregator
-	aggDst          *ccvAggregator.CCVAggregator
+	SrcChainDetails chainsel.ChainDetails
+	DstChainDetails chainsel.ChainDetails
+	ProxySrc        *ccvProxy.CCVProxy
+	ProxyDst        *ccvProxy.CCVProxy
+	AggSrc          *ccvAggregator.CCVAggregator
+	AggDst          *ccvAggregator.CCVAggregator
 }
 
-func NewContracts(in *ccv.Cfg) (*Contracts, error) {
+func NewContracts(in *Cfg) (*Contracts, error) {
 	srcChain, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[0].ChainID, chainsel.FamilyEVM)
 	if err != nil {
 		return nil, err
@@ -34,19 +33,19 @@ func NewContracts(in *ccv.Cfg) (*Contracts, error) {
 	if err != nil {
 		return nil, err
 	}
-	rpcSrc, _, _, err := ccv.ETHClient(in.Blockchains[0].Out.Nodes[0].ExternalWSUrl, in.CCV.GasSettings)
+	rpcSrc, _, _, err := ETHClient(in.Blockchains[0].Out.Nodes[0].ExternalWSUrl, in.CCV.GasSettings)
 	if err != nil {
 		return nil, err
 	}
-	rpcDst, _, _, err := ccv.ETHClient(in.Blockchains[1].Out.Nodes[0].ExternalWSUrl, in.CCV.GasSettings)
+	rpcDst, _, _, err := ETHClient(in.Blockchains[1].Out.Nodes[0].ExternalWSUrl, in.CCV.GasSettings)
 	if err != nil {
 		return nil, err
 	}
-	proxySrcAddr, err := ccv.GetContractAddrForSelector(in, srcChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
+	proxySrcAddr, err := GetContractAddrForSelector(in, srcChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
 	if err != nil {
 		return nil, err
 	}
-	proxyDstAddr, err := ccv.GetContractAddrForSelector(in, dstChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
+	proxyDstAddr, err := GetContractAddrForSelector(in, dstChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +57,11 @@ func NewContracts(in *ccv.Cfg) (*Contracts, error) {
 	if err != nil {
 		return nil, err
 	}
-	aggSrcAddr, err := ccv.GetContractAddrForSelector(in, srcChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
+	aggSrcAddr, err := GetContractAddrForSelector(in, srcChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
 	if err != nil {
 		return nil, err
 	}
-	aggDstAddr, err := ccv.GetContractAddrForSelector(in, dstChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
+	aggDstAddr, err := GetContractAddrForSelector(in, dstChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
 	if err != nil {
 		return nil, err
 	}
@@ -75,13 +74,70 @@ func NewContracts(in *ccv.Cfg) (*Contracts, error) {
 		return nil, err
 	}
 	return &Contracts{
-		srcChainDetails: srcChain,
-		dstChainDetails: dstChain,
-		proxySrc:        proxySrc,
-		proxyDst:        proxyDst,
-		aggSrc:          aggSrc,
-		aggDst:          aggDst,
+		SrcChainDetails: srcChain,
+		DstChainDetails: dstChain,
+		ProxySrc:        proxySrc,
+		ProxyDst:        proxyDst,
+		AggSrc:          aggSrc,
+		AggDst:          aggDst,
 	}, nil
+}
+
+func FetchAllSentEventsBySelector(proxy *ccvProxy.CCVProxy, selector uint64) ([]*ccvProxy.CCVProxyCCIPMessageSent, error) {
+	filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{selector}, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create filter: %w", err)
+	}
+	defer filter.Close()
+
+	var events []*ccvProxy.CCVProxyCCIPMessageSent
+
+	for filter.Next() {
+		event := filter.Event
+		events = append(events, event)
+
+		Plog.Info().
+			Any("TxHash", event.Raw.TxHash.Hex()).
+			Any("SeqNo", event.SequenceNumber).
+			Str("MsgID", hexutil.Encode(event.MessageId[:])).
+			Msg("Found CCIPMessageSent event")
+	}
+
+	if err := filter.Error(); err != nil {
+		return nil, fmt.Errorf("filter error: %w", err)
+	}
+
+	Plog.Info().Int("count", len(events)).Msg("Total CCIPMessageSent events found")
+	return events, nil
+}
+
+func FetchAllExecEventsBySelector(agg *ccvAggregator.CCVAggregator, selector uint64) ([]*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
+	filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{selector}, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create filter: %w", err)
+	}
+	defer filter.Close()
+
+	var events []*ccvAggregator.CCVAggregatorExecutionStateChanged
+
+	for filter.Next() {
+		event := filter.Event
+		events = append(events, event)
+
+		Plog.Info().
+			Any("State", event.State).
+			Any("TxHash", event.Raw.TxHash.Hex()).
+			Any("SeqNo", event.SequenceNumber).
+			Str("MsgID", hexutil.Encode(event.MessageId[:])).
+			Msg("Found ExecutionStateChanged event")
+	}
+
+	if err := filter.Error(); err != nil {
+		return nil, fmt.Errorf("filter error: %w", err)
+	}
+
+	Plog.Info().Int("count", len(events)).Msg("Total ExecutionStateChanged events found for selector and sequence")
+	return events, nil
 }
 
 func FetchSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
@@ -90,7 +146,7 @@ func FetchSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint64
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	ccv.Plog.Info().Msg("Awaiting CCIPMessageSent event")
+	Plog.Info().Msg("Awaiting CCIPMessageSent event")
 
 	for {
 		select {
@@ -99,7 +155,7 @@ func FetchSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint64
 		case <-ticker.C:
 			filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{selector}, []uint64{seq}, nil)
 			if err != nil {
-				ccv.Plog.Warn().Err(err).Msg("Failed to create filter")
+				Plog.Warn().Err(err).Msg("Failed to create filter")
 				continue
 			}
 			var eventFound *ccvProxy.CCVProxyCCIPMessageSent
@@ -112,14 +168,14 @@ func FetchSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint64
 					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
 				}
 				eventFound = filter.Event
-				ccv.Plog.Info().
+				Plog.Info().
 					Any("TxHash", filter.Event.Raw.TxHash.Hex()).
 					Any("SeqNo", filter.Event.SequenceNumber).
 					Str("MsgID", hexutil.Encode(filter.Event.MessageId[:])).
 					Msg("Received CCIPMessageSent event")
 			}
 			if err := filter.Error(); err != nil {
-				ccv.Plog.Warn().Err(err).Msg("Filter error")
+				Plog.Warn().Err(err).Msg("Filter error")
 			}
 			filter.Close()
 			if eventFound != nil {
@@ -136,7 +192,7 @@ func FetchExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector uint64, se
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	ccv.Plog.Info().Msg("Awaiting ExecutionStateChanged event")
+	Plog.Info().Msg("Awaiting ExecutionStateChanged event")
 
 	for {
 		select {
@@ -145,7 +201,7 @@ func FetchExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector uint64, se
 		case <-ticker.C:
 			filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{selector}, []uint64{seq}, nil)
 			if err != nil {
-				ccv.Plog.Warn().Err(err).Msg("Failed to create filter")
+				Plog.Warn().Err(err).Msg("Failed to create filter")
 				continue
 			}
 
@@ -160,7 +216,7 @@ func FetchExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector uint64, se
 				}
 
 				eventFound = filter.Event
-				ccv.Plog.Info().
+				Plog.Info().
 					Any("State", filter.Event.State).
 					Any("TxHash", filter.Event.Raw.TxHash.Hex()).
 					Any("SeqNo", filter.Event.SequenceNumber).
@@ -169,7 +225,7 @@ func FetchExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector uint64, se
 			}
 
 			if err := filter.Error(); err != nil {
-				ccv.Plog.Warn().Err(err).Msg("Filter error")
+				Plog.Warn().Err(err).Msg("Filter error")
 			}
 
 			filter.Close()

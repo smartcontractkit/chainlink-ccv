@@ -1,14 +1,9 @@
 package ccv
 
 import (
-	"context"
-	"fmt"
-
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
-	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 )
 
 const (
@@ -17,94 +12,67 @@ const (
 )
 
 var msgSentTotal = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "on_chain_ccip_msg_sent_total",
+	Name: "msg_sent_total",
 	Help: "Total number of CCIP messages sent",
 })
 
-// srcDstLatency = promauto.NewHistogram(prometheus.HistogramOpts{
-// 	Name:    "on_chain_src_dst_total_latency_milliseconds",
-// 	Help:    "Total duration of processing message from src to dst chain",
-// 	Buckets: prometheus.DefBuckets,
-// }).
+var srcDstLatency = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "msg_src_dst_duration_seconds",
+	Help:    "Total duration of processing message from src to dst chain",
+	Buckets: []float64{1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 400, 500},
+})
 
 // MonitorOnChainLogs is converting specified on-chain events (logs) to Loki/Prometheus data
 // it does not preserve original timestamps for observation and Loki pushes and scans/uploads the whole range
 // in case we need to get realtime metrics this function can be converted to a service that calls this function with
 // block ranges for both chains.
 func MonitorOnChainLogs(in *Cfg) error {
-	bcs, err := blockchainsByChainID(in)
+	lp := NewLokiPusher()
+	c, err := NewContracts(in)
 	if err != nil {
 		return err
 	}
-	lp := NewLokiPusher()
-	ctx := context.Background()
-
-	msgSentStreams, err := FilterContractEventsAllChains[ccvProxy.CCVProxyCCIPMessageSent](
-		ctx,
-		in,
-		bcs,
-		ccvProxy.CCVProxyMetaData.ABI,
-		"CCVProxy",
-		"CCIPMessageSent",
-		nil,
-		nil,
-	)
+	msgSentEvent, err := FetchAllSentEventsBySelector(c.ProxySrc, c.DstChainDetails.ChainSelector)
 	if err != nil {
-		return fmt.Errorf("failed to collect logs: %w", err)
+		return err
 	}
-	executionStateChangedStreams, err := FilterContractEventsAllChains[ccvAggregator.CCVAggregatorExecutionStateChanged](
-		ctx,
-		in,
-		bcs,
-		ccvAggregator.CCVAggregatorMetaData.ABI,
-		"CCVAggregator",
-		"ExecutionStateChanged",
-		nil,
-		nil,
-	)
+	msgsSent := make([]interface{}, 0)
+	for _, msg := range msgSentEvent {
+		msgsSent = append(msgsSent, msg)
+	}
+	execEvents, err := FetchAllExecEventsBySelector(c.AggDst, c.SrcChainDetails.ChainSelector)
 	if err != nil {
-		return fmt.Errorf("failed to collect logs: %w", err)
+		return err
+	}
+	msgsExec := make([]interface{}, 0)
+	for _, msg := range execEvents {
+		msgsExec = append(msgsExec, msg)
 	}
 
-	Plog.Info().
-		Int("Raw", len(msgSentStreams.RawLoki)).
-		Int("Decoded", len(msgSentStreams.DecodedLoki)).
-		Msg("Received CCIPMessageSent log")
-	Plog.Info().
-		Int("Raw", len(executionStateChangedStreams.RawLoki)).
-		Int("Decoded", len(executionStateChangedStreams.DecodedLoki)).
-		Msg("Received ExecutionStateChanged log")
 	// process Loki streams
-	if err := lp.PushRawAndDecoded(msgSentStreams.RawLoki, msgSentStreams.DecodedLoki, "on-chain"); err != nil {
-		return fmt.Errorf("failed to push logs: %w", err)
+	if err := lp.Push(msgsSent, "on-chain-sent"); err != nil {
+		return err
 	}
-	if err := lp.PushRawAndDecoded(executionStateChangedStreams.RawLoki, executionStateChangedStreams.DecodedLoki, "on-chain-exec"); err != nil {
-		return fmt.Errorf("failed to push logs: %w", err)
+	if err := lp.Push(msgsExec, "on-chain-exec"); err != nil {
+		return err
 	}
+
 	// process Prom metrics
 	logTimeByMsgID := make(map[[32]byte]uint64)
-	for _, l := range msgSentStreams.DecodedProm {
-		if l.ChainID == 1337 && l.Name == "CCIPMessageSent" {
-			if payload, ok := any(l.UnpackedData).(ccvProxy.CCVProxyCCIPMessageSent); ok {
-				Plog.Info().
-					Str("MsgID", fmt.Sprintf("%x", payload.MessageId)).
-					Uint64("BlockTimestamp", l.BlockTimestamp).
-					Msg("Received CCIPMessageSent log")
-				msgSentTotal.Inc()
-				logTimeByMsgID[payload.MessageId] = l.BlockTimestamp
-			}
-		}
+	for _, l := range msgSentEvent {
+		logTimeByMsgID[l.MessageId] = l.Raw.BlockTimestamp
 	}
-	for _, l := range executionStateChangedStreams.DecodedProm {
-		if l.ChainID == 2337 && l.Name == "ExecutionStateChanged" {
-			if payload, ok := any(l.UnpackedData).(ccvAggregator.CCVAggregatorExecutionStateChanged); ok {
-				Plog.Info().
-					Str("MsgID", fmt.Sprintf("%x", payload.MessageId)).
-					Uint64("BlockTimestamp", l.BlockTimestamp).
-					Msg("Received ExecutionStateChanged log")
-				// srcDstLatency.Observe(float64(l.BlockTimestamp))
-			}
+	for _, l := range execEvents {
+		blkTimeStarted, ok := logTimeByMsgID[l.MessageId]
+		if !ok {
+			continue
 		}
+		elapsed := l.Raw.BlockTimestamp - blkTimeStarted
+		Plog.Debug().
+			Any("MsgID", hexutil.Encode(l.MessageId[:])).
+			Uint64("Seconds", elapsed).
+			Msg("Elapsed time")
+		srcDstLatency.Observe(float64(elapsed))
 	}
 	Plog.Info().Str("LokiStreamURL", LokiOnChainStreamURL).Send()
 	Plog.Info().Str("PrometheusMetrics", PromMetrics).Send()
