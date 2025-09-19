@@ -18,9 +18,10 @@ type Signer struct {
 
 type IdentifierSigner struct {
 	Signer
-	Address    []byte
-	SignatureR [32]byte
-	SignatureS [32]byte
+	Address     []byte
+	SignatureR  [32]byte
+	SignatureS  [32]byte
+	CommitteeID CommitteeID
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -29,7 +30,13 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
+	QuorumConfigs           map[string]*QuorumConfig `toml:"quorumConfigs"`
+	SourceVerifierAddresses map[string]string        `toml:"sourceVerifierAddresses"`
+}
+
+func (c *Committee) GetSourceVerifierAddress(sourceSelector uint64) (string, bool) {
+	address, exists := c.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
+	return address, exists
 }
 
 func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) {
@@ -38,14 +45,18 @@ func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) 
 	return qc, exists
 }
 
-func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[string]*Committee, chainSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
+func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[CommitteeID]*Committee, sourceSelector, destSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
 	for _, committee := range committees {
-		quorumConfig, exists := committee.GetQuorumConfig(chainSelector)
-		if !exists {
+		sourceAddress, ok := committee.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
+		if !ok {
+			continue
+		}
+		if !bytes.Equal(common.HexToAddress(sourceAddress).Bytes(), sourceVerifierAddress) {
 			continue
 		}
 
-		if !bytes.Equal(quorumConfig.GetOnrampAddressBytes(), sourceVerifierAddress) {
+		quorumConfig, exists := committee.GetQuorumConfig(destSelector)
+		if !exists {
 			continue
 		}
 		return quorumConfig
@@ -149,13 +160,14 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Committees        map[string]*Committee `toml:"committees"`
-	Server            ServerConfig          `toml:"server"`
-	Storage           StorageConfig         `toml:"storage"`
-	APIKeys           APIKeyConfig          `toml:"apiKeys"`
-	Checkpoints       CheckpointConfig      `toml:"checkpoints"`
-	DisableValidation bool                  `toml:"disableValidation"`
-	StubMode          bool                  `toml:"stubQuorumValidation"`
+	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
+	Committees        map[CommitteeID]*Committee `toml:"committees"`
+	Server            ServerConfig               `toml:"server"`
+	Storage           StorageConfig              `toml:"storage"`
+	APIKeys           APIKeyConfig               `toml:"apiKeys"`
+	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
+	DisableValidation bool                       `toml:"disableValidation"`
+	StubMode          bool                       `toml:"stubQuorumValidation"`
 }
 
 // SetDefaults sets default values for the configuration.

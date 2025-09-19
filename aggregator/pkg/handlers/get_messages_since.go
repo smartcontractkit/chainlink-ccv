@@ -23,8 +23,10 @@ func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogg
 
 // Handle processes the get request and retrieves the commit verification data since the specified time.
 func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
+	committeeID := LoadCommitteeIDFromContext(ctx)
+
 	h.logger(ctx).Infof("Received GetMessagesSinceRequest")
-	storage := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix())
+	storage := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix(), committeeID)
 
 	records := make([]*aggregator.MessageWithCCVData, 0, len(storage))
 	for _, report := range storage {

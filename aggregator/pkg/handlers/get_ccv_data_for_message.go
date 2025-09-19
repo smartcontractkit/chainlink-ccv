@@ -26,10 +26,12 @@ func (h *GetCCVDataForMessageHandler) logger(ctx context.Context) logger.Sugared
 
 // Handle processes the get request and retrieves the commit verification data.
 func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.MessageWithCCVData, error) {
+	committeeID := LoadCommitteeIDFromContext(ctx)
 	ctx = scope.WithMessageID(ctx, req.MessageId)
+	ctx = scope.WithCommitteeID(ctx, committeeID)
 	h.logger(ctx).Infof("Received GetCCVDataForMessageRequest")
 
-	data := h.storage.GetCCVData(ctx, req.MessageId)
+	data := h.storage.GetCCVData(ctx, req.MessageId, committeeID)
 
 	if data == nil {
 		return nil, status.Errorf(codes.NotFound, "%s", fmt.Sprintf("no data found for message ID %x", req.MessageId))
