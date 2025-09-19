@@ -45,6 +45,9 @@ func fakeDefaults(in *FakeInput) {
 }
 
 func NewFake(in *FakeInput) (*FakeOutput, error) {
+	if in == nil {
+		return nil, nil
+	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
@@ -93,10 +96,12 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
-
-	return &FakeOutput{
+	out := &FakeOutput{
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
-	}, nil
+	}
+	in.Out = out
+
+	return out, nil
 }

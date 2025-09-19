@@ -49,6 +49,9 @@ func executorDefaults(in *ExecutorInput) {
 }
 
 func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
+	if in == nil {
+		return nil, nil
+	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
