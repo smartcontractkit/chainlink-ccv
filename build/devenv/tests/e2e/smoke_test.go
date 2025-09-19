@@ -2,47 +2,64 @@ package e2e
 
 import (
 	"testing"
+	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/stretchr/testify/require"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+
+	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 )
 
 func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
-	srcChain, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[0].ChainID, chainsel.FamilyEVM)
-	require.NoError(t, err)
-	dstChain, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[1].ChainID, chainsel.FamilyEVM)
+
+	c, err := NewContracts(in)
 	require.NoError(t, err)
 
 	t.Run("test argsv2 messages", func(t *testing.T) {
 		type testcase struct {
-			name         string
-			fromSelector uint64
-			toSelector   uint64
+			name        string
+			proxy       *ccvProxy.CCVProxy
+			agg         *ccvAggregator.CCVAggregator
+			srcSelector uint64
+			dstSelector uint64
 		}
 
 		tcs := []testcase{
 			{
-				name:         "src->dst msg execution",
-				fromSelector: srcChain.ChainSelector,
-				toSelector:   dstChain.ChainSelector,
+				name:        "src->dst msg execution",
+				proxy:       c.proxySrc,
+				agg:         c.aggDst,
+				srcSelector: c.srcChainDetails.ChainSelector,
+				dstSelector: c.dstChainDetails.ChainSelector,
 			},
 			{
-				name:         "dst->src msg execution",
-				fromSelector: dstChain.ChainSelector,
-				toSelector:   srcChain.ChainSelector,
+				name:        "dst->src msg execution",
+				proxy:       c.proxyDst,
+				agg:         c.aggSrc,
+				srcSelector: c.dstChainDetails.ChainSelector,
+				dstSelector: c.srcChainDetails.ChainSelector,
 			},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
-				err = ccv.SendExampleArgsV2Message(in, tc.fromSelector, tc.toSelector)
+				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.dstSelector)
 				require.NoError(t, err)
-				// TODO: assert both contracts and receiver
+				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+				err = ccv.SendExampleArgsV2Message(in, tc.srcSelector, tc.dstSelector)
+				require.NoError(t, err)
+				_, err = FetchSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
+				require.NoError(t, err)
+				e, err := FetchExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 2*time.Minute)
+				require.NoError(t, err)
+				require.NotNil(t, e)
+				require.Equal(t, uint8(2), e.State)
 			})
 		}
 	})
@@ -50,8 +67,10 @@ func TestE2ESmoke(t *testing.T) {
 	t.Run("test argsv3 messages", func(t *testing.T) {
 		type testcase struct {
 			name            string
-			fromSelector    uint64
-			toSelector      uint64
+			proxy           *ccvProxy.CCVProxy
+			agg             *ccvAggregator.CCVAggregator
+			srcSelector     uint64
+			dstSelector     uint64
 			finality        uint16
 			verifierAddress []byte
 			execOnRamp      common.Address
@@ -65,11 +84,13 @@ func TestE2ESmoke(t *testing.T) {
 
 		tcs := []testcase{
 			{
-				name:         "src->dst msg execution",
-				fromSelector: srcChain.ChainSelector,
-				toSelector:   dstChain.ChainSelector,
-				finality:     0,
-				execOnRamp:   execOnRamp,
+				name:        "src->dst msg execution",
+				proxy:       c.proxySrc,
+				agg:         c.aggDst,
+				srcSelector: c.srcChainDetails.ChainSelector,
+				dstSelector: c.dstChainDetails.ChainSelector,
+				finality:    0,
+				execOnRamp:  execOnRamp,
 				mandatoryCCVs: []types.CCV{
 					{
 						CCVAddress: verifierAddress.Bytes(),
@@ -79,11 +100,13 @@ func TestE2ESmoke(t *testing.T) {
 				},
 			},
 			{
-				name:         "dst->src msg execution",
-				fromSelector: dstChain.ChainSelector,
-				toSelector:   srcChain.ChainSelector,
-				finality:     0,
-				execOnRamp:   execOnRamp,
+				name:        "dst->src msg execution",
+				proxy:       c.proxyDst,
+				agg:         c.aggSrc,
+				srcSelector: c.dstChainDetails.ChainSelector,
+				dstSelector: c.srcChainDetails.ChainSelector,
+				finality:    0,
+				execOnRamp:  execOnRamp,
 				mandatoryCCVs: []types.CCV{
 					{
 						CCVAddress: verifierAddress.Bytes(),
@@ -95,12 +118,19 @@ func TestE2ESmoke(t *testing.T) {
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
-				err = ccv.SendExampleArgsV3Message(in, tc.fromSelector, tc.toSelector, tc.finality, tc.execOnRamp, nil, nil,
+				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.dstSelector)
+				require.NoError(t, err)
+				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+				err = ccv.SendExampleArgsV3Message(in, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
 					tc.mandatoryCCVs, tc.optionalCCVs, 0)
 				require.NoError(t, err)
-				// TODO: assert both contracts and receiver
+				_, err = FetchSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
+				require.NoError(t, err)
+				e, err := FetchExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 2*time.Minute)
+				require.NoError(t, err)
+				require.NotNil(t, e)
+				require.Equal(t, uint8(2), e.State)
 			})
 		}
 	})
-
 }
