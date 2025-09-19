@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 func TestE2ESmoke(t *testing.T) {
@@ -21,6 +24,11 @@ func TestE2ESmoke(t *testing.T) {
 
 	c, err := NewContracts(in)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
+		require.NoError(t, err)
+	})
 
 	t.Run("test argsv2 messages", func(t *testing.T) {
 		type testcase struct {
@@ -56,7 +64,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				_, err = FetchSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := FetchExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 10*time.Minute)
+				e, err := FetchExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)
@@ -126,7 +134,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				_, err = FetchSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := FetchExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 10*time.Minute)
+				e, err := FetchExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)

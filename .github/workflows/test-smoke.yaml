@@ -63,3 +63,11 @@ jobs:
         working-directory: build/devenv/tests/e2e
         run: |
           go test -v -run TestE2ESmoke
+
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-logs-smoke
+          path: build/devenv/tests/e2e/logs
+          retention-days: 1
