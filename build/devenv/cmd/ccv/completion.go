@@ -20,11 +20,21 @@ func getCommands() []prompt.Suggest {
 		{Text: "db", Description: "Inspect Databases"},
 		{Text: "upload-on-chain-metrics", Description: "Temporarily serves all on-chain metrics as a Prometheus metrics endpoint so they can be scraped"},
 		{Text: "exit", Description: "Exit the interactive shell"},
+		{Text: "deploy-commit-contracts", Description: "Deploy contracts for a new commit verifier"},
+		{Text: "deploy-mock-receiver", Description: "Deploy a mock receiver contract to a given chain selector with a specific config"},
 	}
 }
 
 func getSubCommands(parent string) []prompt.Suggest {
 	switch parent {
+	case "deploy-commit-contracts":
+		return []prompt.Suggest{
+			{Text: "<threshold>,<signer1>,<signer2>,...", Description: "Deploy contracts for a new commit verifier across all chains with a signature quorum (i.e. 3,0xabc...,0xdef...,0xghi...)"},
+		}
+	case "deploy-mock-receiver":
+		return []prompt.Suggest{
+			{Text: "<chainSelector>,<ccv_offramp1>;<ccv_offramp2>,<optionalThreshold>,<ccv_offramp3>;<ccv_offramp4>", Description: "Deploy a mock receiver contract to a given chain selector with a specific config (i.e. 3379446385462418246,0xabc...,1,0xdef...)"},
+		}
 	case "test":
 		return []prompt.Suggest{
 			{Text: "smoke", Description: "Send all the example messages between 1337 <> 2337"},

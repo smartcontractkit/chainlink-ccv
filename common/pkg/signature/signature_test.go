@@ -81,12 +81,12 @@ func TestEncodeDecodeSignaturesABI(t *testing.T) {
 		{
 			R:      [32]byte{0x01},
 			S:      [32]byte{0x02},
-			Signer: common.HexToAddress("0x0000000000000000000000000000000000000002"),
+			Signer: common.HexToAddress("0x0000000000000000000000000000000000000001"),
 		},
 		{
 			R:      [32]byte{0x03},
 			S:      [32]byte{0x04},
-			Signer: common.HexToAddress("0x0000000000000000000000000000000000000001"),
+			Signer: common.HexToAddress("0x0000000000000000000000000000000000000002"),
 		},
 	}
 
@@ -104,11 +104,11 @@ func TestEncodeDecodeSignaturesABI(t *testing.T) {
 
 	// Verify signatures are sorted by signer address
 	// Address 0x...0001 should come first
-	require.Equal(t, [32]byte{0x03}, rs[0])
-	require.Equal(t, [32]byte{0x04}, ss[0])
+	require.Equal(t, [32]byte{0x01}, rs[0])
+	require.Equal(t, [32]byte{0x02}, ss[0])
 	// Address 0x...0002 should come second
-	require.Equal(t, [32]byte{0x01}, rs[1])
-	require.Equal(t, [32]byte{0x02}, ss[1])
+	require.Equal(t, [32]byte{0x03}, rs[1])
+	require.Equal(t, [32]byte{0x04}, ss[1])
 }
 
 func TestRecoverSigners(t *testing.T) {
@@ -193,11 +193,6 @@ func TestEndToEndSignatureFlow(t *testing.T) {
 	expectedAddresses := []common.Address{
 		crypto.PubkeyToAddress(privateKeys[0].PublicKey),
 		crypto.PubkeyToAddress(privateKeys[1].PublicKey),
-	}
-
-	// Sort expected addresses to match the sorted output
-	if expectedAddresses[0].Big().Cmp(expectedAddresses[1].Big()) > 0 {
-		expectedAddresses[0], expectedAddresses[1] = expectedAddresses[1], expectedAddresses[0]
 	}
 
 	// Verify recovered addresses match expected (in sorted order)

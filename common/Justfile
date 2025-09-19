@@ -1,5 +1,8 @@
 set fallback
 
+# Use strict bash so failures stop the recipe
+set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
+
 import '../tools/lib/utils.justfile'
 
 # Default: show available recipes
@@ -21,7 +24,8 @@ mod-download: ensure-go
     go mod download
 
 proto: ensure-protoc
-    protoc --go_out=. --go-grpc_out=. ./proto/aggregator.proto
+    ./proto.sh
+
 
 proto-check: proto
     @git diff --name-only -- *.pb.go > /tmp/proto_diff_output; \
