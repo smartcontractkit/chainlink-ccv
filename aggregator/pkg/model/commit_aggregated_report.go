@@ -10,12 +10,12 @@ import (
 // CommitAggregatedReport represents a report of aggregated commit verifications.
 type CommitAggregatedReport struct {
 	MessageID     MessageID
-	CommitteeID   string
+	CommitteeID   CommitteeID
 	Verifications []*CommitVerificationRecord
 	Timestamp     int64
 }
 
-func GetAggregatedReportID(messageID MessageID, committeeID string) string {
+func GetAggregatedReportID(messageID MessageID, committeeID CommitteeID) string {
 	return hex.EncodeToString(messageID) + ":" + committeeID
 }
 

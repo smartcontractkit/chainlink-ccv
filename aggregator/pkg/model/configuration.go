@@ -18,10 +18,10 @@ type Signer struct {
 
 type IdentifierSigner struct {
 	Signer
-	Address    []byte
-	SignatureR [32]byte
-	SignatureS [32]byte
-	Committee  string
+	Address     []byte
+	SignatureR  [32]byte
+	SignatureS  [32]byte
+	CommitteeID CommitteeID
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -45,7 +45,7 @@ func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) 
 	return qc, exists
 }
 
-func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[string]*Committee, sourceSelector, destSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
+func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[CommitteeID]*Committee, sourceSelector, destSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
 	for _, committee := range committees {
 		sourceAddress, ok := committee.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
 		if !ok {
@@ -160,13 +160,14 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Committees        map[string]*Committee `toml:"committees"`
-	Server            ServerConfig          `toml:"server"`
-	Storage           StorageConfig         `toml:"storage"`
-	APIKeys           APIKeyConfig          `toml:"apiKeys"`
-	Checkpoints       CheckpointConfig      `toml:"checkpoints"`
-	DisableValidation bool                  `toml:"disableValidation"`
-	StubMode          bool                  `toml:"stubQuorumValidation"`
+	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
+	Committees        map[CommitteeID]*Committee `toml:"committees"`
+	Server            ServerConfig               `toml:"server"`
+	Storage           StorageConfig              `toml:"storage"`
+	APIKeys           APIKeyConfig               `toml:"apiKeys"`
+	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
+	DisableValidation bool                       `toml:"disableValidation"`
+	StubMode          bool                       `toml:"stubQuorumValidation"`
 }
 
 // SetDefaults sets default values for the configuration.

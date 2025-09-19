@@ -12,20 +12,21 @@ type MessageID = []byte
 
 // CommitVerificationRecordIdentifier uniquely identifies a commit verification record.
 type CommitVerificationRecordIdentifier struct {
-	MessageID MessageID
-	Address   []byte
+	MessageID   MessageID
+	Address     []byte
+	CommitteeID CommitteeID
 }
 
 // ToIdentifier converts the CommitVerificationRecordIdentifier to a string identifier.
 func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
-	return fmt.Sprintf("%x:%x", c.MessageID, hex.EncodeToString(c.Address))
+	return fmt.Sprintf("%x:%x:%s", c.MessageID, hex.EncodeToString(c.Address), c.CommitteeID)
 }
 
 // CommitVerificationRecord represents a record of a commit verification.
 type CommitVerificationRecord struct {
 	IdentifierSigner *IdentifierSigner
 	aggregator.MessageWithCCVNodeData
-	CommitteeID string
+	CommitteeID CommitteeID
 }
 
 // GetID retrieves the unique identifier for the commit verification record.

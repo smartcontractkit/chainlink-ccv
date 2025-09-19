@@ -120,11 +120,11 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 					if signerAddress == address {
 						q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
 						identifiedSigners = append(identifiedSigners, &model.IdentifierSigner{
-							Signer:     signer,
-							Address:    signerAddress.Bytes(),
-							SignatureR: rs[i],
-							SignatureS: ss[i],
-							Committee:  committeeName,
+							Signer:      signer,
+							Address:     signerAddress.Bytes(),
+							SignatureR:  rs[i],
+							SignatureS:  ss[i],
+							CommitteeID: committeeName,
 						})
 					}
 				}
@@ -166,7 +166,7 @@ func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Addres
 	return common.BytesToAddress(hash[12:]), nil
 }
 
-func (q *EVMQuorumValidator) getQuorumConfig(sourceSelector, destSelector types.ChainSelector, sourceVerifierAddress []byte) (string, *model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) getQuorumConfig(sourceSelector, destSelector types.ChainSelector, sourceVerifierAddress []byte) (model.CommitteeID, *model.QuorumConfig, error) {
 	for name, committee := range q.Committees {
 		sourceAddress, ok := committee.SourceVerifierAddresses[fmt.Sprintf("%d", uint64(sourceSelector))]
 		if !ok {

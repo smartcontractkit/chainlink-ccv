@@ -29,12 +29,12 @@ type CommitReportAggregator struct {
 
 type aggregationRequest struct {
 	// CommitteeID is the ID of the committee for the aggregation request.
-	CommitteeID string
+	CommitteeID model.CommitteeID
 	MessageID   model.MessageID
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, committeeID string) error {
+func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, committeeID model.CommitteeID) error {
 	go func() {
 		c.messageIDChan <- aggregationRequest{
 			MessageID:   messageID,
@@ -48,12 +48,12 @@ func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogge
 	return scope.AugmentLogger(ctx, c.l)
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committee string) (*model.CommitAggregatedReport, error) {
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
-	lggr = lggr.With("messageID", messageID, "committee", committee)
-	lggr.Infof("Checking aggregation for message ID: %s, committee: %s", messageID, committee)
-	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committee)
+	lggr = lggr.With("messageID", messageID, "committee", committeeID)
+	lggr.Infof("Checking aggregation for message ID: %s, committee: %s", messageID, committeeID)
+	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committeeID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
 		return nil, err
@@ -63,7 +63,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
-		CommitteeID:   committee,
+		CommitteeID:   committeeID,
 		Verifications: verifications,
 		Timestamp:     time.Now().Unix(),
 	}
