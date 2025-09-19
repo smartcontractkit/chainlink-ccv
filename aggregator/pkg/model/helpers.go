@@ -49,7 +49,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		}
 	}
 
-	quorumConfig := FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees, report.GetDestinationSelector(), report.GetSourceVerifierAddress())
+	quorumConfig := FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees, report.GetSourceChainSelector(), report.GetDestinationSelector(), report.GetSourceVerifierAddress())
 	if quorumConfig == nil {
 		return nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", report.GetDestinationSelector(), common.BytesToAddress(report.GetSourceVerifierAddress()).Hex())
 	}

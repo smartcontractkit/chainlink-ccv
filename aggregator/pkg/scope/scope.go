@@ -16,6 +16,7 @@ const (
 	addressKey       contextKey = "address"
 	participantIDKey contextKey = "participant-id"
 	requestIDKey     contextKey = "request-id"
+	committeeIDKey   contextKey = "committee-id"
 )
 
 var contextKeys = []contextKey{
@@ -23,6 +24,7 @@ var contextKeys = []contextKey{
 	addressKey,
 	participantIDKey,
 	requestIDKey,
+	committeeIDKey,
 }
 
 func WithRequestID(ctx context.Context) context.Context {
@@ -39,6 +41,10 @@ func WithAddress(ctx context.Context, address []byte) context.Context {
 
 func WithParticipantID(ctx context.Context, participantID string) context.Context {
 	return context.WithValue(ctx, participantIDKey, participantID)
+}
+
+func WithCommitteeID(ctx context.Context, committeeID string) context.Context {
+	return context.WithValue(ctx, committeeIDKey, committeeID)
 }
 
 func AugmentLogger(ctx context.Context, logger logger.SugaredLogger) logger.SugaredLogger {
