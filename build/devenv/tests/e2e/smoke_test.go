@@ -32,39 +32,39 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("test argsv2 messages", func(t *testing.T) {
 		type testcase struct {
-			name        string
-			proxy       *ccvProxy.CCVProxy
-			agg         *ccvAggregator.CCVAggregator
-			srcSelector uint64
-			dstSelector uint64
+			name         string
+			proxy        *ccvProxy.CCVProxy
+			agg          *ccvAggregator.CCVAggregator
+			fromSelector uint64
+			toSelector   uint64
 		}
 
 		tcs := []testcase{
 			{
-				name:        "src->dst msg execution",
-				proxy:       c.ProxySrc,
-				agg:         c.AggDst,
-				srcSelector: c.SrcChainDetails.ChainSelector,
-				dstSelector: c.DstChainDetails.ChainSelector,
+				name:         "src->dst msg execution",
+				proxy:        c.Proxy1337,
+				agg:          c.Agg2337,
+				fromSelector: c.Chain1337Details.ChainSelector,
+				toSelector:   c.Chain2337Details.ChainSelector,
 			},
 			{
-				name:        "dst->src msg execution",
-				proxy:       c.ProxyDst,
-				agg:         c.AggSrc,
-				srcSelector: c.DstChainDetails.ChainSelector,
-				dstSelector: c.SrcChainDetails.ChainSelector,
+				name:         "dst->src msg execution",
+				proxy:        c.Proxy2337,
+				agg:          c.Agg1337,
+				fromSelector: c.Chain2337Details.ChainSelector,
+				toSelector:   c.Chain1337Details.ChainSelector,
 			},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
-				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.dstSelector)
+				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.toSelector)
 				require.NoError(t, err)
 				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = ccv.SendExampleArgsV2Message(in, tc.srcSelector, tc.dstSelector)
+				err = ccv.SendExampleArgsV2Message(in, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
-				_, err = ccv.FetchSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
+				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.toSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccv.FetchExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 5*time.Minute)
+				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.fromSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)
@@ -93,11 +93,11 @@ func TestE2ESmoke(t *testing.T) {
 		tcs := []testcase{
 			{
 				name:        "src->dst msg execution",
-				proxy:       c.ProxySrc,
-				agg:         c.AggDst,
-				srcSelector: c.SrcChainDetails.ChainSelector,
-				dstSelector: c.DstChainDetails.ChainSelector,
-				finality:    0,
+				proxy:       c.Proxy1337,
+				agg:         c.Agg2337,
+				srcSelector: c.Chain1337Details.ChainSelector,
+				dstSelector: c.Chain2337Details.ChainSelector,
+				finality:    1,
 				execOnRamp:  execOnRamp,
 				mandatoryCCVs: []types.CCV{
 					{
@@ -109,11 +109,11 @@ func TestE2ESmoke(t *testing.T) {
 			},
 			{
 				name:        "dst->src msg execution",
-				proxy:       c.ProxyDst,
-				agg:         c.AggSrc,
-				srcSelector: c.DstChainDetails.ChainSelector,
-				dstSelector: c.SrcChainDetails.ChainSelector,
-				finality:    0,
+				proxy:       c.Proxy2337,
+				agg:         c.Agg1337,
+				srcSelector: c.Chain2337Details.ChainSelector,
+				dstSelector: c.Chain1337Details.ChainSelector,
+				finality:    1,
 				execOnRamp:  execOnRamp,
 				mandatoryCCVs: []types.CCV{
 					{
@@ -132,9 +132,9 @@ func TestE2ESmoke(t *testing.T) {
 				err = ccv.SendExampleArgsV3Message(in, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
 					tc.mandatoryCCVs, tc.optionalCCVs, 0)
 				require.NoError(t, err)
-				_, err = ccv.FetchSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
+				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccv.FetchExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 5*time.Minute)
+				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)

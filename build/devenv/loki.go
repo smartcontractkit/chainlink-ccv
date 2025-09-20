@@ -47,7 +47,7 @@ func NewLokiPusher() *LokiPusher {
 }
 
 // Push pushes all the messages to a Loki stream
-func (lp *LokiPusher) Push(msgs []any, jobStreamName string) error {
+func (lp *LokiPusher) Push(msgs []any, labels map[string]string) error {
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -69,9 +69,7 @@ func (lp *LokiPusher) Push(msgs []any, jobStreamName string) error {
 	}
 
 	stream := LokiStream{
-		Stream: map[string]string{
-			"job": jobStreamName,
-		},
+		Stream: labels,
 		Values: values,
 	}
 	resp, err := lp.client.R().

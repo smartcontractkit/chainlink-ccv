@@ -16,14 +16,15 @@ import (
 )
 
 type Contracts struct {
-	SrcChainDetails chainsel.ChainDetails
-	DstChainDetails chainsel.ChainDetails
-	ProxySrc        *ccvProxy.CCVProxy
-	ProxyDst        *ccvProxy.CCVProxy
-	AggSrc          *ccvAggregator.CCVAggregator
-	AggDst          *ccvAggregator.CCVAggregator
+	Chain1337Details chainsel.ChainDetails
+	Chain2337Details chainsel.ChainDetails
+	Proxy1337        *ccvProxy.CCVProxy
+	Proxy2337        *ccvProxy.CCVProxy
+	Agg1337          *ccvAggregator.CCVAggregator
+	Agg2337          *ccvAggregator.CCVAggregator
 }
 
+// NewContracts creates new smart-contracts wrappers with utility functions
 func NewContracts(in *Cfg) (*Contracts, error) {
 	srcChain, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[0].ChainID, chainsel.FamilyEVM)
 	if err != nil {
@@ -74,15 +75,16 @@ func NewContracts(in *Cfg) (*Contracts, error) {
 		return nil, err
 	}
 	return &Contracts{
-		SrcChainDetails: srcChain,
-		DstChainDetails: dstChain,
-		ProxySrc:        proxySrc,
-		ProxyDst:        proxyDst,
-		AggSrc:          aggSrc,
-		AggDst:          aggDst,
+		Chain1337Details: srcChain,
+		Chain2337Details: dstChain,
+		Proxy1337:        proxySrc,
+		Proxy2337:        proxyDst,
+		Agg1337:          aggSrc,
+		Agg2337:          aggDst,
 	}, nil
 }
 
+// FetchAllSentEventsBySelector fetch all CCIPMessageSent events from proxy contract
 func FetchAllSentEventsBySelector(proxy *ccvProxy.CCVProxy, selector uint64) ([]*ccvProxy.CCVProxyCCIPMessageSent, error) {
 	filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{selector}, nil, nil)
 	if err != nil {
@@ -111,6 +113,7 @@ func FetchAllSentEventsBySelector(proxy *ccvProxy.CCVProxy, selector uint64) ([]
 	return events, nil
 }
 
+// FetchAllExecEventsBySelector fetch all ExecutionStateChanged events from aggregator contract
 func FetchAllExecEventsBySelector(agg *ccvAggregator.CCVAggregator, selector uint64) ([]*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
 	filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{selector}, nil, nil)
 	if err != nil {
@@ -140,7 +143,8 @@ func FetchAllExecEventsBySelector(agg *ccvAggregator.CCVAggregator, selector uin
 	return events, nil
 }
 
-func FetchSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
+// WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector
+func WaitOneSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
@@ -185,7 +189,8 @@ func FetchSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint64
 	}
 }
 
-func FetchExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector uint64, seq uint64, timeout time.Duration) (*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
+// WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector
+func WaitOneExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector uint64, seq uint64, timeout time.Duration) (*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 

@@ -94,8 +94,8 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
-        "w": 24,
+        "h": 9,
+        "w": 12,
         "x": 0,
         "y": 1
       },
@@ -120,7 +120,7 @@
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.50, \n  rate(msg_src_dst_duration_seconds_bucket[5m])\n)",
-          "legendFormat": "__auto",
+          "legendFormat": "[50th] {{from}} - {{to}}",
           "range": true,
           "refId": "A"
         },
@@ -132,7 +132,7 @@
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, \n  rate(msg_src_dst_duration_seconds_bucket[5m])\n)",
           "hide": false,
-          "legendFormat": "__auto",
+          "legendFormat": "[95th] {{from}} - {{to}}",
           "range": true,
           "refId": "B"
         },
@@ -144,7 +144,7 @@
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, \n  rate(msg_src_dst_duration_seconds_bucket[5m])\n)",
           "hide": false,
-          "legendFormat": "__auto",
+          "legendFormat": "[99th] {{from}} - {{to}}",
           "range": true,
           "refId": "C"
         }
@@ -152,6 +152,408 @@
       "title": "Message Total Latencies",
       "transparent": true,
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Sent Events Total",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 28,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "sum(msg_sent_total)",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Sent Events Total",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Exec Events Total",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 29,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "sum(msg_exec_total)",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Exec Events Total",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "1337->2337 Sent",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 4
+      },
+      "id": 30,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "msg_sent_total{from=\"3379446385462418246\", to=\"12922642891491394802\"}",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "1337->2337 Sent",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "1337->2337 Exec",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 4
+      },
+      "id": 32,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "msg_exec_total{from=\"3379446385462418246\", to=\"12922642891491394802\"}",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "1337->2337 Exec",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "2337->1337 Sent",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 7
+      },
+      "id": 31,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "msg_sent_total{from=\"12922642891491394802\", to=\"3379446385462418246\"}",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "2337->1337 Sent",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "2337->1337 Exec",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 7
+      },
+      "id": 33,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "msg_exec_total{from=\"12922642891491394802\", to=\"3379446385462418246\"}",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "2337->1337 Exec",
+      "transparent": true,
+      "type": "stat"
     },
     {
       "datasource": {
@@ -163,7 +565,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 10
       },
       "id": 10,
       "options": {
@@ -203,7 +605,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 10
       },
       "id": 27,
       "options": {
@@ -239,7 +641,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 18
       },
       "id": 19,
       "panels": [
@@ -253,7 +655,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 9
+            "y": 17
           },
           "id": 20,
           "options": {
@@ -292,7 +694,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 19
       },
       "id": 18,
       "panels": [
@@ -306,7 +708,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 10
+            "y": 18
           },
           "id": 21,
           "options": {
@@ -345,7 +747,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 20
       },
       "id": 24,
       "panels": [
@@ -359,7 +761,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 11
+            "y": 19
           },
           "id": 22,
           "options": {
@@ -398,7 +800,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 21
       },
       "id": 23,
       "panels": [
@@ -412,7 +814,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 12
+            "y": 20
           },
           "id": 25,
           "options": {
@@ -451,7 +853,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 22
       },
       "id": 11,
       "panels": [
@@ -501,8 +903,7 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "red",
@@ -518,7 +919,7 @@
             "h": 7,
             "w": 10,
             "x": 0,
-            "y": 21
+            "y": 29
           },
           "id": 2,
           "options": {
@@ -572,8 +973,7 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "red",
@@ -588,7 +988,7 @@
             "h": 4,
             "w": 5,
             "x": 10,
-            "y": 21
+            "y": 29
           },
           "id": 15,
           "options": {
@@ -669,8 +1069,7 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "red",
@@ -686,7 +1085,7 @@
             "h": 7,
             "w": 9,
             "x": 15,
-            "y": 21
+            "y": 29
           },
           "id": 4,
           "options": {
@@ -740,8 +1139,7 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "red",
@@ -756,7 +1154,7 @@
             "h": 10,
             "w": 5,
             "x": 10,
-            "y": 25
+            "y": 33
           },
           "id": 13,
           "options": {
@@ -837,8 +1235,7 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "red",
@@ -854,7 +1251,7 @@
             "h": 7,
             "w": 10,
             "x": 0,
-            "y": 28
+            "y": 36
           },
           "id": 3,
           "options": {
@@ -938,8 +1335,7 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "red",
@@ -955,7 +1351,7 @@
             "h": 7,
             "w": 9,
             "x": 15,
-            "y": 28
+            "y": 36
           },
           "id": 5,
           "options": {
@@ -1002,7 +1398,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 35
+            "y": 43
           },
           "id": 6,
           "options": {
@@ -1041,7 +1437,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 40
+            "y": 48
           },
           "id": 8,
           "options": {
@@ -1083,7 +1479,7 @@
     "list": []
   },
   "time": {
-    "from": "now-5m",
+    "from": "now-15m",
     "to": "now"
   },
   "timepicker": {},

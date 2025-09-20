@@ -796,3 +796,11 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 
 	return Store(in)
 }
+
+func ToAnySlice[T any](slice []T) []any {
+	result := make([]any, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
+}

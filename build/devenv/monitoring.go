@@ -1,26 +1,42 @@
 package ccv
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 )
 
-const (
-	LokiOnChainStreamURL = "http://localhost:3000/explore?panes=%7B%22UYG%22:%7B%22datasource%22:%22P8E80F9AEF21F6940%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22expr%22:%22%7Bjob%3D%5C%22on-chain%5C%22%7D%22,%22queryType%22:%22range%22,%22datasource%22:%7B%22type%22:%22loki%22,%22uid%22:%22P8E80F9AEF21F6940%22%7D,%22editorMode%22:%22code%22%7D%5D,%22range%22:%7B%22from%22:%22now-30m%22,%22to%22:%22now%22%7D%7D%7D&schemaVersion=1&orgId=1"
-	PromMetrics          = "http://localhost:3000/explore?panes=%7B%22UYG%22:%7B%22datasource%22:%22PBFA97CFB590B2093%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22expr%22:%22on_chain_ccip_msg_sent_total%22,%22range%22:true,%22datasource%22:%7B%22type%22:%22prometheus%22,%22uid%22:%22PBFA97CFB590B2093%22%7D,%22editorMode%22:%22code%22,%22legendFormat%22:%22__auto%22%7D%5D,%22range%22:%7B%22from%22:%22now-30m%22,%22to%22:%22now%22%7D%7D%7D&schemaVersion=1&orgId=1"
-)
-
-var msgSentTotal = promauto.NewCounter(prometheus.CounterOpts{
+var msgSentTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "msg_sent_total",
 	Help: "Total number of CCIP messages sent",
-})
+}, []string{"from", "to"})
 
-var srcDstLatency = promauto.NewHistogram(prometheus.HistogramOpts{
+var msgExecTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "msg_exec_total",
+	Help: "Total number of CCIP messages executed",
+}, []string{"from", "to"})
+
+var srcDstLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "msg_src_dst_duration_seconds",
 	Help:    "Total duration of processing message from src to dst chain",
 	Buckets: []float64{1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 400, 500},
-})
+}, []string{"from", "to"})
+
+type LaneStreamConfig struct {
+	From         *ccvProxy.CCVProxy
+	To           *ccvAggregator.CCVAggregator
+	FromSelector uint64
+	ToSelector   uint64
+}
+
+type LaneStreams struct {
+	SentEvents []*ccvProxy.CCVProxyCCIPMessageSent
+	ExecEvents []*ccvAggregator.CCVAggregatorExecutionStateChanged
+}
 
 // MonitorOnChainLogs is converting specified on-chain events (logs) to Loki/Prometheus data
 // it does not preserve original timestamps for observation and Loki pushes and scans/uploads the whole range
@@ -32,37 +48,59 @@ func MonitorOnChainLogs(in *Cfg) error {
 	if err != nil {
 		return err
 	}
-	msgSentEvent, err := FetchAllSentEventsBySelector(c.ProxySrc, c.DstChainDetails.ChainSelector)
+	err = ProcessLaneEvents(lp, &LaneStreamConfig{
+		From:         c.Proxy1337,
+		To:           c.Agg2337,
+		FromSelector: c.Chain1337Details.ChainSelector,
+		ToSelector:   c.Chain2337Details.ChainSelector,
+	})
 	if err != nil {
 		return err
 	}
-	msgsSent := make([]interface{}, 0)
-	for _, msg := range msgSentEvent {
-		msgsSent = append(msgsSent, msg)
-	}
-	execEvents, err := FetchAllExecEventsBySelector(c.AggDst, c.SrcChainDetails.ChainSelector)
+	err = ProcessLaneEvents(lp, &LaneStreamConfig{
+		From:         c.Proxy2337,
+		To:           c.Agg1337,
+		FromSelector: c.Chain2337Details.ChainSelector,
+		ToSelector:   c.Chain1337Details.ChainSelector,
+	})
 	if err != nil {
 		return err
 	}
-	msgsExec := make([]interface{}, 0)
-	for _, msg := range execEvents {
-		msgsExec = append(msgsExec, msg)
-	}
+	return nil
+}
 
-	// process Loki streams
-	if err := lp.Push(msgsSent, "on-chain-sent"); err != nil {
+// ProcessLaneEvents collects, pushes and observes sent and executed messages for lane
+func ProcessLaneEvents(lp *LokiPusher, cfg *LaneStreamConfig) error {
+	Plog.Info().Uint64("FromSelector", cfg.FromSelector).Uint64("ToSelector", cfg.ToSelector).Msg("Processing events")
+	streams, err := FetchLaneEvents(cfg)
+	if err != nil {
 		return err
 	}
-	if err := lp.Push(msgsExec, "on-chain-exec"); err != nil {
+	fromSelectorStr := fmt.Sprintf("%d", cfg.FromSelector)
+	toSelectorStr := fmt.Sprintf("%d", cfg.ToSelector)
+	// push Loki streams
+	if err := lp.Push(ToAnySlice(streams.SentEvents), map[string]string{
+		"job":  "on-chain-sent",
+		"from": fromSelectorStr,
+		"to":   toSelectorStr,
+	}); err != nil {
+		return err
+	}
+	if err := lp.Push(ToAnySlice(streams.ExecEvents), map[string]string{
+		"job":  "on-chain-exec",
+		"from": fromSelectorStr,
+		"to":   toSelectorStr,
+	}); err != nil {
 		return err
 	}
 
-	// process Prom metrics
+	// observe as Prometheus metrics
 	logTimeByMsgID := make(map[[32]byte]uint64)
-	for _, l := range msgSentEvent {
+	for _, l := range streams.SentEvents {
 		logTimeByMsgID[l.MessageId] = l.Raw.BlockTimestamp
+		msgSentTotal.WithLabelValues(fromSelectorStr, toSelectorStr).Inc()
 	}
-	for _, l := range execEvents {
+	for _, l := range streams.ExecEvents {
 		blkTimeStarted, ok := logTimeByMsgID[l.MessageId]
 		if !ok {
 			continue
@@ -72,9 +110,24 @@ func MonitorOnChainLogs(in *Cfg) error {
 			Any("MsgID", hexutil.Encode(l.MessageId[:])).
 			Uint64("Seconds", elapsed).
 			Msg("Elapsed time")
-		srcDstLatency.Observe(float64(elapsed))
+		srcDstLatency.WithLabelValues(fromSelectorStr, toSelectorStr).Observe(float64(elapsed))
+		msgExecTotal.WithLabelValues(fromSelectorStr, toSelectorStr).Inc()
 	}
-	Plog.Info().Str("LokiStreamURL", LokiOnChainStreamURL).Send()
-	Plog.Info().Str("PrometheusMetrics", PromMetrics).Send()
 	return nil
+}
+
+// FetchLaneEvents fetch sent and exec events for lane
+func FetchLaneEvents(cfg *LaneStreamConfig) (*LaneStreams, error) {
+	msgSentEvent, err := FetchAllSentEventsBySelector(cfg.From, cfg.ToSelector)
+	if err != nil {
+		return nil, err
+	}
+	execEvents, err := FetchAllExecEventsBySelector(cfg.To, cfg.FromSelector)
+	if err != nil {
+		return nil, err
+	}
+	return &LaneStreams{
+		SentEvents: msgSentEvent,
+		ExecEvents: execEvents,
+	}, nil
 }

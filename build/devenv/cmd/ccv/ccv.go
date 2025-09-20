@@ -395,7 +395,11 @@ var monitorContractsCmd = &cobra.Command{
 		if err := ccv.MonitorOnChainLogs(in); err != nil {
 			return err
 		}
-		return ccv.ExposePrometheusMetricsFor(10 * time.Second)
+		if err := ccv.ExposePrometheusMetricsFor(10 * time.Second); err != nil {
+			return err
+		}
+		ccv.Plog.Info().Str("Dashboard", LocalCCVDashboard).Msg("Metrics upload finished")
+		return nil
 	},
 }
 
