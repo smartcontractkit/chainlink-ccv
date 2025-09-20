@@ -118,3 +118,17 @@ Then upload all the metrics to a local `Prometheus` or `Loki`
 upload-on-chain-metrics
 ```
 Go to [dashboards](dashboards) and render your metrics, default `Loki` stream is `{job="on-chain"}`
+
+## Docker Desktop on Linux
+
+Some special considerations are needed in order to use Docker Desktop on Linux
+with the ccv command because the socket location is moved to the users home
+directory.
+
+This can be fixed by creating a symlink in the standard location.
+**Warning**: do not run this command if you also need to use docker engine.
+Additional details are in the official documentation [http://docs.docker.com](https://docs.docker.com/desktop/setup/install/linux/)
+```bash
+sudo ln -s $HOME/.docker/run/docker.sock /var/run/docker.sock
+```
+
