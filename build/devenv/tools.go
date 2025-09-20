@@ -611,7 +611,6 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 	if err != nil {
 		return fmt.Errorf("failed to send CCIP message: %w", err)
 	}
-
 	Plog.Info().Bool("Executed", sendReport.Output.Executed).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
@@ -770,4 +769,12 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 	}
 
 	return Store(in)
+}
+
+func ToAnySlice[T any](slice []T) []any {
+	result := make([]any, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
 }

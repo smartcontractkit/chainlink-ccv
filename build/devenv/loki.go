@@ -46,21 +46,17 @@ func NewLokiPusher() *LokiPusher {
 	}
 }
 
-// PushRawAndDecoded sends both raw and decoded messages to Loki in a structured format.
-func (lp *LokiPusher) PushRawAndDecoded(rawMessages, decodedMessages []any, jobStreamName string) error {
-	if len(rawMessages) != len(decodedMessages) {
-		return fmt.Errorf("raw and decoded messages must have the same length")
-	}
-	if len(rawMessages) == 0 {
+// Push pushes all the messages to a Loki stream
+func (lp *LokiPusher) Push(msgs []any, labels map[string]string) error {
+	if len(msgs) == 0 {
 		return nil
 	}
-	values := make([][]string, 0, len(rawMessages))
+	values := make([][]string, 0, len(msgs))
 
-	for i := 0; i < len(rawMessages); i++ {
+	for i := 0; i < len(msgs); i++ {
 		combinedMessage := map[string]any{
-			"raw":     rawMessages[i],
-			"decoded": decodedMessages[i],
-			"ts":      time.Now().Format(time.RFC3339Nano),
+			"log": msgs[i],
+			"ts":  time.Now().Format(time.RFC3339Nano),
 		}
 		jsonBytes, err := json.Marshal(combinedMessage)
 		if err != nil {
@@ -73,9 +69,7 @@ func (lp *LokiPusher) PushRawAndDecoded(rawMessages, decodedMessages []any, jobS
 	}
 
 	stream := LokiStream{
-		Stream: map[string]string{
-			"job": jobStreamName,
-		},
+		Stream: labels,
 		Values: values,
 	}
 	resp, err := lp.client.R().
