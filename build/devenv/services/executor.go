@@ -71,7 +71,6 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
 		ExposedPorts: []string{"8100/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
-			h.ExtraHosts = []string{"host.docker.internal:172.17.0.1"}
 			h.PortBindings = nat.PortMap{
 				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
 				"8100/tcp": []nat.PortBinding{

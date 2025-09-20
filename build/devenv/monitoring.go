@@ -10,6 +10,17 @@ import (
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 )
 
+/*
+Loki labels
+*/
+const (
+	LokiCCIPMessageSentLabel       = "on-chain-sent"
+	LokiExecutionStateChangedLabel = "on-chain-exec"
+)
+
+/*
+Prometheus metrics
+*/
 var msgSentTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "msg_sent_total",
 	Help: "Total number of CCIP messages sent",
@@ -26,6 +37,7 @@ var srcDstLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Buckets: []float64{1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 400, 500},
 }, []string{"from", "to"})
 
+// LaneStreamConfig contains contracts to collect events from and selectors for queries
 type LaneStreamConfig struct {
 	From         *ccvProxy.CCVProxy
 	To           *ccvAggregator.CCVAggregator
@@ -33,9 +45,20 @@ type LaneStreamConfig struct {
 	ToSelector   uint64
 }
 
+// LaneStreams represents all the events for sent/exec events
 type LaneStreams struct {
 	SentEvents []*ccvProxy.CCVProxyCCIPMessageSent
 	ExecEvents []*ccvAggregator.CCVAggregatorExecutionStateChanged
+}
+
+type SentEventPlusMeta struct {
+	*ccvProxy.CCVProxyCCIPMessageSent
+	MessageIDHex string
+}
+
+type ExecEventPlusMeta struct {
+	*ccvAggregator.CCVAggregatorExecutionStateChanged
+	MessageIDHex string
 }
 
 // MonitorOnChainLogs is converting specified on-chain events (logs) to Loki/Prometheus data
@@ -57,16 +80,12 @@ func MonitorOnChainLogs(in *Cfg) error {
 	if err != nil {
 		return err
 	}
-	err = ProcessLaneEvents(lp, &LaneStreamConfig{
+	return ProcessLaneEvents(lp, &LaneStreamConfig{
 		From:         c.Proxy2337,
 		To:           c.Agg1337,
 		FromSelector: c.Chain2337Details.ChainSelector,
 		ToSelector:   c.Chain1337Details.ChainSelector,
 	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // ProcessLaneEvents collects, pushes and observes sent and executed messages for lane
@@ -79,15 +98,15 @@ func ProcessLaneEvents(lp *LokiPusher, cfg *LaneStreamConfig) error {
 	fromSelectorStr := fmt.Sprintf("%d", cfg.FromSelector)
 	toSelectorStr := fmt.Sprintf("%d", cfg.ToSelector)
 	// push Loki streams
-	if err := lp.Push(ToAnySlice(streams.SentEvents), map[string]string{
-		"job":  "on-chain-sent",
+	if err := lp.Push(ToAnySlice(addSentMetadata(streams.SentEvents)), map[string]string{
+		"job":  LokiCCIPMessageSentLabel,
 		"from": fromSelectorStr,
 		"to":   toSelectorStr,
 	}); err != nil {
 		return err
 	}
-	if err := lp.Push(ToAnySlice(streams.ExecEvents), map[string]string{
-		"job":  "on-chain-exec",
+	if err := lp.Push(ToAnySlice(addExecMetadata(streams.ExecEvents)), map[string]string{
+		"job":  LokiExecutionStateChangedLabel,
 		"from": fromSelectorStr,
 		"to":   toSelectorStr,
 	}); err != nil {
@@ -130,4 +149,26 @@ func FetchLaneEvents(cfg *LaneStreamConfig) (*LaneStreams, error) {
 		SentEvents: msgSentEvent,
 		ExecEvents: execEvents,
 	}, nil
+}
+
+func addSentMetadata(msgs []*ccvProxy.CCVProxyCCIPMessageSent) []*SentEventPlusMeta {
+	events := make([]*SentEventPlusMeta, 0)
+	for _, msg := range msgs {
+		events = append(events, &SentEventPlusMeta{
+			CCVProxyCCIPMessageSent: msg,
+			MessageIDHex:            hexutil.Encode(msg.MessageId[:]),
+		})
+	}
+	return events
+}
+
+func addExecMetadata(msgs []*ccvAggregator.CCVAggregatorExecutionStateChanged) []*ExecEventPlusMeta {
+	events := make([]*ExecEventPlusMeta, 0)
+	for _, msg := range msgs {
+		events = append(events, &ExecEventPlusMeta{
+			CCVAggregatorExecutionStateChanged: msg,
+			MessageIDHex:                       hexutil.Encode(msg.MessageId[:]),
+		})
+	}
+	return events
 }

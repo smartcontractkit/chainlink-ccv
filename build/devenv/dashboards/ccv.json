@@ -39,6 +39,73 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
+      "description": "Sent Events Total",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 0,
+        "y": 1
+      },
+      "id": 28,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "sum(msg_sent_total)",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Sent Events Total",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "description": "Message Total Latencies from Source to Destination chain",
       "fieldConfig": {
         "defaults": {
@@ -94,9 +161,9 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
+        "h": 6,
+        "w": 21,
+        "x": 3,
         "y": 1
       },
       "id": 26,
@@ -158,73 +225,6 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Sent Events Total",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 12,
-        "y": 1
-      },
-      "id": 28,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "editorMode": "code",
-          "expr": "sum(msg_sent_total)",
-          "legendFormat": "__auto",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Sent Events Total",
-      "transparent": true,
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
       "description": "Exec Events Total",
       "fieldConfig": {
         "defaults": {
@@ -250,9 +250,9 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 6,
-        "x": 18,
-        "y": 1
+        "w": 3,
+        "x": 0,
+        "y": 4
       },
       "id": 29,
       "options": {
@@ -292,7 +292,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "1337->2337 Sent",
+      "description": "${FromSelector:pipe}->${ToSelector:pipe} Sent",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -316,10 +316,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 12,
-        "y": 4
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 7
       },
       "id": 30,
       "options": {
@@ -344,22 +344,62 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "msg_sent_total{from=\"3379446385462418246\", to=\"12922642891491394802\"}",
+          "expr": "msg_sent_total{from=~\"${FromSelector:pipe}\", to=~\"${ToSelector:pipe}\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "1337->2337 Sent",
+      "title": "${FromSelector:pipe}->${ToSelector:pipe} Sent",
       "transparent": true,
       "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "description": "CCIPMessageSent Logs",
+      "gridPos": {
+        "h": 4,
+        "w": 21,
+        "x": 3,
+        "y": 7
+      },
+      "id": 10,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": false,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "pluginVersion": "10.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "editorMode": "code",
+          "expr": "{job=\"on-chain-sent\", from=~\"${FromSelector:pipe}\", to=~\"${ToSelector:pipe}\"}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "CCIPMessageSent Logs",
+      "transparent": true,
+      "type": "logs"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "1337->2337 Exec",
+      "description": "${FromSelector:pipe}->${ToSelector:pipe} Exec",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -383,10 +423,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 18,
-        "y": 4
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 11
       },
       "id": 32,
       "options": {
@@ -411,189 +451,15 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "msg_exec_total{from=\"3379446385462418246\", to=\"12922642891491394802\"}",
+          "expr": "msg_exec_total{from=~\"${FromSelector:pipe}\", to=~\"${ToSelector:pipe}\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "1337->2337 Exec",
+      "title": "${FromSelector:pipe}->${ToSelector:pipe} Exec",
       "transparent": true,
       "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "2337->1337 Sent",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 12,
-        "y": 7
-      },
-      "id": 31,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "editorMode": "code",
-          "expr": "msg_sent_total{from=\"12922642891491394802\", to=\"3379446385462418246\"}",
-          "legendFormat": "__auto",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "2337->1337 Sent",
-      "transparent": true,
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "2337->1337 Exec",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 18,
-        "y": 7
-      },
-      "id": 33,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "editorMode": "code",
-          "expr": "msg_exec_total{from=\"12922642891491394802\", to=\"3379446385462418246\"}",
-          "legendFormat": "__auto",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "2337->1337 Exec",
-      "transparent": true,
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
-      },
-      "description": "CCIPMessageSent Logs",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 10
-      },
-      "id": 10,
-      "options": {
-        "dedupStrategy": "none",
-        "enableLogDetails": true,
-        "prettifyLogMessage": false,
-        "showCommonLabels": false,
-        "showLabels": false,
-        "showTime": false,
-        "sortOrder": "Descending",
-        "wrapLogMessage": false
-      },
-      "pluginVersion": "10.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
-          },
-          "editorMode": "code",
-          "expr": "{job=\"on-chain-sent\"}",
-          "queryType": "range",
-          "refId": "A"
-        }
-      ],
-      "title": "CCIPMessageSent Logs",
-      "transparent": true,
-      "type": "logs"
     },
     {
       "datasource": {
@@ -602,10 +468,10 @@
       },
       "description": "ExecutionStateChange Logs",
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 10
+        "h": 4,
+        "w": 21,
+        "x": 3,
+        "y": 11
       },
       "id": 27,
       "options": {
@@ -626,7 +492,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "code",
-          "expr": "{job=\"on-chain-exec\"}",
+          "expr": "{job=\"on-chain-exec\", from=~\"${FromSelector:pipe}\", to=~\"${ToSelector:pipe}\"}",
           "queryType": "range",
           "refId": "A"
         }
@@ -636,12 +502,51 @@
       "type": "logs"
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "description": "Search all by message ID",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 33,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": false,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "editorMode": "code",
+          "expr": "{job=~\"on-chain-.*\"} |= `\"${MsgIDHex}\"`",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Search all by message ID",
+      "transparent": true,
+      "type": "logs"
+    },
+    {
       "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 23
       },
       "id": 19,
       "panels": [
@@ -655,7 +560,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 17
+            "y": 33
           },
           "id": 20,
           "options": {
@@ -694,7 +599,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 24
       },
       "id": 18,
       "panels": [
@@ -708,7 +613,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 18
+            "y": 34
           },
           "id": 21,
           "options": {
@@ -747,7 +652,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 25
       },
       "id": 24,
       "panels": [
@@ -761,7 +666,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 19
+            "y": 35
           },
           "id": 22,
           "options": {
@@ -800,7 +705,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 26
       },
       "id": 23,
       "panels": [
@@ -814,7 +719,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 20
+            "y": 36
           },
           "id": 25,
           "options": {
@@ -853,7 +758,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 27
       },
       "id": 11,
       "panels": [
@@ -919,7 +824,7 @@
             "h": 7,
             "w": 10,
             "x": 0,
-            "y": 29
+            "y": 45
           },
           "id": 2,
           "options": {
@@ -988,7 +893,7 @@
             "h": 4,
             "w": 5,
             "x": 10,
-            "y": 29
+            "y": 45
           },
           "id": 15,
           "options": {
@@ -1085,7 +990,7 @@
             "h": 7,
             "w": 9,
             "x": 15,
-            "y": 29
+            "y": 45
           },
           "id": 4,
           "options": {
@@ -1154,7 +1059,7 @@
             "h": 10,
             "w": 5,
             "x": 10,
-            "y": 33
+            "y": 49
           },
           "id": 13,
           "options": {
@@ -1251,7 +1156,7 @@
             "h": 7,
             "w": 10,
             "x": 0,
-            "y": 36
+            "y": 52
           },
           "id": 3,
           "options": {
@@ -1351,7 +1256,7 @@
             "h": 7,
             "w": 9,
             "x": 15,
-            "y": 36
+            "y": 52
           },
           "id": 5,
           "options": {
@@ -1398,7 +1303,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 43
+            "y": 59
           },
           "id": 6,
           "options": {
@@ -1437,7 +1342,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 48
+            "y": 64
           },
           "id": 8,
           "options": {
@@ -1476,7 +1381,89 @@
   "style": "dark",
   "tags": [],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "3379446385462418246",
+          "value": "3379446385462418246"
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "definition": "",
+        "description": "FromSelector",
+        "hide": 0,
+        "includeAll": false,
+        "label": "FromSelector",
+        "multi": false,
+        "name": "FromSelector",
+        "options": [],
+        "query": {
+          "label": "from",
+          "refId": "LokiVariableQueryEditor-VariableQuery",
+          "stream": "",
+          "type": 1
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "12922642891491394802",
+          "value": "12922642891491394802"
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "definition": "",
+        "description": "ToSelector",
+        "hide": 0,
+        "includeAll": false,
+        "label": "ToSelector",
+        "multi": false,
+        "name": "ToSelector",
+        "options": [],
+        "query": {
+          "label": "to",
+          "refId": "LokiVariableQueryEditor-VariableQuery",
+          "stream": "",
+          "type": 1
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "0x2a6b476344ec6fccaeb29a62deec62429eecc6c3da4f099e62650adf57ba8300",
+          "value": "0x2a6b476344ec6fccaeb29a62deec62429eecc6c3da4f099e62650adf57ba8300"
+        },
+        "description": "Message ID in hex",
+        "hide": 0,
+        "label": "MsgIDHex",
+        "name": "MsgIDHex",
+        "options": [
+          {
+            "selected": true,
+            "text": "0x2a6b476344ec6fccaeb29a62deec62429eecc6c3da4f099e62650adf57ba8300",
+            "value": "0x2a6b476344ec6fccaeb29a62deec62429eecc6c3da4f099e62650adf57ba8300"
+          }
+        ],
+        "query": "0x2a6b476344ec6fccaeb29a62deec62429eecc6c3da4f099e62650adf57ba8300",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
   },
   "time": {
     "from": "now-15m",

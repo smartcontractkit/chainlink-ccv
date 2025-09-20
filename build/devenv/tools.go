@@ -8,10 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -694,30 +692,6 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAd
 		Msg("CCIP message sent")
 
 	return nil
-}
-
-/*
-Docker utilities
-*/
-
-// CheckContainerPortLocal checks container port assuming host network
-func CheckContainerPortLocal(containerName string, port int, timeout time.Duration) (bool, error) {
-	return checkPort("localhost", port, timeout)
-}
-
-// checkPort checks if a port is listening
-func checkPort(host string, port int, timeout time.Duration) (bool, error) {
-	address := net.JoinHostPort(host, strconv.Itoa(port))
-	conn, err := net.DialTimeout("tcp", address, timeout)
-	if err != nil {
-		if strings.Contains(err.Error(), "connection refused") {
-			return false, nil
-		}
-		return false, err
-	}
-	defer conn.Close()
-
-	return true, nil
 }
 
 func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.ConstructorArgs) error {
