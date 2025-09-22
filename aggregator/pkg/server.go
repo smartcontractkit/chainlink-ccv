@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/oklog/run"
@@ -22,10 +23,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -160,8 +164,8 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func createAggregator(storage common.CommitVerificationStore, sink common.Sink, validator aggregation.QuorumValidator, lggr logger.SugaredLogger) (handlers.AggregationTriggerer, error) {
-	aggregator := aggregation.NewCommitReportAggregator(storage, sink, validator, lggr)
+func createAggregator(storage common.CommitVerificationStore, sink common.Sink, validator aggregation.QuorumValidator, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) (handlers.AggregationTriggerer, error) {
+	aggregator := aggregation.NewCommitReportAggregator(storage, sink, validator, lggr, monitoring)
 	aggregator.StartBackground(context.Background())
 	return aggregator, nil
 }
@@ -176,11 +180,29 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	// Set defaults for configuration
 	config.SetDefaults()
 
+	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
+
+	if config.Metrics.EnableMetrics {
+		// Setup OTEL Monitoring (via beholder)
+		m, err := monitoring.InitMonitoring(beholder.Config{
+			InsecureConnection:       true,
+			OtelExporterHTTPEndpoint: config.Metrics.Endpoint, // All of this needs to be in config, only works in devenv atm
+			LogStreamingEnabled:      false,
+			MetricReaderInterval:     10 * time.Second,
+		})
+		if err != nil {
+			l.Fatalf("Failed to initialize aggregatorMonitoring monitoring: %v", err)
+		}
+
+		aggMonitoring = m
+		l.Info("Metrics enabled")
+	}
+
 	if config.Storage.StorageType != "memory" {
 		panic("unknown storage type")
 	}
 
-	store := storage.NewInMemoryStorage()
+	store := storage.WrapWithMetrics(storage.NewInMemoryStorage(), aggMonitoring)
 
 	var validator SignatureAndQuorumValidator
 	if config.StubMode {
@@ -189,7 +211,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		validator = quorum.NewQuorumValidator(config, l)
 	}
 
-	agg, err := createAggregator(store, store, validator, l)
+	agg, err := createAggregator(store, store, validator, l, aggMonitoring)
 	if err != nil {
 		l.Errorw("failed to create aggregator", "error", err)
 		return nil
@@ -197,7 +219,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
 	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring)
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
@@ -208,8 +230,11 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	writeBlockCheckpointHandler := handlers.NewWriteBlockCheckpointHandler(checkpointStorage, &config.APIKeys, &config.Checkpoints)
 	readBlockCheckpointHandler := handlers.NewReadBlockCheckpointHandler(checkpointStorage, &config.APIKeys)
 
-	loggingMiddleware := handlers.NewLoggingMiddleware(l)
+	loggingMiddleware := middlewares.NewLoggingMiddleware(l)
+	metricsMiddleware := middlewares.NewMetricMiddleware(aggMonitoring)
+	scopingMiddleware := middlewares.NewScopingMiddleware()
 
+	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1000) // Pre-increment the buffer size metric
 	grpcPanicRecoveryHandler := func(p any) (err error) {
 		l.Error("recovered from panic", "panic", p, "stack", debug.Stack())
 		return status.Errorf(codes.Internal, "%s", p)
@@ -217,8 +242,10 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
-			loggingMiddleware.Intercept,
 			recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(grpcPanicRecoveryHandler)),
+			scopingMiddleware.Intercept,
+			loggingMiddleware.Intercept,
+			metricsMiddleware.Intercept,
 		),
 	)
 
