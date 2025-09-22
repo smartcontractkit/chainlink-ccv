@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
@@ -306,7 +307,11 @@ func configureContractsOnSelectorForLanes(e *deployment.Environment, selector ui
 		remoteChains[rs] = changesets.RemoteChainConfig{
 			AllowTrafficFrom: true,
 			CCIPMessageSource: datastore.AddressRef{
-				Type:    datastore.ContractType(commit_onramp.ContractType),
+				Type:    datastore.ContractType(ccv_proxy.ContractType),
+				Version: semver.MustParse("1.7.0"),
+			},
+			CCIPMessageDest: datastore.AddressRef{
+				Type:    datastore.ContractType(ccv_aggregator.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
 			DefaultCCVOffRamps: []datastore.AddressRef{
