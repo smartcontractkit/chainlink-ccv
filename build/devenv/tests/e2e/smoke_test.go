@@ -139,7 +139,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 5*time.Minute)
+				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 3*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)
