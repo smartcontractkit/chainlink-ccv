@@ -16,7 +16,6 @@ import (
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 )
 
 func TestE2ESmoke(t *testing.T) {
@@ -30,10 +29,6 @@ func TestE2ESmoke(t *testing.T) {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 		require.NoError(t, err)
 	})
-
-	// TODO: figure out executor bug with RPC, this is just a workaround to prevent executor from crashing
-	time.Sleep(1 * time.Minute)
-	_, err = chaos.ExecPumba("stop --duration=1s --restart re2:executor", 0*time.Second)
 
 	t.Run("test argsv2 messages", func(t *testing.T) {
 		type testcase struct {
