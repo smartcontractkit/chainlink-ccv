@@ -3,24 +3,20 @@ package handlers
 import (
 	"context"
 
+	"google.golang.org/grpc"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type Handler[Req, Resp any] interface {
-	// Handle processes a request and returns a response or error.
-	Handle(ctx context.Context, req Req) (Resp, error)
+type LoggingMiddleware struct {
+	l logger.SugaredLogger
 }
 
-type LoggingMiddleware[Req, Resp any] struct {
-	next Handler[Req, Resp]
-	l    logger.SugaredLogger
-}
-
-func (m *LoggingMiddleware[Req, Resp]) Handle(ctx context.Context, req Req) (Resp, error) {
+func (m *LoggingMiddleware) Intercept(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 	ctx = scope.WithRequestID(ctx)
 	m.l.Debugf("Received request: %+v", req)
-	resp, err := m.next.Handle(ctx, req)
+	resp, err = handler(ctx, req)
 	if err != nil {
 		m.l.Errorf("Error processing request: %v", err)
 	} else {
@@ -29,12 +25,10 @@ func (m *LoggingMiddleware[Req, Resp]) Handle(ctx context.Context, req Req) (Res
 	return resp, err
 }
 
-func NewLoggingMiddleware[Req, Resp any](
-	next Handler[Req, Resp],
+func NewLoggingMiddleware(
 	l logger.SugaredLogger,
-) *LoggingMiddleware[Req, Resp] {
-	return &LoggingMiddleware[Req, Resp]{
-		next: next,
-		l:    l,
+) *LoggingMiddleware {
+	return &LoggingMiddleware{
+		l: l,
 	}
 }
