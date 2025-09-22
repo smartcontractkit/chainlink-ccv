@@ -10,6 +10,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -42,6 +43,22 @@ func main() {
 	})
 	if err != nil {
 		panic(err)
+	}
+
+	if _, err := pyroscope.Start(pyroscope.Config{
+		ApplicationName: "executor",
+		ServerAddress:   "http://pyroscope:4040",
+		Logger:          pyroscope.StandardLogger,
+		ProfileTypes: []pyroscope.ProfileType{
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileGoroutines,
+			pyroscope.ProfileBlockDuration,
+			pyroscope.ProfileMutexDuration,
+		},
+	}); err != nil {
+		lggr.Errorw("Failed to start pyroscope", "error", err)
 	}
 
 	// Use SugaredLogger for better API

@@ -9,17 +9,17 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
 type Cfg struct {
 	CCV         *CCV                      `toml:"ccv"         validate:"required"`
-	JD          *jd.Input                 `toml:"jd"`
 	Fake        *services.FakeInput       `toml:"fake"        validate:"required"`
 	Verifier    *services.VerifierInput   `toml:"verifier"    validate:"required"`
 	Verifier2   *services.VerifierInput   `toml:"verifier2"   validate:"required"`

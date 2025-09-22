@@ -359,7 +359,6 @@ func configureContractsOnSelectorForLanes(e *deployment.Environment, selector ui
 func configureJobs(in *Cfg, clNodes []*clclient.ChainlinkClient) error {
 	bootstrapNode := clNodes[0]
 	workerNodes := clNodes[1:]
-	// example bootstrap job, use JD here?
 	_ = bootstrapNode
 
 	for _, chainlinkNode := range workerNodes {
