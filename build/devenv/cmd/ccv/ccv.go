@@ -11,8 +11,12 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/spf13/cobra"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -160,6 +164,92 @@ var obsUpCmd = &cobra.Command{
 	},
 }
 
+var deployCommitVerifierCmd = &cobra.Command{
+	Use:   "deploy-commit-contracts",
+	Short: "Deploy contracts for a new commit verifier across all chains with a signature quorum to the existing environment",
+	Args:  cobra.RangeArgs(1, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		components := strings.Split(args[0], ",")
+		if len(components) < 2 {
+			return fmt.Errorf("expected at least 2 arguments (threshold,signer1), got %d", len(components))
+		}
+
+		threshold, err := strconv.ParseUint(components[0], 10, 8)
+		if err != nil {
+			return fmt.Errorf("failed to parse threshold: %w", err)
+		}
+		var addresses []common.Address
+		for _, addr := range components[1:] {
+			if !common.IsHexAddress(addr) {
+				return fmt.Errorf("invalid address: %s", addr)
+			}
+			addresses = append(addresses, common.HexToAddress(addr))
+		}
+
+		return ccv.DeployAndConfigureNewCommitCCV(in, commit_offramp.SignatureConfigArgs{
+			Threshold: uint8(threshold),
+			Signers:   addresses,
+		})
+	},
+}
+
+var deployReceiverCmd = &cobra.Command{
+	Use:   "deploy-mock-receiver",
+	Short: "Deploy a mock receiver contract to a given chain selector with a specific config",
+	Args:  cobra.RangeArgs(1, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+
+		components := strings.Split(args[0], ",")
+		if len(components) < 2 {
+			return fmt.Errorf("expected at least 2 arguments (chainSelector,required1,optionalThreshold), got %d", len(components))
+		}
+		selector, err := strconv.ParseUint(components[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse chain selector: %w", err)
+		}
+		var required, optional []common.Address
+		var optionalThreshold uint64
+		if len(components) >= 2 {
+			for _, addr := range strings.Split(components[1], ";") {
+				if !common.IsHexAddress(addr) {
+					return fmt.Errorf("invalid required verifier address: %s", addr)
+				}
+				required = append(required, common.HexToAddress(addr))
+			}
+		}
+		if len(components) >= 3 {
+			optionalThreshold, err = strconv.ParseUint(components[2], 10, 8)
+			if err != nil {
+				return fmt.Errorf("failed to parse optional threshold: %w", err)
+			}
+		}
+		if len(components) >= 4 {
+			for _, addr := range strings.Split(components[3], ";") {
+				if !common.IsHexAddress(addr) {
+					return fmt.Errorf("invalid optional verifier address: %s", addr)
+				}
+				optional = append(optional, common.HexToAddress(addr))
+			}
+		}
+
+		constructorArgs := mock_receiver.ConstructorArgs{
+			RequiredVerifiers: required,
+			OptionalVerifiers: optional,
+			OptionalThreshold: uint8(optionalThreshold),
+		}
+
+		return ccv.DeployMockReceiver(in, selector, constructorArgs)
+	},
+}
+
 var obsDownCmd = &cobra.Command{
 	Use:     "down",
 	Aliases: []string{"d"},
@@ -205,6 +295,10 @@ var testCmd = &cobra.Command{
 		switch args[0] {
 		case "smoke":
 			testPattern = "TestE2ESmoke"
+		case "smoke-v2":
+			testPattern = "TestE2ESmoke/test_argsv2_messages"
+		case "smoke-v3":
+			testPattern = "TestE2ESmoke/test_argsv3_messages"
 		case "load":
 			testPattern = "TestE2ELoad/clean"
 		case "rpc-latency":
@@ -279,33 +373,6 @@ var indexerDBShellCmd = &cobra.Command{
 	},
 }
 
-var sendCmd = &cobra.Command{
-	Use:     "send",
-	Aliases: []string{"s"},
-	Args:    cobra.RangeArgs(1, 1),
-	Short:   "Send a message",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
-		if err != nil {
-			return fmt.Errorf("failed to load environment output: %w", err)
-		}
-		sels := strings.Split(args[0], ",")
-		if len(sels) != 2 {
-			return fmt.Errorf("expected 2 chain selectors, got %d", len(sels))
-		}
-		src, err := strconv.ParseUint(sels[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("failed to parse source chain selector: %w", err)
-		}
-		dest, err := strconv.ParseUint(sels[1], 10, 64)
-		if err != nil {
-			return fmt.Errorf("failed to parse destination chain selector: %w", err)
-		}
-
-		return ccv.SendExampleArgsV2Message(in, src, dest)
-	},
-}
-
 var printAddressesCmd = &cobra.Command{
 	Use:   "addresses",
 	Short: "Pretty-print all on-chain contract addresses data",
@@ -329,12 +396,65 @@ var monitorContractsCmd = &cobra.Command{
 		if err := ccv.MonitorOnChainLogs(in); err != nil {
 			return err
 		}
-		return ccv.ExposePrometheusMetricsFor(10 * time.Second)
+		if err := ccv.ExposePrometheusMetricsFor(10 * time.Second); err != nil {
+			return err
+		}
+		ccv.Plog.Info().Str("Dashboard", LocalCCVDashboard).Msg("Metrics upload finished")
+		return nil
+	},
+}
+
+var sendCmd = &cobra.Command{
+	Use:     "send",
+	Aliases: []string{"s"},
+	Args:    cobra.RangeArgs(1, 1),
+	Short:   "Send a message",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		sels := strings.Split(args[0], ",")
+
+		// Support both V2 (2 params) and V3 (3 params) formats
+		if len(sels) != 2 && len(sels) != 3 {
+			return fmt.Errorf("expected 2 or 3 parameters (src,dest for V2 or src,dest,finality for V3), got %d", len(sels))
+		}
+
+		src, err := strconv.ParseUint(sels[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse source chain selector: %w", err)
+		}
+		dest, err := strconv.ParseUint(sels[1], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse destination chain selector: %w", err)
+		}
+
+		// Use V3 if finality config is provided, otherwise use V2
+		if len(sels) == 3 {
+			// V3 format with finality config
+			finality, err := strconv.ParseUint(sels[2], 10, 32)
+			if err != nil {
+				return fmt.Errorf("failed to parse finality config: %w", err)
+			}
+
+			return ccv.SendExampleArgsV3Message(in, src, dest, uint16(finality), common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"), nil, nil,
+				[]types.CCV{
+					{
+						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+				[]types.CCV{}, 0)
+		} else {
+			// V2 format - use the dedicated V2 function
+			return ccv.SendExampleArgsV2Message(in, src, dest)
+		}
 	},
 }
 
 func init() {
-
 	// Blockscout, on-chain debug
 	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8555", "EVM RPC node URL (default to dst chain on 8555")
 	bsCmd.PersistentFlags().StringP("chain-id", "c", "2337", "RPC's Chain ID")
@@ -363,6 +483,10 @@ func init() {
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
+
+	// contract management
+	rootCmd.AddCommand(deployCommitVerifierCmd)
+	rootCmd.AddCommand(deployReceiverCmd)
 }
 
 func checkDockerIsRunning() {
@@ -382,6 +506,8 @@ func checkDockerIsRunning() {
 func main() {
 	checkDockerIsRunning()
 	if len(os.Args) == 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
+		_ = os.Setenv("CTF_CONFIGS", "env.toml") // Set default config for shell
+
 		StartShell()
 		return
 	}

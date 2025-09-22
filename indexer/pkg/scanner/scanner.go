@@ -12,7 +12,7 @@ import (
 
 type Scanner struct {
 	readerDiscovery common.ReaderDiscovery
-	config          ScannerConfig
+	config          Config
 	storageWriter   common.IndexerStorageWriter
 	lggr            logger.Logger
 	ccvDataCh       chan types.CCVData
@@ -20,7 +20,7 @@ type Scanner struct {
 	doneCh          chan struct{}
 }
 
-type ScannerConfig struct {
+type Config struct {
 	ScanInterval time.Duration
 }
 
@@ -42,7 +42,7 @@ func WithLogger(lggr logger.Logger) Option {
 }
 
 // WithConfig sets the scanner configuration.
-func WithConfig(config ScannerConfig) Option {
+func WithConfig(config Config) Option {
 	return func(s *Scanner) {
 		s.config = config
 	}

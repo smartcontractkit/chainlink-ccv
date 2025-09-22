@@ -29,14 +29,16 @@ type CommitReportAggregator struct {
 
 type aggregationRequest struct {
 	// CommitteeID is the ID of the committee for the aggregation request.
-	MessageID model.MessageID
+	CommitteeID model.CommitteeID
+	MessageID   model.MessageID
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID) error {
+func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, committeeID model.CommitteeID) error {
 	go func() {
 		c.messageIDChan <- aggregationRequest{
-			MessageID: messageID,
+			MessageID:   messageID,
+			CommitteeID: committeeID,
 		}
 	}()
 	return nil
@@ -46,10 +48,12 @@ func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogge
 	return scope.AugmentLogger(ctx, c.l)
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
-	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID)
+	lggr = lggr.With("messageID", messageID, "committee", committeeID)
+	lggr.Infof("Checking aggregation for message ID: %s, committee: %s", messageID, committeeID)
+	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committeeID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
 		return nil, err
@@ -59,6 +63,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
+		CommitteeID:   committeeID,
 		Verifications: verifications,
 		Timestamp:     time.Now().Unix(),
 	}
@@ -90,7 +95,8 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 			case request := <-c.messageIDChan:
 				go func() {
 					ctx := scope.WithMessageID(context.Background(), request.MessageID)
-					_, err := c.checkAggregationAndSubmitComplete(ctx, request.MessageID)
+					ctx = scope.WithCommitteeID(ctx, request.CommitteeID)
+					_, err := c.checkAggregationAndSubmitComplete(ctx, request.MessageID, request.CommitteeID)
 					if err != nil {
 						c.logger(ctx).Errorw("Failed to process aggregation request", "error", err)
 					}

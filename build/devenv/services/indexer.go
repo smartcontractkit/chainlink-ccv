@@ -25,10 +25,8 @@ const (
 	DefaultIndexerDBImage = "postgres:16-alpine"
 )
 
-var (
-	DefaultIndexerDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		DefaultIndexerName, DefaultIndexerName, DefaultIndexerDBPort, DefaultIndexerName)
-)
+var DefaultIndexerDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+	DefaultIndexerName, DefaultIndexerName, DefaultIndexerDBPort, DefaultIndexerName)
 
 type DBInput struct {
 	Image string `toml:"image"`
@@ -71,7 +69,7 @@ func defaults(in *IndexerInput) {
 	}
 }
 
-// NewIndexer creates and starts a new Service container using testcontainers
+// NewIndexer creates and starts a new Service container using testcontainers.
 func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	if in == nil {
 		return nil, nil

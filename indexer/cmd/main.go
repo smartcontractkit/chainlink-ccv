@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
@@ -11,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -21,7 +22,6 @@ func main() {
 		config.Encoding = "console"
 		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	})
-
 	if err != nil {
 		panic(err)
 	}
@@ -44,7 +44,7 @@ func main() {
 	scanner := scanner.NewScanner(
 		scanner.WithReaderDiscovery(readerDiscovery),
 		scanner.WithLogger(lggr),
-		scanner.WithConfig(scanner.ScannerConfig{
+		scanner.WithConfig(scanner.Config{
 			ScanInterval: 1 * time.Second,
 		}),
 		scanner.WithStorageWriter(indexerStorage),
