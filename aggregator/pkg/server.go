@@ -6,11 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"os/signal"
+	"runtime/debug"
 	"sync"
-	"time"
+	"syscall"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
+	"github.com/oklog/run"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
@@ -28,16 +35,17 @@ type Server struct {
 	aggregator.UnimplementedCCVDataServer
 
 	l                                  logger.Logger
-	readCommitCCVNodeDataHandler       handlers.Handler[*aggregator.ReadCommitCCVNodeDataRequest, *aggregator.ReadCommitCCVNodeDataResponse]
-	writeCommitCCVNodeDataHandler      handlers.Handler[*aggregator.WriteCommitCCVNodeDataRequest, *aggregator.WriteCommitCCVNodeDataResponse]
-	getMessagesSinceHandler            handlers.Handler[*aggregator.GetMessagesSinceRequest, *aggregator.GetMessagesSinceResponse]
-	getCCVDataForMessageHandler        handlers.Handler[*aggregator.GetCCVDataForMessageRequest, *aggregator.MessageWithCCVData]
-	writeBlockCheckpointHandler        handlers.Handler[*aggregator.WriteBlockCheckpointRequest, *aggregator.WriteBlockCheckpointResponse]
-	readBlockCheckpointHandler         handlers.Handler[*aggregator.ReadBlockCheckpointRequest, *aggregator.ReadBlockCheckpointResponse]
+	readCommitCCVNodeDataHandler       *handlers.ReadCommitCCVNodeDataHandler
+	writeCommitCCVNodeDataHandler      *handlers.WriteCommitCCVNodeDataHandler
+	getMessagesSinceHandler            *handlers.GetMessagesSinceHandler
+	getCCVDataForMessageHandler        *handlers.GetCCVDataForMessageHandler
+	writeBlockCheckpointHandler        *handlers.WriteBlockCheckpointHandler
+	readBlockCheckpointHandler         *handlers.ReadBlockCheckpointHandler
 	checkpointStorage                  *storage.CheckpointStorage
 	grpcServer                         *grpc.Server
-	batchWriteCommitCCVNodeDataHandler handlers.Handler[*aggregator.BatchWriteCommitCCVNodeDataRequest, *aggregator.BatchWriteCommitCCVNodeDataResponse]
-	closeChan                          chan struct{}
+	batchWriteCommitCCVNodeDataHandler *handlers.BatchWriteCommitCCVNodeDataHandler
+	runGroup                           *run.Group
+	stopChan                           chan struct{}
 	mu                                 sync.Mutex
 	started                            bool
 }
@@ -76,56 +84,80 @@ func (s *Server) ReadBlockCheckpoint(ctx context.Context, req *aggregator.ReadBl
 
 func (s *Server) Start(lis net.Listener) error {
 	s.mu.Lock()
-	if s.closeChan != nil {
-		s.mu.Unlock()
+	defer s.mu.Unlock()
+
+	if s.started {
 		return fmt.Errorf("server already started")
 	}
-	closeChan := make(chan struct{})
-	s.closeChan = closeChan
-	s.mu.Unlock()
 
-	go func(closeChan chan struct{}) {
+	s.stopChan = make(chan struct{})
+
+	g := &run.Group{}
+
+	g.Add(func() error {
 		s.l.Info("gRPC server started")
 		err := s.grpcServer.Serve(lis)
-
-		close(closeChan)
-
-		s.mu.Lock()
-		if s.closeChan == closeChan {
-			s.closeChan = nil
-		}
-		s.mu.Unlock()
-
 		if err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			s.l.Errorw("gRPC server stopped with error", "error", err)
-		} else {
-			s.l.Info("gRPC server stopped")
+			return err
 		}
-	}(closeChan)
+		s.l.Info("gRPC server stopped")
+		return nil
+	}, func(err error) {
+		s.l.Info("Shutting down gRPC server")
+		s.grpcServer.GracefulStop()
+		s.grpcServer.Stop()
+	})
+
+	g.Add(func() error {
+		<-s.stopChan
+		s.l.Info("stop signal received, shutting down")
+		return nil
+	}, func(error) {})
+
+	g.Add(func() error {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		receivedSig := <-sig
+		s.l.Info("received signal, shutting down", "signal", receivedSig)
+		return nil
+	}, func(error) {})
+
+	s.runGroup = g
+	s.started = true
+
+	go func() {
+		if err := g.Run(); err != nil {
+			s.l.Errorw("Run group stopped with error", "error", err)
+		}
+
+		s.mu.Lock()
+		s.started = false
+		s.runGroup = nil
+		if s.stopChan != nil {
+			close(s.stopChan)
+			s.stopChan = nil
+		}
+		s.mu.Unlock()
+	}()
 
 	return nil
 }
 
 func (s *Server) Stop() error {
 	s.mu.Lock()
-	closeChan := s.closeChan
-	s.mu.Unlock()
+	defer s.mu.Unlock()
 
-	if closeChan == nil {
+	if !s.started || s.stopChan == nil {
 		return nil
 	}
 
-	s.grpcServer.GracefulStop()
+	s.l.Info("Stopping server gracefully")
 
-	select {
-	case <-closeChan:
-		return nil
-	case <-time.After(30 * time.Second):
-		s.l.Infow("GracefulStop timeout; forcing Stop")
-		s.grpcServer.Stop()
-		<-closeChan
-		return nil
-	}
+	close(s.stopChan)
+	s.stopChan = nil
+
+	return nil
 }
 
 func createAggregator(storage common.CommitVerificationStore, sink common.Sink, validator aggregation.QuorumValidator, lggr logger.SugaredLogger) (handlers.AggregationTriggerer, error) {
@@ -164,26 +196,36 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	}
 
 	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
-	readCommitCCVNodeDataHandler := handlers.NewLoggingMiddleware(handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l), l)
-	writeCommitCCVNodeDataHandler := handlers.NewLoggingMiddleware(writeHandler, l)
-	getMessagesSinceHandler := handlers.NewLoggingMiddleware(handlers.NewGetMessagesSinceHandler(store, config.Committees, l), l)
-	getCCVDataForMessageHandler := handlers.NewLoggingMiddleware(handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l), l)
-	batchWriteCommitCCVNodeDataHandler := handlers.NewLoggingMiddleware(handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler), l)
+	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l)
+	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
+	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
 	// Initialize checkpoint storage
 	checkpointStorage := storage.NewCheckpointStorage()
 
 	// Initialize checkpoint handlers with configuration support
-	writeBlockCheckpointHandler := handlers.NewLoggingMiddleware(
-		handlers.NewWriteBlockCheckpointHandler(checkpointStorage, &config.APIKeys, &config.Checkpoints), l)
-	readBlockCheckpointHandler := handlers.NewLoggingMiddleware(
-		handlers.NewReadBlockCheckpointHandler(checkpointStorage, &config.APIKeys), l)
+	writeBlockCheckpointHandler := handlers.NewWriteBlockCheckpointHandler(checkpointStorage, &config.APIKeys, &config.Checkpoints)
+	readBlockCheckpointHandler := handlers.NewReadBlockCheckpointHandler(checkpointStorage, &config.APIKeys)
 
-	grpcServer := grpc.NewServer()
+	loggingMiddleware := handlers.NewLoggingMiddleware(l)
+
+	grpcPanicRecoveryHandler := func(p any) (err error) {
+		l.Error("recovered from panic", "panic", p, "stack", debug.Stack())
+		return status.Errorf(codes.Internal, "%s", p)
+	}
+
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			loggingMiddleware.Intercept,
+			recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(grpcPanicRecoveryHandler)),
+		),
+	)
+
 	server := &Server{
 		l:                                  l,
 		readCommitCCVNodeDataHandler:       readCommitCCVNodeDataHandler,
-		writeCommitCCVNodeDataHandler:      writeCommitCCVNodeDataHandler,
+		writeCommitCCVNodeDataHandler:      writeHandler,
 		getMessagesSinceHandler:            getMessagesSinceHandler,
 		getCCVDataForMessageHandler:        getCCVDataForMessageHandler,
 		writeBlockCheckpointHandler:        writeBlockCheckpointHandler,
