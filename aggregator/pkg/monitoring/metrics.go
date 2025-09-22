@@ -82,6 +82,22 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register pending aggregations channel buffer up down counter: %w", err)
 	}
 
+	am.storageLatency, err = beholder.GetMeter().Int64Histogram(
+		"aggregator_storage_latency",
+		metric.WithDescription("Latency of storage operations"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register storage latency histogram: %w", err)
+	}
+
+	am.storageError, err = beholder.GetMeter().Int64Counter(
+		"aggregator_storage_errors",
+		metric.WithDescription("Total number of storage errors"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register storage errors counter: %w", err)
+	}
+
 	return am, nil
 }
 

@@ -202,7 +202,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		panic("unknown storage type")
 	}
 
-	store := storage.NewInMemoryStorage()
+	store := storage.WrapWithMetrics(storage.NewInMemoryStorage(), aggMonitoring)
 
 	var validator SignatureAndQuorumValidator
 	if config.StubMode {
