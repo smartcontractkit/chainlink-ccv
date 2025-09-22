@@ -27,7 +27,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/nonce_manager"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
@@ -740,7 +739,7 @@ func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.Constructor
 	return Store(in)
 }
 
-func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SignatureConfigArgs) error {
+func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SetSignatureConfigArgs) error {
 	in.CCV.AddressesMu = &sync.Mutex{}
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
@@ -760,9 +759,7 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
 				},
 			},
-			commit_offramp.ConstructorArgs{
-				NonceManager: MustGetContractAddressForSelector(in, sel, nonce_manager.ContractType),
-			},
+			commit_offramp.ConstructorArgs{},
 			signatureConfigArgs,
 		)
 		if err != nil {
