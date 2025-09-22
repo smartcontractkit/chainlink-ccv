@@ -1,11 +1,10 @@
-package handlers
+package middlewares
 
 import (
 	"context"
 
 	"google.golang.org/grpc"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -14,7 +13,6 @@ type LoggingMiddleware struct {
 }
 
 func (m *LoggingMiddleware) Intercept(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-	ctx = scope.WithRequestID(ctx)
 	m.l.Debugf("Received request: %+v", req)
 	resp, err = handler(ctx, req)
 	if err != nil {
