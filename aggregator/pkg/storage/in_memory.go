@@ -80,7 +80,7 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 			return report, nil
 		}
 	}
-return nil, nil
+	return nil, nil
 }
 
 // NewInMemoryStorage creates a new instance of InMemoryStorage.

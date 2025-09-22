@@ -6,8 +6,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
-type NoopAggregatorMonitoring struct {
-}
+type NoopAggregatorMonitoring struct{}
 
 func NewNoopAggregatorMonitoring() *NoopAggregatorMonitoring {
 	return &NoopAggregatorMonitoring{}
@@ -17,8 +16,7 @@ func (m *NoopAggregatorMonitoring) Metrics() common.AggregatorMetricLabeler {
 	return NewNoopAggregatorMetricLabeler()
 }
 
-type NoopAggregatorMetricLabeler struct {
-}
+type NoopAggregatorMetricLabeler struct{}
 
 func NewNoopAggregatorMetricLabeler() *NoopAggregatorMetricLabeler {
 	return &NoopAggregatorMetricLabeler{}
@@ -48,7 +46,7 @@ func (c *NoopAggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Cont
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) GetMessageSinceNumberOfRecordsReturned(ctx context.Context, count int) {
+func (c *NoopAggregatorMetricLabeler) RecordMessageSinceNumberOfRecordsReturned(ctx context.Context, count int) {
 	// No-op
 }
 

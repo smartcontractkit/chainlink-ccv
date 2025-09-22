@@ -41,7 +41,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.Ge
 		records = append(records, ccvData)
 	}
 
-	h.m.Metrics().GetMessageSinceNumberOfRecordsReturned(ctx, len(records))
+	h.m.Metrics().RecordMessageSinceNumberOfRecordsReturned(ctx, len(records))
 
 	h.logger(ctx).Infof("Returning %d records for GetMessagesSinceRequest", len(records))
 

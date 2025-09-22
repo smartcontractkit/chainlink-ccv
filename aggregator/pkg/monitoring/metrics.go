@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"go.opentelemetry.io/otel/metric"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
-	"go.opentelemetry.io/otel/metric"
+
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -94,6 +96,7 @@ func NewAggregatorMetricLabeler(labeler metrics.Labeler, am *AggregatorMetrics) 
 		am:      am,
 	}
 }
+
 func (c *AggregatorMetricLabeler) With(keyValues ...string) common.AggregatorMetricLabeler {
 	return &AggregatorMetricLabeler{c.Labeler.With(keyValues...), c.am}
 }
@@ -123,7 +126,7 @@ func (c *AggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Context)
 	c.am.apiRequestError.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) GetMessageSinceNumberOfRecordsReturned(ctx context.Context, count int) {
+func (c *AggregatorMetricLabeler) RecordMessageSinceNumberOfRecordsReturned(ctx context.Context, count int) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.getMessageSinceNumberOfRecordsReturned.Record(ctx, int64(count), metric.WithAttributes(otelLabels...))
 }
