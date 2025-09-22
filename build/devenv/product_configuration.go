@@ -148,7 +148,7 @@ func deployCommitVerifierForSelector(
 	selector uint64,
 	onRampConstructorArgs commit_onramp.ConstructorArgs,
 	offRampConstructorArgs commit_offramp.ConstructorArgs,
-	signatureConfigArgs commit_offramp.SignatureConfigArgs,
+	signatureConfigArgs commit_offramp.SetSignatureConfigArgs,
 ) (onRamp datastore.AddressRef, offRamp datastore.AddressRef, err error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
@@ -171,7 +171,7 @@ func deployCommitVerifierForSelector(
 		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
 		return
 	}
-	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SignatureConfigArgs]{
+	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SetSignatureConfigArgs]{
 		Address:       common.HexToAddress(commitOffRampReport.Output.Address),
 		ChainSelector: chain.Selector,
 		Args:          signatureConfigArgs,
@@ -264,7 +264,7 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 				USDPerWETH:                     usdPerWeth,
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
+				SignatureConfigArgs: commit_offramp.SetSignatureConfigArgs{
 					Threshold: 2,
 					Signers: []common.Address{
 						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
