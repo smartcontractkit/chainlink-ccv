@@ -1,65 +1,149 @@
 package e2e
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+
+	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 )
 
 func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
-	require.NoError(t, err)
-	chains := e.BlockChains.EVMChains()
-	require.NotNil(t, chains)
-	srcChain := chains[selectors[0]]
-	dstChain := chains[selectors[1]]
-	b := ccv.NewDefaultCLDFBundle(e)
-	e.OperationsBundle = b
-	routerAddr := ccv.MustGetContractAddressForSelector(in, srcChain.Selector, router.ContractType)
 
-	argsV3, err := ccv.NewV3ExtraArgs(1, common.Address{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
+	c, err := ccv.NewContracts(in)
 	require.NoError(t, err)
 
-	ccipSendArgs := router.CCIPSendArgs{
-		DestChainSelector: dstChain.Selector,
-		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
-			Data:         []byte{},
-			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsV3,
-		},
-	}
-
-	feeReport, err := operations.ExecuteOperation(b, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
-		ChainSelector: srcChain.Selector,
-		Address:       routerAddr,
-		Args:          ccipSendArgs,
+	t.Cleanup(func() {
+		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
+		require.NoError(t, err)
 	})
-	require.NoError(t, err)
 
-	// Send CCIP message with value
-	ccipSendArgs.Value = feeReport.Output
-	sendReport, err := operations.ExecuteOperation(b, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
-		ChainSelector: srcChain.Selector,
-		Address:       routerAddr,
-		Args:          ccipSendArgs,
+	// TODO: figure out executor bug with RPC, this is just a workaround to prevent executor from crashing
+	time.Sleep(1 * time.Minute)
+	_, err = chaos.ExecPumba("stop --duration=1s --restart re2:executor", 0*time.Second)
+
+	t.Run("test argsv2 messages", func(t *testing.T) {
+		type testcase struct {
+			name         string
+			proxy        *ccvProxy.CCVProxy
+			agg          *ccvAggregator.CCVAggregator
+			fromSelector uint64
+			toSelector   uint64
+		}
+
+		tcs := []testcase{
+			{
+				name:         "src->dst msg execution",
+				proxy:        c.Proxy1337,
+				agg:          c.Agg2337,
+				fromSelector: c.Chain1337Details.ChainSelector,
+				toSelector:   c.Chain2337Details.ChainSelector,
+			},
+			{
+				name:         "dst->src msg execution",
+				proxy:        c.Proxy2337,
+				agg:          c.Agg1337,
+				fromSelector: c.Chain2337Details.ChainSelector,
+				toSelector:   c.Chain1337Details.ChainSelector,
+			},
+		}
+		for _, tc := range tcs {
+			t.Run(tc.name, func(t *testing.T) {
+				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.toSelector)
+				require.NoError(t, err)
+				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+				err = ccv.SendExampleArgsV2Message(in, tc.fromSelector, tc.toSelector)
+				require.NoError(t, err)
+				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.toSelector, seqNo, 1*time.Minute)
+				require.NoError(t, err)
+				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.fromSelector, seqNo, 5*time.Minute)
+				require.NoError(t, err)
+				require.NotNil(t, e)
+				require.Equal(t, uint8(2), e.State)
+			})
+		}
 	})
-	require.NoError(t, err)
-	require.True(t, sendReport.Output.Executed)
 
-	ccv.Plog.Info().Bool("Executed", sendReport.Output.Executed).
-		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
-		Uint64("DestChainSelector", dstChain.Selector).
-		Str("SrcRouter", sendReport.Output.Tx.To).
-		Msg("CCIP message sent")
+	t.Run("test argsv3 messages", func(t *testing.T) {
+		type testcase struct {
+			name            string
+			proxy           *ccvProxy.CCVProxy
+			agg             *ccvAggregator.CCVAggregator
+			srcSelector     uint64
+			dstSelector     uint64
+			finality        uint16
+			verifierAddress []byte
+			execOnRamp      common.Address
+			mandatoryCCVs   []types.CCV
+			optionalCCVs    []types.CCV
+			threshold       uint8
+		}
+
+		verifierAddress := common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
+		execOnRamp := common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE")
+
+		tcs := []testcase{
+			{
+				name:        "src->dst msg execution",
+				proxy:       c.Proxy1337,
+				agg:         c.Agg2337,
+				srcSelector: c.Chain1337Details.ChainSelector,
+				dstSelector: c.Chain2337Details.ChainSelector,
+				finality:    1,
+				execOnRamp:  execOnRamp,
+				mandatoryCCVs: []types.CCV{
+					{
+						CCVAddress: verifierAddress.Bytes(),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+			},
+			{
+				name:        "dst->src msg execution",
+				proxy:       c.Proxy2337,
+				agg:         c.Agg1337,
+				srcSelector: c.Chain2337Details.ChainSelector,
+				dstSelector: c.Chain1337Details.ChainSelector,
+				finality:    1,
+				execOnRamp:  execOnRamp,
+				mandatoryCCVs: []types.CCV{
+					{
+						CCVAddress: verifierAddress.Bytes(),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+			},
+		}
+		for _, tc := range tcs {
+			t.Run(tc.name, func(t *testing.T) {
+				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.dstSelector)
+				require.NoError(t, err)
+				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+				err = ccv.SendExampleArgsV3Message(in, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
+					tc.mandatoryCCVs, tc.optionalCCVs, 0)
+				require.NoError(t, err)
+				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
+				require.NoError(t, err)
+				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 5*time.Minute)
+				require.NoError(t, err)
+				require.NotNil(t, e)
+				require.Equal(t, uint8(2), e.State)
+			})
+		}
+	})
 }

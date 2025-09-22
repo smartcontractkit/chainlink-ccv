@@ -20,22 +20,14 @@ func getCommands() []prompt.Suggest {
 		{Text: "db", Description: "Inspect Databases"},
 		{Text: "upload-on-chain-metrics", Description: "Temporarily serves all on-chain metrics as a Prometheus metrics endpoint so they can be scraped"},
 		{Text: "exit", Description: "Exit the interactive shell"},
-		{Text: "send", Description: "Send an example CCIP ArgsV2/V3 message from one chain to another"},
 		{Text: "deploy-commit-contracts", Description: "Deploy contracts for a new commit verifier"},
 		{Text: "deploy-mock-receiver", Description: "Deploy a mock receiver contract to a given chain selector with a specific config"},
+		{Text: "send", Description: "Send an example CCIP ArgsV2/V3 message from one chain to another"},
 	}
 }
 
 func getSubCommands(parent string) []prompt.Suggest {
 	switch parent {
-	case "deploy-commit-contracts":
-		return []prompt.Suggest{
-			{Text: "<threshold>,<signer1>,<signer2>,...", Description: "Deploy contracts for a new commit verifier across all chains with a signature quorum (i.e. 3,0xabc...,0xdef...,0xghi...)"},
-		}
-	case "deploy-mock-receiver":
-		return []prompt.Suggest{
-			{Text: "<chainSelector>,<ccv_offramp1>;<ccv_offramp2>,<optionalThreshold>,<ccv_offramp3>;<ccv_offramp4>", Description: "Deploy a mock receiver contract to a given chain selector with a specific config (i.e. 3379446385462418246,0xabc...,1,0xdef...)"},
-		}
 	case "send":
 		return []prompt.Suggest{
 			{Text: "Chain selectors", Description: "V2: source,destination or V3: source,destination,finality"},
@@ -44,9 +36,19 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "3379446385462418246,12922642891491394802,12", Description: "V3: send Anvil 1337 -> Anvil 2337 with finality=12"},
 			{Text: "12922642891491394802,3379446385462418246,5", Description: "V3: send Anvil 1337 <- Anvil 2337 with finality=5"},
 		}
+	case "deploy-commit-contracts":
+		return []prompt.Suggest{
+			{Text: "<threshold>,<signer1>,<signer2>,...", Description: "Deploy contracts for a new commit verifier across all chains with a signature quorum (i.e. 3,0xabc...,0xdef...,0xghi...)"},
+		}
+	case "deploy-mock-receiver":
+		return []prompt.Suggest{
+			{Text: "<chainSelector>,<ccv_offramp1>;<ccv_offramp2>,<optionalThreshold>,<ccv_offramp3>;<ccv_offramp4>", Description: "Deploy a mock receiver contract to a given chain selector with a specific config (i.e. 3379446385462418246,0xabc...,1,0xdef...)"},
+		}
 	case "test":
 		return []prompt.Suggest{
-			{Text: "smoke", Description: "Send an example ArgsV2 message from 1337 to 2337 local Anvil chain (EVM)"},
+			{Text: "smoke", Description: "Send all the example messages between 1337 <> 2337"},
+			{Text: "smoke-v2", Description: "Send an example ArgsV2 message between 1337 <> 2337 local Anvil chains (EVM)"},
+			{Text: "smoke-v3", Description: "Send an example ArgsV2 message between 1337 <> 2337 local Anvil chains (EVM)"},
 			{Text: "load", Description: "Run the default load test (1msg/s) 1337 -> 2337 local Anvil chain (EVM)"},
 			{Text: "rpc-latency", Description: "Default load test + 400ms RPC latency (all chains)"},
 			{Text: "gas-spikes", Description: "Default load test + slow and fast gas spikes"},

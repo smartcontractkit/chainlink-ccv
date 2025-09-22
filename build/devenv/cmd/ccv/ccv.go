@@ -12,12 +12,13 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -294,6 +295,10 @@ var testCmd = &cobra.Command{
 		switch args[0] {
 		case "smoke":
 			testPattern = "TestE2ESmoke"
+		case "smoke-v2":
+			testPattern = "TestE2ESmoke/test_argsv2_messages"
+		case "smoke-v3":
+			testPattern = "TestE2ESmoke/test_argsv3_messages"
 		case "load":
 			testPattern = "TestE2ELoad/clean"
 		case "rpc-latency":
@@ -368,6 +373,37 @@ var indexerDBShellCmd = &cobra.Command{
 	},
 }
 
+var printAddressesCmd = &cobra.Command{
+	Use:   "addresses",
+	Short: "Pretty-print all on-chain contract addresses data",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		return ccv.PrintCLDFAddresses(in)
+	},
+}
+
+var monitorContractsCmd = &cobra.Command{
+	Use:   "upload-on-chain-metrics",
+	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+		if err := ccv.MonitorOnChainLogs(in); err != nil {
+			return err
+		}
+		if err := ccv.ExposePrometheusMetricsFor(10 * time.Second); err != nil {
+			return err
+		}
+		ccv.Plog.Info().Str("Dashboard", LocalCCVDashboard).Msg("Metrics upload finished")
+		return nil
+	},
+}
+
 var sendCmd = &cobra.Command{
 	Use:     "send",
 	Aliases: []string{"s"},
@@ -415,33 +451,6 @@ var sendCmd = &cobra.Command{
 			// V2 format - use the dedicated V2 function
 			return ccv.SendExampleArgsV2Message(in, src, dest)
 		}
-	},
-}
-
-var printAddressesCmd = &cobra.Command{
-	Use:   "addresses",
-	Short: "Pretty-print all on-chain contract addresses data",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
-		if err != nil {
-			return fmt.Errorf("failed to load environment output: %w", err)
-		}
-		return ccv.PrintCLDFAddresses(in)
-	},
-}
-
-var monitorContractsCmd = &cobra.Command{
-	Use:   "upload-on-chain-metrics",
-	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
-		if err != nil {
-			return fmt.Errorf("failed to load environment output: %w", err)
-		}
-		if err := ccv.MonitorOnChainLogs(in); err != nil {
-			return err
-		}
-		return ccv.ExposePrometheusMetricsFor(10 * time.Second)
 	},
 }
 
