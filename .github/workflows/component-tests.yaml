@@ -65,6 +65,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      # always run to ensure protoc is installed for proto-check
+      - name: Install Go protoc tools
+        shell: bash
+        run: just install-go-tools
       - name: Lint and Test Common
         uses: ./.github/actions/lint-test-component
         with:
