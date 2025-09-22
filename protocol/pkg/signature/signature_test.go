@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,7 +14,7 @@ func TestSignV27(t *testing.T) {
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
-	hash := crypto.Keccak256Hash([]byte("test message"))
+	hash := hashing.Keccak256([]byte("test message"))
 
 	// Sign with V27 compatibility
 	r, s, addr, err := SignV27(hash[:], privateKey)
@@ -123,7 +124,7 @@ func TestRecoverSigners(t *testing.T) {
 	}
 
 	// Create a test hash
-	hash := crypto.Keccak256Hash([]byte("test message"))
+	hash := hashing.Keccak256([]byte("test message"))
 	var hashArray [32]byte
 	copy(hashArray[:], hash[:])
 
@@ -158,7 +159,7 @@ func TestEndToEndSignatureFlow(t *testing.T) {
 	}
 
 	// Create test hash and ccvArgs
-	hash := crypto.Keccak256Hash([]byte("test message"))
+	hash := hashing.Keccak256([]byte("test message"))
 	var hashArray [32]byte
 	copy(hashArray[:], hash[:])
 	ccvArgs := []byte("test ccv arguments")
