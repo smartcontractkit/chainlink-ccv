@@ -8,4 +8,5 @@ type VerifierConfig struct {
 	VerifierOnRamp2337 string                     `toml:"verifier_on_ramp_2337"`
 	CCVProxy1337       string                     `toml:"ccv_proxy_1337"`
 	CCVProxy2337       string                     `toml:"ccv_proxy_2337"`
+	PyroscopeURL       string                     `toml:"pyroscope_url"`
 }

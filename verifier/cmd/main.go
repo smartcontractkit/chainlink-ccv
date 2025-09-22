@@ -109,7 +109,7 @@ func main() {
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "verifier",
-		ServerAddress:   "http://pyroscope:4040",
+		ServerAddress:   verifierConfig.PyroscopeURL,
 		Logger:          pyroscope.StandardLogger,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/testcontainers/testcontainers-go"
 )
@@ -31,7 +32,8 @@ func GoSourcePathMounts(sourcePath, rootPath, containerDirTarget string) testcon
 		return testcontainers.Mounts()
 	}
 
-	return testcontainers.Mounts(
+	mounts := make([]testcontainers.ContainerMount, 0)
+	mounts = append(mounts,
 		testcontainers.BindMount(
 			sourcePath,
 			testcontainers.ContainerMountTarget(containerDirTarget),
@@ -40,13 +42,39 @@ func GoSourcePathMounts(sourcePath, rootPath, containerDirTarget string) testcon
 			absRootPath,
 			"/common",
 		),
-		testcontainers.VolumeMount(
-			"go-mod-cache",
+	)
+	return mounts
+}
+
+// GoCacheMounts returns Go cache mounts depending on platform
+// these variables can be found by using
+// go env GOCACHE
+// go env GOMODCACHE
+func GoCacheMounts() testcontainers.ContainerMounts {
+	mounts := testcontainers.Mounts()
+	homeDir, _ := os.UserHomeDir()
+	var (
+		goModCachePath   string
+		goBuildCachePath string
+	)
+
+	switch runtime.GOOS {
+	case "darwin":
+		goModCachePath = filepath.Join(homeDir, "Library", "Caches", "go-build")
+		goBuildCachePath = filepath.Join(homeDir, "go", "pkg", "mod")
+	case "linux":
+		goModCachePath = filepath.Join(homeDir, "go", "pkg", "mod")
+		goBuildCachePath = filepath.Join(homeDir, ".cache", "go-build")
+	}
+	mounts = append(mounts,
+		testcontainers.BindMount(
+			goModCachePath,
 			"/go/pkg/mod",
 		),
-		testcontainers.VolumeMount(
-			"go-build-cache",
+		testcontainers.BindMount(
+			goBuildCachePath,
 			"/root/.cache/go-build",
 		),
 	)
+	return mounts
 }

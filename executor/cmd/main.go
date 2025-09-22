@@ -47,7 +47,7 @@ func main() {
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
-		ServerAddress:   "http://pyroscope:4040",
+		ServerAddress:   executorConfig.PyroscopeURL,
 		Logger:          pyroscope.StandardLogger,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,

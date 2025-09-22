@@ -14,6 +14,7 @@ type Configuration struct {
 	PollingInterval string                           `toml:"source_polling_interval"`
 	BackoffDuration string                           `toml:"source_backoff_duration"`
 	LookbackWindow  string                           `toml:"startup_lookback_window"`
+	PyroscopeURL    string                           `toml:"pyroscope_url"`
 }
 
 func (c *Configuration) Validate() error {

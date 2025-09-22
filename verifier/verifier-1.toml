@@ -4,6 +4,7 @@ verifier_on_ramp_1337 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
 verifier_on_ramp_2337 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
 ccv_proxy_1337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
 ccv_proxy_2337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+pyroscope_url = "http://pyroscope:4040"
 
 [blockchain_infos]
   [blockchain_infos.1337]

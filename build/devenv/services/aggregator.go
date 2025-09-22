@@ -1,13 +1,11 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
 
-	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -196,11 +194,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	var aggreagtorConfigBuf bytes.Buffer
-	if err := toml.NewEncoder(&aggreagtorConfigBuf).Encode(in.AggregatorConfig); err != nil {
-		return nil, fmt.Errorf("failed to encode aggregator config: %w", err)
-	}
-
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -220,17 +213,12 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 				},
 			}
 		},
-		Files: []testcontainers.ContainerFile{
-			{
-				Reader:            bytes.NewReader(aggreagtorConfigBuf.Bytes()),
-				ContainerFilePath: "/app/aggregator.toml",
-				FileMode:          0o644,
-			},
-		},
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

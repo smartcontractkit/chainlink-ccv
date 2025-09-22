@@ -88,25 +88,13 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		//nolint:staticcheck // ignore for now
-		req.Mounts = testcontainers.Mounts(
-			testcontainers.BindMount(
-				p,
-				AppPathInsideContainer,
-			),
-			testcontainers.BindMount(
-				filepath.Join(p, "../protocol"),
-				"/protocol",
-			),
-			testcontainers.VolumeMount(
-				"go-mod-cache",
-				"/go/pkg/mod",
-			),
-			testcontainers.VolumeMount(
-				"go-build-cache",
-				"/root/.cache/go-build",
-			),
-		)
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
+			filepath.Join(p, "../protocol"),
+			"/protocol",
+		))
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
