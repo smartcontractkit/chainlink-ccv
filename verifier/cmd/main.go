@@ -73,7 +73,6 @@ func logChainInfo(blockchainHelper *commontypes.BlockchainHelper, chainSelector 
 }
 
 func main() {
-
 	// Setup logging - always debug level for now
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
