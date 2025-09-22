@@ -116,6 +116,9 @@ func verifierDefaults(in *VerifierInput) {
 }
 
 func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
+	if in == nil {
+		return nil, nil
+	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}

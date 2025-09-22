@@ -379,17 +379,8 @@ func configureJobs(in *Cfg, clNodes []*clclient.ChainlinkClient) error {
 	return nil
 }
 
-func setupFakes(fakeServiceURL string) error {
-	//  example fake service configuration (mocking external adapter responses)
-	//  r := resty.New().SetBaseURL(fakeServiceURL)
-	//  _, err = r.R().Post(fmt.Sprintf(`/set_ea?low=%d&high=%d`, in.CCV.EAFake.LowValue, in.CCV.EAFake.HighValue))
-	//  if err != nil {
-	//  	return fmt.Errorf("could not set ea fake values: %w", err)
-	//  }
-	//  Plog.Info().
-	//	  Int64("FeedAnswerLow", in.CCV.EAFake.LowValue).
-	//	  Int64("FeedAnswerHigh", in.CCV.EAFake.HighValue).
-	//	  Msg("Setting fake external adapter (data feed) values")
+func setupFakes(_ *Cfg) error {
+	// no need for now
 	return nil
 }
 
@@ -579,7 +570,7 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		if err := configureJobs(in, nodeClients); err != nil {
 			return fmt.Errorf("could not configure jobs: %w", err)
 		}
-		if err := setupFakes(in.Fake.Out.ExternalHTTPURL); err != nil {
+		if err := setupFakes(in); err != nil {
 			return fmt.Errorf("could not setup fake server: %w", err)
 		}
 
@@ -602,6 +593,9 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 
 // writeCCVProxyAddressesToConfig writes CCVProxy addresses from CLDF deployment to verifier.toml.
 func writeCCVProxyAddressesToConfig(in *Cfg) error {
+	if in.Verifier == nil {
+		return nil
+	}
 	verifierOnRamp1337 := MustGetContractAddressForSelector(in, 3379446385462418246, commit_onramp.ContractType).String()
 	verifierOnRamp2337 := MustGetContractAddressForSelector(in, 12922642891491394802, commit_onramp.ContractType).String()
 	ccvProxy1337 := MustGetContractAddressForSelector(in, 3379446385462418246, ccv_proxy.ContractType).String()
