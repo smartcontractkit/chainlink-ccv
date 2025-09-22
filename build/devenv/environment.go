@@ -6,8 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
@@ -63,81 +61,33 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, err
 	}
 	track := NewTimeTracker(Plog)
-	eg := &errgroup.Group{}
 
-	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
-	// Channel to signal when blockchain outputs are ready for services that depend on them
-	blockchainOutputsReady := make(chan struct{})
-	aggregatorReady := make(chan struct{})
-
-	// Start blockchain creation goroutine
-	eg.Go(func() error {
-		blockchainEg := &errgroup.Group{}
-
-		for i, b := range in.Blockchains {
-			blockchainEg.Go(func() error {
-				output, err := blockchain.NewBlockchainNetwork(b)
-				if err != nil {
-					return fmt.Errorf("failed to create blockchain network: %w", err)
-				}
-				blockchainOutputs[i] = output
-				return nil
-			})
-		}
-
-		// Wait for all blockchains to be created
-		if err := blockchainEg.Wait(); err != nil {
-			return err
-		}
-
-		// Signal that blockchain outputs are ready
-		close(blockchainOutputsReady)
-		return nil
-	})
-
-	// Start services that don't need blockchain outputs
-	eg.Go(func() error {
-		_, err = services.NewFake(in.Fake)
-		if err != nil {
-			return fmt.Errorf("failed to create fake data provider: %w", err)
-		}
-		return nil
-	})
-
-	eg.Go(func() error {
-		_, err = services.NewIndexer(in.Indexer)
-		if err != nil {
-			return fmt.Errorf("failed to create indexer service: %w", err)
-		}
-		return nil
-	})
-
-	var aggregatorOutput *services.AggregatorOutput
-	eg.Go(func() error {
-		aggregatorOutput, err = services.NewAggregator(in.Aggregator)
-		if err != nil {
-			return fmt.Errorf("failed to create aggregator service: %w", err)
-		}
-		close(aggregatorReady)
-		return nil
-	})
-
-	eg.Go(func() error {
-		// Wait for blockchain outputs to be ready
-		<-blockchainOutputsReady
-
-		// TODO: Pass blockchain outputs to executor if needed
-		_, err = services.NewExecutor(in.Executor)
-		if err != nil {
-			return fmt.Errorf("failed to create executor service: %w", err)
-		}
-		return nil
-	})
-
-	// Wait for all services to be created
-	if err := eg.Wait(); err != nil {
-		return nil, err
+	_, err = services.NewFake(in.Fake)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
+
+	for _, bc := range in.Blockchains {
+		_, err = blockchain.NewBlockchainNetwork(bc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create blockchain network: %w", err)
+		}
+	}
+	_, err = services.NewIndexer(in.Indexer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create indexer service: %w", err)
+	}
+
+	_, err = services.NewAggregator(in.Aggregator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create aggregator service: %w", err)
+	}
+
+	_, err = services.NewExecutor(in.Executor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create executor service: %w", err)
+	}
+
 	track.Record("[infra] deploying blockchains")
 	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
@@ -148,18 +98,23 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
 	}
 
+	bcOuts := make([]*blockchain.Output, 0)
+	for _, bc := range in.Blockchains {
+		bcOuts = append(bcOuts, bc.Out)
+	}
+
 	if in.Verifier != nil {
-		in.Verifier.BlockchainOutputs = blockchainOutputs
+		in.Verifier.BlockchainOutputs = bcOuts
 		in.Verifier.VerifierConfig = commontypes.VerifierConfig{
-			AggregatorAddress: aggregatorOutput.Address,
-			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+			AggregatorAddress: in.Aggregator.Out.Address,
+			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(bcOuts),
 			PrivateKey:        "dev-private-key-12345678901234567890",
 		}
 
-		in.Verifier2.BlockchainOutputs = blockchainOutputs
+		in.Verifier2.BlockchainOutputs = bcOuts
 		in.Verifier2.VerifierConfig = commontypes.VerifierConfig{
-			AggregatorAddress: aggregatorOutput.Address,
-			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(blockchainOutputs),
+			AggregatorAddress: in.Aggregator.Out.Address,
+			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(bcOuts),
 			PrivateKey:        "dev-private-key2-12345678901234567890",
 		}
 		in.Verifier2.ContainerName = "verifier2"
@@ -171,26 +126,14 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
 	track.Record("[changeset] deployed product contracts")
-	// Start services that need blockchain outputs
-	eg.Go(func() error {
-		// Wait for blockchain outputs to be ready
-		<-blockchainOutputsReady
-		<-aggregatorReady
-		if in.Verifier != nil {
-			_, err = services.NewVerifier(in.Verifier)
-			if err != nil {
-				return fmt.Errorf("failed to create verifier service: %w", err)
-			}
-			_, err = services.NewVerifier(in.Verifier2)
-			if err != nil {
-				return fmt.Errorf("failed to create verifier 2 service: %w", err)
-			}
-		}
-		return nil
-	})
-	// wait for verifier
-	if err := eg.Wait(); err != nil {
-		return nil, err
+
+	_, err = services.NewVerifier(in.Verifier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create verifier service: %w", err)
+	}
+	_, err = services.NewVerifier(in.Verifier2)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create verifier 2 service: %w", err)
 	}
 
 	track.Print()

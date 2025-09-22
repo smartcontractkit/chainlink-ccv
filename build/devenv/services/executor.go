@@ -123,10 +123,10 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
-
-	return &ExecutorOutput{
+	in.Out = &ExecutorOutput{
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
-	}, nil
+	}
+	return in.Out, nil
 }

@@ -230,10 +230,10 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
-
-	return &AggregatorOutput{
+	in.Out = &AggregatorOutput{
 		ContainerName:      in.ContainerName,
 		Address:            fmt.Sprintf("%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultAggregatorDBConnectionString,
-	}, nil
+	}
+	return in.Out, nil
 }
