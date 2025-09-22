@@ -5,7 +5,6 @@ go 1.24.6
 replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
 
 require (
-	github.com/ethereum/go-ethereum v1.16.3
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.4
 	github.com/smartcontractkit/chainlink-evm v0.3.3
@@ -41,6 +40,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
 	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.0 // indirect
+	github.com/ethereum/go-ethereum v1.16.3 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/ferranbt/fastssz v0.1.4 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
