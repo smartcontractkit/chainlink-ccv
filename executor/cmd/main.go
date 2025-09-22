@@ -73,7 +73,7 @@ func main() {
 			selector,
 			chain.Nodes[0].InternalHTTPUrl,
 			executorConfig.PrivateKey,
-			common.HexToAddress(chain.OfframpRouter),
+			common.HexToAddress(chain.OfframpAddress),
 		)
 		if err != nil {
 			lggr.Errorw("Failed to create contract transmitter", "error", err)
