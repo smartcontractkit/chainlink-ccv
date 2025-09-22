@@ -1,12 +1,11 @@
 package hash
 
-import (
-	"golang.org/x/crypto/sha3"
-)
+import "github.com/ethereum/go-ethereum/crypto"
 
-// Keccak256 calculates keccak256 hash of arbitrary data.
-func Keccak256(data []byte) []byte {
-	hash := sha3.NewLegacyKeccak256()
-	hash.Write(data)
-	return hash.Sum(nil)
+// Keccak256 computes the Keccak256 hash of the input.
+func Keccak256(data []byte) [32]byte {
+	hash := crypto.Keccak256(data)
+	var result [32]byte
+	copy(result[:], hash)
+	return result
 }

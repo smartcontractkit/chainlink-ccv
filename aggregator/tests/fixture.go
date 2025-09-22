@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hash"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -99,7 +100,7 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		var signatureHashInput bytes.Buffer
 		signatureHashInput.Write(messageHash[:])
 		signatureHashInput.Write(ccvArgs)
-		signatureHash := signature.Keccak256(signatureHashInput.Bytes())
+		signatureHash := hash.Keccak256(signatureHashInput.Bytes())
 
 		// Use SignV27 for proper signature creation and normalization
 		r32, s32, signerAddr, err := signature.SignV27(signatureHash[:], signer.key)
