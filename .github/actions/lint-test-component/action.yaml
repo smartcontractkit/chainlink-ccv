@@ -71,6 +71,7 @@ runs:
       run: |
         if [ "${{ inputs.install-protoc }}" = "true" ]; then
           just install-protoc
+          just ensure-protoc
         fi
 
     - name: Install golangci-lint
