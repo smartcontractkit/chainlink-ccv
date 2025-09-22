@@ -15,6 +15,7 @@ type GetMessagesSinceHandler struct {
 	storage   common.CommitVerificationAggregatedStore
 	committee map[string]*model.Committee
 	l         logger.SugaredLogger
+	m         common.AggregatorMonitoring
 }
 
 func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -26,7 +27,10 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.Ge
 	committeeID := LoadCommitteeIDFromContext(ctx)
 
 	h.logger(ctx).Infof("Received GetMessagesSinceRequest")
-	storage := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix(), committeeID)
+	storage, err := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix(), committeeID)
+	if err != nil {
+		return nil, err
+	}
 
 	records := make([]*aggregator.MessageWithCCVData, 0, len(storage))
 	for _, report := range storage {
@@ -37,16 +41,21 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.Ge
 		records = append(records, ccvData)
 	}
 
+	h.m.Metrics().GetMessageSinceNumberOfRecordsReturned(ctx, len(records))
+
+	h.logger(ctx).Infof("Returning %d records for GetMessagesSinceRequest", len(records))
+
 	return &aggregator.GetMessagesSinceResponse{
 		Results: records,
 	}, nil
 }
 
 // NewGetMessagesSinceHandler creates a new instance of GetMessagesSinceHandler.
-func NewGetMessagesSinceHandler(storage common.CommitVerificationAggregatedStore, committee map[string]*model.Committee, l logger.SugaredLogger) *GetMessagesSinceHandler {
+func NewGetMessagesSinceHandler(storage common.CommitVerificationAggregatedStore, committee map[string]*model.Committee, l logger.SugaredLogger, m common.AggregatorMonitoring) *GetMessagesSinceHandler {
 	return &GetMessagesSinceHandler{
 		storage:   storage,
 		committee: committee,
 		l:         l,
+		m:         m,
 	}
 }

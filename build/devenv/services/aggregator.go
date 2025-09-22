@@ -86,12 +86,18 @@ type ServerConfig struct {
 	Address string `toml:"address"`
 }
 
+type MetricConfig struct {
+	EnableMetrics bool   `toml:"enableMetrics"`
+	Endpoint      string `toml:"endpoint"`
+}
+
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Server     ServerConfig          `toml:"server"`
-	Storage    StorageConfig         `toml:"storage"`
-	StubMode   bool                  `toml:"stubQuorumValidation"`
-	Committees map[string]*Committee `toml:"committees"`
+	Server       ServerConfig          `toml:"server"`
+	Storage      StorageConfig         `toml:"storage"`
+	StubMode     bool                  `toml:"stubQuorumValidation"`
+	Committees   map[string]*Committee `toml:"committees"`
+	MetricConfig MetricConfig          `toml:"metrics"`
 }
 
 func aggregatorDefaults(in *AggregatorInput) {
@@ -109,8 +115,15 @@ func aggregatorDefaults(in *AggregatorInput) {
 			Image: DefaultAggregatorDBImage,
 		}
 	}
+
+	MetricConfig := MetricConfig{
+		EnableMetrics: true,
+		Endpoint:      "otel-collector:4318",
+	}
+
 	if in.AggregatorConfig == nil {
 		in.AggregatorConfig = &AggregatorConfig{
+			MetricConfig: MetricConfig,
 			Server: ServerConfig{
 				Address: ":50051",
 			},
