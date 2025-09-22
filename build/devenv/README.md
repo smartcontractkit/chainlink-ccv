@@ -132,3 +132,7 @@ Additional details are in the official documentation [http://docs.docker.com](ht
 sudo ln -s $HOME/.docker/run/docker.sock /var/run/docker.sock
 ```
 
+Or by exporting the `DOCKER_HOST` variable:
+```bash
+export DOCKER_HOST unix://$HOME/.docker/desktop/docker.sock
+```
