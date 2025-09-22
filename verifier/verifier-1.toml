@@ -14,9 +14,9 @@ ccv_proxy_2337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
     OfframpRouter = ""
 
     [[blockchain_infos.1337.Nodes]]
-      ExternalHTTPUrl = "http://127.0.0.1:8545"
+      ExternalHTTPUrl = "http://host.docker.internal:8545"
       InternalHTTPUrl = "http://blockchain-src:8545"
-      ExternalWSUrl = "ws://127.0.0.1:8545"
+      ExternalWSUrl = "ws://host.docker.internal:8545"
       InternalWSUrl = "ws://blockchain-src:8545"
   [blockchain_infos.2337]
     ChainID = "2337"
@@ -26,7 +26,7 @@ ccv_proxy_2337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
     OfframpRouter = ""
 
     [[blockchain_infos.2337.Nodes]]
-      ExternalHTTPUrl = "http://127.0.0.1:8555"
+      ExternalHTTPUrl = "http://host.docker.internal:8555"
       InternalHTTPUrl = "http://blockchain-dst:8555"
-      ExternalWSUrl = "ws://127.0.0.1:8555"
+      ExternalWSUrl = "ws://host.docker.internal:8555"
       InternalWSUrl = "ws://blockchain-dst:8555"

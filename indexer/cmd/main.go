@@ -31,9 +31,8 @@ func main() {
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "indexer",
-		// no config file for now, move it up to config later
-		ServerAddress: "http://pyroscope:4040",
-		Logger:        pyroscope.StandardLogger,
+		ServerAddress:   "http://pyroscope:4040",
+		Logger:          pyroscope.StandardLogger,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,

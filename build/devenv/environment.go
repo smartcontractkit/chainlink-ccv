@@ -8,8 +8,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -19,8 +17,7 @@ import (
 type Cfg struct {
 	CCV         *CCV                      `toml:"ccv"         validate:"required"`
 	Fake        *services.FakeInput       `toml:"fake"        validate:"required"`
-	Verifier    *services.VerifierInput   `toml:"verifier"    validate:"required"`
-	Verifier2   *services.VerifierInput   `toml:"verifier2"   validate:"required"`
+	Verifier    []*services.VerifierInput `toml:"verifier"    validate:"required"`
 	Executor    *services.ExecutorInput   `toml:"executor"    validate:"required"`
 	Indexer     *services.IndexerInput    `toml:"indexer"     validate:"required"`
 	Aggregator  *services.AggregatorInput `toml:"aggregator"  validate:"required"`
@@ -103,37 +100,18 @@ func NewEnvironment() (*Cfg, error) {
 		bcOuts = append(bcOuts, bc.Out)
 	}
 
-	if in.Verifier != nil {
-		in.Verifier.BlockchainOutputs = bcOuts
-		in.Verifier.VerifierConfig = commontypes.VerifierConfig{
-			AggregatorAddress: in.Aggregator.Out.Address,
-			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(bcOuts),
-			PrivateKey:        "dev-private-key-12345678901234567890",
-		}
-
-		in.Verifier2.BlockchainOutputs = bcOuts
-		in.Verifier2.VerifierConfig = commontypes.VerifierConfig{
-			AggregatorAddress: in.Aggregator.Out.Address,
-			BlockchainInfos:   services.ConvertBlockchainOutputsToInfo(bcOuts),
-			PrivateKey:        "dev-private-key2-12345678901234567890",
-		}
-		in.Verifier2.ContainerName = "verifier2"
-		in.Verifier2.ConfigFilePath = "/app/verifier2.toml"
-	}
-
 	track.Record("[infra] deployed CL nodes")
 	if err := DefaultProductConfiguration(in, ConfigureProductContractsJobs); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
 	track.Record("[changeset] deployed product contracts")
 
-	_, err = services.NewVerifier(in.Verifier)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create verifier service: %w", err)
-	}
-	_, err = services.NewVerifier(in.Verifier2)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create verifier 2 service: %w", err)
+	for i, ver := range in.Verifier {
+		ver.ConfigFilePath = fmt.Sprintf("/app/verifier-%d.toml", i+1)
+		_, err = services.NewVerifier(ver)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create verifier service: %w", err)
+		}
 	}
 
 	track.Print()
