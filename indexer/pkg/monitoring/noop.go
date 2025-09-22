@@ -31,6 +31,7 @@ func (n *NoopIndexerMetricLabeler) IncrementUniqueMessagesCounter(ctx context.Co
 func (n *NoopIndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration) {
 }
+
 func (n *NoopIndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
 }
 func (n *NoopIndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context) {}

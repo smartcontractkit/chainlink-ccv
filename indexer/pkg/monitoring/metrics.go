@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 // IndexerMetrics provides all metrics provided by the indexer.
