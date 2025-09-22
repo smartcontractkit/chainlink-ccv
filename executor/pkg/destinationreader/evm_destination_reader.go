@@ -7,7 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	lru "github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
@@ -38,7 +38,7 @@ type EvmDestinationReader struct {
 	lggr             logger.Logger
 	client           bind.ContractCaller
 	chainSelector    uint64
-	ccvCache         *lru.LRU[cacheKey, types.CcvAddressInfo]
+	ccvCache         *expirable.LRU[cacheKey, types.CcvAddressInfo]
 }
 
 func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *commontypes.BlockchainInfo) *EvmDestinationReader {
@@ -50,7 +50,7 @@ func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logge
 		lggr.Errorw("Failed to create CCV Aggregator caller", "error", err, "address", ccvAddr.Hex(), "chainSelector", chainSelector)
 	}
 	// Create cache with max 1000 entries and 5-minute TTL
-	ccvCache := lru.NewLRU[cacheKey, types.CcvAddressInfo](1000, nil, 5*time.Minute)
+	ccvCache := expirable.NewLRU[cacheKey, types.CcvAddressInfo](1000, nil, 5*time.Minute)
 
 	return &EvmDestinationReader{
 		aggregatorCaller: *ccvAgg,
@@ -129,11 +129,10 @@ func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message p
 		return false, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
 
-	if execState == MESSAGE_IN_PROGRESS || execState == MESSAGE_SUCCESS {
+	if execState == MESSAGE_FAILURE || execState == MESSAGE_IN_PROGRESS || execState == MESSAGE_SUCCESS {
 		return true, nil
 	}
-	// TODO: check that MESSAGE_FAILURE is a re-tryable error
-	if execState == MESSAGE_FAILURE || execState == MESSAGE_UNTOUCHED {
+	if execState == MESSAGE_UNTOUCHED {
 		return false, nil
 	}
 
