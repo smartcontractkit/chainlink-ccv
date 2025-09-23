@@ -184,7 +184,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	if config.Metrics.EnableMetrics {
 		// Setup OTEL Monitoring (via beholder)
-		m, err := monitoring.InitMonitoring(beholder.Config{
+		m, err := monitoring.InitMonitoring(config, beholder.Config{
 			InsecureConnection:       true,
 			OtelExporterHTTPEndpoint: config.Metrics.Endpoint, // All of this needs to be in config, only works in devenv atm
 			LogStreamingEnabled:      false,

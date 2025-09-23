@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
@@ -38,21 +37,6 @@ func main() {
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		os.Exit(1)
-	}
-	if _, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "aggregator",
-		ServerAddress:   config.PyroscopeURL,
-		Logger:          pyroscope.StandardLogger,
-		ProfileTypes: []pyroscope.ProfileType{
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileGoroutines,
-			pyroscope.ProfileBlockDuration,
-			pyroscope.ProfileMutexDuration,
-		},
-	}); err != nil {
-		lggr.Errorw("Failed to start pyroscope", "error", err)
 	}
 
 	server := aggregator.NewServer(sugaredLggr, config)

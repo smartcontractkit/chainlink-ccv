@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
@@ -29,21 +28,6 @@ func main() {
 		panic(err)
 	}
 
-	if _, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "indexer",
-		ServerAddress:   "http://pyroscope:4040",
-		Logger:          pyroscope.StandardLogger,
-		ProfileTypes: []pyroscope.ProfileType{
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileGoroutines,
-			pyroscope.ProfileBlockDuration,
-			pyroscope.ProfileMutexDuration,
-		},
-	}); err != nil {
-		lggr.Errorw("Failed to start pyroscope", "error", err)
-	}
 	ctx := context.Background()
 
 	// Use SugaredLogger for better API
