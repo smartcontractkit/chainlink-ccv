@@ -1,18 +1,24 @@
-package storage
+package memory
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
-// CheckpointStorage provides thread-safe storage for blockchain checkpoints
+// CheckpointStorage provides thread-safe in-memory storage for blockchain checkpoints
 // isolated by client API key.
 type CheckpointStorage struct {
 	clientData sync.Map // map[string]*ClientCheckpoints
 }
+
+// Ensure CheckpointStorage implements the interface.
+var _ common.CheckpointStorageInterface = (*CheckpointStorage)(nil)
 
 // ClientCheckpoints holds checkpoint data for a single client with thread-safe access.
 type ClientCheckpoints struct {
@@ -38,7 +44,7 @@ func NewClientCheckpoints() *ClientCheckpoints {
 // StoreCheckpoints stores a batch of checkpoints for a client atomically.
 // If the client doesn't exist, it will be created.
 // Existing checkpoints for the same chain_selector will be overridden.
-func (s *CheckpointStorage) StoreCheckpoints(clientID string, checkpoints map[uint64]uint64) error {
+func (s *CheckpointStorage) StoreCheckpoints(ctx context.Context, clientID string, checkpoints map[uint64]uint64) error {
 	if err := validateStoreCheckpointsInput(clientID, checkpoints); err != nil {
 		return err
 	}
@@ -51,28 +57,28 @@ func (s *CheckpointStorage) StoreCheckpoints(clientID string, checkpoints map[ui
 	}
 
 	// Store checkpoints atomically
-	clientStore.StoreCheckpoints(checkpoints)
+	clientStore.StoreCheckpoints(ctx, checkpoints)
 
 	return nil
 }
 
 // GetClientCheckpoints retrieves all checkpoints for a client.
 // Returns an empty map if the client has no checkpoints.
-func (s *CheckpointStorage) GetClientCheckpoints(clientID string) map[uint64]uint64 {
+func (s *CheckpointStorage) GetClientCheckpoints(ctx context.Context, clientID string) (map[uint64]uint64, error) {
 	value, exists := s.clientData.Load(clientID)
 	if !exists {
-		return make(map[uint64]uint64)
+		return make(map[uint64]uint64), nil
 	}
 
 	clientStore, ok := value.(*ClientCheckpoints)
 	if !ok {
-		return make(map[uint64]uint64)
+		return make(map[uint64]uint64), nil
 	}
-	return clientStore.GetCheckpoints()
+	return clientStore.GetCheckpoints(ctx), nil
 }
 
 // StoreCheckpoints stores checkpoints for this client atomically.
-func (c *ClientCheckpoints) StoreCheckpoints(checkpoints map[uint64]uint64) {
+func (c *ClientCheckpoints) StoreCheckpoints(ctx context.Context, checkpoints map[uint64]uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -85,7 +91,7 @@ func (c *ClientCheckpoints) StoreCheckpoints(checkpoints map[uint64]uint64) {
 }
 
 // GetCheckpoints returns a copy of all checkpoints for this client.
-func (c *ClientCheckpoints) GetCheckpoints() map[uint64]uint64 {
+func (c *ClientCheckpoints) GetCheckpoints(ctx context.Context) map[uint64]uint64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -131,7 +137,7 @@ func validateStoreCheckpointsInput(clientID string, checkpoints map[uint64]uint6
 
 // GetAllClients returns a list of all client IDs that have stored checkpoints.
 // This is primarily for testing and debugging purposes.
-func (s *CheckpointStorage) GetAllClients() []string {
+func (s *CheckpointStorage) GetAllClients(ctx context.Context) ([]string, error) {
 	var clients []string
 
 	s.clientData.Range(func(key, value any) bool {
@@ -143,39 +149,5 @@ func (s *CheckpointStorage) GetAllClients() []string {
 		return true
 	})
 
-	return clients
-}
-
-// GetStorageStats returns statistics about the storage for monitoring.
-func (s *CheckpointStorage) GetStorageStats() Stats {
-	stats := Stats{}
-
-	s.clientData.Range(func(key, value any) bool {
-		clientStore, ok := value.(*ClientCheckpoints)
-		if !ok {
-			return true // skip invalid entries
-		}
-		clientStore.mu.RLock()
-		stats.TotalClients++
-		stats.TotalCheckpoints += len(clientStore.checkpoints)
-		if clientStore.lastUpdated.After(stats.LastUpdate) {
-			stats.LastUpdate = clientStore.lastUpdated
-		}
-		clientStore.mu.RUnlock()
-		return true
-	})
-
-	return stats
-}
-
-// Stats provides statistics about checkpoint storage usage.
-type Stats struct {
-	LastUpdate       time.Time
-	TotalClients     int
-	TotalCheckpoints int
-}
-
-func (s Stats) String() string {
-	return fmt.Sprintf("CheckpointStorage{clients: %d, checkpoints: %d, last_update: %v}",
-		s.TotalClients, s.TotalCheckpoints, s.LastUpdate)
+	return clients, nil
 }

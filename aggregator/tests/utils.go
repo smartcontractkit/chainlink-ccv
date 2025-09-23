@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
@@ -37,6 +40,27 @@ func WithStubMode(stub bool) ConfigOption {
 
 // CreateServerAndClient creates a test server and client for functional testing.
 func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.AggregatorClient, aggregator.CCVDataClient, func(), error) {
+	// Start PostgreSQL testcontainer
+	postgresContainer, err := postgres.Run(t.Context(),
+		"postgres:15-alpine",
+		postgres.WithDatabase("test_db"),
+		postgres.WithUsername("test_user"),
+		postgres.WithPassword("test_password"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(30*time.Second)),
+	)
+	if err != nil {
+		t.Fatalf("failed to start postgres container: %v", err)
+	}
+
+	// Get connection string from container
+	connectionString, err := postgresContainer.ConnectionString(t.Context(), "sslmode=disable")
+	if err != nil {
+		t.Fatalf("failed to get connection string: %v", err)
+	}
+
 	buf := bufconn.Listen(bufSize)
 	// Setup logging - always debug level for now
 	lggr, err := logger.NewWith(func(config *zap.Config) {
@@ -55,7 +79,8 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.Ag
 			Address: ":50051",
 		},
 		Storage: model.StorageConfig{
-			StorageType: "memory",
+			StorageType:   "postgres",
+			ConnectionURL: connectionString,
 		},
 		Metrics: model.MetricConfig{
 			EnableMetrics: false,
@@ -92,6 +117,11 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.Ag
 		}
 		if err := ccvDataConn.Close(); err != nil {
 			t.Errorf("failed to close connection: %v", err)
+		}
+
+		// Terminate the PostgreSQL container
+		if err := postgresContainer.Terminate(context.Background()); err != nil {
+			t.Errorf("failed to terminate postgres container: %v", err)
 		}
 	}, nil
 }

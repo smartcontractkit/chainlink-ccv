@@ -1,5 +1,5 @@
 // Package storage provides storage implementations for the aggregator service.
-package storage
+package memory
 
 import (
 	"bytes"

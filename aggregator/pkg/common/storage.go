@@ -23,3 +23,13 @@ type CommitVerificationAggregatedStore interface {
 	// GetCCVData retrieves the aggregated CCV data for a specific message ID.
 	GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error)
 }
+
+// CheckpointStorageInterface defines the interface for checkpoint storage implementations.
+type CheckpointStorageInterface interface {
+	// StoreCheckpoints stores checkpoint data for a client.
+	StoreCheckpoints(ctx context.Context, clientID string, checkpoints map[uint64]uint64) error
+	// GetClientCheckpoints retrieves all checkpoints for a specific client.
+	GetClientCheckpoints(ctx context.Context, clientID string) (map[uint64]uint64, error)
+	// GetAllClients returns a list of all client IDs that have stored checkpoints.
+	GetAllClients(ctx context.Context) ([]string, error)
+}

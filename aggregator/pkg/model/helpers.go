@@ -35,6 +35,10 @@ func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
 	}
 }
 
+func compareStringCaseInsensitive(a, b string) bool {
+	return bytes.EqualFold([]byte(a), []byte(b))
+}
+
 func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*aggregator.MessageWithCCVData, error) {
 	participantSignatures := make(map[string]signature.Data)
 	for _, verification := range report.Verifications {
@@ -71,7 +75,20 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 			// Skipping missing signatures (not all participants may have signed)
 			continue
 		}
-		signatures = append(signatures, sig)
+
+		recoveredAddress := sig.Signer
+		validAddresses := signer.Addresses
+		addressValid := false
+		for _, addr := range validAddresses {
+			if compareStringCaseInsensitive(addr, recoveredAddress.Hex()) {
+				addressValid = true
+				break
+			}
+		}
+
+		if addressValid {
+			signatures = append(signatures, sig)
+		}
 	}
 
 	// Sort signatures by signer address for onchain compatibility
