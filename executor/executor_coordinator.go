@@ -30,6 +30,7 @@ type Coordinator struct {
 	delayedMessageHeap  *th.MessageHeap
 	mu                  sync.RWMutex
 	running             bool
+	monitoring          Monitoring
 }
 
 type Option func(*Coordinator)
@@ -58,6 +59,12 @@ func WithLeaderElector(leaderElector le.LeaderElector) Option {
 	}
 }
 
+func WithMonitoring(monitoring Monitoring) Option {
+	return func(ec *Coordinator) {
+		ec.monitoring = monitoring
+	}
+}
+
 func NewCoordinator(options ...Option) (*Coordinator, error) {
 	ec := &Coordinator{
 		ccvDataCh: make(chan types.MessageWithCCVData, 100),
@@ -78,6 +85,7 @@ func NewCoordinator(options ...Option) (*Coordinator, error) {
 	appendIfNil(ec.leaderElector, "leaderElector")
 	appendIfNil(ec.lggr, "logger")
 	appendIfNil(ec.ccvStreamer, "ccvResultStreamer")
+	appendIfNil(ec.monitoring, "monitoring")
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -157,6 +165,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 			}
 
 			for _, msg := range streamResult.Messages {
+				ec.monitoring.Metrics().IncrementUniqueMessagesCounter(ctx)
 				err := ec.executor.CheckValidMessage(ctx, msg)
 				if err != nil {
 					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)

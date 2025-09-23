@@ -13,15 +13,17 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	executormonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring/executor"
+	execcoordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 	execconfig "github.com/smartcontractkit/chainlink-ccv/executor/pkg/configuration"
-	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
+	executor "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -70,6 +72,17 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Setup OTEL Monitoring (via beholder)
+	monitoring, err := executormonitoring.InitMonitoring(beholder.Config{
+		InsecureConnection:       true,
+		OtelExporterHTTPEndpoint: "otel-collector:4318", // All of this needs to be in config, only works in devenv atm
+		LogStreamingEnabled:      false,
+		MetricReaderInterval:     10 * time.Second,
+	})
+	if err != nil {
+		lggr.Fatalf("Failed to initialize executor monitoring: %v", err)
+	}
+
 	// Setup graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -104,7 +117,7 @@ func main() {
 	}
 
 	// create executor
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders)
+	ex := executor.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, monitoring)
 
 	// create dummy leader elector
 	le := leaderelector.RandomDelayLeader{}
@@ -120,11 +133,12 @@ func main() {
 		})
 
 	// Create executor coordinator
-	coordinator, err := executor.NewCoordinator(
-		executor.WithLogger(lggr),
-		executor.WithExecutor(ex),
-		executor.WithLeaderElector(&le),
-		executor.WithCCVResultStreamer(indexerStream),
+	coordinator, err := execcoordinator.NewCoordinator(
+		execcoordinator.WithLogger(lggr),
+		execcoordinator.WithExecutor(ex),
+		execcoordinator.WithLeaderElector(&le),
+		execcoordinator.WithCCVResultStreamer(indexerStream),
+		execcoordinator.WithMonitoring(monitoring),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)
