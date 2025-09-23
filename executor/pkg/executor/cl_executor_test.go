@@ -113,7 +113,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			for _, chain := range tc.drChains {
 				allDestinationReaders[chain] = tc.dr
 			}
-			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders)
+			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, nil)
 			err := executor.Validate()
 			if tc.validateShouldError {
 				assert.Error(t, err)
@@ -140,7 +140,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 }
 
 func TestChainlinkExecutor_orderCcvData(t *testing.T) {
-	executor := NewChainlinkExecutor(nil, nil, nil)
+	executor := NewChainlinkExecutor(nil, nil, nil, nil)
 	ccvAddr := protocol.UnknownAddress{}
 	ccvData := []protocol.CCVData{{DestVerifierAddress: ccvAddr, CCVData: []byte("data")}}
 	ccvInfo := types.CcvAddressInfo{

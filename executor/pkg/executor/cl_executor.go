@@ -21,17 +21,20 @@ type ChainlinkExecutor struct {
 	lggr                 logger.Logger
 	contractTransmitters map[protocol.ChainSelector]ct.ContractTransmitter
 	destinationReaders   map[protocol.ChainSelector]dr.DestinationReader
+	monitoring           executor.Monitoring
 }
 
 func NewChainlinkExecutor(
 	lggr logger.Logger,
 	contractTransmitters map[protocol.ChainSelector]ct.ContractTransmitter,
 	destinationReaders map[protocol.ChainSelector]dr.DestinationReader,
+	monitoring executor.Monitoring,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
 		lggr:                 lggr,
 		contractTransmitters: contractTransmitters,
 		destinationReaders:   destinationReaders,
+		monitoring:           monitoring,
 	}
 }
 

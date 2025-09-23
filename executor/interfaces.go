@@ -36,3 +36,19 @@ type Executor interface {
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error
 }
+
+// Monitoring provides access to executor monitoring capabilities.
+// This is in the 'executor' package, so usage patterns will follow executor.Monitoring.
+type Monitoring interface {
+	// Metrics returns an MetricLabeler for recording metrics.
+	Metrics() MetricLabeler
+}
+
+// MetricLabeler provides methods for recording various executor metrics.
+type MetricLabeler interface {
+	// With returns a new MetricLabeler with additional key-value labels.
+	With(keyValues ...string) MetricLabeler
+
+	// IncrementUniqueMessagesCounter increments the unique messages counter.
+	IncrementUniqueMessagesCounter(ctx context.Context)
+}
