@@ -87,7 +87,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	return &aggregator.MessageWithCCVData{
 		Message:               report.GetMessage(),
 		SourceVerifierAddress: report.GetSourceVerifierAddress(),
-		DestVerifierAddress:   quorumConfig.GetOfframpAddressBytes(),
+		DestVerifierAddress:   quorumConfig.GetDestVerifierAddressBytes(),
 		CcvData:               encodedSignatures,
 		Timestamp:             report.Timestamp,
 	}, nil

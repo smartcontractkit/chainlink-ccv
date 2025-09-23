@@ -59,9 +59,9 @@ type Signer struct {
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	OfframpAddress string   `toml:"offrampAddress"`
-	Signers        []Signer `toml:"signers"`
-	Threshold      uint8    `toml:"threshold"`
+	DestVerifierAddress string   `toml:"destVerifierAddress"`
+	Signers             []Signer `toml:"signers"`
+	Threshold           uint8    `toml:"threshold"`
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -136,7 +136,7 @@ func aggregatorDefaults(in *AggregatorInput) {
 					},
 					QuorumConfigs: map[string]*QuorumConfig{
 						"12922642891491394802": {
-							OfframpAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+							DestVerifierAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 							Signers: []Signer{
 								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
 								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
@@ -144,7 +144,7 @@ func aggregatorDefaults(in *AggregatorInput) {
 							Threshold: 2,
 						},
 						"3379446385462418246": {
-							OfframpAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+							DestVerifierAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 							Signers: []Signer{
 								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
 								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
