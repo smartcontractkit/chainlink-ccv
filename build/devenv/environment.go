@@ -80,11 +80,6 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create aggregator service: %w", err)
 	}
 
-	_, err = services.NewExecutor(in.Executor)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create executor service: %w", err)
-	}
-
 	track.Record("[infra] deploying blockchains")
 	if err := DefaultProductConfiguration(in, ConfigureNodesNetwork); err != nil {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
@@ -105,6 +100,11 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
 	}
 	track.Record("[changeset] deployed product contracts")
+
+	_, err = services.NewExecutor(in.Executor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create executor service: %w", err)
+	}
 
 	for i, ver := range in.Verifier {
 		ver.ConfigFilePath = fmt.Sprintf("/app/verifier-%d.toml", i+1)
