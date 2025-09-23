@@ -29,7 +29,6 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -141,18 +140,18 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 	return selectors, &e, nil
 }
 
-// deployCommitVerifierForSelector deploys a new verifier to the given chain selector
+// deployCommitVerifierForSelector deploys a new verifier to the given chain selector.
 func deployCommitVerifierForSelector(
 	e *deployment.Environment,
 	selector uint64,
 	onRampConstructorArgs commit_onramp.ConstructorArgs,
 	offRampConstructorArgs commit_offramp.ConstructorArgs,
 	signatureConfigArgs commit_offramp.SignatureConfigArgs,
-) (onRamp datastore.AddressRef, offRamp datastore.AddressRef, err error) {
+) (onRamp, offRamp datastore.AddressRef, err error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		err = fmt.Errorf("no EVM chain found for selector %d", selector)
-		return
+		return onRamp, offRamp, err
 	}
 	commitOnRampReport, err := operations.ExecuteOperation(e.OperationsBundle, commit_onramp.Deploy, chain, contract.DeployInput[commit_onramp.ConstructorArgs]{
 		ChainSelector: chain.Selector,
@@ -160,7 +159,7 @@ func deployCommitVerifierForSelector(
 	})
 	if err != nil {
 		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
-		return
+		return onRamp, offRamp, err
 	}
 	commitOffRampReport, err := operations.ExecuteOperation(e.OperationsBundle, commit_offramp.Deploy, chain, contract.DeployInput[commit_offramp.ConstructorArgs]{
 		ChainSelector: chain.Selector,
@@ -168,7 +167,7 @@ func deployCommitVerifierForSelector(
 	})
 	if err != nil {
 		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
-		return
+		return onRamp, offRamp, err
 	}
 	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SignatureConfigArgs]{
 		Address:       common.HexToAddress(commitOffRampReport.Output.Address),
@@ -177,14 +176,14 @@ func deployCommitVerifierForSelector(
 	})
 	if err != nil {
 		err = fmt.Errorf("failed to set CommitOffRamp signature config: %w", err)
-		return
+		return onRamp, offRamp, err
 	}
 	onRamp = commitOnRampReport.Output
 	offRamp = commitOffRampReport.Output
-	return
+	return onRamp, offRamp, err
 }
 
-// configureVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes
+// configureVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes.
 func configureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, commitOnRamp common.Address, destConfigArgs []commit_onramp.DestChainConfigArgs) error {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
@@ -203,7 +202,7 @@ func configureCommitVerifierOnSelectorForLanes(e *deployment.Environment, select
 	return nil
 }
 
-// deployReceiverForSelector deploys a new mock receiver to the given chain selector
+// deployReceiverForSelector deploys a new mock receiver to the given chain selector.
 func deployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver.ConstructorArgs) (datastore.AddressRef, error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {

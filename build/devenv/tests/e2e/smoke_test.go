@@ -7,15 +7,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/stretchr/testify/require"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
-
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 func TestE2ESmoke(t *testing.T) {

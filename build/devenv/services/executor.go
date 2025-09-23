@@ -81,10 +81,6 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 				},
 			}
 		},
-		// TODO: service can't independently start with this healthcheck, check MultiClient issue in logs
-		//WaitingFor: wait.ForListeningPort("8100/tcp").
-		//	WithStartupTimeout(2 * time.Minute).
-		//	WithPollInterval(500 * time.Millisecond),
 	}
 
 	if in.SourceCodePath != "" {

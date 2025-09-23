@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/grafana/pyroscope-go"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"

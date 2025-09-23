@@ -49,7 +49,7 @@ func GoSourcePathMounts(sourcePath, rootPath, containerDirTarget string) testcon
 // GoCacheMounts returns Go cache mounts depending on platform
 // these variables can be found by using
 // go env GOCACHE
-// go env GOMODCACHE
+// go env GOMODCACHE.
 func GoCacheMounts() testcontainers.ContainerMounts {
 	mounts := testcontainers.Mounts()
 	homeDir, _ := os.UserHomeDir()
