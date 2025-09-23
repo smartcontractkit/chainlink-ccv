@@ -1,4 +1,4 @@
-package internal
+package verifier
 
 import (
 	"context"

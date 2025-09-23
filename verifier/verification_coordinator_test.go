@@ -1,4 +1,4 @@
-package internal_test
+package verifier_test
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
@@ -208,15 +208,15 @@ func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetu
 }
 
 // createVerificationCoordinator creates a verification coordinator with the given setup.
-func createVerificationCoordinator(ts *testSetup, config types.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]reader.SourceReader) (*internal.VerificationCoordinator, error) {
+func createVerificationCoordinator(ts *testSetup, config types.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]reader.SourceReader) (*verifier.VerificationCoordinator, error) {
 	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
 
-	return internal.NewVerificationCoordinator(
-		internal.WithConfig(config),
-		internal.WithSourceReaders(sourceReaders),
-		internal.WithVerifier(commitVerifier),
-		internal.WithStorage(ts.storage),
-		internal.WithLogger(ts.logger),
+	return verifier.NewVerificationCoordinator(
+		verifier.WithConfig(config),
+		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithVerifier(commitVerifier),
+		verifier.WithStorage(ts.storage),
+		verifier.WithLogger(ts.logger),
 	)
 }
 
