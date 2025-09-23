@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
@@ -92,7 +93,7 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	filePath := "verifier.toml"
+	filePath := "verifier-1.toml"
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
@@ -104,6 +105,22 @@ func main() {
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		os.Exit(1)
+	}
+
+	if _, err := pyroscope.Start(pyroscope.Config{
+		ApplicationName: "verifier",
+		ServerAddress:   verifierConfig.PyroscopeURL,
+		Logger:          pyroscope.StandardLogger,
+		ProfileTypes: []pyroscope.ProfileType{
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileGoroutines,
+			pyroscope.ProfileBlockDuration,
+			pyroscope.ProfileMutexDuration,
+		},
+	}); err != nil {
+		lggr.Errorw("Failed to start pyroscope", "error", err)
 	}
 
 	// Use actual blockchain information from configuration

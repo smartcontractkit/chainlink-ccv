@@ -5,6 +5,7 @@ go 1.24.6
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/ethereum/go-ethereum v1.16.3
+	github.com/grafana/pyroscope-go v1.2.7
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.5-0.20250910201107-cb4c31b624d3
@@ -13,7 +14,10 @@ require (
 	go.uber.org/zap v1.27.0
 )
 
-require github.com/cenkalti/backoff/v5 v5.0.2 // indirect
+require (
+	github.com/cenkalti/backoff/v5 v5.0.2 // indirect
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.9 // indirect
+)
 
 require (
 	github.com/DataDog/zstd v1.5.6 // indirect

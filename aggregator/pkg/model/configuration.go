@@ -169,6 +169,7 @@ type AggregatorConfig struct {
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
 	Metrics           MetricConfig               `toml:"metrics"`
+	PyroscopeURL      string                     `toml:"pyroscope_url"`
 }
 
 type MetricConfig struct {

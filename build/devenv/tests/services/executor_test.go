@@ -9,7 +9,7 @@ import (
 )
 
 func TestServiceExecutor(t *testing.T) {
-	out, err := services.NewExecutor(&services.ExecutorInput{SourceCodePath: "../../../executor"})
+	out, err := services.NewExecutor(&services.ExecutorInput{SourceCodePath: "../../../executor", RootPath: "../../../../"})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
 		_ = out

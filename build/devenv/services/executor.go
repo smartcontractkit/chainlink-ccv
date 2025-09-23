@@ -81,32 +81,16 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 				},
 			}
 		},
-		// TODO: service can't independently start with this healthcheck, check MultiClient issue in logs
-		//WaitingFor: wait.ForListeningPort("8100/tcp").
-		//	WithStartupTimeout(2 * time.Minute).
-		//	WithPollInterval(500 * time.Millisecond),
 	}
 
 	if in.SourceCodePath != "" {
-		//nolint:staticcheck // ignore for now
-		req.Mounts = testcontainers.Mounts(
-			testcontainers.BindMount(
-				p,
-				AppPathInsideContainer,
-			),
-			testcontainers.BindMount(
-				filepath.Join(p, "../protocol"),
-				"/protocol",
-			),
-			testcontainers.VolumeMount(
-				"go-mod-cache",
-				"/go/pkg/mod",
-			),
-			testcontainers.VolumeMount(
-				"go-build-cache",
-				"/root/.cache/go-build",
-			),
-		)
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
+			filepath.Join(p, "../protocol"),
+			"/protocol",
+		))
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
@@ -123,10 +107,10 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
-
-	return &ExecutorOutput{
+	in.Out = &ExecutorOutput{
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
-	}, nil
+	}
+	return in.Out, nil
 }
