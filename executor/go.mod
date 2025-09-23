@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/grafana/pyroscope-go v1.2.7
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/smartcontractkit/chain-selectors v1.0.67
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250915134957-5014a52895ca
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
