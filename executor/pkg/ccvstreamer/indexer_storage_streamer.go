@@ -18,16 +18,26 @@ import (
 // Ensure IndexerStorageStreamer implements the CCVResultStreamer interface.
 var _ executor.CCVResultStreamer = &IndexerStorageStreamer{}
 
+type IndexerStorageConfig struct {
+	IndexerURI      string
+	LastQueryTime   int64
+	PollingInterval time.Duration
+	Backoff         time.Duration
+	QueryLimit      uint64
+}
+
 func NewIndexerStorageStreamer(
-	indexerURI string, lggr logger.Logger, lastQueryTime int64, pollingInterval, backoff time.Duration,
+	lggr logger.Logger,
+	indexerConfig IndexerStorageConfig,
 ) *IndexerStorageStreamer {
-	client := storageaccess.NewIndexerAPIReader(lggr, indexerURI)
+	client := storageaccess.NewIndexerAPIReader(lggr, indexerConfig.IndexerURI)
 
 	return &IndexerStorageStreamer{
 		reader:          client,
-		lastQueryTime:   lastQueryTime,
-		pollingInterval: pollingInterval,
-		backoff:         backoff,
+		queryLimit:      indexerConfig.QueryLimit,
+		lastQueryTime:   indexerConfig.LastQueryTime,
+		pollingInterval: indexerConfig.PollingInterval,
+		backoff:         indexerConfig.Backoff,
 	}
 }
 
@@ -36,6 +46,7 @@ type IndexerStorageStreamer struct {
 	lastQueryTime   int64
 	pollingInterval time.Duration
 	backoff         time.Duration
+	queryLimit      uint64
 	mu              sync.RWMutex
 	running         bool
 	querymu         sync.RWMutex
@@ -70,29 +81,28 @@ func (oss *IndexerStorageStreamer) Start(
 			oss.running = false
 			oss.mu.Unlock()
 		}()
-
+		newtime := time.Now().Unix()
+		offset := uint64(0)
 		for {
 			select {
 			case <-ctx.Done():
 				// Context canceled, stop loop.
 				return
 			default:
-
-				// reset the last query time for new reads
-				newtime := time.Now().Unix()
-
 				msgs := make([]types.MessageWithCCVData, 0)
 				// Non-blocking: call ReadCCVData
-				lggr.Infow("IndexerStorageStreamer reading ccv data", "lastQueryTime", oss.lastQueryTime)
-
+				lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
 				responses, err := oss.reader.ReadVerifierResults(ctx, storageaccess.VerifierResultsRequest{
-					Limit:                0,
-					Offset:               0,
+					Limit:                oss.queryLimit,
+					Offset:               offset,
 					Start:                oss.lastQueryTime,
-					End:                  0,
+					End:                  newtime,
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
 				})
+				if len(responses) != 0 {
+					lggr.Infow("IndexerStorageStreamer found ccv data using query", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
+				}
 
 				for id, verifierResults := range responses {
 					if len(verifierResults) < 1 {
@@ -124,30 +134,45 @@ func (oss *IndexerStorageStreamer) Start(
 				case messagesCh <- result:
 				}
 
-				// If there is no error, and there are results, read again immediately.
-				delay := time.Duration(0)
+				// Handle query results and determine next action
+				var waitDuration time.Duration
+				shouldUpdateQueryWindow := false
 
-				// there was an error, use the backoff duration.
-				if err != nil {
-					lggr.Errorw("IndexerStorageStreamer failed to read ccv data", "error", err)
-					delay = oss.backoff
-				} else if len(responses) == 0 {
-					// no results, use the polling interval.
-					delay = oss.pollingInterval
+				switch {
+				case err != nil:
+					// Error occurred: backoff and retry with same parameters
+					lggr.Infow("IndexerStorageStreamer read error", "error", err)
+					waitDuration = oss.backoff
+
+				case uint64(len(responses)) == oss.queryLimit:
+					// Hit query limit: query again immediately with same time range but incremented offset
+					lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
+					offset += oss.queryLimit
+					continue // Skip waiting and time updates, query immediately
+
+				default:
+					// Complete result set received: update query window and reset for next polling cycle
+					waitDuration = oss.pollingInterval
+					shouldUpdateQueryWindow = true
+					offset = 0
 				}
 
-				// maybe wait before the next read.
-				if delay != 0 {
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(delay):
-					}
+				// Wait before next iteration (common for error and complete cases)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(waitDuration):
 				}
 
-				oss.querymu.Lock()
-				oss.lastQueryTime = newtime
-				oss.querymu.Unlock()
+				// Update query window if we completed a full result set
+				if shouldUpdateQueryWindow {
+					oss.querymu.Lock()
+					oss.lastQueryTime = newtime
+					oss.querymu.Unlock()
+				}
+
+				// Update time for next iteration
+				newtime = time.Now().Unix()
 			}
 		}
 	}()
