@@ -50,7 +50,9 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]reader.SourceRea
 			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
 		}
 		for chainSelector, reader := range sourceReaders {
-			vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
+			if reader != nil {
+				vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
+			}
 		}
 	}
 }
@@ -295,34 +297,36 @@ func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *
 
 // validate checks that all required components are configured.
 func (vc *VerificationCoordinator) validate() error {
+	var errs []error
+
 	if len(vc.sourceStates) == 0 {
-		return fmt.Errorf("at least one source reader is required")
+		errs = append(errs, fmt.Errorf("at least one source reader is required"))
 	}
 
 	// Validate that all configured sources have corresponding readers
 	for chainSelector := range vc.config.SourceConfigs {
 		if _, exists := vc.sourceStates[chainSelector]; !exists {
-			return fmt.Errorf("source reader not found for chain selector %d", chainSelector)
+			errs = append(errs, fmt.Errorf("source reader not found for chain selector %d", chainSelector))
 		}
 	}
 
 	if vc.verifier == nil {
-		return fmt.Errorf("verifier is required")
+		errs = append(errs, fmt.Errorf("verifier is required"))
 	}
 
 	if vc.storage == nil {
-		return fmt.Errorf("storage writer is required")
+		errs = append(errs, fmt.Errorf("storage writer is required"))
 	}
 
 	if vc.lggr == nil {
-		return fmt.Errorf("logger is required")
+		errs = append(errs, fmt.Errorf("logger is required"))
 	}
 
 	if vc.config.VerifierID == "" {
-		return fmt.Errorf("coordinator ID cannot be empty")
+		errs = append(errs, fmt.Errorf("coordinator ID cannot be empty"))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // HealthCheck returns the current health status.

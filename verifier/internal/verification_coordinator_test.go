@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"math/big"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -200,6 +201,127 @@ func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetu
 	return &mockSourceReaderSetup{
 		reader:  mockReader,
 		channel: channel,
+	}
+}
+
+func TestNewVerifierCoordinator(t *testing.T) {
+	config := createCoordinatorConfig("test-custom-mockery-verifier", map[protocol.ChainSelector]string{
+		sourceChain1: "0x1234",
+	})
+
+	mockReader := verifier_mocks.NewMockSourceReader(t)
+	channel := make(chan types.VerificationTask, 10)
+	mockReader.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	mockReader.EXPECT().VerificationTaskChannel().Return((<-chan types.VerificationTask)(channel)).Maybe()
+
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
+		sourceChain1: mockReader,
+	}
+	ts := newTestSetup(t)
+
+	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
+
+	testcases := []struct {
+		name    string
+		options []internal.Option
+		err     []string
+	}{
+		{
+			name:    "missing every option",
+			options: []internal.Option{},
+			err: []string{
+				"at least one source reader is required",
+				"verifier is required",
+				"storage writer is required",
+				"logger is required",
+				"coordinator ID cannot be empty",
+			},
+		},
+		{
+			name: "happy",
+			options: []internal.Option{
+				internal.WithConfig(config),
+				internal.WithSourceReaders(sourceReaders),
+				internal.WithVerifier(commitVerifier),
+				internal.WithStorage(ts.storage),
+				internal.WithLogger(ts.logger),
+			},
+			err: nil,
+		},
+		{
+			name: "missing config",
+			options: []internal.Option{
+				internal.WithSourceReaders(sourceReaders),
+				internal.WithVerifier(commitVerifier),
+				internal.WithStorage(ts.storage),
+				internal.WithLogger(ts.logger),
+			},
+			err: []string{"coordinator ID cannot be empty"},
+		},
+		{
+			name: "missing source readers",
+			options: []internal.Option{
+				internal.WithConfig(config),
+				internal.WithVerifier(commitVerifier),
+				internal.WithStorage(ts.storage),
+				internal.WithLogger(ts.logger),
+			},
+			err: []string{
+				"at least one source reader is required",
+				"source reader not found for chain selector 42",
+			},
+		},
+		{
+			name: "missing verifier",
+			options: []internal.Option{
+				internal.WithConfig(config),
+				internal.WithSourceReaders(sourceReaders),
+				internal.WithStorage(ts.storage),
+				internal.WithLogger(ts.logger),
+			},
+			err: []string{"verifier is required"},
+		},
+		{
+			name: "missing storage",
+			options: []internal.Option{
+				internal.WithConfig(config),
+				internal.WithSourceReaders(sourceReaders),
+				internal.WithVerifier(commitVerifier),
+				internal.WithLogger(ts.logger),
+			},
+			err: []string{"storage writer is required"},
+		},
+		{
+			name: "missing logger",
+			options: []internal.Option{
+				internal.WithConfig(config),
+				internal.WithSourceReaders(sourceReaders),
+				internal.WithVerifier(commitVerifier),
+				internal.WithStorage(ts.storage),
+			},
+			err: []string{"logger is required"},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ec, err := internal.NewVerificationCoordinator(tc.options...)
+
+			if len(tc.err) > 0 {
+				require.Error(t, err)
+				require.Nil(t, ec)
+				joinedError := err.Error()
+
+				for _, errStr := range tc.err {
+					require.ErrorContains(t, err, errStr)
+				}
+
+				require.Len(t, tc.err, len(strings.Split(joinedError, "\n")), "unexpected number of errors")
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, ec)
+			}
+		})
 	}
 }
 
