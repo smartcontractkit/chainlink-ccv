@@ -64,8 +64,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 
 	ccvInfo, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
 		ctx,
-		messageWithCCVData.Message.SourceChainSelector,
-		messageWithCCVData.Message.Receiver,
+		messageWithCCVData.Message,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get CCV Offramp addresses for message: %w", err)

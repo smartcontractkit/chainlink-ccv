@@ -10,6 +10,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -44,6 +45,22 @@ func main() {
 		panic(err)
 	}
 
+	if _, err := pyroscope.Start(pyroscope.Config{
+		ApplicationName: "executor",
+		ServerAddress:   executorConfig.PyroscopeURL,
+		Logger:          pyroscope.StandardLogger,
+		ProfileTypes: []pyroscope.ProfileType{
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileGoroutines,
+			pyroscope.ProfileBlockDuration,
+			pyroscope.ProfileMutexDuration,
+		},
+	}); err != nil {
+		lggr.Errorw("Failed to start pyroscope", "error", err)
+	}
+
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
@@ -73,7 +90,7 @@ func main() {
 			selector,
 			chain.Nodes[0].InternalHTTPUrl,
 			executorConfig.PrivateKey,
-			common.HexToAddress(chain.OfframpRouter),
+			common.HexToAddress(chain.OfframpAddress),
 		)
 		if err != nil {
 			lggr.Errorw("Failed to create contract transmitter", "error", err)

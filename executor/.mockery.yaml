@@ -14,6 +14,9 @@ packages:
     github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector:
         interfaces:
             LeaderElector:
+    github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader:
+        interfaces:
+            DestinationReader:
     github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types:
         interfaces:
             OffchainStorageReader:
