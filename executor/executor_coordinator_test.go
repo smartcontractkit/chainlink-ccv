@@ -27,7 +27,7 @@ func TestConstructor(t *testing.T) {
 		{
 			name:    "missing every option",
 			options: []executor.Option{},
-			err:     []string{"executor is not set", "logger is not set", "leaderElector is not set", "ccvResultStreamer is not set"},
+			err:     []string{"executor is not set", "logger is not set", "leaderElector is not set", "ccvResultStreamer is not set", "monitoring is not set"},
 		},
 		{
 			name: "happy",
@@ -36,6 +36,7 @@ func TestConstructor(t *testing.T) {
 				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
 				executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
+				executor.WithMonitoring(executor_mocks.NewMockMonitoring(t)),
 			},
 			err: nil,
 		},
@@ -45,6 +46,7 @@ func TestConstructor(t *testing.T) {
 				executor.WithLogger(lggr),
 				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
 				executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
+				executor.WithMonitoring(executor_mocks.NewMockMonitoring(t)),
 			},
 			err: []string{"executor is not set"},
 		},
@@ -54,6 +56,7 @@ func TestConstructor(t *testing.T) {
 				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
 				executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
+				executor.WithMonitoring(executor_mocks.NewMockMonitoring(t)),
 			},
 			err: []string{"logger is not set"},
 		},
@@ -63,6 +66,7 @@ func TestConstructor(t *testing.T) {
 				executor.WithLogger(lggr),
 				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 				executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
+				executor.WithMonitoring(executor_mocks.NewMockMonitoring(t)),
 			},
 			err: []string{"leaderElector is not set"},
 		},
@@ -72,6 +76,7 @@ func TestConstructor(t *testing.T) {
 				executor.WithLogger(lggr),
 				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
+				executor.WithMonitoring(executor_mocks.NewMockMonitoring(t)),
 			},
 			err: []string{"ccvResultStreamer is not set"},
 		},
@@ -112,6 +117,7 @@ func TestLifecycle(t *testing.T) {
 			executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 			executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
 			executor.WithCCVResultStreamer(ccvDataReader),
+			executor.WithMonitoring(executor_mocks.NewMockMonitoring(t)),
 		)
 		require.NoError(t, err)
 		require.NotNil(t, ec)
@@ -151,6 +157,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
 		executor.WithCCVResultStreamer(ccvDataReader),
+		executor.WithMonitoring(executor_mocks.NewMockMonitoring(t)),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -180,6 +187,7 @@ func TestStopNotRunning(t *testing.T) {
 		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
 		executor.WithCCVResultStreamer(executor_mocks.NewMockCCVResultStreamer(t)),
+		executor.WithMonitoring(executor_mocks.NewMockMonitoring(t)),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)

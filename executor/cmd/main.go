@@ -13,7 +13,6 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/internal/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
@@ -21,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	executormonitoring "github.com/smartcontractkit/chainlink-ccv/common/monitoring/executor"
 	execcoordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 	execconfig "github.com/smartcontractkit/chainlink-ccv/executor/pkg/configuration"
 	executor "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
@@ -71,7 +71,7 @@ func main() {
 	defer cancel()
 
 	// Setup OTEL Monitoring (via beholder)
-	monitoring, err := monitoring.InitMonitoring(beholder.Config{
+	monitoring, err := executormonitoring.InitMonitoring(beholder.Config{
 		InsecureConnection:       true,
 		OtelExporterHTTPEndpoint: "otel-collector:4318", // All of this needs to be in config, only works in devenv atm
 		LogStreamingEnabled:      false,

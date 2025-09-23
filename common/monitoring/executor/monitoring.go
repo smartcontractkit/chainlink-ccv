@@ -1,4 +1,4 @@
-package monitoring
+package executormonitoring
 
 import (
 	"fmt"
@@ -6,17 +6,19 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 var _ executor.Monitoring = (*ExecutorBeholderMonitoring)(nil)
 
 type ExecutorBeholderMonitoring struct {
-	metrics executor.MetricLabeler
+	metrics ExecutorMetricLabeler
 }
 
-func InitMonitoring(config beholder.Config) (executor.Monitoring, error) {
+func InitMonitoring(config beholder.Config) (*ExecutorBeholderMonitoring, error) {
 	// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
-	config.MetricViews = MetricViews()
+	config.MetricViews = []sdkmetric.View{}
 
 	// Create the beholder client
 	client, err := beholder.NewClient(config)
@@ -35,7 +37,7 @@ func InitMonitoring(config beholder.Config) (executor.Monitoring, error) {
 	}
 
 	return &ExecutorBeholderMonitoring{
-		metrics: NewExecutorMetricLabeler(metrics.NewLabeler(), executorMetrics),
+		metrics: *NewExecutorMetricLabeler(metrics.NewLabeler(), executorMetrics),
 	}, nil
 }
 

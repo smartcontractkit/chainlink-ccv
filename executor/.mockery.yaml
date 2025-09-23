@@ -8,6 +8,8 @@ packages:
         interfaces:
             CCVResultStreamer:
             Executor:
+            Monitoring:
+            MetricLabeler:
     github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter:
         interfaces:
             ContractTransmitter:
