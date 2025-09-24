@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -15,7 +16,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -35,7 +36,7 @@ func TestAggregationHappyPath(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -93,7 +94,7 @@ func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress1).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress1).Hex(),
 				},
 			},
 		},
@@ -108,7 +109,7 @@ func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
 						signer3.Signer,
 						signer4.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress2).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress2).Hex(),
 				},
 			},
 		},
@@ -185,7 +186,7 @@ func TestIdempotency(t *testing.T) {
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -315,8 +316,7 @@ func validateSignatures(t *testing.T, ccvData []byte, messageId types.Bytes32, o
 	// that the signature data is well-formed and can be processed.
 	var signatureHashInput bytes.Buffer
 	signatureHashInput.Write(messageId[:])
-	signatureHashInput.Write(ccvArgs)
-	signatureHash := signature.Keccak256(signatureHashInput.Bytes())
+	signatureHash := crypto.Keccak256(signatureHashInput.Bytes())
 
 	var hash32 [32]byte
 	copy(hash32[:], signatureHash[:])
@@ -357,7 +357,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -387,7 +387,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 			signer2.Signer,
 			signer3.Signer,
 		},
-		DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 	}
 
 	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
@@ -428,7 +428,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -469,7 +469,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 			signer2.Signer,
 			signer3.Signer,
 		},
-		DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 	}
 
 	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2))
