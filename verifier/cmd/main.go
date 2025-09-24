@@ -14,8 +14,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -44,13 +44,13 @@ func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
 	return &config, nil
 }
 
-func logBlockchainInfo(blockchainHelper *commontypes.BlockchainHelper, lggr logger.Logger) {
+func logBlockchainInfo(blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger) {
 	for _, chainID := range []protocol.ChainSelector{chainIDA, chainIDB} {
 		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *commontypes.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo(blockchainHelper *protocol.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
 	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
 		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
 	}
@@ -124,13 +124,13 @@ func main() {
 	}
 
 	// Use actual blockchain information from configuration
-	var blockchainHelper *commontypes.BlockchainHelper
+	var blockchainHelper *protocol.BlockchainHelper
 	var chainClient1 client.Client
 	var chainClient2 client.Client
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
-		blockchainHelper = commontypes.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		blockchainHelper = protocol.NewBlockchainHelper(verifierConfig.BlockchainInfos)
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
@@ -204,12 +204,12 @@ func main() {
 	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
 
 	// Create verification coordinator
-	coordinator, err := internal.NewVerificationCoordinator(
-		internal.WithVerifier(commitVerifier),
-		internal.WithSourceReaders(sourceReaders),
-		internal.WithStorage(storageWriter),
-		internal.WithConfig(config),
-		internal.WithLogger(lggr),
+	coordinator, err := verifier.NewVerificationCoordinator(
+		verifier.WithVerifier(commitVerifier),
+		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithStorage(storageWriter),
+		verifier.WithConfig(config),
+		verifier.WithLogger(lggr),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

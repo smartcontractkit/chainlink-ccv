@@ -1,0 +1,27 @@
+[Monitoring]
+Enabled = true
+Type = "beholder"
+
+[Monitoring.Beholder]
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[Scanner]
+ScanInterval = 1
+
+[Discovery]
+Type = "static"
+
+[[Discovery.Static.Readers]]
+Type = "aggregator"
+
+[Discovery.Static.Readers.Aggregator]
+Address = "aggregator:50051"
+Since = 0
+
+[Storage]
+Type = "memory"

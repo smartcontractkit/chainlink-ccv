@@ -7,7 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -87,7 +87,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	return &aggregator.MessageWithCCVData{
 		Message:               report.GetMessage(),
 		SourceVerifierAddress: report.GetSourceVerifierAddress(),
-		DestVerifierAddress:   quorumConfig.GetOfframpAddressBytes(),
+		DestVerifierAddress:   quorumConfig.GetDestVerifierAddressBytes(),
 		CcvData:               encodedSignatures,
 		Timestamp:             report.Timestamp,
 	}, nil

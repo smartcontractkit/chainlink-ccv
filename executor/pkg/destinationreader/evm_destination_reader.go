@@ -15,7 +15,6 @@ import (
 
 	ccvagg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	mockreceiver "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_receiver_v2"
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -41,7 +40,7 @@ type EvmDestinationReader struct {
 	ccvCache         *expirable.LRU[cacheKey, types.CcvAddressInfo]
 }
 
-func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *commontypes.BlockchainInfo) *EvmDestinationReader {
+func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *protocol.BlockchainInfo) *EvmDestinationReader {
 	chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chainInfo, lggr)
 
 	ccvAddr := common.HexToAddress(chainInfo.OfframpAddress)

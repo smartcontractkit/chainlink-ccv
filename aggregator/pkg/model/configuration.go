@@ -66,10 +66,9 @@ func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[Committ
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	OfframpAddress string   `toml:"offrampAddress"`
-	OnrampAddress  string   `toml:"onrampAddress"`
-	Signers        []Signer `toml:"signers"`
-	Threshold      uint8    `toml:"threshold"`
+	CommitteeVerifierAddress string   `toml:"committeeVerifierAddress"`
+	Signers                  []Signer `toml:"signers"`
+	Threshold                uint8    `toml:"threshold"`
 }
 
 func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {
@@ -85,15 +84,8 @@ func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {
 	return nil
 }
 
-func (q *QuorumConfig) GetOfframpAddressBytes() []byte {
-	return common.HexToAddress(q.OfframpAddress).Bytes()
-}
-
-func (q *QuorumConfig) GetOnrampAddressBytes() []byte {
-	rawAddress := q.OnrampAddress
-	address := common.HexToAddress(rawAddress)
-	byteAddress := address.Bytes()
-	return byteAddress
+func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {
+	return common.HexToAddress(q.CommitteeVerifierAddress).Bytes()
 }
 
 // StorageConfig represents the configuration for the storage backend.

@@ -11,7 +11,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -141,18 +142,11 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 	return identifiedSigners, quorumConfig, nil
 }
 
-func keccak256(data []byte) [32]byte {
-	hash := crypto.Keccak256(data)
-	var result [32]byte
-	copy(result[:], hash)
-	return result
-}
-
 func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, ccvArgs []byte) [32]byte {
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
 	buf.Write(ccvArgs)
-	return keccak256(buf.Bytes())
+	return hashing.Keccak256(buf.Bytes())
 }
 
 func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {
@@ -161,7 +155,7 @@ func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Addres
 		return common.Address{}, err
 	}
 	// Skip the 0x04 prefix and hash the uncompressed public key
-	hash := crypto.Keccak256(pubKeyBytes[1:])
+	hash := hashing.Keccak256(pubKeyBytes[1:])
 	// Take the last 20 bytes
 	return common.BytesToAddress(hash[12:]), nil
 }

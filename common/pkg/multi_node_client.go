@@ -5,17 +5,16 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 
-	types2 "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 func ptr[T any](t T) *T { return &t }
 
-func CreateHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger, chainSelector types2.ChainSelector) client.Client {
+func CreateHealthyMultiNodeClient(ctx context.Context, blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger, chainSelector protocol.ChainSelector) client.Client {
 	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
@@ -25,7 +24,7 @@ func CreateHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.B
 }
 
 // CreateMultiNodeClientFromInfo tests the multinode chain client connection and returns the client if it's healthy.
-func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *types.BlockchainInfo, lggr logger.Logger) client.Client {
+func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol.BlockchainInfo, lggr logger.Logger) client.Client {
 	noNewHeadsThreshold := 3 * time.Minute
 	selectionMode := ptr("HighestHead")
 	leaseDuration := 0 * time.Second
