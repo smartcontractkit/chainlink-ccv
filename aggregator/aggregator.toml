@@ -1,4 +1,5 @@
 stubQuorumValidation = false
+pyroscope_url = "http://pyroscope:4040"
 
 [server]
   address = ":50051"
