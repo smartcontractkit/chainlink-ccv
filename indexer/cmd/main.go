@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
@@ -18,6 +19,11 @@ import (
 )
 
 func main() {
+	indexerConfig, err := config.LoadConfig("config.toml")
+	if err != nil {
+		panic(err)
+	}
+
 	// Setup logging
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
@@ -35,10 +41,10 @@ func main() {
 
 	// Setup OTEL Monitoring (via beholder)
 	indexerMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       true,
-		OtelExporterHTTPEndpoint: "otel-collector:4318", // All of this needs to be in config, only works in devenv atm
-		LogStreamingEnabled:      false,
-		MetricReaderInterval:     10 * time.Second,
+		InsecureConnection:       indexerConfig.Monitoring.Beholder.InsecureConnection,
+		OtelExporterHTTPEndpoint: indexerConfig.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+		LogStreamingEnabled:      indexerConfig.Monitoring.Beholder.LogStreamingEnabled,
+		MetricReaderInterval:     time.Second * time.Duration(indexerConfig.Monitoring.Beholder.MetricReaderInterval),
 	})
 	if err != nil {
 		lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
