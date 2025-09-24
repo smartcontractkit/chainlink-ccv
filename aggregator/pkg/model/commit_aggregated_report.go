@@ -21,7 +21,7 @@ func GetAggregatedReportID(messageID MessageID, committeeID CommitteeID) string 
 }
 
 func (c *CommitAggregatedReport) CalculateTimeToAggregation(aggregationTime time.Time) time.Duration {
-	var minTime int64 = 0
+	var minTime int64
 	for v := range c.Verifications {
 		if c.Verifications[v].GetTimestamp() < minTime || minTime == 0 {
 			minTime = c.Verifications[v].GetTimestamp()
