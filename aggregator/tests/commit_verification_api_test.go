@@ -211,14 +211,14 @@ func TestIdempotency(t *testing.T) {
 	}
 }
 
-// SignatureValidationOption defines options for signature validation in assertCCVDataFound
+// SignatureValidationOption defines options for signature validation in assertCCVDataFound.
 type SignatureValidationOption func(*signatureValidationConfig)
 
 type signatureValidationConfig struct {
 	expectedSigners []*SignerFixture
 }
 
-// WithValidSignatureFrom validates that the CCV data contains a valid signature from the specified signer
+// WithValidSignatureFrom validates that the CCV data contains a valid signature from the specified signer.
 func WithValidSignatureFrom(signer *SignerFixture) SignatureValidationOption {
 	return func(config *signatureValidationConfig) {
 		config.expectedSigners = append(config.expectedSigners, signer)
@@ -283,7 +283,7 @@ func assertCCVDataFound(
 	}
 }
 
-// validateSignatures decodes the CCV data and validates signatures from expected signers
+// validateSignatures decodes the CCV data and validates signatures from expected signers.
 func validateSignatures(t *testing.T, ccvData []byte, messageId types.Bytes32, options ...SignatureValidationOption) {
 	// Build configuration from options
 	config := &signatureValidationConfig{}
