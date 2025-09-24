@@ -58,16 +58,30 @@ type ScannerConfig struct {
 // StorageConfig allows you to change the storage backend used by the indexer.
 type StorageConfig struct {
 	// Type is the type of storage to use (memory, postgres).
-	Type string `toml:"Type"`
+	Type StorageType `toml:"Type"`
 }
+
+// StorageType is the type of storage to use (memory, postgres).
+type StorageType string
+
+const (
+	StorageTypeMemory StorageType = "memory"
+)
 
 // DiscoveryConfig allows you to change the discovery system used by the indexer.
 type DiscoveryConfig struct {
 	// Type is the type of discovery to use (static).
-	Type string `toml:"Type"`
+	Type DiscoveryType `toml:"Type"`
 	// Static is the configuration for the static discovery system.
 	Static StaticDiscoveryConfig `toml:"Static"`
 }
+
+// DiscoveryType is the type of discovery to use (static).
+type DiscoveryType string
+
+const (
+	DiscoveryTypeStatic DiscoveryType = "static"
+)
 
 // StaticDiscoveryConfig allows you to change the static discovery system used by the indexer.
 type StaticDiscoveryConfig struct {
@@ -78,10 +92,17 @@ type StaticDiscoveryConfig struct {
 // StaticDiscoveryReaderConfig allows you to change the static discovery system used by the indexer.
 type StaticDiscoveryReaderConfig struct {
 	// Type is the type of reader to use (aggregator).
-	Type string `toml:"type"`
+	Type ReaderType `toml:"type"`
 	// Aggregator is the configuration for the aggregator reader.
 	Aggregator AggregatorReaderConfig `toml:"Aggregator"`
 }
+
+// ReaderType is the type of reader to use (aggregator).
+type ReaderType string
+
+const (
+	ReaderTypeAggregator ReaderType = "aggregator"
+)
 
 // AggregatorReaderConfig allows you to change the aggregator reader used by the indexer.
 type AggregatorReaderConfig struct {
