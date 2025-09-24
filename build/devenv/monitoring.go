@@ -20,7 +20,7 @@ import (
 )
 
 /*
-Loki labels
+Loki labels.
 */
 const (
 	LokiCCIPMessageSentLabel       = "on-chain-sent"
@@ -28,7 +28,7 @@ const (
 )
 
 /*
-Prometheus metrics
+Prometheus metrics.
 */
 var (
 	msgSentTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -46,7 +46,7 @@ var (
 	}, []string{"from", "to"})
 )
 
-// LaneStreamConfig contains contracts to collect events from and selectors for queries
+// LaneStreamConfig contains contracts to collect events from and selectors for queries.
 type LaneStreamConfig struct {
 	From              *ccvProxy.CCVProxy
 	To                *ccvAggregator.CCVAggregator
@@ -56,7 +56,7 @@ type LaneStreamConfig struct {
 	AggregatorSince   int64
 }
 
-// LaneStreams represents all the events for sent/exec events
+// LaneStreams represents all the events for sent/exec events.
 type LaneStreams struct {
 	SentEvents    []*ccvProxy.CCVProxyCCIPMessageSent
 	ExecEvents    []*ccvAggregator.CCVAggregatorExecutionStateChanged
@@ -117,7 +117,7 @@ func MonitorOnChainLogs(in *Cfg) (*prometheus.Registry, error) {
 	return reg, nil
 }
 
-// ProcessLaneEvents collects, pushes and observes sent and executed messages for lane
+// ProcessLaneEvents collects, pushes and observes sent and executed messages for lane.
 func ProcessLaneEvents(ctx context.Context, lp *LokiPusher, tp *TempoPusher, cfg *LaneStreamConfig) error {
 	Plog.Info().Uint64("FromSelector", cfg.FromSelector).Uint64("ToSelector", cfg.ToSelector).Msg("Processing events")
 	streams, err := FetchLaneEvents(ctx, cfg)
@@ -167,7 +167,7 @@ func ProcessLaneEvents(ctx context.Context, lp *LokiPusher, tp *TempoPusher, cfg
 	return nil
 }
 
-func StreamsToSpans(srcSelector string, destSelector string, streams *LaneStreams) []Span {
+func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Span {
 	idToMsgSent := make(map[types.Bytes32]*ccvProxy.CCVProxyCCIPMessageSent)
 	idToMsgExec := make(map[types.Bytes32]*ccvAggregator.CCVAggregatorExecutionStateChanged)
 	idToReport := make(map[types.Bytes32]*types.CCVData)
@@ -281,7 +281,7 @@ func StreamsToSpans(srcSelector string, destSelector string, streams *LaneStream
 	return spans
 }
 
-// FetchLaneEvents fetch sent and exec events for lane
+// FetchLaneEvents fetch sent and exec events for lane.
 func FetchLaneEvents(ctx context.Context, cfg *LaneStreamConfig) (*LaneStreams, error) {
 	msgSentEvent, err := FetchAllSentEventsBySelector(cfg.From, cfg.ToSelector)
 	if err != nil {

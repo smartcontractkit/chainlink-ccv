@@ -9,7 +9,7 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 )
 
 // Constants for CCIP v1.7.
@@ -355,9 +355,7 @@ func (m *Message) MessageID() (Bytes32, error) {
 	if err != nil {
 		return Bytes32{}, err
 	}
-	hash := crypto.Keccak256(encoded)
-	var result Bytes32
-	copy(result[:], hash)
+	result := hashing.Keccak256(encoded)
 	return result, nil
 }
 

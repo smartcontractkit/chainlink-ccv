@@ -5,7 +5,6 @@ go 1.24.6
 require (
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.40.0
 )
 
 require (
@@ -13,6 +12,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -54,6 +54,9 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 	mounts := testcontainers.Mounts()
 	homeDir, _ := os.UserHomeDir()
 	goHome := os.Getenv("GOPATH")
+	if goHome == "" {
+		goHome = filepath.Join(homeDir, "go")
+	}
 	var (
 		goModCachePath   string
 		goBuildCachePath string
