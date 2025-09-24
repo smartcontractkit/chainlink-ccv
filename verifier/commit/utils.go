@@ -5,22 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// Keccak256 computes the Keccak256 hash of the input.
-func Keccak256(data []byte) [32]byte {
-	hash := crypto.Keccak256(data)
-	var result [32]byte
-	copy(result[:], hash)
-	return result
-}
-
-// CalculateSignatureHash calculates signature hash using canonical binary encoding:
+// CalculateSignatureHash calculates signature hashing using canonical binary encoding:
 // keccak256(messageHash || ccvArgs).
 // This matches the onchain validation in CommitOffRamp.sol:42:
 // _validateSignatures(keccak256(bytes.concat(messageHash, ccvArgs)), rs, ss);.
@@ -28,7 +19,7 @@ func CalculateSignatureHash(messageHash protocol.Bytes32, ccvArgs []byte) ([32]b
 	var buf bytes.Buffer
 	buf.Write(messageHash[:])
 	buf.Write(ccvArgs)
-	return Keccak256(buf.Bytes()), nil
+	return hashing.Keccak256(buf.Bytes()), nil
 }
 
 // CreateCCVData creates CCVData from verification task, signature, and blob using the new format.
