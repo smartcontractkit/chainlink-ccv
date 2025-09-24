@@ -22,14 +22,6 @@ type Data struct {
 	Signer common.Address
 }
 
-// Keccak256 computes the Keccak256 hash of the input.
-func Keccak256(data []byte) [32]byte {
-	hash := crypto.Keccak256(data)
-	var result [32]byte
-	copy(result[:], hash)
-	return result
-}
-
 // NormalizeToV27 takes a standard 65-byte Ethereum signature (R||S||V) and
 // rewrites it so that it is valid for ecrecover(hash, 27, r, s) on-chain.
 // If V == 28 (or == 1 if your signer returns 0/1), we flip s := n - s and set V := 27.

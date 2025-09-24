@@ -122,9 +122,9 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 				},
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					"1": {
-						OfframpAddress: common.Bytes2Hex(b.destVerifierAddress),
-						Signers:        signers,
-						Threshold:      b.threshold,
+						CommitteeVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
+						Signers:                  signers,
+						Threshold:                b.threshold,
 					},
 				},
 			},
@@ -220,9 +220,9 @@ func TestValidateSignature(t *testing.T) {
 					},
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
-							Signers:        []model.Signer{signerFixture.Signer},
-							Threshold:      1,
-							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
+							Signers:                  []model.Signer{signerFixture.Signer},
+							Threshold:                1,
+							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 						},
 					},
 				},
@@ -251,9 +251,9 @@ func TestValidateSignature(t *testing.T) {
 					},
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
-							Signers:        []model.Signer{signerFixture.Signer},
-							Threshold:      1,
-							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
+							Signers:                  []model.Signer{signerFixture.Signer},
+							Threshold:                1,
+							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 						},
 					},
 				},
@@ -284,9 +284,9 @@ func TestValidateSignature(t *testing.T) {
 					},
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
-							Signers:        []model.Signer{signerFixture.Signer},
-							Threshold:      1,
-							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
+							Signers:                  []model.Signer{signerFixture.Signer},
+							Threshold:                1,
+							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 						},
 					},
 				},
@@ -335,9 +335,9 @@ func TestValidateSignature(t *testing.T) {
 					},
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						destSelector: {
-							Signers:        []model.Signer{signerFixture.Signer},
-							Threshold:      1,
-							OfframpAddress: common.Bytes2Hex(destVerifierAddress),
+							Signers:                  []model.Signer{signerFixture.Signer},
+							Threshold:                1,
+							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 						},
 					},
 				},

@@ -17,6 +17,7 @@ func NewV1API(lggr logger.Logger, storage common.IndexerStorage, monitoring comm
 
 	// Add the active requests middleware to all routes
 	router.Use(middleware.ActiveRequestsMiddleware(monitoring, lggr))
+	router.Use(middleware.RateLimit())
 
 	v1Group := router.Group("/v1")
 

@@ -1,4 +1,4 @@
-package internal
+package verifier
 
 import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"

@@ -64,6 +64,8 @@ func main() {
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
+	lggr.Infow("Executor configuration", "config", executorConfig)
+
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -108,11 +110,14 @@ func main() {
 	le := leaderelector.RandomDelayLeader{}
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
-		executorConfig.IndexerAddress,
 		lggr,
-		time.Now().Add(-1*executorConfig.GetLookbackWindow()).Unix(),
-		executorConfig.GetPollingInterval(),
-		executorConfig.GetBackoffDuration())
+		ccvstreamer.IndexerStorageConfig{
+			IndexerURI:      executorConfig.IndexerAddress,
+			LastQueryTime:   time.Now().Add(-1 * executorConfig.GetLookbackWindow()).Unix(),
+			PollingInterval: executorConfig.GetPollingInterval(),
+			Backoff:         executorConfig.GetBackoffDuration(),
+			QueryLimit:      executorConfig.IndexerQueryLimit,
+		})
 
 	// Create executor coordinator
 	coordinator, err := executor.NewCoordinator(
