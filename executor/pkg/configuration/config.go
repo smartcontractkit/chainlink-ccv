@@ -4,18 +4,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 type Configuration struct {
-	BlockchainInfos   map[string]*types.BlockchainInfo `toml:"blockchain_infos"`
-	IndexerAddress    string                           `toml:"indexer_address"`
-	PrivateKey        string                           `toml:"private_key"`
-	PollingInterval   string                           `toml:"source_polling_interval"`
-	BackoffDuration   string                           `toml:"source_backoff_duration"`
-	LookbackWindow    string                           `toml:"startup_lookback_window"`
-	IndexerQueryLimit uint64                           `toml:"indexer_query_limit"`
-	PyroscopeURL      string                           `toml:"pyroscope_url"`
+	BlockchainInfos   map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	IndexerAddress    string                              `toml:"indexer_address"`
+	PrivateKey        string                              `toml:"private_key"`
+	PollingInterval   string                              `toml:"source_polling_interval"`
+	BackoffDuration   string                              `toml:"source_backoff_duration"`
+	LookbackWindow    string                              `toml:"startup_lookback_window"`
+	IndexerQueryLimit uint64                              `toml:"indexer_query_limit"`
+	PyroscopeURL      string                              `toml:"pyroscope_url"`
 }
 
 func (c *Configuration) Validate() error {
