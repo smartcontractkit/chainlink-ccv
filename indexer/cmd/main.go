@@ -20,6 +20,7 @@ import (
 )
 
 func main() {
+	// Load in the config from './config.toml'
 	config, err := config.LoadConfig()
 	if err != nil {
 		panic(err)
