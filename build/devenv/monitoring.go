@@ -65,11 +65,18 @@ type ExecEventPlusMeta struct {
 // it does not preserve original timestamps for observation and Loki pushes and scans/uploads the whole range
 // in case we need to get realtime metrics this function can be converted to a service that calls this function with
 // block ranges for both chains.
-func MonitorOnChainLogs(in *Cfg) error {
+func MonitorOnChainLogs(in *Cfg) (*prometheus.Registry, error) {
+	msgSentTotal.Reset()
+	msgExecTotal.Reset()
+	srcDstLatency.Reset()
+
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(msgSentTotal, msgExecTotal, srcDstLatency)
+
 	lp := NewLokiPusher()
 	c, err := NewContracts(in)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = ProcessLaneEvents(lp, &LaneStreamConfig{
 		From:         c.Proxy1337,
@@ -78,14 +85,18 @@ func MonitorOnChainLogs(in *Cfg) error {
 		ToSelector:   c.Chain2337Details.ChainSelector,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return ProcessLaneEvents(lp, &LaneStreamConfig{
+	err = ProcessLaneEvents(lp, &LaneStreamConfig{
 		From:         c.Proxy2337,
 		To:           c.Agg1337,
 		FromSelector: c.Chain2337Details.ChainSelector,
 		ToSelector:   c.Chain1337Details.ChainSelector,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return reg, nil
 }
 
 // ProcessLaneEvents collects, pushes and observes sent and executed messages for lane

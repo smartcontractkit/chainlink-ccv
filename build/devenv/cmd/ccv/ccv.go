@@ -393,10 +393,11 @@ var monitorContractsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		if err := ccv.MonitorOnChainLogs(in); err != nil {
+		reg, err := ccv.MonitorOnChainLogs(in)
+		if err != nil {
 			return err
 		}
-		if err := ccv.ExposePrometheusMetricsFor(10 * time.Second); err != nil {
+		if err := ccv.ExposePrometheusMetricsFor(reg, 10*time.Second); err != nil {
 			return err
 		}
 		ccv.Plog.Info().Str("Dashboard", LocalCCVDashboard).Msg("Metrics upload finished")

@@ -7,16 +7,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/stretchr/testify/require"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
-
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 func TestE2ESmoke(t *testing.T) {
@@ -30,10 +28,6 @@ func TestE2ESmoke(t *testing.T) {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 		require.NoError(t, err)
 	})
-
-	// TODO: figure out executor bug with RPC, this is just a workaround to prevent executor from crashing
-	time.Sleep(1 * time.Minute)
-	_, err = chaos.ExecPumba("stop --duration=1s --restart re2:executor", 0*time.Second)
 
 	t.Run("test argsv2 messages", func(t *testing.T) {
 		type testcase struct {
@@ -139,7 +133,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 5*time.Minute)
+				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 3*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)

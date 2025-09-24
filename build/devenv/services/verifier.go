@@ -1,13 +1,11 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
 
-	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -111,7 +109,7 @@ func verifierDefaults(in *VerifierInput) {
 		}
 	}
 	if in.ConfigFilePath == "" {
-		in.ConfigFilePath = "/app/verifier.toml"
+		in.ConfigFilePath = "/app/verifier-1.toml"
 	}
 }
 
@@ -152,11 +150,6 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	var verifierConfigBuf bytes.Buffer
-	if err := toml.NewEncoder(&verifierConfigBuf).Encode(in.VerifierConfig); err != nil {
-		return nil, fmt.Errorf("failed to encode verifier config: %w", err)
-	}
-
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -180,35 +173,12 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 				},
 			}
 		},
-		Files: []testcontainers.ContainerFile{
-			{
-				Reader:            bytes.NewReader(verifierConfigBuf.Bytes()),
-				ContainerFilePath: in.ConfigFilePath,
-				FileMode:          0o644,
-			},
-		},
 	}
 
 	if in.SourceCodePath != "" {
-		//nolint:staticcheck // ignore for now
-		req.Mounts = testcontainers.Mounts(
-			testcontainers.BindMount(
-				p,
-				AppPathInsideContainer,
-			),
-			testcontainers.BindMount(
-				filepath.Join(p, "../protocol"),
-				"/protocol",
-			),
-			testcontainers.VolumeMount(
-				"go-mod-cache",
-				"/go/pkg/mod",
-			),
-			testcontainers.VolumeMount(
-				"go-build-cache",
-				"/root/.cache/go-build",
-			),
-		)
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

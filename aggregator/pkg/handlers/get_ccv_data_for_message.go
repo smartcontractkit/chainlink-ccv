@@ -31,7 +31,10 @@ func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *aggregato
 	ctx = scope.WithCommitteeID(ctx, committeeID)
 	h.logger(ctx).Infof("Received GetCCVDataForMessageRequest")
 
-	data := h.storage.GetCCVData(ctx, req.MessageId, committeeID)
+	data, err := h.storage.GetCCVData(ctx, req.MessageId, committeeID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%s", fmt.Sprintf("failed to get CCV data for message ID %x: %v", req.MessageId, err))
+	}
 
 	if data == nil {
 		return nil, status.Errorf(codes.NotFound, "%s", fmt.Sprintf("no data found for message ID %x", req.MessageId))

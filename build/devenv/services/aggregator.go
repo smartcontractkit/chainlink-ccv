@@ -1,13 +1,11 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
 
-	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -86,12 +84,18 @@ type ServerConfig struct {
 	Address string `toml:"address"`
 }
 
+type MetricConfig struct {
+	EnableMetrics bool   `toml:"enableMetrics"`
+	Endpoint      string `toml:"endpoint"`
+}
+
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Server     ServerConfig          `toml:"server"`
-	Storage    StorageConfig         `toml:"storage"`
-	StubMode   bool                  `toml:"stubQuorumValidation"`
-	Committees map[string]*Committee `toml:"committees"`
+	Server       ServerConfig          `toml:"server"`
+	Storage      StorageConfig         `toml:"storage"`
+	StubMode     bool                  `toml:"stubQuorumValidation"`
+	Committees   map[string]*Committee `toml:"committees"`
+	MetricConfig MetricConfig          `toml:"metrics"`
 }
 
 func aggregatorDefaults(in *AggregatorInput) {
@@ -109,8 +113,15 @@ func aggregatorDefaults(in *AggregatorInput) {
 			Image: DefaultAggregatorDBImage,
 		}
 	}
+
+	MetricConfig := MetricConfig{
+		EnableMetrics: true,
+		Endpoint:      "otel-collector:4318",
+	}
+
 	if in.AggregatorConfig == nil {
 		in.AggregatorConfig = &AggregatorConfig{
+			MetricConfig: MetricConfig,
 			Server: ServerConfig{
 				Address: ":50051",
 			},
@@ -183,11 +194,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	var aggreagtorConfigBuf bytes.Buffer
-	if err := toml.NewEncoder(&aggreagtorConfigBuf).Encode(in.AggregatorConfig); err != nil {
-		return nil, fmt.Errorf("failed to encode aggregator config: %w", err)
-	}
-
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -207,17 +213,12 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 				},
 			}
 		},
-		Files: []testcontainers.ContainerFile{
-			{
-				Reader:            bytes.NewReader(aggreagtorConfigBuf.Bytes()),
-				ContainerFilePath: "/app/aggregator.toml",
-				FileMode:          0o644,
-			},
-		},
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
@@ -230,10 +231,10 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
-
-	return &AggregatorOutput{
+	in.Out = &AggregatorOutput{
 		ContainerName:      in.ContainerName,
 		Address:            fmt.Sprintf("%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultAggregatorDBConnectionString,
-	}, nil
+	}
+	return in.Out, nil
 }
