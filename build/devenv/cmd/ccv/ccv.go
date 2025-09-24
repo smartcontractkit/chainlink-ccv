@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/spf13/cobra"
 
@@ -389,13 +390,20 @@ var monitorContractsCmd = &cobra.Command{
 	Use:   "upload-on-chain-metrics",
 	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		reg, err := ccv.MonitorOnChainLogs(in)
+		impl := &ccvEvm.CCIP17EVM{}
+		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+		for _, bc := range in.Blockchains {
+			chainIDs = append(chainIDs, bc.ChainID)
+			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+		}
+		_, reg, err := impl.ExposeMetrics(ctx, in.CCV.Addresses, chainIDs, wsURLs)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to expose metrics: %w", err)
 		}
 		if err := ccv.ExposePrometheusMetricsFor(reg, 10*time.Second); err != nil {
 			return err

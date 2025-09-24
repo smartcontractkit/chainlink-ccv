@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
@@ -29,7 +30,7 @@ type CCIP17ProductConfiguration interface {
 
 // Observable exposes Loki and Prometheus metrics and returns queries to assert SLAs
 type Observable interface {
-	ExposeMetrics() ([]string, error)
+	ExposeMetrics(ctx context.Context, addresses []string, chainIDs []string, wsURLs []string) ([]string, *prometheus.Registry, error)
 }
 
 // Testable provides functions for a standardized CCIP test suite.

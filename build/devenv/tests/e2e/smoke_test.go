@@ -10,10 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
@@ -21,7 +23,13 @@ func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
 
-	c, err := ccv.NewContracts(in)
+	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+	for _, bc := range in.Blockchains {
+		chainIDs = append(chainIDs, bc.ChainID)
+		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	}
+
+	c, err := ccvEvm.NewContracts(t.Context(), in.CCV.Addresses, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -61,9 +69,9 @@ func TestE2ESmoke(t *testing.T) {
 				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 				err = ccv.SendExampleArgsV2Message(in, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
-				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.toSelector, seqNo, 1*time.Minute)
+				_, err = ccvEvm.WaitOneSentEventBySeqNo(t.Context(), tc.proxy, tc.toSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.fromSelector, seqNo, 5*time.Minute)
+				e, err := ccvEvm.WaitOneExecEventBySeqNo(t.Context(), tc.agg, tc.fromSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)
@@ -131,9 +139,9 @@ func TestE2ESmoke(t *testing.T) {
 				err = ccv.SendExampleArgsV3Message(in, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
 					tc.mandatoryCCVs, tc.optionalCCVs, 0)
 				require.NoError(t, err)
-				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
+				_, err = ccvEvm.WaitOneSentEventBySeqNo(t.Context(), tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccv.WaitOneExecEventBySeqNo(tc.agg, tc.srcSelector, seqNo, 3*time.Minute)
+				e, err := ccvEvm.WaitOneExecEventBySeqNo(t.Context(), tc.agg, tc.srcSelector, seqNo, 3*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)

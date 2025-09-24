@@ -439,6 +439,4 @@ replace (
 	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
 )
 
-replace (
-	github.com/smartcontractkit/chainlink-ccv/ccv-evm => ./../../ccv-evm
-)
+replace github.com/smartcontractkit/chainlink-ccv/ccv-evm => ./../../ccv-evm

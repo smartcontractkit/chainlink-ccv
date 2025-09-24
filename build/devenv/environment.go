@@ -19,7 +19,7 @@ import (
 
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
-	evmImpl "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 )
 
 type Cfg struct {
@@ -43,10 +43,10 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewDevenvNetwork(typ string) (CCIP17ProductConfiguration, error) {
+func NewProductConfigurationFromNetwork(typ string) (CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
-		return &evmImpl.CCIP17EVM{}, nil
+		return &ccvEvm.CCIP17EVM{}, nil
 	case "canton":
 		// see devenv-evm implementation and add Canton
 		return nil, nil
@@ -79,7 +79,7 @@ func NewEnvironment() (*Cfg, error) {
 
 	impls := make([]CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
-		impl, err := NewDevenvNetwork(bc.Type)
+		impl, err := NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return nil, err
 		}
@@ -181,9 +181,6 @@ func NewEnvironment() (*Cfg, error) {
 	}
 
 	track.Record("[infra] deployed CL nodes")
-	//if err := DefaultProductConfiguration(in); err != nil {
-	//	return nil, fmt.Errorf("failed to setup default CLDF orchestration: %w", err)
-	//}
 	track.Record("[changeset] deployed product contracts")
 
 	_, err = services.NewExecutor(in.Executor)

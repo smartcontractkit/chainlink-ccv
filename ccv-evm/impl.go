@@ -10,6 +10,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
@@ -28,9 +29,43 @@ import (
 
 type CCIP17EVM struct{}
 
-func (m *CCIP17EVM) ExposeMetrics() ([]string, error) {
-	//TODO implement me
-	panic("implement me")
+func (m *CCIP17EVM) ExposeMetrics(ctx context.Context, addresses []string, chainIDs []string, wsURLs []string) ([]string, *prometheus.Registry, error) {
+	msgSentTotal.Reset()
+	msgExecTotal.Reset()
+	srcDstLatency.Reset()
+
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(msgSentTotal, msgExecTotal, srcDstLatency)
+
+	lp := NewLokiPusher()
+	tp := NewTempoPusher()
+	c, err := NewContracts(ctx, addresses, chainIDs, wsURLs)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = ProcessLaneEvents(ctx, lp, tp, &LaneStreamConfig{
+		From:              c.Proxy1337,
+		To:                c.Agg2337,
+		FromSelector:      c.Chain1337Details.ChainSelector,
+		ToSelector:        c.Chain2337Details.ChainSelector,
+		AggregatorAddress: "localhost:50051",
+		AggregatorSince:   0,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	err = ProcessLaneEvents(ctx, lp, tp, &LaneStreamConfig{
+		From:              c.Proxy2337,
+		To:                c.Agg1337,
+		FromSelector:      c.Chain2337Details.ChainSelector,
+		ToSelector:        c.Chain1337Details.ChainSelector,
+		AggregatorAddress: "localhost:50051",
+		AggregatorSince:   0,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return []string{}, reg, nil
 }
 
 func (m *CCIP17EVM) SendMessage(ctx context.Context, router string, msg []byte) ([]byte, error) {

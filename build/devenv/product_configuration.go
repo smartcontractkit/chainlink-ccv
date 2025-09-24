@@ -30,22 +30,13 @@ import (
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 type CCV struct {
-	EAFake              *EAFake       `toml:"ea_fake"`
-	Jobs                *Jobs         `toml:"jobs"`
-	LinkContractAddress string        `toml:"link_contract_address"`
-	CLNodesFundingETH   float64       `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink  float64       `toml:"cl_nodes_funding_link"`
-	ChainFinalityDepth  int64         `toml:"chain_finality_depth"`
-	VerificationTimeout time.Duration `toml:"verification_timeout"`
-	Verify              bool          `toml:"verify"`
+	CLNodesFundingETH  float64 `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64 `toml:"cl_nodes_funding_link"`
 
 	// Contracts (CLDF)
 	AddressesMu *sync.Mutex         `toml:"-"`
 	Addresses   []string            `toml:"addresses"`
 	DataStore   datastore.DataStore `toml:"-"`
-
-	// These are the settings for CLDF missing functionality we cover with ETHClient, we should remove them later
-	GasSettings *GasSettings `toml:"gas_settings"`
 }
 
 type DeployedContracts struct {
@@ -55,16 +46,6 @@ type DeployedContracts struct {
 type GasSettings struct {
 	FeeCapMultiplier int64 `toml:"fee_cap_multiplier"`
 	TipCapMultiplier int64 `toml:"tip_cap_multiplier"`
-}
-
-type Jobs struct {
-	ConfigPollIntervalSeconds time.Duration `toml:"config_poll_interval_sec"` //nolint:staticcheck
-	MaxTaskDurationSec        time.Duration `toml:"max_task_duration_sec"`    //nolint:staticcheck
-}
-
-type EAFake struct {
-	LowValue  int64 `toml:"low_value"`
-	HighValue int64 `toml:"high_value"`
 }
 
 func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment.Environment, error) {
