@@ -73,15 +73,15 @@ func processVerificationFromReportRow(row *dbReportWithVerification) (*model.Com
 
 // dbReportWithVerification represents a joined query result from aggregated reports and verification records.
 type dbReportWithVerification struct {
-	MessageID     string  `db:"message_id"`
-	CommitteeID   string  `db:"committee_id"`
-	ReportData    []byte  `db:"report_data"`
-	Timestamp     int64   `db:"timestamp"`
-	ParticipantID *string `db:"participant_id"` // NULL if no verifications
-	SignerAddress *string `db:"signer_address"` // NULL if no verifications
-	SignatureR    []byte  `db:"signature_r"`    // NULL if no verifications
-	SignatureS    []byte  `db:"signature_s"`    // NULL if no verifications
-	CCVNodeData   []byte  `db:"ccv_node_data"`  // NULL if no verifications
+	MessageID     string    `db:"message_id"`
+	CommitteeID   string    `db:"committee_id"`
+	ReportData    []byte    `db:"report_data"`
+	UpdatedAt     time.Time `db:"updated_at"`
+	ParticipantID *string   `db:"participant_id"` // NULL if no verifications
+	SignerAddress *string   `db:"signer_address"` // NULL if no verifications
+	SignatureR    []byte    `db:"signature_r"`    // NULL if no verifications
+	SignatureS    []byte    `db:"signature_s"`    // NULL if no verifications
+	CCVNodeData   []byte    `db:"ccv_node_data"`  // NULL if no verifications
 }
 
 // DatabaseStorage implements CommitVerificationStore and CommitVerificationAggregatedStore
@@ -116,8 +116,8 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 
 	stmt := `INSERT INTO commit_verification_records 
 		(message_id, committee_id, participant_id, signer_address, source_chain_selector, dest_chain_selector, 
-		 onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, created_at) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		 onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, created_at, updated_at) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (message_id, signer_address, committee_id) 
 		DO UPDATE SET 
 			participant_id = EXCLUDED.participant_id,
@@ -127,7 +127,8 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 			offramp_address = EXCLUDED.offramp_address,
 			signature_r = EXCLUDED.signature_r,
 			signature_s = EXCLUDED.signature_s,
-			ccv_node_data = EXCLUDED.ccv_node_data`
+			ccv_node_data = EXCLUDED.ccv_node_data,
+			updated_at = NOW()`
 
 	// Serialize the CCVNodeData for storage
 	ccvNodeData, err := proto.Marshal(&record.MessageWithCCVNodeData)
@@ -149,6 +150,7 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 	messageIDHex := common.Bytes2Hex(id.MessageID)
 	signerAddressHex := common.BytesToAddress(record.IdentifierSigner.Address).Hex()
 
+	now := time.Now()
 	_, err = d.ds.ExecContext(ctx, stmt,
 		messageIDHex,
 		record.CommitteeID,
@@ -161,7 +163,8 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		record.IdentifierSigner.SignatureR[:],
 		record.IdentifierSigner.SignatureS[:],
 		ccvNodeData,
-		time.Now(),
+		now,
+		now,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save commit verification record: %w", err)
@@ -307,16 +310,19 @@ func (d *DatabaseStorage) ListCommitVerificationByMessageID(ctx context.Context,
 
 // QueryAggregatedReports retrieves all aggregated reports within a specific time range.
 func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error) {
+	startTime := time.Unix(start, 0)
+	endTime := time.Unix(end, 0)
+
 	stmt := `SELECT 
-		ar.message_id, ar.committee_id, ar.report_data, ar.timestamp,
+		ar.message_id, ar.committee_id, ar.report_data, ar.updated_at,
 		cvr.participant_id, cvr.signer_address, cvr.signature_r, cvr.signature_s, cvr.ccv_node_data
 		FROM commit_aggregated_reports ar
 		LEFT JOIN commit_verification_records cvr ON ar.message_id = cvr.message_id AND ar.committee_id = cvr.committee_id
-		WHERE ar.committee_id = $1 AND ar.timestamp >= $2 AND ar.timestamp <= $3
-		ORDER BY ar.timestamp ASC, cvr.created_at ASC`
+		WHERE ar.committee_id = $1 AND ar.updated_at >= $2 AND ar.updated_at <= $3
+		ORDER BY ar.updated_at ASC, cvr.created_at ASC`
 
 	var dbRows []dbReportWithVerification
-	err := d.ds.SelectContext(ctx, &dbRows, stmt, committeeID, start, end)
+	err := d.ds.SelectContext(ctx, &dbRows, stmt, committeeID, startTime, endTime)
 	if err != nil {
 		return []*model.CommitAggregatedReport{}, err
 	}
@@ -334,7 +340,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end
 				MessageID:     messageIDBytes,
 				CommitteeID:   row.CommitteeID,
 				Verifications: []*model.CommitVerificationRecord{},
-				Timestamp:     row.Timestamp,
+				Timestamp:     row.UpdatedAt.Unix(),
 			}
 			reportsMap[row.MessageID] = report
 		}
@@ -359,7 +365,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end
 // GetCCVData retrieves the aggregated CCV data for a specific message ID.
 func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {
 	stmt := `SELECT 
-		ar.message_id, ar.committee_id, ar.report_data, ar.timestamp,
+		ar.message_id, ar.committee_id, ar.report_data, ar.updated_at,
 		cvr.participant_id, cvr.signer_address, cvr.signature_r, cvr.signature_s, cvr.ccv_node_data
 		FROM commit_aggregated_reports ar
 		LEFT JOIN commit_verification_records cvr ON ar.message_id = cvr.message_id AND ar.committee_id = cvr.committee_id
@@ -387,7 +393,7 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 		MessageID:     common.Hex2Bytes(firstRow.MessageID),
 		CommitteeID:   firstRow.CommitteeID,
 		Verifications: []*model.CommitVerificationRecord{},
-		Timestamp:     firstRow.Timestamp,
+		Timestamp:     firstRow.UpdatedAt.Unix(),
 	}
 
 	// Process all verifications
@@ -411,23 +417,27 @@ func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return fmt.Errorf("aggregated report cannot be nil")
 	}
 
+	// Set timestamp in the storage layer (following in-memory storage pattern)
+	report.Timestamp = time.Now().Unix()
+
 	// Serialize the verifications for storage (simplified - in production you'd serialize the full data)
 	reportData := []byte(fmt.Sprintf("verification_count:%d", len(report.Verifications)))
 
 	stmt := `INSERT INTO commit_aggregated_reports 
-		(message_id, committee_id, report_data, timestamp, created_at) 
+		(message_id, committee_id, report_data, created_at, updated_at) 
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (message_id, committee_id) 
 		DO UPDATE SET 
 			report_data = EXCLUDED.report_data,
-			timestamp = EXCLUDED.timestamp`
+			updated_at = NOW()`
 
+	now := time.Now()
 	_, err := d.ds.ExecContext(ctx, stmt,
 		common.Bytes2Hex(report.MessageID),
 		report.CommitteeID,
 		reportData,
-		report.Timestamp,
-		time.Now(),
+		now,
+		now,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to submit aggregated report: %w", err)

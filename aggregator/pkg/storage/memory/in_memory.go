@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
@@ -56,6 +57,7 @@ func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, m
 
 func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
 	id := report.GetID()
+	report.Timestamp = time.Now().Unix()
 	s.aggregatedReports.Store(id, report)
 	return nil
 }

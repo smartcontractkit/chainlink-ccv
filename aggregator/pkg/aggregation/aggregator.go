@@ -3,7 +3,6 @@ package aggregation
 
 import (
 	"context"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -71,7 +70,6 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
 		Verifications: verifications,
-		Timestamp:     time.Now().Unix(),
 	}
 
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
