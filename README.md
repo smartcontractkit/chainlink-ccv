@@ -20,7 +20,7 @@ Follow the [README](./build/devenv/README.md)
 
 
 ### Glossary
-- CCV: Cross chain verifier comprising an onramp, offramp and offchain component which exposes VerifierResults (usually containing some form of authentication, like signatures/zkps etc.) from its offchain component to be passed to its offramp.
+- CCV: Cross chain verifier comprising two onchain Verifier components and an offchain Verifier component which exposes VerifierResults (usually containing some form of authentication, like signatures/zkps etc.) from its offchain component to be passed to its onchain component.
     - CCV naming schema: operator | type | component
     - Operators:
         - Chainlink (NOPs)
@@ -32,8 +32,6 @@ Follow the [README](./build/devenv/README.md)
         - USDC means wrapping USDC verification (the attestation API from circle)
         - Lombard means wrapping lombard verification
     - Components:
-        - OnRamp
-        - OffRamp
         - Verifier which comprises all offchain logic and storage required to make VerifierResults available. If multi-node
           this includes some aggregation.
     - Examples:
@@ -43,9 +41,8 @@ Follow the [README](./build/devenv/README.md)
         - Chainlink's USDC CCV: USDCOnRamp, USDCVerifier, USDCOffRamp
         - Succinct's ZK CCV: ZKOnRamp, ZKVerifier, ZKOffRamp
 
-- VerifierResult: Data made available by a CCV verifier offramp which executors pass to that CCV's offramp.
-- CCVNodeData: In the context of a CCV with multiple nodes, CCVNodeData is a given nodes contribution to the final VerifierResult.
-- Aggregation Service: An internal service shared by chainlink run verifiers which for convience combines storage.
+- VerifierResult: Data made available by an offchain CCV verifier which executors pass to that CCV's onchain verifier.
+- CCVNodeData: In the context of a committee-based CCV with multiple nodes, CCVNodeData is a given member nodes contribution to the final VerifierResult.
 
 
 ### System Diagram
@@ -56,12 +53,12 @@ graph LR
         RouterSrc["Router"]
         OnRamp["OnRamp"]
         
-        subgraph "Per Verifier OnRamps"
-            InternalOnRamp["CommitteeOnRamp"]
-            ChainlinkOnRamp["CommitteeOnRamp"]
-            USDCOnRamp["USDCOnRamp"]
-            ZKOnRamp["ZKOnRamp"]
-            CustomOnRamp["CustomOnRamp"]
+        subgraph "Per CCV Verifiers"
+            InternalOnRamp["CommitteeVerifier"]
+            ChainlinkOnRamp["CommitteeVerifier"]
+            USDCOnRamp["USDCVerifier"]
+            ZKOnRamp["ZKVerifier"]
+            CustomOnRamp["CustomVerifier"]
         end
         
         
@@ -106,12 +103,12 @@ graph LR
         OffRamp["OffRamp"]
         Receiver["Receiver"]
         
-        subgraph "Per Verifier OffRamps"
-            ChainlinkOffRamp["Chainlink Committee OffRamp s3://chainlinklabs.com/"]
-            InternalOffRamp["Internal Committee OffRamp s3://chainlinklabs-internal.com"]
-            USDCOffRamp["Chainlink USDC OffRamp s3://chainlinklabs.com"]
-            ZKOffRamp["Succinct ZK OffRamp gcp://succinctzkverifier.com"]
-            CustomOffRamp["Custom OffRamp Http://customverifier.com"]
+        subgraph "Per CCV Verifiers"
+            ChainlinkOffRamp["Chainlink Committee Verifier s3://chainlinklabs.com/"]
+            InternalOffRamp["Internal Committee Verifier s3://chainlinklabs-internal.com"]
+            USDCOffRamp["Chainlink USDC Verifier s3://chainlinklabs.com"]
+            ZKOffRamp["Succinct ZK Verifier gcp://succinctzkverifier.com"]
+            CustomOffRamp["Custom Verifier Http://customverifier.com"]
         end
         
         subgraph "Destination Pools"
@@ -188,14 +185,14 @@ graph LR
 ```
 
 Notes
-- The storage locator is stored in the verifier specific offramp and exposed via getStorageLocator() which returns URI(s)
+- The storage locator is stored in the CCV specific verifier and exposed via getStorageLocator() which returns URI(s)
 - There is only a small handful of first class storage mechanisms: a standard `VerifierResultAPI`, s3 and gcp.
   The execution API lets you wrap any form of storage as a verifier if the cloud ones are insufficient for a verifier. Each of these storage mechanisms:
     - Has a canonical prefix in the storage pointer so executors/indexers know how to read the data
     - Is supported by the default executor
     - Is optionally supported by 3rd party executors
 - The initial verifier set comprises (Chainlink, Internal, USDC, Lombard). Nodes in the chainlink committee verifier are run by the NOPs and has its verifier results aggregated by the chainlink committee aggregator. The Internal verifier is a copy of the chainlink committee verifier except the verifier nodes are run internally specifically for users who wish to avoid trusting the NOPs. For USDC, the verifier simply wraps the CCTP API and can be run internally. For Lombard the exact deployment is still TBD.
-- The indexer run by CLL is a centralized convience which wraps the raw object storage and exposes an `IndexerAPI` to make querying more convenient for the default executor and 3rd party executors who wish to use it. 3rd parties may also write their own indexer (potentially even run our if we open source it).
+- The indexer run by CLL is a centralized convenience which wraps the raw object storage and exposes an `IndexerAPI` to make querying more convenient for the default executor and 3rd party executors who wish to use it. 3rd parties may also write their own indexer (potentially even run our if we open source it).
 - 3rd party executors need not use the indexer, in which case they effectively are responsible for their
   own indexing. In principle, they can read new messages directly from the source chain and read the proof directly from a verifier (via message.receiver.getVerifiers() / tokenRegistry.getPool(message.tokens).getVerifiers() -> verifier.getStorageLocator()), such that
   they have no external trust dependencies other than the source/dest chains and the verifier they are executing
