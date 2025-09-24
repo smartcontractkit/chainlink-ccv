@@ -1,4 +1,4 @@
-package internal
+package verifier
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-// VerificationCoordinator orchestrates the verification workflow using the new message format with finality awareness.
-type VerificationCoordinator struct {
+// Coordinator orchestrates the verification workflow using the new message format with finality awareness.
+type Coordinator struct {
 	verifier              types.Verifier
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
@@ -33,31 +33,33 @@ type VerificationCoordinator struct {
 	stopped               bool
 }
 
-// Option is the functional option type for VerificationCoordinator.
-type Option func(*VerificationCoordinator)
+// Option is the functional option type for Coordinator.
+type Option func(*Coordinator)
 
 // WithVerifier sets the verifier implementation.
 func WithVerifier(verifier types.Verifier) Option {
-	return func(vc *VerificationCoordinator) {
+	return func(vc *Coordinator) {
 		vc.verifier = verifier
 	}
 }
 
 // WithSourceReaders sets multiple source readers.
 func WithSourceReaders(sourceReaders map[protocol.ChainSelector]reader.SourceReader) Option {
-	return func(vc *VerificationCoordinator) {
+	return func(vc *Coordinator) {
 		if vc.sourceStates == nil {
 			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
 		}
 		for chainSelector, reader := range sourceReaders {
-			vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
+			if reader != nil {
+				vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
+			}
 		}
 	}
 }
 
 // AddSourceReader adds a single source reader to the existing map.
 func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader reader.SourceReader) Option {
-	return func(vc *VerificationCoordinator) {
+	return func(vc *Coordinator) {
 		if vc.sourceStates == nil {
 			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
 		}
@@ -67,35 +69,35 @@ func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader reader.S
 
 // WithStorage sets the storage writer.
 func WithStorage(storage protocol.CCVNodeDataWriter) Option {
-	return func(vc *VerificationCoordinator) {
+	return func(vc *Coordinator) {
 		vc.storage = storage
 	}
 }
 
 // WithConfig sets the coordinator configuration.
 func WithConfig(config types.CoordinatorConfig) Option {
-	return func(vc *VerificationCoordinator) {
+	return func(vc *Coordinator) {
 		vc.config = config
 	}
 }
 
 // WithLogger sets the logger.
 func WithLogger(lggr logger.Logger) Option {
-	return func(vc *VerificationCoordinator) {
+	return func(vc *Coordinator) {
 		vc.lggr = lggr
 	}
 }
 
 // WithFinalityCheckInterval sets the finality check interval.
 func WithFinalityCheckInterval(interval time.Duration) Option {
-	return func(vc *VerificationCoordinator) {
+	return func(vc *Coordinator) {
 		vc.finalityCheckInterval = interval
 	}
 }
 
 // NewVerificationCoordinator creates a new verification coordinator.
-func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error) {
-	vc := &VerificationCoordinator{
+func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
+	vc := &Coordinator{
 		ccvDataCh:             make(chan protocol.CCVData, 1000),
 		doneCh:                make(chan struct{}),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
@@ -117,7 +119,7 @@ func NewVerificationCoordinator(opts ...Option) (*VerificationCoordinator, error
 }
 
 // Start begins the verification coordinator processing.
-func (vc *VerificationCoordinator) Start(ctx context.Context) error {
+func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 
@@ -145,7 +147,7 @@ func (vc *VerificationCoordinator) Start(ctx context.Context) error {
 	go vc.run(ctx)
 	go vc.finalityCheckingLoop(ctx)
 
-	vc.lggr.Infow("VerificationCoordinator started with finality checking",
+	vc.lggr.Infow("Coordinator started with finality checking",
 		"coordinatorID", vc.config.VerifierID,
 	)
 
@@ -153,7 +155,7 @@ func (vc *VerificationCoordinator) Start(ctx context.Context) error {
 }
 
 // Stop stops the verification coordinator processing.
-func (vc *VerificationCoordinator) Stop() error {
+func (vc *Coordinator) Stop() error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 
@@ -177,13 +179,13 @@ func (vc *VerificationCoordinator) Stop() error {
 	vc.cancel()
 	<-vc.doneCh
 
-	vc.lggr.Infow("VerificationCoordinator stopped")
+	vc.lggr.Infow("Coordinator stopped")
 
 	return nil
 }
 
 // run is the main processing loop.
-func (vc *VerificationCoordinator) run(ctx context.Context) {
+func (vc *Coordinator) run(ctx context.Context) {
 	defer close(vc.doneCh)
 
 	// Start goroutines for each source state
@@ -201,7 +203,7 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			vc.lggr.Infow("VerificationCoordinator processing stopped due to context cancellation")
+			vc.lggr.Infow("Coordinator processing stopped due to context cancellation")
 			wg.Wait()
 			return
 		case ccvData, ok := <-vc.ccvDataCh:
@@ -231,7 +233,7 @@ func (vc *VerificationCoordinator) run(ctx context.Context) {
 }
 
 // processSourceMessages handles message processing for a single source state.
-func (vc *VerificationCoordinator) processSourceMessages(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
+func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
 	defer wg.Done()
 	chainSelector := state.chainSelector
 
@@ -255,7 +257,7 @@ func (vc *VerificationCoordinator) processSourceMessages(ctx context.Context, wg
 }
 
 // processSourceErrors handles error processing for a single source state.
-func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
+func (vc *Coordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
 	defer wg.Done()
 	chainSelector := state.chainSelector
 
@@ -294,39 +296,41 @@ func (vc *VerificationCoordinator) processSourceErrors(ctx context.Context, wg *
 }
 
 // validate checks that all required components are configured.
-func (vc *VerificationCoordinator) validate() error {
+func (vc *Coordinator) validate() error {
+	var errs []error
+
 	if len(vc.sourceStates) == 0 {
-		return fmt.Errorf("at least one source reader is required")
+		errs = append(errs, fmt.Errorf("at least one source reader is required"))
 	}
 
 	// Validate that all configured sources have corresponding readers
 	for chainSelector := range vc.config.SourceConfigs {
 		if _, exists := vc.sourceStates[chainSelector]; !exists {
-			return fmt.Errorf("source reader not found for chain selector %d", chainSelector)
+			errs = append(errs, fmt.Errorf("source reader not found for chain selector %d", chainSelector))
 		}
 	}
 
 	if vc.verifier == nil {
-		return fmt.Errorf("verifier is required")
+		errs = append(errs, fmt.Errorf("verifier is required"))
 	}
 
 	if vc.storage == nil {
-		return fmt.Errorf("storage writer is required")
+		errs = append(errs, fmt.Errorf("storage writer is required"))
 	}
 
 	if vc.lggr == nil {
-		return fmt.Errorf("logger is required")
+		errs = append(errs, fmt.Errorf("logger is required"))
 	}
 
 	if vc.config.VerifierID == "" {
-		return fmt.Errorf("coordinator ID cannot be empty")
+		errs = append(errs, fmt.Errorf("coordinator ID cannot be empty"))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // HealthCheck returns the current health status.
-func (vc *VerificationCoordinator) HealthCheck(ctx context.Context) error {
+func (vc *Coordinator) HealthCheck(ctx context.Context) error {
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
 
@@ -349,7 +353,7 @@ func (vc *VerificationCoordinator) HealthCheck(ctx context.Context) error {
 }
 
 // addToPendingQueue adds a verification task to the pending queue for finality checking.
-func (vc *VerificationCoordinator) addToPendingQueue(task types.VerificationTask, chainSelector protocol.ChainSelector) {
+func (vc *Coordinator) addToPendingQueue(task types.VerificationTask, chainSelector protocol.ChainSelector) {
 	vc.pendingMu.Lock()
 	defer vc.pendingMu.Unlock()
 
@@ -371,7 +375,7 @@ func (vc *VerificationCoordinator) addToPendingQueue(task types.VerificationTask
 }
 
 // finalityCheckingLoop runs the finality checking loop similar to Python's _check_finalization_periodically.
-func (vc *VerificationCoordinator) finalityCheckingLoop(ctx context.Context) {
+func (vc *Coordinator) finalityCheckingLoop(ctx context.Context) {
 	ticker := time.NewTicker(vc.finalityCheckInterval)
 	defer ticker.Stop()
 
@@ -389,7 +393,7 @@ func (vc *VerificationCoordinator) finalityCheckingLoop(ctx context.Context) {
 }
 
 // processFinalityQueue processes the pending queue and verifies ready messages.
-func (vc *VerificationCoordinator) processFinalityQueue(ctx context.Context) {
+func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 	vc.pendingMu.Lock()
 	defer vc.pendingMu.Unlock()
 
@@ -456,7 +460,7 @@ func (vc *VerificationCoordinator) processFinalityQueue(ctx context.Context) {
 }
 
 // processReadyTask processes a task that has met its finality requirements.
-func (vc *VerificationCoordinator) processReadyTask(ctx context.Context, task types.VerificationTask) {
+func (vc *Coordinator) processReadyTask(ctx context.Context, task types.VerificationTask) {
 	messageID, err := task.Message.MessageID()
 	if err != nil {
 		vc.lggr.Errorw("Failed to compute message ID for ready task", "error", err)
@@ -483,7 +487,7 @@ func (vc *VerificationCoordinator) processReadyTask(ctx context.Context, task ty
 
 // isMessageReadyForVerification determines if a message meets its finality requirements.
 // This implements the same logic as Python's commit_verifier.py finality checking.
-func (vc *VerificationCoordinator) isMessageReadyForVerification(
+func (vc *Coordinator) isMessageReadyForVerification(
 	task types.VerificationTask,
 	latestBlocks map[protocol.ChainSelector]*big.Int,
 	latestFinalizedBlocks map[protocol.ChainSelector]*big.Int,

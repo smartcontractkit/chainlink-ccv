@@ -1,10 +1,11 @@
-package internal_test
+package verifier_test
 
 import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"math/big"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
@@ -203,16 +204,137 @@ func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetu
 	}
 }
 
-// createVerificationCoordinator creates a verification coordinator with the given setup.
-func createVerificationCoordinator(ts *testSetup, config types.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]reader.SourceReader) (*internal.VerificationCoordinator, error) {
+func TestNewVerifierCoordinator(t *testing.T) {
+	config := createCoordinatorConfig("test-custom-mockery-verifier", map[protocol.ChainSelector]string{
+		sourceChain1: "0x1234",
+	})
+
+	mockReader := verifier_mocks.NewMockSourceReader(t)
+	channel := make(chan types.VerificationTask, 10)
+	mockReader.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	mockReader.EXPECT().VerificationTaskChannel().Return((<-chan types.VerificationTask)(channel)).Maybe()
+
+	sourceReaders := map[protocol.ChainSelector]reader.SourceReader{
+		sourceChain1: mockReader,
+	}
+	ts := newTestSetup(t)
+
 	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
 
-	return internal.NewVerificationCoordinator(
-		internal.WithConfig(config),
-		internal.WithSourceReaders(sourceReaders),
-		internal.WithVerifier(commitVerifier),
-		internal.WithStorage(ts.storage),
-		internal.WithLogger(ts.logger),
+	testcases := []struct {
+		name    string
+		options []verifier.Option
+		err     []string
+	}{
+		{
+			name:    "missing every option",
+			options: []verifier.Option{},
+			err: []string{
+				"at least one source reader is required",
+				"verifier is required",
+				"storage writer is required",
+				"logger is required",
+				"coordinator ID cannot be empty",
+			},
+		},
+		{
+			name: "happy",
+			options: []verifier.Option{
+				verifier.WithConfig(config),
+				verifier.WithSourceReaders(sourceReaders),
+				verifier.WithVerifier(commitVerifier),
+				verifier.WithStorage(ts.storage),
+				verifier.WithLogger(ts.logger),
+			},
+			err: nil,
+		},
+		{
+			name: "missing config",
+			options: []verifier.Option{
+				verifier.WithSourceReaders(sourceReaders),
+				verifier.WithVerifier(commitVerifier),
+				verifier.WithStorage(ts.storage),
+				verifier.WithLogger(ts.logger),
+			},
+			err: []string{"coordinator ID cannot be empty"},
+		},
+		{
+			name: "missing source readers",
+			options: []verifier.Option{
+				verifier.WithConfig(config),
+				verifier.WithVerifier(commitVerifier),
+				verifier.WithStorage(ts.storage),
+				verifier.WithLogger(ts.logger),
+			},
+			err: []string{
+				"at least one source reader is required",
+				"source reader not found for chain selector 42",
+			},
+		},
+		{
+			name: "missing verifier",
+			options: []verifier.Option{
+				verifier.WithConfig(config),
+				verifier.WithSourceReaders(sourceReaders),
+				verifier.WithStorage(ts.storage),
+				verifier.WithLogger(ts.logger),
+			},
+			err: []string{"verifier is required"},
+		},
+		{
+			name: "missing storage",
+			options: []verifier.Option{
+				verifier.WithConfig(config),
+				verifier.WithSourceReaders(sourceReaders),
+				verifier.WithVerifier(commitVerifier),
+				verifier.WithLogger(ts.logger),
+			},
+			err: []string{"storage writer is required"},
+		},
+		{
+			name: "missing logger",
+			options: []verifier.Option{
+				verifier.WithConfig(config),
+				verifier.WithSourceReaders(sourceReaders),
+				verifier.WithVerifier(commitVerifier),
+				verifier.WithStorage(ts.storage),
+			},
+			err: []string{"logger is required"},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ec, err := verifier.NewVerificationCoordinator(tc.options...)
+
+			if len(tc.err) > 0 {
+				require.Error(t, err)
+				require.Nil(t, ec)
+				joinedError := err.Error()
+
+				for _, errStr := range tc.err {
+					require.ErrorContains(t, err, errStr)
+				}
+
+				require.Len(t, tc.err, len(strings.Split(joinedError, "\n")), "unexpected number of errors")
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, ec)
+			}
+		})
+	}
+}
+
+// createVerificationCoordinator creates a verification coordinator with the given setup.
+func createVerificationCoordinator(ts *testSetup, config types.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]reader.SourceReader) (*verifier.Coordinator, error) {
+	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
+
+	return verifier.NewVerificationCoordinator(
+		verifier.WithConfig(config),
+		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithVerifier(commitVerifier),
+		verifier.WithStorage(ts.storage),
+		verifier.WithLogger(ts.logger),
 	)
 }
 
