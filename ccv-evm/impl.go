@@ -17,7 +17,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
-	dec "github.com/smartcontractkit/chainlink-ccv/devenv-common"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -27,17 +26,20 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
-var _ dec.CCIP17ProductConfiguration = (*CCIP17EVM)(nil)
-
 type CCIP17EVM struct{}
 
-func (m *CCIP17EVM) SendMessage(ctx context.Context, router dec.CommonAddress, msg dec.UserMsg) (dec.CommonMsgID, error) {
-	l := zerolog.Ctx(ctx)
-	l.Info().Msg("Sending CCIP message")
-	return dec.CommonMsgID{}, nil
+func (m *CCIP17EVM) ExposeMetrics() ([]string, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
-func (m *CCIP17EVM) VerifyMessage(ctx context.Context, offRamp dec.CommonAddress, msg dec.UserMsg, id dec.CommonMsgID) error {
+func (m *CCIP17EVM) SendMessage(ctx context.Context, router string, msg []byte) ([]byte, error) {
+	l := zerolog.Ctx(ctx)
+	l.Info().Msg("Sending CCIP message")
+	return []byte{}, nil
+}
+
+func (m *CCIP17EVM) VerifyMessage(ctx context.Context, offRamp string, msg []byte, msgID []byte) error {
 	l := zerolog.Ctx(ctx)
 	l.Info().Msg("Verifying CCIP message")
 	return nil

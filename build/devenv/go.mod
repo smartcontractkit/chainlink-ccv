@@ -20,7 +20,6 @@ require (
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250915134957-5014a52895ca
 	github.com/smartcontractkit/chainlink-ccv/ccv-evm v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-ccv/devenv-common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/indexer v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.5
@@ -433,7 +432,6 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
-	//github.com/smartcontractkit/chainlink-ccip => ../../../chainlink-ccip
 	github.com/smartcontractkit/chainlink-ccv/common => ../../common
 	github.com/smartcontractkit/chainlink-ccv/indexer => ../../indexer
 	github.com/smartcontractkit/chainlink-ccv/protocol => ../../protocol
@@ -443,5 +441,4 @@ replace (
 
 replace (
 	github.com/smartcontractkit/chainlink-ccv/ccv-evm => ./../../ccv-evm
-	github.com/smartcontractkit/chainlink-ccv/devenv-common => ../../devenv-common
 )

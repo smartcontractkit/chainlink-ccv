@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	devenv_common "github.com/smartcontractkit/chainlink-ccv/devenv-common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
@@ -44,7 +43,7 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewDevenvNetwork(typ string) (devenv_common.CCIP17ProductConfiguration, error) {
+func NewDevenvNetwork(typ string) (CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
 		return &evmImpl.CCIP17EVM{}, nil
@@ -78,7 +77,7 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	impls := make([]devenv_common.CCIP17ProductConfiguration, 0)
+	impls := make([]CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
 		impl, err := NewDevenvNetwork(bc.Type)
 		if err != nil {
