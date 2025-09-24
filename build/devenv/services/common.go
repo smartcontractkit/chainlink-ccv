@@ -53,6 +53,7 @@ func GoSourcePathMounts(sourcePath, rootPath, containerDirTarget string) testcon
 func GoCacheMounts() testcontainers.ContainerMounts {
 	mounts := testcontainers.Mounts()
 	homeDir, _ := os.UserHomeDir()
+	goHome := os.Getenv("GOPATH")
 	var (
 		goModCachePath   string
 		goBuildCachePath string
@@ -61,9 +62,9 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 	switch runtime.GOOS {
 	case "darwin":
 		goModCachePath = filepath.Join(homeDir, "Library", "Caches", "go-build")
-		goBuildCachePath = filepath.Join(homeDir, "go", "pkg", "mod")
+		goBuildCachePath = filepath.Join(goHome, "pkg", "mod")
 	case "linux":
-		goModCachePath = filepath.Join(homeDir, "go", "pkg", "mod")
+		goModCachePath = filepath.Join(goHome, "pkg", "mod")
 		goBuildCachePath = filepath.Join(homeDir, ".cache", "go-build")
 	}
 	mounts = append(mounts,

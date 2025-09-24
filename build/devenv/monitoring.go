@@ -97,7 +97,7 @@ func MonitorOnChainLogs(in *Cfg) (*prometheus.Registry, error) {
 		To:                c.Agg2337,
 		FromSelector:      c.Chain1337Details.ChainSelector,
 		ToSelector:        c.Chain2337Details.ChainSelector,
-		AggregatorAddress: "localhost:50001",
+		AggregatorAddress: "localhost:50051",
 		AggregatorSince:   0,
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func MonitorOnChainLogs(in *Cfg) (*prometheus.Registry, error) {
 		To:                c.Agg1337,
 		FromSelector:      c.Chain2337Details.ChainSelector,
 		ToSelector:        c.Chain1337Details.ChainSelector,
-		AggregatorAddress: "localhost:50001",
+		AggregatorAddress: "localhost:50051",
 		AggregatorSince:   0,
 	})
 	if err != nil {
