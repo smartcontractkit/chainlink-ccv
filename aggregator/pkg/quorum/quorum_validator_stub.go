@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // ValidatorStub is a stub implementation of a quorum validator for testing.

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"

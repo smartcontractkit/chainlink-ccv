@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // MessageID is a type alias for bytes representing a message identifier.

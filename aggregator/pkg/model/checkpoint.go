@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	pb "github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // ValidateBlockCheckpoint validates a single block checkpoint.

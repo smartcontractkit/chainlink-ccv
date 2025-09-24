@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"

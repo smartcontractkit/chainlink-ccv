@@ -4,7 +4,7 @@ import (
 	"bytes"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

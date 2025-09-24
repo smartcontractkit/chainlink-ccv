@@ -4,7 +4,7 @@ package model
 import (
 	"encoding/hex"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // CommitAggregatedReport represents a report of aggregated commit verifications.
