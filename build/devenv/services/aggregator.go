@@ -1,13 +1,11 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
 
-	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -27,10 +25,8 @@ const (
 	DefaultAggregatorDBImage = "postgres:16-alpine"
 )
 
-var (
-	DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBPort, DefaultAggregatorName)
-)
+var DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+	DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBPort, DefaultAggregatorName)
 
 type AggregatorDBInput struct {
 	Image string `toml:"image"`
@@ -40,6 +36,7 @@ type AggregatorInput struct {
 	Image            string            `toml:"image"`
 	Port             int               `toml:"port"`
 	SourceCodePath   string            `toml:"source_code_path"`
+	RootPath         string            `toml:"root_path"`
 	DB               *DBInput          `toml:"db"`
 	ContainerName    string            `toml:"container_name"`
 	UseCache         bool              `toml:"use_cache"`
@@ -73,7 +70,8 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
+	QuorumConfigs           map[string]*QuorumConfig `toml:"quorumConfigs"`
+	SourceVerifierAddresses map[string]string        `toml:"sourceVerifierAddresses"`
 }
 
 // StorageConfig represents the configuration for the storage backend.
@@ -86,12 +84,18 @@ type ServerConfig struct {
 	Address string `toml:"address"`
 }
 
+type MetricConfig struct {
+	EnableMetrics bool   `toml:"enableMetrics"`
+	Endpoint      string `toml:"endpoint"`
+}
+
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Server     ServerConfig          `toml:"server"`
-	Storage    StorageConfig         `toml:"storage"`
-	StubMode   bool                  `toml:"stubQuorumValidation"`
-	Committees map[string]*Committee `toml:"committees"`
+	Server       ServerConfig          `toml:"server"`
+	Storage      StorageConfig         `toml:"storage"`
+	StubMode     bool                  `toml:"stubQuorumValidation"`
+	Committees   map[string]*Committee `toml:"committees"`
+	MetricConfig MetricConfig          `toml:"metrics"`
 }
 
 func aggregatorDefaults(in *AggregatorInput) {
@@ -109,8 +113,15 @@ func aggregatorDefaults(in *AggregatorInput) {
 			Image: DefaultAggregatorDBImage,
 		}
 	}
+
+	MetricConfig := MetricConfig{
+		EnableMetrics: true,
+		Endpoint:      "otel-collector:4318",
+	}
+
 	if in.AggregatorConfig == nil {
 		in.AggregatorConfig = &AggregatorConfig{
+			MetricConfig: MetricConfig,
 			Server: ServerConfig{
 				Address: ":50051",
 			},
@@ -119,24 +130,21 @@ func aggregatorDefaults(in *AggregatorInput) {
 			},
 			Committees: map[string]*Committee{
 				"default": {
+					SourceVerifierAddresses: map[string]string{
+						"12922642891491394802": "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
+						"3379446385462418246":  "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
+					},
 					QuorumConfigs: map[string]*QuorumConfig{
-						"1337": {
-							OfframpAddress: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
-							Signers: []Signer{
-								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66", "0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
-							},
-							Threshold: 2,
-						},
-						"2337": {
-							OfframpAddress: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
+						"12922642891491394802": {
+							OfframpAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 							Signers: []Signer{
 								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
 								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
 							},
 							Threshold: 2,
 						},
-						"12922642891491394802": {
-							OfframpAddress: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
+						"3379446385462418246": {
+							OfframpAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 							Signers: []Signer{
 								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
 								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
@@ -151,6 +159,9 @@ func aggregatorDefaults(in *AggregatorInput) {
 }
 
 func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
+	if in == nil {
+		return nil, nil
+	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
@@ -183,11 +194,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	var aggreagtorConfigBuf bytes.Buffer
-	if err := toml.NewEncoder(&aggreagtorConfigBuf).Encode(in.AggregatorConfig); err != nil {
-		return nil, fmt.Errorf("failed to encode aggregator config: %w", err)
-	}
-
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -207,17 +213,12 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 				},
 			}
 		},
-		Files: []testcontainers.ContainerFile{
-			{
-				Reader:            bytes.NewReader(aggreagtorConfigBuf.Bytes()),
-				ContainerFilePath: "/app/aggregator.toml",
-				FileMode:          0o644,
-			},
-		},
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = GoSourcePathMounts(p, AppPathInsideContainer)
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
@@ -230,10 +231,10 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
-
-	return &AggregatorOutput{
+	in.Out = &AggregatorOutput{
 		ContainerName:      in.ContainerName,
 		Address:            fmt.Sprintf("%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultAggregatorDBConnectionString,
-	}, nil
+	}
+	return in.Out, nil
 }

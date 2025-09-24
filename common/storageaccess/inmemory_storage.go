@@ -56,7 +56,7 @@ type InMemoryOffchainStorage struct {
 
 // NewInMemoryOffchainStorage creates a new in-memory offchain storage with some default parameters.
 func NewInMemoryOffchainStorage(lggr logger.Logger) *InMemoryOffchainStorage {
-	return NewInMemoryOffchainStorageWithTimeProvider(lggr, DefaultTimeProvider, nil, nil, 10, 0, 0)
+	return NewInMemoryOffchainStorageWithTimeProvider(lggr, DefaultTimeProvider, nil, nil, 10, 0, time.Now().Unix())
 }
 
 // NewInMemoryOffchainStorageWithTimeProvider creates a new in-memory offchain storage with custom time provider.
@@ -103,8 +103,8 @@ func (s *InMemoryOffchainStorage) WaitForStore(ctx context.Context) error {
 	}
 }
 
-// WriteCCVData stores multiple CCV data entries in the offchain storage.
-func (s *InMemoryOffchainStorage) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
+// WriteCCVNodeData stores multiple CCV data entries in the offchain storage.
+func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []types.CCVData) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -171,21 +171,23 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]types.Quer
 			continue
 		}
 
-		// Filter by destination chain
-		found := false
-		for _, destChain := range s.destChainSelectors {
-			if entry.CCVData.DestChainSelector == destChain {
-				found = true
-				break
+		if len(s.destChainSelectors) > 0 {
+			// Filter by destination chain
+			found := false
+			for _, destChain := range s.destChainSelectors {
+				if entry.CCVData.DestChainSelector == destChain {
+					found = true
+					break
+				}
 			}
-		}
-		if !found {
-			continue
+			if !found {
+				continue
+			}
 		}
 
 		// Filter by source chain if specified
 		if len(s.sourceChainSelectors) > 0 {
-			found = false
+			found := false
 			for _, sourceChain := range s.sourceChainSelectors {
 				if entry.CCVData.SourceChainSelector == sourceChain {
 					found = true
@@ -383,5 +385,5 @@ type WriterOnlyView struct {
 }
 
 func (w *WriterOnlyView) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
-	return w.storage.WriteCCVData(ctx, ccvDataList)
+	return w.storage.WriteCCVNodeData(ctx, ccvDataList)
 }

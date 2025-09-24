@@ -1,4 +1,4 @@
-# golangci-lint report
+build/devenv/fakes/tmp/**
 **/.build
 
 # Intellij IDEA project config

@@ -25,10 +25,8 @@ const (
 	DefaultIndexerDBImage = "postgres:16-alpine"
 )
 
-var (
-	DefaultIndexerDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		DefaultIndexerName, DefaultIndexerName, DefaultIndexerDBPort, DefaultIndexerName)
-)
+var DefaultIndexerDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+	DefaultIndexerName, DefaultIndexerName, DefaultIndexerDBPort, DefaultIndexerName)
 
 type DBInput struct {
 	Image string `toml:"image"`
@@ -38,6 +36,7 @@ type IndexerInput struct {
 	Image          string         `toml:"image"`
 	Port           int            `toml:"port"`
 	SourceCodePath string         `toml:"source_code_path"`
+	RootPath       string         `toml:"root_path"`
 	DB             *DBInput       `toml:"db"`
 	ContainerName  string         `toml:"container_name"`
 	UseCache       bool           `toml:"use_cache"`
@@ -70,8 +69,11 @@ func defaults(in *IndexerInput) {
 	}
 }
 
-// NewIndexer creates and starts a new Service container using testcontainers
+// NewIndexer creates and starts a new Service container using testcontainers.
 func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
+	if in == nil {
+		return nil, nil
+	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
@@ -127,7 +129,9 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = GoSourcePathMounts(p, AppPathInsideContainer)
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

@@ -3,12 +3,13 @@ package services_test
 import (
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 )
 
 func TestServiceVerifier(t *testing.T) {
-	out, err := services.NewVerifier(&services.VerifierInput{SourceCodePath: "../../../verifier"})
+	out, err := services.NewVerifier(&services.VerifierInput{SourceCodePath: "../../../verifier", RootPath: "../../../../"})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
 		_ = out

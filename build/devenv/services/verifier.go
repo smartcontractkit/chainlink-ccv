@@ -1,13 +1,11 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
 
-	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -69,26 +67,19 @@ type VerifierDBInput struct {
 	Port  int    `toml:"port"`
 }
 
-type VerifierConfig struct {
-	AggregatorAddress string                                 `toml:"aggregator_address"`
-	PrivateKey        string                                 `toml:"private_key"`
-	BlockchainInfos   map[string]*commontypes.BlockchainInfo `toml:"blockchain_infos"`
-	CCVProxy1337      string                                 `toml:"ccv_proxy_1337"`
-	CCVProxy2337      string                                 `toml:"ccv_proxy_2337"`
-}
-
 type VerifierInput struct {
-	DB                *VerifierDBInput     `toml:"db"`
-	Out               *VerifierOutput      `toml:"out"`
-	Image             string               `toml:"image"`
-	SourceCodePath    string               `toml:"source_code_path"`
-	ContainerName     string               `toml:"container_name"`
-	VerifierConfig    VerifierConfig       `toml:"verifier_config"`
-	Port              int                  `toml:"port"`
-	UseCache          bool                 `toml:"use_cache"`
-	ConfigFilePath    string               `toml:"config_file_path"`
-	BlockchainOutputs []*blockchain.Output `toml:"-"`
-	AggregatorAddress string               `toml:"aggregator_address"`
+	DB                *VerifierDBInput           `toml:"db"`
+	Out               *VerifierOutput            `toml:"out"`
+	Image             string                     `toml:"image"`
+	SourceCodePath    string                     `toml:"source_code_path"`
+	RootPath          string                     `toml:"root_path"`
+	ContainerName     string                     `toml:"container_name"`
+	VerifierConfig    commontypes.VerifierConfig `toml:"verifier_config"`
+	Port              int                        `toml:"port"`
+	UseCache          bool                       `toml:"use_cache"`
+	ConfigFilePath    string                     `toml:"config_file_path"`
+	BlockchainOutputs []*blockchain.Output       `toml:"-"`
+	AggregatorAddress string                     `toml:"aggregator_address"`
 }
 
 type VerifierOutput struct {
@@ -118,11 +109,14 @@ func verifierDefaults(in *VerifierInput) {
 		}
 	}
 	if in.ConfigFilePath == "" {
-		in.ConfigFilePath = "/app/verifier.toml"
+		in.ConfigFilePath = "/app/verifier-1.toml"
 	}
 }
 
 func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
+	if in == nil {
+		return nil, nil
+	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
@@ -156,11 +150,6 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	var verifierConfigBuf bytes.Buffer
-	if err := toml.NewEncoder(&verifierConfigBuf).Encode(in.VerifierConfig); err != nil {
-		return nil, fmt.Errorf("failed to encode verifier config: %w", err)
-	}
-
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -184,35 +173,12 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 				},
 			}
 		},
-		Files: []testcontainers.ContainerFile{
-			{
-				Reader:            bytes.NewReader(verifierConfigBuf.Bytes()),
-				ContainerFilePath: in.ConfigFilePath,
-				FileMode:          0o644,
-			},
-		},
 	}
 
 	if in.SourceCodePath != "" {
-		//nolint:staticcheck // ignore for now
-		req.Mounts = testcontainers.Mounts(
-			testcontainers.BindMount(
-				p,
-				AppPathInsideContainer,
-			),
-			testcontainers.BindMount(
-				filepath.Join(p, "../protocol"),
-				"/protocol",
-			),
-			testcontainers.VolumeMount(
-				"go-mod-cache",
-				"/go/pkg/mod",
-			),
-			testcontainers.VolumeMount(
-				"go-build-cache",
-				"/root/.cache/go-build",
-			),
-		)
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

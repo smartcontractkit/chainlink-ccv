@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -43,57 +44,64 @@ func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*aggregator.Receip
 	return result, nil
 }
 
-// WriteCCVData implements common.OffchainStorageWriter.
-func (a *AggregatorWriter) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
+func mapCCVDataToCCVNodeDataProto(ccvData types.CCVData) (*aggregator.WriteCommitCCVNodeDataRequest, error) {
+	receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
+	if err != nil {
+		return nil, err
+	}
+	return &aggregator.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: &aggregator.MessageWithCCVNodeData{
+			MessageId:             ccvData.MessageID[:],
+			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
+			CcvData:               ccvData.CCVData,
+			BlobData:              ccvData.BlobData,
+			Timestamp:             ccvData.Timestamp,
+			Message: &aggregator.Message{
+				Version:              uint32(ccvData.Message.Version),
+				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
+				DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
+				Nonce:                uint64(ccvData.Message.Nonce),
+				OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
+				OnRampAddress:        ccvData.Message.OnRampAddress[:],
+				OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
+				OffRampAddress:       ccvData.Message.OffRampAddress[:],
+				Finality:             uint32(ccvData.Message.Finality),
+				SenderLength:         uint32(ccvData.Message.SenderLength),
+				Sender:               ccvData.Message.Sender[:],
+				ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
+				Receiver:             ccvData.Message.Receiver[:],
+				DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
+				DestBlob:             ccvData.Message.DestBlob[:],
+				TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
+				TokenTransfer:        ccvData.Message.TokenTransfer[:],
+				DataLength:           uint32(ccvData.Message.DataLength),
+				Data:                 ccvData.Message.Data[:],
+			},
+			ReceiptBlobs: receiptBlobs,
+		},
+	}, nil
+}
+
+// WriteCCVNodeData writes CCV data to the aggregator via gRPC.
+func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []types.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
-		receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
+		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
 		if err != nil {
 			return err
 		}
-
-		res, err := a.client.WriteCommitCCVNodeData(ctx, &aggregator.WriteCommitCCVNodeDataRequest{
-			CcvNodeData: &aggregator.MessageWithCCVNodeData{
-				MessageId:             ccvData.MessageID[:],
-				SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
-				DestVerifierAddress:   ccvData.DestVerifierAddress[:],
-				CcvData:               ccvData.CCVData,
-				BlobData:              ccvData.BlobData,
-				Timestamp:             ccvData.Timestamp,
-				Message: &aggregator.Message{
-					Version:              uint32(ccvData.Message.Version),
-					SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
-					DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
-					SequenceNumber:       uint64(ccvData.Message.SequenceNumber),
-					OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
-					OnRampAddress:        ccvData.Message.OnRampAddress[:],
-					OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
-					OffRampAddress:       ccvData.Message.OffRampAddress[:],
-					Finality:             uint32(ccvData.Message.Finality),
-					SenderLength:         uint32(ccvData.Message.SenderLength),
-					Sender:               ccvData.Message.Sender[:],
-					ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
-					Receiver:             ccvData.Message.Receiver[:],
-					DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
-					DestBlob:             ccvData.Message.DestBlob[:],
-					TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
-					TokenTransfer:        ccvData.Message.TokenTransfer[:],
-					DataLength:           uint32(ccvData.Message.DataLength),
-					Data:                 ccvData.Message.Data[:],
-				},
-				ReceiptBlobs: receiptBlobs,
-			},
+		responses, err := a.client.BatchWriteCommitCCVNodeData(ctx, &aggregator.BatchWriteCommitCCVNodeDataRequest{
+			Requests: []*aggregator.WriteCommitCCVNodeDataRequest{req},
 		})
 		if err != nil {
-			a.lggr.Errorw("failed to store CCV data", "error", err)
-			return err
+			return fmt.Errorf("error calling BatchWriteCommitCCVNodeData: %w", err)
 		}
-
-		if res.GetStatus() != aggregator.WriteStatus_SUCCESS {
-			a.lggr.Errorw("failed to store CCV data", "error", err)
-			return err
+		for _, resp := range responses.Responses {
+			if resp.Status != aggregator.WriteStatus_SUCCESS {
+				return fmt.Errorf("failed to write CCV data for message ID %x: status %s", ccvData.MessageID, resp.Status.String())
+			}
+			a.lggr.Infow("Successfully stored CCV data", "messageID", ccvData.MessageID)
 		}
-		a.lggr.Infof("Successfully stored CCV data with MessageID: %x", ccvData.MessageID)
 	}
 	return nil
 }
@@ -163,7 +171,7 @@ func mapMessage(msg *aggregator.Message) (types.Message, error) {
 	result := types.Message{
 		SourceChainSelector: types.ChainSelector(msg.SourceChainSelector),
 		DestChainSelector:   types.ChainSelector(msg.DestChainSelector),
-		SequenceNumber:      types.SeqNum(msg.SequenceNumber),
+		Nonce:               types.Nonce(msg.Nonce),
 		OnRampAddress:       msg.OnRampAddress[:],
 		OffRampAddress:      msg.OffRampAddress[:],
 		Sender:              msg.Sender[:],
@@ -218,12 +226,14 @@ func mapMessage(msg *aggregator.Message) (types.Message, error) {
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
 	resp, err := a.client.GetMessagesSince(ctx, &aggregator.GetMessagesSinceRequest{
-		Since: a.since,
+		Since:     a.since,
+		NextToken: a.token,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error calling GetMessagesSince: %w", err)
 	}
 
+	a.lggr.Debugw("Got messages since", "count", len(resp.Results))
 	// Convert the response to []types.QueryResponse
 	results := make([]types.QueryResponse, 0, len(resp.Results))
 	for i, result := range resp.Results {
@@ -231,18 +241,40 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 		if err != nil {
 			return nil, fmt.Errorf("error mapping message at index %d: %w", i, err)
 		}
+
+		// Compute MessageId from the message
+		messageID, err := msg.MessageID()
+		if err != nil {
+			return nil, fmt.Errorf("error computing message ID at index %d: %w", i, err)
+		}
+
 		results = append(results, types.QueryResponse{
 			Timestamp: nil,
 			Data: types.CCVData{
-				Message:   msg,
-				CCVData:   result.CcvData,
-				Timestamp: result.Timestamp,
+				SourceVerifierAddress: result.GetSourceVerifierAddress(),
+				DestVerifierAddress:   result.GetDestVerifierAddress(),
+				CCVData:               result.CcvData,
+				// BlobData & ReceiptBlobs need to be added
+				Message:             msg,
+				Nonce:               msg.Nonce,
+				SourceChainSelector: msg.SourceChainSelector,
+				DestChainSelector:   msg.DestChainSelector,
+				Timestamp:           result.Timestamp,
+				MessageID:           messageID,
 			},
 		})
 	}
 
 	// Update token for next call.
+	a.since = a.getNextTimestamp(results)
 	a.token = resp.NextToken
 
 	return results, nil
+}
+
+func (a *AggregatorReader) getNextTimestamp(results []types.QueryResponse) int64 {
+	if len(results) > 0 {
+		return results[len(results)-1].Data.Timestamp + 1
+	}
+	return time.Now().Unix()
 }

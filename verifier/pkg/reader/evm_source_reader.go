@@ -265,16 +265,19 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 
 	// Parse indexed topics
 	var destChainSelector uint64
-	var sequenceNumber uint64
+	var nonce uint64
+	var messageID [32]byte
 
-	if len(log.Topics) >= 3 {
+	if len(log.Topics) >= 4 {
 		destChainSelector = binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
-		sequenceNumber = binary.BigEndian.Uint64(log.Topics[2][24:])    // Last 8 bytes
+		nonce = binary.BigEndian.Uint64(log.Topics[2][24:])             // Last 8 bytes
+		copy(messageID[:], log.Topics[3][:])                            // Full 32 bytes
 
 		r.logger.Infow("📊 Event details",
 			"sourceChainSelector", r.chainSelector,
 			"destChainSelector", destChainSelector,
-			"sequenceNumber", sequenceNumber)
+			"nonce", nonce,
+			"messageId", common.Bytes2Hex(messageID[:]))
 	}
 
 	// Parse the event data using the ABI
@@ -290,201 +293,60 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		return
 	}
 
-	r.logger.Infow("📋 Parsed event data - Message Header",
-		"messageId", common.Bytes2Hex(event.Message.Header.MessageId[:]),
-		"sourceChainSelector", event.Message.Header.SourceChainSelector,
-		"destChainSelector", event.Message.Header.DestChainSelector,
-		"sequenceNumber", event.Message.Header.SequenceNumber)
+	// Log the event structure using the fixed bindings
+	r.logger.Infow("📋 CCVProxy Event Structure",
+		"destChainSelector", event.DestChainSelector,
+		"nonce", event.SequenceNumber,
+		"messageId", common.Bytes2Hex(event.MessageId[:]),
+		"verifierReceiptCount", len(event.VerifierReceipts),
+		"receiptBlobCount", len(event.ReceiptBlobs))
 
-	r.logger.Infow("📋 Parsed event data - Message Body",
-		"sender", event.Message.Sender.Hex(),
-		"receiver", string(event.Message.Receiver),
-		"receiverHex", common.Bytes2Hex(event.Message.Receiver),
-		"data", string(event.Message.Data),
-		"dataHex", common.Bytes2Hex(event.Message.Data),
-		"dataLength", len(event.Message.Data))
-
-	r.logger.Infow("📋 Parsed event data - Fee Information",
-		"feeToken", event.Message.FeeToken.Hex(),
-		"feeTokenAmount", event.Message.FeeTokenAmount.String(),
-		"feeValueJuels", event.Message.FeeValueJuels.String())
-
-	r.logger.Infow("📋 Parsed event data - Token Transfers",
-		"tokenTransferCount", len(event.Message.TokenTransfer))
-
-	for i, tt := range event.Message.TokenTransfer {
-		r.logger.Infow("📦 Token Transfer",
-			"index", i,
-			"sourceTokenAddress", tt.SourceTokenAddress.Hex(),
-			"destTokenAddress", string(tt.DestTokenAddress),
-			"destTokenAddressHex", common.Bytes2Hex(tt.DestTokenAddress),
-			"amount", tt.Amount.String(),
-			"extraData", string(tt.ExtraData),
-			"extraDataHex", common.Bytes2Hex(tt.ExtraData),
-			"receipt_issuer", tt.Receipt.Issuer.Hex(),
-			"receipt_destGasLimit", tt.Receipt.DestGasLimit,
-			"receipt_destBytesOverhead", tt.Receipt.DestBytesOverhead,
-			"receipt_feeTokenAmount", tt.Receipt.FeeTokenAmount.String(),
-			"receipt_extraArgs", common.Bytes2Hex(tt.Receipt.ExtraArgs))
-	}
-
-	r.logger.Infow("📋 Parsed event data - Verifier Receipts",
-		"verifierReceiptCount", len(event.Message.VerifierReceipts))
-
-	for i, vr := range event.Message.VerifierReceipts {
+	// Log verifier receipts
+	for i, vr := range event.VerifierReceipts {
 		r.logger.Infow("🧾 Verifier Receipt",
 			"index", i,
 			"issuer", vr.Issuer.Hex(),
 			"destGasLimit", vr.DestGasLimit,
 			"destBytesOverhead", vr.DestBytesOverhead,
 			"feeTokenAmount", vr.FeeTokenAmount.String(),
-			"extraArgs", common.Bytes2Hex(vr.ExtraArgs),
-			"extraArgsLength", len(vr.ExtraArgs))
+			"extraArgs", common.Bytes2Hex(vr.ExtraArgs))
 	}
 
-	r.logger.Infow("📋 Parsed event data - Executor Receipt",
-		"executor_issuer", event.Message.ExecutorReceipt.Issuer.Hex(),
-		"executor_destGasLimit", event.Message.ExecutorReceipt.DestGasLimit,
-		"executor_destBytesOverhead", event.Message.ExecutorReceipt.DestBytesOverhead,
-		"executor_feeTokenAmount", event.Message.ExecutorReceipt.FeeTokenAmount.String(),
-		"executor_extraArgs", common.Bytes2Hex(event.Message.ExecutorReceipt.ExtraArgs),
-		"executor_extraArgsLength", len(event.Message.ExecutorReceipt.ExtraArgs))
+	// Log executor receipt
+	r.logger.Infow("📋 Executor Receipt",
+		"issuer", event.ExecutorReceipt.Issuer.Hex(),
+		"destGasLimit", event.ExecutorReceipt.DestGasLimit,
+		"destBytesOverhead", event.ExecutorReceipt.DestBytesOverhead,
+		"feeTokenAmount", event.ExecutorReceipt.FeeTokenAmount.String(),
+		"extraArgs", common.Bytes2Hex(event.ExecutorReceipt.ExtraArgs))
 
-	r.logger.Infow("📋 Parsed event data - Receipt Blobs",
-		"receiptBlobCount", len(event.ReceiptBlobs))
-
-	for i, blob := range event.ReceiptBlobs {
-		r.logger.Infow("🗂️ Receipt Blob",
-			"index", i,
-			"length", len(blob),
-			"data", string(blob),
-			"dataHex", common.Bytes2Hex(blob))
-	}
-
-	// Create addresses from the parsed data
-	senderAddr, err := protocol.NewUnknownAddressFromHex(event.Message.Sender.Hex())
+	r.logger.Infow("📋 Decoding encoded message",
+		"encodedMessageLength", len(event.EncodedMessage),
+		"messageId", common.Bytes2Hex(event.MessageId[:]))
+	decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 	if err != nil {
-		r.logger.Errorw("❌ Failed to create sender address", "error", err)
+		r.logger.Errorw("❌ Failed to decode message", "error", err)
 		return
 	}
-
-	receiverAddr, err := protocol.NewUnknownAddressFromHex(string(event.Message.Receiver))
-	if err != nil {
-		// If receiver is not a valid address, create a mock one
-		receiverAddr, _ = protocol.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
-	}
-
-	onRampAddr, _ := protocol.NewUnknownAddressFromHex(r.contractAddress)
-
-	// Extract offRamp from executorReceipt if available, otherwise use a default
-	var offRampAddr protocol.UnknownAddress
-	if event.Message.ExecutorReceipt.Issuer != (common.Address{}) {
-		offRampAddr, _ = protocol.NewUnknownAddressFromHex(event.Message.ExecutorReceipt.Issuer.Hex())
-	} else {
-		offRampAddr, _ = protocol.NewUnknownAddressFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
-	}
-
-	// Convert token transfers to protocol format and create TokenTransfer
-	var tokenTransfer *protocol.TokenTransfer
-	if len(event.Message.TokenTransfer) > 0 {
-		// For now, we'll create an empty token transfer since the protocol expects encoded bytes
-		// In a full implementation, you'd properly encode the token transfer data
-		tokenTransfer = protocol.NewEmptyTokenTransfer()
-		r.logger.Infow("📦 Token transfers found but using empty transfer for now",
-			"tokenTransferCount", len(event.Message.TokenTransfer))
-	} else {
-		tokenTransfer = protocol.NewEmptyTokenTransfer()
-	}
-
-	// Create message
-	message, err := protocol.NewMessage(
-		r.chainSelector,
-		protocol.ChainSelector(destChainSelector),
-		protocol.SeqNum(sequenceNumber),
-		onRampAddr,
-		offRampAddr,
-		0, // finality - would need to calculate this
-		senderAddr,
-		receiverAddr,
-		event.Message.Receiver, // dest blob
-		event.Message.Data,     // data
-		tokenTransfer,
-	)
-	if err != nil {
-		r.logger.Errorw("❌ Failed to create message", "error", err)
-		return
-	}
+	r.logger.Infow("📋 Decoded message",
+		"message", decodedMsg)
 
 	// Create receipt blobs from verifier receipts and receipt blobs
-	receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.Message.VerifierReceipts)+2)
+	receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.VerifierReceipts)+1)
 
-	// Check if onRamp address exists in any receipt issuer
-	onRampFound := false
-	r.logger.Infow("🔍 Checking for onRamp address in receipts",
-		"onRampAddress", r.contractAddress,
-		"verifierReceiptCount", len(event.Message.VerifierReceipts),
-		"executorReceiptIssuer", event.Message.ExecutorReceipt.Issuer.Hex())
-
-	for i, vr := range event.Message.VerifierReceipts {
-		r.logger.Infow("🔍 Verifier receipt issuer check",
-			"index", i,
-			"issuer", vr.Issuer.Hex(),
-			"matchesOnRamp", vr.Issuer.Hex() == r.contractAddress)
-		if vr.Issuer.Hex() == r.contractAddress {
-			onRampFound = true
-			break
-		}
+	if len(event.VerifierReceipts) == 0 {
+		r.logger.Errorw("❌ No verifier receipts found")
+		return
 	}
-	if !onRampFound && event.Message.ExecutorReceipt.Issuer.Hex() == r.contractAddress {
-		onRampFound = true
-		r.logger.Infow("✅ OnRamp address found in executor receipt")
-	}
-
-	// If onRamp address not found in receipts, add it as the first receipt
-	if !onRampFound {
-		r.logger.Infow("⚠️ OnRamp address not found in receipts, adding synthetic receipt",
-			"onRampAddress", r.contractAddress)
-
-		onRampAddr, _ := protocol.NewUnknownAddressFromHex(r.contractAddress)
-		var syntheticBlob []byte
-		if len(event.ReceiptBlobs) > 0 && len(event.ReceiptBlobs[0]) > 0 {
-			syntheticBlob = event.ReceiptBlobs[0]
-		} else {
-			// Create a meaningful synthetic blob with message data
-			syntheticBlob = append(event.Message.Data, event.Message.Receiver...)
-			if len(syntheticBlob) == 0 {
-				syntheticBlob = []byte("synthetic-onramp-receipt-with-message-data")
-			}
-		}
-
-		r.logger.Infow("📋 Creating synthetic receipt",
-			"blobLength", len(syntheticBlob),
-			"blobPreview", string(syntheticBlob[:min(50, len(syntheticBlob))]))
-
-		syntheticReceipt := protocol.ReceiptWithBlob{
-			Issuer:            onRampAddr,
-			DestGasLimit:      300000, // Default gas limit
-			DestBytesOverhead: 100,    // Default overhead
-			Blob:              syntheticBlob,
-			ExtraArgs:         []byte{},
-		}
-		receiptBlobs = append(receiptBlobs, syntheticReceipt)
-	}
-
 	// Process verifier receipts
-	for i, vr := range event.Message.VerifierReceipts {
+	for i, vr := range event.VerifierReceipts {
 		var blob []byte
 		if i < len(event.ReceiptBlobs) && len(event.ReceiptBlobs[i]) > 0 {
 			blob = event.ReceiptBlobs[i]
 		} else {
-			// Create a meaningful blob from message data if receipt blob is empty/missing
-			blob = append(event.Message.Data, event.Message.Receiver...)
-			if len(blob) == 0 {
-				blob = []byte("verifier-receipt-with-message-data")
-			}
-			r.logger.Warnw("⚠️ Empty or missing receipt blob, created synthetic one",
+			r.logger.Infow("⚠️ Empty or missing receipt blob",
 				"verifierIndex", i,
-				"syntheticBlobLength", len(blob))
+			)
 		}
 
 		issuerAddr, _ := protocol.NewUnknownAddressFromHex(vr.Issuer.Hex())
@@ -500,47 +362,32 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		r.logger.Infow("📋 Processed verifier receipt",
 			"index", i,
 			"issuer", vr.Issuer.Hex(),
-			"blobLength", len(blob),
-			"isOnRamp", vr.Issuer.Hex() == r.contractAddress)
+			"blobLength", len(blob))
 	}
 
+	if event.ExecutorReceipt.Issuer == (common.Address{}) {
+		r.logger.Errorw("❌ Empty or missing executor receipt")
+		return
+	}
 	// Add executor receipt if available
-	if event.Message.ExecutorReceipt.Issuer != (common.Address{}) {
-		// Use the last blob for executor or create a default one
-		var executorBlob []byte
-		if len(event.ReceiptBlobs) > len(event.Message.VerifierReceipts) &&
-			len(event.ReceiptBlobs[len(event.Message.VerifierReceipts)]) > 0 {
-			executorBlob = event.ReceiptBlobs[len(event.Message.VerifierReceipts)]
-		} else {
-			// Create a meaningful blob from message data
-			executorBlob = append(event.Message.Data, event.Message.Receiver...)
-			if len(executorBlob) == 0 {
-				executorBlob = []byte("executor-receipt-with-message-data")
-			}
-			r.logger.Warnw("⚠️ Empty or missing executor receipt blob, created synthetic one",
-				"syntheticBlobLength", len(executorBlob))
-		}
-
-		issuerAddr, _ := protocol.NewUnknownAddressFromHex(event.Message.ExecutorReceipt.Issuer.Hex())
-		executorReceipt := protocol.ReceiptWithBlob{
-			Issuer:            issuerAddr,
-			DestGasLimit:      event.Message.ExecutorReceipt.DestGasLimit,
-			DestBytesOverhead: event.Message.ExecutorReceipt.DestBytesOverhead,
-			Blob:              executorBlob,
-			ExtraArgs:         event.Message.ExecutorReceipt.ExtraArgs,
-		}
-		receiptBlobs = append(receiptBlobs, executorReceipt)
-
-		r.logger.Infow("📋 Processed executor receipt",
-			"issuer", event.Message.ExecutorReceipt.Issuer.Hex(),
-			"blobLength", len(executorBlob),
-			"isOnRamp", event.Message.ExecutorReceipt.Issuer.Hex() == r.contractAddress)
+	issuerAddr, _ := protocol.NewUnknownAddressFromHex(event.ExecutorReceipt.Issuer.Hex())
+	executorReceipt := protocol.ReceiptWithBlob{
+		Issuer:            issuerAddr,
+		DestGasLimit:      event.ExecutorReceipt.DestGasLimit,
+		DestBytesOverhead: event.ExecutorReceipt.DestBytesOverhead,
+		Blob:              []byte{},
+		ExtraArgs:         event.ExecutorReceipt.ExtraArgs,
 	}
+	receiptBlobs = append(receiptBlobs, executorReceipt)
+
+	r.logger.Infow("📋 Processed executor receipt",
+		"issuer", event.ExecutorReceipt.Issuer.Hex())
 
 	// Create verification task
 	task := verifiertypes.VerificationTask{
-		Message:      *message,
+		Message:      *decodedMsg,
 		ReceiptBlobs: receiptBlobs,
+		BlockNumber:  log.BlockNumber,
 	}
 
 	// Send to verification channel (non-blocking)
@@ -548,12 +395,40 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 	case r.verificationTaskCh <- task:
 		r.logger.Infow("✅ Verification task sent to channel",
 			"sourceChain", r.chainSelector,
-			"destChain", destChainSelector,
-			"sequenceNumber", sequenceNumber,
+			"destChain", event.DestChainSelector,
+			"nonce", nonce,
+			"messageId", common.Bytes2Hex(event.MessageId[:]),
 			"receiptsCount", len(receiptBlobs))
 	default:
 		r.logger.Warnw("⚠️ Verification task channel full, dropping event",
 			"sourceChain", r.chainSelector,
-			"sequenceNumber", sequenceNumber)
+			"nonce", nonce)
 	}
+}
+
+// LatestBlock returns the latest block height from the chain client.
+func (r *EVMSourceReader) LatestBlock(ctx context.Context) (*big.Int, error) {
+	if r.chainClient == nil {
+		return nil, fmt.Errorf("chain client not configured")
+	}
+	return r.chainClient.LatestBlockHeight(ctx)
+}
+
+// LatestFinalizedBlock returns the latest finalized block height from the chain client.
+func (r *EVMSourceReader) LatestFinalizedBlock(ctx context.Context) (*big.Int, error) {
+	if r.chainClient == nil {
+		return nil, fmt.Errorf("chain client not configured")
+	}
+
+	// Try to get finalized block using the client's finalized block method
+	head, err := r.chainClient.LatestFinalizedBlock(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest finalized block: %w", err)
+	}
+
+	if head == nil {
+		return nil, fmt.Errorf("finalized block head is nil")
+	}
+
+	return big.NewInt(head.Number), nil
 }

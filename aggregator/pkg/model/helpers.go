@@ -2,10 +2,12 @@ package model
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -14,7 +16,7 @@ func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
 		Version:              uint8(m.Version), //nolint:gosec // G115: Protocol-defined conversion
 		SourceChainSelector:  types.ChainSelector(m.SourceChainSelector),
 		DestChainSelector:    types.ChainSelector(m.DestChainSelector),
-		SequenceNumber:       types.SeqNum(m.SequenceNumber),
+		Nonce:                types.Nonce(m.Nonce),
 		OnRampAddressLength:  uint8(m.OnRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OnRampAddress:        m.OnRampAddress,
 		OffRampAddressLength: uint8(m.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
@@ -34,103 +36,59 @@ func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
 }
 
 func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*aggregator.MessageWithCCVData, error) {
-	participantSignatures := make(map[string]struct {
-		r [32]byte
-		s [32]byte
-	})
+	participantSignatures := make(map[string]signature.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
 			return nil, fmt.Errorf("missing IdentifierSigner in verification record")
 		}
-		participantSignatures[verification.IdentifierSigner.ParticipantID] = struct {
-			r [32]byte
-			s [32]byte
-		}{
-			r: verification.IdentifierSigner.SignatureR,
-			s: verification.IdentifierSigner.SignatureS,
+
+		participantSignatures[verification.IdentifierSigner.ParticipantID] = signature.Data{
+			R:      verification.IdentifierSigner.SignatureR,
+			S:      verification.IdentifierSigner.SignatureS,
+			Signer: common.Address(verification.IdentifierSigner.Address),
 		}
 	}
 
-	signers := FindSignersFromSelectorAndOfframp(committees, report.GetDestinationSelector(), report.GetMessage().OffRampAddress)
+	quorumConfig := FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees, report.GetSourceChainSelector(), report.GetDestinationSelector(), report.GetSourceVerifierAddress())
+	if quorumConfig == nil {
+		return nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", report.GetDestinationSelector(), common.BytesToAddress(report.GetSourceVerifierAddress()).Hex())
+	}
 
-	rs := make([][32]byte, 0, len(signers))
-	ss := make([][32]byte, 0, len(signers))
+	signers := quorumConfig.Signers
+
+	signatures := make([]signature.Data, 0)
+	// make sure all ccvData in reports are the same
+	blobData := report.Verifications[0].BlobData
+	for _, verification := range report.Verifications {
+		if !bytes.Equal(blobData[:], verification.BlobData[:]) {
+			return nil, fmt.Errorf("blobData are not the same between signers")
+		}
+	}
+
 	for _, signer := range signers {
 		sig, exists := participantSignatures[signer.ParticipantID]
 		if !exists {
 			// Skipping missing signatures (not all participants may have signed)
 			continue
 		}
-		rs = append(rs, sig.r)
-		ss = append(ss, sig.s)
+		signatures = append(signatures, sig)
 	}
 
-	encodedSignatures, err := EncodeSignatures(rs, ss)
+	// Sort signatures by signer address for onchain compatibility
+	sortedSignatures := make([]signature.Data, len(signatures))
+	copy(sortedSignatures, signatures)
+	signature.SortSignaturesBySigner(sortedSignatures)
+
+	encodedSignatures, err := signature.EncodeSignaturesABI(blobData, sortedSignatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}
 
 	return &aggregator.MessageWithCCVData{
 		Message:               report.GetMessage(),
-		SourceVerifierAddress: report.GetMessage().OnRampAddress,
-		DestVerifierAddress:   report.GetMessage().OffRampAddress,
+		SourceVerifierAddress: report.GetSourceVerifierAddress(),
+		DestVerifierAddress:   quorumConfig.GetOfframpAddressBytes(),
 		CcvData:               encodedSignatures,
+		Timestamp:             report.Timestamp,
 	}, nil
-}
-
-func EncodeSignatures(rs, ss [][32]byte) ([]byte, error) {
-	if len(rs) != len(ss) {
-		return nil, fmt.Errorf("rs and ss arrays must have the same length")
-	}
-
-	var buf bytes.Buffer
-
-	// Encode array length as uint16 (big-endian)
-	arrayLen := uint16(len(rs)) //nolint:gosec // G115: Protocol-defined conversion
-	if err := binary.Write(&buf, binary.BigEndian, arrayLen); err != nil {
-		return nil, err
-	}
-
-	// Encode rs array
-	for _, r := range rs {
-		buf.Write(r[:])
-	}
-
-	// Encode ss array
-	for _, s := range ss {
-		buf.Write(s[:])
-	}
-
-	return buf.Bytes(), nil
-}
-
-func DecodeSignatures(data []byte) (rs, ss [][32]byte, err error) {
-	if len(data) < 2 {
-		return nil, nil, fmt.Errorf("data too short to contain length")
-	}
-
-	// Read array length
-	arrayLen := binary.BigEndian.Uint16(data[:2])
-	expectedLen := 2 + int(arrayLen)*32*2
-	if len(data) != expectedLen {
-		return nil, nil, fmt.Errorf("invalid data length: expected %d, got %d", expectedLen, len(data))
-	}
-
-	rs = make([][32]byte, arrayLen)
-	ss = make([][32]byte, arrayLen)
-
-	// Offsets
-	offset := 2
-	// Decode rs
-	for i := 0; i < int(arrayLen); i++ {
-		copy(rs[i][:], data[offset:offset+32])
-		offset += 32
-	}
-	// Decode ss
-	for i := 0; i < int(arrayLen); i++ {
-		copy(ss[i][:], data[offset:offset+32])
-		offset += 32
-	}
-
-	return rs, ss, nil
 }

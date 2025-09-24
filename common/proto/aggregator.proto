@@ -1,9 +1,10 @@
 syntax = "proto3";
-
+import "google/rpc/status.proto";
 option go_package = "pb/aggregator";
 
 service Aggregator {
   rpc WriteCommitCCVNodeData(WriteCommitCCVNodeDataRequest) returns (WriteCommitCCVNodeDataResponse);
+  rpc BatchWriteCommitCCVNodeData(BatchWriteCommitCCVNodeDataRequest) returns (BatchWriteCommitCCVNodeDataResponse);
   rpc ReadCommitCCVNodeData(ReadCommitCCVNodeDataRequest) returns (ReadCommitCCVNodeDataResponse);
   rpc WriteBlockCheckpoint(WriteBlockCheckpointRequest) returns (WriteBlockCheckpointResponse);
   rpc ReadBlockCheckpoint(ReadBlockCheckpointRequest) returns (ReadBlockCheckpointResponse);
@@ -37,7 +38,7 @@ message Message {
   uint32 version = 1;
   uint64 source_chain_selector = 2;
   uint64 dest_chain_selector = 3;
-  uint64 sequence_number = 4;
+  uint64 nonce = 4;
   uint32 on_ramp_address_length = 5;
   bytes on_ramp_address = 6;
   uint32 off_ramp_address_length = 7;
@@ -66,14 +67,13 @@ message ReceiptBlob {
 message MessageWithCCVNodeData {
   bytes message_id = 1;
   bytes source_verifier_address = 2;
-  bytes dest_verifier_address = 3;
   // ccv_data is the signature from the commit verifier node of the message data and the blob data
-  bytes ccv_data = 4;
-  // blob_data is the encoded nonce from the source chain
-  bytes blob_data = 5;
-  int64 timestamp = 6;
-  Message message = 7;
-  repeated ReceiptBlob receipt_blobs = 8;
+  bytes ccv_data = 3;
+  // blob_data is the verifier's proof/verification of the message data on chain
+  bytes blob_data = 4;
+  int64 timestamp = 5;
+  Message message = 6;
+  repeated ReceiptBlob receipt_blobs = 7;
 }
 
 message MessageWithCCVData {
@@ -82,6 +82,15 @@ message MessageWithCCVData {
   bytes dest_verifier_address = 3;
   bytes ccv_data = 4;
   int64 timestamp = 5;
+}
+
+message BatchWriteCommitCCVNodeDataRequest {
+  repeated WriteCommitCCVNodeDataRequest requests = 1;
+}
+
+message BatchWriteCommitCCVNodeDataResponse {
+  repeated WriteCommitCCVNodeDataResponse responses = 1;
+  repeated google.rpc.Status errors = 2;
 }
 
 message WriteCommitCCVNodeDataRequest {

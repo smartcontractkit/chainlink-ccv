@@ -12,7 +12,7 @@ fmt: ensure-golangci-lint
 
 # Run golangci-lint
 lint fix="": ensure-golangci-lint
-    golangci-lint run --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
+    golangci-lint run -c ../.golangci.yaml --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
 
 mod-tidy: ensure-go
     go mod tidy
@@ -27,10 +27,10 @@ test-coverage:
     go test -v -race -coverprofile=coverage.out ./...
 
 build-rc:
-    docker build -f Dockerfile -t indexer:rc .
+    docker build -f Dockerfile -t indexer:rc ..
 
 build-dev:
-    docker build -f Dockerfile.dev -t indexer:dev .
+    docker build -f Dockerfile.dev -t indexer:dev ..
 
 publish-rc registry version:
     docker tag indexer:rc {{registry}}/chainlink-ccv-indexer:{{version}}-rc

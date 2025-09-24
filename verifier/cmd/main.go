@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,43 +9,48 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/verifier_config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 
+	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
 // Configuration flags.
 const (
-	chainSelectorA = protocol.ChainSelector(1337)
-	chainSelectorB = protocol.ChainSelector(2337)
+	// Chain IDs for blockchain client connections.
+	chainIDA = protocol.ChainSelector(1337)
+	chainIDB = protocol.ChainSelector(2337)
+
+	// Actual chain selectors used in CCIP messages.
+	chainSelectorA = protocol.ChainSelector(3379446385462418246)  // Maps to chain ID 1337
+	chainSelectorB = protocol.ChainSelector(12922642891491394802) // Maps to chain ID 2337
 )
 
-func loadConfiguration(filepath string) (*verifier_config.Configuration, error) {
-	var config verifier_config.Configuration
+func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
+	var config commontypes.VerifierConfig
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}
 	return &config, nil
 }
 
-func logBlockchainInfo(blockchainHelper *types.BlockchainHelper, lggr logger.Logger) {
-	for _, chainSelector := range []protocol.ChainSelector{1337, 2337} {
-		logChainInfo(blockchainHelper, chainSelector, lggr)
+func logBlockchainInfo(blockchainHelper *commontypes.BlockchainHelper, lggr logger.Logger) {
+	for _, chainID := range []protocol.ChainSelector{chainIDA, chainIDB} {
+		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *types.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo(blockchainHelper *commontypes.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
 	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
 		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
 	}
@@ -89,7 +93,7 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	filePath := "verifier.toml"
+	filePath := "verifier-1.toml"
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
@@ -103,29 +107,45 @@ func main() {
 		os.Exit(1)
 	}
 
+	if _, err := pyroscope.Start(pyroscope.Config{
+		ApplicationName: "verifier",
+		ServerAddress:   verifierConfig.PyroscopeURL,
+		Logger:          pyroscope.StandardLogger,
+		ProfileTypes: []pyroscope.ProfileType{
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileGoroutines,
+			pyroscope.ProfileBlockDuration,
+			pyroscope.ProfileMutexDuration,
+		},
+	}); err != nil {
+		lggr.Errorw("Failed to start pyroscope", "error", err)
+	}
+
 	// Use actual blockchain information from configuration
-	var blockchainHelper *types.BlockchainHelper
+	var blockchainHelper *commontypes.BlockchainHelper
 	var chainClient1 client.Client
 	var chainClient2 client.Client
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
-		blockchainHelper = types.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		blockchainHelper = commontypes.NewBlockchainHelper(verifierConfig.BlockchainInfos)
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
-		chainClient1 = createHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainSelectorA)
-		chainClient2 = createHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainSelectorB)
+		chainClient1 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainIDA)
+		chainClient2 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainIDB)
 	}
 
 	// Create verifier addresses before source readers setup
-	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy1337)
+	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp1337)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
 	}
 
-	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.CCVProxy2337)
+	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp2337)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
@@ -140,18 +160,18 @@ func main() {
 	sourceReaders := make(map[protocol.ChainSelector]reader.SourceReader)
 
 	// Try to create blockchain source readers if possible
-	if chainClient1 == nil || verifierConfig.CCVProxy1337 == "" {
-		lggr.Errorw("No chainclient or CCVProxy1337 address", "chain", 1337)
+	if chainClient1 == nil || verifierConfig.VerifierOnRamp1337 == "" {
+		lggr.Errorw("No chainclient or VerifierOnRamp1337 address", "chain", 1337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainSelectorA, lggr)
+	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainIDA, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 
-	if chainClient2 == nil || verifierConfig.CCVProxy2337 == "" {
-		lggr.Errorw("No chainclient or CCVProxy2337 address", "chain", 2337)
+	if chainClient2 == nil || verifierConfig.VerifierOnRamp2337 == "" {
+		lggr.Errorw("No chainclient or VerifierOnRamp2337 address", "chain", 2337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainSelectorB, lggr)
+	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainIDB, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration
@@ -178,7 +198,7 @@ func main() {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		os.Exit(1)
 	}
-	lggr.Infow("Using verifier address", "address", signer.GetSignerAddress().String())
+	lggr.Infow("Using signer address", "address", signer.GetSignerAddress().String())
 
 	// Create commit verifier
 	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
@@ -199,7 +219,7 @@ func main() {
 	// Start the verification coordinator
 	lggr.Infow("🚀 Starting Verification Coordinator",
 		"verifierID", config.VerifierID,
-		"sourceChains", []protocol.ChainSelector{1337, 2337},
+		"sourceChains", []protocol.ChainSelector{chainSelectorA, chainSelectorB},
 		"verifierAddress", []string{verifierAddr.String(), verifierAddr2.String()},
 	)
 
@@ -212,7 +232,7 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		lggr.Infow("✅ CCV Verifier is running!\n")
 		lggr.Infow("Verifier ID: %s\n", config.VerifierID)
-		lggr.Infow("Source Chains: [1337, 2337]\n")
+		lggr.Infow("Source Chains: [%d, %d]\n", chainSelectorA, chainSelectorB)
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -263,91 +283,4 @@ func main() {
 	}
 
 	lggr.Infow("✅ Verifier service stopped gracefully")
-}
-
-func ptr[T any](t T) *T { return &t }
-
-// createHealthyMultiNodeClient tests the multinode chain client connection and returns the client if it's healthy.
-func createHealthyMultiNodeClient(ctx context.Context, blockchainHelper *types.BlockchainHelper, lggr logger.Logger, chainSelector protocol.ChainSelector) client.Client {
-	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
-	if err != nil {
-		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
-		return nil
-	}
-
-	noNewHeadsThreshold := 3 * time.Minute
-	selectionMode := ptr("HighestHead")
-	leaseDuration := 0 * time.Second
-	pollFailureThreshold := ptr(uint32(5))
-	pollInterval := 10 * time.Second
-	syncThreshold := ptr(uint32(5))
-	nodeIsSyncingEnabled := ptr(false)
-	chainTypeStr := blockchainInfo.Type
-	finalizedBlockOffset := ptr[uint32](16)
-	enforceRepeatableRead := ptr(true)
-	deathDeclarationDelay := time.Second * 3
-	noNewFinalizedBlocksThreshold := time.Second * 5
-	finalizedBlockPollInterval := time.Second * 4
-	newHeadsPollInterval := time.Second * 4
-	confirmationTimeout := time.Second * 60
-	wsURL, _ := blockchainHelper.GetInternalWebsocketEndpoint(chainSelector)
-	httpURL, _ := blockchainHelper.GetInternalRPCEndpoint(chainSelector)
-	nodeConfigs := []client.NodeConfig{
-		{
-			Name:    ptr(blockchainInfo.ContainerName),
-			WSURL:   ptr(wsURL),
-			HTTPURL: ptr(httpURL),
-		},
-	}
-	finalityDepth := ptr(uint32(10))
-	safeDepth := ptr(uint32(6))
-	finalityTagEnabled := ptr(true)
-	lggr.Infow("🔍 Testing multinode chain client", "chainSelector", chainSelector, "wsURL", wsURL, "httpURL", httpURL)
-	chainCfg, nodePool, nodes, _ := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
-		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
-		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
-		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
-
-	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, new(big.Int).SetUint64(uint64(chainSelector)), nodes, chaintype.ChainType(chainTypeStr))
-	if err != nil {
-		lggr.Errorw("Failed to create multinode chain client", "error", err)
-		return nil
-	}
-	// defer chainClient.Close()
-
-	lggr.Infow("✅ Multinode chain client created successfully",
-		"chainSelector", chainSelector,
-		"nodeStates", chainClient.NodeStates())
-
-	err = chainClient.Dial(ctx)
-	if err != nil {
-		lggr.Errorw("Failed to dial multinode chain client", "error", err)
-		return nil
-	}
-
-	// Test 1: Get latest block using multinode's SelectRPC
-	latestBlock, err := chainClient.LatestBlockHeight(ctx)
-	if err != nil {
-		lggr.Errorw("Failed to get latest block", "error", err)
-		return nil
-	}
-	lggr.Infow("📦 Latest block (via multinode)", "blockNumber", latestBlock)
-
-	// Test 2: Get chain ID
-	chainID := chainClient.ConfiguredChainID()
-	lggr.Infow("🔗 Chain ID", "chainID", chainID)
-
-	// Test 3: Get a specific block header
-	header, err := chainClient.HeadByNumber(ctx, latestBlock)
-	if err != nil {
-		lggr.Errorw("Failed to get block header", "error", err)
-		return nil
-	}
-	lggr.Infow("📋 Block header",
-		"number", header.Number,
-		"hash", header.Hash.Hex(),
-		"timestamp", header.Timestamp)
-
-	lggr.Infow("✅ Multinode chain client tests completed successfully!", "chainSelector", chainSelector)
-	return chainClient
 }

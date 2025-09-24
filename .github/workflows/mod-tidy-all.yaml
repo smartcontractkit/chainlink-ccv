@@ -1,19 +1,13 @@
-name: Aggregator CI
+name: Go Modules Tidy Check
 
 on:
+  pull_request:
   push:
-    paths:
-      - '.github/**'
-      - 'protocol/**'
-      - 'common/**'
-      - 'aggregator/**'
-
-defaults:
-  run:
-    working-directory: aggregator
+    branches:
+      - main
 
 jobs:
-  aggregator-lint-and-test:
+  mod-tidy-all:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -21,12 +15,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Read Go version
+        id: tool_versions
+        shell: bash
+        run: |
+          echo "go_version=$(grep -E '^VERSION_GO=' tool-versions.env | cut -d= -f2)" >> $GITHUB_OUTPUT
+
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
         with:
           cache: true
-          go-version-file: aggregator/go.mod
-          cache-dependency-path: aggregator/go.sum
+          go-version: ${{ steps.tool_versions.outputs.go_version }}
 
       - name: Populate go envs
         run: |
@@ -50,8 +49,19 @@ jobs:
       - name: Install go-tools
         run: just install-go-tools
 
-      - name: Run lint
-        run: just lint
+      - name: Run repo-wide go mod tidy
+        run: just mod-tidy-all
 
-      - name: Run tests
-        run: just test
+      - name: Verify go.mod and go.sum across all modules
+        run: |
+          files=$(git ls-files | grep -E '(^|/)go\.(mod|sum)$' || true)
+          if [ -z "$files" ]; then
+            echo "No go.mod or go.sum files found."
+            exit 0
+          fi
+          if ! git diff --exit-code -- $files; then
+            echo "❌ Some go.mod or go.sum files changed after running 'just mod-tidy-all'."
+            echo "Please run 'just mod-tidy-all' locally and commit the results."
+            git diff -- $files | cat
+            exit 1
+          fi

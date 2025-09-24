@@ -22,6 +22,7 @@ type FakeInput struct {
 	Image          string      `toml:"image"`
 	Port           int         `toml:"port"`
 	SourceCodePath string      `toml:"source_code_path"`
+	RootPath       string      `toml:"root_path"`
 	ContainerName  string      `toml:"container_name"`
 	UseCache       bool        `toml:"use_cache"`
 	Out            *FakeOutput `toml:"-"`
@@ -44,6 +45,9 @@ func fakeDefaults(in *FakeInput) {
 }
 
 func NewFake(in *FakeInput) (*FakeOutput, error) {
+	if in == nil {
+		return nil, nil
+	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
@@ -75,7 +79,7 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = GoSourcePathMounts(p, AppPathInsideContainer)
+		req.Mounts = GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
@@ -92,10 +96,12 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
-
-	return &FakeOutput{
+	out := &FakeOutput{
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
-	}, nil
+	}
+	in.Out = out
+
+	return out, nil
 }

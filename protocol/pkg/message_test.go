@@ -28,7 +28,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 	msg, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
-		types.SeqNum(123),
+		types.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10, // finality
@@ -53,7 +53,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 	assert.Equal(t, msg.Version, decoded.Version)
 	assert.Equal(t, msg.SourceChainSelector, decoded.SourceChainSelector)
 	assert.Equal(t, msg.DestChainSelector, decoded.DestChainSelector)
-	assert.Equal(t, msg.SequenceNumber, decoded.SequenceNumber)
+	assert.Equal(t, msg.Nonce, decoded.Nonce)
 	assert.Equal(t, msg.OnRampAddressLength, decoded.OnRampAddressLength)
 	assert.Equal(t, msg.OnRampAddress, decoded.OnRampAddress)
 	assert.Equal(t, msg.OffRampAddressLength, decoded.OffRampAddressLength)
@@ -86,7 +86,7 @@ func TestMessageID(t *testing.T) {
 	msg1, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
-		types.SeqNum(123),
+		types.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -101,7 +101,7 @@ func TestMessageID(t *testing.T) {
 	msg2, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
-		types.SeqNum(123),
+		types.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -120,11 +120,11 @@ func TestMessageID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, id1, id2)
 
-	// Different sequence number should give different message ID
+	// Different nonce should give different message ID
 	msg3, err := types.NewMessage(
 		types.ChainSelector(1337),
 		types.ChainSelector(2337),
-		types.SeqNum(124), // Different sequence number
+		types.Nonce(124), // Different nonce
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -169,10 +169,10 @@ func TestMessageDecodingErrors(t *testing.T) {
 				// Create minimal valid header
 				data := make([]byte, 27) // minimum size
 				data[0] = 1              // version
-				// Set chain selectors and sequence number (8 bytes each)
+				// Set chain selectors and nonce (8 bytes each)
 				binary.BigEndian.PutUint64(data[1:9], 1)   // source chain
 				binary.BigEndian.PutUint64(data[9:17], 2)  // dest chain
-				binary.BigEndian.PutUint64(data[17:25], 3) // sequence number
+				binary.BigEndian.PutUint64(data[17:25], 3) // nonce
 				data[25] = 10                              // claim 10 bytes for on-ramp address
 				data[26] = 0                               // but only provide 0 bytes for off-ramp
 				return data

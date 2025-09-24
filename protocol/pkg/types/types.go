@@ -145,16 +145,17 @@ func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 
 // Message represents the chain-agnostic CCIP message format.
 type Message struct {
-	Sender               []byte        `json:"sender"`
-	Data                 []byte        `json:"data"`
-	OnRampAddress        []byte        `json:"on_ramp_address"`
-	TokenTransfer        []byte        `json:"token_transfer"`
+	Sender        []byte `json:"sender"`
+	Data          []byte `json:"data"`
+	OnRampAddress []byte `json:"on_ramp_address"`
+	TokenTransfer []byte `json:"token_transfer"`
+	// This is CCVAggregator
 	OffRampAddress       []byte        `json:"off_ramp_address"`
 	DestBlob             []byte        `json:"dest_blob"`
 	Receiver             []byte        `json:"receiver"`
 	SourceChainSelector  ChainSelector `json:"source_chain_selector"`
 	DestChainSelector    ChainSelector `json:"dest_chain_selector"`
-	SequenceNumber       SeqNum        `json:"sequence_number"`
+	Nonce                Nonce         `json:"nonce"`
 	Finality             uint16        `json:"finality"`
 	DestBlobLength       uint16        `json:"dest_blob_length"`
 	TokenTransferLength  uint16        `json:"token_transfer_length"`
@@ -173,14 +174,14 @@ func (m *Message) Encode() ([]byte, error) {
 	// Protocol header
 	_ = buf.WriteByte(m.Version)
 
-	// Chain selectors and sequence number (8 bytes each, big-endian)
+	// Chain selectors and nonce (8 bytes each, big-endian)
 	if err := binary.Write(&buf, binary.BigEndian, uint64(m.SourceChainSelector)); err != nil {
 		return nil, err
 	}
 	if err := binary.Write(&buf, binary.BigEndian, uint64(m.DestChainSelector)); err != nil {
 		return nil, err
 	}
-	if err := binary.Write(&buf, binary.BigEndian, uint64(m.SequenceNumber)); err != nil {
+	if err := binary.Write(&buf, binary.BigEndian, uint64(m.Nonce)); err != nil {
 		return nil, err
 	}
 
@@ -242,21 +243,21 @@ func DecodeMessage(data []byte) (*Message, error) {
 	}
 	msg.Version = version
 
-	// Read chain selectors and sequence number
-	var sourceChain, destChain, seqNum uint64
+	// Read chain selectors and nonce
+	var sourceChain, destChain, nonce uint64
 	if err := binary.Read(reader, binary.BigEndian, &sourceChain); err != nil {
 		return nil, fmt.Errorf("failed to read source chain selector: %w", err)
 	}
 	if err := binary.Read(reader, binary.BigEndian, &destChain); err != nil {
 		return nil, fmt.Errorf("failed to read dest chain selector: %w", err)
 	}
-	if err := binary.Read(reader, binary.BigEndian, &seqNum); err != nil {
-		return nil, fmt.Errorf("failed to read sequence number: %w", err)
+	if err := binary.Read(reader, binary.BigEndian, &nonce); err != nil {
+		return nil, fmt.Errorf("failed to read nonce: %w", err)
 	}
 
 	msg.SourceChainSelector = ChainSelector(sourceChain)
 	msg.DestChainSelector = ChainSelector(destChain)
-	msg.SequenceNumber = SeqNum(seqNum)
+	msg.Nonce = Nonce(nonce)
 
 	// Read on-ramp address
 	onRampLen, err := reader.ReadByte()
@@ -369,6 +370,13 @@ type ReceiptWithBlob struct {
 	DestBytesOverhead uint32         `json:"dest_bytes_overhead"`
 }
 
+// CCV represents a Cross-Chain Verifier configuration.
+type CCV struct {
+	CCVAddress UnknownAddress
+	Args       []byte
+	ArgsLen    uint16
+}
+
 // CCVData represents Cross-Chain Verification data.
 type CCVData struct {
 	SourceVerifierAddress UnknownAddress    `json:"source_verifier_address"`
@@ -377,7 +385,7 @@ type CCVData struct {
 	BlobData              []byte            `json:"blob_data"`
 	ReceiptBlobs          []ReceiptWithBlob `json:"receipt_blobs"`
 	Message               Message           `json:"message"`
-	SequenceNumber        SeqNum            `json:"sequence_number"`
+	Nonce                 Nonce             `json:"nonce"`
 	SourceChainSelector   ChainSelector     `json:"source_chain_selector"`
 	DestChainSelector     ChainSelector     `json:"dest_chain_selector"`
 	Timestamp             int64             `json:"timestamp"`
@@ -388,6 +396,12 @@ type CCVData struct {
 type QueryResponse struct {
 	Timestamp *int64  `json:"timestamp,omitempty"`
 	Data      CCVData `json:"data"`
+}
+
+// CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
+type CCVNodeDataWriter interface {
+	// WriteCCVNodeData stores multiple CCV node data entries in the offchain storage
+	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData) error
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
@@ -423,7 +437,7 @@ func NewEmptyTokenTransfer() *TokenTransfer {
 // NewMessage creates a new message with the given parameters.
 func NewMessage(
 	sourceChain, destChain ChainSelector,
-	sequenceNumber SeqNum,
+	nonce Nonce,
 	onRampAddress, offRampAddress UnknownAddress,
 	finality uint16,
 	sender, receiver UnknownAddress,
@@ -457,7 +471,7 @@ func NewMessage(
 		Version:              MessageVersion,
 		SourceChainSelector:  sourceChain,
 		DestChainSelector:    destChain,
-		SequenceNumber:       sequenceNumber,
+		Nonce:                nonce,
 		OnRampAddressLength:  uint8(len(onRampAddress)),
 		OnRampAddress:        onRampAddress.Bytes(),
 		OffRampAddressLength: uint8(len(offRampAddress)),

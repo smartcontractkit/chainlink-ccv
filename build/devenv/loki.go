@@ -10,31 +10,31 @@ import (
 )
 
 // LokiPusher handles pushing logs to Loki
-// it does not use Promtail client specifically to avoid dep hell between Prometheus/Loki go deps
+// it does not use Promtail client specifically to avoid dep hell between Prometheus/Loki go deps.
 type LokiPusher struct {
 	lokiURL string
 	client  *resty.Client
 }
 
-// LogEntry represents a single log entry for Loki
+// LogEntry represents a single log entry for Loki.
 type LogEntry struct {
 	Timestamp time.Time         `json:"timestamp"`
-	Message   interface{}       `json:"message"`
+	Message   any               `json:"message"`
 	Labels    map[string]string `json:"labels,omitempty"`
 }
 
-// LokiStream represents a stream of log entries with labels
+// LokiStream represents a stream of log entries with labels.
 type LokiStream struct {
 	Stream map[string]string `json:"stream"`
 	Values [][]string        `json:"values"` // [timestamp, log line]
 }
 
-// LokiPayload represents the payload structure for Loki API
+// LokiPayload represents the payload structure for Loki API.
 type LokiPayload struct {
 	Streams []LokiStream `json:"streams"`
 }
 
-// NewLokiPusher creates a new LokiPusher instance
+// NewLokiPusher creates a new LokiPusher instance.
 func NewLokiPusher() *LokiPusher {
 	lokiURL := os.Getenv("LOKI_URL")
 	if lokiURL == "" {
@@ -46,21 +46,17 @@ func NewLokiPusher() *LokiPusher {
 	}
 }
 
-// PushRawAndDecoded sends both raw and decoded messages to Loki in a structured format
-func (lp *LokiPusher) PushRawAndDecoded(rawMessages []interface{}, decodedMessages []interface{}, jobStreamName string) error {
-	if len(rawMessages) != len(decodedMessages) {
-		return fmt.Errorf("raw and decoded messages must have the same length")
-	}
-	if len(rawMessages) == 0 {
+// Push pushes all the messages to a Loki stream
+func (lp *LokiPusher) Push(msgs []any, labels map[string]string) error {
+	if len(msgs) == 0 {
 		return nil
 	}
-	values := make([][]string, 0, len(rawMessages))
+	values := make([][]string, 0, len(msgs))
 
-	for i := 0; i < len(rawMessages); i++ {
-		combinedMessage := map[string]interface{}{
-			"raw":     rawMessages[i],
-			"decoded": decodedMessages[i],
-			"ts":      time.Now().Format(time.RFC3339Nano),
+	for i := 0; i < len(msgs); i++ {
+		combinedMessage := map[string]any{
+			"log": msgs[i],
+			"ts":  time.Now().Format(time.RFC3339Nano),
 		}
 		jsonBytes, err := json.Marshal(combinedMessage)
 		if err != nil {
@@ -73,9 +69,7 @@ func (lp *LokiPusher) PushRawAndDecoded(rawMessages []interface{}, decodedMessag
 	}
 
 	stream := LokiStream{
-		Stream: map[string]string{
-			"job": jobStreamName,
-		},
+		Stream: labels,
 		Values: values,
 	}
 	resp, err := lp.client.R().

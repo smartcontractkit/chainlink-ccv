@@ -21,15 +21,23 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
-	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/nonce_manager"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 /*
@@ -180,7 +188,7 @@ func blockchainsByChainID(in *Cfg) (map[string]*ethclient.Client, error) {
 	return bcByChainID, nil
 }
 
-// NewDefaultCLDFBundle creates a new default CLDF bundle
+// NewDefaultCLDFBundle creates a new default CLDF bundle.
 func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 	return operations.NewBundle(
 		func() context.Context { return context.Background() },
@@ -189,9 +197,9 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 	)
 }
 
-// GetRouterAddrForSelector get router address for chain selector, mostly used in testing or tools
-func GetRouterAddrForSelector(in *Cfg, selector uint64) (common.Address, error) {
-	var routerAddr common.Address
+// GetContractAddrForSelector get contract address by type and chain selector.
+func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore.ContractType) (common.Address, error) {
+	var contractAddr common.Address
 	for _, addr := range in.CCV.Addresses {
 		var refs []datastore.AddressRef
 		err := json.Unmarshal([]byte(addr), &refs)
@@ -199,12 +207,47 @@ func GetRouterAddrForSelector(in *Cfg, selector uint64) (common.Address, error) 
 			return common.Address{}, err
 		}
 		for _, ref := range refs {
-			if ref.ChainSelector == selector && ref.Type == datastore.ContractType(router.ContractType) {
-				routerAddr = common.HexToAddress(ref.Address)
+			if ref.ChainSelector == selector && ref.Type == contractType {
+				contractAddr = common.HexToAddress(ref.Address)
 			}
 		}
 	}
-	return routerAddr, nil
+	return contractAddr, nil
+}
+
+func SaveContractRefsForSelector(in *Cfg, sel uint64, refs []datastore.AddressRef) error {
+	var addresses []datastore.AddressRef
+	var idx int
+	for i, addressesForSelector := range in.CCV.Addresses {
+		var refs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addressesForSelector), &refs); err != nil {
+			return fmt.Errorf("failed to unmarshal addresses: %w", err)
+		}
+		if len(refs) > 0 && refs[0].ChainSelector == sel {
+			addresses = refs
+			idx = i
+			break
+		}
+	}
+	for _, r := range refs {
+		addresses = append(addresses, r)
+	}
+	addrBytes, err := json.Marshal(addresses)
+	if err != nil {
+		return fmt.Errorf("failed to marshal addresses: %w", err)
+	}
+	in.CCV.AddressesMu.Lock()
+	in.CCV.Addresses[idx] = string(addrBytes)
+	in.CCV.AddressesMu.Unlock()
+	return nil
+}
+
+func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) common.Address {
+	addr, err := GetContractAddrForSelector(in, selector, datastore.ContractType(contractType))
+	if err != nil {
+		Plog.Fatal().Err(err).Msg("Failed to get contract address")
+	}
+	return addr
 }
 
 // FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).
@@ -277,7 +320,7 @@ Ideally, these functions should be exposed by Atlas as a transformation function
 But for now we use these functions to expose on-chain events (logs) as a custom aggregated metrics (between two on-chain events, for example) in Prometheus
 */
 
-// DecodedLog is an extension of log containing log(event), contract name and chain ID
+// DecodedLog is an extension of log containing log(event), contract name and chain ID.
 type DecodedLog[T any] struct {
 	types.Log
 	Name         string `json:"name"`
@@ -285,28 +328,51 @@ type DecodedLog[T any] struct {
 	UnpackedData T      `json:"unpackedData"`
 }
 
-// LogStream aggregates all the data we need to import in Loki and Prometheus
+// LogStream aggregates all the data we need to import in Loki and Prometheus.
 type LogStream[T any] struct {
-	RawLoki     []interface{}
-	DecodedLoki []interface{}
+	RawLoki     []any
+	DecodedLoki []any
 	DecodedProm []*T
 }
 
-var prometheusOnce = &sync.Once{}
+var (
+	metricsServer *http.Server
+	serverMutex   sync.Mutex
+)
 
-// ExposePrometheusMetricsFor temporarily exposes Prometheus endpoint so metrics can be scraped
-func ExposePrometheusMetricsFor(interval time.Duration) error {
-	prometheusOnce.Do(func() {
-		http.Handle("/on-chain-metrics", promhttp.Handler())
-	})
-	go http.ListenAndServe(":9112", nil)
-	Plog.Info().Msgf("Exposing Prometheus metrics for %s seconds..", interval.String())
-	// 5 scrape intervals for this particular path
+// ExposePrometheusMetricsFor temporarily exposes Prometheus endpoint so metrics can be scraped.
+func ExposePrometheusMetricsFor(reg *prometheus.Registry, interval time.Duration) error {
+	serverMutex.Lock()
+	defer serverMutex.Unlock()
+	if metricsServer != nil {
+		Plog.Info().Msg("Shutting down previous metrics server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := metricsServer.Shutdown(ctx); err != nil {
+			Plog.Warn().Err(err).Msg("Failed to gracefully shutdown previous metrics server")
+		}
+		metricsServer = nil
+	}
+
+	// Create new mux to avoid conflicts with global http.Handle and run
+	mux := http.NewServeMux()
+	mux.Handle("/on-chain-metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	metricsServer = &http.Server{
+		Addr:    ":9112",
+		Handler: mux,
+	}
+	go func() {
+		Plog.Info().Msg("Starting new Prometheus metrics server on :9112")
+		if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			Plog.Error().Err(err).Msg("Metrics server error")
+		}
+	}()
+	Plog.Info().Msgf("Exposing Prometheus metrics for %s seconds...", interval.String())
 	time.Sleep(interval)
 	return nil
 }
 
-// FilterUnpackEventsWithMeta filters and returns all the logs from block X to block Y with additional metadata
+// FilterUnpackEventsWithMeta filters and returns all the logs from block X to block Y with additional metadata.
 func FilterUnpackEventsWithMeta[T any](ctx context.Context, c *ethclient.Client, abiStr, contractAddr, eventName string, from, to *big.Int) ([]types.Log, []*DecodedLog[T], error) {
 	parsedABI, err := abi.JSON(strings.NewReader(abiStr))
 	if err != nil {
@@ -349,16 +415,16 @@ func FilterUnpackEventsWithMeta[T any](ctx context.Context, c *ethclient.Client,
 	return logs, unpacked, nil
 }
 
-// FilterContractEventsAllChains filters all contract events across all available chains and decodes them using go-ethereum generated binding package, adds contract name and chain ID
-func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName string, eventName string, from, to *big.Int) (*LogStream[DecodedLog[T]], error) {
+// FilterContractEventsAllChains filters all contract events across all available chains and decodes them using go-ethereum generated binding package, adds contract name and chain ID.
+func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName, eventName string, from, to *big.Int) (*LogStream[DecodedLog[T]], error) {
 	refsBySelector, err := GetCLDFAddressesPerSelector(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load addresses per selector: %w", err)
 	}
 	// to simplify the user-facing API we prepare data for both Loki pushes and Prometheus observations
 	decodedPromStream := make([]*DecodedLog[T], 0)
-	rawLokiStream := make([]interface{}, 0)
-	decodedLokiStream := make([]interface{}, 0)
+	rawLokiStream := make([]any, 0)
+	decodedLokiStream := make([]any, 0)
 	// find all events for all the contract across the chains
 	for _, ref := range refsBySelector {
 		for _, r := range ref {
@@ -390,51 +456,139 @@ func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChai
 CCIPv17 (CCV) specific helpers
 */
 
-func NewGenericCCIP17ExtraArgsV2(args protocol.GenericExtraArgsV2) ([]byte, error) {
+// NewV3ExtraArgs encodes v3 extra args params
+//
+//	// Helper function to create EVMExtraArgsV3 struct
+//	function _createV3ExtraArgs(
+//	  Client.CCV[] memory requiredCCVs,
+//	  Client.CCV[] memory optionalCCVs,
+//	  uint8 optionalThreshold
+//	) internal pure returns (Client.EVMExtraArgsV3 memory) {
+//	  return Client.EVMExtraArgsV3({
+//	    requiredCCV: requiredCCVs,
+//	    optionalCCV: optionalCCVs,
+//	    optionalThreshold: optionalThreshold,
+//	    finalityConfig: 12,
+//	    executor: address(0), // No executor specified.
+//	    executorArgs: "",
+//	    tokenArgs: ""
+//	  });
+//	}
+func NewV3ExtraArgs(finalityConfig uint16, execAddr common.Address, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
+	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
-		[
-			{
-				"name": "encodeGenericExtraArgsV2",
-				"type": "function",
-				"inputs": [
-					{
-						"components": [
-							{
-								"name": "gasLimit",
-								"type": "uint256"
-							},
-							{
-								"name": "allowOutOfOrderExecution",
-								"type": "bool"
-							}
-						],
-						"name": "args",
-						"type": "tuple"
-					}
-				],
-				"outputs": [],
-				"stateMutability": "pure"
-			}
-		]
-	`
+    [
+        {
+            "name": "encodeEVMExtraArgsV3",
+            "type": "function",
+            "inputs": [
+                {
+                    "components": [
+                        {
+                            "name": "requiredCCV",
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "ccvAddress", "type": "address"},
+                                {"name": "args", "type": "bytes"}
+                            ]
+                        },
+                        {
+                            "name": "optionalCCV", 
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "ccvAddress", "type": "address"},
+                                {"name": "args", "type": "bytes"}
+                            ]
+                        },
+                        {"name": "optionalThreshold", "type": "uint8"},
+                        {"name": "finalityConfig", "type": "uint16"},
+                        {"name": "executor", "type": "address"},
+                        {"name": "executorArgs", "type": "bytes"},
+                        {"name": "tokenArgs", "type": "bytes"}
+                    ],
+                    "name": "extraArgs",
+                    "type": "tuple"
+                }
+            ],
+            "outputs": [{"type": "bytes"}],
+            "stateMutability": "pure"
+        }
+    ]
+    `
 
 	parsedABI, err := abi.JSON(bytes.NewReader([]byte(clientABI)))
 	if err != nil {
 		return nil, err
 	}
 
-	encoded, err := parsedABI.Methods["encodeGenericExtraArgsV2"].Inputs.Pack(args)
+	// Convert CCV slices to match Solidity CCV struct exactly
+	requiredCCV := make([]struct {
+		CcvAddress common.Address
+		Args       []byte
+	}, len(requiredCCVs))
+
+	for i, ccv := range requiredCCVs {
+		requiredCCV[i] = struct {
+			CcvAddress common.Address
+			Args       []byte
+		}{
+			CcvAddress: common.BytesToAddress(ccv.CCVAddress),
+			Args:       ccv.Args,
+		}
+	}
+
+	optionalCCV := make([]struct {
+		CcvAddress common.Address
+		Args       []byte
+	}, len(optionalCCVs))
+
+	for i, ccv := range optionalCCVs {
+		optionalCCV[i] = struct {
+			CcvAddress common.Address
+			Args       []byte
+		}{
+			CcvAddress: common.BytesToAddress(ccv.CCVAddress),
+			Args:       ccv.Args,
+		}
+	}
+
+	// Struct matching exactly the Solidity EVMExtraArgsV3 order and types
+	extraArgs := struct {
+		RequiredCCV []struct {
+			CcvAddress common.Address
+			Args       []byte
+		}
+		OptionalCCV []struct {
+			CcvAddress common.Address
+			Args       []byte
+		}
+		OptionalThreshold uint8
+		FinalityConfig    uint16
+		Executor          common.Address
+		ExecutorArgs      []byte
+		TokenArgs         []byte
+	}{
+		RequiredCCV:       requiredCCV,
+		OptionalCCV:       optionalCCV,
+		OptionalThreshold: optionalThreshold,
+		FinalityConfig:    finalityConfig,
+		Executor:          execAddr,
+		ExecutorArgs:      execArgs,
+		TokenArgs:         tokenArgs,
+	}
+
+	encoded, err := parsedABI.Methods["encodeEVMExtraArgsV3"].Inputs.Pack(extraArgs)
 	if err != nil {
 		return nil, err
 	}
 
-	tag := []byte{0x18, 0x1d, 0xcf, 0x10} // GENERIC_EXTRA_ARGS_V2_TAG
-	tag = append(tag, encoded...)
-	return tag, nil
+	// Prepend the GENERIC_EXTRA_ARGS_V3_TAG
+	tag := []byte{0x30, 0x23, 0x26, 0xcb}
+	return append(tag, encoded...), nil
 }
 
-// SendExampleArgsV2Message sends an example message between two chains (selectors) using ArgsV2
-func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
+// SendExampleArgsV2Message sends an example message between two chains (selectors) using ArgsV2.
+func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -456,39 +610,96 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 	bundle := NewDefaultCLDFBundle(e)
 	e.OperationsBundle = bundle
 
-	routerAddr, err := GetRouterAddrForSelector(in, srcChain.Selector)
+	routerAddr, err := GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
-	argsv2, err := NewGenericCCIP17ExtraArgsV2(protocol.GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(1_000_000),
-		AllowOutOfOrderExecution: true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to generate GenericExtraArgsV2: %w", err)
-	}
 
+	receiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(srcChain.DeployerKey.From.Bytes(), 32),
+			Receiver:     common.LeftPadBytes(common.HexToAddress(receiver).Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsv2,
+			ExtraArgs:    []byte{},
 		},
 	}
 
-	feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
-		ChainSelector: srcChain.Selector,
+	// Send CCIP message with value
+	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+		ChainSelector: src,
 		Address:       routerAddr,
 		Args:          ccipSendArgs,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to get fee: %w", err)
+		return fmt.Errorf("failed to send CCIP message: %w", err)
+	}
+	Plog.Info().Bool("Executed", sendReport.Output.Executed).
+		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
+		Uint64("DestChainSelector", dest).
+		Str("SrcRouter", sendReport.Output.Tx.To).
+		Msg("CCIP message sent")
+
+	return nil
+}
+
+// SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3.
+func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr common.Address, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 
+	chains := e.BlockChains.EVMChains()
+	if chains == nil {
+		return errors.New("no EVM chains found")
+	}
+	if !slices.Contains(selectors, src) {
+		return fmt.Errorf("source selector %d not found in environment selectors %v", src, selectors)
+	}
+	if !slices.Contains(selectors, dest) {
+		return fmt.Errorf("destination selector %d not found in environment selectors %v", dest, selectors)
+	}
+
+	srcChain := chains[src]
+
+	bundle := NewDefaultCLDFBundle(e)
+	e.OperationsBundle = bundle
+
+	routerAddr, err := GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
+	if err != nil {
+		return fmt.Errorf("failed to get router address: %w", err)
+	}
+
+	argsV3, err := NewV3ExtraArgs(finality, execAddr, execArgs, tokenArgs, ccv, optCcv, threshold)
+	if err != nil {
+		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
+	}
+	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+
+	ccipSendArgs := router.CCIPSendArgs{
+		DestChainSelector: dest,
+		EVM2AnyMessage: router.EVM2AnyMessage{
+			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
+			Data:         []byte{},
+			TokenAmounts: []router.EVMTokenAmount{},
+			ExtraArgs:    argsV3,
+		},
+	}
+
+	// TODO: not supported right now
+	//feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+	//	ChainSelector: srcChain.Selector,
+	//	Address:       routerAddr,
+	//	Args:          ccipSendArgs,
+	//})
+	//if err != nil {
+	//	return fmt.Errorf("failed to get fee: %w", err)
+	//}
+	//ccipSendArgs.Value = feeReport.Output
+
 	// Send CCIP message with value
-	ccipSendArgs.Value = feeReport.Output
 	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
 		ChainSelector: src,
 		Address:       routerAddr,
@@ -505,4 +716,89 @@ func SendExampleArgsV2Message(in *Cfg, src uint64, dest uint64) error {
 		Msg("CCIP message sent")
 
 	return nil
+}
+
+func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.ConstructorArgs) error {
+	in.CCV.AddressesMu = &sync.Mutex{}
+	_, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
+	}
+	bundle := NewDefaultCLDFBundle(e)
+	e.OperationsBundle = bundle
+
+	receiver, err := deployReceiverForSelector(e, selector, args)
+	if err != nil {
+		return fmt.Errorf("failed to deploy mock receiver for selector %d: %w", selector, err)
+	}
+
+	err = SaveContractRefsForSelector(in, selector, []datastore.AddressRef{receiver})
+	if err != nil {
+		return fmt.Errorf("failed to save contract refs for selector %d: %w", selector, err)
+	}
+
+	return Store(in)
+}
+
+func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SignatureConfigArgs) error {
+	in.CCV.AddressesMu = &sync.Mutex{}
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	if err != nil {
+		return fmt.Errorf("creating CLDF operations environment: %w", err)
+	}
+	bundle := NewDefaultCLDFBundle(e)
+	e.OperationsBundle = bundle
+
+	for _, sel := range selectors {
+		onRamp, offRamp, err := deployCommitVerifierForSelector(
+			e,
+			sel,
+			commit_onramp.ConstructorArgs{
+				DynamicConfig: commit_onramp.DynamicConfig{
+					FeeQuoter:      MustGetContractAddressForSelector(in, sel, fee_quoter_v2.ContractType),
+					FeeAggregator:  e.BlockChains.EVMChains()[sel].DeployerKey.From,
+					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
+				},
+			},
+			commit_offramp.ConstructorArgs{
+				NonceManager: MustGetContractAddressForSelector(in, sel, nonce_manager.ContractType),
+			},
+			signatureConfigArgs,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to deploy commit onramp and offramp for selector %d: %w", sel, err)
+		}
+
+		var destConfigArgs []commit_onramp.DestChainConfigArgs
+		for _, destSel := range selectors {
+			if destSel == sel {
+				continue
+			}
+			destConfigArgs = append(destConfigArgs, commit_onramp.DestChainConfigArgs{
+				AllowlistEnabled:  false,
+				Router:            MustGetContractAddressForSelector(in, sel, router.ContractType),
+				DestChainSelector: destSel,
+			})
+		}
+
+		err = configureCommitVerifierOnSelectorForLanes(e, sel, common.HexToAddress(onRamp.Address), destConfigArgs)
+		if err != nil {
+			return fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
+		}
+
+		err = SaveContractRefsForSelector(in, sel, []datastore.AddressRef{onRamp, offRamp})
+		if err != nil {
+			return fmt.Errorf("failed to save contract refs for selector %d: %w", sel, err)
+		}
+	}
+
+	return Store(in)
+}
+
+func ToAnySlice[T any](slice []T) []any {
+	result := make([]any, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
 }
