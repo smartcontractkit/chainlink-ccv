@@ -20,7 +20,7 @@ import (
 
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
-	evmImpl "github.com/smartcontractkit/chainlink-ccv/devenv-evm"
+	evmImpl "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 )
 
 type Cfg struct {
@@ -44,10 +44,10 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewDevenvNetwork(typ string) (devenv_common.CCIP17Configuration, error) {
+func NewDevenvNetwork(typ string) (devenv_common.CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
-		return &evmImpl.EVMDevenvNetwork{}, nil
+		return &evmImpl.CCIP17EVM{}, nil
 	case "canton":
 		// see devenv-evm implementation and add Canton
 		return nil, nil
@@ -78,7 +78,7 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	impls := make([]devenv_common.CCIP17Configuration, 0)
+	impls := make([]devenv_common.CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
 		impl, err := NewDevenvNetwork(bc.Type)
 		if err != nil {

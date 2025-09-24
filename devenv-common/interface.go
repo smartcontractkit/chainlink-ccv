@@ -17,35 +17,12 @@ Since 1.6/1.7 CCIP versions are incompatible for the time being we'll have 2 set
 but exist in multiple repositories: chainlink-ccip (1.6) and chainlink-ccv (1.7)
 */
 
-// CCIP17Configuration includes all the interfaces that if implemented allows us to run a standard test suite
+// CCIP17ProductConfiguration includes all the interfaces that if implemented allows us to run a standard test suite
 // for at least 2 chains (EVM and Solana, for example).
-type CCIP17Configuration interface {
-	Observable
+type CCIP17ProductConfiguration interface {
 	Testable
 	OnChainConfigurable
 	OffChainConfigurable
-}
-
-// MonitoringLaneStreamConfig describes lane configuration for which we should filter on-chain events.
-type MonitoringLaneStreamConfig struct {
-	FromSelector uint64
-	ToSelector   uint64
-}
-
-// MonitoringLaneStreams represents event streams that we'll use for assertions in tests and observability.
-type MonitoringLaneStreams struct {
-	SentEvents []CCIPMessageSentEvent
-	ExecEvents []ExecutionStateChangedEvent
-}
-
-// Observable defines functions for observability.
-type Observable interface {
-	// PublishLaneMetrics processes metrics for both Loki and Prometheus and publishes them
-	// Metrics can vary but must have "fromSelector", "toSelector" labels
-	// the majority of logs should include "MessageIDHex" field for debug
-	// if fromBlock and toBlock are nil we filter the whole range
-	// this method is used to assert tests and monitor/debug on-chain activity
-	PublishLaneMetrics(ctx context.Context, fromBlock, toBlock *uint64, cfg MonitoringLaneStreamConfig) MonitoringLaneStreams
 }
 
 // Testable provides functions for a standardized CCIP test suite.
@@ -62,8 +39,7 @@ type Testable interface {
 // Chainlink products for a specific chain X connected with chain Y.
 type OnChainConfigurable interface {
 	// DeployContractsForSelector configures contracts for chain X
-	// returns all the contract addresses and metadata in serializable CLDF format (JSON?)
-	// framework injects it into env-out.toml
+	// returns all the contract addresses and metadata
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64) (datastore.DataStore, error)
 	// ConnectContractsWithSelector connects onRamp/offRamp contracts with selector Y
 	ConnectContractsWithSelector(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error

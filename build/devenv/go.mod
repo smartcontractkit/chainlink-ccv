@@ -18,9 +18,9 @@ require (
 	github.com/smartcontractkit/chain-selectors v1.0.67
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250917143246-96b376eb4f1b
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250915134957-5014a52895ca
+	github.com/smartcontractkit/chainlink-ccv/ccv-evm v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/devenv-common v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-ccv/devenv-evm v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/indexer v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.5
@@ -442,6 +442,6 @@ replace (
 )
 
 replace (
+	github.com/smartcontractkit/chainlink-ccv/ccv-evm => ./../../ccv-evm
 	github.com/smartcontractkit/chainlink-ccv/devenv-common => ../../devenv-common
-	github.com/smartcontractkit/chainlink-ccv/devenv-evm => ../../evm-module
 )
