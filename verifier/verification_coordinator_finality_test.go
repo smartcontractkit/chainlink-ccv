@@ -1,4 +1,4 @@
-package internal_test
+package verifier_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
@@ -198,7 +198,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 }
 
 type coordinatorTestSetup struct {
-	coordinator           *internal.VerificationCoordinator
+	coordinator           *verifier.Coordinator
 	mockSourceReader      *verifier_mocks.MockSourceReader
 	mockVerifier          *testVerifier
 	verificationTaskCh    chan types.VerificationTask
@@ -239,15 +239,15 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		VerifierID: verifierID,
 	}
 
-	coordinator, err := internal.NewVerificationCoordinator(
-		internal.WithVerifier(mockVerifier),
-		internal.WithSourceReaders(map[protocol.ChainSelector]reader.SourceReader{
+	coordinator, err := verifier.NewVerificationCoordinator(
+		verifier.WithVerifier(mockVerifier),
+		verifier.WithSourceReaders(map[protocol.ChainSelector]reader.SourceReader{
 			1337: mockSourceReader,
 		}),
-		internal.WithStorage(mockStorage),
-		internal.WithConfig(config),
-		internal.WithLogger(lggr),
-		internal.WithFinalityCheckInterval(10*time.Millisecond),
+		verifier.WithStorage(mockStorage),
+		verifier.WithConfig(config),
+		verifier.WithLogger(lggr),
+		verifier.WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
 
