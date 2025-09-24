@@ -34,7 +34,7 @@ func TestAggregationHappyPath(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -97,7 +97,7 @@ func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress1).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress1).Hex(),
 				},
 			},
 		},
@@ -112,7 +112,7 @@ func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
 						signer3.Signer,
 						signer4.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress2).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress2).Hex(),
 				},
 			},
 		},
@@ -189,7 +189,7 @@ func TestIdempotency(t *testing.T) {
 					Signers: []model.Signer{
 						signer1.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -285,7 +285,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -315,7 +315,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 			signer2.Signer,
 			signer3.Signer,
 		},
-		DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 	}
 
 	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
@@ -356,7 +356,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 						signer1.Signer,
 						signer2.Signer,
 					},
-					DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -397,7 +397,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 			signer2.Signer,
 			signer3.Signer,
 		},
-		DestVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 	}
 
 	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress)
