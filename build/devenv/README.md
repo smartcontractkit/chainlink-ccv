@@ -41,7 +41,7 @@ ccv sh
 ## Rebuilding Local Chainlink Node Image
 You can build a local image of CL node, please specify your `chainlink` repository path in `docker_ctx`
 ```
-up env.toml,env-local-cl.toml
+up env.toml,env-cl-rebuild.toml
 ```
 
 ## Run the environment (testnets)
@@ -118,3 +118,21 @@ Then upload all the metrics to a local `Prometheus` or `Loki`
 upload-on-chain-metrics
 ```
 Go to [dashboards](dashboards) and render your metrics, default `Loki` stream is `{job="on-chain"}`
+
+## Docker Desktop on Linux
+
+Some special considerations are needed in order to use Docker Desktop on Linux
+with the ccv command because the socket location is moved to the users home
+directory.
+
+This can be fixed by creating a symlink in the standard location.
+**Warning**: do not run this command if you also need to use docker engine.
+Additional details are in the official documentation [http://docs.docker.com](https://docs.docker.com/desktop/setup/install/linux/)
+```bash
+sudo ln -s $HOME/.docker/run/docker.sock /var/run/docker.sock
+```
+
+Or by exporting the `DOCKER_HOST` variable:
+```bash
+export DOCKER_HOST unix://$HOME/.docker/desktop/docker.sock
+```

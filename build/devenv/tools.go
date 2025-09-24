@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 
@@ -334,16 +335,39 @@ type LogStream[T any] struct {
 	DecodedProm []*T
 }
 
-var prometheusOnce = &sync.Once{}
+var (
+	metricsServer *http.Server
+	serverMutex   sync.Mutex
+)
 
 // ExposePrometheusMetricsFor temporarily exposes Prometheus endpoint so metrics can be scraped.
-func ExposePrometheusMetricsFor(interval time.Duration) error {
-	prometheusOnce.Do(func() {
-		http.Handle("/on-chain-metrics", promhttp.Handler())
-	})
-	go http.ListenAndServe(":9112", nil)
-	Plog.Info().Msgf("Exposing Prometheus metrics for %s seconds..", interval.String())
-	// 5 scrape intervals for this particular path
+func ExposePrometheusMetricsFor(reg *prometheus.Registry, interval time.Duration) error {
+	serverMutex.Lock()
+	defer serverMutex.Unlock()
+	if metricsServer != nil {
+		Plog.Info().Msg("Shutting down previous metrics server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := metricsServer.Shutdown(ctx); err != nil {
+			Plog.Warn().Err(err).Msg("Failed to gracefully shutdown previous metrics server")
+		}
+		metricsServer = nil
+	}
+
+	// Create new mux to avoid conflicts with global http.Handle and run
+	mux := http.NewServeMux()
+	mux.Handle("/on-chain-metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	metricsServer = &http.Server{
+		Addr:    ":9112",
+		Handler: mux,
+	}
+	go func() {
+		Plog.Info().Msg("Starting new Prometheus metrics server on :9112")
+		if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			Plog.Error().Err(err).Msg("Metrics server error")
+		}
+	}()
+	Plog.Info().Msgf("Exposing Prometheus metrics for %s seconds...", interval.String())
 	time.Sleep(interval)
 	return nil
 }
@@ -611,7 +635,6 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 	if err != nil {
 		return fmt.Errorf("failed to send CCIP message: %w", err)
 	}
-
 	Plog.Info().Bool("Executed", sendReport.Output.Executed).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
@@ -770,4 +793,12 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 	}
 
 	return Store(in)
+}
+
+func ToAnySlice[T any](slice []T) []any {
+	result := make([]any, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
 }

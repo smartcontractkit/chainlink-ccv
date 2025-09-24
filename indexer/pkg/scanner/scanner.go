@@ -15,13 +15,17 @@ type Scanner struct {
 	config          Config
 	storageWriter   common.IndexerStorageWriter
 	lggr            logger.Logger
+	monitoring      common.IndexerMonitoring
+	mu              sync.Mutex
+	activeReaders   int64
 	ccvDataCh       chan types.CCVData
 	stopCh          chan struct{}
 	doneCh          chan struct{}
 }
 
 type Config struct {
-	ScanInterval time.Duration
+	ScanInterval   time.Duration
+	MetricInterval time.Duration
 }
 
 // Option is the functional option type for Scanner.
@@ -38,6 +42,13 @@ func WithReaderDiscovery(readerDiscovery common.ReaderDiscovery) Option {
 func WithLogger(lggr logger.Logger) Option {
 	return func(s *Scanner) {
 		s.lggr = lggr
+	}
+}
+
+// WithMonitoring sets the monitoring.
+func WithMonitoring(monitoring common.IndexerMonitoring) Option {
+	return func(s *Scanner) {
+		s.monitoring = monitoring
 	}
 }
 
@@ -91,6 +102,10 @@ func (s *Scanner) run(ctx context.Context) {
 	s.lggr.Info("Scanner discovering readers")
 	readerDiscoveryCh := s.readerDiscovery.Run(ctx)
 
+	// Create a ticker for periodic metric recording
+	metricTicker := time.NewTicker(s.config.MetricInterval)
+	defer metricTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -103,16 +118,25 @@ func (s *Scanner) run(ctx context.Context) {
 			return
 		case reader := <-readerDiscoveryCh:
 			s.lggr.Info("Scanner discovered reader!")
-			go s.handleReader(reader, &wg)
+			s.mu.Lock()
+			s.activeReaders++
+			s.mu.Unlock()
+			s.monitoring.Metrics().RecordActiveReadersGauge(ctx, s.activeReaders)
+			go s.handleReader(ctx, reader, &wg)
 		case ccvData := <-s.ccvDataCh:
+			// Record channel size after consuming data
+			s.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(s.ccvDataCh)))
 			if err := s.storageWriter.InsertCCVData(ctx, ccvData); err != nil {
 				s.lggr.Errorw("Error inserting CCV data into indexer storage", "error", err)
 			}
+		case <-metricTicker.C:
+			// Periodically record channel size for monitoring
+			s.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(s.ccvDataCh)))
 		}
 	}
 }
 
-func (s *Scanner) handleReader(reader types.OffchainStorageReader, wg *sync.WaitGroup) {
+func (s *Scanner) handleReader(ctx context.Context, reader types.OffchainStorageReader, wg *sync.WaitGroup) {
 	// Create a ticker based on the scan interval configured
 	ticker := time.NewTicker(s.config.ScanInterval)
 	wg.Add(1)
@@ -124,10 +148,11 @@ func (s *Scanner) handleReader(reader types.OffchainStorageReader, wg *sync.Wait
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
-			queryResponse, err := reader.ReadCCVData(context.Background())
+			queryResponse, err := reader.ReadCCVData(ctx)
 			s.lggr.Debug("Scanner read CCV data from reader")
 
 			if err != nil {
+				s.monitoring.Metrics().RecordScannerPollingErrorsCounter(ctx)
 				s.lggr.Errorw("Error reading CCV data from reader", "error", err)
 				continue
 			}
@@ -135,6 +160,8 @@ func (s *Scanner) handleReader(reader types.OffchainStorageReader, wg *sync.Wait
 			for _, response := range queryResponse {
 				s.lggr.Infow("Scanner populated CCV data channel with new data", "messageID", response.Data.MessageID)
 				s.ccvDataCh <- response.Data
+				// Record channel size after adding data
+				s.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(s.ccvDataCh)))
 			}
 		}
 	}

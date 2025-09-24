@@ -168,6 +168,13 @@ type AggregatorConfig struct {
 	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
+	Metrics           MetricConfig               `toml:"metrics"`
+	PyroscopeURL      string                     `toml:"pyroscope_url"`
+}
+
+type MetricConfig struct {
+	EnableMetrics bool   `toml:"enableMetrics"`
+	Endpoint      string `toml:"endpoint"`
 }
 
 // SetDefaults sets default values for the configuration.

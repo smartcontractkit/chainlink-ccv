@@ -20,6 +20,8 @@ import (
 	exectypes "github.com/smartcontractkit/chainlink-ccv/executor/types"
 )
 
+var _ ContractTransmitter = &EVMContractTransmitter{}
+
 type EVMContractTransmitter struct {
 	ctx           context.Context
 	lggr          logger.Logger
@@ -126,7 +128,9 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 		return err
 	}
 
-	ct.lggr.Infow("submitted tx to chain", "tx hash", tx.Hash().Hex())
+	messageID, _ := report.Message.MessageID()
+
+	ct.lggr.Infow("submitted tx to chain", "tx hash", tx.Hash().Hex(), "msgId", messageID)
 
 	return nil
 }
