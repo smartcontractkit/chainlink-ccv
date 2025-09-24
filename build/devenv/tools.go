@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -36,7 +35,6 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
@@ -320,21 +318,6 @@ Ideally, these functions should be exposed by Atlas as a transformation function
 But for now we use these functions to expose on-chain events (logs) as a custom aggregated metrics (between two on-chain events, for example) in Prometheus
 */
 
-// DecodedLog is an extension of log containing log(event), contract name and chain ID.
-type DecodedLog[T any] struct {
-	types.Log
-	Name         string `json:"name"`
-	ChainID      int64  `json:"chainId"`
-	UnpackedData T      `json:"unpackedData"`
-}
-
-// LogStream aggregates all the data we need to import in Loki and Prometheus.
-type LogStream[T any] struct {
-	RawLoki     []any
-	DecodedLoki []any
-	DecodedProm []*T
-}
-
 var (
 	metricsServer *http.Server
 	serverMutex   sync.Mutex
@@ -370,86 +353,6 @@ func ExposePrometheusMetricsFor(reg *prometheus.Registry, interval time.Duration
 	Plog.Info().Msgf("Exposing Prometheus metrics for %s seconds...", interval.String())
 	time.Sleep(interval)
 	return nil
-}
-
-// FilterUnpackEventsWithMeta filters and returns all the logs from block X to block Y with additional metadata.
-func FilterUnpackEventsWithMeta[T any](ctx context.Context, c *ethclient.Client, abiStr, contractAddr, eventName string, from, to *big.Int) ([]types.Log, []*DecodedLog[T], error) {
-	parsedABI, err := abi.JSON(strings.NewReader(abiStr))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse ABI: %w", err)
-	}
-	event, exists := parsedABI.Events[eventName]
-	if !exists {
-		Plog.Fatal().Str("Event", eventName).Msg("Event not found in ABI")
-	}
-	cID, err := c.ChainID(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get ChainID: %w", err)
-	}
-	query := ethereum.FilterQuery{
-		FromBlock: from,
-		ToBlock:   to,
-		Addresses: []common.Address{common.HexToAddress(contractAddr)},
-		Topics:    [][]common.Hash{{event.ID}},
-	}
-	logs, err := c.FilterLogs(ctx, query)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to filter logs: %w", err)
-	}
-	unpacked := make([]*DecodedLog[T], 0)
-	for _, l := range logs {
-		unpack := &DecodedLog[T]{
-			Log:     l,
-			Name:    eventName,
-			ChainID: cID.Int64(),
-		}
-		var payload T
-
-		err = parsedABI.UnpackIntoInterface(&payload, eventName, l.Data)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to unpack event data: %w", err)
-		}
-		unpack.UnpackedData = payload
-		unpacked = append(unpacked, unpack)
-	}
-	return logs, unpacked, nil
-}
-
-// FilterContractEventsAllChains filters all contract events across all available chains and decodes them using go-ethereum generated binding package, adds contract name and chain ID.
-func FilterContractEventsAllChains[T any](ctx context.Context, in *Cfg, bcByChainID map[string]*ethclient.Client, abi, contractName, eventName string, from, to *big.Int) (*LogStream[DecodedLog[T]], error) {
-	refsBySelector, err := GetCLDFAddressesPerSelector(in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load addresses per selector: %w", err)
-	}
-	// to simplify the user-facing API we prepare data for both Loki pushes and Prometheus observations
-	decodedPromStream := make([]*DecodedLog[T], 0)
-	rawLokiStream := make([]any, 0)
-	decodedLokiStream := make([]any, 0)
-	// find all events for all the contract across the chains
-	for _, ref := range refsBySelector {
-		for _, r := range ref {
-			if r.Type.String() == contractName {
-				cID, err := chainsel.GetChainIDFromSelector(r.ChainSelector)
-				if err != nil {
-					return nil, fmt.Errorf("failed to get chain ID: %w", err)
-				}
-				_, data, err := FilterUnpackEventsWithMeta[T](ctx, bcByChainID[cID], abi, r.Address, eventName, from, to)
-				if err != nil {
-					return nil, fmt.Errorf("failed to filter logs: %w", err)
-				}
-				decodedPromStream = append(decodedPromStream, data...)
-			}
-		}
-	}
-	for _, event := range decodedPromStream {
-		rawLokiStream = append(rawLokiStream, event)
-		decodedLokiStream = append(decodedLokiStream, event.UnpackedData)
-	}
-	return &LogStream[DecodedLog[T]]{
-		RawLoki:     rawLokiStream,
-		DecodedLoki: decodedLokiStream,
-		DecodedProm: decodedPromStream,
-	}, nil
 }
 
 /*
