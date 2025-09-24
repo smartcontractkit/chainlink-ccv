@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 const (
@@ -32,21 +33,21 @@ var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhos
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
 // ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*commontypes.BlockchainInfo {
-	infos := make(map[string]*commontypes.BlockchainInfo)
+func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*protocol.BlockchainInfo {
+	infos := make(map[string]*protocol.BlockchainInfo)
 	for _, output := range outputs {
-		info := &commontypes.BlockchainInfo{
+		info := &protocol.BlockchainInfo{
 			ChainID:       output.ChainID,
 			Type:          output.Type,
 			Family:        output.Family,
 			ContainerName: output.ContainerName,
-			Nodes:         make([]*commontypes.Node, 0, len(output.Nodes)),
+			Nodes:         make([]*protocol.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
-				convertedNode := &commontypes.Node{
+				convertedNode := &protocol.Node{
 					ExternalHTTPUrl: node.ExternalHTTPUrl,
 					InternalHTTPUrl: node.InternalHTTPUrl,
 					ExternalWSUrl:   node.ExternalWSUrl,
