@@ -4,9 +4,9 @@ import (
 	"bytes"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 func validateWriteRequest(req *aggregator.WriteCommitCCVNodeDataRequest) error {

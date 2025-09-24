@@ -8,8 +8,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // WriteCommitCCVNodeDataHandler handles requests to write commit verification records.

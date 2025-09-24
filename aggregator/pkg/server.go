@@ -30,6 +30,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
