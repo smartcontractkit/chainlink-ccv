@@ -7,12 +7,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvAggregatorOps "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
 	ccvProxyOps "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
 type Contracts struct {
@@ -144,7 +146,7 @@ func FetchAllExecEventsBySelector(agg *ccvAggregator.CCVAggregator, selector uin
 }
 
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector
-func WaitOneSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
+func WaitOneSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
@@ -190,7 +192,7 @@ func WaitOneSentEventBySeqNo(proxy *ccvProxy.CCVProxy, selector uint64, seq uint
 }
 
 // WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector
-func WaitOneExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector uint64, seq uint64, timeout time.Duration) (*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
+func WaitOneExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector, seq uint64, timeout time.Duration) (*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 

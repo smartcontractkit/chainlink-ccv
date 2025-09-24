@@ -9,6 +9,11 @@ List available commands:
 just --list
 ```
 
+Install pre-commit hooks:
+```
+just pre-commit
+```
+
 Run tests:
 ```bash
 just tests

@@ -12,13 +12,12 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
