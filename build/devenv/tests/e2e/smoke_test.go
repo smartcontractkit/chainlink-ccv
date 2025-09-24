@@ -29,7 +29,7 @@ func TestE2ESmoke(t *testing.T) {
 		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 	}
 
-	c, err := ccvEvm.NewContracts(t.Context(), in.CCV.Addresses, chainIDs, wsURLs)
+	c, err := ccvEvm.NewContracts(t.Context(), in.CLDF.Addresses, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

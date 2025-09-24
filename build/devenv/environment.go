@@ -22,15 +22,54 @@ import (
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 )
 
+const (
+	CommonCLNodesConfig = `
+			[Log]
+			JSONConsole = true
+			Level = 'debug'
+			[Pyroscope]
+			ServerAddress = 'http://host.docker.internal:4040'
+			Environment = 'local'
+			[WebServer]
+			SessionTimeout = '999h0m0s'
+			HTTPWriteTimeout = '3m'
+			SecureCookies = false
+			HTTPPort = 6688
+			[WebServer.TLS]
+			HTTPSPort = 0
+			[WebServer.RateLimit]
+			Authenticated = 5000
+			Unauthenticated = 5000
+			[JobPipeline]
+			[JobPipeline.HTTPRequest]
+			DefaultTimeout = '1m'
+			[Log.File]
+			MaxSize = '0b'
+			[Feature]
+			FeedsManager = true
+			LogPoller = true
+			UICSAKeys = true
+			[OCR2]
+			Enabled = true
+			SimulateTransactions = false
+			DefaultTransactionQueueDepth = 1
+			[P2P.V2]
+			Enabled = true
+			ListenAddresses = ['0.0.0.0:6690']
+`
+)
+
 type Cfg struct {
-	CCV         *CCV                      `toml:"ccv"         validate:"required"`
-	Fake        *services.FakeInput       `toml:"fake"        validate:"required"`
-	Verifier    []*services.VerifierInput `toml:"verifier"    validate:"required"`
-	Executor    *services.ExecutorInput   `toml:"executor"    validate:"required"`
-	Indexer     *services.IndexerInput    `toml:"indexer"     validate:"required"`
-	Aggregator  *services.AggregatorInput `toml:"aggregator"  validate:"required"`
-	Blockchains []*blockchain.Input       `toml:"blockchains" validate:"required"`
-	NodeSets    []*ns.Input               `toml:"nodesets"    validate:"required"`
+	CLDF               *CLDF                     `toml:"cldf" validate:"required"`
+	Fake               *services.FakeInput       `toml:"fake"        validate:"required"`
+	Verifier           []*services.VerifierInput `toml:"verifier"    validate:"required"`
+	Executor           *services.ExecutorInput   `toml:"executor"    validate:"required"`
+	Indexer            *services.IndexerInput    `toml:"indexer"     validate:"required"`
+	Aggregator         *services.AggregatorInput `toml:"aggregator"  validate:"required"`
+	Blockchains        []*blockchain.Input       `toml:"blockchains" validate:"required"`
+	NodeSets           []*ns.Input               `toml:"nodesets"    validate:"required"`
+	CLNodesFundingETH  float64                   `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64                   `toml:"cl_nodes_funding_link"`
 }
 
 func checkKeys(in *Cfg) error {
@@ -105,7 +144,7 @@ func NewEnvironment() (*Cfg, error) {
 	track.Record("[infra] deploying blockchains")
 
 	clChainConfigs := make([]string, 0)
-	clChainConfigs = append(clChainConfigs, CommonCLNodeConfig())
+	clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 	for i, impl := range impls {
 		clChainConfig, err := impl.ConfigureNodes(ctx, in.Blockchains[i])
 		if err != nil {
@@ -125,7 +164,7 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
 	}
 
-	in.CCV.AddressesMu = &sync.Mutex{}
+	in.CLDF.AddressesMu = &sync.Mutex{}
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -150,13 +189,13 @@ func NewEnvironment() (*Cfg, error) {
 		if err != nil {
 			return nil, err
 		}
-		in.CCV.AddressesMu.Lock()
+		in.CLDF.AddressesMu.Lock()
 		a, err := json.Marshal(addresses)
 		if err != nil {
 			return nil, err
 		}
-		in.CCV.Addresses = append(in.CCV.Addresses, string(a))
-		in.CCV.AddressesMu.Unlock()
+		in.CLDF.Addresses = append(in.CLDF.Addresses, string(a))
+		in.CLDF.AddressesMu.Unlock()
 		if err := ds.Merge(dsi); err != nil {
 			return nil, err
 		}

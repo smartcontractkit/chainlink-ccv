@@ -3,23 +3,16 @@ package ccv
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
@@ -90,20 +83,8 @@ func (t *TimeTracker) Print() {
 		Msg("Total environment boot up time")
 }
 
-func GetCLDFAddressesPerSelector(in *Cfg) ([][]datastore.AddressRef, error) {
-	addrs := make([][]datastore.AddressRef, 0)
-	for _, addr := range in.CCV.Addresses {
-		var refs []datastore.AddressRef
-		if err := json.Unmarshal([]byte(addr), &refs); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal addresses: %w", err)
-		}
-		addrs = append(addrs, refs)
-	}
-	return addrs, nil
-}
-
 func PrintCLDFAddresses(in *Cfg) error {
-	for _, addr := range in.CCV.Addresses {
+	for _, addr := range in.CLDF.Addresses {
 		var refs []datastore.AddressRef
 		if err := json.Unmarshal([]byte(addr), &refs); err != nil {
 			return fmt.Errorf("failed to unmarshal addresses: %w", err)
@@ -118,74 +99,6 @@ func PrintCLDFAddresses(in *Cfg) error {
 	return nil
 }
 
-/*
-This is just a basic ETH client, CLDF should provide something like this
-*/
-
-const (
-	DefaultNativeTransferGasPrice = 21000
-)
-
-// ETHClient creates a basic Ethereum client using PRIVATE_KEY env var and tip/cap gas settings.
-// used for common operations like funding where creating CLDF environment makes no sense.
-func ETHClient(wsURL string, gasSettings *GasSettings) (*ethclient.Client, *bind.TransactOpts, string, error) {
-	client, err := ethclient.Dial(wsURL)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("could not connect to eth client: %w", err)
-	}
-	privateKey, err := crypto.HexToECDSA(getNetworkPrivateKey())
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("could not parse private key: %w", err)
-	}
-	publicKey := privateKey.PublicKey
-	address := crypto.PubkeyToAddress(publicKey).String()
-	chainID, err := client.ChainID(context.Background())
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("could not get chain ID: %w", err)
-	}
-	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("could not create transactor: %w", err)
-	}
-	fc, tc, err := MultiplyEIP1559GasPrices(client, gasSettings.FeeCapMultiplier, gasSettings.TipCapMultiplier)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("could not get bumped gas price: %w", err)
-	}
-	auth.GasFeeCap = fc
-	auth.GasTipCap = tc
-	Plog.Info().
-		Str("GasFeeCap", fc.String()).
-		Str("GasTipCap", tc.String()).
-		Msg("Default gas prices set")
-	return client, auth, address, nil
-}
-
-// MultiplyEIP1559GasPrices returns bumped EIP1159 gas prices increased by multiplier.
-func MultiplyEIP1559GasPrices(client *ethclient.Client, fcMult, tcMult int64) (*big.Int, *big.Int, error) {
-	feeCap, err := client.SuggestGasPrice(context.Background())
-	if err != nil {
-		return nil, nil, err
-	}
-	tipCap, err := client.SuggestGasTipCap(context.Background())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return new(big.Int).Mul(feeCap, big.NewInt(fcMult)), new(big.Int).Mul(tipCap, big.NewInt(tcMult)), nil
-}
-
-func blockchainsByChainID(in *Cfg) (map[string]*ethclient.Client, error) {
-	bcByChainID := make(map[string]*ethclient.Client)
-	for _, bc := range in.Blockchains {
-		c, err := ethclient.Dial(bc.Out.Nodes[0].ExternalHTTPUrl)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to Ethereum: %w", err)
-		}
-		bcByChainID[bc.ChainID] = c
-	}
-	return bcByChainID, nil
-}
-
 // NewDefaultCLDFBundle creates a new default CLDF bundle.
 func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 	return operations.NewBundle(
@@ -198,7 +111,7 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 // GetContractAddrForSelector get contract address by type and chain selector.
 func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore.ContractType) (common.Address, error) {
 	var contractAddr common.Address
-	for _, addr := range in.CCV.Addresses {
+	for _, addr := range in.CLDF.Addresses {
 		var refs []datastore.AddressRef
 		err := json.Unmarshal([]byte(addr), &refs)
 		if err != nil {
@@ -216,7 +129,7 @@ func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore
 func SaveContractRefsForSelector(in *Cfg, sel uint64, refs []datastore.AddressRef) error {
 	var addresses []datastore.AddressRef
 	var idx int
-	for i, addressesForSelector := range in.CCV.Addresses {
+	for i, addressesForSelector := range in.CLDF.Addresses {
 		var refs []datastore.AddressRef
 		if err := json.Unmarshal([]byte(addressesForSelector), &refs); err != nil {
 			return fmt.Errorf("failed to unmarshal addresses: %w", err)
@@ -234,9 +147,9 @@ func SaveContractRefsForSelector(in *Cfg, sel uint64, refs []datastore.AddressRe
 	if err != nil {
 		return fmt.Errorf("failed to marshal addresses: %w", err)
 	}
-	in.CCV.AddressesMu.Lock()
-	in.CCV.Addresses[idx] = string(addrBytes)
-	in.CCV.AddressesMu.Unlock()
+	in.CLDF.AddressesMu.Lock()
+	in.CLDF.Addresses[idx] = string(addrBytes)
+	in.CLDF.AddressesMu.Unlock()
 	return nil
 }
 
@@ -246,71 +159,6 @@ func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType de
 		Plog.Fatal().Err(err).Msg("Failed to get contract address")
 	}
 	return addr
-}
-
-// FundNodeEIP1559 funds CL node using RPC URL, recipient address and amount of funds to send (ETH).
-// Uses EIP-1559 transaction type.
-func FundNodeEIP1559(c *ethclient.Client, pkey, recipientAddress string, amountOfFundsInETH float64) error {
-	amount := new(big.Float).Mul(big.NewFloat(amountOfFundsInETH), big.NewFloat(1e18))
-	amountWei, _ := amount.Int(nil)
-
-	chainID, err := c.NetworkID(context.Background())
-	if err != nil {
-		return err
-	}
-	privateKeyStr := strings.TrimPrefix(pkey, "0x")
-	privateKey, err := crypto.HexToECDSA(privateKeyStr)
-	if err != nil {
-		return err
-	}
-	publicKey := privateKey.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return errors.New("error casting public key to ECDSA")
-	}
-	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	Plog.Info().
-		Str("ChainID", chainID.String()).
-		Str("From", fromAddress.String()).
-		Str("Addr", recipientAddress).
-		Str("Wei", amountWei.String()).
-		Msg("Funding Node")
-
-	nonce, err := c.PendingNonceAt(context.Background(), fromAddress)
-	if err != nil {
-		return err
-	}
-	feeCap, err := c.SuggestGasPrice(context.Background())
-	if err != nil {
-		return err
-	}
-	tipCap, err := c.SuggestGasTipCap(context.Background())
-	if err != nil {
-		return err
-	}
-	recipient := common.HexToAddress(recipientAddress)
-	tx := types.NewTx(&types.DynamicFeeTx{
-		ChainID:   chainID,
-		Nonce:     nonce,
-		To:        &recipient,
-		Value:     amountWei,
-		Gas:       DefaultNativeTransferGasPrice,
-		GasFeeCap: feeCap,
-		GasTipCap: tipCap,
-	})
-	signedTx, err := types.SignTx(tx, types.NewLondonSigner(chainID), privateKey)
-	if err != nil {
-		return err
-	}
-	err = c.SendTransaction(context.Background(), signedTx)
-	if err != nil {
-		return err
-	}
-	if _, err := bind.WaitMined(context.Background(), c, signedTx); err != nil {
-		return err
-	}
-	Plog.Info().Str("Wei", amountWei.String()).Msg("Funded with ETH")
-	return nil
 }
 
 /*
@@ -622,7 +470,7 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAd
 }
 
 func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.ConstructorArgs) error {
-	in.CCV.AddressesMu = &sync.Mutex{}
+	in.CLDF.AddressesMu = &sync.Mutex{}
 	_, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -630,7 +478,7 @@ func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.Constructor
 	bundle := NewDefaultCLDFBundle(e)
 	e.OperationsBundle = bundle
 
-	receiver, err := deployReceiverForSelector(e, selector, args)
+	receiver, err := DeployReceiverForSelector(e, selector, args)
 	if err != nil {
 		return fmt.Errorf("failed to deploy mock receiver for selector %d: %w", selector, err)
 	}
@@ -644,7 +492,7 @@ func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.Constructor
 }
 
 func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SignatureConfigArgs) error {
-	in.CCV.AddressesMu = &sync.Mutex{}
+	in.CLDF.AddressesMu = &sync.Mutex{}
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -653,7 +501,7 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 	e.OperationsBundle = bundle
 
 	for _, sel := range selectors {
-		onRamp, offRamp, err := deployCommitVerifierForSelector(
+		onRamp, offRamp, err := DeployCommitVerifierForSelector(
 			e,
 			sel,
 			commit_onramp.ConstructorArgs{
@@ -684,7 +532,7 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 			})
 		}
 
-		err = configureCommitVerifierOnSelectorForLanes(e, sel, common.HexToAddress(onRamp.Address), destConfigArgs)
+		err = ConfigureCommitVerifierOnSelectorForLanes(e, sel, common.HexToAddress(onRamp.Address), destConfigArgs)
 		if err != nil {
 			return fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
 		}

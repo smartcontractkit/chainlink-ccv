@@ -29,23 +29,11 @@ import (
 
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
-type CCV struct {
-	CLNodesFundingETH  float64 `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64 `toml:"cl_nodes_funding_link"`
-
+type CLDF struct {
 	// Contracts (CLDF)
 	AddressesMu *sync.Mutex         `toml:"-"`
 	Addresses   []string            `toml:"addresses"`
 	DataStore   datastore.DataStore `toml:"-"`
-}
-
-type DeployedContracts struct {
-	// your deployed contract structs here with `toml:''` tags
-}
-
-type GasSettings struct {
-	FeeCapMultiplier int64 `toml:"fee_cap_multiplier"`
-	TipCapMultiplier int64 `toml:"tip_cap_multiplier"`
 }
 
 func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment.Environment, error) {
@@ -104,8 +92,8 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 	return selectors, &e, nil
 }
 
-// deployCommitVerifierForSelector deploys a new verifier to the given chain selector.
-func deployCommitVerifierForSelector(
+// DeployCommitVerifierForSelector deploys a new verifier to the given chain selector.
+func DeployCommitVerifierForSelector(
 	e *deployment.Environment,
 	selector uint64,
 	onRampConstructorArgs commit_onramp.ConstructorArgs,
@@ -147,8 +135,8 @@ func deployCommitVerifierForSelector(
 	return onRamp, offRamp, err
 }
 
-// configureVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes.
-func configureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, commitOnRamp common.Address, destConfigArgs []commit_onramp.DestChainConfigArgs) error {
+// ConfigureCommitVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes.
+func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, commitOnRamp common.Address, destConfigArgs []commit_onramp.DestChainConfigArgs) error {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return fmt.Errorf("no EVM chain found for selector %d", selector)
@@ -166,8 +154,8 @@ func configureCommitVerifierOnSelectorForLanes(e *deployment.Environment, select
 	return nil
 }
 
-// deployReceiverForSelector deploys a new mock receiver to the given chain selector.
-func deployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver.ConstructorArgs) (datastore.AddressRef, error) {
+// DeployReceiverForSelector deploys a new mock receiver to the given chain selector.
+func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver.ConstructorArgs) (datastore.AddressRef, error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return datastore.AddressRef{}, fmt.Errorf("no EVM chain found for selector %d", selector)
@@ -180,40 +168,4 @@ func deployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 		return datastore.AddressRef{}, fmt.Errorf("failed to deploy MockReceiver: %w", err)
 	}
 	return report.Output, nil
-}
-
-func CommonCLNodeConfig() string {
-	return `
-       [Log]
-       JSONConsole = true
-       Level = 'debug'
-       [Pyroscope]
-       ServerAddress = 'http://host.docker.internal:4040'
-       Environment = 'local'
-       [WebServer]
-       SessionTimeout = '999h0m0s'
-       HTTPWriteTimeout = '3m'
-       SecureCookies = false
-       HTTPPort = 6688
-       [WebServer.TLS]
-       HTTPSPort = 0
-       [WebServer.RateLimit]
-       Authenticated = 5000
-       Unauthenticated = 5000
-       [JobPipeline]
-       [JobPipeline.HTTPRequest]
-       DefaultTimeout = '1m'
-       [Log.File]
-       MaxSize = '0b'
-       [Feature]
-       FeedsManager = true
-       LogPoller = true
-       UICSAKeys = true
-       [OCR2]
-       Enabled = true
-       SimulateTransactions = false
-       DefaultTransactionQueueDepth = 1
-       [P2P.V2]
-       Enabled = true
-       ListenAddresses = ['0.0.0.0:6690']`
 }

@@ -401,7 +401,7 @@ var monitorContractsCmd = &cobra.Command{
 			chainIDs = append(chainIDs, bc.ChainID)
 			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 		}
-		_, reg, err := impl.ExposeMetrics(ctx, in.CCV.Addresses, chainIDs, wsURLs)
+		_, reg, err := impl.ExposeMetrics(ctx, in.CLDF.Addresses, chainIDs, wsURLs)
 		if err != nil {
 			return fmt.Errorf("failed to expose metrics: %w", err)
 		}
