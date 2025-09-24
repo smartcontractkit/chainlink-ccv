@@ -21,6 +21,7 @@ type AggregatorMetrics struct {
 	apiRequestError                        metric.Int64Counter
 	getMessageSinceNumberOfRecordsReturned metric.Int64Histogram
 	pendingAggregationsChannelBuffer       metric.Int64UpDownCounter
+	timeToAggregation                      metric.Int64Histogram
 
 	// Storage metrics
 	storageLatency metric.Int64Histogram
@@ -98,6 +99,14 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register storage errors counter: %w", err)
 	}
 
+	am.timeToAggregation, err = beholder.GetMeter().Int64Histogram(
+		"aggregator_time_to_aggregation",
+		metric.WithDescription("Time taken to complete an aggregation"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register time to aggregation histogram: %w", err)
+	}
+
 	return am, nil
 }
 
@@ -165,4 +174,9 @@ func (c *AggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, late
 func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.storageError.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, durationMs int64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.timeToAggregation.Record(ctx, durationMs, metric.WithAttributes(otelLabels...))
 }

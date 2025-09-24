@@ -65,3 +65,7 @@ func (c *NoopAggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, 
 func (c *NoopAggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
 	// No-op
 }
+
+func (c *NoopAggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, durationMs int64) {
+	// No-op
+}
