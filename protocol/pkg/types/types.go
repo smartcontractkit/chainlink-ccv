@@ -9,7 +9,7 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 )
 
 // Constants for CCIP v1.7.
@@ -145,10 +145,11 @@ func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 
 // Message represents the chain-agnostic CCIP message format.
 type Message struct {
-	Sender               []byte        `json:"sender"`
-	Data                 []byte        `json:"data"`
-	OnRampAddress        []byte        `json:"on_ramp_address"`
-	TokenTransfer        []byte        `json:"token_transfer"`
+	Sender        []byte `json:"sender"`
+	Data          []byte `json:"data"`
+	OnRampAddress []byte `json:"on_ramp_address"`
+	TokenTransfer []byte `json:"token_transfer"`
+	// This is CCVAggregator
 	OffRampAddress       []byte        `json:"off_ramp_address"`
 	DestBlob             []byte        `json:"dest_blob"`
 	Receiver             []byte        `json:"receiver"`
@@ -242,21 +243,21 @@ func DecodeMessage(data []byte) (*Message, error) {
 	}
 	msg.Version = version
 
-	// Read chain selectors and sequence number
-	var sourceChain, destChain, seqNum uint64
+	// Read chain selectors and nonce
+	var sourceChain, destChain, nonce uint64
 	if err := binary.Read(reader, binary.BigEndian, &sourceChain); err != nil {
 		return nil, fmt.Errorf("failed to read source chain selector: %w", err)
 	}
 	if err := binary.Read(reader, binary.BigEndian, &destChain); err != nil {
 		return nil, fmt.Errorf("failed to read dest chain selector: %w", err)
 	}
-	if err := binary.Read(reader, binary.BigEndian, &seqNum); err != nil {
-		return nil, fmt.Errorf("failed to read sequence number: %w", err)
+	if err := binary.Read(reader, binary.BigEndian, &nonce); err != nil {
+		return nil, fmt.Errorf("failed to read nonce: %w", err)
 	}
 
 	msg.SourceChainSelector = ChainSelector(sourceChain)
 	msg.DestChainSelector = ChainSelector(destChain)
-	msg.Nonce = Nonce(seqNum)
+	msg.Nonce = Nonce(nonce)
 
 	// Read on-ramp address
 	onRampLen, err := reader.ReadByte()
@@ -354,9 +355,7 @@ func (m *Message) MessageID() (Bytes32, error) {
 	if err != nil {
 		return Bytes32{}, err
 	}
-	hash := crypto.Keccak256(encoded)
-	var result Bytes32
-	copy(result[:], hash)
+	result := hashing.Keccak256(encoded)
 	return result, nil
 }
 
@@ -367,6 +366,13 @@ type ReceiptWithBlob struct {
 	ExtraArgs         []byte         `json:"extra_args"`
 	DestGasLimit      uint64         `json:"dest_gas_limit"`
 	DestBytesOverhead uint32         `json:"dest_bytes_overhead"`
+}
+
+// CCV represents a Cross-Chain Verifier configuration.
+type CCV struct {
+	CCVAddress UnknownAddress
+	Args       []byte
+	ArgsLen    uint16
 }
 
 // CCVData represents Cross-Chain Verification data.
@@ -388,6 +394,12 @@ type CCVData struct {
 type QueryResponse struct {
 	Timestamp *int64  `json:"timestamp,omitempty"`
 	Data      CCVData `json:"data"`
+}
+
+// CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
+type CCVNodeDataWriter interface {
+	// WriteCCVNodeData stores multiple CCV node data entries in the offchain storage
+	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData) error
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.

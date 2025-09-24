@@ -131,7 +131,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 	}()
 
 	var wg sync.WaitGroup
-	messagesCh, err := ec.ccvStreamer.Start(ctx, ec.lggr, &wg)
+	streamerResults, err := ec.ccvStreamer.Start(ctx, ec.lggr, &wg)
 	if err != nil {
 		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
 		return
@@ -145,18 +145,18 @@ func (ec *Coordinator) run(ctx context.Context) {
 		case <-ctx.Done():
 			ec.lggr.Infow("Coordinator exiting")
 			return
-		case msgs, ok := <-messagesCh:
+		case streamResult, ok := <-streamerResults:
 			if !ok {
-				ec.lggr.Warnw("messagesCh closed")
+				ec.lggr.Warnw("streamerResults closed")
 				// TODO: handle reconnection logic
 				// TODO: support multiple sources
 			}
 
-			if msgs.Error != nil {
-				ec.lggr.Errorw("error reading from ccv result streamer", "error", msgs.Error)
+			if streamResult.Error != nil {
+				ec.lggr.Errorw("error reading from ccv result streamer", "error", streamResult.Error)
 			}
 
-			for _, msg := range msgs.Messages {
+			for _, msg := range streamResult.Messages {
 				err := ec.executor.CheckValidMessage(ctx, msg)
 				if err != nil {
 					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
@@ -167,7 +167,6 @@ func (ec *Coordinator) run(ctx context.Context) {
 
 				// get message delay from leader elector
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
-				ec.lggr.Infow("waiting before processing message", "readyTimestamp", readyTimestamp, "messageID", id)
 
 				heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
 					Payload:   &msg,

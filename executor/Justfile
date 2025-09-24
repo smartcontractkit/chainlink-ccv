@@ -14,7 +14,7 @@ fmt: ensure-golangci-lint
 
 # Run golangci-lint
 lint fix="": ensure-golangci-lint
-    golangci-lint run --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
+    golangci-lint run -c ../.golangci.yaml --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
 
 mock: ensure-mockery
     @echo "Cleaning existing mocks..."

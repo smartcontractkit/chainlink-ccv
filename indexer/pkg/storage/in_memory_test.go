@@ -4,24 +4,26 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestNewInMemoryStorage(t *testing.T) {
 	lggr := logger.Nop()
-	storage := NewInMemoryStorage(lggr)
+	storage := NewInMemoryStorage(lggr, monitoring.NewNoopIndexerMonitoring())
 
 	assert.NotNil(t, storage)
 	assert.IsType(t, &InMemoryStorage{}, storage)
 }
 
 func TestInsertCCVData(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	ccvData := createTestCCVData("0x123", 1000, 1, 2)
@@ -37,7 +39,7 @@ func TestInsertCCVData(t *testing.T) {
 }
 
 func TestInsertCCVDataMultiple(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Insert multiple CCVData with same messageID
@@ -59,7 +61,7 @@ func TestInsertCCVDataMultiple(t *testing.T) {
 }
 
 func TestGetCCVDataNotFound(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	messageID := createTestBytes32("0x999")
@@ -70,7 +72,7 @@ func TestGetCCVDataNotFound(t *testing.T) {
 }
 
 func TestQueryCCVDataTimestampRange(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Insert test data with different timestamps
@@ -95,7 +97,7 @@ func TestQueryCCVDataTimestampRange(t *testing.T) {
 }
 
 func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Insert test data with different source chains
@@ -110,7 +112,7 @@ func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
 
 	// Query for source chain 1
 	sourceChains := []types.ChainSelector{1}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, sourceChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), sourceChains, []types.ChainSelector{}, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -120,7 +122,7 @@ func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
 }
 
 func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Insert test data with different dest chains
@@ -135,7 +137,7 @@ func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
 
 	// Query for dest chain 2
 	destChains := []types.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, destChains, nil, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), []types.ChainSelector{}, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -145,7 +147,7 @@ func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
 }
 
 func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Insert test data
@@ -162,7 +164,7 @@ func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
 	// Query for source chain 1 AND dest chain 2
 	sourceChains := []types.ChainSelector{1}
 	destChains := []types.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, destChains, sourceChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, 9999, sourceChains, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData4
@@ -172,7 +174,7 @@ func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
 }
 
 func TestQueryCCVDataPagination(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Insert 5 test records
@@ -191,7 +193,7 @@ func TestQueryCCVDataPagination(t *testing.T) {
 }
 
 func TestQueryCCVDataEmptyResult(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Query with no data
@@ -201,7 +203,7 @@ func TestQueryCCVDataEmptyResult(t *testing.T) {
 }
 
 func TestQueryCCVDataNoMatchingTimestamp(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Insert data with timestamp 1000
@@ -216,7 +218,7 @@ func TestQueryCCVDataNoMatchingTimestamp(t *testing.T) {
 }
 
 func TestQueryCCVDataNoMatchingChainSelector(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Insert data with source chain 1
@@ -232,7 +234,7 @@ func TestQueryCCVDataNoMatchingChainSelector(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Test concurrent inserts
@@ -312,7 +314,7 @@ func createTestBytes32(hex string) types.Bytes32 {
 // Benchmark tests
 
 func BenchmarkInsertCCVData(b *testing.B) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -323,7 +325,7 @@ func BenchmarkInsertCCVData(b *testing.B) {
 }
 
 func BenchmarkGetCCVData(b *testing.B) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Pre-populate with data
@@ -337,7 +339,7 @@ func BenchmarkGetCCVData(b *testing.B) {
 }
 
 func BenchmarkQueryCCVDataTimestampRange(b *testing.B) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Pre-populate with 1000 records
@@ -353,7 +355,7 @@ func BenchmarkQueryCCVDataTimestampRange(b *testing.B) {
 }
 
 func BenchmarkQueryCCVDataWithChainFilter(b *testing.B) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	// Pre-populate with 1000 records with mixed chain selectors
@@ -374,7 +376,7 @@ func BenchmarkQueryCCVDataWithChainFilter(b *testing.B) {
 }
 
 func BenchmarkConcurrentInserts(b *testing.B) {
-	storage := NewInMemoryStorage(logger.Nop())
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
 	b.ResetTimer()

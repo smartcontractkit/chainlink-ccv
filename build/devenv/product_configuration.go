@@ -14,24 +14,27 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	chainsel "github.com/smartcontractkit/chain-selectors"
+	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
-	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
+	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 )
 
 const (
@@ -52,8 +55,9 @@ type CCV struct {
 	Verify              bool          `toml:"verify"`
 
 	// Contracts (CLDF)
-	AddressesMu *sync.Mutex `toml:"-"`
-	Addresses   []string    `toml:"addresses"`
+	AddressesMu *sync.Mutex         `toml:"-"`
+	Addresses   []string            `toml:"addresses"`
+	DataStore   datastore.DataStore `toml:"-"`
 
 	// These are the settings for CLDF missing functionality we cover with ETHClient, we should remove them later
 	GasSettings *GasSettings `toml:"gas_settings"`
@@ -136,6 +140,84 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 	return selectors, &e, nil
 }
 
+// deployCommitVerifierForSelector deploys a new verifier to the given chain selector.
+func deployCommitVerifierForSelector(
+	e *deployment.Environment,
+	selector uint64,
+	onRampConstructorArgs commit_onramp.ConstructorArgs,
+	offRampConstructorArgs commit_offramp.ConstructorArgs,
+	signatureConfigArgs commit_offramp.SignatureConfigArgs,
+) (onRamp, offRamp datastore.AddressRef, err error) {
+	chain, ok := e.BlockChains.EVMChains()[selector]
+	if !ok {
+		err = fmt.Errorf("no EVM chain found for selector %d", selector)
+		return onRamp, offRamp, err
+	}
+	commitOnRampReport, err := operations.ExecuteOperation(e.OperationsBundle, commit_onramp.Deploy, chain, contract.DeployInput[commit_onramp.ConstructorArgs]{
+		ChainSelector: chain.Selector,
+		Args:          onRampConstructorArgs,
+	})
+	if err != nil {
+		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
+		return onRamp, offRamp, err
+	}
+	commitOffRampReport, err := operations.ExecuteOperation(e.OperationsBundle, commit_offramp.Deploy, chain, contract.DeployInput[commit_offramp.ConstructorArgs]{
+		ChainSelector: chain.Selector,
+		Args:          offRampConstructorArgs,
+	})
+	if err != nil {
+		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
+		return onRamp, offRamp, err
+	}
+	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SignatureConfigArgs]{
+		Address:       common.HexToAddress(commitOffRampReport.Output.Address),
+		ChainSelector: chain.Selector,
+		Args:          signatureConfigArgs,
+	})
+	if err != nil {
+		err = fmt.Errorf("failed to set CommitOffRamp signature config: %w", err)
+		return onRamp, offRamp, err
+	}
+	onRamp = commitOnRampReport.Output
+	offRamp = commitOffRampReport.Output
+	return onRamp, offRamp, err
+}
+
+// configureVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes.
+func configureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, commitOnRamp common.Address, destConfigArgs []commit_onramp.DestChainConfigArgs) error {
+	chain, ok := e.BlockChains.EVMChains()[selector]
+	if !ok {
+		return fmt.Errorf("no EVM chain found for selector %d", selector)
+	}
+
+	_, err := operations.ExecuteOperation(e.OperationsBundle, commit_onramp.ApplyDestChainConfigUpdates, chain, contract.FunctionInput[[]commit_onramp.DestChainConfigArgs]{
+		ChainSelector: chain.Selector,
+		Address:       commitOnRamp,
+		Args:          destConfigArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to apply dest chain config updates to CommitOnRamp(%s) on chain %s: %w", commitOnRamp, chain, err)
+	}
+
+	return nil
+}
+
+// deployReceiverForSelector deploys a new mock receiver to the given chain selector.
+func deployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver.ConstructorArgs) (datastore.AddressRef, error) {
+	chain, ok := e.BlockChains.EVMChains()[selector]
+	if !ok {
+		return datastore.AddressRef{}, fmt.Errorf("no EVM chain found for selector %d", selector)
+	}
+	report, err := operations.ExecuteOperation(e.OperationsBundle, mock_receiver.Deploy, chain, contract.DeployInput[mock_receiver.ConstructorArgs]{
+		ChainSelector: chain.Selector,
+		Args:          args,
+	})
+	if err != nil {
+		return datastore.AddressRef{}, fmt.Errorf("failed to deploy MockReceiver: %w", err)
+	}
+	return report.Output, nil
+}
+
 func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uint64) (datastore.DataStore, error) {
 	L.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
 	bundle := operations.NewBundle(
@@ -181,12 +263,10 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
 				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
-					Threshold: 1,
+					Threshold: 2,
 					Signers: []common.Address{
-						common.HexToAddress("0x02"),
-						common.HexToAddress("0x03"),
-						common.HexToAddress("0x04"),
-						common.HexToAddress("0x05"),
+						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
+						common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
 					},
 				},
 			},
@@ -197,6 +277,9 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 	}
 
 	addresses, err := out.DataStore.Addresses().Fetch()
+	if err != nil {
+		return nil, err
+	}
 	in.CCV.AddressesMu.Lock()
 	defer in.CCV.AddressesMu.Unlock()
 	a, err := json.Marshal(addresses)
@@ -274,7 +357,6 @@ func configureContractsOnSelectorForLanes(e *deployment.Environment, selector ui
 func configureJobs(in *Cfg, clNodes []*clclient.ChainlinkClient) error {
 	bootstrapNode := clNodes[0]
 	workerNodes := clNodes[1:]
-	// example bootstrap job, use JD here?
 	_ = bootstrapNode
 
 	for _, chainlinkNode := range workerNodes {
@@ -288,29 +370,18 @@ func configureJobs(in *Cfg, clNodes []*clclient.ChainlinkClient) error {
 		}
 		_ = in.Fake.Out.ExternalHTTPURL
 		_ = in.Fake.Out.InternalHTTPURL
-
-		// create CCV jobs here
 	}
 	return nil
 }
 
-func setupFakes(fakeServiceURL string) error {
-	//  example fake service configuration (mocking external adapter responses)
-	//  r := resty.New().SetBaseURL(fakeServiceURL)
-	//  _, err = r.R().Post(fmt.Sprintf(`/set_ea?low=%d&high=%d`, in.CCV.EAFake.LowValue, in.CCV.EAFake.HighValue))
-	//  if err != nil {
-	//  	return fmt.Errorf("could not set ea fake values: %w", err)
-	//  }
-	//  Plog.Info().
-	//	  Int64("FeedAnswerLow", in.CCV.EAFake.LowValue).
-	//	  Int64("FeedAnswerHigh", in.CCV.EAFake.HighValue).
-	//	  Msg("Setting fake external adapter (data feed) values")
+func setupFakes(_ *Cfg) error {
+	// no need for now
 	return nil
 }
 
 // DefaultProductConfiguration is default product configuration that includes:
 // - CL nodes config generation
-// - On-chain part deployment using CLDF
+// - On-chain part deployment using CLDF.
 func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 	Plog.Info().Msg("Generating CL nodes config")
 	pkey := getNetworkPrivateKey()
@@ -414,7 +485,6 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		if err != nil {
 			return fmt.Errorf("connecting to CL nodes: %w", err)
 		}
-		transmittersSrc, transmittersDst := make([]common.Address, 0), make([]common.Address, 0)
 		ethKeyAddressesSrc, ethKeyAddressesDst := make([]string, 0), make([]string, 0)
 		for i, nc := range nodeClients {
 			addrSrc, err := nc.ReadPrimaryETHKey(in.Blockchains[0].ChainID)
@@ -422,13 +492,11 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 				return fmt.Errorf("getting primary ETH key from OCR node %d (src chain): %w", i, err)
 			}
 			ethKeyAddressesSrc = append(ethKeyAddressesSrc, addrSrc.Attributes.Address)
-			transmittersSrc = append(transmittersSrc, common.HexToAddress(addrSrc.Attributes.Address))
 			addrDst, err := nc.ReadPrimaryETHKey(in.Blockchains[1].ChainID)
 			if err != nil {
 				return fmt.Errorf("getting primary ETH key from OCR node %d (dst chain): %w", i, err)
 			}
 			ethKeyAddressesDst = append(ethKeyAddressesDst, addrDst.Attributes.Address)
-			transmittersDst = append(transmittersDst, common.HexToAddress(addrDst.Attributes.Address))
 			Plog.Info().
 				Int("Idx", i).
 				Str("ETHKeySrc", addrSrc.Attributes.Address).
@@ -497,7 +565,7 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		if err := configureJobs(in, nodeClients); err != nil {
 			return fmt.Errorf("could not configure jobs: %w", err)
 		}
-		if err := setupFakes(in.Fake.Out.ExternalHTTPURL); err != nil {
+		if err := setupFakes(in); err != nil {
 			return fmt.Errorf("could not setup fake server: %w", err)
 		}
 
@@ -505,52 +573,11 @@ func DefaultProductConfiguration(in *Cfg, phase ConfigPhase) error {
 		for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
 			Plog.Info().Str("Node", n.Node.ExternalURL).Send()
 		}
-		// Write CCVProxy addresses from CLDF deployment to verifier config
-		if err := writeCCVProxyAddressesToConfig(in); err != nil {
-			Plog.Warn().Err(err).Msg("Failed to write CCVProxy addresses to verifier.toml")
-		}
 
 		if err := verifyEnvironment(in); err != nil {
 			return err
 		}
 		return nil
 	}
-	return nil
-}
-
-// writeCCVProxyAddressesToConfig writes CCVProxy addresses from CLDF deployment to verifier.toml
-func writeCCVProxyAddressesToConfig(in *Cfg) error {
-	// Get CLDF addresses
-	addresses, err := GetCLDFAddressesPerSelector(in)
-	if err != nil {
-		return fmt.Errorf("failed to get CLDF addresses: %w", err)
-	}
-
-	// Find CCVProxy addresses for chains 1337 and 2337
-	ccvProxyAddresses := make(map[string]string)
-
-	for _, addrRefs := range addresses {
-		for _, ref := range addrRefs {
-			if ref.Type == "CCVProxy" {
-				chainKey := fmt.Sprintf("%d", ref.ChainSelector)
-				ccvProxyAddresses[chainKey] = ref.Address
-				Plog.Info().
-					Uint64("chainSelector", ref.ChainSelector).
-					Str("address", ref.Address).
-					Msg("Found CCVProxy address from CLDF")
-			}
-		}
-	}
-
-	if len(ccvProxyAddresses) == 0 {
-		return fmt.Errorf("no CCVProxy addresses found in CLDF deployment")
-	}
-
-	in.Verifier.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
-	in.Verifier.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
-
-	in.Verifier2.VerifierConfig.CCVProxy1337 = ccvProxyAddresses["3379446385462418246"]
-	in.Verifier2.VerifierConfig.CCVProxy2337 = ccvProxyAddresses["12922642891491394802"]
-
 	return nil
 }

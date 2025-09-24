@@ -13,7 +13,7 @@ import (
 // When integrating with non-evms, the implementer only needs to add support for a single chain.
 type DestinationReader interface {
 	// GetCCVSForMessage return cross-chain verifications for selected message
-	GetCCVSForMessage(ctx context.Context, sourceSelector protocol.ChainSelector, receiverAddress protocol.UnknownAddress) (types.CcvAddressInfo, error)
+	GetCCVSForMessage(ctx context.Context, message protocol.Message) (types.CcvAddressInfo, error)
 	// IsMessageExecuted returns true if message is executed
-	IsMessageExecuted(ctx context.Context, sourceSelector protocol.ChainSelector, nonce protocol.Nonce) (bool, error)
+	IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error)
 }

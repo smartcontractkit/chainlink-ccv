@@ -1,7 +1,10 @@
 aggregator_address = "aggregator:50051"
-private_key = "dev-private-key-12345678901234567890"
+private_key = "dev-private-key2-12345678901234567890"
+verifier_on_ramp_1337 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
+verifier_on_ramp_2337 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
 ccv_proxy_1337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
 ccv_proxy_2337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+pyroscope_url = "http://pyroscope:4040"
 
 [blockchain_infos]
   [blockchain_infos.1337]
@@ -9,20 +12,22 @@ ccv_proxy_2337 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
     Type = "anvil"
     Family = "evm"
     ContainerName = "blockchain-src"
+    OfframpRouter = ""
 
     [[blockchain_infos.1337.Nodes]]
-      ExternalHTTPUrl = "http://127.0.0.1:8545"
+      ExternalHTTPUrl = "http://host.docker.internal:8545"
       InternalHTTPUrl = "http://blockchain-src:8545"
-      ExternalWSUrl = "ws://127.0.0.1:8545"
+      ExternalWSUrl = "ws://host.docker.internal:8545"
       InternalWSUrl = "ws://blockchain-src:8545"
   [blockchain_infos.2337]
     ChainID = "2337"
     Type = "anvil"
     Family = "evm"
     ContainerName = "blockchain-dst"
+    OfframpRouter = ""
 
     [[blockchain_infos.2337.Nodes]]
-      ExternalHTTPUrl = "http://127.0.0.1:8555"
+      ExternalHTTPUrl = "http://host.docker.internal:8555"
       InternalHTTPUrl = "http://blockchain-dst:8555"
-      ExternalWSUrl = "ws://127.0.0.1:8555"
+      ExternalWSUrl = "ws://host.docker.internal:8555"
       InternalWSUrl = "ws://blockchain-dst:8555"

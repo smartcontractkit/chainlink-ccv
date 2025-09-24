@@ -9,25 +9,31 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	v1Handlers "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 )
 
-func NewV1API(lggr logger.Logger, storage common.IndexerStorage) *gin.Engine {
+func NewV1API(lggr logger.Logger, storage common.IndexerStorage, monitoring common.IndexerMonitoring) *gin.Engine {
 	router := gin.Default()
+
+	// Add the active requests middleware to all routes
+	router.Use(middleware.ActiveRequestsMiddleware(monitoring, lggr))
 	router.Use(middleware.RateLimit())
 
-	v1 := router.Group("/v1")
+	v1Group := router.Group("/v1")
 
-	v1.GET("/ping", func(c *gin.Context) {
+	v1Group.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "pong"})
 	})
 
-	ccvDataV1Handler := v1Handlers.NewCCVDataV1Handler(storage, lggr)
-	v1.GET("/ccvdata", ccvDataV1Handler.Handle)
+	ccvDataV1Handler := v1.NewCCVDataV1Handler(storage, lggr, monitoring)
+	v1Group.GET("/ccvdata", ccvDataV1Handler.Handle)
 
 	return router
 }
 
 func Serve(router *gin.Engine, port int) {
-	router.Run(fmt.Sprintf(":%d", port))
+	err := router.Run(fmt.Sprintf(":%d", port))
+	if err != nil {
+		panic(err)
+	}
 }

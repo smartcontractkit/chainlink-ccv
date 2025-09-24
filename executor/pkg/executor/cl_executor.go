@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
@@ -51,8 +52,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	destinationChain := messageWithCCVData.Message.DestChainSelector
 	messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 		ctx,
-		messageWithCCVData.Message.SourceChainSelector,
-		messageWithCCVData.Message.Nonce,
+		messageWithCCVData.Message,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to check if message is executed: %w", err)
@@ -64,8 +64,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 
 	ccvInfo, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
 		ctx,
-		messageWithCCVData.Message.SourceChainSelector,
-		messageWithCCVData.Message.Receiver,
+		messageWithCCVData.Message,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get CCV Offramp addresses for message: %w", err)
@@ -94,11 +93,11 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverD
 
 	mappedCcvData := make(map[string][]byte)
 	for _, datum := range ccvData {
-		mappedCcvData[datum.DestVerifierAddress.String()] = datum.CCVData
+		mappedCcvData[strings.ToLower(datum.DestVerifierAddress.String())] = datum.CCVData
 	}
 
 	for _, ccvAddress := range receiverDefinedCcvs.RequiredCcvs {
-		strAddr := ccvAddress.String()
+		strAddr := strings.ToLower(string(ccvAddress))
 		if _, ok := mappedCcvData[strAddr]; !ok {
 			return nil, nil, fmt.Errorf("required CCV Offramp %s did not have an attestation", strAddr)
 		}

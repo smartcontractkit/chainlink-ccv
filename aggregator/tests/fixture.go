@@ -3,44 +3,35 @@ package tests
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"encoding/binary"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
+
+func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
+	// Generate valid Ethereum addresses using private keys
+	sourceKey, err := crypto.GenerateKey()
+	require.NoError(t, err, "failed to generate source private key")
+	sourceVerifierAddress := crypto.PubkeyToAddress(sourceKey.PublicKey)
+
+	destKey, err := crypto.GenerateKey()
+	require.NoError(t, err, "failed to generate destination private key")
+	destVerifierAddress := crypto.PubkeyToAddress(destKey.PublicKey)
+
+	return sourceVerifierAddress.Bytes(), destVerifierAddress.Bytes()
+}
 
 type SignerFixture struct {
 	key    *ecdsa.PrivateKey
 	Signer model.Signer
-}
-
-func (sf *SignerFixture) Sign(t *testing.T, message *types.Message, verifierBlob []byte) ([]byte, []byte, error) {
-	messageHash, err := message.MessageID()
-	assert.NoError(t, err)
-
-	// Calculate signature hash (message hash || keccak256(verifierBlob))
-	verifierBlobHash := crypto.Keccak256(verifierBlob)
-	var signatureHashInput bytes.Buffer
-	signatureHashInput.Write(messageHash[:])
-	signatureHashInput.Write(verifierBlobHash)
-	signatureHash := crypto.Keccak256(signatureHashInput.Bytes())
-
-	// Create valid signature
-	validSignature, err := crypto.Sign(signatureHash, sf.key)
-	assert.NoError(t, err)
-
-	// Encode signature in the expected format
-	// Note: crypto.Sign returns [R || S || V] where V is the recovery ID
-	rBytes := [32]byte{}
-	sBytes := [32]byte{}
-	copy(rBytes[:], validSignature[0:32])
-	copy(sBytes[:], validSignature[32:64])
-	return rBytes[:], sBytes[:], nil
 }
 
 func NewSignerFixture(t *testing.T, name string) *SignerFixture {
@@ -97,30 +88,47 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 	return func(m *aggregator.MessageWithCCVNodeData) *aggregator.MessageWithCCVNodeData {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
 
-		r, s, err := signer.Sign(t, protocolMessage, m.BlobData)
+		// Get message hash
+		messageHash, err := protocolMessage.MessageID()
+		require.NoError(t, err, "failed to get message ID")
+
+		// Create dummy ccvArgs (nonce as 8 bytes) - must be done before signing
+		ccvArgs := make([]byte, 8)
+		binary.BigEndian.PutUint64(ccvArgs, 123) // dummy nonce
+
+		// Calculate signature hash (message hash || ccvArgs) to match validator logic
+		var signatureHashInput bytes.Buffer
+		signatureHashInput.Write(messageHash[:])
+		signatureHashInput.Write(ccvArgs)
+		signatureHash := hashing.Keccak256(signatureHashInput.Bytes())
+
+		// Use SignV27 for proper signature creation and normalization
+		r32, s32, signerAddr, err := signature.SignV27(signatureHash[:], signer.key)
 		require.NoError(t, err, "failed to sign message")
 
-		to32ByteArray := func(b []byte) [32]byte {
-			var arr [32]byte
-			copy(arr[:], b)
-			return arr
+		// Create signature data with actual signer address
+		sigData := []signature.Data{
+			{
+				R:      r32,
+				S:      s32,
+				Signer: signerAddr,
+			},
 		}
 
-		m.CcvData, err = model.EncodeSignatures([][32]byte{to32ByteArray(r)}, [][32]byte{to32ByteArray(s)})
+		m.CcvData, err = signature.EncodeSignaturesABI(ccvArgs, sigData)
 		require.NoError(t, err, "failed to encode signatures")
 
 		return m
 	}
 }
 
-func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, options ...MessageWithCCVNodeDataOption) *aggregator.MessageWithCCVNodeData {
+func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *aggregator.MessageWithCCVNodeData {
 	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 
 	ccvNodeData := &aggregator.MessageWithCCVNodeData{
 		MessageId:             messageID[:],
-		SourceVerifierAddress: make([]byte, 20),
-		DestVerifierAddress:   make([]byte, 20),
+		SourceVerifierAddress: sourceVerifierAddress,
 		Message: &aggregator.Message{
 			Version:              uint32(message.Version),
 			SourceChainSelector:  uint64(message.SourceChainSelector),
@@ -147,7 +155,7 @@ func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, options ...
 		Timestamp: 1234567890,
 		ReceiptBlobs: []*aggregator.ReceiptBlob{
 			{
-				Issuer: make([]byte, 20),
+				Issuer: sourceVerifierAddress,
 				Blob:   []byte("test blob data"),
 			},
 		},

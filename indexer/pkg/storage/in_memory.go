@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -27,17 +28,19 @@ type InMemoryStorage struct {
 	bySourceChain map[types.ChainSelector][]int
 	byDestChain   map[types.ChainSelector][]int
 
-	mu   sync.RWMutex
-	lggr logger.Logger
+	mu         sync.RWMutex
+	monitoring common.IndexerMonitoring
+	lggr       logger.Logger
 }
 
-func NewInMemoryStorage(lggr logger.Logger) common.IndexerStorage {
+func NewInMemoryStorage(lggr logger.Logger, monitoring common.IndexerMonitoring) common.IndexerStorage {
 	return &InMemoryStorage{
 		byMessageID:   make(map[string][]types.CCVData),
 		byTimestamp:   make([]types.CCVData, 0),
 		bySourceChain: make(map[types.ChainSelector][]int),
 		byDestChain:   make(map[types.ChainSelector][]int),
 		lggr:          lggr,
+		monitoring:    monitoring,
 	}
 }
 
@@ -55,6 +58,7 @@ func (i *InMemoryStorage) GetCCVData(ctx context.Context, messageID types.Bytes3
 
 // QueryCCVData retrieves all CCVData that matches the filter set.
 func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []types.ChainSelector, limit, offset uint64) (map[string][]types.CCVData, error) {
+	startQueryMetric := time.Now()
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -86,7 +90,7 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 		return make(map[string][]types.CCVData), nil
 	}
 
-	startPos, endPos := int(offset), int(offset+limit)
+	startPos, endPos := int(offset), int(offset+limit) // #nosec G115
 	if endPos > len(candidates) {
 		endPos = len(candidates)
 	}
@@ -98,17 +102,28 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 		results[messageID] = append(results[messageID], candidate)
 	}
 
+	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 	return results, nil
 }
 
 // InsertCCVData appends a new CCVData to the storage for the given messageID.
 func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData types.CCVData) error {
+	startInsertMetric := time.Now()
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
 	// Add to messageID index
 	messageID := ccvData.MessageID.String()
+
+	// If the MessageID is not in the index, it must be a new message and we should increment the unique messages counter
+	if _, ok := i.byMessageID[messageID]; !ok {
+		i.monitoring.Metrics().IncrementUniqueMessagesCounter(ctx)
+	}
+
 	i.byMessageID[messageID] = append(i.byMessageID[messageID], ccvData)
+
+	// Increment the verification records counter
+	i.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
 
 	// Insert into timestamp-sorted index
 	insertPos := i.findTimestampIndex(ccvData.Timestamp, func(ts, target int64) bool { return ts > target })
@@ -120,6 +135,7 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData types.CCVDa
 	i.addToChainIndex(i.bySourceChain, ccvData.SourceChainSelector, insertPos)
 	i.addToChainIndex(i.byDestChain, ccvData.DestChainSelector, insertPos)
 
+	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 	return nil
 }
 

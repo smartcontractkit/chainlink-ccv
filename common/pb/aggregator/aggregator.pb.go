@@ -2,11 +2,12 @@
 // versions:
 // 	protoc-gen-go v1.36.8
 // 	protoc        v6.32.0
-// source: proto/aggregator.proto
+// source: aggregator.proto
 
 package aggregator
 
 import (
+	status "google.golang.org/genproto/googleapis/rpc/status"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -51,11 +52,11 @@ func (x WriteStatus) String() string {
 }
 
 func (WriteStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_aggregator_proto_enumTypes[0].Descriptor()
+	return file_aggregator_proto_enumTypes[0].Descriptor()
 }
 
 func (WriteStatus) Type() protoreflect.EnumType {
-	return &file_proto_aggregator_proto_enumTypes[0]
+	return &file_aggregator_proto_enumTypes[0]
 }
 
 func (x WriteStatus) Number() protoreflect.EnumNumber {
@@ -64,7 +65,7 @@ func (x WriteStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WriteStatus.Descriptor instead.
 func (WriteStatus) EnumDescriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{0}
+	return file_aggregator_proto_rawDescGZIP(), []int{0}
 }
 
 type BlockCheckpoint struct {
@@ -77,7 +78,7 @@ type BlockCheckpoint struct {
 
 func (x *BlockCheckpoint) Reset() {
 	*x = BlockCheckpoint{}
-	mi := &file_proto_aggregator_proto_msgTypes[0]
+	mi := &file_aggregator_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -89,7 +90,7 @@ func (x *BlockCheckpoint) String() string {
 func (*BlockCheckpoint) ProtoMessage() {}
 
 func (x *BlockCheckpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[0]
+	mi := &file_aggregator_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -102,7 +103,7 @@ func (x *BlockCheckpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockCheckpoint.ProtoReflect.Descriptor instead.
 func (*BlockCheckpoint) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{0}
+	return file_aggregator_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *BlockCheckpoint) GetChainSelector() uint64 {
@@ -128,7 +129,7 @@ type WriteBlockCheckpointRequest struct {
 
 func (x *WriteBlockCheckpointRequest) Reset() {
 	*x = WriteBlockCheckpointRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[1]
+	mi := &file_aggregator_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -140,7 +141,7 @@ func (x *WriteBlockCheckpointRequest) String() string {
 func (*WriteBlockCheckpointRequest) ProtoMessage() {}
 
 func (x *WriteBlockCheckpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[1]
+	mi := &file_aggregator_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -153,7 +154,7 @@ func (x *WriteBlockCheckpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteBlockCheckpointRequest.ProtoReflect.Descriptor instead.
 func (*WriteBlockCheckpointRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{1}
+	return file_aggregator_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *WriteBlockCheckpointRequest) GetCheckpoints() []*BlockCheckpoint {
@@ -172,7 +173,7 @@ type WriteBlockCheckpointResponse struct {
 
 func (x *WriteBlockCheckpointResponse) Reset() {
 	*x = WriteBlockCheckpointResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[2]
+	mi := &file_aggregator_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -184,7 +185,7 @@ func (x *WriteBlockCheckpointResponse) String() string {
 func (*WriteBlockCheckpointResponse) ProtoMessage() {}
 
 func (x *WriteBlockCheckpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[2]
+	mi := &file_aggregator_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -197,7 +198,7 @@ func (x *WriteBlockCheckpointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteBlockCheckpointResponse.ProtoReflect.Descriptor instead.
 func (*WriteBlockCheckpointResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{2}
+	return file_aggregator_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *WriteBlockCheckpointResponse) GetStatus() WriteStatus {
@@ -215,7 +216,7 @@ type ReadBlockCheckpointRequest struct {
 
 func (x *ReadBlockCheckpointRequest) Reset() {
 	*x = ReadBlockCheckpointRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[3]
+	mi := &file_aggregator_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -227,7 +228,7 @@ func (x *ReadBlockCheckpointRequest) String() string {
 func (*ReadBlockCheckpointRequest) ProtoMessage() {}
 
 func (x *ReadBlockCheckpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[3]
+	mi := &file_aggregator_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -240,7 +241,7 @@ func (x *ReadBlockCheckpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadBlockCheckpointRequest.ProtoReflect.Descriptor instead.
 func (*ReadBlockCheckpointRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{3}
+	return file_aggregator_proto_rawDescGZIP(), []int{3}
 }
 
 type ReadBlockCheckpointResponse struct {
@@ -252,7 +253,7 @@ type ReadBlockCheckpointResponse struct {
 
 func (x *ReadBlockCheckpointResponse) Reset() {
 	*x = ReadBlockCheckpointResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[4]
+	mi := &file_aggregator_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -264,7 +265,7 @@ func (x *ReadBlockCheckpointResponse) String() string {
 func (*ReadBlockCheckpointResponse) ProtoMessage() {}
 
 func (x *ReadBlockCheckpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[4]
+	mi := &file_aggregator_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -277,7 +278,7 @@ func (x *ReadBlockCheckpointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadBlockCheckpointResponse.ProtoReflect.Descriptor instead.
 func (*ReadBlockCheckpointResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{4}
+	return file_aggregator_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ReadBlockCheckpointResponse) GetCheckpoints() []*BlockCheckpoint {
@@ -314,7 +315,7 @@ type Message struct {
 
 func (x *Message) Reset() {
 	*x = Message{}
-	mi := &file_proto_aggregator_proto_msgTypes[5]
+	mi := &file_aggregator_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -326,7 +327,7 @@ func (x *Message) String() string {
 func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[5]
+	mi := &file_aggregator_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -339,7 +340,7 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Message.ProtoReflect.Descriptor instead.
 func (*Message) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{5}
+	return file_aggregator_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Message) GetVersion() uint32 {
@@ -488,7 +489,7 @@ type ReceiptBlob struct {
 
 func (x *ReceiptBlob) Reset() {
 	*x = ReceiptBlob{}
-	mi := &file_proto_aggregator_proto_msgTypes[6]
+	mi := &file_aggregator_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -500,7 +501,7 @@ func (x *ReceiptBlob) String() string {
 func (*ReceiptBlob) ProtoMessage() {}
 
 func (x *ReceiptBlob) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[6]
+	mi := &file_aggregator_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -513,7 +514,7 @@ func (x *ReceiptBlob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReceiptBlob.ProtoReflect.Descriptor instead.
 func (*ReceiptBlob) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{6}
+	return file_aggregator_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ReceiptBlob) GetIssuer() []byte {
@@ -555,21 +556,20 @@ type MessageWithCCVNodeData struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	MessageId             []byte                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	SourceVerifierAddress []byte                 `protobuf:"bytes,2,opt,name=source_verifier_address,json=sourceVerifierAddress,proto3" json:"source_verifier_address,omitempty"`
-	DestVerifierAddress   []byte                 `protobuf:"bytes,3,opt,name=dest_verifier_address,json=destVerifierAddress,proto3" json:"dest_verifier_address,omitempty"`
 	// ccv_data is the signature from the commit verifier node of the message data and the blob data
-	CcvData []byte `protobuf:"bytes,4,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
-	// blob_data is the encoded nonce from the source chain
-	BlobData      []byte         `protobuf:"bytes,5,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
-	Timestamp     int64          `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Message       *Message       `protobuf:"bytes,7,opt,name=message,proto3" json:"message,omitempty"`
-	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,8,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
+	CcvData []byte `protobuf:"bytes,3,opt,name=ccv_data,json=ccvData,proto3" json:"ccv_data,omitempty"`
+	// blob_data is the verifier's proof/verification of the message data on chain
+	BlobData      []byte         `protobuf:"bytes,4,opt,name=blob_data,json=blobData,proto3" json:"blob_data,omitempty"`
+	Timestamp     int64          `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Message       *Message       `protobuf:"bytes,6,opt,name=message,proto3" json:"message,omitempty"`
+	ReceiptBlobs  []*ReceiptBlob `protobuf:"bytes,7,rep,name=receipt_blobs,json=receiptBlobs,proto3" json:"receipt_blobs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MessageWithCCVNodeData) Reset() {
 	*x = MessageWithCCVNodeData{}
-	mi := &file_proto_aggregator_proto_msgTypes[7]
+	mi := &file_aggregator_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -581,7 +581,7 @@ func (x *MessageWithCCVNodeData) String() string {
 func (*MessageWithCCVNodeData) ProtoMessage() {}
 
 func (x *MessageWithCCVNodeData) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[7]
+	mi := &file_aggregator_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -594,7 +594,7 @@ func (x *MessageWithCCVNodeData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageWithCCVNodeData.ProtoReflect.Descriptor instead.
 func (*MessageWithCCVNodeData) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{7}
+	return file_aggregator_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MessageWithCCVNodeData) GetMessageId() []byte {
@@ -607,13 +607,6 @@ func (x *MessageWithCCVNodeData) GetMessageId() []byte {
 func (x *MessageWithCCVNodeData) GetSourceVerifierAddress() []byte {
 	if x != nil {
 		return x.SourceVerifierAddress
-	}
-	return nil
-}
-
-func (x *MessageWithCCVNodeData) GetDestVerifierAddress() []byte {
-	if x != nil {
-		return x.DestVerifierAddress
 	}
 	return nil
 }
@@ -666,7 +659,7 @@ type MessageWithCCVData struct {
 
 func (x *MessageWithCCVData) Reset() {
 	*x = MessageWithCCVData{}
-	mi := &file_proto_aggregator_proto_msgTypes[8]
+	mi := &file_aggregator_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +671,7 @@ func (x *MessageWithCCVData) String() string {
 func (*MessageWithCCVData) ProtoMessage() {}
 
 func (x *MessageWithCCVData) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[8]
+	mi := &file_aggregator_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,7 +684,7 @@ func (x *MessageWithCCVData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageWithCCVData.ProtoReflect.Descriptor instead.
 func (*MessageWithCCVData) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{8}
+	return file_aggregator_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *MessageWithCCVData) GetMessage() *Message {
@@ -729,6 +722,102 @@ func (x *MessageWithCCVData) GetTimestamp() int64 {
 	return 0
 }
 
+type BatchWriteCommitCCVNodeDataRequest struct {
+	state         protoimpl.MessageState           `protogen:"open.v1"`
+	Requests      []*WriteCommitCCVNodeDataRequest `protobuf:"bytes,1,rep,name=requests,proto3" json:"requests,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchWriteCommitCCVNodeDataRequest) Reset() {
+	*x = BatchWriteCommitCCVNodeDataRequest{}
+	mi := &file_aggregator_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchWriteCommitCCVNodeDataRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchWriteCommitCCVNodeDataRequest) ProtoMessage() {}
+
+func (x *BatchWriteCommitCCVNodeDataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aggregator_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchWriteCommitCCVNodeDataRequest.ProtoReflect.Descriptor instead.
+func (*BatchWriteCommitCCVNodeDataRequest) Descriptor() ([]byte, []int) {
+	return file_aggregator_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *BatchWriteCommitCCVNodeDataRequest) GetRequests() []*WriteCommitCCVNodeDataRequest {
+	if x != nil {
+		return x.Requests
+	}
+	return nil
+}
+
+type BatchWriteCommitCCVNodeDataResponse struct {
+	state         protoimpl.MessageState            `protogen:"open.v1"`
+	Responses     []*WriteCommitCCVNodeDataResponse `protobuf:"bytes,1,rep,name=responses,proto3" json:"responses,omitempty"`
+	Errors        []*status.Status                  `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchWriteCommitCCVNodeDataResponse) Reset() {
+	*x = BatchWriteCommitCCVNodeDataResponse{}
+	mi := &file_aggregator_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchWriteCommitCCVNodeDataResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchWriteCommitCCVNodeDataResponse) ProtoMessage() {}
+
+func (x *BatchWriteCommitCCVNodeDataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aggregator_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchWriteCommitCCVNodeDataResponse.ProtoReflect.Descriptor instead.
+func (*BatchWriteCommitCCVNodeDataResponse) Descriptor() ([]byte, []int) {
+	return file_aggregator_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *BatchWriteCommitCCVNodeDataResponse) GetResponses() []*WriteCommitCCVNodeDataResponse {
+	if x != nil {
+		return x.Responses
+	}
+	return nil
+}
+
+func (x *BatchWriteCommitCCVNodeDataResponse) GetErrors() []*status.Status {
+	if x != nil {
+		return x.Errors
+	}
+	return nil
+}
+
 type WriteCommitCCVNodeDataRequest struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
 	CcvNodeData   *MessageWithCCVNodeData `protobuf:"bytes,1,opt,name=ccv_node_data,json=ccvNodeData,proto3" json:"ccv_node_data,omitempty"`
@@ -738,7 +827,7 @@ type WriteCommitCCVNodeDataRequest struct {
 
 func (x *WriteCommitCCVNodeDataRequest) Reset() {
 	*x = WriteCommitCCVNodeDataRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[9]
+	mi := &file_aggregator_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -750,7 +839,7 @@ func (x *WriteCommitCCVNodeDataRequest) String() string {
 func (*WriteCommitCCVNodeDataRequest) ProtoMessage() {}
 
 func (x *WriteCommitCCVNodeDataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[9]
+	mi := &file_aggregator_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -763,7 +852,7 @@ func (x *WriteCommitCCVNodeDataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteCommitCCVNodeDataRequest.ProtoReflect.Descriptor instead.
 func (*WriteCommitCCVNodeDataRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{9}
+	return file_aggregator_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WriteCommitCCVNodeDataRequest) GetCcvNodeData() *MessageWithCCVNodeData {
@@ -782,7 +871,7 @@ type WriteCommitCCVNodeDataResponse struct {
 
 func (x *WriteCommitCCVNodeDataResponse) Reset() {
 	*x = WriteCommitCCVNodeDataResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[10]
+	mi := &file_aggregator_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -794,7 +883,7 @@ func (x *WriteCommitCCVNodeDataResponse) String() string {
 func (*WriteCommitCCVNodeDataResponse) ProtoMessage() {}
 
 func (x *WriteCommitCCVNodeDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[10]
+	mi := &file_aggregator_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -807,7 +896,7 @@ func (x *WriteCommitCCVNodeDataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteCommitCCVNodeDataResponse.ProtoReflect.Descriptor instead.
 func (*WriteCommitCCVNodeDataResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{10}
+	return file_aggregator_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *WriteCommitCCVNodeDataResponse) GetStatus() WriteStatus {
@@ -827,7 +916,7 @@ type ReadCommitCCVNodeDataRequest struct {
 
 func (x *ReadCommitCCVNodeDataRequest) Reset() {
 	*x = ReadCommitCCVNodeDataRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[11]
+	mi := &file_aggregator_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -839,7 +928,7 @@ func (x *ReadCommitCCVNodeDataRequest) String() string {
 func (*ReadCommitCCVNodeDataRequest) ProtoMessage() {}
 
 func (x *ReadCommitCCVNodeDataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[11]
+	mi := &file_aggregator_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -852,7 +941,7 @@ func (x *ReadCommitCCVNodeDataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadCommitCCVNodeDataRequest.ProtoReflect.Descriptor instead.
 func (*ReadCommitCCVNodeDataRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{11}
+	return file_aggregator_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ReadCommitCCVNodeDataRequest) GetMessageId() []byte {
@@ -878,7 +967,7 @@ type ReadCommitCCVNodeDataResponse struct {
 
 func (x *ReadCommitCCVNodeDataResponse) Reset() {
 	*x = ReadCommitCCVNodeDataResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[12]
+	mi := &file_aggregator_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -890,7 +979,7 @@ func (x *ReadCommitCCVNodeDataResponse) String() string {
 func (*ReadCommitCCVNodeDataResponse) ProtoMessage() {}
 
 func (x *ReadCommitCCVNodeDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[12]
+	mi := &file_aggregator_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -903,7 +992,7 @@ func (x *ReadCommitCCVNodeDataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadCommitCCVNodeDataResponse.ProtoReflect.Descriptor instead.
 func (*ReadCommitCCVNodeDataResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{12}
+	return file_aggregator_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ReadCommitCCVNodeDataResponse) GetCcvNodeData() *MessageWithCCVNodeData {
@@ -922,7 +1011,7 @@ type GetCCVDataForMessageRequest struct {
 
 func (x *GetCCVDataForMessageRequest) Reset() {
 	*x = GetCCVDataForMessageRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[13]
+	mi := &file_aggregator_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -934,7 +1023,7 @@ func (x *GetCCVDataForMessageRequest) String() string {
 func (*GetCCVDataForMessageRequest) ProtoMessage() {}
 
 func (x *GetCCVDataForMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[13]
+	mi := &file_aggregator_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -947,7 +1036,7 @@ func (x *GetCCVDataForMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCCVDataForMessageRequest.ProtoReflect.Descriptor instead.
 func (*GetCCVDataForMessageRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{13}
+	return file_aggregator_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetCCVDataForMessageRequest) GetMessageId() []byte {
@@ -967,7 +1056,7 @@ type GetMessagesSinceRequest struct {
 
 func (x *GetMessagesSinceRequest) Reset() {
 	*x = GetMessagesSinceRequest{}
-	mi := &file_proto_aggregator_proto_msgTypes[14]
+	mi := &file_aggregator_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -979,7 +1068,7 @@ func (x *GetMessagesSinceRequest) String() string {
 func (*GetMessagesSinceRequest) ProtoMessage() {}
 
 func (x *GetMessagesSinceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[14]
+	mi := &file_aggregator_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -992,7 +1081,7 @@ func (x *GetMessagesSinceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessagesSinceRequest.ProtoReflect.Descriptor instead.
 func (*GetMessagesSinceRequest) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{14}
+	return file_aggregator_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetMessagesSinceRequest) GetSince() int64 {
@@ -1019,7 +1108,7 @@ type GetMessagesSinceResponse struct {
 
 func (x *GetMessagesSinceResponse) Reset() {
 	*x = GetMessagesSinceResponse{}
-	mi := &file_proto_aggregator_proto_msgTypes[15]
+	mi := &file_aggregator_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1031,7 +1120,7 @@ func (x *GetMessagesSinceResponse) String() string {
 func (*GetMessagesSinceResponse) ProtoMessage() {}
 
 func (x *GetMessagesSinceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_aggregator_proto_msgTypes[15]
+	mi := &file_aggregator_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1044,7 +1133,7 @@ func (x *GetMessagesSinceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessagesSinceResponse.ProtoReflect.Descriptor instead.
 func (*GetMessagesSinceResponse) Descriptor() ([]byte, []int) {
-	return file_proto_aggregator_proto_rawDescGZIP(), []int{15}
+	return file_aggregator_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetMessagesSinceResponse) GetResults() []*MessageWithCCVData {
@@ -1061,11 +1150,11 @@ func (x *GetMessagesSinceResponse) GetNextToken() string {
 	return ""
 }
 
-var File_proto_aggregator_proto protoreflect.FileDescriptor
+var File_aggregator_proto protoreflect.FileDescriptor
 
-const file_proto_aggregator_proto_rawDesc = "" +
+const file_aggregator_proto_rawDesc = "" +
 	"\n" +
-	"\x16proto/aggregator.proto\"n\n" +
+	"\x10aggregator.proto\x1a\x17google/rpc/status.proto\"n\n" +
 	"\x0fBlockCheckpoint\x12%\n" +
 	"\x0echain_selector\x18\x01 \x01(\x04R\rchainSelector\x124\n" +
 	"\x16finalized_block_height\x18\x02 \x01(\x04R\x14finalizedBlockHeight\"Q\n" +
@@ -1104,23 +1193,27 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x13dest_bytes_overhead\x18\x03 \x01(\rR\x11destBytesOverhead\x12\x12\n" +
 	"\x04blob\x18\x04 \x01(\fR\x04blob\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x05 \x01(\fR\textraArgs\"\xd0\x02\n" +
+	"extra_args\x18\x05 \x01(\fR\textraArgs\"\x9c\x02\n" +
 	"\x16MessageWithCCVNodeData\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\fR\tmessageId\x126\n" +
-	"\x17source_verifier_address\x18\x02 \x01(\fR\x15sourceVerifierAddress\x122\n" +
-	"\x15dest_verifier_address\x18\x03 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
-	"\bccv_data\x18\x04 \x01(\fR\accvData\x12\x1b\n" +
-	"\tblob_data\x18\x05 \x01(\fR\bblobData\x12\x1c\n" +
-	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\"\n" +
-	"\amessage\x18\a \x01(\v2\b.MessageR\amessage\x121\n" +
-	"\rreceipt_blobs\x18\b \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xdd\x01\n" +
+	"\x17source_verifier_address\x18\x02 \x01(\fR\x15sourceVerifierAddress\x12\x19\n" +
+	"\bccv_data\x18\x03 \x01(\fR\accvData\x12\x1b\n" +
+	"\tblob_data\x18\x04 \x01(\fR\bblobData\x12\x1c\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12\"\n" +
+	"\amessage\x18\x06 \x01(\v2\b.MessageR\amessage\x121\n" +
+	"\rreceipt_blobs\x18\a \x03(\v2\f.ReceiptBlobR\freceiptBlobs\"\xdd\x01\n" +
 	"\x12MessageWithCCVData\x12\"\n" +
 	"\amessage\x18\x01 \x01(\v2\b.MessageR\amessage\x126\n" +
 	"\x17source_verifier_address\x18\x02 \x01(\fR\x15sourceVerifierAddress\x122\n" +
 	"\x15dest_verifier_address\x18\x03 \x01(\fR\x13destVerifierAddress\x12\x19\n" +
 	"\bccv_data\x18\x04 \x01(\fR\accvData\x12\x1c\n" +
-	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"\\\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"`\n" +
+	"\"BatchWriteCommitCCVNodeDataRequest\x12:\n" +
+	"\brequests\x18\x01 \x03(\v2\x1e.WriteCommitCCVNodeDataRequestR\brequests\"\x90\x01\n" +
+	"#BatchWriteCommitCCVNodeDataResponse\x12=\n" +
+	"\tresponses\x18\x01 \x03(\v2\x1f.WriteCommitCCVNodeDataResponseR\tresponses\x12*\n" +
+	"\x06errors\x18\x02 \x03(\v2\x12.google.rpc.StatusR\x06errors\"\\\n" +
 	"\x1dWriteCommitCCVNodeDataRequest\x12;\n" +
 	"\rccv_node_data\x18\x01 \x01(\v2\x17.MessageWithCCVNodeDataR\vccvNodeData\"F\n" +
 	"\x1eWriteCommitCCVNodeDataResponse\x12$\n" +
@@ -1145,10 +1238,11 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\vWriteStatus\x12\v\n" +
 	"\aSUCCESS\x10\x00\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x012\xe6\x02\n" +
+	"\x06FAILED\x10\x012\xd0\x03\n" +
 	"\n" +
 	"Aggregator\x12Y\n" +
-	"\x16WriteCommitCCVNodeData\x12\x1e.WriteCommitCCVNodeDataRequest\x1a\x1f.WriteCommitCCVNodeDataResponse\x12V\n" +
+	"\x16WriteCommitCCVNodeData\x12\x1e.WriteCommitCCVNodeDataRequest\x1a\x1f.WriteCommitCCVNodeDataResponse\x12h\n" +
+	"\x1bBatchWriteCommitCCVNodeData\x12#.BatchWriteCommitCCVNodeDataRequest\x1a$.BatchWriteCommitCCVNodeDataResponse\x12V\n" +
 	"\x15ReadCommitCCVNodeData\x12\x1d.ReadCommitCCVNodeDataRequest\x1a\x1e.ReadCommitCCVNodeDataResponse\x12S\n" +
 	"\x14WriteBlockCheckpoint\x12\x1c.WriteBlockCheckpointRequest\x1a\x1d.WriteBlockCheckpointResponse\x12P\n" +
 	"\x13ReadBlockCheckpoint\x12\x1b.ReadBlockCheckpointRequest\x1a\x1c.ReadBlockCheckpointResponse2\x9d\x01\n" +
@@ -1157,89 +1251,97 @@ const file_proto_aggregator_proto_rawDesc = "" +
 	"\x10GetMessagesSince\x12\x18.GetMessagesSinceRequest\x1a\x19.GetMessagesSinceResponseB\x0fZ\rpb/aggregatorb\x06proto3"
 
 var (
-	file_proto_aggregator_proto_rawDescOnce sync.Once
-	file_proto_aggregator_proto_rawDescData []byte
+	file_aggregator_proto_rawDescOnce sync.Once
+	file_aggregator_proto_rawDescData []byte
 )
 
-func file_proto_aggregator_proto_rawDescGZIP() []byte {
-	file_proto_aggregator_proto_rawDescOnce.Do(func() {
-		file_proto_aggregator_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_aggregator_proto_rawDesc), len(file_proto_aggregator_proto_rawDesc)))
+func file_aggregator_proto_rawDescGZIP() []byte {
+	file_aggregator_proto_rawDescOnce.Do(func() {
+		file_aggregator_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_aggregator_proto_rawDesc), len(file_aggregator_proto_rawDesc)))
 	})
-	return file_proto_aggregator_proto_rawDescData
+	return file_aggregator_proto_rawDescData
 }
 
-var file_proto_aggregator_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
-var file_proto_aggregator_proto_goTypes = []any{
-	(WriteStatus)(0),                       // 0: WriteStatus
-	(*BlockCheckpoint)(nil),                // 1: BlockCheckpoint
-	(*WriteBlockCheckpointRequest)(nil),    // 2: WriteBlockCheckpointRequest
-	(*WriteBlockCheckpointResponse)(nil),   // 3: WriteBlockCheckpointResponse
-	(*ReadBlockCheckpointRequest)(nil),     // 4: ReadBlockCheckpointRequest
-	(*ReadBlockCheckpointResponse)(nil),    // 5: ReadBlockCheckpointResponse
-	(*Message)(nil),                        // 6: Message
-	(*ReceiptBlob)(nil),                    // 7: ReceiptBlob
-	(*MessageWithCCVNodeData)(nil),         // 8: MessageWithCCVNodeData
-	(*MessageWithCCVData)(nil),             // 9: MessageWithCCVData
-	(*WriteCommitCCVNodeDataRequest)(nil),  // 10: WriteCommitCCVNodeDataRequest
-	(*WriteCommitCCVNodeDataResponse)(nil), // 11: WriteCommitCCVNodeDataResponse
-	(*ReadCommitCCVNodeDataRequest)(nil),   // 12: ReadCommitCCVNodeDataRequest
-	(*ReadCommitCCVNodeDataResponse)(nil),  // 13: ReadCommitCCVNodeDataResponse
-	(*GetCCVDataForMessageRequest)(nil),    // 14: GetCCVDataForMessageRequest
-	(*GetMessagesSinceRequest)(nil),        // 15: GetMessagesSinceRequest
-	(*GetMessagesSinceResponse)(nil),       // 16: GetMessagesSinceResponse
+var file_aggregator_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_aggregator_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_aggregator_proto_goTypes = []any{
+	(WriteStatus)(0),                            // 0: WriteStatus
+	(*BlockCheckpoint)(nil),                     // 1: BlockCheckpoint
+	(*WriteBlockCheckpointRequest)(nil),         // 2: WriteBlockCheckpointRequest
+	(*WriteBlockCheckpointResponse)(nil),        // 3: WriteBlockCheckpointResponse
+	(*ReadBlockCheckpointRequest)(nil),          // 4: ReadBlockCheckpointRequest
+	(*ReadBlockCheckpointResponse)(nil),         // 5: ReadBlockCheckpointResponse
+	(*Message)(nil),                             // 6: Message
+	(*ReceiptBlob)(nil),                         // 7: ReceiptBlob
+	(*MessageWithCCVNodeData)(nil),              // 8: MessageWithCCVNodeData
+	(*MessageWithCCVData)(nil),                  // 9: MessageWithCCVData
+	(*BatchWriteCommitCCVNodeDataRequest)(nil),  // 10: BatchWriteCommitCCVNodeDataRequest
+	(*BatchWriteCommitCCVNodeDataResponse)(nil), // 11: BatchWriteCommitCCVNodeDataResponse
+	(*WriteCommitCCVNodeDataRequest)(nil),       // 12: WriteCommitCCVNodeDataRequest
+	(*WriteCommitCCVNodeDataResponse)(nil),      // 13: WriteCommitCCVNodeDataResponse
+	(*ReadCommitCCVNodeDataRequest)(nil),        // 14: ReadCommitCCVNodeDataRequest
+	(*ReadCommitCCVNodeDataResponse)(nil),       // 15: ReadCommitCCVNodeDataResponse
+	(*GetCCVDataForMessageRequest)(nil),         // 16: GetCCVDataForMessageRequest
+	(*GetMessagesSinceRequest)(nil),             // 17: GetMessagesSinceRequest
+	(*GetMessagesSinceResponse)(nil),            // 18: GetMessagesSinceResponse
+	(*status.Status)(nil),                       // 19: google.rpc.Status
 }
-var file_proto_aggregator_proto_depIdxs = []int32{
+var file_aggregator_proto_depIdxs = []int32{
 	1,  // 0: WriteBlockCheckpointRequest.checkpoints:type_name -> BlockCheckpoint
 	0,  // 1: WriteBlockCheckpointResponse.status:type_name -> WriteStatus
 	1,  // 2: ReadBlockCheckpointResponse.checkpoints:type_name -> BlockCheckpoint
 	6,  // 3: MessageWithCCVNodeData.message:type_name -> Message
 	7,  // 4: MessageWithCCVNodeData.receipt_blobs:type_name -> ReceiptBlob
 	6,  // 5: MessageWithCCVData.message:type_name -> Message
-	8,  // 6: WriteCommitCCVNodeDataRequest.ccv_node_data:type_name -> MessageWithCCVNodeData
-	0,  // 7: WriteCommitCCVNodeDataResponse.status:type_name -> WriteStatus
-	8,  // 8: ReadCommitCCVNodeDataResponse.ccv_node_data:type_name -> MessageWithCCVNodeData
-	9,  // 9: GetMessagesSinceResponse.results:type_name -> MessageWithCCVData
-	10, // 10: Aggregator.WriteCommitCCVNodeData:input_type -> WriteCommitCCVNodeDataRequest
-	12, // 11: Aggregator.ReadCommitCCVNodeData:input_type -> ReadCommitCCVNodeDataRequest
-	2,  // 12: Aggregator.WriteBlockCheckpoint:input_type -> WriteBlockCheckpointRequest
-	4,  // 13: Aggregator.ReadBlockCheckpoint:input_type -> ReadBlockCheckpointRequest
-	14, // 14: CCVData.GetCCVDataForMessage:input_type -> GetCCVDataForMessageRequest
-	15, // 15: CCVData.GetMessagesSince:input_type -> GetMessagesSinceRequest
-	11, // 16: Aggregator.WriteCommitCCVNodeData:output_type -> WriteCommitCCVNodeDataResponse
-	13, // 17: Aggregator.ReadCommitCCVNodeData:output_type -> ReadCommitCCVNodeDataResponse
-	3,  // 18: Aggregator.WriteBlockCheckpoint:output_type -> WriteBlockCheckpointResponse
-	5,  // 19: Aggregator.ReadBlockCheckpoint:output_type -> ReadBlockCheckpointResponse
-	9,  // 20: CCVData.GetCCVDataForMessage:output_type -> MessageWithCCVData
-	16, // 21: CCVData.GetMessagesSince:output_type -> GetMessagesSinceResponse
-	16, // [16:22] is the sub-list for method output_type
-	10, // [10:16] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	12, // 6: BatchWriteCommitCCVNodeDataRequest.requests:type_name -> WriteCommitCCVNodeDataRequest
+	13, // 7: BatchWriteCommitCCVNodeDataResponse.responses:type_name -> WriteCommitCCVNodeDataResponse
+	19, // 8: BatchWriteCommitCCVNodeDataResponse.errors:type_name -> google.rpc.Status
+	8,  // 9: WriteCommitCCVNodeDataRequest.ccv_node_data:type_name -> MessageWithCCVNodeData
+	0,  // 10: WriteCommitCCVNodeDataResponse.status:type_name -> WriteStatus
+	8,  // 11: ReadCommitCCVNodeDataResponse.ccv_node_data:type_name -> MessageWithCCVNodeData
+	9,  // 12: GetMessagesSinceResponse.results:type_name -> MessageWithCCVData
+	12, // 13: Aggregator.WriteCommitCCVNodeData:input_type -> WriteCommitCCVNodeDataRequest
+	10, // 14: Aggregator.BatchWriteCommitCCVNodeData:input_type -> BatchWriteCommitCCVNodeDataRequest
+	14, // 15: Aggregator.ReadCommitCCVNodeData:input_type -> ReadCommitCCVNodeDataRequest
+	2,  // 16: Aggregator.WriteBlockCheckpoint:input_type -> WriteBlockCheckpointRequest
+	4,  // 17: Aggregator.ReadBlockCheckpoint:input_type -> ReadBlockCheckpointRequest
+	16, // 18: CCVData.GetCCVDataForMessage:input_type -> GetCCVDataForMessageRequest
+	17, // 19: CCVData.GetMessagesSince:input_type -> GetMessagesSinceRequest
+	13, // 20: Aggregator.WriteCommitCCVNodeData:output_type -> WriteCommitCCVNodeDataResponse
+	11, // 21: Aggregator.BatchWriteCommitCCVNodeData:output_type -> BatchWriteCommitCCVNodeDataResponse
+	15, // 22: Aggregator.ReadCommitCCVNodeData:output_type -> ReadCommitCCVNodeDataResponse
+	3,  // 23: Aggregator.WriteBlockCheckpoint:output_type -> WriteBlockCheckpointResponse
+	5,  // 24: Aggregator.ReadBlockCheckpoint:output_type -> ReadBlockCheckpointResponse
+	9,  // 25: CCVData.GetCCVDataForMessage:output_type -> MessageWithCCVData
+	18, // 26: CCVData.GetMessagesSince:output_type -> GetMessagesSinceResponse
+	20, // [20:27] is the sub-list for method output_type
+	13, // [13:20] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
-func init() { file_proto_aggregator_proto_init() }
-func file_proto_aggregator_proto_init() {
-	if File_proto_aggregator_proto != nil {
+func init() { file_aggregator_proto_init() }
+func file_aggregator_proto_init() {
+	if File_aggregator_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_aggregator_proto_rawDesc), len(file_proto_aggregator_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aggregator_proto_rawDesc), len(file_aggregator_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
-		GoTypes:           file_proto_aggregator_proto_goTypes,
-		DependencyIndexes: file_proto_aggregator_proto_depIdxs,
-		EnumInfos:         file_proto_aggregator_proto_enumTypes,
-		MessageInfos:      file_proto_aggregator_proto_msgTypes,
+		GoTypes:           file_aggregator_proto_goTypes,
+		DependencyIndexes: file_aggregator_proto_depIdxs,
+		EnumInfos:         file_aggregator_proto_enumTypes,
+		MessageInfos:      file_aggregator_proto_msgTypes,
 	}.Build()
-	File_proto_aggregator_proto = out.File
-	file_proto_aggregator_proto_goTypes = nil
-	file_proto_aggregator_proto_depIdxs = nil
+	File_aggregator_proto = out.File
+	file_aggregator_proto_goTypes = nil
+	file_aggregator_proto_depIdxs = nil
 }

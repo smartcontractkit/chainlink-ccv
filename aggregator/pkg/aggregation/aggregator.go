@@ -25,18 +25,22 @@ type CommitReportAggregator struct {
 	messageIDChan chan aggregationRequest
 	quorum        QuorumValidator
 	l             logger.SugaredLogger
+	monitoring    common.AggregatorMonitoring
 }
 
 type aggregationRequest struct {
 	// CommitteeID is the ID of the committee for the aggregation request.
-	MessageID model.MessageID
+	CommitteeID model.CommitteeID
+	MessageID   model.MessageID
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID) error {
+func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, committeeID model.CommitteeID) error {
 	go func() {
+		c.monitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
 		c.messageIDChan <- aggregationRequest{
-			MessageID: messageID,
+			MessageID:   messageID,
+			CommitteeID: committeeID,
 		}
 	}()
 	return nil
@@ -46,10 +50,16 @@ func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogge
 	return scope.AugmentLogger(ctx, c.l)
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorMetricLabeler {
+	return scope.AugmentMetrics(ctx, c.monitoring.Metrics())
+}
+
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
-	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID)
+	lggr = lggr.With("messageID", messageID, "committee", committeeID)
+	lggr.Infof("Checking aggregation for message ID: %s, committee: %s", messageID, committeeID)
+	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committeeID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
 		return nil, err
@@ -59,6 +69,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
+		CommitteeID:   committeeID,
 		Verifications: verifications,
 		Timestamp:     time.Now().Unix(),
 	}
@@ -75,6 +86,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 			return nil, err
 		}
 		lggr.Infow("Report submitted successfully", "verifications", len(verifications))
+		c.metrics(ctx).IncrementCompletedAggregations(ctx)
 	} else {
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}
@@ -89,8 +101,10 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 			select {
 			case request := <-c.messageIDChan:
 				go func() {
+					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(context.Background(), 1)
 					ctx := scope.WithMessageID(context.Background(), request.MessageID)
-					_, err := c.checkAggregationAndSubmitComplete(ctx, request.MessageID)
+					ctx = scope.WithCommitteeID(ctx, request.CommitteeID)
+					_, err := c.checkAggregationAndSubmitComplete(ctx, request.MessageID, request.CommitteeID)
 					if err != nil {
 						c.logger(ctx).Errorw("Failed to process aggregation request", "error", err)
 					}
@@ -115,12 +129,13 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 //   - *CommitReportAggregator: A new aggregator instance ready to process commit reports
 //
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
-func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, quorum QuorumValidator, logger logger.SugaredLogger) *CommitReportAggregator {
+func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, quorum QuorumValidator, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring) *CommitReportAggregator {
 	return &CommitReportAggregator{
 		storage:       storage,
 		sink:          sink,
 		messageIDChan: make(chan aggregationRequest, 1000),
 		quorum:        quorum,
+		monitoring:    monitoring,
 		l:             logger,
 	}
 }

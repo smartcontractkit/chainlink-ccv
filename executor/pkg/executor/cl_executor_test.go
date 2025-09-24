@@ -24,11 +24,11 @@ type mockDestinationReader struct {
 	executed    bool
 }
 
-func (m *mockDestinationReader) IsMessageExecuted(ctx context.Context, src protocol.ChainSelector, nonce protocol.Nonce) (bool, error) {
+func (m *mockDestinationReader) IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error) {
 	return m.executed, m.executedErr
 }
 
-func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, src protocol.ChainSelector, receiver protocol.UnknownAddress) (types.CcvAddressInfo, error) {
+func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (types.CcvAddressInfo, error) {
 	return m.ccvInfo, m.ccvInfoErr
 }
 

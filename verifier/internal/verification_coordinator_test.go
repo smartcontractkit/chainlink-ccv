@@ -134,10 +134,6 @@ func createTestMessageWithVerifier(t *testing.T,
 func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) types.VerificationTask {
 	message := createTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality)
 
-	// Create receipt blob with nonce using canonical encoding
-	receiptBlob, err := commit.EncodeVerifierBlob(uint64(nonce))
-	require.NoError(t, err)
-
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
 	switch sourceChainSelector {
@@ -156,7 +152,7 @@ func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainS
 				Issuer:            []byte(verifierAddress),
 				DestGasLimit:      300000, // Test gas limit
 				DestBytesOverhead: 100,    // Test bytes overhead
-				Blob:              receiptBlob,
+				Blob:              []byte("test-blob"),
 				ExtraArgs:         []byte("test-extra-args"), // Test extra args
 			},
 		},
