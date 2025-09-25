@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -17,15 +15,15 @@ import (
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
-	verifier              types.Verifier
+	verifier              Verifier
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
 	sourceStates          map[protocol.ChainSelector]*sourceState
 	cancel                context.CancelFunc
 	doneCh                chan struct{}
 	ccvDataCh             chan protocol.CCVData
-	pendingTasks          []types.VerificationTask
-	config                types.CoordinatorConfig
+	pendingTasks          []VerificationTask
+	config                CoordinatorConfig
 	finalityCheckInterval time.Duration
 	mu                    sync.RWMutex
 	pendingMu             sync.RWMutex
@@ -37,14 +35,14 @@ type Coordinator struct {
 type Option func(*Coordinator)
 
 // WithVerifier sets the verifier implementation.
-func WithVerifier(verifier types.Verifier) Option {
+func WithVerifier(verifier Verifier) Option {
 	return func(vc *Coordinator) {
 		vc.verifier = verifier
 	}
 }
 
 // WithSourceReaders sets multiple source readers.
-func WithSourceReaders(sourceReaders map[protocol.ChainSelector]reader.SourceReader) Option {
+func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Option {
 	return func(vc *Coordinator) {
 		if vc.sourceStates == nil {
 			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
@@ -58,7 +56,7 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]reader.SourceRea
 }
 
 // AddSourceReader adds a single source reader to the existing map.
-func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader reader.SourceReader) Option {
+func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
 	return func(vc *Coordinator) {
 		if vc.sourceStates == nil {
 			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
@@ -75,7 +73,7 @@ func WithStorage(storage protocol.CCVNodeDataWriter) Option {
 }
 
 // WithConfig sets the coordinator configuration.
-func WithConfig(config types.CoordinatorConfig) Option {
+func WithConfig(config CoordinatorConfig) Option {
 	return func(vc *Coordinator) {
 		vc.config = config
 	}
@@ -101,7 +99,7 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 		ccvDataCh:             make(chan protocol.CCVData, 1000),
 		doneCh:                make(chan struct{}),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		pendingTasks:          make([]types.VerificationTask, 0),
+		pendingTasks:          make([]VerificationTask, 0),
 		finalityCheckInterval: 3 * time.Second, // Default finality check interval
 	}
 
@@ -353,7 +351,7 @@ func (vc *Coordinator) HealthCheck(ctx context.Context) error {
 }
 
 // addToPendingQueue adds a verification task to the pending queue for finality checking.
-func (vc *Coordinator) addToPendingQueue(task types.VerificationTask, chainSelector protocol.ChainSelector) {
+func (vc *Coordinator) addToPendingQueue(task VerificationTask, chainSelector protocol.ChainSelector) {
 	vc.pendingMu.Lock()
 	defer vc.pendingMu.Unlock()
 
@@ -401,8 +399,8 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 		return
 	}
 
-	var readyTasks []types.VerificationTask
-	var remainingTasks []types.VerificationTask
+	var readyTasks []VerificationTask
+	var remainingTasks []VerificationTask
 
 	// Get latest blocks and finalized blocks for all chains
 	latestBlocks := make(map[protocol.ChainSelector]*big.Int)
@@ -460,7 +458,7 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 }
 
 // processReadyTask processes a task that has met its finality requirements.
-func (vc *Coordinator) processReadyTask(ctx context.Context, task types.VerificationTask) {
+func (vc *Coordinator) processReadyTask(ctx context.Context, task VerificationTask) {
 	messageID, err := task.Message.MessageID()
 	if err != nil {
 		vc.lggr.Errorw("Failed to compute message ID for ready task", "error", err)
@@ -488,7 +486,7 @@ func (vc *Coordinator) processReadyTask(ctx context.Context, task types.Verifica
 // isMessageReadyForVerification determines if a message meets its finality requirements.
 // This implements the same logic as Python's commit_verifier.py finality checking.
 func (vc *Coordinator) isMessageReadyForVerification(
-	task types.VerificationTask,
+	task VerificationTask,
 	latestBlocks map[protocol.ChainSelector]*big.Int,
 	latestFinalizedBlocks map[protocol.ChainSelector]*big.Int,
 ) (bool, error) {

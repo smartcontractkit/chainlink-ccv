@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // CreateCCVData creates CCVData from verification task and signature using the new format.
-func CreateCCVData(verificationTask *types.VerificationTask, signature, verifierBlob []byte, sourceVerifierAddress protocol.UnknownAddress) (*protocol.CCVData, error) {
+func CreateCCVData(verificationTask *verifier.VerificationTask, signature, verifierBlob []byte, sourceVerifierAddress protocol.UnknownAddress) (*protocol.CCVData, error) {
 	message := verificationTask.Message
 	messageID, err := message.MessageID()
 	if err != nil {

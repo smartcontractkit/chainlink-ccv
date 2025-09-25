@@ -22,7 +22,6 @@ import (
 
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
 // Configuration flags.
@@ -157,7 +156,7 @@ func main() {
 	}
 
 	// Create source readers - either blockchain-based or mock
-	sourceReaders := make(map[protocol.ChainSelector]reader.SourceReader)
+	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
 
 	// Try to create blockchain source readers if possible
 	if chainClient1 == nil || verifierConfig.VerifierOnRamp1337 == "" {
@@ -175,9 +174,9 @@ func main() {
 	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration
-	config := verifiertypes.CoordinatorConfig{
+	config := verifier.CoordinatorConfig{
 		VerifierID: "dev-verifier-1",
-		SourceConfigs: map[protocol.ChainSelector]verifiertypes.SourceConfig{
+		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
 			chainSelectorA: {
 				VerifierAddress: verifierAddr,
 			},

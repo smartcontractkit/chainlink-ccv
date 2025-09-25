@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -14,14 +13,14 @@ import (
 
 // Verifier provides a basic verifier implementation using the new message format.
 type Verifier struct {
-	signer pkg.MessageSigner
+	signer verifier.MessageSigner
 	lggr   logger.Logger
 	// TODO: Use a separate config
-	config types.CoordinatorConfig
+	config verifier.CoordinatorConfig
 }
 
 // NewCommitVerifier creates a new commit verifier.
-func NewCommitVerifier(config types.CoordinatorConfig, signer pkg.MessageSigner, lggr logger.Logger) types.Verifier {
+func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger) verifier.Verifier {
 	return &Verifier{
 		config: config,
 		signer: signer,
@@ -47,7 +46,7 @@ func (cv *Verifier) ValidateMessage(message protocol.Message) error {
 }
 
 // VerifyMessage verifies a message using the new chain-agnostic format.
-func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.VerificationTask, ccvDataCh chan<- protocol.CCVData, verificationErrorCh chan<- types.VerificationError) {
+func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataCh chan<- protocol.CCVData, verificationErrorCh chan<- verifier.VerificationError) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()

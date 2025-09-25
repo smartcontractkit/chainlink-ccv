@@ -13,8 +13,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -27,21 +25,21 @@ const (
 
 // testVerifier keeps track of all processed messages for testing.
 type testVerifier struct {
-	processedTasks []types.VerificationTask
+	processedTasks []verifier.VerificationTask
 	mu             sync.RWMutex
 }
 
 func newTestVerifier() *testVerifier {
 	return &testVerifier{
-		processedTasks: make([]types.VerificationTask, 0),
+		processedTasks: make([]verifier.VerificationTask, 0),
 	}
 }
 
 func (t *testVerifier) VerifyMessage(
 	ctx context.Context,
-	verificationTask types.VerificationTask,
+	verificationTask verifier.VerificationTask,
 	ccvDataCh chan<- protocol.CCVData,
-	verificationErrorCh chan<- types.VerificationError,
+	verificationErrorCh chan<- verifier.VerificationError,
 ) {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, verificationTask)
@@ -94,7 +92,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	// Message at block 940 (< finalized 950) should be processed immediately
 	finalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
-	finalizedTask := types.VerificationTask{
+	finalizedTask := verifier.VerificationTask{
 		Message: finalizedMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -129,7 +127,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 	customFinality := uint16(15)
 
 	readyMessage := createTestMessage(t, 1, 1337, 2337, customFinality)
-	readyTask := types.VerificationTask{
+	readyTask := verifier.VerificationTask{
 		Message: readyMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -162,7 +160,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	nonFinalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
-	nonFinalizedTask := types.VerificationTask{
+	nonFinalizedTask := verifier.VerificationTask{
 		Message: nonFinalizedMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -201,7 +199,7 @@ type coordinatorTestSetup struct {
 	coordinator           *verifier.Coordinator
 	mockSourceReader      *verifier_mocks.MockSourceReader
 	mockVerifier          *testVerifier
-	verificationTaskCh    chan types.VerificationTask
+	verificationTaskCh    chan verifier.VerificationTask
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlock
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
@@ -217,9 +215,9 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	mockVerifier := newTestVerifier()
 	mockStorage := &testStorage{}
 
-	verificationTaskCh := make(chan types.VerificationTask, 10)
+	verificationTaskCh := make(chan verifier.VerificationTask, 10)
 	mockSourceReader.EXPECT().Start(mock.Anything).Return(nil)
-	mockSourceReader.EXPECT().VerificationTaskChannel().Return((<-chan types.VerificationTask)(verificationTaskCh))
+	mockSourceReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(verificationTaskCh))
 	mockSourceReader.EXPECT().Stop().Return(nil)
 
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
@@ -232,8 +230,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		return new(big.Int).Set(currentFinalizedBlock), nil
 	}).Maybe()
 
-	config := types.CoordinatorConfig{
-		SourceConfigs: map[protocol.ChainSelector]types.SourceConfig{
+	config := verifier.CoordinatorConfig{
+		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
 			1337: {VerifierAddress: protocol.UnknownAddress([]byte("verifier-1337"))},
 		},
 		VerifierID: verifierID,
@@ -241,7 +239,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(mockVerifier),
-		verifier.WithSourceReaders(map[protocol.ChainSelector]reader.SourceReader{
+		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
 			1337: mockSourceReader,
 		}),
 		verifier.WithStorage(mockStorage),
