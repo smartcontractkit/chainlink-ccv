@@ -8,19 +8,19 @@ import (
 	"sync"
 	"time"
 
-	protocol2 "github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
 	verifier              Verifier
-	storage               protocol2.CCVNodeDataWriter
+	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
-	sourceStates          map[protocol2.ChainSelector]*sourceState
+	sourceStates          map[protocol.ChainSelector]*sourceState
 	cancel                context.CancelFunc
 	doneCh                chan struct{}
-	ccvDataCh             chan protocol2.CCVData
+	ccvDataCh             chan protocol.CCVData
 	pendingTasks          []VerificationTask
 	config                CoordinatorConfig
 	finalityCheckInterval time.Duration
@@ -41,10 +41,10 @@ func WithVerifier(verifier Verifier) Option {
 }
 
 // WithSourceReaders sets multiple source readers.
-func WithSourceReaders(sourceReaders map[protocol2.ChainSelector]SourceReader) Option {
+func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Option {
 	return func(vc *Coordinator) {
 		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[protocol2.ChainSelector]*sourceState)
+			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
 		}
 		for chainSelector, reader := range sourceReaders {
 			if reader != nil {
@@ -55,17 +55,17 @@ func WithSourceReaders(sourceReaders map[protocol2.ChainSelector]SourceReader) O
 }
 
 // AddSourceReader adds a single source reader to the existing map.
-func AddSourceReader(chainSelector protocol2.ChainSelector, sourceReader SourceReader) Option {
+func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
 	return func(vc *Coordinator) {
 		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[protocol2.ChainSelector]*sourceState)
+			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
 		}
 		vc.sourceStates[chainSelector] = newSourceState(chainSelector, sourceReader)
 	}
 }
 
 // WithStorage sets the storage writer.
-func WithStorage(storage protocol2.CCVNodeDataWriter) Option {
+func WithStorage(storage protocol.CCVNodeDataWriter) Option {
 	return func(vc *Coordinator) {
 		vc.storage = storage
 	}
@@ -95,9 +95,9 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 // NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
-		ccvDataCh:             make(chan protocol2.CCVData, 1000),
+		ccvDataCh:             make(chan protocol.CCVData, 1000),
 		doneCh:                make(chan struct{}),
-		sourceStates:          make(map[protocol2.ChainSelector]*sourceState),
+		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		pendingTasks:          make([]VerificationTask, 0),
 		finalityCheckInterval: 3 * time.Second, // Default finality check interval
 	}
@@ -211,7 +211,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 
 			// Write CCVData to offchain storage
-			if err := vc.storage.WriteCCVNodeData(ctx, []protocol2.CCVData{ccvData}); err != nil {
+			if err := vc.storage.WriteCCVNodeData(ctx, []protocol.CCVData{ccvData}); err != nil {
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
 					"messageID", ccvData.MessageID,
@@ -277,7 +277,7 @@ func (vc *Coordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGro
 			messageID, err := message.MessageID()
 			if err != nil {
 				vc.lggr.Errorw("Failed to compute message ID for error logging", "error", err)
-				messageID = protocol2.Bytes32{} // Use empty message ID as fallback
+				messageID = protocol.Bytes32{} // Use empty message ID as fallback
 			}
 			vc.lggr.Errorw("Verification error received",
 				"error", verificationError.Error,
@@ -350,7 +350,7 @@ func (vc *Coordinator) HealthCheck(ctx context.Context) error {
 }
 
 // addToPendingQueue adds a verification task to the pending queue for finality checking.
-func (vc *Coordinator) addToPendingQueue(task VerificationTask, chainSelector protocol2.ChainSelector) {
+func (vc *Coordinator) addToPendingQueue(task VerificationTask, chainSelector protocol.ChainSelector) {
 	vc.pendingMu.Lock()
 	defer vc.pendingMu.Unlock()
 
@@ -402,7 +402,7 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 	var remainingTasks []VerificationTask
 
 	// Get latest blocks and finalized blocks for all chains
-	latestBlocks := make(map[protocol2.ChainSelector]*big.Int)
+	latestBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
 		latestBlock, err := state.reader.LatestBlock(ctx)
 		if err != nil {
@@ -411,7 +411,7 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 		}
 		latestBlocks[chainSelector] = latestBlock
 	}
-	latestFinalizedBlocks := make(map[protocol2.ChainSelector]*big.Int)
+	latestFinalizedBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
 		latestFinalizedBlock, err := state.reader.LatestFinalizedBlock(ctx)
 		if err != nil {
@@ -486,8 +486,8 @@ func (vc *Coordinator) processReadyTask(ctx context.Context, task VerificationTa
 // This implements the same logic as Python's commit_verifier.py finality checking.
 func (vc *Coordinator) isMessageReadyForVerification(
 	task VerificationTask,
-	latestBlocks map[protocol2.ChainSelector]*big.Int,
-	latestFinalizedBlocks map[protocol2.ChainSelector]*big.Int,
+	latestBlocks map[protocol.ChainSelector]*big.Int,
+	latestFinalizedBlocks map[protocol.ChainSelector]*big.Int,
 ) (bool, error) {
 	messageID, err := task.Message.MessageID()
 	if err != nil {

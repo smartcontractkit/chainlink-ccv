@@ -13,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
-	protocol2 "github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
@@ -31,7 +31,7 @@ type EVMSourceReader struct {
 	contractAddress      string
 	wg                   sync.WaitGroup
 	pollInterval         time.Duration
-	chainSelector        protocol2.ChainSelector
+	chainSelector        protocol.ChainSelector
 	mu                   sync.RWMutex
 	isRunning            bool
 }
@@ -40,7 +40,7 @@ type EVMSourceReader struct {
 func NewEVMSourceReader(
 	chainClient client.Client,
 	contractAddress string,
-	chainSelector protocol2.ChainSelector,
+	chainSelector protocol.ChainSelector,
 	logger logger.Logger,
 ) *EVMSourceReader {
 	return &EVMSourceReader{
@@ -325,7 +325,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 	r.logger.Infow("📋 Decoding encoded message",
 		"encodedMessageLength", len(event.EncodedMessage),
 		"messageId", common.Bytes2Hex(event.MessageId[:]))
-	decodedMsg, err := protocol2.DecodeMessage(event.EncodedMessage)
+	decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 	if err != nil {
 		r.logger.Errorw("❌ Failed to decode message", "error", err)
 		return
@@ -334,7 +334,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		"message", decodedMsg)
 
 	// Create receipt blobs from verifier receipts and receipt blobs
-	receiptBlobs := make([]protocol2.ReceiptWithBlob, 0, len(event.VerifierReceipts)+1)
+	receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.VerifierReceipts)+1)
 
 	if len(event.VerifierReceipts) == 0 {
 		r.logger.Errorw("❌ No verifier receipts found")
@@ -351,8 +351,8 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 			)
 		}
 
-		issuerAddr, _ := protocol2.NewUnknownAddressFromHex(vr.Issuer.Hex())
-		receiptBlob := protocol2.ReceiptWithBlob{
+		issuerAddr, _ := protocol.NewUnknownAddressFromHex(vr.Issuer.Hex())
+		receiptBlob := protocol.ReceiptWithBlob{
 			Issuer:            issuerAddr,
 			DestGasLimit:      vr.DestGasLimit,
 			DestBytesOverhead: vr.DestBytesOverhead,
@@ -372,8 +372,8 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 		return
 	}
 	// Add executor receipt if available
-	issuerAddr, _ := protocol2.NewUnknownAddressFromHex(event.ExecutorReceipt.Issuer.Hex())
-	executorReceipt := protocol2.ReceiptWithBlob{
+	issuerAddr, _ := protocol.NewUnknownAddressFromHex(event.ExecutorReceipt.Issuer.Hex())
+	executorReceipt := protocol.ReceiptWithBlob{
 		Issuer:            issuerAddr,
 		DestGasLimit:      event.ExecutorReceipt.DestGasLimit,
 		DestBytesOverhead: event.ExecutorReceipt.DestBytesOverhead,

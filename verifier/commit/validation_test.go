@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	protocol2 "github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
@@ -16,33 +16,33 @@ func TestValidateMessageErrors(t *testing.T) {
 		task      *verifier.VerificationTask
 		name      string
 		expectErr string
-		verifier  protocol2.UnknownAddress
+		verifier  protocol.UnknownAddress
 	}{
 		{
 			name:      "nil_task",
 			task:      nil,
-			verifier:  protocol2.UnknownAddress{},
+			verifier:  protocol.UnknownAddress{},
 			expectErr: "verification task is nil",
 		},
 		{
 			name: "unsupported_version",
 			task: &verifier.VerificationTask{
-				Message: protocol2.Message{
+				Message: protocol.Message{
 					Version: 99, // Unsupported version
 				},
 			},
-			verifier:  protocol2.UnknownAddress{},
+			verifier:  protocol.UnknownAddress{},
 			expectErr: "unsupported message version",
 		},
 		{
 			name: "verifier_not_found",
 			task: &verifier.VerificationTask{
-				Message: protocol2.Message{
-					Version: protocol2.MessageVersion,
+				Message: protocol.Message{
+					Version: protocol.MessageVersion,
 				},
-				ReceiptBlobs: []protocol2.ReceiptWithBlob{
+				ReceiptBlobs: []protocol.ReceiptWithBlob{
 					{
-						Issuer:            protocol2.UnknownAddress([]byte("different")),
+						Issuer:            protocol.UnknownAddress([]byte("different")),
 						DestGasLimit:      100000, // Test gas limit
 						DestBytesOverhead: 25,     // Test bytes overhead
 						Blob:              []byte("blob"),
@@ -50,7 +50,7 @@ func TestValidateMessageErrors(t *testing.T) {
 					},
 				},
 			},
-			verifier:  protocol2.UnknownAddress([]byte("target")),
+			verifier:  protocol.UnknownAddress([]byte("target")),
 			expectErr: "not found as issuer",
 		},
 	}
@@ -66,21 +66,21 @@ func TestValidateMessageErrors(t *testing.T) {
 
 // TestValidateMessage tests message validation with valid cases.
 func TestValidateMessage(t *testing.T) {
-	sender, err := protocol2.RandomAddress()
+	sender, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	receiver, err := protocol2.RandomAddress()
+	receiver, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	onRampAddr, err := protocol2.RandomAddress()
+	onRampAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	offRampAddr, err := protocol2.RandomAddress()
+	offRampAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	verifierAddr, err := protocol2.RandomAddress()
+	verifierAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
 
-	message, err := protocol2.NewMessage(
-		protocol2.ChainSelector(1337),
-		protocol2.ChainSelector(2337),
-		protocol2.Nonce(123),
+	message, err := protocol.NewMessage(
+		protocol.ChainSelector(1337),
+		protocol.ChainSelector(2337),
+		protocol.Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -88,14 +88,14 @@ func TestValidateMessage(t *testing.T) {
 		receiver,
 		[]byte("test data"),
 		[]byte("test data"),
-		protocol2.NewEmptyTokenTransfer(),
+		protocol.NewEmptyTokenTransfer(),
 	)
 	require.NoError(t, err)
 
 	// Create verification task with matching verifier address
 	task := &verifier.VerificationTask{
 		Message: *message,
-		ReceiptBlobs: []protocol2.ReceiptWithBlob{
+		ReceiptBlobs: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            verifierAddr,
 				DestGasLimit:      250000, // Test gas limit
@@ -111,7 +111,7 @@ func TestValidateMessage(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should fail with different verifier address
-	differentAddr, err := protocol2.RandomAddress()
+	differentAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
 	err = ValidateMessage(task, differentAddr)
 	assert.Error(t, err)

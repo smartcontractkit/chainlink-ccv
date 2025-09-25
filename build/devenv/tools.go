@@ -31,12 +31,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 /*
@@ -228,9 +228,7 @@ func SaveContractRefsForSelector(in *Cfg, sel uint64, refs []datastore.AddressRe
 			break
 		}
 	}
-	for _, r := range refs {
-		addresses = append(addresses, r)
-	}
+	addresses = append(addresses, refs...)
 	addrBytes, err := json.Marshal(addresses)
 	if err != nil {
 		return fmt.Errorf("failed to marshal addresses: %w", err)
@@ -473,7 +471,7 @@ CCIPv17 (CCV) specific helpers
 //	    tokenArgs: ""
 //	  });
 //	}
-func NewV3ExtraArgs(finalityConfig uint16, execAddr common.Address, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig uint16, execAddr common.Address, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []protocol.CCV, optionalThreshold uint8) ([]byte, error) {
 	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
     [
@@ -644,7 +642,7 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 }
 
 // SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3.
-func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr, receiverAddress common.Address, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
+func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr, receiverAddress common.Address, execArgs, tokenArgs []byte, ccv, optCcv []protocol.CCV, threshold uint8) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
