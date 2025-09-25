@@ -120,6 +120,7 @@ func EncodeSignatures(signatures []Data) ([]byte, error) {
 	SortSignaturesBySigner(sortedSignatures)
 
 	// Calculate signature length (each signature is 64 bytes: 32 R + 32 S)
+	//nolint:gosec // disable G115
 	signatureLength := uint16(len(sortedSignatures) * 64)
 
 	// Create result buffer
