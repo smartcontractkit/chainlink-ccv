@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
@@ -160,116 +159,6 @@ func (c *Contracts) FetchAllExecEventsBySelector(ctx context.Context, from, to u
 
 	l.Info().Int("count", len(events)).Msg("Total ExecutionStateChanged events found for selector and sequence")
 	return events, nil
-}
-
-// WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector
-func (c *Contracts) WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
-	l := zerolog.Ctx(ctx)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-	proxy, ok := c.ProxyBySelector[from]
-	if !ok {
-		return nil, fmt.Errorf("no proxy for selector %d", from)
-	}
-
-	l.Info().Msg("Awaiting CCIPMessageSent event")
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
-			filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
-			if err != nil {
-				l.Warn().Err(err).Msg("Failed to create filter")
-				continue
-			}
-			var eventFound *ccvProxy.CCVProxyCCIPMessageSent
-			eventCount := 0
-
-			for filter.Next() {
-				eventCount++
-				if eventCount > 1 {
-					filter.Close()
-					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
-				}
-				eventFound = filter.Event
-				l.Info().
-					Any("TxHash", filter.Event.Raw.TxHash.Hex()).
-					Any("SeqNo", filter.Event.SequenceNumber).
-					Str("MsgID", hexutil.Encode(filter.Event.MessageId[:])).
-					Msg("Received CCIPMessageSent event")
-			}
-			if err := filter.Error(); err != nil {
-				l.Warn().Err(err).Msg("Filter error")
-			}
-			filter.Close()
-			if eventFound != nil {
-				return eventFound, nil
-			}
-		}
-	}
-}
-
-// WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector
-func (c *Contracts) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
-	l := zerolog.Ctx(ctx)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	agg, ok := c.AggBySelector[from]
-	if !ok {
-		return nil, fmt.Errorf("no aggregator for selector %d", from)
-	}
-
-	l.Info().Msg("Awaiting ExecutionStateChanged event")
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
-			filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
-			if err != nil {
-				l.Warn().Err(err).Msg("Failed to create filter")
-				continue
-			}
-
-			var eventFound *ccvAggregator.CCVAggregatorExecutionStateChanged
-			eventCount := 0
-
-			for filter.Next() {
-				eventCount++
-				if eventCount > 1 {
-					filter.Close()
-					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
-				}
-
-				eventFound = filter.Event
-				l.Info().
-					Any("State", filter.Event.State).
-					Any("TxHash", filter.Event.Raw.TxHash.Hex()).
-					Any("SeqNo", filter.Event.SequenceNumber).
-					Str("MsgID", hexutil.Encode(filter.Event.MessageId[:])).
-					Msg("Received ExecutionStateChanged event")
-			}
-
-			if err := filter.Error(); err != nil {
-				l.Warn().Err(err).Msg("Filter error")
-			}
-
-			filter.Close()
-
-			if eventFound != nil {
-				return eventFound, nil
-			}
-		}
-	}
 }
 
 // GetContractAddrForSelector get contract address by type and chain selector.

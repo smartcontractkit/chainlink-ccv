@@ -478,7 +478,7 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to parse finality config: %w", err)
 			}
 
-			return impl.SendExampleArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, src, dest, uint16(finality), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", nil, nil,
+			return impl.SendArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, src, dest, uint16(finality), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", nil, nil,
 				[]types.CCV{
 					{
 						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
@@ -489,7 +489,7 @@ var sendCmd = &cobra.Command{
 				[]types.CCV{}, 0)
 		} else {
 			// V2 format - use the dedicated V2 function
-			return impl.SendExampleArgsV2Message(ctx, e, in.CLDF.Addresses, selectors, src, dest)
+			return impl.SendArgsV2Message(ctx, e, in.CLDF.Addresses, src, dest)
 		}
 	},
 }

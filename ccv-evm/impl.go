@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -21,6 +24,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
+	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -33,7 +38,137 @@ import (
 
 type CCIP17EVM struct{}
 
-func (m *CCIP17EVM) SendExampleArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64) error {
+func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, c any, from, to uint64) (uint64, error) {
+	cont, ok := c.(*Contracts)
+	if !ok {
+		return 0, fmt.Errorf("failed to assert contract type")
+	}
+	p, ok := cont.ProxyBySelector[from]
+	if !ok {
+		return 0, fmt.Errorf("failed to assert proxy by selector")
+	}
+	return p.GetExpectedNextSequenceNumber(&bind.CallOpts{Context: ctx}, to)
+}
+
+// WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector
+func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, c any, from, to uint64, seq uint64, timeout time.Duration) (any, error) {
+	cont, ok := c.(*Contracts)
+	if !ok {
+		return nil, fmt.Errorf("failed to assert contract type")
+	}
+	l := zerolog.Ctx(ctx)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	proxy, ok := cont.ProxyBySelector[from]
+	if !ok {
+		return nil, fmt.Errorf("no proxy for selector %d", from)
+	}
+
+	l.Info().Msg("Awaiting CCIPMessageSent event")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+			filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
+			if err != nil {
+				l.Warn().Err(err).Msg("Failed to create filter")
+				continue
+			}
+			var eventFound *ccvProxy.CCVProxyCCIPMessageSent
+			eventCount := 0
+
+			for filter.Next() {
+				eventCount++
+				if eventCount > 1 {
+					filter.Close()
+					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
+				}
+				eventFound = filter.Event
+				l.Info().
+					Any("TxHash", filter.Event.Raw.TxHash.Hex()).
+					Any("SeqNo", filter.Event.SequenceNumber).
+					Str("MsgID", hexutil.Encode(filter.Event.MessageId[:])).
+					Msg("Received CCIPMessageSent event")
+			}
+			if err := filter.Error(); err != nil {
+				l.Warn().Err(err).Msg("Filter error")
+			}
+			filter.Close()
+			if eventFound != nil {
+				return eventFound, nil
+			}
+		}
+	}
+}
+
+// WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector
+func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, c any, from, to uint64, seq uint64, timeout time.Duration) (any, error) {
+	cont, ok := c.(*Contracts)
+	if !ok {
+		return nil, fmt.Errorf("failed to assert contract type")
+	}
+	l := zerolog.Ctx(ctx)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	agg, ok := cont.AggBySelector[from]
+	if !ok {
+		return nil, fmt.Errorf("no aggregator for selector %d", from)
+	}
+
+	l.Info().Msg("Awaiting ExecutionStateChanged event")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+			filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
+			if err != nil {
+				l.Warn().Err(err).Msg("Failed to create filter")
+				continue
+			}
+
+			var eventFound *ccvAggregator.CCVAggregatorExecutionStateChanged
+			eventCount := 0
+
+			for filter.Next() {
+				eventCount++
+				if eventCount > 1 {
+					filter.Close()
+					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
+				}
+
+				eventFound = filter.Event
+				l.Info().
+					Any("State", filter.Event.State).
+					Any("TxHash", filter.Event.Raw.TxHash.Hex()).
+					Any("SeqNo", filter.Event.SequenceNumber).
+					Str("MsgID", hexutil.Encode(filter.Event.MessageId[:])).
+					Msg("Received ExecutionStateChanged event")
+			}
+
+			if err := filter.Error(); err != nil {
+				l.Warn().Err(err).Msg("Filter error")
+			}
+
+			filter.Close()
+
+			if eventFound != nil {
+				return eventFound, nil
+			}
+		}
+	}
+}
+
+func (m *CCIP17EVM) SendArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, src, dest uint64) error {
 	l := zerolog.Ctx(ctx)
 	chains := e.BlockChains.EVMChains()
 	if chains == nil {
@@ -82,7 +217,7 @@ func (m *CCIP17EVM) SendExampleArgsV2Message(ctx context.Context, e *deployment.
 	return nil
 }
 
-func (m *CCIP17EVM) SendExampleArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []types.CCV, threshold uint8) error {
+func (m *CCIP17EVM) SendArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []types.CCV, threshold uint8) error {
 	l := zerolog.Ctx(ctx)
 	chains := e.BlockChains.EVMChains()
 	if chains == nil {
@@ -188,18 +323,6 @@ func (m *CCIP17EVM) ExposeMetrics(ctx context.Context, addresses []string, chain
 		return nil, nil, err
 	}
 	return []string{}, reg, nil
-}
-
-func (m *CCIP17EVM) SendMessage(ctx context.Context, router string, msg []byte) ([]byte, error) {
-	l := zerolog.Ctx(ctx)
-	l.Info().Msg("Sending CCIP message")
-	return []byte{}, nil
-}
-
-func (m *CCIP17EVM) VerifyMessage(ctx context.Context, offRamp string, msgID []byte) error {
-	l := zerolog.Ctx(ctx)
-	l.Info().Msg("Verifying CCIP message")
-	return nil
 }
 
 func (m *CCIP17EVM) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input) (*blockchain.Output, error) {

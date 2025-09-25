@@ -3,6 +3,7 @@ package ccv
 import (
 	"context"
 	"math/big"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -36,11 +37,16 @@ type Observable interface {
 
 // Testable provides functions for a standardized CCIP test suite.
 type Testable interface {
-	SendExampleArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64) error
-	SendExampleArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error
-	// VerifyMessage verifies that message is delivered on the target offRamp
-	// by checking events or other data for corresponding message ID
-	VerifyMessage(ctx context.Context, offRamp string, msgID []byte) error
+	// SendArgsV2Message sends a message with ArgsV2 params
+	SendArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, src, dest uint64) error
+	// SendArgsV3Message sends a message with ArgsV3 params
+	SendArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error
+	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
+	GetExpectedNextSequenceNumber(ctx context.Context, c any, from, to uint64) (uint64, error)
+	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain
+	WaitOneSentEventBySeqNo(ctx context.Context, contracts any, from, to uint64, seq uint64, timeout time.Duration) (any, error)
+	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain
+	WaitOneExecEventBySeqNo(ctx context.Context, contracts any, from, to uint64, seq uint64, timeout time.Duration) (any, error)
 }
 
 // OnChainConfigurable defines methods that allows devenv to
