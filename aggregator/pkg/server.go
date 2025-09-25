@@ -182,7 +182,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
 
-	if config.Monitoring.Enabled {
+	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
 		// Setup OTEL Monitoring (via beholder)
 		m, err := monitoring.InitMonitoring(config, beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
