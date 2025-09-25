@@ -10,11 +10,12 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type EVMQuorumValidator struct {
@@ -66,7 +67,7 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 
 // ValidateSignature validates the signature of a commit verification record and returns the signers and the quorum config used.
 // It can return multiple signers from the same participant if they have multiple addresses in the config.
-func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *pb.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	q.logger(ctx).Debug("Validating signature for report")
 	ccvData := report.CcvData
 	if ccvData == nil {

@@ -9,18 +9,18 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 const destSelector = "2" // Using string keys for QuorumConfigs map
 
 // copyMessageWithCCVNodeData safely copies MessageWithCCVNodeData without mutex issues.
-func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregator.MessageWithCCVNodeData {
-	return aggregator.MessageWithCCVNodeData{
+func copyMessageWithCCVNodeData(src *pb.MessageWithCCVNodeData) pb.MessageWithCCVNodeData {
+	return pb.MessageWithCCVNodeData{
 		MessageId:             src.MessageId,
 		SourceVerifierAddress: src.SourceVerifierAddress,
 		Message:               src.Message,
@@ -149,10 +149,10 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 		if signerFixture == nil {
 			// Create a dummy verification record for unknown signers
 			verifications[i] = &model.CommitVerificationRecord{
-				MessageWithCCVNodeData: aggregator.MessageWithCCVNodeData{
+				MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
 					MessageId:             []byte{1},
 					SourceVerifierAddress: b.sourceVerifierAddress,
-					Message: &aggregator.Message{
+					Message: &pb.Message{
 						DestChainSelector: 1,
 					},
 				},
@@ -349,7 +349,7 @@ func TestValidateSignature(t *testing.T) {
 		// Create message data without receipt blobs
 		messageDataNoBlob := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
 			fixtures.WithSignatureFrom(t, signerFixture))
-		messageDataNoBlob.ReceiptBlobs = []*aggregator.ReceiptBlob{} // Empty receipt blobs
+		messageDataNoBlob.ReceiptBlobs = []*pb.ReceiptBlob{} // Empty receipt blobs
 
 		record := &model.CommitVerificationRecord{}
 		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoBlob)

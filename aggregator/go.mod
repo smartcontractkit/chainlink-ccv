@@ -15,9 +15,9 @@ require (
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/oklog/run v1.0.0
-	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.4
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924191109-a19d98f384b9
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/otel/metric v1.37.0
 	go.opentelemetry.io/otel/sdk/metric v1.37.0

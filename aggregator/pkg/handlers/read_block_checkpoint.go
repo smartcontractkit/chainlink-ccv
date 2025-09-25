@@ -6,7 +6,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 
-	pb "github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // ReadBlockCheckpointHandler handles ReadBlockCheckpoint gRPC requests.
