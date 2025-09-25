@@ -14,6 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
@@ -140,14 +142,14 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 	return selectors, &e, nil
 }
 
-// deployCommitVerifierForSelector deploys a new verifier to the given chain selector.
+// deployCommitVerifierForSelector deploys a new verifier to the given chain selector
 func deployCommitVerifierForSelector(
 	e *deployment.Environment,
 	selector uint64,
 	onRampConstructorArgs commit_onramp.ConstructorArgs,
 	offRampConstructorArgs commit_offramp.ConstructorArgs,
-	signatureConfigArgs commit_offramp.SignatureConfigArgs,
-) (onRamp, offRamp datastore.AddressRef, err error) {
+	signatureConfigArgs commit_offramp.SetSignatureConfigArgs,
+) (onRamp datastore.AddressRef, offRamp datastore.AddressRef, err error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		err = fmt.Errorf("no EVM chain found for selector %d", selector)
@@ -169,7 +171,7 @@ func deployCommitVerifierForSelector(
 		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
 		return onRamp, offRamp, err
 	}
-	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SignatureConfigArgs]{
+	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SetSignatureConfigArgs]{
 		Address:       common.HexToAddress(commitOffRampReport.Output.Address),
 		ChainSelector: chain.Selector,
 		Args:          signatureConfigArgs,
@@ -262,7 +264,7 @@ func deployContractsForSelector(in *Cfg, e *deployment.Environment, selector uin
 				USDPerWETH:                     usdPerWeth,
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
+				SignatureConfigArgs: commit_offramp.SetSignatureConfigArgs{
 					Threshold: 2,
 					Signers: []common.Address{
 						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
@@ -304,7 +306,11 @@ func configureContractsOnSelectorForLanes(e *deployment.Environment, selector ui
 		remoteChains[rs] = changesets.RemoteChainConfig{
 			AllowTrafficFrom: true,
 			CCIPMessageSource: datastore.AddressRef{
-				Type:    datastore.ContractType(commit_onramp.ContractType),
+				Type:    datastore.ContractType(ccv_proxy.ContractType),
+				Version: semver.MustParse("1.7.0"),
+			},
+			CCIPMessageDest: datastore.AddressRef{
+				Type:    datastore.ContractType(ccv_aggregator.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
 			DefaultCCVOffRamps: []datastore.AddressRef{

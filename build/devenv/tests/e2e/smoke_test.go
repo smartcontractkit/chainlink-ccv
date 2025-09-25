@@ -81,6 +81,7 @@ func TestE2ESmoke(t *testing.T) {
 			finality        uint16
 			verifierAddress []byte
 			execOnRamp      common.Address
+			receiver        common.Address
 			mandatoryCCVs   []types.CCV
 			optionalCCVs    []types.CCV
 			threshold       uint8
@@ -88,39 +89,61 @@ func TestE2ESmoke(t *testing.T) {
 
 		verifierAddress := common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
 		execOnRamp := common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE")
-
+		mockReceiver := common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443c")
+		eoaReceiver := common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443b")
+		mandatoryCCVs := []types.CCV{
+			{
+				CCVAddress: verifierAddress.Bytes(),
+				Args:       []byte{},
+				ArgsLen:    0,
+			},
+		}
 		tcs := []testcase{
 			{
-				name:        "src->dst msg execution",
-				proxy:       c.Proxy1337,
-				agg:         c.Agg2337,
-				srcSelector: c.Chain1337Details.ChainSelector,
-				dstSelector: c.Chain2337Details.ChainSelector,
-				finality:    1,
-				execOnRamp:  execOnRamp,
-				mandatoryCCVs: []types.CCV{
-					{
-						CCVAddress: verifierAddress.Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
+				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+				name:          "src_dst msg execution with mock receiver",
+				proxy:         c.Proxy1337,
+				agg:           c.Agg2337,
+				srcSelector:   c.Chain1337Details.ChainSelector,
+				dstSelector:   c.Chain2337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      mockReceiver,
+				mandatoryCCVs: mandatoryCCVs,
 			},
 			{
-				name:        "dst->src msg execution",
-				proxy:       c.Proxy2337,
-				agg:         c.Agg1337,
-				srcSelector: c.Chain2337Details.ChainSelector,
-				dstSelector: c.Chain1337Details.ChainSelector,
-				finality:    1,
-				execOnRamp:  execOnRamp,
-				mandatoryCCVs: []types.CCV{
-					{
-						CCVAddress: verifierAddress.Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
+				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+				name:          "dst_src msg execution with mock receiver",
+				proxy:         c.Proxy2337,
+				agg:           c.Agg1337,
+				srcSelector:   c.Chain2337Details.ChainSelector,
+				dstSelector:   c.Chain1337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      mockReceiver,
+				mandatoryCCVs: mandatoryCCVs,
+			},
+			{
+				name:          "src_dst msg execution with EOA receiver",
+				proxy:         c.Proxy1337,
+				agg:           c.Agg2337,
+				srcSelector:   c.Chain1337Details.ChainSelector,
+				dstSelector:   c.Chain2337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      eoaReceiver,
+				mandatoryCCVs: mandatoryCCVs,
+			},
+			{
+				name:          "dst_src msg execution with EOA receiver",
+				proxy:         c.Proxy2337,
+				agg:           c.Agg1337,
+				srcSelector:   c.Chain2337Details.ChainSelector,
+				dstSelector:   c.Chain1337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      eoaReceiver,
+				mandatoryCCVs: mandatoryCCVs,
 			},
 		}
 		for _, tc := range tcs {
@@ -128,7 +151,9 @@ func TestE2ESmoke(t *testing.T) {
 				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.dstSelector)
 				require.NoError(t, err)
 				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = ccv.SendExampleArgsV3Message(in, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
+				err = ccv.SendExampleArgsV3Message(in, tc.srcSelector, tc.dstSelector, tc.finality,
+					tc.execOnRamp, tc.receiver,
+					nil, nil,
 					tc.mandatoryCCVs, tc.optionalCCVs, 0)
 				require.NoError(t, err)
 				_, err = ccv.WaitOneSentEventBySeqNo(tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)

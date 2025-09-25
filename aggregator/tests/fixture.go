@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"encoding/binary"
 	"testing"
@@ -10,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 
@@ -90,21 +88,15 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
 
 		// Get message hash
-		messageHash, err := protocolMessage.MessageID()
+		messageID, err := protocolMessage.MessageID()
 		require.NoError(t, err, "failed to get message ID")
 
 		// Create dummy ccvArgs (nonce as 8 bytes) - must be done before signing
 		ccvArgs := make([]byte, 8)
 		binary.BigEndian.PutUint64(ccvArgs, 123) // dummy nonce
 
-		// Calculate signature hash (message hash || ccvArgs) to match validator logic
-		var signatureHashInput bytes.Buffer
-		signatureHashInput.Write(messageHash[:])
-		signatureHashInput.Write(ccvArgs)
-		signatureHash := hashing.Keccak256(signatureHashInput.Bytes())
-
 		// Use SignV27 for proper signature creation and normalization
-		r32, s32, signerAddr, err := signature.SignV27(signatureHash[:], signer.key)
+		r32, s32, signerAddr, err := signature.SignV27(messageID[:], signer.key)
 		require.NoError(t, err, "failed to sign message")
 
 		// Create signature data with actual signer address
@@ -116,7 +108,7 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 			},
 		}
 
-		m.CcvData, err = signature.EncodeSignaturesABI(ccvArgs, sigData)
+		m.CcvData, err = signature.EncodeSignatures(sigData)
 		require.NoError(t, err, "failed to encode signatures")
 
 		return m

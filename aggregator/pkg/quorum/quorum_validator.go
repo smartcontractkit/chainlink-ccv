@@ -79,19 +79,17 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *pb.M
 
 	message := model.MapProtoMessageToProtocolMessage(reportMessage)
 
-	messageHash, err := message.MessageID()
+	messageID, err := message.MessageID()
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to compute message hash", "error", err)
 		return nil, nil, err
 	}
 
-	ccvArgs, rs, ss, err := signature.DecodeSignaturesABI(ccvData)
+	rs, ss, err := signature.DecodeSignatures(ccvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
 		return nil, nil, err
 	}
-
-	signatureHash := q.calculateSignatureHash(messageHash, ccvArgs)
 
 	if len(rs) != len(ss) {
 		q.logger(ctx).Error("Mismatched signature lengths")
@@ -108,7 +106,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *pb.M
 		for vValue := byte(0); vValue <= 1; vValue++ {
 			combined := append(rs[i][:], ss[i][:]...)
 			combined = append(combined, vValue)
-			address, err := q.ecrecover(combined, signatureHash[:])
+			address, err := q.ecrecover(combined, messageID[:])
 			if err != nil {
 				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
 				continue
@@ -141,13 +139,6 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *pb.M
 
 	q.logger(ctx).Debugf("Successfully validated signatures with %d signers", len(identifiedSigners))
 	return identifiedSigners, quorumConfig, nil
-}
-
-func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, ccvArgs []byte) [32]byte {
-	var buf bytes.Buffer
-	buf.Write(messageHash[:])
-	buf.Write(ccvArgs)
-	return hashing.Keccak256(buf.Bytes())
 }
 
 func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {

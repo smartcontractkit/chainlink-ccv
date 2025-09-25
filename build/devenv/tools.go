@@ -27,7 +27,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/nonce_manager"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
@@ -645,7 +644,7 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 }
 
 // SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3.
-func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr common.Address, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
+func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr, receiverAddress common.Address, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -676,12 +675,13 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAd
 	if err != nil {
 		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
 	}
-	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+	// Using an EOA receiver not mock receiver - There's currently a bug in on-chain when
+	// going through router->aggregator
 
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
+			Receiver:     common.LeftPadBytes(receiverAddress.Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
 			ExtraArgs:    argsV3,
@@ -740,7 +740,7 @@ func DeployMockReceiver(in *Cfg, selector uint64, args mock_receiver.Constructor
 	return Store(in)
 }
 
-func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SignatureConfigArgs) error {
+func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.SetSignatureConfigArgs) error {
 	in.CCV.AddressesMu = &sync.Mutex{}
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
@@ -760,9 +760,7 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
 				},
 			},
-			commit_offramp.ConstructorArgs{
-				NonceManager: MustGetContractAddressForSelector(in, sel, nonce_manager.ContractType),
-			},
+			commit_offramp.ConstructorArgs{},
 			signatureConfigArgs,
 		)
 		if err != nil {
