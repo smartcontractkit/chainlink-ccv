@@ -101,7 +101,7 @@ func TestE2ESmoke(t *testing.T) {
 		tcs := []testcase{
 			{
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-				name:          "src->dst msg execution with mock receiver",
+				name:          "src_dst msg execution with mock receiver",
 				proxy:         c.Proxy1337,
 				agg:           c.Agg2337,
 				srcSelector:   c.Chain1337Details.ChainSelector,
@@ -113,7 +113,7 @@ func TestE2ESmoke(t *testing.T) {
 			},
 			{
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-				name:          "dst->src msg execution with mock receiver",
+				name:          "dst_src msg execution with mock receiver",
 				proxy:         c.Proxy2337,
 				agg:           c.Agg1337,
 				srcSelector:   c.Chain2337Details.ChainSelector,
@@ -124,7 +124,7 @@ func TestE2ESmoke(t *testing.T) {
 				mandatoryCCVs: mandatoryCCVs,
 			},
 			{
-				name:          "src->dst msg execution with EOA receiver",
+				name:          "src_dst msg execution with EOA receiver",
 				proxy:         c.Proxy1337,
 				agg:           c.Agg2337,
 				srcSelector:   c.Chain1337Details.ChainSelector,
@@ -135,7 +135,7 @@ func TestE2ESmoke(t *testing.T) {
 				mandatoryCCVs: mandatoryCCVs,
 			},
 			{
-				name:          "dst->src msg execution with EOA receiver",
+				name:          "dst_src msg execution with EOA receiver",
 				proxy:         c.Proxy2337,
 				agg:           c.Agg1337,
 				srcSelector:   c.Chain2337Details.ChainSelector,
