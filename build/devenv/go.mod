@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccv/devenv
 
-go 1.25.0
+go 1.24.6
 
 //replace github.com/smartcontractkit/chainlink-testing-framework/framework => /Users/fahrenheit/GolandProjects/chainlink-testing-framework/framework
 
