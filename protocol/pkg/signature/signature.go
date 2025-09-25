@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"sort"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -108,105 +107,80 @@ func SortSignaturesBySigner(signatures []Data) {
 	})
 }
 
-// EncodeSignaturesABI encodes signatures using ABI encoding compatible with onchain validation.
-// The format matches the expected ccvData structure: abi.encode(ccvArgs, rs, ss).
-func EncodeSignaturesABI(ccvArgs []byte, signatures []Data) ([]byte, error) {
+// EncodeSignaturesSimple encodes signatures in the simple format expected by CCIP v1.7 onchain validation.
+// The format is: [2 bytes signature length][concatenated R,S pairs]
+func EncodeSignaturesSimple(signatures []Data) ([]byte, error) {
 	if len(signatures) == 0 {
 		return nil, fmt.Errorf("no signatures provided")
 	}
 
-	// Extract rs and ss arrays
-	rs := make([][32]byte, len(signatures))
-	ss := make([][32]byte, len(signatures))
-	for i, sig := range signatures {
-		rs[i] = sig.R
-		ss[i] = sig.S
+	// Sort signatures by signer address for onchain compatibility
+	sortedSignatures := make([]Data, len(signatures))
+	copy(sortedSignatures, signatures)
+	SortSignaturesBySigner(sortedSignatures)
+
+	// Calculate signature length (each signature is 64 bytes: 32 R + 32 S)
+	signatureLength := uint16(len(sortedSignatures) * 64)
+
+	// Create result buffer
+	result := make([]byte, 2+int(signatureLength))
+
+	// Write signature length as first 2 bytes (big-endian uint16)
+	result[0] = byte(signatureLength >> 8)
+	result[1] = byte(signatureLength)
+
+	// Write concatenated R,S pairs
+	offset := 2
+	for _, sig := range sortedSignatures {
+		copy(result[offset:offset+32], sig.R[:])
+		offset += 32
+		copy(result[offset:offset+32], sig.S[:])
+		offset += 32
 	}
 
-	// Define ABI types for encoding
-	bytes32ArrayType, err := abi.NewType("bytes32[]", "", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bytes32[] type: %w", err)
-	}
-
-	bytesType, err := abi.NewType("bytes", "", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bytes type: %w", err)
-	}
-
-	// Create arguments for ABI encoding
-	arguments := abi.Arguments{
-		{Type: bytesType},
-		{Type: bytes32ArrayType},
-		{Type: bytes32ArrayType},
-	}
-
-	// Encode using ABI
-	encoded, err := arguments.Pack(ccvArgs, rs, ss)
-	if err != nil {
-		return nil, fmt.Errorf("failed to ABI encode signatures: %w", err)
-	}
-
-	return encoded, nil
+	return result, nil
 }
 
-// DecodeSignaturesABI decodes ABI-encoded signature data.
-// Returns ccvArgs, rs, ss arrays, and signer addresses (in the same order as signatures).
-func DecodeSignaturesABI(data []byte) ([]byte, [][32]byte, [][32]byte, error) {
-	if len(data) == 0 {
-		return nil, nil, nil, fmt.Errorf("empty signature data")
+// DecodeSignaturesSimple decodes simple-format signature data.
+// The format is: [2 bytes signature length][concatenated R,S pairs]
+// Returns rs, ss arrays in the same order as they appear in the data.
+func DecodeSignaturesSimple(data []byte) ([][32]byte, [][32]byte, error) {
+	if len(data) < 2 {
+		return nil, nil, fmt.Errorf("signature data too short: need at least 2 bytes for length")
 	}
 
-	// Define ABI types for decoding
-	bytes32ArrayType, err := abi.NewType("bytes32[]", "", nil)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create bytes32[] type: %w", err)
+	// Read signature length from first 2 bytes (big-endian uint16)
+	signatureLength := uint16(data[0])<<8 | uint16(data[1])
+
+	// Validate data length
+	expectedLength := 2 + int(signatureLength)
+	if len(data) < expectedLength {
+		return nil, nil, fmt.Errorf("signature data too short: expected %d bytes, got %d", expectedLength, len(data))
 	}
 
-	bytesType, err := abi.NewType("bytes", "", nil)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create bytes type: %w", err)
+	// Validate signature length is multiple of 64 (32 R + 32 S per signature)
+	if signatureLength%64 != 0 {
+		return nil, nil, fmt.Errorf("invalid signature length: %d is not a multiple of 64", signatureLength)
 	}
 
-	// Create arguments for ABI decoding
-	arguments := abi.Arguments{
-		{Type: bytesType},
-		{Type: bytes32ArrayType},
-		{Type: bytes32ArrayType},
+	numSignatures := int(signatureLength) / 64
+	if numSignatures == 0 {
+		return nil, nil, fmt.Errorf("no signatures found")
 	}
 
-	// Decode using ABI
-	decoded, err := arguments.Unpack(data)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to ABI decode signatures: %w", err)
+	// Extract R and S arrays
+	rs := make([][32]byte, numSignatures)
+	ss := make([][32]byte, numSignatures)
+
+	offset := 2
+	for i := 0; i < numSignatures; i++ {
+		copy(rs[i][:], data[offset:offset+32])
+		offset += 32
+		copy(ss[i][:], data[offset:offset+32])
+		offset += 32
 	}
 
-	if len(decoded) != 3 {
-		return nil, nil, nil, fmt.Errorf("expected 3 decoded values, got %d", len(decoded))
-	}
-
-	ccvArgs, ok := decoded[0].([]byte)
-	if !ok {
-		return nil, nil, nil, fmt.Errorf("failed to decode ccvArgs as bytes")
-	}
-
-	rs, ok := decoded[1].([][32]byte)
-	if !ok {
-		return nil, nil, nil, fmt.Errorf("failed to decode rs as [][32]byte")
-	}
-
-	ss, ok := decoded[2].([][32]byte)
-	if !ok {
-		return nil, nil, nil, fmt.Errorf("failed to decode ss as [][32]byte")
-	}
-
-	if len(rs) != len(ss) {
-		return nil, nil, nil, fmt.Errorf("rs and ss arrays have different lengths: %d vs %d", len(rs), len(ss))
-	}
-
-	// For decoding, we can't recover signer addresses without the original hash
-	// The caller will need to provide the hash if they need signer addresses
-	return ccvArgs, rs, ss, nil
+	return rs, ss, nil
 }
 
 // RecoverSigners recovers signer addresses from signatures and a hash.

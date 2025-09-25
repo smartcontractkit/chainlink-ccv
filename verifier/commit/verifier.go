@@ -87,7 +87,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 	)
 
 	// 3. Sign the message event using the new chain-agnostic method
-	encodedSignature, verifierBlob, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
+	encodedSignature, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
 	if err != nil {
 		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to sign message event: %w", err), verificationErrorCh, cv.lggr)
 		return
@@ -97,11 +97,10 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask types.Ve
 		"messageID", messageID,
 		"signerAddress", cv.signer.GetSignerAddress().String(),
 		"signatureLength", len(encodedSignature),
-		"blobLength", len(verifierBlob),
 	)
 
 	// 4. Create CCV data with all required fields
-	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, verifierBlob, sourceConfig.VerifierAddress)
+	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, []byte{}, sourceConfig.VerifierAddress)
 	if err != nil {
 		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to create CCV data: %w", err), verificationErrorCh, cv.lggr)
 		return

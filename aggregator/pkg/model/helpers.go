@@ -1,7 +1,6 @@
 package model
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -57,13 +56,6 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	signers := quorumConfig.Signers
 
 	signatures := make([]signature.Data, 0)
-	// make sure all ccvData in reports are the same
-	blobData := report.Verifications[0].BlobData
-	for _, verification := range report.Verifications {
-		if !bytes.Equal(blobData[:], verification.BlobData[:]) {
-			return nil, fmt.Errorf("blobData are not the same between signers")
-		}
-	}
 
 	for _, signer := range signers {
 		sig, exists := participantSignatures[signer.ParticipantID]
@@ -74,12 +66,8 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		signatures = append(signatures, sig)
 	}
 
-	// Sort signatures by signer address for onchain compatibility
-	sortedSignatures := make([]signature.Data, len(signatures))
-	copy(sortedSignatures, signatures)
-	signature.SortSignaturesBySigner(sortedSignatures)
-
-	encodedSignatures, err := signature.EncodeSignaturesABI(blobData, sortedSignatures)
+	// Encode signatures using simple format (sorting is handled internally)
+	encodedSignatures, err := signature.EncodeSignaturesSimple(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}

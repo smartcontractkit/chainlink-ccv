@@ -26,7 +26,7 @@ func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogg
 func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
 	committeeID := LoadCommitteeIDFromContext(ctx)
 
-	h.logger(ctx).Infof("Received GetMessagesSinceRequest")
+	//h.logger(ctx).Infof("Received GetMessagesSinceRequest")
 	storage, err := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix(), committeeID)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.Ge
 
 	h.m.Metrics().RecordMessageSinceNumberOfRecordsReturned(ctx, len(records))
 
-	h.logger(ctx).Infof("Returning %d records for GetMessagesSinceRequest", len(records))
+	//h.logger(ctx).Infof("Returning %d records for GetMessagesSinceRequest", len(records))
 
 	return &aggregator.GetMessagesSinceResponse{
 		Results: records,
