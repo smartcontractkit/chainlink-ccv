@@ -119,6 +119,14 @@ type CheckpointConfig struct {
 	MaxCheckpointsPerRequest int `toml:"maxCheckpointsPerRequest"`
 }
 
+// AggregationConfig represents the configuration for aggregation behavior.
+type AggregationConfig struct {
+	// MessageChannelSize is the buffer size for the aggregation message channel
+	MessageChannelSize int `toml:"messageChannelSize"`
+	// OrphanRecoveryIntervalMinutes is the interval in minutes between scheduled orphan recovery runs
+	OrphanRecoveryIntervalMinutes int `toml:"orphanRecoveryIntervalMinutes"`
+}
+
 // GetClientByAPIKey returns the client configuration for a given API key.
 func (c *APIKeyConfig) GetClientByAPIKey(apiKey string) (*APIClient, bool) {
 	client, exists := c.Clients[apiKey]
@@ -158,6 +166,7 @@ type AggregatorConfig struct {
 	Storage           StorageConfig              `toml:"storage"`
 	APIKeys           APIKeyConfig               `toml:"apiKeys"`
 	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
+	Aggregation       AggregationConfig          `toml:"aggregation"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
 	Metrics           MetricConfig               `toml:"metrics"`
@@ -179,6 +188,12 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
+	}
+	if c.Aggregation.MessageChannelSize == 0 {
+		c.Aggregation.MessageChannelSize = 1000
+	}
+	if c.Aggregation.OrphanRecoveryIntervalMinutes == 0 {
+		c.Aggregation.OrphanRecoveryIntervalMinutes = 5
 	}
 }
 
@@ -216,6 +231,18 @@ func (c *AggregatorConfig) ValidateCheckpointConfig() error {
 	return nil
 }
 
+// ValidateAggregationConfig validates the aggregation configuration.
+func (c *AggregatorConfig) ValidateAggregationConfig() error {
+	if c.Aggregation.MessageChannelSize <= 0 {
+		return errors.New("aggregation.messageChannelSize must be greater than 0")
+	}
+	if c.Aggregation.OrphanRecoveryIntervalMinutes <= 0 {
+		return errors.New("aggregation.orphanRecoveryIntervalMinutes must be greater than 0")
+	}
+
+	return nil
+}
+
 // Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
 	// Set defaults first
@@ -229,6 +256,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate checkpoint configuration
 	if err := c.ValidateCheckpointConfig(); err != nil {
 		return fmt.Errorf("checkpoint configuration error: %w", err)
+	}
+
+	// Validate aggregation configuration
+	if err := c.ValidateAggregationConfig(); err != nil {
+		return fmt.Errorf("aggregation configuration error: %w", err)
 	}
 
 	// TODO: Add other validation logic

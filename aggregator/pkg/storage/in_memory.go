@@ -83,6 +83,60 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 	return nil, nil
 }
 
+// ListOrphanedMessageCommitteePairs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
+// Returns a channel for pairs and a channel for errors. Both channels will be closed when iteration is complete.
+func (s *InMemoryStorage) ListOrphanedMessageCommitteePairs(ctx context.Context) (<-chan *model.MessageCommitteePair, <-chan error) {
+	pairCh := make(chan *model.MessageCommitteePair, 10) // Buffered for performance
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(pairCh)
+		defer close(errCh)
+
+		pairCounts := make(map[string]*model.MessageCommitteePair)
+
+		s.records.Range(func(key, value any) bool {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return false
+			default:
+			}
+
+			if record, ok := value.(*model.CommitVerificationRecord); ok {
+				pairKey := model.GetAggregatedReportID(record.MessageId, record.CommitteeID)
+
+				pairCounts[pairKey] = &model.MessageCommitteePair{
+					MessageID:   record.MessageId,
+					CommitteeID: record.CommitteeID,
+				}
+			}
+			return true
+		})
+
+		for pairKey, pair := range pairCounts {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			default:
+			}
+
+			// Check if this pair already has an aggregated report
+			if _, exists := s.aggregatedReports.Load(pairKey); !exists {
+				select {
+				case pairCh <- pair:
+				case <-ctx.Done():
+					errCh <- ctx.Err()
+					return
+				}
+			}
+		}
+	}()
+
+	return pairCh, errCh
+}
+
 // NewInMemoryStorage creates a new instance of InMemoryStorage.
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{

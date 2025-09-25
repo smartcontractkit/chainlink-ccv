@@ -15,6 +15,9 @@ type CommitVerificationStore interface {
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)
 	// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID and committee ID.
 	ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error)
+	// ListOrphanedMessageCommitteePairs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
+	// Returns a channel for pairs and a channel for errors. Both channels will be closed when iteration is complete.
+	ListOrphanedMessageCommitteePairs(ctx context.Context) (<-chan *model.MessageCommitteePair, <-chan error)
 }
 
 type CommitVerificationAggregatedStore interface {

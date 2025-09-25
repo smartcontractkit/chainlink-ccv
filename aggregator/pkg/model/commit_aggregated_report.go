@@ -54,3 +54,10 @@ func (c *CommitAggregatedReport) GetSourceVerifierAddress() []byte {
 func (c *CommitAggregatedReport) GetMessage() *aggregator.Message {
 	return c.Verifications[0].Message
 }
+
+// MessageCommitteePair represents a unique combination of messageID and committeeID
+// found in verification records, used for orphan detection.
+type MessageCommitteePair struct {
+	MessageID   MessageID
+	CommitteeID CommitteeID
+}
