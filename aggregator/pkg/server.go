@@ -182,20 +182,24 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
 
-	if config.Metrics.EnableMetrics {
+	if config.Monitoring.Enabled {
 		// Setup OTEL Monitoring (via beholder)
 		m, err := monitoring.InitMonitoring(config, beholder.Config{
-			InsecureConnection:       true,
-			OtelExporterHTTPEndpoint: config.Metrics.Endpoint, // All of this needs to be in config, only works in devenv atm
-			LogStreamingEnabled:      false,
-			MetricReaderInterval:     10 * time.Second,
+			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
+			CACertFile:               config.Monitoring.Beholder.CACertFile,
+			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+			OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+			LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
+			MetricReaderInterval:     time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
+			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
+			TraceBatchTimeout:        time.Duration(config.Monitoring.Beholder.TraceBatchTimeout) * time.Second,
 		})
 		if err != nil {
 			l.Fatalf("Failed to initialize aggregatorMonitoring monitoring: %v", err)
 		}
 
 		aggMonitoring = m
-		l.Info("Metrics enabled")
+		l.Info("Monitoring enabled")
 	}
 
 	if config.Storage.StorageType != "memory" {

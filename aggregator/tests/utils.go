@@ -57,8 +57,8 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.Ag
 		Storage: model.StorageConfig{
 			StorageType: "memory",
 		},
-		Metrics: model.MetricConfig{
-			EnableMetrics: false,
+		Monitoring: model.MonitoringConfig{
+			Enabled: false,
 		},
 	}
 
