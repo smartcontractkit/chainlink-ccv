@@ -418,6 +418,10 @@ linters:
           - gocyclo
           - gosec
           - revive
+      - path: 'pkg/handlers/validations\.go'
+        linters:
+          - gci
+          - goimports
 
 # https://golangci-lint.run/usage/configuration/#formatters-configuration
 formatters:

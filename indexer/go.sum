@@ -92,6 +92,8 @@ github.com/smartcontractkit/chainlink-common v0.9.5 h1:wwhhPlY/fiHcASP/Cs0Hkbib2
 github.com/smartcontractkit/chainlink-common v0.9.5/go.mod h1:1r3aM96KHAESfnayJ3BTHCkP1qJS1BEG1r4czeoaXlA=
 github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.4 h1:hvqATtrZ0iMRTI80cpBot/3JFbjz2j+2tvpfooVhRHw=
 github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.4/go.mod h1:eKGyfTKzr0/PeR7qKN4l2FcW9p+HzyKUwAfGhm/5YZc=
+github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924191109-a19d98f384b9 h1:khi/Wg6UWfafOT8M0iJnw4DM6VJyzHEDjenZZKTbyqc=
+github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924191109-a19d98f384b9/go.mod h1:zPluU3ZYpGGYXBK06mezxPdYtJdvmq9CkFUcM+6nnt4=
 github.com/smartcontractkit/libocr v0.0.0-20250707144819-babe0ec4e358 h1:+NVzR5LZVazRUunzVn34u+lwnpmn6NTVPCeZOVyQHLo=
 github.com/smartcontractkit/libocr v0.0.0-20250707144819-babe0ec4e358/go.mod h1:Acy3BTBxou83ooMESLO90s8PKSu7RvLCzwSTbxxfOK0=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
