@@ -58,8 +58,6 @@ var (
 
 // LaneStreamConfig contains contracts to collect events from and selectors for queries.
 type LaneStreamConfig struct {
-	From              *ccvProxy.CCVProxy
-	To                *ccvAggregator.CCVAggregator
 	FromSelector      uint64
 	ToSelector        uint64
 	AggregatorAddress string
@@ -92,10 +90,10 @@ func ToAnySlice[T any](slice []T) []any {
 }
 
 // ProcessLaneEvents collects, pushes and observes sent and executed messages for lane.
-func ProcessLaneEvents(ctx context.Context, lp *LokiPusher, tp *TempoPusher, cfg *LaneStreamConfig) error {
+func ProcessLaneEvents(ctx context.Context, c *Contracts, lp *LokiPusher, tp *TempoPusher, cfg *LaneStreamConfig) error {
 	lggr := zerolog.Ctx(ctx)
 	lggr.Info().Uint64("FromSelector", cfg.FromSelector).Uint64("ToSelector", cfg.ToSelector).Msg("Processing events")
-	streams, err := FetchLaneEvents(ctx, cfg)
+	streams, err := FetchLaneEvents(ctx, c, cfg)
 	if err != nil {
 		return err
 	}
@@ -257,12 +255,12 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 }
 
 // FetchLaneEvents fetch sent and exec events for lane.
-func FetchLaneEvents(ctx context.Context, cfg *LaneStreamConfig) (*LaneStreams, error) {
-	msgSentEvent, err := FetchAllSentEventsBySelector(ctx, cfg.From, cfg.ToSelector)
+func FetchLaneEvents(ctx context.Context, c *Contracts, cfg *LaneStreamConfig) (*LaneStreams, error) {
+	msgSentEvent, err := c.FetchAllSentEventsBySelector(ctx, cfg.FromSelector, cfg.ToSelector)
 	if err != nil {
 		return nil, err
 	}
-	execEvents, err := FetchAllExecEventsBySelector(ctx, cfg.To, cfg.FromSelector)
+	execEvents, err := c.FetchAllExecEventsBySelector(ctx, cfg.ToSelector, cfg.FromSelector)
 	if err != nil {
 		return nil, err
 	}

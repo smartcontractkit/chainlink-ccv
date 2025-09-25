@@ -32,10 +32,10 @@ func TestE2ESmoke(t *testing.T) {
 		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 	}
 
-	c, err := ccvEvm.NewContracts(t.Context(), in.CLDF.Addresses, chainIDs, wsURLs)
+	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
 	require.NoError(t, err)
 
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+	c, err := ccvEvm.NewContracts(t.Context(), in.CLDF.Addresses, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	impl := &ccvEvm.CCIP17EVM{}
@@ -57,15 +57,15 @@ func TestE2ESmoke(t *testing.T) {
 		tcs := []testcase{
 			{
 				name:         "src->dst msg execution",
-				proxy:        c.Proxy1337,
-				agg:          c.Agg2337,
+				proxy:        c.ProxyBySelector[c.Chain1337Details.ChainSelector],
+				agg:          c.AggBySelector[c.Chain2337Details.ChainSelector],
 				fromSelector: c.Chain1337Details.ChainSelector,
 				toSelector:   c.Chain2337Details.ChainSelector,
 			},
 			{
 				name:         "dst->src msg execution",
-				proxy:        c.Proxy2337,
-				agg:          c.Agg1337,
+				proxy:        c.ProxyBySelector[c.Chain2337Details.ChainSelector],
+				agg:          c.AggBySelector[c.Chain1337Details.ChainSelector],
 				fromSelector: c.Chain2337Details.ChainSelector,
 				toSelector:   c.Chain1337Details.ChainSelector,
 			},
@@ -77,9 +77,9 @@ func TestE2ESmoke(t *testing.T) {
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 				err = impl.SendExampleArgsV2Message(ctx, e, in.CLDF.Addresses, selectors, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
-				_, err = ccvEvm.WaitOneSentEventBySeqNo(ctx, tc.proxy, tc.toSelector, seqNo, 1*time.Minute)
+				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccvEvm.WaitOneExecEventBySeqNo(ctx, tc.agg, tc.fromSelector, seqNo, 5*time.Minute)
+				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.toSelector, tc.fromSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)
@@ -108,8 +108,8 @@ func TestE2ESmoke(t *testing.T) {
 		tcs := []testcase{
 			{
 				name:        "src->dst msg execution",
-				proxy:       c.Proxy1337,
-				agg:         c.Agg2337,
+				proxy:       c.ProxyBySelector[c.Chain1337Details.ChainSelector],
+				agg:         c.AggBySelector[c.Chain2337Details.ChainSelector],
 				srcSelector: c.Chain1337Details.ChainSelector,
 				dstSelector: c.Chain2337Details.ChainSelector,
 				finality:    1,
@@ -124,8 +124,8 @@ func TestE2ESmoke(t *testing.T) {
 			},
 			{
 				name:        "dst->src msg execution",
-				proxy:       c.Proxy2337,
-				agg:         c.Agg1337,
+				proxy:       c.ProxyBySelector[c.Chain2337Details.ChainSelector],
+				agg:         c.AggBySelector[c.Chain1337Details.ChainSelector],
 				srcSelector: c.Chain2337Details.ChainSelector,
 				dstSelector: c.Chain1337Details.ChainSelector,
 				finality:    1,
@@ -147,9 +147,9 @@ func TestE2ESmoke(t *testing.T) {
 				err = impl.SendExampleArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
 					tc.mandatoryCCVs, tc.optionalCCVs, 0)
 				require.NoError(t, err)
-				_, err = ccvEvm.WaitOneSentEventBySeqNo(ctx, tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
+				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccvEvm.WaitOneExecEventBySeqNo(ctx, tc.agg, tc.srcSelector, seqNo, 3*time.Minute)
+				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.dstSelector, tc.srcSelector, seqNo, 3*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)

@@ -169,9 +169,7 @@ func (m *CCIP17EVM) ExposeMetrics(ctx context.Context, addresses []string, chain
 	if err != nil {
 		return nil, nil, err
 	}
-	err = ProcessLaneEvents(ctx, lp, tp, &LaneStreamConfig{
-		From:              c.Proxy1337,
-		To:                c.Agg2337,
+	err = ProcessLaneEvents(ctx, c, lp, tp, &LaneStreamConfig{
 		FromSelector:      c.Chain1337Details.ChainSelector,
 		ToSelector:        c.Chain2337Details.ChainSelector,
 		AggregatorAddress: "localhost:50051",
@@ -180,9 +178,7 @@ func (m *CCIP17EVM) ExposeMetrics(ctx context.Context, addresses []string, chain
 	if err != nil {
 		return nil, nil, err
 	}
-	err = ProcessLaneEvents(ctx, lp, tp, &LaneStreamConfig{
-		From:              c.Proxy2337,
-		To:                c.Agg1337,
+	err = ProcessLaneEvents(ctx, c, lp, tp, &LaneStreamConfig{
 		FromSelector:      c.Chain2337Details.ChainSelector,
 		ToSelector:        c.Chain1337Details.ChainSelector,
 		AggregatorAddress: "localhost:50051",

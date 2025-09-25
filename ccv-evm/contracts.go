@@ -21,10 +21,8 @@ import (
 type Contracts struct {
 	Chain1337Details chainsel.ChainDetails
 	Chain2337Details chainsel.ChainDetails
-	Proxy1337        *ccvProxy.CCVProxy
-	Proxy2337        *ccvProxy.CCVProxy
-	Agg1337          *ccvAggregator.CCVAggregator
-	Agg2337          *ccvAggregator.CCVAggregator
+	ProxyBySelector  map[uint64]*ccvProxy.CCVProxy
+	AggBySelector    map[uint64]*ccvAggregator.CCVAggregator
 }
 
 // NewContracts creates new smart-contracts wrappers with utility functions
@@ -84,17 +82,25 @@ func NewContracts(ctx context.Context, addresses []string, chainIDs []string, ws
 	return &Contracts{
 		Chain1337Details: srcChain,
 		Chain2337Details: dstChain,
-		Proxy1337:        proxySrc,
-		Proxy2337:        proxyDst,
-		Agg1337:          aggSrc,
-		Agg2337:          aggDst,
+		ProxyBySelector: map[uint64]*ccvProxy.CCVProxy{
+			srcChain.ChainSelector: proxySrc,
+			dstChain.ChainSelector: proxyDst,
+		},
+		AggBySelector: map[uint64]*ccvAggregator.CCVAggregator{
+			srcChain.ChainSelector: aggSrc,
+			dstChain.ChainSelector: aggDst,
+		},
 	}, nil
 }
 
 // FetchAllSentEventsBySelector fetch all CCIPMessageSent events from proxy contract
-func FetchAllSentEventsBySelector(ctx context.Context, proxy *ccvProxy.CCVProxy, selector uint64) ([]*ccvProxy.CCVProxyCCIPMessageSent, error) {
+func (c *Contracts) FetchAllSentEventsBySelector(ctx context.Context, from, to uint64) ([]*ccvProxy.CCVProxyCCIPMessageSent, error) {
 	l := zerolog.Ctx(ctx)
-	filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{selector}, nil, nil)
+	proxy, ok := c.ProxyBySelector[from]
+	if !ok {
+		return nil, fmt.Errorf("no proxy for selector %d", from)
+	}
+	filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create filter: %w", err)
 	}
@@ -122,9 +128,13 @@ func FetchAllSentEventsBySelector(ctx context.Context, proxy *ccvProxy.CCVProxy,
 }
 
 // FetchAllExecEventsBySelector fetch all ExecutionStateChanged events from aggregator contract
-func FetchAllExecEventsBySelector(ctx context.Context, agg *ccvAggregator.CCVAggregator, selector uint64) ([]*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
+func (c *Contracts) FetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
 	l := zerolog.Ctx(ctx)
-	filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{selector}, nil, nil)
+	agg, ok := c.AggBySelector[from]
+	if !ok {
+		return nil, fmt.Errorf("no aggregator for selector %d", from)
+	}
+	filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{to}, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create filter: %w", err)
 	}
@@ -153,12 +163,16 @@ func FetchAllExecEventsBySelector(ctx context.Context, agg *ccvAggregator.CCVAgg
 }
 
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector
-func WaitOneSentEventBySeqNo(ctx context.Context, proxy *ccvProxy.CCVProxy, selector uint64, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
+func (c *Contracts) WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
 	l := zerolog.Ctx(ctx)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	proxy, ok := c.ProxyBySelector[from]
+	if !ok {
+		return nil, fmt.Errorf("no proxy for selector %d", from)
+	}
 
 	l.Info().Msg("Awaiting CCIPMessageSent event")
 
@@ -167,7 +181,7 @@ func WaitOneSentEventBySeqNo(ctx context.Context, proxy *ccvProxy.CCVProxy, sele
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-ticker.C:
-			filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{selector}, []uint64{seq}, nil)
+			filter, err := proxy.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
 			if err != nil {
 				l.Warn().Err(err).Msg("Failed to create filter")
 				continue
@@ -200,13 +214,18 @@ func WaitOneSentEventBySeqNo(ctx context.Context, proxy *ccvProxy.CCVProxy, sele
 }
 
 // WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector
-func WaitOneExecEventBySeqNo(ctx context.Context, agg *ccvAggregator.CCVAggregator, selector uint64, seq uint64, timeout time.Duration) (*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
+func (c *Contracts) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
 	l := zerolog.Ctx(ctx)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+
+	agg, ok := c.AggBySelector[from]
+	if !ok {
+		return nil, fmt.Errorf("no aggregator for selector %d", from)
+	}
 
 	l.Info().Msg("Awaiting ExecutionStateChanged event")
 
@@ -215,7 +234,7 @@ func WaitOneExecEventBySeqNo(ctx context.Context, agg *ccvAggregator.CCVAggregat
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-ticker.C:
-			filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{selector}, []uint64{seq}, nil)
+			filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
 			if err != nil {
 				l.Warn().Err(err).Msg("Failed to create filter")
 				continue
