@@ -25,7 +25,7 @@ import (
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
-var configPath = "executor_config.toml"
+var configPath = os.Getenv("EXECUTOR_CONFIG_PATH")
 
 func main() {
 	executorConfig, err := loadConfiguration(configPath)
