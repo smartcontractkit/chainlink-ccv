@@ -17,11 +17,13 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -61,9 +63,9 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
 
-	routerAddr := ccv.MustGetContractAddressForSelector(m.cfg, m.src.Selector, router.ContractType)
+	routerAddr := ccv.MustGetContractAddressForSelector(m.cfg.CLDF.Addresses, m.src.Selector, router.ContractType)
 
-	argsV3, err := ccv.NewV3ExtraArgs(1, common.Address{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
+	argsV3, err := ccv.NewV3ExtraArgs(1, "", []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}

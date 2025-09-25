@@ -2,7 +2,6 @@ package ccv
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,19 +95,10 @@ func PrintCLDFAddresses(in *Cfg) error {
 	return nil
 }
 
-// NewDefaultCLDFBundle creates a new default CLDF bundle.
-func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
-	return operations.NewBundle(
-		func() context.Context { return context.Background() },
-		e.Logger,
-		operations.NewMemoryReporter(),
-	)
-}
-
 // GetContractAddrForSelector get contract address by type and chain selector.
-func GetContractAddrForSelector(in *Cfg, selector uint64, contractType datastore.ContractType) (common.Address, error) {
+func GetContractAddrForSelector(addresses []string, selector uint64, contractType datastore.ContractType) (common.Address, error) {
 	var contractAddr common.Address
-	for _, addr := range in.CLDF.Addresses {
+	for _, addr := range addresses {
 		var refs []datastore.AddressRef
 		err := json.Unmarshal([]byte(addr), &refs)
 		if err != nil {
@@ -150,8 +140,8 @@ func SaveContractRefsForSelector(in *Cfg, sel uint64, refs []datastore.AddressRe
 	return nil
 }
 
-func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType deployment.ContractType) common.Address {
-	addr, err := GetContractAddrForSelector(in, selector, datastore.ContractType(contractType))
+func MustGetContractAddressForSelector(addresses []string, selector uint64, contractType deployment.ContractType) common.Address {
+	addr, err := GetContractAddrForSelector(addresses, selector, datastore.ContractType(contractType))
 	if err != nil {
 		Plog.Fatal().Err(err).Msg("Failed to get contract address")
 	}
@@ -163,7 +153,7 @@ CCIPv17 (CCV) specific helpers
 */
 
 // NewV3ExtraArgs encodes v3 extra args params
-func NewV3ExtraArgs(finalityConfig uint16, execAddr common.Address, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
 	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
     [
@@ -261,7 +251,7 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr common.Address, execArgs, to
 		OptionalCCV:       optionalCCV,
 		OptionalThreshold: optionalThreshold,
 		FinalityConfig:    finalityConfig,
-		Executor:          execAddr,
+		Executor:          common.HexToAddress(execAddr),
 		ExecutorArgs:      execArgs,
 		TokenArgs:         tokenArgs,
 	}
@@ -299,7 +289,7 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 	bundle := NewDefaultCLDFBundle(e)
 	e.OperationsBundle = bundle
 
-	routerAddr, err := GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
+	routerAddr, err := GetContractAddrForSelector(in.CLDF.Addresses, srcChain.Selector, datastore.ContractType(router.ContractType))
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
@@ -334,12 +324,7 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 }
 
 // SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3.
-func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr common.Address, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
-	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
-	if err != nil {
-		return fmt.Errorf("creating CLDF operations environment: %w", err)
-	}
-
+func SendExampleArgsV3Message(e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
 	chains := e.BlockChains.EVMChains()
 	if chains == nil {
 		return errors.New("no EVM chains found")
@@ -356,7 +341,7 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAd
 	bundle := NewDefaultCLDFBundle(e)
 	e.OperationsBundle = bundle
 
-	routerAddr, err := GetContractAddrForSelector(in, srcChain.Selector, datastore.ContractType(router.ContractType))
+	routerAddr, err := GetContractAddrForSelector(addresses, srcChain.Selector, datastore.ContractType(router.ContractType))
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
@@ -444,13 +429,13 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 			sel,
 			commit_onramp.ConstructorArgs{
 				DynamicConfig: commit_onramp.DynamicConfig{
-					FeeQuoter:      MustGetContractAddressForSelector(in, sel, fee_quoter_v2.ContractType),
+					FeeQuoter:      MustGetContractAddressForSelector(in.CLDF.Addresses, sel, fee_quoter_v2.ContractType),
 					FeeAggregator:  e.BlockChains.EVMChains()[sel].DeployerKey.From,
 					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
 				},
 			},
 			commit_offramp.ConstructorArgs{
-				NonceManager: MustGetContractAddressForSelector(in, sel, nonce_manager.ContractType),
+				NonceManager: MustGetContractAddressForSelector(in.CLDF.Addresses, sel, nonce_manager.ContractType),
 			},
 			signatureConfigArgs,
 		)
@@ -465,7 +450,7 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 			}
 			destConfigArgs = append(destConfigArgs, commit_onramp.DestChainConfigArgs{
 				AllowlistEnabled:  false,
-				Router:            MustGetContractAddressForSelector(in, sel, router.ContractType),
+				Router:            MustGetContractAddressForSelector(in.CLDF.Addresses, sel, router.ContractType),
 				DestChainSelector: destSel,
 			})
 		}

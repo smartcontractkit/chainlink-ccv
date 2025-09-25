@@ -92,6 +92,15 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 	return selectors, &e, nil
 }
 
+// NewDefaultCLDFBundle creates a new default CLDF bundle.
+func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
+	return operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+}
+
 // DeployCommitVerifierForSelector deploys a new verifier to the given chain selector.
 func DeployCommitVerifierForSelector(
 	e *deployment.Environment,

@@ -155,7 +155,7 @@ func FetchAllExecEventsBySelector(ctx context.Context, agg *ccvAggregator.CCVAgg
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector
 func WaitOneSentEventBySeqNo(ctx context.Context, proxy *ccvProxy.CCVProxy, selector uint64, seq uint64, timeout time.Duration) (*ccvProxy.CCVProxyCCIPMessageSent, error) {
 	l := zerolog.Ctx(ctx)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -202,7 +202,7 @@ func WaitOneSentEventBySeqNo(ctx context.Context, proxy *ccvProxy.CCVProxy, sele
 // WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector
 func WaitOneExecEventBySeqNo(ctx context.Context, agg *ccvAggregator.CCVAggregator, selector uint64, seq uint64, timeout time.Duration) (*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
 	l := zerolog.Ctx(ctx)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	ticker := time.NewTicker(1 * time.Second)

@@ -440,6 +440,11 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
+		selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+		if err != nil {
+			return fmt.Errorf("creating CLDF operations environment: %w", err)
+		}
+
 		// Use V3 if finality config is provided, otherwise use V2
 		if len(sels) == 3 {
 			// V3 format with finality config
@@ -448,7 +453,7 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to parse finality config: %w", err)
 			}
 
-			return ccv.SendExampleArgsV3Message(in, src, dest, uint16(finality), common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"), nil, nil,
+			return ccv.SendExampleArgsV3Message(e, in.CLDF.Addresses, selectors, src, dest, uint16(finality), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", nil, nil,
 				[]types.CCV{
 					{
 						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),

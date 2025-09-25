@@ -33,6 +33,9 @@ func TestE2ESmoke(t *testing.T) {
 	c, err := ccvEvm.NewContracts(t.Context(), in.CLDF.Addresses, chainIDs, wsURLs)
 	require.NoError(t, err)
 
+	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+	require.NoError(t, err)
+
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 		require.NoError(t, err)
@@ -89,14 +92,14 @@ func TestE2ESmoke(t *testing.T) {
 			dstSelector     uint64
 			finality        uint16
 			verifierAddress []byte
-			execOnRamp      common.Address
+			execOnRamp      string
 			mandatoryCCVs   []types.CCV
 			optionalCCVs    []types.CCV
 			threshold       uint8
 		}
 
 		verifierAddress := common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
-		execOnRamp := common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE")
+		execOnRamp := "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
 
 		tcs := []testcase{
 			{
@@ -137,7 +140,7 @@ func TestE2ESmoke(t *testing.T) {
 				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.dstSelector)
 				require.NoError(t, err)
 				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = ccv.SendExampleArgsV3Message(in, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
+				err = ccv.SendExampleArgsV3Message(e, in.CLDF.Addresses, selectors, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
 					tc.mandatoryCCVs, tc.optionalCCVs, 0)
 				require.NoError(t, err)
 				_, err = ccvEvm.WaitOneSentEventBySeqNo(ctx, tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
