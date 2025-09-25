@@ -282,6 +282,9 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 
 	// Parse the event data using the ABI
 	event := &ccv_proxy.CCVProxyCCIPMessageSent{}
+	event.DestChainSelector = destChainSelector
+	event.MessageId = messageID
+	event.SequenceNumber = nonce
 	abi, err := ccv_proxy.CCVProxyMetaData.GetAbi()
 	if err != nil {
 		r.logger.Errorw("❌ Failed to get ABI", "error", err)
@@ -289,10 +292,9 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 	}
 	err = abi.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 	if err != nil {
-		r.logger.Errorw("❌ Failed to unpack CCIPMessageSent event", "error", err)
+		r.logger.Errorw("❌ Failed to unpack CCIPMessageSent event payload", "error", err)
 		return
 	}
-
 	// Log the event structure using the fixed bindings
 	r.logger.Infow("📋 CCVProxy Event Structure",
 		"destChainSelector", event.DestChainSelector,

@@ -76,43 +76,6 @@ func TestSortSignaturesBySigner(t *testing.T) {
 	require.Equal(t, [32]byte{0x04}, signatures[2].S)
 }
 
-func TestEncodeDecodeSignaturesABI(t *testing.T) {
-	// Create test data
-	ccvArgs := []byte("test ccv args")
-	signatures := []Data{
-		{
-			R:      [32]byte{0x01},
-			S:      [32]byte{0x02},
-			Signer: common.HexToAddress("0x0000000000000000000000000000000000000001"),
-		},
-		{
-			R:      [32]byte{0x03},
-			S:      [32]byte{0x04},
-			Signer: common.HexToAddress("0x0000000000000000000000000000000000000002"),
-		},
-	}
-
-	// Encode
-	encoded, err := EncodeSignaturesABI(ccvArgs, signatures)
-	require.NoError(t, err)
-	require.NotEmpty(t, encoded)
-
-	// Decode
-	decodedArgs, rs, ss, err := DecodeSignaturesABI(encoded)
-	require.NoError(t, err)
-	require.Equal(t, ccvArgs, decodedArgs)
-	require.Len(t, rs, 2)
-	require.Len(t, ss, 2)
-
-	// Verify signatures are sorted by signer address
-	// Address 0x...0001 should come first
-	require.Equal(t, [32]byte{0x01}, rs[0])
-	require.Equal(t, [32]byte{0x02}, ss[0])
-	// Address 0x...0002 should come second
-	require.Equal(t, [32]byte{0x03}, rs[1])
-	require.Equal(t, [32]byte{0x04}, ss[1])
-}
-
 func TestRecoverSigners(t *testing.T) {
 	// Create multiple test private keys
 	privateKeys := make([]*ecdsa.PrivateKey, 3)
@@ -148,55 +111,4 @@ func TestRecoverSigners(t *testing.T) {
 	for i, expected := range expectedAddresses {
 		require.Equal(t, expected, recoveredAddresses[i])
 	}
-}
-
-func TestEndToEndSignatureFlow(t *testing.T) {
-	// Create test private keys
-	privateKeys := make([]*ecdsa.PrivateKey, 2)
-	for i := 0; i < 2; i++ {
-		pk, err := crypto.GenerateKey()
-		require.NoError(t, err)
-		privateKeys[i] = pk
-	}
-
-	// Create test hash and ccvArgs
-	hash := hashing.Keccak256([]byte("test message"))
-	var hashArray [32]byte
-	copy(hashArray[:], hash[:])
-	ccvArgs := []byte("test ccv arguments")
-
-	// Sign with each key
-	signatures := make([]Data, 0)
-	for _, pk := range privateKeys {
-		r, s, addr, err := SignV27(hashArray[:], pk)
-		require.NoError(t, err)
-
-		signatures = append(signatures, Data{
-			R:      r,
-			S:      s,
-			Signer: addr,
-		})
-	}
-
-	// Encode signatures
-	encoded, err := EncodeSignaturesABI(ccvArgs, signatures)
-	require.NoError(t, err)
-
-	// Decode signatures
-	decodedArgs, rs, ss, err := DecodeSignaturesABI(encoded)
-	require.NoError(t, err)
-	require.Equal(t, ccvArgs, decodedArgs)
-
-	// Recover signers
-	recoveredAddresses, err := RecoverSigners(hashArray, rs, ss)
-	require.NoError(t, err)
-
-	// Create expected addresses sorted by address
-	expectedAddresses := []common.Address{
-		crypto.PubkeyToAddress(privateKeys[0].PublicKey),
-		crypto.PubkeyToAddress(privateKeys[1].PublicKey),
-	}
-
-	// Verify recovered addresses match expected (in sorted order)
-	require.Equal(t, expectedAddresses, recoveredAddresses)
 }

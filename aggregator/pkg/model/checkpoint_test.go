@@ -5,13 +5,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // TestBlockCheckpointValidation tests validation of BlockCheckpoint.
 func TestBlockCheckpointValidation(t *testing.T) {
 	t.Run("valid_checkpoint_passes", func(t *testing.T) {
-		checkpoint := &aggregator.BlockCheckpoint{
+		checkpoint := &pb.BlockCheckpoint{
 			ChainSelector:        1,
 			FinalizedBlockHeight: 100,
 		}
@@ -21,7 +21,7 @@ func TestBlockCheckpointValidation(t *testing.T) {
 	})
 
 	t.Run("zero_chain_selector_fails", func(t *testing.T) {
-		checkpoint := &aggregator.BlockCheckpoint{
+		checkpoint := &pb.BlockCheckpoint{
 			ChainSelector:        0,
 			FinalizedBlockHeight: 100,
 		}
@@ -32,7 +32,7 @@ func TestBlockCheckpointValidation(t *testing.T) {
 	})
 
 	t.Run("zero_block_height_fails", func(t *testing.T) {
-		checkpoint := &aggregator.BlockCheckpoint{
+		checkpoint := &pb.BlockCheckpoint{
 			ChainSelector:        1,
 			FinalizedBlockHeight: 0,
 		}
@@ -52,8 +52,8 @@ func TestBlockCheckpointValidation(t *testing.T) {
 // TestWriteBlockCheckpointRequestValidation tests validation of write requests.
 func TestWriteBlockCheckpointRequestValidation(t *testing.T) {
 	t.Run("valid_request_passes", func(t *testing.T) {
-		req := &aggregator.WriteBlockCheckpointRequest{
-			Checkpoints: []*aggregator.BlockCheckpoint{
+		req := &pb.WriteBlockCheckpointRequest{
+			Checkpoints: []*pb.BlockCheckpoint{
 				{ChainSelector: 1, FinalizedBlockHeight: 100},
 				{ChainSelector: 2, FinalizedBlockHeight: 200},
 			},
@@ -64,8 +64,8 @@ func TestWriteBlockCheckpointRequestValidation(t *testing.T) {
 	})
 
 	t.Run("empty_checkpoints_fails", func(t *testing.T) {
-		req := &aggregator.WriteBlockCheckpointRequest{
-			Checkpoints: []*aggregator.BlockCheckpoint{},
+		req := &pb.WriteBlockCheckpointRequest{
+			Checkpoints: []*pb.BlockCheckpoint{},
 		}
 
 		err := ValidateWriteBlockCheckpointRequest(req)
@@ -74,7 +74,7 @@ func TestWriteBlockCheckpointRequestValidation(t *testing.T) {
 	})
 
 	t.Run("nil_checkpoints_fails", func(t *testing.T) {
-		req := &aggregator.WriteBlockCheckpointRequest{
+		req := &pb.WriteBlockCheckpointRequest{
 			Checkpoints: nil,
 		}
 
@@ -91,15 +91,15 @@ func TestWriteBlockCheckpointRequestValidation(t *testing.T) {
 
 	t.Run("too_many_checkpoints_fails", func(t *testing.T) {
 		// Create more than 1000 checkpoints
-		checkpoints := make([]*aggregator.BlockCheckpoint, 1001)
+		checkpoints := make([]*pb.BlockCheckpoint, 1001)
 		for i := 0; i < 1001; i++ {
-			checkpoints[i] = &aggregator.BlockCheckpoint{
+			checkpoints[i] = &pb.BlockCheckpoint{
 				ChainSelector:        uint64(i + 1),
 				FinalizedBlockHeight: 100,
 			}
 		}
 
-		req := &aggregator.WriteBlockCheckpointRequest{
+		req := &pb.WriteBlockCheckpointRequest{
 			Checkpoints: checkpoints,
 		}
 
@@ -109,8 +109,8 @@ func TestWriteBlockCheckpointRequestValidation(t *testing.T) {
 	})
 
 	t.Run("invalid_checkpoint_in_request_fails", func(t *testing.T) {
-		req := &aggregator.WriteBlockCheckpointRequest{
-			Checkpoints: []*aggregator.BlockCheckpoint{
+		req := &pb.WriteBlockCheckpointRequest{
+			Checkpoints: []*pb.BlockCheckpoint{
 				{ChainSelector: 1, FinalizedBlockHeight: 100},
 				{ChainSelector: 0, FinalizedBlockHeight: 200}, // Invalid
 			},
@@ -156,7 +156,7 @@ func TestAPIKeyValidation(t *testing.T) {
 // TestCheckpointConversion tests conversion between proto and internal models.
 func TestCheckpointConversion(t *testing.T) {
 	t.Run("proto_to_map_conversion", func(t *testing.T) {
-		checkpoints := []*aggregator.BlockCheckpoint{
+		checkpoints := []*pb.BlockCheckpoint{
 			{ChainSelector: 1, FinalizedBlockHeight: 100},
 			{ChainSelector: 2, FinalizedBlockHeight: 200},
 			{ChainSelector: 5, FinalizedBlockHeight: 500},
@@ -207,7 +207,7 @@ func TestCheckpointConversion(t *testing.T) {
 // TestDuplicateHandling tests handling of duplicate chain selectors.
 func TestDuplicateHandling(t *testing.T) {
 	t.Run("duplicate_chain_selectors_in_request", func(t *testing.T) {
-		checkpoints := []*aggregator.BlockCheckpoint{
+		checkpoints := []*pb.BlockCheckpoint{
 			{ChainSelector: 1, FinalizedBlockHeight: 100},
 			{ChainSelector: 2, FinalizedBlockHeight: 200},
 			{ChainSelector: 1, FinalizedBlockHeight: 150}, // Duplicate chain selector
@@ -222,8 +222,8 @@ func TestDuplicateHandling(t *testing.T) {
 	})
 
 	t.Run("validate_allows_duplicates_in_request", func(t *testing.T) {
-		req := &aggregator.WriteBlockCheckpointRequest{
-			Checkpoints: []*aggregator.BlockCheckpoint{
+		req := &pb.WriteBlockCheckpointRequest{
+			Checkpoints: []*pb.BlockCheckpoint{
 				{ChainSelector: 1, FinalizedBlockHeight: 100},
 				{ChainSelector: 1, FinalizedBlockHeight: 150}, // Duplicate
 			},

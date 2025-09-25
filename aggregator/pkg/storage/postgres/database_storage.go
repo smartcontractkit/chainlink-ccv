@@ -13,14 +13,14 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func copyMessageWithCCVNodeData(src *aggregator.MessageWithCCVNodeData) aggregator.MessageWithCCVNodeData {
-	return aggregator.MessageWithCCVNodeData{
+func copyMessageWithCCVNodeData(src *pb.MessageWithCCVNodeData) pb.MessageWithCCVNodeData {
+	return pb.MessageWithCCVNodeData{
 		MessageId:             src.MessageId,
 		SourceVerifierAddress: src.SourceVerifierAddress,
 		Message:               src.Message,
@@ -84,7 +84,7 @@ func (d *DatabaseStorage) batchGetVerificationRecords(ctx context.Context, verif
 	}
 
 	for _, dbRec := range dbRecords {
-		var msgWithCCV aggregator.MessageWithCCVNodeData
+		var msgWithCCV pb.MessageWithCCVNodeData
 		err = proto.Unmarshal(dbRec.CCVNodeData, &msgWithCCV)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal ccv node data: %w", err)
@@ -233,7 +233,7 @@ func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.Co
 		return nil, fmt.Errorf("failed to get commit verification record: %w", err)
 	}
 
-	var msgWithCCV aggregator.MessageWithCCVNodeData
+	var msgWithCCV pb.MessageWithCCVNodeData
 	err = proto.Unmarshal(record.CCVNodeData, &msgWithCCV)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal ccv node data: %w", err)
@@ -281,7 +281,7 @@ func (d *DatabaseStorage) ListCommitVerificationByMessageID(ctx context.Context,
 
 	records := make([]*model.CommitVerificationRecord, 0, len(dbRecords))
 	for _, dbRec := range dbRecords {
-		var msgWithCCV aggregator.MessageWithCCVNodeData
+		var msgWithCCV pb.MessageWithCCVNodeData
 		err = proto.Unmarshal(dbRec.CCVNodeData, &msgWithCCV)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal ccv node data: %w", err)

@@ -48,41 +48,26 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 }
 
 // SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress types2.UnknownAddress) ([]byte, []byte, error) {
+func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress types2.UnknownAddress) ([]byte, error) {
 	message := verificationTask.Message
 
-	// 1. Calculate message hash using the new chain-agnostic method
-	messageHash, err := message.MessageID()
+	messageID, err := message.MessageID()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to compute message ID: %w", err)
+		return nil, fmt.Errorf("failed to compute message ID: %w", err)
 	}
 
-	// 2. Find the verifier index that corresponds to our source verifier address
-	verifierIndex, err := utils.FindVerifierIndexBySourceAddress(&verificationTask, sourceVerifierAddress)
+	_, err = utils.FindVerifierIndexBySourceAddress(&verificationTask, sourceVerifierAddress)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to find verifier index: %w", err)
+		return nil, fmt.Errorf("failed to find verifier index: %w", err)
 	}
 
-	// 3. Extract nonce from the correct receipt blob using the verifier index
-	var verifierBlob []byte
-	if verifierIndex >= len(verificationTask.ReceiptBlobs) {
-		return nil, nil, fmt.Errorf("no receipt blob found for verifier index: %d", verifierIndex)
-	}
-	verifierBlob = verificationTask.ReceiptBlobs[verifierIndex].Blob
-
-	// 5. Calculate signature hash using the new method
-	signatureHash, err := CalculateSignatureHash(messageHash, verifierBlob)
+	// 3. Sign the signature hash with v=27 normalization
+	r, s, signerAddress, err := signature.SignV27(messageID[:], ecdsa.privateKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to calculate signature hash: %w", err)
+		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// 6. Sign the signature hash with v=27 normalization
-	r, s, signerAddress, err := signature.SignV27(signatureHash[:], ecdsa.privateKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to sign message: %w", err)
-	}
-
-	// 7. Create signature data with signer address
+	// 4. Create signature data with signer address
 	signatures := []signature.Data{
 		{
 			R:      r,
@@ -91,13 +76,13 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask type
 		},
 	}
 
-	// 8. Encode signature using ABI encoding with ccvArgs (verifier blob)
-	encodedSignature, err := signature.EncodeSignaturesABI(verifierBlob, signatures)
+	// 5. Encode signature using simple format
+	encodedSignature, err := signature.EncodeSignatures(signatures)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encode signature: %w", err)
+		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}
 
-	return encodedSignature, verifierBlob, nil
+	return encodedSignature, nil
 }
 
 // GetSignerAddress returns the address of the signer.

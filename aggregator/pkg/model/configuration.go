@@ -159,7 +159,7 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 	return nil
 }
 
-// AggregatorConfig is the root configuration for the aggregator.
+// AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
 	Committees        map[CommitteeID]*Committee `toml:"committees"`

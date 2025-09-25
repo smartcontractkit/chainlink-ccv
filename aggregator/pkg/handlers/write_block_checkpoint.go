@@ -6,7 +6,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 
-	pb "github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // WriteBlockCheckpointHandler handles WriteBlockCheckpoint gRPC requests.

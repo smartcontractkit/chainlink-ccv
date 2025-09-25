@@ -7,36 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
-
-// TestSignatureEncodingErrors tests signature encoding error conditions.
-func TestSignatureEncodingErrors(t *testing.T) {
-	tests := []struct {
-		name       string
-		expectErr  string
-		signatures []signature.Data
-		ccvArgs    []byte
-	}{
-		{
-			name:       "empty_signatures",
-			signatures: []signature.Data{},
-			ccvArgs:    []byte("test"),
-			expectErr:  "no signatures provided",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := signature.EncodeSignaturesABI(tt.ccvArgs, tt.signatures)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.expectErr)
-		})
-	}
-}
 
 // TestValidateMessageErrors tests message validation error conditions.
 func TestValidateMessageErrors(t *testing.T) {

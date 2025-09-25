@@ -3,6 +3,7 @@ package aggregation
 
 import (
 	"context"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -83,8 +84,10 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 			lggr.Errorw("Failed to submit report", "error", err)
 			return nil, err
 		}
-		lggr.Infow("Report submitted successfully", "verifications", len(verifications))
+		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
+		lggr.Infow("Report submitted successfully", "verifications", len(verifications), "timeToAggregation", timeToAggregation)
 		c.metrics(ctx).IncrementCompletedAggregations(ctx)
+		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation.Milliseconds())
 	} else {
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}

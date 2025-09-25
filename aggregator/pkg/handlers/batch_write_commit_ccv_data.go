@@ -8,8 +8,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // WriteCommitCCVNodeDataHandler handles requests to write commit verification records.
@@ -22,16 +23,16 @@ func (h *BatchWriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.BatchWriteCommitCCVNodeDataRequest) (*aggregator.BatchWriteCommitCCVNodeDataResponse, error) {
+func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.BatchWriteCommitCCVNodeDataRequest) (*pb.BatchWriteCommitCCVNodeDataResponse, error) {
 	requests := req.GetRequests()
-	responses := make([]*aggregator.WriteCommitCCVNodeDataResponse, len(requests))
+	responses := make([]*pb.WriteCommitCCVNodeDataResponse, len(requests))
 	errors := make([]error, len(requests))
 
 	wg := sync.WaitGroup{}
 
 	for i, r := range requests {
 		wg.Add(1)
-		go func(i int, r *aggregator.WriteCommitCCVNodeDataRequest) {
+		go func(i int, r *pb.WriteCommitCCVNodeDataRequest) {
 			defer wg.Done()
 			resp, err := h.handler.Handle(ctx, r)
 			if err != nil {
@@ -47,7 +48,7 @@ func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *ag
 	}
 
 	wg.Wait()
-	return &aggregator.BatchWriteCommitCCVNodeDataResponse{
+	return &pb.BatchWriteCommitCCVNodeDataResponse{
 		Responses: responses,
 	}, nil
 }

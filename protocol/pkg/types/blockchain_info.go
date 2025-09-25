@@ -2,8 +2,6 @@ package types
 
 import (
 	"fmt"
-
-	protocoltypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Node represents a blockchain node with connection information.
@@ -50,7 +48,7 @@ func (bh *BlockchainHelper) GetBlockchainByChainID(chainID string) (*BlockchainI
 }
 
 // GetBlockchainByChainSelector returns the blockchain info for a given chain selector.
-func (bh *BlockchainHelper) GetBlockchainByChainSelector(chainSelector protocoltypes.ChainSelector) (*BlockchainInfo, error) {
+func (bh *BlockchainHelper) GetBlockchainByChainSelector(chainSelector ChainSelector) (*BlockchainInfo, error) {
 	selector := fmt.Sprintf("%d", uint64(chainSelector))
 	if info, exists := bh.blockchainInfos[selector]; exists {
 		return info, nil
@@ -60,7 +58,7 @@ func (bh *BlockchainHelper) GetBlockchainByChainSelector(chainSelector protocolt
 
 // GetRPCEndpoint returns the RPC endpoint for a blockchain by chain selector
 // Returns the first available HTTP endpoint.
-func (bh *BlockchainHelper) GetRPCEndpoint(chainSelector protocoltypes.ChainSelector) (string, error) {
+func (bh *BlockchainHelper) GetRPCEndpoint(chainSelector ChainSelector) (string, error) {
 	bi, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		return "", err
@@ -93,7 +91,7 @@ func (bh *BlockchainHelper) GetAllChainIDs() []string {
 }
 
 // GetBlockchainInfo returns formatted information about a blockchain.
-func (bh *BlockchainHelper) GetBlockchainInfo(chainSelector protocoltypes.ChainSelector) (string, error) {
+func (bh *BlockchainHelper) GetBlockchainInfo(chainSelector ChainSelector) (string, error) {
 	info, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		return "", err
@@ -113,7 +111,7 @@ func (bh *BlockchainHelper) GetBlockchainInfo(chainSelector protocoltypes.ChainS
 
 // GetWebSocketEndpoint returns the WebSocket endpoint for a blockchain by chain selector
 // Returns the first available WebSocket endpoint.
-func (bh *BlockchainHelper) GetWebSocketEndpoint(chainSelector protocoltypes.ChainSelector) (string, error) {
+func (bh *BlockchainHelper) GetWebSocketEndpoint(chainSelector ChainSelector) (string, error) {
 	bi, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		return "", err
@@ -137,7 +135,7 @@ func (bi *BlockchainInfo) GetWebSocketEndpoint() (string, error) {
 }
 
 // GetAllNodes returns all nodes for a blockchain by chain selector.
-func (bh *BlockchainHelper) GetAllNodes(chainSelector protocoltypes.ChainSelector) ([]*Node, error) {
+func (bh *BlockchainHelper) GetAllNodes(chainSelector ChainSelector) ([]*Node, error) {
 	info, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		return nil, err
@@ -148,7 +146,7 @@ func (bh *BlockchainHelper) GetAllNodes(chainSelector protocoltypes.ChainSelecto
 
 // GetInternalRPCEndpoint returns the internal RPC endpoint for a blockchain by chain selector
 // Useful for container-to-container communication.
-func (bh *BlockchainHelper) GetInternalRPCEndpoint(chainSelector protocoltypes.ChainSelector) (string, error) {
+func (bh *BlockchainHelper) GetInternalRPCEndpoint(chainSelector ChainSelector) (string, error) {
 	bi, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		return "", err
@@ -173,7 +171,7 @@ func (bi *BlockchainInfo) GetInternalRPCEndpoint() (string, error) {
 
 // GetInternalWebsocketEndpoint returns the internal websocket endpoint for a blockchain by chain selector
 // Useful for container-to-container communication.
-func (bh *BlockchainHelper) GetInternalWebsocketEndpoint(chainSelector protocoltypes.ChainSelector) (string, error) {
+func (bh *BlockchainHelper) GetInternalWebsocketEndpoint(chainSelector ChainSelector) (string, error) {
 	bi, err := bh.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		return "", err

@@ -226,6 +226,7 @@ func WaitOneExecEventBySeqNo(agg *ccvAggregator.CCVAggregator, selector uint64, 
 					Any("TxHash", filter.Event.Raw.TxHash.Hex()).
 					Any("SeqNo", filter.Event.SequenceNumber).
 					Str("MsgID", hexutil.Encode(filter.Event.MessageId[:])).
+					Str("Error", hexutil.Encode(filter.Event.ReturnData)).
 					Msg("Received ExecutionStateChanged event")
 			}
 

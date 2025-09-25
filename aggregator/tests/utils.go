@@ -14,10 +14,10 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 const bufSize = 1024 * 1024
@@ -39,7 +39,7 @@ func WithStubMode(stub bool) ConfigOption {
 }
 
 // CreateServerAndClient creates a test server and client for functional testing.
-func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.AggregatorClient, aggregator.CCVDataClient, func(), error) {
+func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.CCVDataClient, func(), error) {
 	// Start PostgreSQL testcontainer
 	postgresContainer, err := postgres.Run(t.Context(),
 		"postgres:15-alpine",
@@ -126,7 +126,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (aggregator.Ag
 	}, nil
 }
 
-func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (aggregator.CCVDataClient, *grpc.ClientConn, error) {
+func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (pb.CCVDataClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return ccvDataBuf.Dial()
 	}
@@ -137,11 +137,11 @@ func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (agg
 		return nil, nil, err
 	}
 
-	client := aggregator.NewCCVDataClient(ccvDataConn)
+	client := pb.NewCCVDataClient(ccvDataConn)
 	return client, ccvDataConn, nil
 }
 
-func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener) (aggregator.AggregatorClient, *grpc.ClientConn, error) {
+func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener) (pb.AggregatorClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return aggregatorBuf.Dial()
 	}
@@ -152,6 +152,6 @@ func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener
 		return nil, nil, err
 	}
 
-	client := aggregator.NewAggregatorClient(aggregatorConn)
+	client := pb.NewAggregatorClient(aggregatorConn)
 	return client, aggregatorConn, nil
 }

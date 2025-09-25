@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // MessageID is a type alias for bytes representing a message identifier.
@@ -25,7 +25,7 @@ func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
 // CommitVerificationRecord represents a record of a commit verification.
 type CommitVerificationRecord struct {
 	IdentifierSigner *IdentifierSigner
-	aggregator.MessageWithCCVNodeData
+	pb.MessageWithCCVNodeData
 	CommitteeID CommitteeID
 }
 
