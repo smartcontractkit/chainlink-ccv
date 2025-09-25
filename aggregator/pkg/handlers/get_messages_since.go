@@ -28,6 +28,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.Ge
 
 	storage, err := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix(), committeeID)
 	if err != nil {
+		h.logger(ctx).Errorw("failed to query aggregated reports", "error", err, "committeeID", committeeID, "since", req.Since)
 		return nil, err
 	}
 
