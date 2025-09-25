@@ -107,9 +107,9 @@ func SortSignaturesBySigner(signatures []Data) {
 	})
 }
 
-// EncodeSignaturesSimple encodes signatures in the simple format expected by CCIP v1.7 onchain validation.
-// The format is: [2 bytes signature length][concatenated R,S pairs]
-func EncodeSignaturesSimple(signatures []Data) ([]byte, error) {
+// EncodeSignatures encodes signatures in the simple format expected by CCIP v1.7 onchain validation.
+// The format is: [2 bytes signature length][concatenated R,S pairs].
+func EncodeSignatures(signatures []Data) ([]byte, error) {
 	if len(signatures) == 0 {
 		return nil, fmt.Errorf("no signatures provided")
 	}
@@ -141,10 +141,10 @@ func EncodeSignaturesSimple(signatures []Data) ([]byte, error) {
 	return result, nil
 }
 
-// DecodeSignaturesSimple decodes simple-format signature data.
+// DecodeSignatures decodes simple-format signature data.
 // The format is: [2 bytes signature length][concatenated R,S pairs]
 // Returns rs, ss arrays in the same order as they appear in the data.
-func DecodeSignaturesSimple(data []byte) ([][32]byte, [][32]byte, error) {
+func DecodeSignatures(data []byte) ([][32]byte, [][32]byte, error) {
 	if len(data) < 2 {
 		return nil, nil, fmt.Errorf("signature data too short: need at least 2 bytes for length")
 	}

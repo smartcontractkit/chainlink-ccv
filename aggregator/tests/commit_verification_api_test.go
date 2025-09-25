@@ -296,9 +296,8 @@ func validateSignatures(t *testing.T, ccvData []byte, messageId types.Bytes32, o
 	}
 
 	// Decode the signature data
-	ccvArgs, rs, ss, err := signature.DecodeSignaturesABI(ccvData)
+	rs, ss, err := signature.DecodeSignatures(ccvData)
 	require.NoError(t, err, "failed to decode CCV signature data")
-	require.NotNil(t, ccvArgs, "ccvArgs should not be nil")
 	require.Equal(t, len(rs), len(ss), "rs and ss arrays should have the same length")
 
 	// Validate that we have at least one signature

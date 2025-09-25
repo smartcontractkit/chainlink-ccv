@@ -67,7 +67,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	}
 
 	// Encode signatures using simple format (sorting is handled internally)
-	encodedSignatures, err := signature.EncodeSignaturesSimple(signatures)
+	encodedSignatures, err := signature.EncodeSignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}

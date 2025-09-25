@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 
 	types2 "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -82,7 +82,7 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask type
 	}
 
 	// 5. Encode signature using simple format
-	encodedSignature, err := signature.EncodeSignaturesSimple(signatures)
+	encodedSignature, err := signature.EncodeSignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}

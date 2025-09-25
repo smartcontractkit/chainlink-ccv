@@ -84,7 +84,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 		return nil, nil, err
 	}
 
-	rs, ss, err := signature.DecodeSignaturesSimple(ccvData)
+	rs, ss, err := signature.DecodeSignatures(ccvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
 		return nil, nil, err

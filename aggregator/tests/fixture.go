@@ -115,7 +115,7 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 			},
 		}
 
-		m.CcvData, err = signature.EncodeSignaturesABI(ccvArgs, sigData)
+		m.CcvData, err = signature.EncodeSignatures(sigData)
 		require.NoError(t, err, "failed to encode signatures")
 
 		return m
