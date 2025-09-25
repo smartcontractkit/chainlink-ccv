@@ -3,6 +3,7 @@ package model
 
 import (
 	"encoding/hex"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 )
@@ -17,6 +18,16 @@ type CommitAggregatedReport struct {
 
 func GetAggregatedReportID(messageID MessageID, committeeID CommitteeID) string {
 	return hex.EncodeToString(messageID) + ":" + committeeID
+}
+
+func (c *CommitAggregatedReport) CalculateTimeToAggregation(aggregationTime time.Time) time.Duration {
+	var minTime int64
+	for v := range c.Verifications {
+		if c.Verifications[v].GetTimestamp() < minTime || minTime == 0 {
+			minTime = c.Verifications[v].GetTimestamp()
+		}
+	}
+	return aggregationTime.Sub(time.UnixMicro(minTime))
 }
 
 func (c *CommitAggregatedReport) GetID() string {

@@ -32,4 +32,6 @@ type AggregatorMetricLabeler interface {
 	RecordStorageLatency(ctx context.Context, latencyMs int64)
 	// IncrementStorageError increments the storage error counter.
 	IncrementStorageError(ctx context.Context)
+	// RecordTimeToAggregation records the time taken to complete an aggregation.
+	RecordTimeToAggregation(ctx context.Context, durationMs int64)
 }
