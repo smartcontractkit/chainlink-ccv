@@ -299,14 +299,31 @@ func (d *DatabaseStorage) ListCommitVerificationByMessageID(ctx context.Context,
 	return records, nil
 }
 
-func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error) {
+func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string, limit int, lastSeqNum *int64) (*model.PaginatedAggregatedReportsResponse, error) {
 	startTime := time.Unix(start, 0)
 	endTime := time.Unix(end, 0)
 
-	reportStmt := `SELECT DISTINCT ON (message_id) message_id, committee_id, verification_record_ids, report_data, created_at
-		FROM commit_aggregated_reports 
-		WHERE committee_id = $1 AND created_at >= $2 AND created_at <= $3
-		ORDER BY message_id, seq_num DESC`
+	// Build query with cursor-based pagination using seq_num
+	var reportStmt string
+	var args []interface{}
+
+	if lastSeqNum == nil {
+		// First page - no cursor
+		reportStmt = `SELECT message_id, committee_id, verification_record_ids, report_data, created_at, seq_num
+			FROM commit_aggregated_reports 
+			WHERE committee_id = $1 AND created_at >= $2 AND created_at <= $3
+			ORDER BY seq_num ASC
+			LIMIT $4`
+		args = []interface{}{committeeID, startTime, endTime, limit + 1} // +1 to check if there are more pages
+	} else {
+		// Subsequent page - use cursor
+		reportStmt = `SELECT message_id, committee_id, verification_record_ids, report_data, created_at, seq_num
+			FROM commit_aggregated_reports 
+			WHERE committee_id = $1 AND created_at >= $2 AND created_at <= $3 AND seq_num > $4
+			ORDER BY seq_num ASC
+			LIMIT $5`
+		args = []interface{}{committeeID, startTime, endTime, *lastSeqNum, limit + 1} // +1 to check if there are more pages
+	}
 
 	type reportRecord struct {
 		MessageID             string        `db:"message_id"`
@@ -314,16 +331,25 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end
 		VerificationRecordIDs pq.Int64Array `db:"verification_record_ids"`
 		ReportData            []byte        `db:"report_data"`
 		CreatedAt             time.Time     `db:"created_at"`
+		SeqNum                int64         `db:"seq_num"`
 	}
 
 	var reportRecords []reportRecord
-	err := d.ds.SelectContext(ctx, &reportRecords, reportStmt, committeeID, startTime, endTime)
+	err := d.ds.SelectContext(ctx, &reportRecords, reportStmt, args...)
 	if err != nil {
-		return []*model.CommitAggregatedReport{}, err
+		return &model.PaginatedAggregatedReportsResponse{
+			Reports:    []*model.CommitAggregatedReport{},
+			HasMore:    false,
+			LastSeqNum: nil,
+		}, err
 	}
 
 	if len(reportRecords) == 0 {
-		return []*model.CommitAggregatedReport{}, nil
+		return &model.PaginatedAggregatedReportsResponse{
+			Reports:    []*model.CommitAggregatedReport{},
+			HasMore:    false,
+			LastSeqNum: nil,
+		}, nil
 	}
 
 	allVerificationIDs := make([]int64, 0)
@@ -336,8 +362,17 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end
 		return nil, err
 	}
 
-	reports := make([]*model.CommitAggregatedReport, 0, len(reportRecords))
-	for _, record := range reportRecords {
+	// Check if we have more results than requested (indicating more pages)
+	hasMore := len(reportRecords) > limit
+	actualRecords := reportRecords
+	if hasMore {
+		actualRecords = reportRecords[:limit] // Remove the extra record used for pagination check
+	}
+
+	reports := make([]*model.CommitAggregatedReport, 0, len(actualRecords))
+	var resultLastSeqNum *int64
+
+	for _, record := range actualRecords {
 		report := &model.CommitAggregatedReport{
 			MessageID:     common.Hex2Bytes(record.MessageID),
 			CommitteeID:   record.CommitteeID,
@@ -352,9 +387,14 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end
 		}
 
 		reports = append(reports, report)
+		resultLastSeqNum = &record.SeqNum // Keep track of the last sequence number
 	}
 
-	return reports, nil
+	return &model.PaginatedAggregatedReportsResponse{
+		Reports:    reports,
+		HasMore:    hasMore,
+		LastSeqNum: resultLastSeqNum,
+	}, nil
 }
 
 func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {

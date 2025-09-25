@@ -38,6 +38,16 @@ func WithStubMode(stub bool) ConfigOption {
 	}
 }
 
+func WithPaginationConfig(pageLimit int, tokenSecret string) ConfigOption {
+	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+		cfg.Pagination = model.PaginationConfig{
+			PageLimit:   pageLimit,
+			TokenSecret: tokenSecret,
+		}
+		return cfg
+	}
+}
+
 // CreateServerAndClient creates a test server and client for functional testing.
 func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.CCVDataClient, func(), error) {
 	// Start PostgreSQL testcontainer

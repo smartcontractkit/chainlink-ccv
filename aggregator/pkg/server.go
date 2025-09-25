@@ -26,6 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/pagination"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -222,7 +223,11 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
 	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring)
+
+	// Initialize pagination token manager
+	tokenManager := pagination.NewPaginationTokenManager([]byte(config.Pagination.TokenSecret))
+
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, tokenManager, config.Pagination.PageLimit, l, aggMonitoring)
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 

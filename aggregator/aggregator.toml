@@ -36,6 +36,10 @@ pyroscope_url = "http://pyroscope:4040"
       12922642891491394802 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
       3379446385462418246 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
 
+[pagination]
+  pageLimit = 100
+  tokenSecret = "my-secure-pagination-secret-32bytes"
+
 [metrics]
   enableMetrics = true
   endpoint = "otel-collector:4318"

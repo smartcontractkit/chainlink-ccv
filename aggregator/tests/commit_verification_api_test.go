@@ -485,3 +485,218 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 
 	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData3.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithValidSignatureFrom(signer3))
 }
+
+// TestPaginationWithThousandMessages tests the GetMessagesSince API with pagination
+// by creating 1000+ messages from 2 signers, configuring page size to 10, and
+// verifying that all messages are properly aggregated by iterating through all pages.
+func TestPaginationWithThousandMessages(t *testing.T) {
+	const numMessages = 1000
+	const pageSize = 10
+
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+	signer1 := NewSignerFixture(t, "node1")
+	signer2 := NewSignerFixture(t, "node2")
+
+	// Configure committee with 2 signers and threshold of 2
+	config := map[string]*model.Committee{
+		"default": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
+					Threshold: 2,
+					Signers: []model.Signer{
+						signer1.Signer,
+						signer2.Signer,
+					},
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+				},
+			},
+		},
+	}
+
+	// Create server with pagination config (page size 10)
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(
+		t,
+		WithCommitteeConfig(config),
+		WithPaginationConfig(pageSize, "test-pagination-secret-32-bytes!!!"),
+	)
+	t.Cleanup(cleanup)
+	require.NoError(t, err, "failed to create server and client")
+
+	t.Logf("Starting to create and submit %d messages...", numMessages)
+
+	// Track all message IDs for later verification
+	messageIds := make([]types.Bytes32, 0, numMessages)
+
+	// Create and submit messages in batches for better performance
+	startTime := time.Now()
+	for i := 0; i < numMessages; i++ {
+		if i%100 == 0 {
+			t.Logf("Progress: %d/%d messages submitted", i, numMessages)
+		}
+
+		// Create unique message by varying the nonce
+		message := NewProtocolMessage(t)
+		message.Nonce = types.Nonce(i + 1) // Ensure unique nonce for each message
+
+		messageId, err := message.MessageID()
+		require.NoError(t, err, "failed to compute message ID for message %d", i)
+		messageIds = append(messageIds, messageId)
+
+		// First signature from signer1
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for message %d, signer1", i)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS for message %d, signer1", i)
+
+		// Second signature from signer2 (this should trigger aggregation)
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for message %d, signer2", i)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS for message %d, signer2", i)
+
+		// Brief pause every 100 messages to allow aggregation to process
+		if (i+1)%100 == 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	submissionTime := time.Since(startTime)
+	t.Logf("All %d messages submitted in %v", numMessages, submissionTime)
+
+	// Wait for all aggregations to complete
+	t.Log("Waiting for aggregation to complete...")
+	time.Sleep(2 * time.Second)
+
+	// Now test pagination by retrieving all messages using GetMessagesSince
+	t.Log("Starting pagination test to retrieve all aggregated messages...")
+
+	retrievedMessages := make(map[string]*pb.MessageWithCCVData)
+	var nextToken string
+	pageCount := 0
+	totalRetrieved := 0
+
+	paginationStartTime := time.Now()
+	for {
+		pageCount++
+		t.Logf("Fetching page %d with token: %s", pageCount, nextToken)
+
+		// Call GetMessagesSince with current pagination token
+		req := &pb.GetMessagesSinceRequest{
+			Since: 0, // Get all messages
+		}
+		if nextToken != "" {
+			req.NextToken = nextToken
+		}
+
+		resp, err := ccvDataClient.GetMessagesSince(t.Context(), req)
+		require.NoError(t, err, "GetMessagesSince failed on page %d", pageCount)
+		require.NotNil(t, resp, "GetMessagesSince response should not be nil on page %d", pageCount)
+
+		pageSize := len(resp.Results)
+		totalRetrieved += pageSize
+		t.Logf("Page %d: retrieved %d reports, hasMore=%t", pageCount, pageSize, resp.NextToken != "")
+
+		// Validate page size constraints
+		if resp.NextToken != "" {
+			// Not the last page - should have exactly pageSize records (10)
+			require.Equal(t, 10, pageSize, "Non-final page %d should have exactly 10 records", pageCount)
+		} else {
+			// Last page - should have remaining records (1-10)
+			require.True(t, pageSize > 0 && pageSize <= 10, "Final page %d should have 1-10 records, got %d", pageCount, pageSize)
+		}
+
+		// Store retrieved messages for verification
+		for _, report := range resp.Results {
+			// Compute message ID from the message
+			require.NotNil(t, report.Message, "Message should not be nil in response")
+
+			// Convert pb.Message to types.Message to compute message ID
+			msg := &types.Message{
+				Version:              uint8(report.Message.Version),
+				SourceChainSelector:  types.ChainSelector(report.Message.SourceChainSelector),
+				DestChainSelector:    types.ChainSelector(report.Message.DestChainSelector),
+				Nonce:                types.Nonce(report.Message.Nonce),
+				OnRampAddressLength:  uint8(report.Message.OnRampAddressLength),
+				OnRampAddress:        report.Message.OnRampAddress,
+				OffRampAddressLength: uint8(report.Message.OffRampAddressLength),
+				OffRampAddress:       report.Message.OffRampAddress,
+				Finality:             uint16(report.Message.Finality),
+				SenderLength:         uint8(report.Message.SenderLength),
+				Sender:               report.Message.Sender,
+				ReceiverLength:       uint8(report.Message.ReceiverLength),
+				Receiver:             report.Message.Receiver,
+				DestBlobLength:       uint16(report.Message.DestBlobLength),
+				DestBlob:             report.Message.DestBlob,
+				TokenTransferLength:  uint16(report.Message.TokenTransferLength),
+				TokenTransfer:        report.Message.TokenTransfer,
+				DataLength:           uint16(report.Message.DataLength),
+				Data:                 report.Message.Data,
+			}
+
+			messageId, err := msg.MessageID()
+			require.NoError(t, err, "Failed to compute message ID on page %d", pageCount)
+			messageIdHex := common.Bytes2Hex(messageId[:])
+
+			// Ensure no duplicates
+			_, exists := retrievedMessages[messageIdHex]
+			require.False(t, exists, "Duplicate message found in pagination: %s on page %d", messageIdHex, pageCount)
+
+			retrievedMessages[messageIdHex] = report
+
+			// Validate that the report has proper structure
+			require.NotEmpty(t, report.CcvData, "CcvData should not be empty for messageId %s", messageIdHex)
+			require.Equal(t, sourceVerifierAddress, report.SourceVerifierAddress, "Source verifier address mismatch for messageId %s", messageIdHex)
+			require.Equal(t, destVerifierAddress, report.DestVerifierAddress, "Dest verifier address mismatch for messageId %s", messageIdHex)
+		}
+
+		// Check if there are more pages
+		if resp.NextToken == "" {
+			t.Logf("Reached final page %d", pageCount)
+			break
+		}
+
+		nextToken = resp.NextToken
+
+		// Safety check to prevent infinite loops
+		require.Less(t, pageCount, 200, "Too many pages - possible infinite loop or missing messages")
+	}
+
+	paginationTime := time.Since(paginationStartTime)
+	t.Logf("Retrieved all messages via pagination in %v across %d pages", paginationTime, pageCount)
+
+	// Verify that we retrieved all expected messages
+	require.Equal(t, numMessages, totalRetrieved, "Should have retrieved all %d messages via pagination", numMessages)
+	require.Equal(t, numMessages, len(retrievedMessages), "Should have %d unique messages in result map", numMessages)
+
+	// Verify that all original message IDs are present in retrieved messages
+	t.Log("Verifying all original messages are present in pagination results...")
+	for i, originalMessageId := range messageIds {
+		messageIdHex := common.Bytes2Hex(originalMessageId[:])
+		report, found := retrievedMessages[messageIdHex]
+		require.True(t, found, "Original message %d with ID %s not found in pagination results", i, messageIdHex)
+
+		// Verify the message nonce matches (our unique identifier)
+		require.Equal(t, uint64(i+1), report.Message.Nonce, "Nonce mismatch for message %d", i)
+	}
+
+	// Calculate expected number of pages
+	expectedPages := (numMessages + pageSize - 1) / pageSize // Ceiling division
+	require.Equal(t, expectedPages, pageCount, "Expected %d pages for %d messages with page size %d", expectedPages, numMessages, pageSize)
+
+	t.Logf("✅ Pagination test completed successfully!")
+	t.Logf("📊 Summary:")
+	t.Logf("   - Messages created: %d", numMessages)
+	t.Logf("   - Submission time: %v", submissionTime)
+	t.Logf("   - Messages retrieved: %d", totalRetrieved)
+	t.Logf("   - Pagination time: %v", paginationTime)
+	t.Logf("   - Total pages: %d", pageCount)
+	t.Logf("   - Page size: %d", pageSize)
+	t.Logf("   - All messages verified: ✅")
+}
