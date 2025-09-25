@@ -29,7 +29,32 @@ type AggregatorMetrics struct {
 }
 
 func MetricViews() []sdkmetric.View {
-	return []sdkmetric.View{}
+	return []sdkmetric.View{
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "aggregator_time_to_aggregation"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+			}},
+		),
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "aggregator_api_request_duration"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+			}},
+		),
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "aggregator_get_message_since_number_of_records_returns"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000},
+			}},
+		),
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "aggregator_storage_latency"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
+			}},
+		),
+	}
 }
 
 func InitMetrics() (am *AggregatorMetrics, err error) {
