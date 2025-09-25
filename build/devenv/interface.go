@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/prometheus/client_golang/prometheus"
+	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
@@ -35,8 +36,8 @@ type Observable interface {
 
 // Testable provides functions for a standardized CCIP test suite.
 type Testable interface {
-	// SendMessage sends an arbitrary CCIP17 message
-	SendMessage(ctx context.Context, router string, msg []byte) ([]byte, error)
+	SendExampleArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64) error
+	SendExampleArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error
 	// VerifyMessage verifies that message is delivered on the target offRamp
 	// by checking events or other data for corresponding message ID
 	VerifyMessage(ctx context.Context, offRamp string, msgID []byte) error

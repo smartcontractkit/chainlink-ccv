@@ -6,18 +6,22 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -28,6 +32,128 @@ import (
 )
 
 type CCIP17EVM struct{}
+
+func (m *CCIP17EVM) SendExampleArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64) error {
+	l := zerolog.Ctx(ctx)
+	chains := e.BlockChains.EVMChains()
+	if chains == nil {
+		return errors.New("no EVM chains found")
+	}
+
+	srcChain := chains[src]
+
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+	e.OperationsBundle = bundle
+
+	routerAddr, err := GetContractAddrForSelector(addresses, srcChain.Selector, datastore.ContractType(router.ContractType))
+	if err != nil {
+		return fmt.Errorf("failed to get router address: %w", err)
+	}
+
+	receiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+	ccipSendArgs := router.CCIPSendArgs{
+		DestChainSelector: dest,
+		EVM2AnyMessage: router.EVM2AnyMessage{
+			Receiver:     common.LeftPadBytes(common.HexToAddress(receiver).Bytes(), 32),
+			Data:         []byte{},
+			TokenAmounts: []router.EVMTokenAmount{},
+			ExtraArgs:    []byte{},
+		},
+	}
+
+	// Send CCIP message with value
+	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+		ChainSelector: src,
+		Address:       routerAddr,
+		Args:          ccipSendArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send CCIP message: %w", err)
+	}
+	l.Info().Bool("Executed", sendReport.Output.Executed).
+		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
+		Uint64("DestChainSelector", dest).
+		Str("SrcRouter", sendReport.Output.Tx.To).
+		Msg("CCIP message sent")
+	return nil
+}
+
+func (m *CCIP17EVM) SendExampleArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []types.CCV, threshold uint8) error {
+	l := zerolog.Ctx(ctx)
+	chains := e.BlockChains.EVMChains()
+	if chains == nil {
+		return errors.New("no EVM chains found")
+	}
+	if !slices.Contains(selectors, src) {
+		return fmt.Errorf("source selector %d not found in environment selectors %v", src, selectors)
+	}
+	if !slices.Contains(selectors, dest) {
+		return fmt.Errorf("destination selector %d not found in environment selectors %v", dest, selectors)
+	}
+
+	srcChain := chains[src]
+
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+	e.OperationsBundle = bundle
+
+	routerAddr, err := GetContractAddrForSelector(addresses, srcChain.Selector, datastore.ContractType(router.ContractType))
+	if err != nil {
+		return fmt.Errorf("failed to get router address: %w", err)
+	}
+
+	argsV3, err := NewV3ExtraArgs(finality, execAddr, execArgs, tokenArgs, ccv, optCcv, threshold)
+	if err != nil {
+		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
+	}
+	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+
+	ccipSendArgs := router.CCIPSendArgs{
+		DestChainSelector: dest,
+		EVM2AnyMessage: router.EVM2AnyMessage{
+			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
+			Data:         []byte{},
+			TokenAmounts: []router.EVMTokenAmount{},
+			ExtraArgs:    argsV3,
+		},
+	}
+
+	// TODO: not supported right now
+	//feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+	//	ChainSelector: srcChain.Selector,
+	//	Address:       routerAddr,
+	//	Args:          ccipSendArgs,
+	//})
+	//if err != nil {
+	//	return fmt.Errorf("failed to get fee: %w", err)
+	//}
+	//ccipSendArgs.Value = feeReport.Output
+
+	// Send CCIP message with value
+	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+		ChainSelector: src,
+		Address:       routerAddr,
+		Args:          ccipSendArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send CCIP message: %w", err)
+	}
+
+	l.Info().Bool("Executed", sendReport.Output.Executed).
+		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
+		Uint64("DestChainSelector", dest).
+		Str("SrcRouter", sendReport.Output.Tx.To).
+		Msg("CCIP message sent")
+
+	return nil
+}
 
 func (m *CCIP17EVM) ExposeMetrics(ctx context.Context, addresses []string, chainIDs []string, wsURLs []string) ([]string, *prometheus.Registry, error) {
 	msgSentTotal.Reset()

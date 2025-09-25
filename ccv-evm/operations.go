@@ -1,13 +1,21 @@
 package ccv_evm
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/nonce_manager"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -89,4 +97,227 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 		return datastore.AddressRef{}, fmt.Errorf("failed to deploy MockReceiver: %w", err)
 	}
 	return report.Output, nil
+}
+
+// NewV3ExtraArgs encodes v3 extra args params
+func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
+	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
+	const clientABI = `
+    [
+        {
+            "name": "encodeEVMExtraArgsV3",
+            "type": "function",
+            "inputs": [
+                {
+                    "components": [
+                        {
+                            "name": "requiredCCV",
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "ccvAddress", "type": "address"},
+                                {"name": "args", "type": "bytes"}
+                            ]
+                        },
+                        {
+                            "name": "optionalCCV", 
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "ccvAddress", "type": "address"},
+                                {"name": "args", "type": "bytes"}
+                            ]
+                        },
+                        {"name": "optionalThreshold", "type": "uint8"},
+                        {"name": "finalityConfig", "type": "uint16"},
+                        {"name": "executor", "type": "address"},
+                        {"name": "executorArgs", "type": "bytes"},
+                        {"name": "tokenArgs", "type": "bytes"}
+                    ],
+                    "name": "extraArgs",
+                    "type": "tuple"
+                }
+            ],
+            "outputs": [{"type": "bytes"}],
+            "stateMutability": "pure"
+        }
+    ]
+    `
+
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(clientABI)))
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert CCV slices to match Solidity CCV struct exactly
+	requiredCCV := make([]struct {
+		CcvAddress common.Address
+		Args       []byte
+	}, len(requiredCCVs))
+
+	for i, ccv := range requiredCCVs {
+		requiredCCV[i] = struct {
+			CcvAddress common.Address
+			Args       []byte
+		}{
+			CcvAddress: common.BytesToAddress(ccv.CCVAddress),
+			Args:       ccv.Args,
+		}
+	}
+
+	optionalCCV := make([]struct {
+		CcvAddress common.Address
+		Args       []byte
+	}, len(optionalCCVs))
+
+	for i, ccv := range optionalCCVs {
+		optionalCCV[i] = struct {
+			CcvAddress common.Address
+			Args       []byte
+		}{
+			CcvAddress: common.BytesToAddress(ccv.CCVAddress),
+			Args:       ccv.Args,
+		}
+	}
+
+	// Struct matching exactly the Solidity EVMExtraArgsV3 order and types
+	extraArgs := struct {
+		RequiredCCV []struct {
+			CcvAddress common.Address
+			Args       []byte
+		}
+		OptionalCCV []struct {
+			CcvAddress common.Address
+			Args       []byte
+		}
+		OptionalThreshold uint8
+		FinalityConfig    uint16
+		Executor          common.Address
+		ExecutorArgs      []byte
+		TokenArgs         []byte
+	}{
+		RequiredCCV:       requiredCCV,
+		OptionalCCV:       optionalCCV,
+		OptionalThreshold: optionalThreshold,
+		FinalityConfig:    finalityConfig,
+		Executor:          common.HexToAddress(execAddr),
+		ExecutorArgs:      execArgs,
+		TokenArgs:         tokenArgs,
+	}
+
+	encoded, err := parsedABI.Methods["encodeEVMExtraArgsV3"].Inputs.Pack(extraArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Prepend the GENERIC_EXTRA_ARGS_V3_TAG
+	tag := []byte{0x30, 0x23, 0x26, 0xcb}
+	return append(tag, encoded...), nil
+}
+
+func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresses []string, selector uint64, args mock_receiver.ConstructorArgs) ([]string, error) {
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+	e.OperationsBundle = bundle
+
+	receiver, err := DeployReceiverForSelector(e, selector, args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deploy mock receiver for selector %d: %w", selector, err)
+	}
+
+	addrs, err := MergeAddresses(addresses, selector, []datastore.AddressRef{receiver})
+	if err != nil {
+		return nil, fmt.Errorf("failed to save contract refs for selector %d: %w", selector, err)
+	}
+
+	return addrs, nil
+}
+
+func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, signatureConfigArgs commit_offramp.SignatureConfigArgs) ([]string, error) {
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+	e.OperationsBundle = bundle
+
+	allAddrs := make([]string, 0)
+
+	for _, sel := range selectors {
+		onRamp, offRamp, err := DeployCommitVerifierForSelector(
+			e,
+			sel,
+			commit_onramp.ConstructorArgs{
+				DynamicConfig: commit_onramp.DynamicConfig{
+					FeeQuoter:      MustGetContractAddressForSelector(addresses, sel, fee_quoter_v2.ContractType),
+					FeeAggregator:  e.BlockChains.EVMChains()[sel].DeployerKey.From,
+					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
+				},
+			},
+			commit_offramp.ConstructorArgs{
+				NonceManager: MustGetContractAddressForSelector(addresses, sel, nonce_manager.ContractType),
+			},
+			signatureConfigArgs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to deploy commit onramp and offramp for selector %d: %w", sel, err)
+		}
+
+		var destConfigArgs []commit_onramp.DestChainConfigArgs
+		for _, destSel := range selectors {
+			if destSel == sel {
+				continue
+			}
+			destConfigArgs = append(destConfigArgs, commit_onramp.DestChainConfigArgs{
+				AllowlistEnabled:  false,
+				Router:            MustGetContractAddressForSelector(addresses, sel, router.ContractType),
+				DestChainSelector: destSel,
+			})
+		}
+
+		err = ConfigureCommitVerifierOnSelectorForLanes(e, sel, common.HexToAddress(onRamp.Address), destConfigArgs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
+		}
+
+		addrs, err := MergeAddresses(addresses, sel, []datastore.AddressRef{onRamp, offRamp})
+		if err != nil {
+			return nil, fmt.Errorf("failed to save contract refs for selector %d: %w", sel, err)
+		}
+		allAddrs = append(allAddrs, addrs...)
+	}
+
+	return allAddrs, nil
+}
+
+func MergeAddresses(addrs []string, sel uint64, refs []datastore.AddressRef) ([]string, error) {
+	var addresses []datastore.AddressRef
+	for _, addressesForSelector := range addrs {
+		var refs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addressesForSelector), &refs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal addresses: %w", err)
+		}
+		if len(refs) > 0 && refs[0].ChainSelector == sel {
+			addresses = refs
+			break
+		}
+	}
+	for _, r := range refs {
+		addresses = append(addresses, r)
+	}
+	addrBytes, err := json.Marshal(addresses)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal addresses: %w", err)
+	}
+	addrs = append(addrs, string(addrBytes))
+	return addrs, nil
+}
+
+func MustGetContractAddressForSelector(addresses []string, selector uint64, contractType deployment.ContractType) common.Address {
+	addr, err := GetContractAddrForSelector(addresses, selector, datastore.ContractType(contractType))
+	if err != nil {
+		panic("failed to get contract address")
+	}
+	return addr
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -23,6 +24,7 @@ func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
 	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
 
 	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
 	for _, bc := range in.Blockchains {
@@ -35,6 +37,8 @@ func TestE2ESmoke(t *testing.T) {
 
 	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
 	require.NoError(t, err)
+
+	impl := &ccvEvm.CCIP17EVM{}
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
@@ -70,8 +74,8 @@ func TestE2ESmoke(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.toSelector)
 				require.NoError(t, err)
-				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = ccv.SendExampleArgsV2Message(in, tc.fromSelector, tc.toSelector)
+				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+				err = impl.SendExampleArgsV2Message(ctx, e, in.CLDF.Addresses, selectors, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
 				_, err = ccvEvm.WaitOneSentEventBySeqNo(ctx, tc.proxy, tc.toSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
@@ -139,8 +143,8 @@ func TestE2ESmoke(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				seqNo, err := tc.proxy.GetExpectedNextSequenceNumber(&bind.CallOpts{}, tc.dstSelector)
 				require.NoError(t, err)
-				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = ccv.SendExampleArgsV3Message(e, in.CLDF.Addresses, selectors, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
+				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+				err = impl.SendExampleArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
 					tc.mandatoryCCVs, tc.optionalCCVs, 0)
 				require.NoError(t, err)
 				_, err = ccvEvm.WaitOneSentEventBySeqNo(ctx, tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
