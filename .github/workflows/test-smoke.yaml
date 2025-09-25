@@ -62,7 +62,8 @@ jobs:
       - name: Test Smoke ArgsV3
         working-directory: build/devenv/tests/e2e
         run: |
-          go test -v -run TestE2ESmoke/test_argsv3_messages
+          go test -v -run TestE2ESmoke/test_argsv3_messages/src->dst_msg_execution_with_EOA_receiver \
+          go test -v -run TestE2ESmoke/test_argsv3_messages/dst->src_msg_execution_with_EOA_receiver
 
       - name: Upload Logs
         if: always()

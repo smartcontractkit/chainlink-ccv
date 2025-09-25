@@ -7,7 +7,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
@@ -52,8 +51,7 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress types2.UnknownAddress) ([]byte, error) {
 	message := verificationTask.Message
 
-	// 1. Calculate message hash using the new chain-agnostic method
-	messageHash, err := message.MessageID()
+	messageID, err := message.MessageID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute message ID: %w", err)
 	}
@@ -63,11 +61,8 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask type
 		return nil, fmt.Errorf("failed to find verifier index: %w", err)
 	}
 
-	// 2. Calculate signature hash (now just the messageHash itself)
-	signatureHash := hashing.CalculateSignatureHash(messageHash)
-
 	// 3. Sign the signature hash with v=27 normalization
-	r, s, signerAddress, err := signature.SignV27(signatureHash[:], ecdsa.privateKey)
+	r, s, signerAddress, err := signature.SignV27(messageID[:], ecdsa.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}

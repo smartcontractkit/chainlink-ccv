@@ -78,7 +78,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 
 	message := model.MapProtoMessageToProtocolMessage(reportMessage)
 
-	messageHash, err := message.MessageID()
+	messageID, err := message.MessageID()
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to compute message hash", "error", err)
 		return nil, nil, err
@@ -89,8 +89,6 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
 		return nil, nil, err
 	}
-
-	signatureHash := hashing.CalculateSignatureHash(messageHash)
 
 	if len(rs) != len(ss) {
 		q.logger(ctx).Error("Mismatched signature lengths")
@@ -107,7 +105,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 		for vValue := byte(0); vValue <= 1; vValue++ {
 			combined := append(rs[i][:], ss[i][:]...)
 			combined = append(combined, vValue)
-			address, err := q.ecrecover(combined, signatureHash[:])
+			address, err := q.ecrecover(combined, messageID[:])
 			if err != nil {
 				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
 				continue

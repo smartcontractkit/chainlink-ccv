@@ -644,7 +644,7 @@ func SendExampleArgsV2Message(in *Cfg, src, dest uint64) error {
 }
 
 // SendExampleArgsV3Message sends an example message between two chains (selectors) using ArgsV3.
-func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr common.Address, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
+func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAddr, receiverAddress common.Address, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error {
 	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
 	if err != nil {
 		return fmt.Errorf("creating CLDF operations environment: %w", err)
@@ -677,12 +677,11 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAd
 	}
 	// Using an EOA receiver not mock receiver - There's currently a bug in on-chain when
 	// going through router->aggregator
-	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443b"
 
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
+			Receiver:     common.LeftPadBytes(receiverAddress.Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
 			ExtraArgs:    argsV3,

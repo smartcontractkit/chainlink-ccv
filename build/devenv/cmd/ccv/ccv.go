@@ -439,7 +439,10 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to parse finality config: %w", err)
 			}
 
-			return ccv.SendExampleArgsV3Message(in, src, dest, uint16(finality), common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"), nil, nil,
+			return ccv.SendExampleArgsV3Message(in, src, dest, uint16(finality),
+				common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"), // executor address
+				common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"), // mock receiver
+				nil, nil,
 				[]types.CCV{
 					{
 						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
