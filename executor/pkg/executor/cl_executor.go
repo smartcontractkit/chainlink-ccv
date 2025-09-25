@@ -62,13 +62,12 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return nil
 	}
 
-	// Hardcoding for now until new on-chain changes are merged which we can just use the offramp directly to get the
-	// CCV Offramp addresses instead of getting it from the receiver
-	offrampAddr := []byte("0x68B1D87F95878fE05B998F19b66F4baba5De1aed")
-	ccvInfo := types.CcvAddressInfo{
-		RequiredCcvs:      []protocol.UnknownAddress{offrampAddr},
-		OptionalCcvs:      []protocol.UnknownAddress{},
-		OptionalThreshold: 0,
+	ccvInfo, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
+		ctx,
+		messageWithCCVData.Message,
+	)
+	if err != nil && len(ccvInfo.RequiredCcvs) == 0 {
+		return fmt.Errorf("failed to get CCV Offramp info for message: %w", err)
 	}
 
 	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(messageWithCCVData.CCVData, ccvInfo)
