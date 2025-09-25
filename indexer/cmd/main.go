@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -97,8 +97,8 @@ func createReaderDiscovery(lggr logger.Logger, cfg *config.Config) common.Reader
 }
 
 // createStaticReaders creates the static readers based on the configuration.
-func createStaticReaders(lggr logger.Logger, cfg *config.Config) []types.OffchainStorageReader {
-	readers := []types.OffchainStorageReader{}
+func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.OffchainStorageReader {
+	readers := []protocol.OffchainStorageReader{}
 
 	// Iterate over the readers and create the appropriate reader
 	for _, reader := range cfg.Discovery.Static.Readers {

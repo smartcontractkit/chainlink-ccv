@@ -4,7 +4,7 @@ import (
 	"context"
 	"math/big"
 
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // MessageSigner defines the interface for signing messages using the new chain-agnostic format.

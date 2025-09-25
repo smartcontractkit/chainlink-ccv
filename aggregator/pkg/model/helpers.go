@@ -5,18 +5,16 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func MapProtoMessageToProtocolMessage(m *pb.Message) *types.Message {
-	return &types.Message{
+func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
+	return &protocol.Message{
 		Version:              uint8(m.Version), //nolint:gosec // G115: Protocol-defined conversion
-		SourceChainSelector:  types.ChainSelector(m.SourceChainSelector),
-		DestChainSelector:    types.ChainSelector(m.DestChainSelector),
-		Nonce:                types.Nonce(m.Nonce),
+		SourceChainSelector:  protocol.ChainSelector(m.SourceChainSelector),
+		DestChainSelector:    protocol.ChainSelector(m.DestChainSelector),
+		Nonce:                protocol.Nonce(m.Nonce),
 		OnRampAddressLength:  uint8(m.OnRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OnRampAddress:        m.OnRampAddress,
 		OffRampAddressLength: uint8(m.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
@@ -36,13 +34,13 @@ func MapProtoMessageToProtocolMessage(m *pb.Message) *types.Message {
 }
 
 func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*pb.MessageWithCCVData, error) {
-	participantSignatures := make(map[string]signature.Data)
+	participantSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
 			return nil, fmt.Errorf("missing IdentifierSigner in verification record")
 		}
 
-		participantSignatures[verification.IdentifierSigner.ParticipantID] = signature.Data{
+		participantSignatures[verification.IdentifierSigner.ParticipantID] = protocol.Data{
 			R:      verification.IdentifierSigner.SignatureR,
 			S:      verification.IdentifierSigner.SignatureS,
 			Signer: common.Address(verification.IdentifierSigner.Address),
@@ -56,7 +54,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 
 	signers := quorumConfig.Signers
 
-	signatures := make([]signature.Data, 0)
+	signatures := make([]protocol.Data, 0)
 
 	for _, signer := range signers {
 		sig, exists := participantSignatures[signer.ParticipantID]
@@ -68,7 +66,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	}
 
 	// Encode signatures using simple format (sorting is handled internally)
-	encodedSignatures, err := signature.EncodeSignatures(signatures)
+	encodedSignatures, err := protocol.EncodeSignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}

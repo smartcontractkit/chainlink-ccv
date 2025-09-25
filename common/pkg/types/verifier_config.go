@@ -1,7 +1,7 @@
 package types
 
 import (
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type VerifierConfig struct {

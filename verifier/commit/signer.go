@@ -7,8 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 )
@@ -16,7 +15,7 @@ import (
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {
 	privateKey *ecdsa.PrivateKey
-	address    types.UnknownAddress
+	address    protocol.UnknownAddress
 }
 
 // NewECDSAMessageSigner creates a new ECDSA message signer.
@@ -42,12 +41,12 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 
 	return &ECDSASigner{
 		privateKey: privateKey,
-		address:    types.UnknownAddress(address.Bytes()),
+		address:    protocol.UnknownAddress(address.Bytes()),
 	}, nil
 }
 
 // SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask verifier.VerificationTask, sourceVerifierAddress types.UnknownAddress) ([]byte, error) {
+func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask verifier.VerificationTask, sourceVerifierAddress protocol.UnknownAddress) ([]byte, error) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
@@ -61,13 +60,13 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask veri
 	}
 
 	// 3. Sign the signature hash with v=27 normalization
-	r, s, signerAddress, err := signature.SignV27(messageID[:], ecdsa.privateKey)
+	r, s, signerAddress, err := protocol.SignV27(messageID[:], ecdsa.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
 	// 4. Create signature data with signer address
-	signatures := []signature.Data{
+	signatures := []protocol.Data{
 		{
 			R:      r,
 			S:      s,
@@ -76,7 +75,7 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask veri
 	}
 
 	// 5. Encode signature using simple format
-	encodedSignature, err := signature.EncodeSignatures(signatures)
+	encodedSignature, err := protocol.EncodeSignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}
@@ -85,6 +84,6 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask veri
 }
 
 // GetSignerAddress returns the address of the signer.
-func (ecdsa *ECDSASigner) GetSignerAddress() types.UnknownAddress {
+func (ecdsa *ECDSASigner) GetSignerAddress() protocol.UnknownAddress {
 	return ecdsa.address
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	protocol2 "github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
@@ -21,18 +22,17 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Configuration flags.
 const (
 	// Chain IDs for blockchain client connections.
-	chainIDA = protocol.ChainSelector(1337)
-	chainIDB = protocol.ChainSelector(2337)
+	chainIDA = protocol2.ChainSelector(1337)
+	chainIDB = protocol2.ChainSelector(2337)
 
 	// Actual chain selectors used in CCIP messages.
-	chainSelectorA = protocol.ChainSelector(3379446385462418246)  // Maps to chain ID 1337
-	chainSelectorB = protocol.ChainSelector(12922642891491394802) // Maps to chain ID 2337
+	chainSelectorA = protocol2.ChainSelector(3379446385462418246)  // Maps to chain ID 1337
+	chainSelectorB = protocol2.ChainSelector(12922642891491394802) // Maps to chain ID 2337
 )
 
 func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
@@ -43,13 +43,13 @@ func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
 	return &config, nil
 }
 
-func logBlockchainInfo(blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger) {
-	for _, chainID := range []protocol.ChainSelector{chainIDA, chainIDB} {
+func logBlockchainInfo(blockchainHelper *protocol2.BlockchainHelper, lggr logger.Logger) {
+	for _, chainID := range []protocol2.ChainSelector{chainIDA, chainIDB} {
 		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *protocol.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo(blockchainHelper *protocol2.BlockchainHelper, chainSelector protocol2.ChainSelector, lggr logger.Logger) {
 	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
 		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
 	}
@@ -123,13 +123,13 @@ func main() {
 	}
 
 	// Use actual blockchain information from configuration
-	var blockchainHelper *protocol.BlockchainHelper
+	var blockchainHelper *protocol2.BlockchainHelper
 	var chainClient1 client.Client
 	var chainClient2 client.Client
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
-		blockchainHelper = protocol.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		blockchainHelper = protocol2.NewBlockchainHelper(verifierConfig.BlockchainInfos)
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
@@ -138,13 +138,13 @@ func main() {
 	}
 
 	// Create verifier addresses before source readers setup
-	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp1337)
+	verifierAddr, err := protocol2.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp1337)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
 	}
 
-	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp2337)
+	verifierAddr2, err := protocol2.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp2337)
 	if err != nil {
 		lggr.Errorw("Failed to create verifier address", "error", err)
 		os.Exit(1)
@@ -156,7 +156,7 @@ func main() {
 	}
 
 	// Create source readers - either blockchain-based or mock
-	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
+	sourceReaders := make(map[protocol2.ChainSelector]verifier.SourceReader)
 
 	// Try to create blockchain source readers if possible
 	if chainClient1 == nil || verifierConfig.VerifierOnRamp1337 == "" {
@@ -176,7 +176,7 @@ func main() {
 	// Create coordinator configuration
 	config := verifier.CoordinatorConfig{
 		VerifierID: "dev-verifier-1",
-		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
+		SourceConfigs: map[protocol2.ChainSelector]verifier.SourceConfig{
 			chainSelectorA: {
 				VerifierAddress: verifierAddr,
 			},
@@ -218,7 +218,7 @@ func main() {
 	// Start the verification coordinator
 	lggr.Infow("🚀 Starting Verification Coordinator",
 		"verifierID", config.VerifierID,
-		"sourceChains", []protocol.ChainSelector{chainSelectorA, chainSelectorB},
+		"sourceChains", []protocol2.ChainSelector{chainSelectorA, chainSelectorB},
 		"verifierAddress", []string{verifierAddr.String(), verifierAddr2.String()},
 	)
 

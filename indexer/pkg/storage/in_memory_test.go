@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -81,7 +81,7 @@ func TestQueryCCVDataTimestampRange(t *testing.T) {
 	ccvData3 := createTestCCVData("0x333", 3000, 1, 2)
 	ccvData4 := createTestCCVData("0x444", 4000, 1, 2)
 
-	for _, data := range []types.CCVData{ccvData1, ccvData2, ccvData3, ccvData4} {
+	for _, data := range []protocol.CCVData{ccvData1, ccvData2, ccvData3, ccvData4} {
 		err := storage.InsertCCVData(ctx, data)
 		require.NoError(t, err)
 	}
@@ -105,14 +105,14 @@ func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
 	ccvData2 := createTestCCVData("0x222", 2000, 2, 2) // source: 2
 	ccvData3 := createTestCCVData("0x333", 3000, 1, 2) // source: 1
 
-	for _, data := range []types.CCVData{ccvData1, ccvData2, ccvData3} {
+	for _, data := range []protocol.CCVData{ccvData1, ccvData2, ccvData3} {
 		err := storage.InsertCCVData(ctx, data)
 		require.NoError(t, err)
 	}
 
 	// Query for source chain 1
-	sourceChains := []types.ChainSelector{1}
-	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), sourceChains, []types.ChainSelector{}, 100, 0)
+	sourceChains := []protocol.ChainSelector{1}
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), sourceChains, []protocol.ChainSelector{}, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -130,14 +130,14 @@ func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
 	ccvData2 := createTestCCVData("0x222", 2000, 1, 3) // dest: 3
 	ccvData3 := createTestCCVData("0x333", 3000, 1, 2) // dest: 2
 
-	for _, data := range []types.CCVData{ccvData1, ccvData2, ccvData3} {
+	for _, data := range []protocol.CCVData{ccvData1, ccvData2, ccvData3} {
 		err := storage.InsertCCVData(ctx, data)
 		require.NoError(t, err)
 	}
 
 	// Query for dest chain 2
-	destChains := []types.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), []types.ChainSelector{}, destChains, 100, 0)
+	destChains := []protocol.ChainSelector{2}
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), []protocol.ChainSelector{}, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -156,14 +156,14 @@ func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
 	ccvData3 := createTestCCVData("0x333", 3000, 2, 2) // source: 2, dest: 2
 	ccvData4 := createTestCCVData("0x444", 4000, 1, 2) // source: 1, dest: 2
 
-	for _, data := range []types.CCVData{ccvData1, ccvData2, ccvData3, ccvData4} {
+	for _, data := range []protocol.CCVData{ccvData1, ccvData2, ccvData3, ccvData4} {
 		err := storage.InsertCCVData(ctx, data)
 		require.NoError(t, err)
 	}
 
 	// Query for source chain 1 AND dest chain 2
-	sourceChains := []types.ChainSelector{1}
-	destChains := []types.ChainSelector{2}
+	sourceChains := []protocol.ChainSelector{1}
+	destChains := []protocol.ChainSelector{2}
 	results, err := storage.QueryCCVData(ctx, 0, 9999, sourceChains, destChains, 100, 0)
 	require.NoError(t, err)
 
@@ -227,7 +227,7 @@ func TestQueryCCVDataNoMatchingChainSelector(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query for source chain 5 (no matches)
-	sourceChains := []types.ChainSelector{5}
+	sourceChains := []protocol.ChainSelector{5}
 	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, sourceChains, 100, 0)
 	require.NoError(t, err)
 	assert.Empty(t, results)
@@ -261,15 +261,15 @@ func TestConcurrentAccess(t *testing.T) {
 
 // Helper functions
 
-func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destChain types.ChainSelector) types.CCVData {
+func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destChain protocol.ChainSelector) protocol.CCVData {
 	// Ensure the messageID is properly padded to 64 hex characters
 	if len(messageIDHex) < 66 { // "0x" + 64 hex chars
 		messageIDHex = fmt.Sprintf("0x%064s", messageIDHex[2:])
 	}
-	messageID, _ := types.NewBytes32FromString(messageIDHex)
+	messageID, _ := protocol.NewBytes32FromString(messageIDHex)
 
 	// Create a unique message for each CCVData to ensure proper MessageID generation
-	message := types.Message{
+	message := protocol.Message{
 		Sender:               []byte{0x0d, 0x0e, 0x0f},
 		Data:                 []byte{0x10, 0x11, 0x12},
 		OnRampAddress:        []byte{0x13, 0x14, 0x15},
@@ -279,7 +279,7 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 		Receiver:             []byte{0x1f, 0x20, 0x21},
 		SourceChainSelector:  sourceChain,
 		DestChainSelector:    destChain,
-		Nonce:                types.Nonce(1),
+		Nonce:                protocol.Nonce(1),
 		Finality:             1,
 		DestBlobLength:       3,
 		TokenTransferLength:  3,
@@ -291,23 +291,23 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 		OnRampAddressLength:  3,
 	}
 
-	return types.CCVData{
+	return protocol.CCVData{
 		MessageID:             messageID,
 		Timestamp:             timestamp,
 		SourceChainSelector:   sourceChain,
 		DestChainSelector:     destChain,
-		Nonce:                 types.Nonce(1),
-		SourceVerifierAddress: types.UnknownAddress{0x01, 0x02, 0x03},
-		DestVerifierAddress:   types.UnknownAddress{0x04, 0x05, 0x06},
+		Nonce:                 protocol.Nonce(1),
+		SourceVerifierAddress: protocol.UnknownAddress{0x01, 0x02, 0x03},
+		DestVerifierAddress:   protocol.UnknownAddress{0x04, 0x05, 0x06},
 		CCVData:               []byte{0x07, 0x08, 0x09},
 		BlobData:              []byte{0x0a, 0x0b, 0x0c},
-		ReceiptBlobs:          []types.ReceiptWithBlob{},
+		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
 		Message:               message,
 	}
 }
 
-func createTestBytes32(hex string) types.Bytes32 {
-	bytes32, _ := types.NewBytes32FromString(hex)
+func createTestBytes32(hex string) protocol.Bytes32 {
+	bytes32, _ := protocol.NewBytes32FromString(hex)
 	return bytes32
 }
 
@@ -360,14 +360,14 @@ func BenchmarkQueryCCVDataWithChainFilter(b *testing.B) {
 
 	// Pre-populate with 1000 records with mixed chain selectors
 	for i := 0; i < 1000; i++ {
-		sourceChain := types.ChainSelector(i % 5)     // 0-4
-		destChain := types.ChainSelector((i + 1) % 5) // 1-5
+		sourceChain := protocol.ChainSelector(i % 5)     // 0-4
+		destChain := protocol.ChainSelector((i + 1) % 5) // 1-5
 		ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i), sourceChain, destChain)
 		storage.InsertCCVData(ctx, ccvData)
 	}
 
-	sourceChains := []types.ChainSelector{1, 2}
-	destChains := []types.ChainSelector{3, 4}
+	sourceChains := []protocol.ChainSelector{1, 2}
+	destChains := []protocol.ChainSelector{3, 4}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

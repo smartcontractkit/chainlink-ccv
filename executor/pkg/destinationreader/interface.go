@@ -4,8 +4,7 @@ import (
 	"context"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // DestinationReader is an interface for reading message status and data from a single destination chain

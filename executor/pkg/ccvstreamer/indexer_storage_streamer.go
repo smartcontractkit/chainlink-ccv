@@ -10,9 +10,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	protocol2 "github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Ensure IndexerStorageStreamer implements the CCVResultStreamer interface.
@@ -180,9 +179,9 @@ func (oss *IndexerStorageStreamer) Start(
 	return messagesCh, nil
 }
 
-func validateVerifierResults(results []protocol.CCVData) error {
-	messageIDs := make(map[protocol.Bytes32]struct{}, 0)
-	generatedIDs := make(map[protocol.Bytes32]struct{}, 0)
+func validateVerifierResults(results []protocol2.CCVData) error {
+	messageIDs := make(map[protocol2.Bytes32]struct{}, 0)
+	generatedIDs := make(map[protocol2.Bytes32]struct{}, 0)
 	for _, res := range results {
 		messageIDs[res.MessageID] = struct{}{}
 		genID, err := res.Message.MessageID()

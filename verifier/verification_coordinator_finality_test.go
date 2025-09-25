@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	protocol2 "github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 const (
@@ -38,7 +37,7 @@ func newTestVerifier() *testVerifier {
 func (t *testVerifier) VerifyMessage(
 	ctx context.Context,
 	verificationTask verifier.VerificationTask,
-	ccvDataCh chan<- protocol.CCVData,
+	ccvDataCh chan<- protocol2.CCVData,
 	verificationErrorCh chan<- verifier.VerificationError,
 ) {
 	t.mu.Lock()
@@ -47,13 +46,13 @@ func (t *testVerifier) VerifyMessage(
 
 	// Create mock CCV data
 	messageID, _ := verificationTask.Message.MessageID()
-	ccvData := protocol.CCVData{
+	ccvData := protocol2.CCVData{
 		MessageID:             messageID,
 		Nonce:                 verificationTask.Message.Nonce,
 		SourceChainSelector:   verificationTask.Message.SourceChainSelector,
 		DestChainSelector:     verificationTask.Message.DestChainSelector,
-		SourceVerifierAddress: protocol.UnknownAddress{},
-		DestVerifierAddress:   protocol.UnknownAddress{},
+		SourceVerifierAddress: protocol2.UnknownAddress{},
+		DestVerifierAddress:   protocol2.UnknownAddress{},
 		CCVData:               []byte("mock-signature"),
 		BlobData:              []byte("mock-blob"),
 		Timestamp:             time.Now().UnixMicro(),
@@ -76,7 +75,7 @@ func (t *testVerifier) getProcessedTaskCount() int {
 // testStorage for testing.
 type testStorage struct{}
 
-func (m *testStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData) error {
+func (m *testStorage) WriteCCVNodeData(ctx context.Context, data []protocol2.CCVData) error {
 	return nil
 }
 
@@ -94,8 +93,8 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	finalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
 	finalizedTask := verifier.VerificationTask{
 		Message: finalizedMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
+		ReceiptBlobs: []protocol2.ReceiptWithBlob{{
+			Issuer:            protocol2.UnknownAddress([]byte("verifier-1337")),
 			DestGasLimit:      300000,
 			DestBytesOverhead: 100,
 			Blob:              []byte("test-blob"),
@@ -129,8 +128,8 @@ func TestFinality_CustomFinality(t *testing.T) {
 	readyMessage := createTestMessage(t, 1, 1337, 2337, customFinality)
 	readyTask := verifier.VerificationTask{
 		Message: readyMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
+		ReceiptBlobs: []protocol2.ReceiptWithBlob{{
+			Issuer:            protocol2.UnknownAddress([]byte("verifier-1337")),
 			DestGasLimit:      300000,
 			DestBytesOverhead: 100,
 			Blob:              []byte("test-blob"),
@@ -162,8 +161,8 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	nonFinalizedBlock := InitialFinalizedBlock + 10
 	nonFinalizedTask := verifier.VerificationTask{
 		Message: nonFinalizedMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
+		ReceiptBlobs: []protocol2.ReceiptWithBlob{{
+			Issuer:            protocol2.UnknownAddress([]byte("verifier-1337")),
 			DestGasLimit:      300000,
 			DestBytesOverhead: 100,
 			Blob:              []byte("test-blob"),
@@ -231,15 +230,15 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	}).Maybe()
 
 	config := verifier.CoordinatorConfig{
-		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
-			1337: {VerifierAddress: protocol.UnknownAddress([]byte("verifier-1337"))},
+		SourceConfigs: map[protocol2.ChainSelector]verifier.SourceConfig{
+			1337: {VerifierAddress: protocol2.UnknownAddress([]byte("verifier-1337"))},
 		},
 		VerifierID: verifierID,
 	}
 
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(mockVerifier),
-		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
+		verifier.WithSourceReaders(map[protocol2.ChainSelector]verifier.SourceReader{
 			1337: mockSourceReader,
 		}),
 		verifier.WithStorage(mockStorage),

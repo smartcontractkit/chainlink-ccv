@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type Configuration struct {

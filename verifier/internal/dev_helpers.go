@@ -8,11 +8,10 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
+	protocol2 "github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // DevSourceReaderSetup contains a mock source reader and its channel for development use.
@@ -23,7 +22,7 @@ type DevSourceReaderSetup struct {
 
 // SetupDevSourceReader creates a mock source reader with an injected channel for development
 // This follows the same pattern as the tests but doesn't require testing.T.
-func SetupDevSourceReader(chainSelector protocol.ChainSelector) *DevSourceReaderSetup {
+func SetupDevSourceReader(chainSelector protocol2.ChainSelector) *DevSourceReaderSetup {
 	// Create a mock that doesn't require testing.T by using a nil interface
 	mockReader := &verifier_mocks.MockSourceReader{}
 	channel := make(chan verifier.VerificationTask, 100)
@@ -44,7 +43,7 @@ func SetupDevSourceReader(chainSelector protocol.ChainSelector) *DevSourceReader
 
 // StartMockMessageGenerator starts generating mock messages for development
 // This replaces the heavyweight mock with a simple goroutine.
-func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup, chainSelector protocol.ChainSelector, verifierAddr protocol.UnknownAddress, lggr logger.Logger) {
+func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup, chainSelector protocol2.ChainSelector, verifierAddr protocol2.UnknownAddress, lggr logger.Logger) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second) // Generate a message every 10 seconds
 		defer ticker.Stop()
@@ -83,28 +82,28 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 }
 
 // createDevVerificationTask creates a mock verification task for development.
-func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelector, verifierAddr protocol.UnknownAddress) verifier.VerificationTask {
+func createDevVerificationTask(counter uint64, chainSelector protocol2.ChainSelector, verifierAddr protocol2.UnknownAddress) verifier.VerificationTask {
 	// Mock destination chain (different from source)
-	destChain := protocol.ChainSelector(2337)
+	destChain := protocol2.ChainSelector(2337)
 	if chainSelector == 2337 {
-		destChain = protocol.ChainSelector(1337)
+		destChain = protocol2.ChainSelector(1337)
 	}
 
 	// Create mock sender and receiver addresses
-	senderAddr, _ := protocol.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
-	receiverAddr, _ := protocol.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
+	senderAddr, _ := protocol2.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
+	receiverAddr, _ := protocol2.NewUnknownAddressFromHex("0x0987654321098765432109876543210987654321")
 	// Use the provided verifier address as the onramp address
 	onRampAddr := verifierAddr
 
 	// Create empty token transfer
-	tokenTransfer := protocol.NewEmptyTokenTransfer()
+	tokenTransfer := protocol2.NewEmptyTokenTransfer()
 
-	offRampAddr, _ := protocol.NewUnknownAddressFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	offRampAddr, _ := protocol2.NewUnknownAddressFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 
-	message, _ := protocol.NewMessage(
+	message, _ := protocol2.NewMessage(
 		chainSelector,
 		destChain,
-		protocol.Nonce(counter),
+		protocol2.Nonce(counter),
 		onRampAddr,
 		offRampAddr,
 		0, // finality
@@ -120,7 +119,7 @@ func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelec
 	counterBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(counterBytes, counter)
 
-	receiptBlobs := []protocol.ReceiptWithBlob{
+	receiptBlobs := []protocol2.ReceiptWithBlob{
 		{
 			Issuer:            onRampAddr, // The onramp address must be the issuer
 			DestGasLimit:      200000,     // Default gas limit for development
