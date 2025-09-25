@@ -675,7 +675,9 @@ func SendExampleArgsV3Message(in *Cfg, src, dest uint64, finality uint16, execAd
 	if err != nil {
 		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
 	}
-	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+	// Using an EOA receiver not mock receiver - There's currently a bug in on-chain when
+	// going through router->aggregator
+	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443b"
 
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
