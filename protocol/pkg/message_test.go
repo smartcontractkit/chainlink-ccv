@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,11 +180,18 @@ func TestMessageDecodingErrors(t *testing.T) {
 			}(),
 			expectErr: "failed to read on-ramp address",
 		},
+		{
+			name:      "test",
+			data:      []byte("AS7mNJUe9xtGs1ZzPiKSRPIAAAAAAAAAARSaZ254GlI7XQwOQ3MTE6cIy2B1CCAAAAAAAAAAAAAAAAANzRv5obNs40I37q/vIgkyhGvNggABFPOf1uUarYj29M5quIJyec//uSJmFDql67ENx5fKyChSTlmjM9CjcUQ8AAAAAAAA"),
+			expectErr: "",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := types.DecodeMessage(tt.data)
+			msg, err := types.DecodeMessage(tt.data)
+			fmt.Printf("%+v\n", msg)
+			fmt.Printf("error: %+v\n", err)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectErr)
 		})

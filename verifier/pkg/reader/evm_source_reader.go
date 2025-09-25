@@ -324,6 +324,7 @@ func (r *EVMSourceReader) processCCIPMessageSentEvent(log types.Log) {
 
 	r.logger.Infow("📋 Decoding encoded message",
 		"encodedMessageLength", len(event.EncodedMessage),
+
 		"messageId", common.Bytes2Hex(event.MessageId[:]))
 	decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 	if err != nil {

@@ -193,7 +193,8 @@ func (m *Message) Encode() ([]byte, error) {
 	_ = buf.WriteByte(m.OffRampAddressLength)
 	_, _ = buf.Write(m.OffRampAddress)
 
-	// User provided data
+	// User controlled data
+	// Finality
 	if err := binary.Write(&buf, binary.BigEndian, m.Finality); err != nil {
 		return nil, err
 	}
@@ -277,9 +278,11 @@ func DecodeMessage(data []byte) (*Message, error) {
 	}
 	msg.OffRampAddressLength = offRampLen
 	msg.OffRampAddress = make([]byte, offRampLen)
+	fmt.Println("decoding OffRampAddressLength", "length", offRampLen)
 	if _, err := io.ReadFull(reader, msg.OffRampAddress); err != nil {
 		return nil, fmt.Errorf("failed to read off-ramp address: %w", err)
 	}
+	fmt.Println("decodingOfframpAddress", "address", msg.OffRampAddress)
 
 	// Read finality
 	if err := binary.Read(reader, binary.BigEndian, &msg.Finality); err != nil {
