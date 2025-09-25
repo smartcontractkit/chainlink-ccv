@@ -9,7 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type GetMessagesSinceHandler struct {
@@ -24,7 +24,7 @@ func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogg
 }
 
 // Handle processes the get request and retrieves the commit verification data since the specified time.
-func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
+func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
 	committeeID := LoadCommitteeIDFromContext(ctx)
 
 	h.logger(ctx).Infof("Received GetMessagesSinceRequest")
@@ -33,7 +33,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.Ge
 		return nil, err
 	}
 
-	records := make([]*aggregator.MessageWithCCVData, 0, len(storage))
+	records := make([]*pb.MessageWithCCVData, 0, len(storage))
 	for _, report := range storage {
 		ccvData, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
 		if err != nil {
@@ -46,7 +46,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *aggregator.Ge
 
 	h.logger(ctx).Infof("Returning %d records for GetMessagesSinceRequest", len(records))
 
-	return &aggregator.GetMessagesSinceResponse{
+	return &pb.GetMessagesSinceResponse{
 		Results: records,
 	}, nil
 }

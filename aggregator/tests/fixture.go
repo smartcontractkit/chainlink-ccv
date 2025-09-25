@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
@@ -83,10 +83,10 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *types.M
 	return msg
 }
 
-type MessageWithCCVNodeDataOption = func(*aggregator.MessageWithCCVNodeData) *aggregator.MessageWithCCVNodeData
+type MessageWithCCVNodeDataOption = func(*pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData
 
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
-	return func(m *aggregator.MessageWithCCVNodeData) *aggregator.MessageWithCCVNodeData {
+	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
 
 		// Get message hash
@@ -123,14 +123,14 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 	}
 }
 
-func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *aggregator.MessageWithCCVNodeData {
+func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *pb.MessageWithCCVNodeData {
 	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 
-	ccvNodeData := &aggregator.MessageWithCCVNodeData{
+	ccvNodeData := &pb.MessageWithCCVNodeData{
 		MessageId:             messageID[:],
 		SourceVerifierAddress: sourceVerifierAddress,
-		Message: &aggregator.Message{
+		Message: &pb.Message{
 			Version:              uint32(message.Version),
 			SourceChainSelector:  uint64(message.SourceChainSelector),
 			DestChainSelector:    uint64(message.DestChainSelector),
@@ -154,7 +154,7 @@ func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, sourceVerif
 		BlobData:  []byte("test blob data"),
 		CcvData:   []byte("test ccv data"),
 		Timestamp: 1234567890,
-		ReceiptBlobs: []*aggregator.ReceiptBlob{
+		ReceiptBlobs: []*pb.ReceiptBlob{
 			{
 				Issuer: sourceVerifierAddress,
 				Blob:   []byte("test blob data"),

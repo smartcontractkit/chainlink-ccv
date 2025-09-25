@@ -6,10 +6,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func validateWriteRequest(req *aggregator.WriteCommitCCVNodeDataRequest) error {
+func validateWriteRequest(req *pb.WriteCommitCCVNodeDataRequest) error {
 	err := validation.ValidateStruct(
 		req,
 		validation.Field(&req.CcvNodeData, validation.Required))
@@ -46,7 +46,7 @@ func validateWriteRequest(req *aggregator.WriteCommitCCVNodeDataRequest) error {
 	return nil
 }
 
-func validateReadRequest(req *aggregator.ReadCommitCCVNodeDataRequest) error {
+func validateReadRequest(req *pb.ReadCommitCCVNodeDataRequest) error {
 	err := validation.ValidateStruct(
 		req,
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),

@@ -9,10 +9,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
+func MapProtoMessageToProtocolMessage(m *pb.Message) *types.Message {
 	return &types.Message{
 		Version:              uint8(m.Version), //nolint:gosec // G115: Protocol-defined conversion
 		SourceChainSelector:  types.ChainSelector(m.SourceChainSelector),
@@ -36,7 +36,7 @@ func MapProtoMessageToProtocolMessage(m *aggregator.Message) *types.Message {
 	}
 }
 
-func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*aggregator.MessageWithCCVData, error) {
+func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*pb.MessageWithCCVData, error) {
 	participantSignatures := make(map[string]signature.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
@@ -85,7 +85,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}
 
-	return &aggregator.MessageWithCCVData{
+	return &pb.MessageWithCCVData{
 		Message:               report.GetMessage(),
 		SourceVerifierAddress: report.GetSourceVerifierAddress(),
 		DestVerifierAddress:   quorumConfig.GetDestVerifierAddressBytes(),

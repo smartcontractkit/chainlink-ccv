@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type GetCCVDataForMessageHandler struct {
@@ -26,7 +26,7 @@ func (h *GetCCVDataForMessageHandler) logger(ctx context.Context) logger.Sugared
 }
 
 // Handle processes the get request and retrieves the commit verification data.
-func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.MessageWithCCVData, error) {
+func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.GetCCVDataForMessageRequest) (*pb.MessageWithCCVData, error) {
 	committeeID := LoadCommitteeIDFromContext(ctx)
 	ctx = scope.WithMessageID(ctx, req.MessageId)
 	ctx = scope.WithCommitteeID(ctx, committeeID)

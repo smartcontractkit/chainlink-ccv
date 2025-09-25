@@ -12,17 +12,17 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type AggregatorWriter struct {
-	client aggregator.AggregatorClient
+	client pb.AggregatorClient
 	conn   *grpc.ClientConn
 	lggr   logger.Logger
 }
 
-func mapReceiptBlob(receiptBlob types.ReceiptWithBlob) (*aggregator.ReceiptBlob, error) {
-	return &aggregator.ReceiptBlob{
+func mapReceiptBlob(receiptBlob types.ReceiptWithBlob) (*pb.ReceiptBlob, error) {
+	return &pb.ReceiptBlob{
 		Issuer:            receiptBlob.Issuer[:],
 		Blob:              receiptBlob.Blob[:],
 		DestGasLimit:      receiptBlob.DestGasLimit,
@@ -31,8 +31,8 @@ func mapReceiptBlob(receiptBlob types.ReceiptWithBlob) (*aggregator.ReceiptBlob,
 	}, nil
 }
 
-func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*aggregator.ReceiptBlob, error) {
-	var result []*aggregator.ReceiptBlob
+func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*pb.ReceiptBlob, error) {
+	var result []*pb.ReceiptBlob
 	for _, blob := range receiptBlobs {
 		mapped, err := mapReceiptBlob(blob)
 		if err != nil {
@@ -45,19 +45,19 @@ func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*aggregator.Receip
 	return result, nil
 }
 
-func mapCCVDataToCCVNodeDataProto(ccvData types.CCVData) (*aggregator.WriteCommitCCVNodeDataRequest, error) {
+func mapCCVDataToCCVNodeDataProto(ccvData types.CCVData) (*pb.WriteCommitCCVNodeDataRequest, error) {
 	receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
 	if err != nil {
 		return nil, err
 	}
-	return &aggregator.WriteCommitCCVNodeDataRequest{
-		CcvNodeData: &aggregator.MessageWithCCVNodeData{
+	return &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: &pb.MessageWithCCVNodeData{
 			MessageId:             ccvData.MessageID[:],
 			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
 			CcvData:               ccvData.CCVData,
 			BlobData:              ccvData.BlobData,
 			Timestamp:             ccvData.Timestamp,
-			Message: &aggregator.Message{
+			Message: &pb.Message{
 				Version:              uint32(ccvData.Message.Version),
 				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
 				DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
@@ -91,14 +91,14 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []t
 		if err != nil {
 			return err
 		}
-		responses, err := a.client.BatchWriteCommitCCVNodeData(ctx, &aggregator.BatchWriteCommitCCVNodeDataRequest{
-			Requests: []*aggregator.WriteCommitCCVNodeDataRequest{req},
+		responses, err := a.client.BatchWriteCommitCCVNodeData(ctx, &pb.BatchWriteCommitCCVNodeDataRequest{
+			Requests: []*pb.WriteCommitCCVNodeDataRequest{req},
 		})
 		if err != nil {
 			return fmt.Errorf("error calling BatchWriteCommitCCVNodeData: %w", err)
 		}
 		for _, resp := range responses.Responses {
-			if resp.Status != aggregator.WriteStatus_SUCCESS {
+			if resp.Status != pb.WriteStatus_SUCCESS {
 				return fmt.Errorf("failed to write CCV data for message ID %x: status %s", ccvData.MessageID, resp.Status.String())
 			}
 			a.lggr.Infow("Successfully stored CCV data", "messageID", ccvData.MessageID)
@@ -128,14 +128,14 @@ func NewAggregatorWriter(address string, lggr logger.Logger) (*AggregatorWriter,
 	}
 
 	return &AggregatorWriter{
-		client: aggregator.NewAggregatorClient(conn),
+		client: pb.NewAggregatorClient(conn),
 		conn:   conn,
 		lggr:   lggr,
 	}, nil
 }
 
 type AggregatorReader struct {
-	client aggregator.CCVDataClient
+	client pb.CCVDataClient
 	lggr   logger.Logger
 	conn   *grpc.ClientConn
 	token  string
@@ -150,7 +150,7 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*Aggr
 	}
 
 	return &AggregatorReader{
-		client: aggregator.NewCCVDataClient(conn),
+		client: pb.NewCCVDataClient(conn),
 		conn:   conn,
 		lggr:   lggr,
 		since:  since,
@@ -165,7 +165,7 @@ func (a *AggregatorReader) Close() error {
 	return nil
 }
 
-func mapMessage(msg *aggregator.Message) (types.Message, error) {
+func mapMessage(msg *pb.Message) (types.Message, error) {
 	if msg == nil {
 		return types.Message{}, nil
 	}
@@ -226,7 +226,7 @@ func mapMessage(msg *aggregator.Message) (types.Message, error) {
 
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
-	resp, err := a.client.GetMessagesSince(ctx, &aggregator.GetMessagesSinceRequest{
+	resp, err := a.client.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
 		Since:     a.since,
 		NextToken: a.token,
 	})

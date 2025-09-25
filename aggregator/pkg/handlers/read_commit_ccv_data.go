@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // ReadCommitCCVNodeDataHandler handles requests to read commit verification records.
@@ -27,12 +27,12 @@ func (h *ReadCommitCCVNodeDataHandler) logger(ctx context.Context) logger.Sugare
 }
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
-func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.ReadCommitCCVNodeDataRequest) (*aggregator.ReadCommitCCVNodeDataResponse, error) {
+func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadCommitCCVNodeDataRequest) (*pb.ReadCommitCCVNodeDataResponse, error) {
 	ctx = scope.WithMessageID(ctx, req.GetMessageId())
 	h.logger(ctx).Infof("Received ReadCommitCCVNodeDataRequest")
 	if !h.disableValidation {
 		if err := validateReadRequest(req); err != nil {
-			return &aggregator.ReadCommitCCVNodeDataResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
+			return &pb.ReadCommitCCVNodeDataResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 		}
 	}
 
@@ -46,7 +46,7 @@ func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregat
 		return nil, err
 	}
 
-	return &aggregator.ReadCommitCCVNodeDataResponse{
+	return &pb.ReadCommitCCVNodeDataResponse{
 		CcvNodeData: &record.MessageWithCCVNodeData,
 	}, nil
 }

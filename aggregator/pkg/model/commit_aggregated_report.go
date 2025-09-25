@@ -4,7 +4,7 @@ package model
 import (
 	"encoding/hex"
 
-	aggregator "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // CommitAggregatedReport represents a report of aggregated commit verifications.
@@ -40,6 +40,6 @@ func (c *CommitAggregatedReport) GetSourceVerifierAddress() []byte {
 	return c.Verifications[0].SourceVerifierAddress
 }
 
-func (c *CommitAggregatedReport) GetMessage() *aggregator.Message {
+func (c *CommitAggregatedReport) GetMessage() *pb.Message {
 	return c.Verifications[0].Message
 }
