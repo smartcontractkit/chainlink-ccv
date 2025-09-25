@@ -4,9 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/go-resty/resty/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
@@ -78,50 +82,6 @@ type ExecEventPlusMeta struct {
 	*ccvAggregator.CCVAggregatorExecutionStateChanged
 	MessageIDHex string
 }
-
-//// MonitorOnChainLogs is converting specified on-chain events (logs) to Loki/Prometheus data
-//// it does not preserve original timestamps for observation and Loki pushes and scans/uploads the whole range
-//// in case we need to get realtime metrics this function can be converted to a service that calls this function with
-//// block ranges for both chains.
-//func MonitorOnChainLogs(in *Cfg) (*prometheus.Registry, error) {
-//	ctx := context.Background()
-//	msgSentTotal.Reset()
-//	msgExecTotal.Reset()
-//	srcDstLatency.Reset()
-//
-//	reg := prometheus.NewRegistry()
-//	reg.MustRegister(msgSentTotal, msgExecTotal, srcDstLatency)
-//
-//	lp := NewLokiPusher()
-//	tp := NewTempoPusher()
-//	c, err := NewContracts(in)
-//	if err != nil {
-//		return nil, err
-//	}
-//	err = ProcessLaneEvents(ctx, lp, tp, &LaneStreamConfig{
-//		From:              c.Proxy1337,
-//		To:                c.Agg2337,
-//		FromSelector:      c.Chain1337Details.ChainSelector,
-//		ToSelector:        c.Chain2337Details.ChainSelector,
-//		AggregatorAddress: "localhost:50051",
-//		AggregatorSince:   0,
-//	})
-//	if err != nil {
-//		return nil, err
-//	}
-//	err = ProcessLaneEvents(ctx, lp, tp, &LaneStreamConfig{
-//		From:              c.Proxy2337,
-//		To:                c.Agg1337,
-//		FromSelector:      c.Chain2337Details.ChainSelector,
-//		ToSelector:        c.Chain1337Details.ChainSelector,
-//		AggregatorAddress: "localhost:50051",
-//		AggregatorSince:   0,
-//	})
-//	if err != nil {
-//		return nil, err
-//	}
-//	return reg, nil
-//}
 
 func ToAnySlice[T any](slice []T) []any {
 	result := make([]any, len(slice))
@@ -398,4 +358,190 @@ func SpanID(msgID [32]byte, spanName string) string {
 	}
 
 	return hex.EncodeToString(span) // 16 hex chars
+}
+
+// LokiPusher handles pushing logs to Loki
+// it does not use Promtail client specifically to avoid dep hell between Prometheus/Loki go deps.
+type LokiPusher struct {
+	lokiURL string
+	client  *resty.Client
+}
+
+// LogEntry represents a single log entry for Loki.
+type LogEntry struct {
+	Timestamp time.Time         `json:"timestamp"`
+	Message   any               `json:"message"`
+	Labels    map[string]string `json:"labels,omitempty"`
+}
+
+// LokiStream represents a stream of log entries with labels.
+type LokiStream struct {
+	Stream map[string]string `json:"stream"`
+	Values [][]string        `json:"values"` // [timestamp, log line]
+}
+
+// LokiPayload represents the payload structure for Loki API.
+type LokiPayload struct {
+	Streams []LokiStream `json:"streams"`
+}
+
+// NewLokiPusher creates a new LokiPusher instance.
+func NewLokiPusher() *LokiPusher {
+	lokiURL := os.Getenv("LOKI_URL")
+	if lokiURL == "" {
+		lokiURL = DefaultLokiURL
+	}
+	return &LokiPusher{
+		lokiURL: lokiURL,
+		client:  resty.New().SetTimeout(10 * time.Second),
+	}
+}
+
+// Push pushes all the messages to a Loki stream
+func (lp *LokiPusher) Push(msgs []any, labels map[string]string) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	values := make([][]string, 0, len(msgs))
+
+	for i := 0; i < len(msgs); i++ {
+		combinedMessage := map[string]any{
+			"log": msgs[i],
+			"ts":  time.Now().Format(time.RFC3339Nano),
+		}
+		jsonBytes, err := json.Marshal(combinedMessage)
+		if err != nil {
+			return fmt.Errorf("failed to marshal combined message: %w", err)
+		}
+		values = append(values, []string{
+			fmt.Sprintf("%d", time.Now().UnixNano()),
+			string(jsonBytes),
+		})
+	}
+
+	stream := LokiStream{
+		Stream: labels,
+		Values: values,
+	}
+	resp, err := lp.client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(LokiPayload{
+			Streams: []LokiStream{stream},
+		}).
+		Post(lp.lokiURL)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	if resp.StatusCode() != 200 && resp.StatusCode() != 204 {
+		return fmt.Errorf("loki returned status %d: %s", resp.StatusCode(), resp.String())
+	}
+	return nil
+}
+
+type TempoPayload struct {
+	ResourceSpans []ResourceSpan `json:"resourceSpans"`
+}
+
+type ResourceSpan struct {
+	Resource   Scope       `json:"resource"`
+	ScopeSpans []ScopeSpan `json:"scopeSpans"`
+}
+
+type ScopeSpan struct {
+	Scope Scope  `json:"scope"`
+	Spans []Span `json:"spans"`
+}
+
+type Scope struct {
+	Name       string      `json:"name"`
+	Version    string      `json:"version"`
+	Attributes []Attribute `json:"attributes"`
+}
+
+type Span struct {
+	TraceId           string      `json:"traceId"`
+	ParentSpanId      string      `json:"parentSpanId,omitempty"`
+	SpanId            string      `json:"spanId"`
+	Name              string      `json:"name"`
+	StartTimeUnixNano uint64      `json:"startTimeUnixNano"`
+	EndTimeUnixNano   uint64      `json:"endTimeUnixNano"`
+	Kind              uint8       `json:"kind"`
+	Attributes        []Attribute `json:"attributes"`
+}
+
+type Attribute struct {
+	Key   string         `json:"key"`
+	Value map[string]any `json:"value"`
+}
+
+// TempoPusher handles pushing traces to Tempo.
+type TempoPusher struct {
+	tempoURL string
+	client   *resty.Client
+}
+
+// NewTempoPusher creates a new TempoPusher instance.
+func NewTempoPusher() *TempoPusher {
+	tempoURL := os.Getenv("TEMPO_URL")
+	if tempoURL == "" {
+		tempoURL = DefaultTempoURL
+	}
+	return &TempoPusher{
+		tempoURL: tempoURL,
+		client:   resty.New().SetTimeout(10 * time.Second),
+	}
+}
+
+func (tp *TempoPusher) PushTrace(ctx context.Context, spans []Span) error {
+	l := zerolog.Ctx(ctx)
+	l.Info().Msgf("Pushing spans to %v", tp.tempoURL)
+	payload := TempoPayload{
+		ResourceSpans: []ResourceSpan{
+			{
+				Resource: Scope{
+					Attributes: []Attribute{
+						{
+							Key: "service.name",
+							Value: map[string]any{
+								"stringValue": "on-chain",
+							},
+						},
+					},
+				},
+				ScopeSpans: []ScopeSpan{
+					{
+						Scope: Scope{
+							Name:    "name",
+							Version: "version",
+							Attributes: []Attribute{
+								{
+									Key: "name",
+									Value: map[string]any{
+										"stringValue": "on-chain",
+									},
+								},
+							},
+						},
+						Spans: spans,
+					},
+				},
+			},
+		},
+	}
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	l.Info().Msgf("Payload: %v", string(jsonPayload))
+	resp, err := tp.client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(payload).
+		Post(tp.tempoURL)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	if resp.StatusCode() != 200 && resp.StatusCode() != 204 {
+		return fmt.Errorf("tempo returned status %d: %s", resp.StatusCode(), resp.String())
+	}
+	return nil
 }

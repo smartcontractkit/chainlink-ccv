@@ -391,6 +391,7 @@ var monitorContractsCmd = &cobra.Command{
 	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
+		ctx = ccv.Plog.WithContext(ctx)
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)

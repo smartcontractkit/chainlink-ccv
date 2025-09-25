@@ -74,7 +74,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, router string, msg []byte) 
 	return []byte{}, nil
 }
 
-func (m *CCIP17EVM) VerifyMessage(ctx context.Context, offRamp string, msg []byte, msgID []byte) error {
+func (m *CCIP17EVM) VerifyMessage(ctx context.Context, offRamp string, msgID []byte) error {
 	l := zerolog.Ctx(ctx)
 	l.Info().Msg("Verifying CCIP message")
 	return nil
@@ -191,7 +191,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	return out.DataStore.Seal(), nil
 }
 
-func (m *CCIP17EVM) ConnectContractsWithSelector(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
+func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
 	l := zerolog.Ctx(ctx)
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
 	bundle := operations.NewBundle(

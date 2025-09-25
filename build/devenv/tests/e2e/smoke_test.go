@@ -22,6 +22,7 @@ import (
 func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
+	ctx := ccv.Plog.WithContext(t.Context())
 
 	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
 	for _, bc := range in.Blockchains {
@@ -69,9 +70,9 @@ func TestE2ESmoke(t *testing.T) {
 				ccv.Plog.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 				err = ccv.SendExampleArgsV2Message(in, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
-				_, err = ccvEvm.WaitOneSentEventBySeqNo(t.Context(), tc.proxy, tc.toSelector, seqNo, 1*time.Minute)
+				_, err = ccvEvm.WaitOneSentEventBySeqNo(ctx, tc.proxy, tc.toSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccvEvm.WaitOneExecEventBySeqNo(t.Context(), tc.agg, tc.fromSelector, seqNo, 5*time.Minute)
+				e, err := ccvEvm.WaitOneExecEventBySeqNo(ctx, tc.agg, tc.fromSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)
@@ -139,9 +140,9 @@ func TestE2ESmoke(t *testing.T) {
 				err = ccv.SendExampleArgsV3Message(in, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
 					tc.mandatoryCCVs, tc.optionalCCVs, 0)
 				require.NoError(t, err)
-				_, err = ccvEvm.WaitOneSentEventBySeqNo(t.Context(), tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
+				_, err = ccvEvm.WaitOneSentEventBySeqNo(ctx, tc.proxy, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := ccvEvm.WaitOneExecEventBySeqNo(t.Context(), tc.agg, tc.srcSelector, seqNo, 3*time.Minute)
+				e, err := ccvEvm.WaitOneExecEventBySeqNo(ctx, tc.agg, tc.srcSelector, seqNo, 3*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.State)

@@ -213,7 +213,7 @@ func NewEnvironment() (*Cfg, error) {
 				selsToConnect = append(selsToConnect, sel)
 			}
 		}
-		err = impl.ConnectContractsWithSelector(ctx, e, networkInfo.ChainSelector, selsToConnect)
+		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect)
 		if err != nil {
 			return nil, err
 		}

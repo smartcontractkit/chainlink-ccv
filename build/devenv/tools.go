@@ -6,15 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -162,69 +159,10 @@ func MustGetContractAddressForSelector(in *Cfg, selector uint64, contractType de
 }
 
 /*
-Ideally, these functions should be exposed by Atlas as a transformation function that can work independently of any backend (PostgreSQL, Kafka or Prometheus)
-But for now we use these functions to expose on-chain events (logs) as a custom aggregated metrics (between two on-chain events, for example) in Prometheus
-*/
-
-var (
-	metricsServer *http.Server
-	serverMutex   sync.Mutex
-)
-
-// ExposePrometheusMetricsFor temporarily exposes Prometheus endpoint so metrics can be scraped.
-func ExposePrometheusMetricsFor(reg *prometheus.Registry, interval time.Duration) error {
-	serverMutex.Lock()
-	defer serverMutex.Unlock()
-	if metricsServer != nil {
-		Plog.Info().Msg("Shutting down previous metrics server...")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := metricsServer.Shutdown(ctx); err != nil {
-			Plog.Warn().Err(err).Msg("Failed to gracefully shutdown previous metrics server")
-		}
-		metricsServer = nil
-	}
-
-	// Create new mux to avoid conflicts with global http.Handle and run
-	mux := http.NewServeMux()
-	mux.Handle("/on-chain-metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-	metricsServer = &http.Server{
-		Addr:    ":9112",
-		Handler: mux,
-	}
-	go func() {
-		Plog.Info().Msg("Starting new Prometheus metrics server on :9112")
-		if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			Plog.Error().Err(err).Msg("Metrics server error")
-		}
-	}()
-	Plog.Info().Msgf("Exposing Prometheus metrics for %s seconds...", interval.String())
-	time.Sleep(interval)
-	return nil
-}
-
-/*
 CCIPv17 (CCV) specific helpers
 */
 
 // NewV3ExtraArgs encodes v3 extra args params
-//
-//	// Helper function to create EVMExtraArgsV3 struct
-//	function _createV3ExtraArgs(
-//	  Client.CCV[] memory requiredCCVs,
-//	  Client.CCV[] memory optionalCCVs,
-//	  uint8 optionalThreshold
-//	) internal pure returns (Client.EVMExtraArgsV3 memory) {
-//	  return Client.EVMExtraArgsV3({
-//	    requiredCCV: requiredCCVs,
-//	    optionalCCV: optionalCCVs,
-//	    optionalThreshold: optionalThreshold,
-//	    finalityConfig: 12,
-//	    executor: address(0), // No executor specified.
-//	    executorArgs: "",
-//	    tokenArgs: ""
-//	  });
-//	}
 func NewV3ExtraArgs(finalityConfig uint16, execAddr common.Address, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
 	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
@@ -544,12 +482,4 @@ func DeployAndConfigureNewCommitCCV(in *Cfg, signatureConfigArgs commit_offramp.
 	}
 
 	return Store(in)
-}
-
-func ToAnySlice[T any](slice []T) []any {
-	result := make([]any, len(slice))
-	for i, v := range slice {
-		result[i] = v
-	}
-	return result
 }

@@ -13,9 +13,9 @@ import (
 )
 
 /*
-This package contains interfaces that should be moved to chainlink-ccip.
+This package contains interfaces for devenv to load chain-specific product implementations
 Since 1.6/1.7 CCIP versions are incompatible for the time being we'll have 2 sets of interfaces that are mostly common
-but exist in multiple repositories: chainlink-ccip (1.6) and chainlink-ccv (1.7)
+for CCIP16 and CCIP17
 */
 
 // CCIP17ProductConfiguration includes all the interfaces that if implemented allows us to run a standard test suite for 2+ chains
@@ -28,31 +28,32 @@ type CCIP17ProductConfiguration interface {
 	OffChainConfigurable
 }
 
-// Observable exposes Loki and Prometheus metrics and returns queries to assert SLAs
+// Observable pushes Loki streams and exposes Prometheus metrics and returns queries to assert SLAs
 type Observable interface {
 	ExposeMetrics(ctx context.Context, addresses []string, chainIDs []string, wsURLs []string) ([]string, *prometheus.Registry, error)
 }
 
 // Testable provides functions for a standardized CCIP test suite.
 type Testable interface {
-	// SendMessage called for a src network
-	// sends message to a router that is connected to some other network
+	// SendMessage sends an arbitrary CCIP17 message
 	SendMessage(ctx context.Context, router string, msg []byte) ([]byte, error)
-	// VerifyMessage called for a dst network
-	// verifies that the message is delivered
-	VerifyMessage(ctx context.Context, offRamp string, msg []byte, id []byte) error
+	// VerifyMessage verifies that message is delivered on the target offRamp
+	// by checking events or other data for corresponding message ID
+	VerifyMessage(ctx context.Context, offRamp string, msgID []byte) error
 }
 
-// OnChainConfigurable defines methods that allows devenv to configure
-// Chainlink products for a specific chain X connected with chain Y.
+// OnChainConfigurable defines methods that allows devenv to
+// deploy, configure Chainlink product and connect on-chain part with other chains
 type OnChainConfigurable interface {
 	// DeployContractsForSelector configures contracts for chain X
-	// returns all the contract addresses and metadata
+	// returns all the contract addresses and metadata as datastore.DataStore
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64) (datastore.DataStore, error)
-	// ConnectContractsWithSelector connects onRamp/offRamp contracts with selector Y
-	ConnectContractsWithSelector(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error
+	// ConnectContractsWithSelectors connects this chain onRamp to one or multiple offRamps for remote selectors (other chains)
+	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error
 }
 
+// OffChainConfigurable defines methods that allows to
+// deploy a local blockchain network for tests and configure CL nodes for Chainlink product
 type OffChainConfigurable interface {
 	// DeployLocalNetwork deploy local node of network X
 	DeployLocalNetwork(ctx context.Context, bcs *blockchain.Input) (*blockchain.Output, error)
