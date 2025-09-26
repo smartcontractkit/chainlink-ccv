@@ -127,7 +127,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 
 	configPath, ok := os.LookupEnv("INDEXER_CONFIG_PATH")
 	if !ok {
-		configPath = "config.toml"
+		configPath = filepath.Join(p, "config.toml")
 	}
 
 	if _, err := os.Stat(configPath); err != nil {
