@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -73,11 +72,11 @@ func (oss *OffchainStorageStreamer) Start(
 				// Non-blocking: call ReadCCVData
 				responses, err := oss.reader.ReadCCVData(ctx)
 
-				msgs := make([]types.MessageWithCCVData, len(responses))
+				msgs := make([]executor.MessageWithCCVData, len(responses))
 				for _, msg := range responses {
 					// TODO: convert QueryResponse to MessageWithCCVData
 					lggr.Infow("received message", "messageID", msg.Data.MessageID.String())
-					msgs = append(msgs, types.MessageWithCCVData{
+					msgs = append(msgs, executor.MessageWithCCVData{
 						Message:           msg.Data.Message,
 						VerifiedTimestamp: *msg.Timestamp,
 					})

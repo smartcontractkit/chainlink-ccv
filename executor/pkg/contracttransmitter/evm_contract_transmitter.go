@@ -12,15 +12,15 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
 	ccvagg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
-	exectypes "github.com/smartcontractkit/chainlink-ccv/executor/types"
 )
 
-var _ ContractTransmitter = &EVMContractTransmitter{}
+var _ executor.ContractTransmitter = &EVMContractTransmitter{}
 
 type EVMContractTransmitter struct {
 	ctx           context.Context
@@ -109,7 +109,7 @@ func (ct *EVMContractTransmitter) GetTransactOpts() (*bind.TransactOpts, error) 
 	return auth, nil
 }
 
-func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report exectypes.AbstractAggregatedReport) error {
+func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report executor.AbstractAggregatedReport) error {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
 

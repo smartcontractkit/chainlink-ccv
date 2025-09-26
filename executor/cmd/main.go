@@ -21,7 +21,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	execconfig "github.com/smartcontractkit/chainlink-ccv/executor/pkg/configuration"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
@@ -74,8 +73,8 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	contractTransmitters := make(map[protocol.ChainSelector]contracttransmitter.ContractTransmitter)
-	destReaders := make(map[protocol.ChainSelector]destinationreader.DestinationReader)
+	contractTransmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
+	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
 	// create executor components
 	for strSel, chain := range executorConfig.BlockchainInfos {
 		selector, err := strconv.ParseUint(strSel, 10, 64)
@@ -151,8 +150,8 @@ func main() {
 	lggr.Infow("✅ Execution service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*execconfig.Configuration, error) {
-	var config execconfig.Configuration
+func loadConfiguration(filepath string) (*executor.Configuration, error) {
+	var config executor.Configuration
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}

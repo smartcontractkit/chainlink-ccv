@@ -1,4 +1,4 @@
-package types
+package executor
 
 import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
