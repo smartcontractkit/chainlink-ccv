@@ -8,16 +8,15 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
-
-	types2 "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {
 	privateKey *ecdsa.PrivateKey
-	address    types2.UnknownAddress
+	address    types.UnknownAddress
 }
 
 // NewECDSAMessageSigner creates a new ECDSA message signer.
@@ -43,12 +42,12 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 
 	return &ECDSASigner{
 		privateKey: privateKey,
-		address:    types2.UnknownAddress(address.Bytes()),
+		address:    types.UnknownAddress(address.Bytes()),
 	}, nil
 }
 
 // SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask types.VerificationTask, sourceVerifierAddress types2.UnknownAddress) ([]byte, error) {
+func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask verifier.VerificationTask, sourceVerifierAddress types.UnknownAddress) ([]byte, error) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
@@ -86,6 +85,6 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask type
 }
 
 // GetSignerAddress returns the address of the signer.
-func (ecdsa *ECDSASigner) GetSignerAddress() types2.UnknownAddress {
+func (ecdsa *ECDSASigner) GetSignerAddress() types.UnknownAddress {
 	return ecdsa.address
 }

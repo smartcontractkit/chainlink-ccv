@@ -1,11 +1,20 @@
-package reader
+package verifier
 
 import (
 	"context"
 	"math/big"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
+
+// MessageSigner defines the interface for signing messages using the new chain-agnostic format.
+type MessageSigner interface {
+	// SignMessage signs a message event and returns the signature
+	SignMessage(ctx context.Context, verificationTask VerificationTask, sourceVerifierAddress protocol.UnknownAddress) ([]byte, error)
+
+	// GetSignerAddress returns the address of the signer
+	GetSignerAddress() protocol.UnknownAddress
+}
 
 // SourceReader defines the interface for reading CCIP messages from source chains.
 type SourceReader interface {
@@ -16,7 +25,7 @@ type SourceReader interface {
 	Stop() error
 
 	// VerificationTaskChannel returns the channel where new message events are delivered
-	VerificationTaskChannel() <-chan types.VerificationTask
+	VerificationTaskChannel() <-chan VerificationTask
 
 	// HealthCheck returns the current health status of the reader
 	HealthCheck(ctx context.Context) error

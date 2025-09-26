@@ -92,8 +92,8 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 			StorageType:   "postgres",
 			ConnectionURL: connectionString,
 		},
-		Metrics: model.MetricConfig{
-			EnableMetrics: false,
+		Monitoring: model.MonitoringConfig{
+			Enabled: false,
 		},
 	}
 
