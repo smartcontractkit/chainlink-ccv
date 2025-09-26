@@ -20,7 +20,7 @@ require (
 	github.com/pressly/goose/v3 v3.25.0
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-common v0.9.4
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924191109-a19d98f384b9
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924193316-7b87b14901ab
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
