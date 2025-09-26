@@ -26,6 +26,7 @@ type Coordinator struct {
 	finalityCheckInterval time.Duration
 	mu                    sync.RWMutex
 	pendingMu             sync.RWMutex
+	verifyingWg           sync.WaitGroup
 	started               bool
 	stopped               bool
 }
@@ -163,17 +164,24 @@ func (vc *Coordinator) Stop() error {
 	vc.stopped = true
 	vc.started = false
 
-	// Stop all source readers and close error channels
+	// 1. Signal all goroutines to stop processing new work.
+	vc.cancel()
+
+	// 2. Wait for any in-flight verification tasks to complete.
+	// These are the tasks that might write to verificationErrorCh.
+	vc.verifyingWg.Wait()
+
+	// 3. Stop source readers and close error channels.
 	for chainSelector, state := range vc.sourceStates {
 		if err := state.reader.Stop(); err != nil {
 			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
 		}
-		// Close the per-source error channel
+		// Now it is safe to close the error channel, as there are no more writers.
+		// This will also signal processSourceErrors to stop.
 		close(state.verificationErrorCh)
 	}
 
-	// Wait for processing to finish
-	vc.cancel()
+	// 4. Wait for the main run loop to finish.
 	<-vc.doneCh
 
 	vc.lggr.Infow("Coordinator stopped")
@@ -479,7 +487,11 @@ func (vc *Coordinator) processReadyTask(ctx context.Context, task VerificationTa
 	}
 
 	// Process message event using the verifier asynchronously
-	go vc.verifier.VerifyMessage(ctx, task, vc.ccvDataCh, sourceState.verificationErrorCh)
+	vc.verifyingWg.Add(1)
+	go func() {
+		defer vc.verifyingWg.Done()
+		vc.verifier.VerifyMessage(ctx, task, vc.ccvDataCh, sourceState.verificationErrorCh)
+	}()
 }
 
 // isMessageReadyForVerification determines if a message meets its finality requirements.

@@ -43,11 +43,11 @@ type Testable interface {
 	// SendArgsV3Message sends a message with ArgsV3 params
 	SendArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr, receiverAddr string, execArgs, tokenArgs []byte, ccv, optCcv []protocol.CCV, threshold uint8) error
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
-	GetExpectedNextSequenceNumber(ctx context.Context, c any, from, to uint64) (uint64, error)
+	GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain
-	WaitOneSentEventBySeqNo(ctx context.Context, contracts any, from, to, seq uint64, timeout time.Duration) (any, error)
+	WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (any, error)
 	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain
-	WaitOneExecEventBySeqNo(ctx context.Context, contracts any, from, to, seq uint64, timeout time.Duration) (any, error)
+	WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (any, error)
 }
 
 // OnChainConfigurable defines methods that allows devenv to
