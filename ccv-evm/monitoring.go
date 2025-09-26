@@ -90,7 +90,7 @@ func ToAnySlice[T any](slice []T) []any {
 }
 
 // ProcessLaneEvents collects, pushes and observes sent and executed messages for lane.
-func ProcessLaneEvents(ctx context.Context, c *Contracts, lp *LokiPusher, tp *TempoPusher, cfg *LaneStreamConfig) error {
+func ProcessLaneEvents(ctx context.Context, c *CCIP17EVM, lp *LokiPusher, tp *TempoPusher, cfg *LaneStreamConfig) error {
 	lggr := zerolog.Ctx(ctx)
 	lggr.Info().Uint64("FromSelector", cfg.FromSelector).Uint64("ToSelector", cfg.ToSelector).Msg("Processing events")
 	streams, err := FetchLaneEvents(ctx, c, cfg)
@@ -255,12 +255,12 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 }
 
 // FetchLaneEvents fetch sent and exec events for lane.
-func FetchLaneEvents(ctx context.Context, c *Contracts, cfg *LaneStreamConfig) (*LaneStreams, error) {
-	msgSentEvent, err := c.FetchAllSentEventsBySelector(ctx, cfg.FromSelector, cfg.ToSelector)
+func FetchLaneEvents(ctx context.Context, c *CCIP17EVM, cfg *LaneStreamConfig) (*LaneStreams, error) {
+	msgSentEvent, err := c.fetchAllSentEventsBySelector(ctx, cfg.FromSelector, cfg.ToSelector)
 	if err != nil {
 		return nil, err
 	}
-	execEvents, err := c.FetchAllExecEventsBySelector(ctx, cfg.ToSelector, cfg.FromSelector)
+	execEvents, err := c.fetchAllExecEventsBySelector(ctx, cfg.ToSelector, cfg.FromSelector)
 	if err != nil {
 		return nil, err
 	}
