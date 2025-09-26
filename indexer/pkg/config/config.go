@@ -115,7 +115,11 @@ type AggregatorReaderConfig struct {
 // LoadConfig loads configuration from a TOML file.
 // It returns an error if the file cannot be read or parsed.
 func LoadConfig() (*Config, error) {
-	data, err := os.ReadFile("config.toml")
+	filepath, ok := os.LookupEnv("INDEXER_CONFIG_PATH")
+	if !ok {
+		filepath = "config.toml"
+	}
+	data, err := os.ReadFile(filepath) //nolint:gosec // file is either config.toml or set by user through env var
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file config.toml: %w", err)
 	}

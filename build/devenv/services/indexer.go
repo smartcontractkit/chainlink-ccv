@@ -125,7 +125,11 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		return in.Out, err
 	}
 
-	configPath := filepath.Join(p, "config.toml")
+	configPath, ok := os.LookupEnv("INDEXER_CONFIG_PATH")
+	if !ok {
+		configPath = filepath.Join(p, "config.toml")
+	}
+
 	if _, err := os.Stat(configPath); err != nil {
 		// Encode TOML to config file
 		buff := new(bytes.Buffer)

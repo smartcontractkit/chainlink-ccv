@@ -161,7 +161,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
 		Env: map[string]string{
-			"VERIFIER_CONFIG": in.ConfigFilePath,
+			"VERIFIER_CONFIG_PATH": in.ConfigFilePath,
 		},
 		// ExposedPorts
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp

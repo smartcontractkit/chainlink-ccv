@@ -96,7 +96,7 @@ func main() {
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
-	envConfig := os.Getenv("VERIFIER_CONFIG")
+	envConfig := os.Getenv("VERIFIER_CONFIG_PATH")
 	if envConfig != "" {
 		filePath = envConfig
 	}
