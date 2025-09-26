@@ -1,0 +1,16 @@
+with-expecter: true
+
+dir: ./pkg/mocks
+outpkg: mocks
+
+packages:
+    github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common:
+        interfaces:
+            CommitVerificationStore:
+            CommitVerificationAggregatedStore:
+            Sink:
+            AggregatorMonitoring:
+            AggregatorMetricLabeler:
+    github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation:
+        interfaces:
+            QuorumValidator:
