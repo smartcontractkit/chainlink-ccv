@@ -426,7 +426,11 @@ func (d *DatabaseStorage) ListOrphanedMessageCommitteePairs(ctx context.Context)
 			errCh <- fmt.Errorf("failed to query orphaned message committee pairs: %w", err)
 			return
 		}
-		defer rows.Close()
+		defer func() {
+			if closeErr := rows.Close(); closeErr != nil {
+				errCh <- fmt.Errorf("failed to close rows: %w", closeErr)
+			}
+		}()
 
 		for rows.Next() {
 			select {

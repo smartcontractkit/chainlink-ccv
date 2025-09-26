@@ -9,9 +9,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
-	_ "modernc.org/sqlite"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+
+	_ "modernc.org/sqlite"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
@@ -157,7 +158,7 @@ func TestDatabaseStorage_ListOrphanedMessageCommitteePairs_WithOrphans(t *testin
 func TestDatabaseStorage_ListOrphanedMessageCommitteePairs_ContextCancellation(t *testing.T) {
 	storage := setupTestDatabase(t)
 
-	// Create a context that will be cancelled immediately
+	// Create a context that will be canceled immediately
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -175,7 +176,7 @@ func TestDatabaseStorage_ListOrphanedMessageCommitteePairs_ContextCancellation(t
 	}
 }
 
-// Helper function to collect all pairs from channels
+// Helper function to collect all pairs from channels.
 func collectPairs(t *testing.T, pairCh <-chan *model.MessageCommitteePair, errCh <-chan error) []*model.MessageCommitteePair {
 	var pairs []*model.MessageCommitteePair
 	timeout := time.After(5 * time.Second)
