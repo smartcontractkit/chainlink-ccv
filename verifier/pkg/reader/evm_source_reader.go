@@ -17,7 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
+	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 // EVMSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain.
