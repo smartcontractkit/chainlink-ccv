@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/spf13/cobra"
 
@@ -169,6 +170,9 @@ var deployCommitVerifierCmd = &cobra.Command{
 	Short: "Deploy contracts for a new commit verifier across all chains with a signature quorum to the existing environment",
 	Args:  cobra.RangeArgs(1, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+		ctx = ccv.Plog.WithContext(ctx)
+
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
@@ -190,10 +194,17 @@ var deployCommitVerifierCmd = &cobra.Command{
 			addresses = append(addresses, common.HexToAddress(addr))
 		}
 
-		return ccv.DeployAndConfigureNewCommitCCV(in, commit_offramp.SetSignatureConfigArgs{
+		selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+		if err != nil {
+			return fmt.Errorf("creating CLDF operations environment: %w", err)
+		}
+
+		allAddrs, err := ccvEvm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, commit_offramp.SetSignatureConfigArgs{
 			Threshold: uint8(threshold),
 			Signers:   addresses,
 		})
+		in.CLDF.Addresses = append(in.CLDF.Addresses, allAddrs...)
+		return framework.Store(in)
 	},
 }
 
@@ -202,6 +213,8 @@ var deployReceiverCmd = &cobra.Command{
 	Short: "Deploy a mock receiver contract to a given chain selector with a specific config",
 	Args:  cobra.RangeArgs(1, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+		ctx = ccv.Plog.WithContext(ctx)
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
@@ -246,7 +259,17 @@ var deployReceiverCmd = &cobra.Command{
 			OptionalThreshold: uint8(optionalThreshold),
 		}
 
-		return ccv.DeployMockReceiver(in, selector, constructorArgs)
+		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+		if err != nil {
+			return fmt.Errorf("creating CLDF operations environment: %w", err)
+		}
+
+		allAddrs, err := ccvEvm.DeployMockReceiver(ctx, e, in.CLDF.Addresses, selector, constructorArgs)
+		if err != nil {
+			return fmt.Errorf("creating mock receiver contract: %w", err)
+		}
+		in.CLDF.Addresses = append(in.CLDF.Addresses, allAddrs...)
+		return framework.Store(in)
 	},
 }
 
@@ -389,13 +412,21 @@ var monitorContractsCmd = &cobra.Command{
 	Use:   "upload-on-chain-metrics",
 	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+		ctx = ccv.Plog.WithContext(ctx)
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		reg, err := ccv.MonitorOnChainLogs(in)
+		impl := &ccvEvm.CCIP17EVM{}
+		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+		for _, bc := range in.Blockchains {
+			chainIDs = append(chainIDs, bc.ChainID)
+			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+		}
+		_, reg, err := impl.ExposeMetrics(ctx, in.CLDF.Addresses, chainIDs, wsURLs)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to expose metrics: %w", err)
 		}
 		if err := ccv.ExposePrometheusMetricsFor(reg, 10*time.Second); err != nil {
 			return err
@@ -411,6 +442,8 @@ var sendCmd = &cobra.Command{
 	Args:    cobra.RangeArgs(1, 1),
 	Short:   "Send a message",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+		ctx = ccv.Plog.WithContext(ctx)
 		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
@@ -431,6 +464,12 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
+		selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+		if err != nil {
+			return fmt.Errorf("creating CLDF operations environment: %w", err)
+		}
+		impl := &ccvEvm.CCIP17EVM{}
+
 		// Use V3 if finality config is provided, otherwise use V2
 		if len(sels) == 3 {
 			// V3 format with finality config
@@ -439,9 +478,9 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to parse finality config: %w", err)
 			}
 
-			return ccv.SendExampleArgsV3Message(in, src, dest, uint16(finality),
-				common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"), // executor address
-				common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"), // mock receiver
+			return impl.SendArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, src, dest, uint16(finality),
+				"0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", // executor address
+				"0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", // mock receiver
 				nil, nil,
 				[]types.CCV{
 					{
@@ -453,7 +492,7 @@ var sendCmd = &cobra.Command{
 				[]types.CCV{}, 0)
 		} else {
 			// V2 format - use the dedicated V2 function
-			return ccv.SendExampleArgsV2Message(in, src, dest)
+			return impl.SendArgsV2Message(ctx, e, in.CLDF.Addresses, src, dest)
 		}
 	},
 }
