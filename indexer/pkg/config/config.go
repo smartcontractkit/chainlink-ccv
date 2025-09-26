@@ -119,7 +119,7 @@ func LoadConfig() (*Config, error) {
 	if !ok {
 		filepath = "config.toml"
 	}
-	data, err := os.ReadFile(filepath)
+	data, err := os.ReadFile(filepath) //nolint:gosec // file is either config.toml or set by user through env var
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file config.toml: %w", err)
 	}
