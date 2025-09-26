@@ -305,7 +305,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end
 
 	// Build query with cursor-based pagination using seq_num
 	var reportStmt string
-	var args []interface{}
+	var args []any
 
 	if lastSeqNum == nil {
 		// First page - no cursor
@@ -314,7 +314,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end
 			WHERE committee_id = $1 AND created_at >= $2 AND created_at <= $3
 			ORDER BY seq_num ASC
 			LIMIT $4`
-		args = []interface{}{committeeID, startTime, endTime, limit + 1} // +1 to check if there are more pages
+		args = []any{committeeID, startTime, endTime, limit + 1} // +1 to check if there are more pages
 	} else {
 		// Subsequent page - use cursor
 		reportStmt = `SELECT message_id, committee_id, verification_record_ids, report_data, created_at, seq_num
@@ -322,7 +322,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, start, end
 			WHERE committee_id = $1 AND created_at >= $2 AND created_at <= $3 AND seq_num > $4
 			ORDER BY seq_num ASC
 			LIMIT $5`
-		args = []interface{}{committeeID, startTime, endTime, *lastSeqNum, limit + 1} // +1 to check if there are more pages
+		args = []any{committeeID, startTime, endTime, *lastSeqNum, limit + 1} // +1 to check if there are more pages
 	}
 
 	type reportRecord struct {

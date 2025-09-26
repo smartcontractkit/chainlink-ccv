@@ -16,7 +16,7 @@ import (
 type GetMessagesSinceHandler struct {
 	storage                common.CommitVerificationAggregatedStore
 	committee              map[string]*model.Committee
-	paginationTokenManager *pagination.PaginationTokenManager
+	paginationTokenManager *pagination.Paginator
 	pageLimit              int
 	l                      logger.SugaredLogger
 	m                      common.AggregatorMonitoring
@@ -29,7 +29,7 @@ func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogg
 // Handle processes the get request and retrieves the commit verification data since the specified time.
 func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
 	committeeID := LoadCommitteeIDFromContext(ctx)
-	committeeIDStr := string(committeeID)
+	committeeIDStr := committeeID
 
 	h.logger(ctx).Tracef("Received GetMessagesSinceRequest with since=%d, nextToken=%s", req.Since, req.NextToken)
 
@@ -82,7 +82,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 }
 
 // NewGetMessagesSinceHandler creates a new instance of GetMessagesSinceHandler.
-func NewGetMessagesSinceHandler(storage common.CommitVerificationAggregatedStore, committee map[string]*model.Committee, tokenManager *pagination.PaginationTokenManager, pageLimit int, l logger.SugaredLogger, m common.AggregatorMonitoring) *GetMessagesSinceHandler {
+func NewGetMessagesSinceHandler(storage common.CommitVerificationAggregatedStore, committee map[string]*model.Committee, tokenManager *pagination.Paginator, pageLimit int, l logger.SugaredLogger, m common.AggregatorMonitoring) *GetMessagesSinceHandler {
 	return &GetMessagesSinceHandler{
 		storage:                storage,
 		committee:              committee,

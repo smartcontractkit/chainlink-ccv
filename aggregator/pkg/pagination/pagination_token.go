@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// PaginationTokenPayload represents the internal structure of a pagination token.
-type PaginationTokenPayload struct {
+// OpaquePaginationTokenPayload represents the internal structure of a pagination token.
+type OpaquePaginationTokenPayload struct {
 	LastSeqNum  int64  `json:"seq_num"`
 	Timestamp   int64  `json:"ts"`
 	CommitteeID string `json:"cid"`
@@ -23,14 +23,14 @@ type SecurePaginationToken struct {
 	Signature string `json:"s"`
 }
 
-// PaginationTokenManager handles secure pagination token generation and validation.
-type PaginationTokenManager struct {
+// Paginator handles secure pagination token generation and validation.
+type Paginator struct {
 	secret []byte
 }
 
-// NewPaginationTokenManager creates a new TokenManager with the provided secret.
-func NewPaginationTokenManager(secret []byte) *PaginationTokenManager {
-	return &PaginationTokenManager{
+// NewPaginationTokenManager creates a new Paginator with the provided secret.
+func NewPaginationTokenManager(secret []byte) *Paginator {
+	return &Paginator{
 		secret: secret,
 	}
 }
@@ -46,8 +46,8 @@ func GenerateRandomSecret() ([]byte, error) {
 }
 
 // GenerateToken creates a secure, signed pagination token.
-func (tm *PaginationTokenManager) GenerateToken(lastSeqNum int64, committeeID string) (string, error) {
-	payload := PaginationTokenPayload{
+func (tm *Paginator) GenerateToken(lastSeqNum int64, committeeID string) (string, error) {
+	payload := OpaquePaginationTokenPayload{
 		LastSeqNum:  lastSeqNum,
 		Timestamp:   time.Now().Unix(),
 		CommitteeID: committeeID,
@@ -81,7 +81,7 @@ func (tm *PaginationTokenManager) GenerateToken(lastSeqNum int64, committeeID st
 }
 
 // ValidateToken validates and extracts the payload from a secure pagination token.
-func (tm *PaginationTokenManager) ValidateToken(tokenStr, committeeID string) (*PaginationTokenPayload, error) {
+func (tm *Paginator) ValidateToken(tokenStr, committeeID string) (*OpaquePaginationTokenPayload, error) {
 	if tokenStr == "" {
 		return nil, fmt.Errorf("empty token")
 	}
@@ -104,7 +104,7 @@ func (tm *PaginationTokenManager) ValidateToken(tokenStr, committeeID string) (*
 		return nil, fmt.Errorf("invalid payload encoding: %w", err)
 	}
 
-	var payload PaginationTokenPayload
+	var payload OpaquePaginationTokenPayload
 	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 		return nil, fmt.Errorf("invalid payload structure: %w", err)
 	}
@@ -129,7 +129,7 @@ func (tm *PaginationTokenManager) ValidateToken(tokenStr, committeeID string) (*
 }
 
 // generateSignature creates an HMAC-SHA256 signature for the given payload and committee.
-func (tm *PaginationTokenManager) generateSignature(payload, committeeID string) []byte {
+func (tm *Paginator) generateSignature(payload, committeeID string) []byte {
 	h := hmac.New(sha256.New, tm.secret)
 	h.Write([]byte(payload))
 	h.Write([]byte(committeeID))

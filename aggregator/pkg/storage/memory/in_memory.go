@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
-// reportWithSequence wraps a report with its sequence number for pagination
+// reportWithSequence wraps a report with its sequence number for pagination.
 type reportWithSequence struct {
 	Report *model.CommitAggregatedReport
 	SeqNum int64
