@@ -25,8 +25,8 @@ const (
 	DefaultAggregatorDBImage = "postgres:16-alpine"
 )
 
-var DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-	DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBPort, DefaultAggregatorName)
+var DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+	DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBName, DefaultAggregatorName)
 
 type AggregatorDBInput struct {
 	Image string `toml:"image"`
@@ -76,7 +76,8 @@ type Committee struct {
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType string `toml:"type"`
+	StorageType   string `toml:"type"`
+	ConnectionURL string `toml:"connectionURL,omitempty"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -84,18 +85,43 @@ type ServerConfig struct {
 	Address string `toml:"address"`
 }
 
-type MetricConfig struct {
-	EnableMetrics bool   `toml:"enableMetrics"`
-	Endpoint      string `toml:"endpoint"`
+// BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
+type BeholderConfig struct {
+	// InsecureConnection disables TLS for the beholder client.
+	InsecureConnection bool `toml:"insecureConnection"`
+	// CACertFile is the path to the CA certificate file for the beholder client.
+	CACertFile string `toml:"caCertFile"`
+	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
+	OtelExporterGRPCEndpoint string `toml:"otelExporterGRPCEndpoint"`
+	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
+	OtelExporterHTTPEndpoint string `toml:"otelExporterHTTPEndpoint"`
+	// LogStreamingEnabled enables log streaming to the collector.
+	LogStreamingEnabled bool `toml:"logStreamingEnabled"`
+	// MetricReaderInterval is the interval to scrape metrics (in seconds).
+	MetricReaderInterval int64 `toml:"metricReaderInterval"`
+	// TraceSampleRatio is the ratio of traces to sample.
+	TraceSampleRatio float64 `toml:"traceSampleRatio"`
+	// TraceBatchTimeout is the timeout for a batch of traces.
+	TraceBatchTimeout int64 `toml:"traceBatchTimeout"`
+}
+
+// MonitoringConfig provides all configuration for the monitoring system inside the aggregator.
+type MonitoringConfig struct {
+	// Enabled enables the monitoring system.
+	Enabled bool `toml:"enabled"`
+	// Type is the type of monitoring system to use (beholder, noop).
+	Type string `toml:"type"`
+	// Beholder is the configuration for the beholder client (Not required if type is noop).
+	Beholder BeholderConfig `toml:"beholder"`
 }
 
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
-	Server       ServerConfig          `toml:"server"`
-	Storage      StorageConfig         `toml:"storage"`
-	StubMode     bool                  `toml:"stubQuorumValidation"`
-	Committees   map[string]*Committee `toml:"committees"`
-	MetricConfig MetricConfig          `toml:"metrics"`
+	Server     ServerConfig          `toml:"server"`
+	Storage    StorageConfig         `toml:"storage"`
+	StubMode   bool                  `toml:"stubQuorumValidation"`
+	Committees map[string]*Committee `toml:"committees"`
+	Monitoring MonitoringConfig      `toml:"monitoring"`
 }
 
 func aggregatorDefaults(in *AggregatorInput) {
@@ -114,19 +140,28 @@ func aggregatorDefaults(in *AggregatorInput) {
 		}
 	}
 
-	MetricConfig := MetricConfig{
-		EnableMetrics: true,
-		Endpoint:      "otel-collector:4318",
+	monitoringConfig := MonitoringConfig{
+		Enabled: true,
+		Type:    "beholder",
+		Beholder: BeholderConfig{
+			InsecureConnection:       true,
+			OtelExporterHTTPEndpoint: "otel-collector:4318",
+			LogStreamingEnabled:      false,
+			MetricReaderInterval:     10,
+			TraceSampleRatio:         1.0,
+			TraceBatchTimeout:        5,
+		},
 	}
 
 	if in.AggregatorConfig == nil {
 		in.AggregatorConfig = &AggregatorConfig{
-			MetricConfig: MetricConfig,
+			Monitoring: monitoringConfig,
 			Server: ServerConfig{
 				Address: ":50051",
 			},
 			Storage: StorageConfig{
-				StorageType: "memory",
+				StorageType:   "postgres",
+				ConnectionURL: DefaultAggregatorDBConnectionString,
 			},
 			Committees: map[string]*Committee{
 				"default": {
@@ -175,20 +210,28 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	/* Database */
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
-		testcontainers.WithName(DefaultAggregatorDBName),
-		testcontainers.WithExposedPorts("5432/tcp"),
-		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				"5432/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(DefaultAggregatorDBPort)},
-				},
-			}
-		}),
-		testcontainers.WithLabels(framework.DefaultTCLabels()),
 		postgres.WithDatabase(DefaultAggregatorName),
 		postgres.WithUsername(DefaultAggregatorName),
 		postgres.WithPassword(DefaultAggregatorName),
 		postgres.WithInitScripts(filepath.Join(p, DefaultAggregatorSQLInit)),
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:         DefaultAggregatorDBName,
+				ExposedPorts: []string{"5432/tcp"},
+				Networks:     []string{framework.DefaultNetworkName},
+				NetworkAliases: map[string][]string{
+					framework.DefaultNetworkName: {DefaultAggregatorDBName},
+				},
+				Labels: framework.DefaultTCLabels(),
+				HostConfigModifier: func(h *container.HostConfig) {
+					h.PortBindings = nat.PortMap{
+						"5432/tcp": []nat.PortBinding{
+							{HostPort: strconv.Itoa(DefaultAggregatorDBPort)},
+						},
+					}
+				},
+			},
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)

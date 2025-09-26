@@ -78,12 +78,26 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	// TODO: use the new function from the CCVAggregator / offramp
 	receiverContract, err := mockreceiver.NewMockReceiverV2Caller(evmReceiverAddress, dr.client)
 	if err != nil {
-		return types.CcvAddressInfo{}, fmt.Errorf("failed to create receiver contract instance: %w", err)
+		// Special case for EOA addresses which don't have the getCCVs function
+		// Hardcoding for now until new on-chain changes are merged which we can just use the offramp directly to get the
+		// CCV Offramp addresses instead of getting it from the receiver
+		return types.CcvAddressInfo{
+			RequiredCcvs:      []protocol.UnknownAddress{[]byte("0x68B1D87F95878fE05B998F19b66F4baba5De1aed")},
+			OptionalCcvs:      []protocol.UnknownAddress{},
+			OptionalThreshold: 0,
+		}, fmt.Errorf("failed to create receiver contract instance: %w", err)
 	}
 
 	req, opt, optThreshold, err := receiverContract.GetCCVs(nil, uint64(sourceSelector))
 	if err != nil {
-		return types.CcvAddressInfo{}, fmt.Errorf("failed to call getCCVs: %w", err)
+		// Special case for EOA addresses which don't have the getCCVs function
+		// Hardcoding for now until new on-chain changes are merged which we can just use the offramp directly to get the
+		// CCV Offramp addresses instead of getting it from the receiver
+		return types.CcvAddressInfo{
+			RequiredCcvs:      []protocol.UnknownAddress{[]byte("0x68B1D87F95878fE05B998F19b66F4baba5De1aed")},
+			OptionalCcvs:      []protocol.UnknownAddress{},
+			OptionalThreshold: 0,
+		}, fmt.Errorf("failed to call getCCVs: %w", err)
 	}
 
 	requiredCCVs := make([]protocol.UnknownAddress, 0)

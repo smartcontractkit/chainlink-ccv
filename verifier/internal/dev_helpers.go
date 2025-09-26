@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
@@ -18,7 +18,7 @@ import (
 // DevSourceReaderSetup contains a mock source reader and its channel for development use.
 type DevSourceReaderSetup struct {
 	Reader  *verifier_mocks.MockSourceReader
-	Channel chan types.VerificationTask
+	Channel chan verifier.VerificationTask
 }
 
 // SetupDevSourceReader creates a mock source reader with an injected channel for development
@@ -26,11 +26,11 @@ type DevSourceReaderSetup struct {
 func SetupDevSourceReader(chainSelector protocol.ChainSelector) *DevSourceReaderSetup {
 	// Create a mock that doesn't require testing.T by using a nil interface
 	mockReader := &verifier_mocks.MockSourceReader{}
-	channel := make(chan types.VerificationTask, 100)
+	channel := make(chan verifier.VerificationTask, 100)
 
 	// Set up expectations for the mock
 	mockReader.On("Start", mock.Anything).Return(nil)
-	mockReader.On("VerificationTaskChannel").Return((<-chan types.VerificationTask)(channel))
+	mockReader.On("VerificationTaskChannel").Return((<-chan verifier.VerificationTask)(channel))
 	mockReader.On("Stop").Run(func(args mock.Arguments) {
 		close(channel)
 	}).Return(nil)
@@ -83,7 +83,7 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 }
 
 // createDevVerificationTask creates a mock verification task for development.
-func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelector, verifierAddr protocol.UnknownAddress) types.VerificationTask {
+func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelector, verifierAddr protocol.UnknownAddress) verifier.VerificationTask {
 	// Mock destination chain (different from source)
 	destChain := protocol.ChainSelector(2337)
 	if chainSelector == 2337 {
@@ -130,7 +130,7 @@ func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelec
 		},
 	}
 
-	return types.VerificationTask{
+	return verifier.VerificationTask{
 		Message:      *message,
 		ReceiptBlobs: receiptBlobs,
 	}

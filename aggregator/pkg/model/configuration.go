@@ -88,9 +88,18 @@ func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {
 	return common.HexToAddress(q.CommitteeVerifierAddress).Bytes()
 }
 
+// StorageType represents the type of storage backend to use.
+type StorageType string
+
+const (
+	StorageTypeMemory     StorageType = "memory"
+	StorageTypePostgreSQL StorageType = "postgres"
+)
+
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType string `toml:"type"`
+	StorageType   StorageType `toml:"type"`
+	ConnectionURL string      `toml:"connectionURL,omitempty"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -127,6 +136,36 @@ type AggregationConfig struct {
 	OrphanRecoveryIntervalMinutes int `toml:"orphanRecoveryIntervalMinutes"`
 }
 
+// BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
+type BeholderConfig struct {
+	// InsecureConnection disables TLS for the beholder client.
+	InsecureConnection bool `toml:"insecureConnection"`
+	// CACertFile is the path to the CA certificate file for the beholder client.
+	CACertFile string `toml:"caCertFile"`
+	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
+	OtelExporterGRPCEndpoint string `toml:"otelExporterGRPCEndpoint"`
+	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
+	OtelExporterHTTPEndpoint string `toml:"otelExporterHTTPEndpoint"`
+	// LogStreamingEnabled enables log streaming to the collector.
+	LogStreamingEnabled bool `toml:"logStreamingEnabled"`
+	// MetricReaderInterval is the interval to scrape metrics (in seconds).
+	MetricReaderInterval int64 `toml:"metricReaderInterval"`
+	// TraceSampleRatio is the ratio of traces to sample.
+	TraceSampleRatio float64 `toml:"traceSampleRatio"`
+	// TraceBatchTimeout is the timeout for a batch of traces.
+	TraceBatchTimeout int64 `toml:"traceBatchTimeout"`
+}
+
+// MonitoringConfig provides all configuration for the monitoring system inside the aggregator.
+type MonitoringConfig struct {
+	// Enabled enables the monitoring system.
+	Enabled bool `toml:"enabled"`
+	// Type is the type of monitoring system to use (beholder, noop).
+	Type string `toml:"type"`
+	// Beholder is the configuration for the beholder client (Not required if type is noop).
+	Beholder BeholderConfig `toml:"beholder"`
+}
+
 // GetClientByAPIKey returns the client configuration for a given API key.
 func (c *APIKeyConfig) GetClientByAPIKey(apiKey string) (*APIClient, bool) {
 	client, exists := c.Clients[apiKey]
@@ -158,7 +197,7 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 	return nil
 }
 
-// AggregatorConfig is the root configuration for the aggregator.
+// AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
 	Committees        map[CommitteeID]*Committee `toml:"committees"`
@@ -169,13 +208,8 @@ type AggregatorConfig struct {
 	Aggregation       AggregationConfig          `toml:"aggregation"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
-	Metrics           MetricConfig               `toml:"metrics"`
+	Monitoring        MonitoringConfig           `toml:"monitoring"`
 	PyroscopeURL      string                     `toml:"pyroscope_url"`
-}
-
-type MetricConfig struct {
-	EnableMetrics bool   `toml:"enableMetrics"`
-	Endpoint      string `toml:"endpoint"`
 }
 
 // SetDefaults sets default values for the configuration.

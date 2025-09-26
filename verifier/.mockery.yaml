@@ -4,6 +4,6 @@ dir: internal/verifier_mocks
 outpkg: verifier_mocks
 
 packages:
-    github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader:
+    github.com/smartcontractkit/chainlink-ccv/verifier:
         interfaces:
             SourceReader:

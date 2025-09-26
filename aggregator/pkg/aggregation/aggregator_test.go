@@ -13,7 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	agg "github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 const (
@@ -128,8 +128,8 @@ func TestCommitReportAggregator_checkAggregationAndSubmitComplete_QuorumMet(t *t
 
 	// Create test verification records
 	verificationRecord := &model.CommitVerificationRecord{
-		MessageWithCCVNodeData: agg.MessageWithCCVNodeData{
-			Message: &agg.Message{},
+		MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
+			Message: &pb.Message{},
 		},
 		CommitteeID: committeeID,
 	}
@@ -161,8 +161,8 @@ func TestCommitReportAggregator_checkAggregationAndSubmitComplete_QuorumNotMet(t
 
 	// Create test verification records
 	verificationRecord := &model.CommitVerificationRecord{
-		MessageWithCCVNodeData: agg.MessageWithCCVNodeData{
-			Message: &agg.Message{},
+		MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
+			Message: &pb.Message{},
 		},
 		CommitteeID: committeeID,
 	}
@@ -212,8 +212,8 @@ func TestCommitReportAggregator_checkAggregationAndSubmitComplete_QuorumError(t 
 
 	// Create test verification records
 	verificationRecord := &model.CommitVerificationRecord{
-		MessageWithCCVNodeData: agg.MessageWithCCVNodeData{
-			Message: &agg.Message{},
+		MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
+			Message: &pb.Message{},
 		},
 		CommitteeID: committeeID,
 	}
@@ -243,8 +243,8 @@ func TestCommitReportAggregator_checkAggregationAndSubmitComplete_SinkError(t *t
 
 	// Create test verification records
 	verificationRecord := &model.CommitVerificationRecord{
-		MessageWithCCVNodeData: agg.MessageWithCCVNodeData{
-			Message: &agg.Message{},
+		MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
+			Message: &pb.Message{},
 		},
 		CommitteeID: committeeID,
 	}
@@ -303,16 +303,16 @@ func TestCommitReportAggregator_checkAggregationAndSubmitComplete_ValidateReport
 
 	// Create multiple test verification records
 	verificationRecord1 := &model.CommitVerificationRecord{
-		MessageWithCCVNodeData: agg.MessageWithCCVNodeData{
+		MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
 			MessageId: messageID,
-			Message:   &agg.Message{},
+			Message:   &pb.Message{},
 		},
 		CommitteeID: committeeID,
 	}
 	verificationRecord2 := &model.CommitVerificationRecord{
-		MessageWithCCVNodeData: agg.MessageWithCCVNodeData{
+		MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
 			MessageId: messageID,
-			Message:   &agg.Message{},
+			Message:   &pb.Message{},
 		},
 		CommitteeID: committeeID,
 	}

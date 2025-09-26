@@ -1,18 +1,7 @@
-[ccv]
-  # LINK token contract address (static for Anvil and testnets)
-  link_contract_address = "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9"
-  cl_nodes_funding_eth = 50
-  cl_nodes_funding_link = 50
-  verification_timeout = 400
-  chain_finality_depth = 5
-  verify = true
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
 
-  [ccv.gas_settings]
-  # EIP1159 fee cap multiplier (default, for all transactions)
-  fee_cap_multiplier = 2
-  # EIP1159 fee cap multiplier (default, for all transactions)
-  tip_cap_multiplier = 2
-
+[cldf]
 
 [[blockchains]]
   container_name = "blockchain-src"

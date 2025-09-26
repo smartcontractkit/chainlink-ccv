@@ -9,18 +9,23 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 )
 
-type Storage interface {
-	common.CommitVerificationStore
-	common.CommitVerificationAggregatedStore
-	common.Sink
-}
+const (
+	operationLabel = "operation"
+	saveOp         = "SaveCommitVerification"
+	getOp          = "GetCommitVerification"
+	listByMsgIDOp  = "ListCommitVerificationByMessageID"
+
+	queryAggregatedReportsOp = "QueryAggregatedReports"
+	getCCVDataOp             = "GetCCVData"
+	submitReportOp           = "SubmitReport"
+)
 
 type MetricsAwareStorage struct {
-	inner Storage
+	inner CommitVerificationStorage
 	m     common.AggregatorMonitoring
 }
 
-func NewMetricsAwareStorage(inner Storage, m common.AggregatorMonitoring) *MetricsAwareStorage {
+func NewMetricsAwareStorage(inner CommitVerificationStorage, m common.AggregatorMonitoring) *MetricsAwareStorage {
 	return &MetricsAwareStorage{
 		inner: inner,
 		m:     m,
@@ -29,56 +34,29 @@ func NewMetricsAwareStorage(inner Storage, m common.AggregatorMonitoring) *Metri
 
 func (s *MetricsAwareStorage) metrics(ctx context.Context, operation string) common.AggregatorMetricLabeler {
 	metrics := scope.AugmentMetrics(ctx, s.m.Metrics())
-	return metrics.With("operation", operation)
+	return metrics.With(operationLabel, operation)
 }
 
-func WrapWithMetrics(inner Storage, m common.AggregatorMonitoring) Storage {
+func WrapWithMetrics(inner CommitVerificationStorage, m common.AggregatorMonitoring) CommitVerificationStorage {
 	return NewMetricsAwareStorage(inner, m)
 }
 
 func (s *MetricsAwareStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error {
-	metrics := s.metrics(ctx, "SaveCommitVerification")
-
-	now := time.Now()
-	defer func() {
-		latency := time.Since(now).Milliseconds()
-		metrics.RecordStorageLatency(ctx, latency)
-	}()
-	err := s.inner.SaveCommitVerification(ctx, record)
-	if err != nil {
-		metrics.IncrementStorageError(ctx)
-	}
-	return err
+	return captureMetricsNoReturn(ctx, s.metrics(ctx, saveOp), func() error {
+		return s.inner.SaveCommitVerification(ctx, record)
+	})
 }
 
 func (s *MetricsAwareStorage) GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
-	metrics := s.metrics(ctx, "GetCommitVerification")
-
-	now := time.Now()
-	defer func() {
-		latency := time.Since(now).Milliseconds()
-		metrics.RecordStorageLatency(ctx, latency)
-	}()
-	record, err := s.inner.GetCommitVerification(ctx, id)
-	if err != nil {
-		metrics.IncrementStorageError(ctx)
-	}
-	return record, err
+	return captureMetrics(ctx, s.metrics(ctx, getOp), func() (*model.CommitVerificationRecord, error) {
+		return s.inner.GetCommitVerification(ctx, id)
+	})
 }
 
 func (s *MetricsAwareStorage) ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
-	metrics := s.metrics(ctx, "ListCommitVerificationByMessageID")
-
-	now := time.Now()
-	defer func() {
-		latency := time.Since(now).Milliseconds()
-		metrics.RecordStorageLatency(ctx, latency)
-	}()
-	records, err := s.inner.ListCommitVerificationByMessageID(ctx, messageID, committee)
-	if err != nil {
-		metrics.IncrementStorageError(ctx)
-	}
-	return records, err
+	return captureMetrics(ctx, s.metrics(ctx, listByMsgIDOp), func() ([]*model.CommitVerificationRecord, error) {
+		return s.inner.ListCommitVerificationByMessageID(ctx, messageID, committee)
+	})
 }
 
 func (s *MetricsAwareStorage) ListOrphanedMessageCommitteePairs(ctx context.Context) (<-chan *model.MessageCommitteePair, <-chan error) {
@@ -86,46 +64,85 @@ func (s *MetricsAwareStorage) ListOrphanedMessageCommitteePairs(ctx context.Cont
 }
 
 func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error) {
-	metrics := s.metrics(ctx, "QueryAggregatedReports")
-
-	now := time.Now()
-	defer func() {
-		latency := time.Since(now).Milliseconds()
-		metrics.RecordStorageLatency(ctx, latency)
-	}()
-	reports, err := s.inner.QueryAggregatedReports(ctx, start, end, committeeID)
-	if err != nil {
-		metrics.IncrementStorageError(ctx)
-	}
-	return reports, err
+	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() ([]*model.CommitAggregatedReport, error) {
+		return s.inner.QueryAggregatedReports(ctx, start, end, committeeID)
+	})
 }
 
 func (s *MetricsAwareStorage) GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {
-	metrics := s.metrics(ctx, "GetCCVData")
-
-	now := time.Now()
-	defer func() {
-		latency := time.Since(now).Milliseconds()
-		metrics.RecordStorageLatency(ctx, latency)
-	}()
-	report, err := s.inner.GetCCVData(ctx, messageID, committeeID)
-	if err != nil {
-		metrics.IncrementStorageError(ctx)
-	}
-	return report, err
+	return captureMetrics(ctx, s.metrics(ctx, getCCVDataOp), func() (*model.CommitAggregatedReport, error) {
+		return s.inner.GetCCVData(ctx, messageID, committeeID)
+	})
 }
 
 func (s *MetricsAwareStorage) SubmitReport(ctx context.Context, report *model.CommitAggregatedReport) error {
-	metrics := s.metrics(ctx, "SubmitReport")
+	return captureMetricsNoReturn(ctx, s.metrics(ctx, submitReportOp), func() error {
+		return s.inner.SubmitReport(ctx, report)
+	})
+}
 
+const (
+	storeCheckpointsOp     = "StoreCheckpoints"
+	getClientCheckpointsOp = "GetClientCheckpoints"
+	getAllClientsOp        = "GetAllClients"
+)
+
+type MetricsAwareCheckpointStorage struct {
+	inner common.CheckpointStorageInterface
+	m     common.AggregatorMonitoring
+}
+
+func NewMetricsAwareCheckpointStorage(inner common.CheckpointStorageInterface, m common.AggregatorMonitoring) *MetricsAwareCheckpointStorage {
+	return &MetricsAwareCheckpointStorage{
+		inner: inner,
+		m:     m,
+	}
+}
+
+func (s *MetricsAwareCheckpointStorage) metrics(ctx context.Context, operation string) common.AggregatorMetricLabeler {
+	metrics := scope.AugmentMetrics(ctx, s.m.Metrics())
+	return metrics.With(operationLabel, operation)
+}
+
+func WrapCheckpointWithMetrics(inner common.CheckpointStorageInterface, m common.AggregatorMonitoring) common.CheckpointStorageInterface {
+	return NewMetricsAwareCheckpointStorage(inner, m)
+}
+
+func (s *MetricsAwareCheckpointStorage) StoreCheckpoints(ctx context.Context, clientID string, checkpoints map[uint64]uint64) error {
+	return captureMetricsNoReturn(ctx, s.metrics(ctx, storeCheckpointsOp), func() error {
+		return s.inner.StoreCheckpoints(ctx, clientID, checkpoints)
+	})
+}
+
+func (s *MetricsAwareCheckpointStorage) GetClientCheckpoints(ctx context.Context, clientID string) (map[uint64]uint64, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getClientCheckpointsOp), func() (map[uint64]uint64, error) {
+		return s.inner.GetClientCheckpoints(ctx, clientID)
+	})
+}
+
+func (s *MetricsAwareCheckpointStorage) GetAllClients(ctx context.Context) ([]string, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getAllClientsOp), func() ([]string, error) {
+		return s.inner.GetAllClients(ctx)
+	})
+}
+
+func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricLabeler, fn func() (T, error)) (T, error) {
 	now := time.Now()
 	defer func() {
 		latency := time.Since(now).Milliseconds()
 		metrics.RecordStorageLatency(ctx, latency)
 	}()
-	err := s.inner.SubmitReport(ctx, report)
+
+	res, err := fn()
 	if err != nil {
 		metrics.IncrementStorageError(ctx)
 	}
+	return res, err
+}
+
+func captureMetricsNoReturn(ctx context.Context, metrics common.AggregatorMetricLabeler, fn func() error) error {
+	_, err := captureMetrics(ctx, metrics, func() (struct{}, error) {
+		return struct{}{}, fn()
+	})
 	return err
 }
