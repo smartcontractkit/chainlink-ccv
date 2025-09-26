@@ -58,7 +58,7 @@ func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorM
 	return scope.AugmentMetrics(ctx, c.monitoring.Metrics())
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) error {
 	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
 	lggr = lggr.With("messageID", messageID, "committee", committeeID)
@@ -66,7 +66,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committeeID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
-		return nil, err
+		return err
 	}
 
 	lggr.Debugw("Verifications retrieved", "count", len(verifications))
@@ -80,13 +80,13 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
 	if err != nil {
 		lggr.Errorw("Failed to check quorum", "error", err)
-		return nil, err
+		return err
 	}
 
 	if quorumMet {
 		if err := c.sink.SubmitReport(ctx, aggregatedReport); err != nil {
 			lggr.Errorw("Failed to submit report", "error", err)
-			return nil, err
+			return err
 		}
 		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
 		lggr.Infow("Report submitted successfully", "verifications", len(verifications), "timeToAggregation", timeToAggregation)
@@ -96,7 +96,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}
 
-	return aggregatedReport, nil
+	return nil
 }
 
 // RecoverOrphans finds verification records that have not been aggregated yet and triggers aggregation for them.
@@ -141,7 +141,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(context.Background(), 1)
 					ctx := scope.WithMessageID(context.Background(), request.MessageID)
 					ctx = scope.WithCommitteeID(ctx, request.CommitteeID)
-					_, err := c.checkAggregationAndSubmitComplete(ctx, request.MessageID, request.CommitteeID)
+					err := c.checkAggregationAndSubmitComplete(ctx, request.MessageID, request.CommitteeID)
 					if err != nil {
 						c.logger(ctx).Errorw("Failed to process aggregation request", "error", err)
 					}
