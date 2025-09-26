@@ -68,6 +68,7 @@ func ETHClient(ctx context.Context, wsURL string, gasSettings *GasSettings) (*et
 	auth.GasFeeCap = fc
 	auth.GasTipCap = tc
 	l.Info().
+		Uint64("ChainID", chainID.Uint64()).
 		Str("GasFeeCap", fc.String()).
 		Str("GasTipCap", tc.String()).
 		Msg("Default gas prices set")

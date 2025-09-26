@@ -89,13 +89,12 @@ func TestE2ESmoke(t *testing.T) {
 	t.Run("test argsv3 messages", func(t *testing.T) {
 		type testcase struct {
 			name            string
-			proxy           *ccvProxy.CCVProxy
-			agg             *ccvAggregator.CCVAggregator
 			srcSelector     uint64
 			dstSelector     uint64
 			finality        uint16
 			verifierAddress []byte
 			execOnRamp      string
+			receiver        string
 			mandatoryCCVs   []types.CCV
 			optionalCCVs    []types.CCV
 			threshold       uint8
@@ -103,39 +102,53 @@ func TestE2ESmoke(t *testing.T) {
 
 		verifierAddress := common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
 		execOnRamp := "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
-
+		mockReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+		eoaReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443b"
+		mandatoryCCVs := []types.CCV{
+			{
+				CCVAddress: verifierAddress.Bytes(),
+				Args:       []byte{},
+				ArgsLen:    0,
+			},
+		}
 		tcs := []testcase{
 			{
-				name:        "src->dst msg execution",
-				proxy:       c.ProxyBySelector[c.Chain1337Details.ChainSelector],
-				agg:         c.AggBySelector[c.Chain2337Details.ChainSelector],
-				srcSelector: c.Chain1337Details.ChainSelector,
-				dstSelector: c.Chain2337Details.ChainSelector,
-				finality:    1,
-				execOnRamp:  execOnRamp,
-				mandatoryCCVs: []types.CCV{
-					{
-						CCVAddress: verifierAddress.Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
+				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+				name:          "src_dst msg execution with mock receiver",
+				srcSelector:   c.Chain1337Details.ChainSelector,
+				dstSelector:   c.Chain2337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      mockReceiver,
+				mandatoryCCVs: mandatoryCCVs,
 			},
 			{
-				name:        "dst->src msg execution",
-				proxy:       c.ProxyBySelector[c.Chain2337Details.ChainSelector],
-				agg:         c.AggBySelector[c.Chain1337Details.ChainSelector],
-				srcSelector: c.Chain2337Details.ChainSelector,
-				dstSelector: c.Chain1337Details.ChainSelector,
-				finality:    1,
-				execOnRamp:  execOnRamp,
-				mandatoryCCVs: []types.CCV{
-					{
-						CCVAddress: verifierAddress.Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
+				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+				name:          "dst_src msg execution with mock receiver",
+				srcSelector:   c.Chain2337Details.ChainSelector,
+				dstSelector:   c.Chain1337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      mockReceiver,
+				mandatoryCCVs: mandatoryCCVs,
+			},
+			{
+				name:          "src_dst msg execution with EOA receiver",
+				srcSelector:   c.Chain1337Details.ChainSelector,
+				dstSelector:   c.Chain2337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      eoaReceiver,
+				mandatoryCCVs: mandatoryCCVs,
+			},
+			{
+				name:          "dst_src msg execution with EOA receiver",
+				srcSelector:   c.Chain2337Details.ChainSelector,
+				dstSelector:   c.Chain1337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      eoaReceiver,
+				mandatoryCCVs: mandatoryCCVs,
 			},
 		}
 		for _, tc := range tcs {
@@ -143,12 +156,19 @@ func TestE2ESmoke(t *testing.T) {
 				seqNo, err := impl.GetExpectedNextSequenceNumber(ctx, c, tc.srcSelector, tc.dstSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = impl.SendArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, tc.srcSelector, tc.dstSelector, tc.finality, tc.execOnRamp, nil, nil,
-					tc.mandatoryCCVs, tc.optionalCCVs, 0)
+				err = impl.SendArgsV3Message(
+					ctx, e,
+					in.CLDF.Addresses, selectors,
+					tc.srcSelector, tc.dstSelector, tc.finality,
+					tc.execOnRamp, tc.receiver,
+					nil, nil,
+					tc.mandatoryCCVs, tc.optionalCCVs,
+					0,
+				)
 				require.NoError(t, err)
 				_, err = impl.WaitOneSentEventBySeqNo(ctx, c, tc.srcSelector, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := impl.WaitOneExecEventBySeqNo(ctx, c, tc.dstSelector, tc.srcSelector, seqNo, 3*time.Minute)
+				e, err := impl.WaitOneExecEventBySeqNo(ctx, c, tc.dstSelector, tc.srcSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)

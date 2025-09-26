@@ -150,6 +150,7 @@ func (c *Contracts) FetchAllExecEventsBySelector(ctx context.Context, from, to u
 			Any("TxHash", event.Raw.TxHash.Hex()).
 			Any("SeqNo", event.SequenceNumber).
 			Str("MsgID", hexutil.Encode(event.MessageId[:])).
+			Str("Error", hexutil.Encode(filter.Event.ReturnData)).
 			Msg("Found ExecutionStateChanged event")
 	}
 

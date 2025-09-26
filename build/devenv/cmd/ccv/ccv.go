@@ -199,7 +199,7 @@ var deployCommitVerifierCmd = &cobra.Command{
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
 
-		allAddrs, err := ccvEvm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, commit_offramp.SignatureConfigArgs{
+		allAddrs, err := ccvEvm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, commit_offramp.SetSignatureConfigArgs{
 			Threshold: uint8(threshold),
 			Signers:   addresses,
 		})
@@ -478,7 +478,10 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to parse finality config: %w", err)
 			}
 
-			return impl.SendArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, src, dest, uint16(finality), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", nil, nil,
+			return impl.SendArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, src, dest, uint16(finality),
+				"0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", // executor address
+				"0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", // mock receiver
+				nil, nil,
 				[]types.CCV{
 					{
 						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),

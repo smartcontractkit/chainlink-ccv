@@ -88,9 +88,18 @@ func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {
 	return common.HexToAddress(q.CommitteeVerifierAddress).Bytes()
 }
 
+// StorageType represents the type of storage backend to use.
+type StorageType string
+
+const (
+	StorageTypeMemory     StorageType = "memory"
+	StorageTypePostgreSQL StorageType = "postgres"
+)
+
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType string `toml:"type"`
+	StorageType   StorageType `toml:"type"`
+	ConnectionURL string      `toml:"connectionURL,omitempty"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -150,7 +159,7 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 	return nil
 }
 
-// AggregatorConfig is the root configuration for the aggregator.
+// AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
 	Committees        map[CommitteeID]*Committee `toml:"committees"`

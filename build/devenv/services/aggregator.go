@@ -25,8 +25,8 @@ const (
 	DefaultAggregatorDBImage = "postgres:16-alpine"
 )
 
-var DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-	DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBPort, DefaultAggregatorName)
+var DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+	DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBName, DefaultAggregatorName)
 
 type AggregatorDBInput struct {
 	Image string `toml:"image"`
@@ -76,7 +76,8 @@ type Committee struct {
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType string `toml:"type"`
+	StorageType   string `toml:"type"`
+	ConnectionURL string `toml:"connectionURL,omitempty"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -126,7 +127,8 @@ func aggregatorDefaults(in *AggregatorInput) {
 				Address: ":50051",
 			},
 			Storage: StorageConfig{
-				StorageType: "memory",
+				StorageType:   "postgres",
+				ConnectionURL: DefaultAggregatorDBConnectionString,
 			},
 			Committees: map[string]*Committee{
 				"default": {
@@ -175,20 +177,28 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	/* Database */
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
-		testcontainers.WithName(DefaultAggregatorDBName),
-		testcontainers.WithExposedPorts("5432/tcp"),
-		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				"5432/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(DefaultAggregatorDBPort)},
-				},
-			}
-		}),
-		testcontainers.WithLabels(framework.DefaultTCLabels()),
 		postgres.WithDatabase(DefaultAggregatorName),
 		postgres.WithUsername(DefaultAggregatorName),
 		postgres.WithPassword(DefaultAggregatorName),
 		postgres.WithInitScripts(filepath.Join(p, DefaultAggregatorSQLInit)),
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:         DefaultAggregatorDBName,
+				ExposedPorts: []string{"5432/tcp"},
+				Networks:     []string{framework.DefaultNetworkName},
+				NetworkAliases: map[string][]string{
+					framework.DefaultNetworkName: {DefaultAggregatorDBName},
+				},
+				Labels: framework.DefaultTCLabels(),
+				HostConfigModifier: func(h *container.HostConfig) {
+					h.PortBindings = nat.PortMap{
+						"5432/tcp": []nat.PortBinding{
+							{HostPort: strconv.Itoa(DefaultAggregatorDBPort)},
+						},
+					}
+				},
+			},
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)

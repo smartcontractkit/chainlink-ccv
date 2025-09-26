@@ -19,6 +19,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
@@ -217,7 +219,16 @@ func (m *CCIP17EVM) SendArgsV2Message(ctx context.Context, e *deployment.Environ
 	return nil
 }
 
-func (m *CCIP17EVM) SendArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []types.CCV, threshold uint8) error {
+func (m *CCIP17EVM) SendArgsV3Message(
+	ctx context.Context,
+	e *deployment.Environment,
+	addresses []string, selectors []uint64,
+	src, dest uint64, finality uint16,
+	execAddr, receiverAddr string,
+	execArgs, tokenArgs []byte,
+	ccv, optCcv []types.CCV,
+	threshold uint8,
+) error {
 	l := zerolog.Ctx(ctx)
 	chains := e.BlockChains.EVMChains()
 	if chains == nil {
@@ -248,12 +259,10 @@ func (m *CCIP17EVM) SendArgsV3Message(ctx context.Context, e *deployment.Environ
 	if err != nil {
 		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
 	}
-	receiverAddress := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
-
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddress).Bytes(), 32),
+			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddr).Bytes(), 32),
 			Data:         []byte{},
 			TokenAmounts: []router.EVMTokenAmount{},
 			ExtraArgs:    argsV3,
@@ -410,7 +419,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				USDPerWETH:                     usdPerWeth,
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: commit_offramp.SignatureConfigArgs{
+				SignatureConfigArgs: commit_offramp.SetSignatureConfigArgs{
 					Threshold: 2,
 					Signers: []common.Address{
 						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
@@ -447,11 +456,16 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	e.OperationsBundle = bundle
 
 	remoteChains := make(map[uint64]changesets.RemoteChainConfig)
+
 	for _, rs := range remoteSelectors {
 		remoteChains[rs] = changesets.RemoteChainConfig{
 			AllowTrafficFrom: true,
 			CCIPMessageSource: datastore.AddressRef{
-				Type:    datastore.ContractType(commit_onramp.ContractType),
+				Type:    datastore.ContractType(ccv_proxy.ContractType),
+				Version: semver.MustParse("1.7.0"),
+			},
+			CCIPMessageDest: datastore.AddressRef{
+				Type:    datastore.ContractType(ccv_aggregator.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
 			DefaultCCVOffRamps: []datastore.AddressRef{

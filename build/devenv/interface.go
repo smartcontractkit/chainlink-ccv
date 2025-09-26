@@ -40,7 +40,7 @@ type Testable interface {
 	// SendArgsV2Message sends a message with ArgsV2 params
 	SendArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, src, dest uint64) error
 	// SendArgsV3Message sends a message with ArgsV3 params
-	SendArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr string, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error
+	SendArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr, receiverAddr string, execArgs, tokenArgs []byte, ccv, optCcv []ccvTypes.CCV, threshold uint8) error
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
 	GetExpectedNextSequenceNumber(ctx context.Context, c any, from, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain

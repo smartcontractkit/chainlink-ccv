@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/nonce_manager"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
@@ -27,7 +26,7 @@ func DeployCommitVerifierForSelector(
 	selector uint64,
 	onRampConstructorArgs commit_onramp.ConstructorArgs,
 	offRampConstructorArgs commit_offramp.ConstructorArgs,
-	signatureConfigArgs commit_offramp.SignatureConfigArgs,
+	signatureConfigArgs commit_offramp.SetSignatureConfigArgs,
 ) (onRamp, offRamp datastore.AddressRef, err error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
@@ -50,7 +49,7 @@ func DeployCommitVerifierForSelector(
 		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
 		return onRamp, offRamp, err
 	}
-	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SignatureConfigArgs]{
+	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SetSignatureConfigArgs]{
 		Address:       common.HexToAddress(commitOffRampReport.Output.Address),
 		ChainSelector: chain.Selector,
 		Args:          signatureConfigArgs,
@@ -234,7 +233,7 @@ func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresse
 	return addrs, nil
 }
 
-func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, signatureConfigArgs commit_offramp.SignatureConfigArgs) ([]string, error) {
+func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, signatureConfigArgs commit_offramp.SetSignatureConfigArgs) ([]string, error) {
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
 		e.Logger,
@@ -256,7 +255,7 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 				},
 			},
 			commit_offramp.ConstructorArgs{
-				NonceManager: MustGetContractAddressForSelector(addresses, sel, nonce_manager.ContractType),
+				//NonceManager: MustGetContractAddressForSelector(addresses, sel, nonce_manager.ContractType),
 			},
 			signatureConfigArgs,
 		)

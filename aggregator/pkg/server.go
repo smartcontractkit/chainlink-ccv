@@ -28,15 +28,16 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
-	aggregator.UnimplementedAggregatorServer
-	aggregator.UnimplementedCCVDataServer
+	pb.UnimplementedAggregatorServer
+	pb.UnimplementedCCVDataServer
 
 	l                                  logger.Logger
 	readCommitCCVNodeDataHandler       *handlers.ReadCommitCCVNodeDataHandler
@@ -45,7 +46,7 @@ type Server struct {
 	getCCVDataForMessageHandler        *handlers.GetCCVDataForMessageHandler
 	writeBlockCheckpointHandler        *handlers.WriteBlockCheckpointHandler
 	readBlockCheckpointHandler         *handlers.ReadBlockCheckpointHandler
-	checkpointStorage                  *storage.CheckpointStorage
+	checkpointStorage                  common.CheckpointStorageInterface
 	grpcServer                         *grpc.Server
 	batchWriteCommitCCVNodeDataHandler *handlers.BatchWriteCommitCCVNodeDataHandler
 	runGroup                           *run.Group
@@ -55,34 +56,34 @@ type Server struct {
 }
 
 // WriteCommitCCVNodeData handles requests to write commit verification records.
-func (s *Server) WriteCommitCCVNodeData(ctx context.Context, req *aggregator.WriteCommitCCVNodeDataRequest) (*aggregator.WriteCommitCCVNodeDataResponse, error) {
+func (s *Server) WriteCommitCCVNodeData(ctx context.Context, req *pb.WriteCommitCCVNodeDataRequest) (*pb.WriteCommitCCVNodeDataResponse, error) {
 	return s.writeCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-func (s *Server) BatchWriteCommitCCVNodeData(ctx context.Context, req *aggregator.BatchWriteCommitCCVNodeDataRequest) (*aggregator.BatchWriteCommitCCVNodeDataResponse, error) {
+func (s *Server) BatchWriteCommitCCVNodeData(ctx context.Context, req *pb.BatchWriteCommitCCVNodeDataRequest) (*pb.BatchWriteCommitCCVNodeDataResponse, error) {
 	return s.batchWriteCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
 // ReadCommitCCVNodeData handles requests to read commit verification records.
-func (s *Server) ReadCommitCCVNodeData(ctx context.Context, req *aggregator.ReadCommitCCVNodeDataRequest) (*aggregator.ReadCommitCCVNodeDataResponse, error) {
+func (s *Server) ReadCommitCCVNodeData(ctx context.Context, req *pb.ReadCommitCCVNodeDataRequest) (*pb.ReadCommitCCVNodeDataResponse, error) {
 	return s.readCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-func (s *Server) GetCCVDataForMessage(ctx context.Context, req *aggregator.GetCCVDataForMessageRequest) (*aggregator.MessageWithCCVData, error) {
+func (s *Server) GetCCVDataForMessage(ctx context.Context, req *pb.GetCCVDataForMessageRequest) (*pb.MessageWithCCVData, error) {
 	return s.getCCVDataForMessageHandler.Handle(ctx, req)
 }
 
-func (s *Server) GetMessagesSince(ctx context.Context, req *aggregator.GetMessagesSinceRequest) (*aggregator.GetMessagesSinceResponse, error) {
+func (s *Server) GetMessagesSince(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
 	return s.getMessagesSinceHandler.Handle(ctx, req)
 }
 
 // WriteBlockCheckpoint handles requests to write blockchain checkpoints.
-func (s *Server) WriteBlockCheckpoint(ctx context.Context, req *aggregator.WriteBlockCheckpointRequest) (*aggregator.WriteBlockCheckpointResponse, error) {
+func (s *Server) WriteBlockCheckpoint(ctx context.Context, req *pb.WriteBlockCheckpointRequest) (*pb.WriteBlockCheckpointResponse, error) {
 	return s.writeBlockCheckpointHandler.Handle(ctx, req)
 }
 
 // ReadBlockCheckpoint handles requests to read blockchain checkpoints.
-func (s *Server) ReadBlockCheckpoint(ctx context.Context, req *aggregator.ReadBlockCheckpointRequest) (*aggregator.ReadBlockCheckpointResponse, error) {
+func (s *Server) ReadBlockCheckpoint(ctx context.Context, req *pb.ReadBlockCheckpointRequest) (*pb.ReadBlockCheckpointResponse, error) {
 	return s.readBlockCheckpointHandler.Handle(ctx, req)
 }
 
@@ -165,9 +166,9 @@ func (s *Server) Stop() error {
 }
 
 func createAggregator(storage common.CommitVerificationStore, sink common.Sink, validator aggregation.QuorumValidator, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) (handlers.AggregationTriggerer, error) {
-	aggregator := aggregation.NewCommitReportAggregator(storage, sink, validator, lggr, monitoring)
-	aggregator.StartBackground(context.Background())
-	return aggregator, nil
+	agg := aggregation.NewCommitReportAggregator(storage, sink, validator, lggr, monitoring)
+	agg.StartBackground(context.Background())
+	return agg, nil
 }
 
 type SignatureAndQuorumValidator interface {
@@ -179,6 +180,12 @@ type SignatureAndQuorumValidator interface {
 func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	// Set defaults for configuration
 	config.SetDefaults()
+
+	factory := storage.NewStorageFactory()
+	store, err := factory.CreateStorage(config.Storage)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create storage: %v", err))
+	}
 
 	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
 
@@ -198,11 +205,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		l.Info("Metrics enabled")
 	}
 
-	if config.Storage.StorageType != "memory" {
-		panic("unknown storage type")
-	}
-
-	store := storage.WrapWithMetrics(storage.NewInMemoryStorage(), aggMonitoring)
+	store = storage.WrapWithMetrics(store, aggMonitoring)
 
 	var validator SignatureAndQuorumValidator
 	if config.StubMode {
@@ -224,7 +227,12 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
 	// Initialize checkpoint storage
-	checkpointStorage := storage.NewCheckpointStorage()
+	checkpointStorage, err := factory.CreateCheckpointStorage(config.Storage)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create checkpoint storage: %v", err))
+	}
+
+	checkpointStorage = storage.WrapCheckpointWithMetrics(checkpointStorage, aggMonitoring)
 
 	// Initialize checkpoint handlers with configuration support
 	writeBlockCheckpointHandler := handlers.NewWriteBlockCheckpointHandler(checkpointStorage, &config.APIKeys, &config.Checkpoints)
@@ -264,8 +272,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		mu:                                 sync.Mutex{},
 	}
 
-	aggregator.RegisterCCVDataServer(grpcServer, server)
-	aggregator.RegisterAggregatorServer(grpcServer, server)
+	pb.RegisterCCVDataServer(grpcServer, server)
+	pb.RegisterAggregatorServer(grpcServer, server)
 	reflection.Register(grpcServer)
 
 	return server

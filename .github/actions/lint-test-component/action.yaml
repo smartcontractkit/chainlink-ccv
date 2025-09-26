@@ -11,14 +11,6 @@ inputs:
   go-sum-path:
     description: "Path to go.sum file for dependency caching (e.g., executor/go.sum)"
     required: true
-  install-protoc:
-    description: "Whether to install protoc (for common component)"
-    required: false
-    default: "false"
-  run-proto-check:
-    description: "Whether to run proto-check (for common component)"
-    required: false
-    default: "false"
   github-token:
     description: "The `GITHUB_TOKEN` issued for the workflow."
     default: ${{ github.token }}
@@ -66,14 +58,6 @@ runs:
     - name: Install just
       uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0
 
-    - name: Install protoc
-      shell: bash
-      run: |
-        if [ "${{ inputs.install-protoc }}" = "true" ]; then
-          just install-protoc
-          just install-go-tools
-        fi
-
     - name: Install golangci-lint
       shell: bash
       run: |
@@ -85,12 +69,6 @@ runs:
       shell: bash
       working-directory: ${{ inputs.dir }}
       run: just lint
-
-    - name: Run proto-check
-      if: inputs.run-proto-check == 'true'
-      shell: bash
-      working-directory: ${{ inputs.dir }}
-      run: just proto-check
 
     - name: Run tests
       shell: bash
