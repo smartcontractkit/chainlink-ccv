@@ -49,6 +49,9 @@ CREATE INDEX IF NOT EXISTS idx_verification_by_id ON commit_verification_records
 CREATE INDEX IF NOT EXISTS idx_aggregated_latest ON commit_aggregated_reports(message_id, committee_id, seq_num DESC);
 -- Used by QueryAggregatedReports with time range
 CREATE INDEX IF NOT EXISTS idx_aggregated_reports_time_query ON commit_aggregated_reports(committee_id, created_at, message_id, seq_num DESC);
+-- Used by ListOrphanedMessageCommitteePairs for efficient LEFT JOIN on (message_id, committee_id)
+CREATE INDEX IF NOT EXISTS idx_verification_message_committee ON commit_verification_records(message_id, committee_id);
+CREATE INDEX IF NOT EXISTS idx_aggregated_message_committee ON commit_aggregated_reports(message_id, committee_id);
 
 -- Used by Checkpoint APIs
 CREATE INDEX IF NOT EXISTS idx_block_checkpoints_client_id ON block_checkpoints(client_id);
@@ -58,6 +61,8 @@ CREATE INDEX IF NOT EXISTS idx_block_checkpoints_updated_at ON block_checkpoints
 
 
 -- +goose Down
+DROP INDEX IF EXISTS idx_aggregated_message_committee;
+DROP INDEX IF EXISTS idx_verification_message_committee;
 DROP INDEX IF EXISTS idx_block_checkpoints_updated_at;
 DROP INDEX IF EXISTS idx_block_checkpoints_chain_selector;
 DROP INDEX IF EXISTS idx_block_checkpoints_client_id;

@@ -405,6 +405,66 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 	return report, nil
 }
 
+func (d *DatabaseStorage) ListOrphanedMessageCommitteePairs(ctx context.Context) (<-chan *model.MessageCommitteePair, <-chan error) {
+	pairCh := make(chan *model.MessageCommitteePair, 10) // Buffered for performance
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(pairCh)
+		defer close(errCh)
+
+		// Query to find distinct (message_id, committee_id) pairs from verification records
+		// that don't have corresponding aggregated reports
+		stmt := `
+		SELECT DISTINCT cvr.message_id, cvr.committee_id
+		FROM commit_verification_records cvr
+		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id AND cvr.committee_id = car.committee_id
+		WHERE car.message_id IS NULL`
+
+		rows, err := d.ds.QueryContext(ctx, stmt)
+		if err != nil {
+			errCh <- fmt.Errorf("failed to query orphaned message committee pairs: %w", err)
+			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			default:
+			}
+
+			var messageIDHex, committeeID string
+			err := rows.Scan(&messageIDHex, &committeeID)
+			if err != nil {
+				errCh <- fmt.Errorf("failed to scan orphaned pair: %w", err)
+				return
+			}
+
+			messageID := common.Hex2Bytes(messageIDHex)
+			pair := &model.MessageCommitteePair{
+				MessageID:   messageID,
+				CommitteeID: committeeID,
+			}
+
+			select {
+			case pairCh <- pair:
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			}
+		}
+
+		if err := rows.Err(); err != nil {
+			errCh <- fmt.Errorf("error iterating over orphaned pairs: %w", err)
+		}
+	}()
+
+	return pairCh, errCh
+}
+
 func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.CommitAggregatedReport) error {
 	if report == nil {
 		return fmt.Errorf("aggregated report cannot be nil")
