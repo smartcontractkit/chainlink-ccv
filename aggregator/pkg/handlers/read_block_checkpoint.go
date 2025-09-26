@@ -3,20 +3,20 @@ package handlers
 import (
 	"context"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // ReadBlockCheckpointHandler handles ReadBlockCheckpoint gRPC requests.
 type ReadBlockCheckpointHandler struct {
-	storage   *storage.CheckpointStorage
+	storage   common.CheckpointStorageInterface
 	apiConfig *model.APIKeyConfig // Optional API key configuration for enhanced validation
 }
 
 // NewReadBlockCheckpointHandler creates a new ReadBlockCheckpointHandler with configuration.
-func NewReadBlockCheckpointHandler(storage *storage.CheckpointStorage, apiConfig *model.APIKeyConfig) *ReadBlockCheckpointHandler {
+func NewReadBlockCheckpointHandler(storage common.CheckpointStorageInterface, apiConfig *model.APIKeyConfig) *ReadBlockCheckpointHandler {
 	return &ReadBlockCheckpointHandler{
 		storage:   storage,
 		apiConfig: apiConfig,
@@ -49,7 +49,10 @@ func (h *ReadBlockCheckpointHandler) Handle(ctx context.Context, req *pb.ReadBlo
 	}
 
 	// Retrieve checkpoints for this client
-	checkpointMap := h.storage.GetClientCheckpoints(clientID)
+	checkpointMap, err := h.storage.GetClientCheckpoints(ctx, clientID)
+	if err != nil {
+		return nil, handleInternalError(err)
+	}
 
 	// Convert storage format to protobuf checkpoints
 	protoCheckpoints := model.MapToProtoCheckpoints(checkpointMap)

@@ -46,7 +46,7 @@ type Server struct {
 	getCCVDataForMessageHandler        *handlers.GetCCVDataForMessageHandler
 	writeBlockCheckpointHandler        *handlers.WriteBlockCheckpointHandler
 	readBlockCheckpointHandler         *handlers.ReadBlockCheckpointHandler
-	checkpointStorage                  *storage.CheckpointStorage
+	checkpointStorage                  common.CheckpointStorageInterface
 	grpcServer                         *grpc.Server
 	batchWriteCommitCCVNodeDataHandler *handlers.BatchWriteCommitCCVNodeDataHandler
 	runGroup                           *run.Group
@@ -181,6 +181,12 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	// Set defaults for configuration
 	config.SetDefaults()
 
+	factory := storage.NewStorageFactory()
+	store, err := factory.CreateStorage(config.Storage)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create storage: %v", err))
+	}
+
 	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
 
 	if config.Metrics.EnableMetrics {
@@ -199,11 +205,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		l.Info("Metrics enabled")
 	}
 
-	if config.Storage.StorageType != "memory" {
-		panic("unknown storage type")
-	}
-
-	store := storage.WrapWithMetrics(storage.NewInMemoryStorage(), aggMonitoring)
+	store = storage.WrapWithMetrics(store, aggMonitoring)
 
 	var validator SignatureAndQuorumValidator
 	if config.StubMode {
@@ -225,7 +227,12 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
 	// Initialize checkpoint storage
-	checkpointStorage := storage.NewCheckpointStorage()
+	checkpointStorage, err := factory.CreateCheckpointStorage(config.Storage)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create checkpoint storage: %v", err))
+	}
+
+	checkpointStorage = storage.WrapCheckpointWithMetrics(checkpointStorage, aggMonitoring)
 
 	// Initialize checkpoint handlers with configuration support
 	writeBlockCheckpointHandler := handlers.NewWriteBlockCheckpointHandler(checkpointStorage, &config.APIKeys, &config.Checkpoints)

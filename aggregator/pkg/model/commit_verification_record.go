@@ -39,7 +39,8 @@ func (c *CommitVerificationRecord) GetID() (*CommitVerificationRecordIdentifier,
 	}
 
 	return &CommitVerificationRecordIdentifier{
-		MessageID: c.GetMessageId(),
-		Address:   c.IdentifierSigner.Address,
+		MessageID:   c.GetMessageId(),
+		Address:     c.IdentifierSigner.Address,
+		CommitteeID: c.CommitteeID,
 	}, nil
 }

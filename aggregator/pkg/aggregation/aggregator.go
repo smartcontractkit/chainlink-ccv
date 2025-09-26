@@ -71,7 +71,6 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
 		Verifications: verifications,
-		Timestamp:     time.Now().Unix(),
 	}
 
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)

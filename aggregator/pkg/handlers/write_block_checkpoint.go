@@ -3,21 +3,21 @@ package handlers
 import (
 	"context"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // WriteBlockCheckpointHandler handles WriteBlockCheckpoint gRPC requests.
 type WriteBlockCheckpointHandler struct {
-	storage          *storage.CheckpointStorage
+	storage          common.CheckpointStorageInterface
 	apiConfig        *model.APIKeyConfig     // Optional API key configuration for enhanced validation
 	checkpointConfig *model.CheckpointConfig // Optional checkpoint configuration for limits
 }
 
 // NewWriteBlockCheckpointHandler creates a new WriteBlockCheckpointHandler with configuration.
-func NewWriteBlockCheckpointHandler(storage *storage.CheckpointStorage, apiConfig *model.APIKeyConfig, checkpointConfig *model.CheckpointConfig) *WriteBlockCheckpointHandler {
+func NewWriteBlockCheckpointHandler(storage common.CheckpointStorageInterface, apiConfig *model.APIKeyConfig, checkpointConfig *model.CheckpointConfig) *WriteBlockCheckpointHandler {
 	return &WriteBlockCheckpointHandler{
 		storage:          storage,
 		apiConfig:        apiConfig,
@@ -54,7 +54,7 @@ func (h *WriteBlockCheckpointHandler) Handle(ctx context.Context, req *pb.WriteB
 	checkpointMap := model.ProtoCheckpointsToMap(req.Checkpoints)
 
 	// Store checkpoints using the client ID
-	if err := h.storage.StoreCheckpoints(clientID, checkpointMap); err != nil {
+	if err := h.storage.StoreCheckpoints(ctx, clientID, checkpointMap); err != nil {
 		return model.NewWriteBlockCheckpointResponse(false), handleInternalError(err)
 	}
 
