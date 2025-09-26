@@ -16,8 +16,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
+
+  chainsel "github.com/smartcontractkit/chain-selectors"
+
+  "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
@@ -29,7 +31,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -361,7 +363,7 @@ func (m *CCIP17EVM) SendArgsV3Message(
 	src, dest uint64, finality uint16,
 	execAddr, receiverAddr string,
 	execArgs, tokenArgs []byte,
-	ccv, optCcv []types.CCV,
+	ccv, optCcv []protocol.CCV,
 	threshold uint8,
 ) error {
 	l := zerolog.Ctx(ctx)

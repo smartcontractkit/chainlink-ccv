@@ -1,4 +1,4 @@
-package types
+package protocol
 
 import (
 	"bytes"
@@ -8,8 +8,6 @@ import (
 	"io"
 	"math"
 	"math/big"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/hashing"
 )
 
 // Constants for CCIP v1.7.
@@ -355,7 +353,7 @@ func (m *Message) MessageID() (Bytes32, error) {
 	if err != nil {
 		return Bytes32{}, err
 	}
-	result := hashing.Keccak256(encoded)
+	result := Keccak256(encoded)
 	return result, nil
 }
 

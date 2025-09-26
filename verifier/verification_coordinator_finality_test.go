@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 const (

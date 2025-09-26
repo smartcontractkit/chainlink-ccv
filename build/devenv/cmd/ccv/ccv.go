@@ -12,16 +12,15 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
@@ -482,14 +481,14 @@ var sendCmd = &cobra.Command{
 				"0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", // executor address
 				"0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", // mock receiver
 				nil, nil,
-				[]types.CCV{
+				[]protocol.CCV{
 					{
 						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
 				},
-				[]types.CCV{}, 0)
+				[]protocol.CCV{}, 0)
 		} else {
 			// V2 format - use the dedicated V2 function
 			return impl.SendArgsV2Message(ctx, e, in.CLDF.Addresses, src, dest)

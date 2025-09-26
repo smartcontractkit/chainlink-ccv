@@ -9,8 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
@@ -93,8 +92,8 @@ func TestE2ESmoke(t *testing.T) {
 			verifierAddress []byte
 			execOnRamp      string
 			receiver        string
-			mandatoryCCVs   []types.CCV
-			optionalCCVs    []types.CCV
+			mandatoryCCVs   []protocol.CCV
+			optionalCCVs    []protocol.CCV
 			threshold       uint8
 		}
 
@@ -102,7 +101,7 @@ func TestE2ESmoke(t *testing.T) {
 		execOnRamp := "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
 		mockReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 		eoaReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443b"
-		mandatoryCCVs := []types.CCV{
+		mandatoryCCVs := []protocol.CCV{
 			{
 				CCVAddress: verifierAddress.Bytes(),
 				Args:       []byte{},

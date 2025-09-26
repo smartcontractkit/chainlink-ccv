@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -27,7 +27,7 @@ func SendVerificationError(ctx context.Context, task verifier.VerificationTask, 
 }
 
 // FindVerifierIndexBySourceAddress finds the index of the source verifier address in the ReceiptBlobs array.
-func FindVerifierIndexBySourceAddress(verificationTask *verifier.VerificationTask, sourceVerifierAddress types.UnknownAddress) (int, error) {
+func FindVerifierIndexBySourceAddress(verificationTask *verifier.VerificationTask, sourceVerifierAddress protocol.UnknownAddress) (int, error) {
 	for i, receipt := range verificationTask.ReceiptBlobs {
 		if receipt.Issuer.String() == sourceVerifierAddress.String() {
 			return i, nil

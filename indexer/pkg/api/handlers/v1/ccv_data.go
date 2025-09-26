@@ -10,7 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -32,8 +32,8 @@ func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 	req := storageaccess.VerifierResultsRequest{
 		Start:                0,
 		End:                  time.Now().Unix(),
-		SourceChainSelectors: []types.ChainSelector{},
-		DestChainSelectors:   []types.ChainSelector{},
+		SourceChainSelectors: []protocol.ChainSelector{},
+		DestChainSelectors:   []protocol.ChainSelector{},
 		Limit:                100,
 		Offset:               0,
 	}
@@ -67,8 +67,8 @@ func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 	h.monitoring.Metrics().RecordVerificationRecordRequestDuration(c.Request.Context(), time.Since(startDuration))
 }
 
-func (h *CCVDataV1Handler) parseSelectorTypes(c *gin.Context, paramName string) ([]types.ChainSelector, bool) {
-	var selectorTypes []types.ChainSelector
+func (h *CCVDataV1Handler) parseSelectorTypes(c *gin.Context, paramName string) ([]protocol.ChainSelector, bool) {
+	var selectorTypes []protocol.ChainSelector
 	var selectorTypesAsString string
 	var selectorTypesAsArrayOfStrings []string
 	selectorTypesAsString, success := c.GetQuery(paramName)
@@ -80,7 +80,7 @@ func (h *CCVDataV1Handler) parseSelectorTypes(c *gin.Context, paramName string) 
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Bad Request", "status": http.StatusBadRequest})
 				return nil, false
 			}
-			selectorTypes = append(selectorTypes, types.ChainSelector(u)) // #nosec G115
+			selectorTypes = append(selectorTypes, protocol.ChainSelector(u)) // #nosec G115
 		}
 	}
 	return selectorTypes, true

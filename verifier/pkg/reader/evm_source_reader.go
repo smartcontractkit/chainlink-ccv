@@ -13,10 +13,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 

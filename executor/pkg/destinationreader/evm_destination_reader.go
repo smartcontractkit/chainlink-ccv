@@ -11,11 +11,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ccvagg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	mockreceiver "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_receiver_v2"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 const (

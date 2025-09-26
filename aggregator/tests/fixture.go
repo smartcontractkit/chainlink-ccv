@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
@@ -49,10 +48,10 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 	}
 }
 
-type ProtocolMessageOption = func(*types.Message) *types.Message
+type ProtocolMessageOption = func(*protocol.Message) *protocol.Message
 
-func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *types.Message {
-	msg := &types.Message{
+func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protocol.Message {
+	msg := &protocol.Message{
 		Version:              1,
 		SourceChainSelector:  1,
 		DestChainSelector:    2,
@@ -96,11 +95,11 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		binary.BigEndian.PutUint64(ccvArgs, 123) // dummy nonce
 
 		// Use SignV27 for proper signature creation and normalization
-		r32, s32, signerAddr, err := signature.SignV27(messageID[:], signer.key)
+		r32, s32, signerAddr, err := protocol.SignV27(messageID[:], signer.key)
 		require.NoError(t, err, "failed to sign message")
 
 		// Create signature data with actual signer address
-		sigData := []signature.Data{
+		sigData := []protocol.Data{
 			{
 				R:      r32,
 				S:      s32,
@@ -108,14 +107,14 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 			},
 		}
 
-		m.CcvData, err = signature.EncodeSignatures(sigData)
+		m.CcvData, err = protocol.EncodeSignatures(sigData)
 		require.NoError(t, err, "failed to encode signatures")
 
 		return m
 	}
 }
 
-func NewMessageWithCCVNodeData(t *testing.T, message *types.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *pb.MessageWithCCVNodeData {
+func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *pb.MessageWithCCVNodeData {
 	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 

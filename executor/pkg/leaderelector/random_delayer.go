@@ -3,13 +3,13 @@ package leaderelector
 import (
 	"math/rand/v2"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type RandomDelayLeader struct{}
 
 // GetDelay should return a random int64 delay in seconds.
-func (s *RandomDelayLeader) GetReadyTimestamp(messageID types.Bytes32, message types.Message, verifierTimestamp int64) int64 {
+func (s *RandomDelayLeader) GetReadyTimestamp(messageID protocol.Bytes32, message protocol.Message, verifierTimestamp int64) int64 {
 	// Use message ID and timestamp to create a deterministic but pseudo-random seed
 	// This ensures different messages get different delays but the same message always gets the same delay
 	r := rand.New(RandSource{ //nolint:gosec //G115: ignore not used for crypto
@@ -21,7 +21,7 @@ func (s *RandomDelayLeader) GetReadyTimestamp(messageID types.Bytes32, message t
 }
 
 type RandSource struct {
-	destSelector   types.ChainSelector
+	destSelector   protocol.ChainSelector
 	readyTimestamp int64
 }
 

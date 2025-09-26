@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -18,7 +18,7 @@ type Scanner struct {
 	monitoring      common.IndexerMonitoring
 	mu              sync.Mutex
 	activeReaders   int64
-	ccvDataCh       chan types.CCVData
+	ccvDataCh       chan protocol.CCVData
 	stopCh          chan struct{}
 	doneCh          chan struct{}
 }
@@ -68,7 +68,7 @@ func WithStorageWriter(storageWriter common.IndexerStorageWriter) Option {
 // NewScanner creates a new Scanner with the given options.
 func NewScanner(opts ...Option) *Scanner {
 	s := &Scanner{
-		ccvDataCh: make(chan types.CCVData, 1000),
+		ccvDataCh: make(chan protocol.CCVData, 1000),
 		stopCh:    make(chan struct{}),
 		doneCh:    make(chan struct{}),
 	}
@@ -136,7 +136,7 @@ func (s *Scanner) run(ctx context.Context) {
 	}
 }
 
-func (s *Scanner) handleReader(ctx context.Context, reader types.OffchainStorageReader, wg *sync.WaitGroup) {
+func (s *Scanner) handleReader(ctx context.Context, reader protocol.OffchainStorageReader, wg *sync.WaitGroup) {
 	// Create a ticker based on the scan interval configured
 	ticker := time.NewTicker(s.config.ScanInterval)
 	wg.Add(1)

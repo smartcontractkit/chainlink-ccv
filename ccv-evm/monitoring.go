@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
@@ -68,7 +68,7 @@ type LaneStreamConfig struct {
 type LaneStreams struct {
 	SentEvents    []*ccvProxy.CCVProxyCCIPMessageSent
 	ExecEvents    []*ccvAggregator.CCVAggregatorExecutionStateChanged
-	Verifications []types.QueryResponse
+	Verifications []protocol.QueryResponse
 }
 
 type SentEventPlusMeta struct {
@@ -141,9 +141,9 @@ func ProcessLaneEvents(ctx context.Context, c *CCIP17EVM, lp *LokiPusher, tp *Te
 }
 
 func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Span {
-	idToMsgSent := make(map[types.Bytes32]*ccvProxy.CCVProxyCCIPMessageSent)
-	idToMsgExec := make(map[types.Bytes32]*ccvAggregator.CCVAggregatorExecutionStateChanged)
-	idToReport := make(map[types.Bytes32]*types.CCVData)
+	idToMsgSent := make(map[protocol.Bytes32]*ccvProxy.CCVProxyCCIPMessageSent)
+	idToMsgExec := make(map[protocol.Bytes32]*ccvAggregator.CCVAggregatorExecutionStateChanged)
+	idToReport := make(map[protocol.Bytes32]*protocol.CCVData)
 	for _, event := range streams.SentEvents {
 		idToMsgSent[event.MessageId] = event
 	}
@@ -275,7 +275,7 @@ func FetchLaneEvents(ctx context.Context, c *CCIP17EVM, cfg *LaneStreamConfig) (
 	}, nil
 }
 
-func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggregatorSince int64) ([]types.QueryResponse, error) {
+func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggregatorSince int64) ([]protocol.QueryResponse, error) {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Encoding = "console"
