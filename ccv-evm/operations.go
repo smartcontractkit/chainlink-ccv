@@ -8,13 +8,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	ccvTypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -99,7 +100,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 }
 
 // NewV3ExtraArgs encodes v3 extra args params
-func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []ccvTypes.CCV, optionalThreshold uint8) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []protocol.CCV, optionalThreshold uint8) ([]byte, error) {
 	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
     [

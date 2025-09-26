@@ -1,4 +1,4 @@
-package hashing
+package protocol
 
 import "github.com/ethereum/go-ethereum/crypto"
 

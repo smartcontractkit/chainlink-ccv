@@ -18,11 +18,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	execconfig "github.com/smartcontractkit/chainlink-ccv/executor/pkg/configuration"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 var configPath = "executor_config.toml"

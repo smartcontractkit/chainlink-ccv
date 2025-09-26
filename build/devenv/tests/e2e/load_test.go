@@ -10,20 +10,18 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -83,14 +81,14 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	}
 
 	err = m.impl.SendArgsV3Message(ctx, m.e, m.cfg.CLDF.Addresses, m.selectors, srcChain.ChainSelector, dstChain.ChainSelector, uint16(1), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", nil, nil,
-		[]types.CCV{
+		[]protocol.CCV{
 			{
 				CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
 				Args:       []byte{},
 				ArgsLen:    0,
 			},
 		},
-		[]types.CCV{}, 0)
+		[]protocol.CCV{}, 0)
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}

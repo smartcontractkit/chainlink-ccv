@@ -8,9 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.

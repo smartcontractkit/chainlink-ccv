@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Verifier provides a basic verifier implementation using the new message format.

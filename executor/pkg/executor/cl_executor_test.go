@@ -11,10 +11,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 type mockDestinationReader struct {

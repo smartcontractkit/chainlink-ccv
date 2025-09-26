@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -35,7 +35,7 @@ func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReade
 func (i *IndexerAPIReader) ReadVerifierResults(
 	ctx context.Context,
 	queryData VerifierResultsRequest,
-) (map[string][]types.CCVData, error) {
+) (map[string][]protocol.CCVData, error) {
 	// Build the URL with query parameters
 	baseURL := strings.TrimSuffix(i.indexerURI, "/")
 	endpoint := fmt.Sprintf("%s/v1/ccvdata", baseURL)

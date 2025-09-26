@@ -7,11 +7,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ct "github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Ensure ChainlinkExecutor implements the Executor interface.

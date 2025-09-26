@@ -1,10 +1,10 @@
 package leaderelector
 
 import (
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
-	GetReadyTimestamp(messageID types.Bytes32, message types.Message, verifierTimestamp int64) int64
+	GetReadyTimestamp(messageID protocol.Bytes32, message protocol.Message, verifierTimestamp int64) int64
 }

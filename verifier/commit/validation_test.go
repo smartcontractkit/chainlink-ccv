@@ -6,10 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // TestValidateMessageErrors tests message validation error conditions.
@@ -68,15 +66,15 @@ func TestValidateMessageErrors(t *testing.T) {
 
 // TestValidateMessage tests message validation with valid cases.
 func TestValidateMessage(t *testing.T) {
-	sender, err := pkg.RandomAddress()
+	sender, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	receiver, err := pkg.RandomAddress()
+	receiver, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	onRampAddr, err := pkg.RandomAddress()
+	onRampAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	offRampAddr, err := pkg.RandomAddress()
+	offRampAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	verifierAddr, err := pkg.RandomAddress()
+	verifierAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
 
 	message, err := protocol.NewMessage(
@@ -113,7 +111,7 @@ func TestValidateMessage(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should fail with different verifier address
-	differentAddr, err := pkg.RandomAddress()
+	differentAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
 	err = ValidateMessage(task, differentAddr)
 	assert.Error(t, err)

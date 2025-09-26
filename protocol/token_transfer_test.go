@@ -1,4 +1,4 @@
-package pkg
+package protocol
 
 import (
 	"math/big"
@@ -6,13 +6,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 func TestTokenTransferEncodeDecode(t *testing.T) {
 	// Create a test token transfer
-	tt := &types.TokenTransfer{
+	tt := &TokenTransfer{
 		Version:                  1,
 		Amount:                   big.NewInt(1000),
 		SourceTokenAddressLength: 3,
@@ -30,7 +28,7 @@ func TestTokenTransferEncodeDecode(t *testing.T) {
 	require.NotEmpty(t, encoded)
 
 	// Decode
-	decoded, err := types.DecodeTokenTransfer(encoded)
+	decoded, err := DecodeTokenTransfer(encoded)
 	require.NoError(t, err)
 
 	// Verify all fields match
@@ -47,9 +45,9 @@ func TestTokenTransferEncodeDecode(t *testing.T) {
 }
 
 func TestEmptyTokenTransfer(t *testing.T) {
-	tt := types.NewEmptyTokenTransfer()
+	tt := NewEmptyTokenTransfer()
 
-	assert.Equal(t, uint8(types.MessageVersion), tt.Version)
+	assert.Equal(t, uint8(MessageVersion), tt.Version)
 	assert.Equal(t, big.NewInt(0).Cmp(tt.Amount), 0)
 	assert.Equal(t, uint8(0), tt.SourceTokenAddressLength)
 	assert.Empty(t, tt.SourceTokenAddress)
@@ -62,7 +60,7 @@ func TestEmptyTokenTransfer(t *testing.T) {
 
 	// Should be able to encode/decode
 	encoded := tt.Encode()
-	decoded, err := types.DecodeTokenTransfer(encoded)
+	decoded, err := DecodeTokenTransfer(encoded)
 	require.NoError(t, err)
 	assert.Equal(t, tt.Version, decoded.Version)
 	assert.Equal(t, tt.Amount.Cmp(decoded.Amount), 0)
@@ -71,13 +69,13 @@ func TestEmptyTokenTransfer(t *testing.T) {
 // TestTokenTransferEdgeCases tests edge cases for token transfer encoding/decoding.
 func TestTokenTransferEdgeCases(t *testing.T) {
 	tests := []struct {
-		transfer  *types.TokenTransfer
+		transfer  *TokenTransfer
 		name      string
 		expectErr bool
 	}{
 		{
 			name: "maximum_values",
-			transfer: &types.TokenTransfer{
+			transfer: &TokenTransfer{
 				Version:                  255,
 				Amount:                   new(big.Int).Lsh(big.NewInt(1), 256).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)), // 2^256 - 1
 				SourceTokenAddressLength: 255,
@@ -93,7 +91,7 @@ func TestTokenTransferEdgeCases(t *testing.T) {
 		},
 		{
 			name: "zero_values",
-			transfer: &types.TokenTransfer{
+			transfer: &TokenTransfer{
 				Version:                  0,
 				Amount:                   big.NewInt(0),
 				SourceTokenAddressLength: 0,
@@ -109,7 +107,7 @@ func TestTokenTransferEdgeCases(t *testing.T) {
 		},
 		{
 			name: "nil_amount",
-			transfer: &types.TokenTransfer{
+			transfer: &TokenTransfer{
 				Version:                  1,
 				Amount:                   nil,
 				SourceTokenAddressLength: 0,
@@ -132,7 +130,7 @@ func TestTokenTransferEdgeCases(t *testing.T) {
 			require.NotEmpty(t, encoded)
 
 			// Decode
-			decoded, err := types.DecodeTokenTransfer(encoded)
+			decoded, err := DecodeTokenTransfer(encoded)
 			if tt.expectErr {
 				require.Error(t, err)
 				return
@@ -188,7 +186,7 @@ func TestTokenTransferDecodingErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := types.DecodeTokenTransfer(tt.data)
+			_, err := DecodeTokenTransfer(tt.data)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectErr)
 		})

@@ -6,17 +6,16 @@ import (
 	"testing"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/types"
-
-	protocoltypes "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func createTestMessage(nonce, sourceChain, destChain uint64) *types.MessageWithCCVData {
 	return &types.MessageWithCCVData{
-		CCVData: []protocoltypes.CCVData{},
-		Message: protocoltypes.Message{
-			Nonce:               protocoltypes.Nonce(nonce),
-			SourceChainSelector: protocoltypes.ChainSelector(sourceChain),
-			DestChainSelector:   protocoltypes.ChainSelector(destChain),
+		CCVData: []protocol.CCVData{},
+		Message: protocol.Message{
+			Nonce:               protocol.Nonce(nonce),
+			SourceChainSelector: protocol.ChainSelector(sourceChain),
+			DestChainSelector:   protocol.ChainSelector(destChain),
 			Version:             1,
 		},
 		VerifiedTimestamp: 0,
