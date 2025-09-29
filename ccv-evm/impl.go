@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -64,14 +63,9 @@ func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, ws
 	if err != nil {
 		return nil, err
 	}
-
-	// Add third chain support if available
-	var thirdChain chainsel.ChainDetails
-	if len(chainIDs) > 2 {
-		thirdChain, err = chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[2], chainsel.FamilyEVM)
-		if err != nil {
-			return nil, err
-		}
+	thirdChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[2], chainsel.FamilyEVM)
+	if err != nil {
+		return nil, err
 	}
 
 	gas := &GasSettings{
@@ -86,13 +80,9 @@ func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, ws
 	if err != nil {
 		return nil, err
 	}
-
-	var rpcThird *ethclient.Client
-	if len(wsURLs) > 2 {
-		rpcThird, _, _, err = ETHClient(ctx, wsURLs[2], gas)
-		if err != nil {
-			return nil, err
-		}
+	rpcThird, _, _, err := ETHClient(ctx, wsURLs[2], gas)
+	if err != nil {
+		return nil, err
 	}
 
 	proxySrcAddr, err := GetContractAddrForSelector(addresses, srcChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
@@ -112,16 +102,13 @@ func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, ws
 		return nil, err
 	}
 
-	var proxyThird *ccvProxy.CCVProxy
-	if len(chainIDs) > 2 {
-		proxyThirdAddr, err := GetContractAddrForSelector(addresses, thirdChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
-		if err != nil {
-			return nil, err
-		}
-		proxyThird, err = ccvProxy.NewCCVProxy(proxyThirdAddr, rpcThird)
-		if err != nil {
-			return nil, err
-		}
+	proxyThirdAddr, err := GetContractAddrForSelector(addresses, thirdChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
+	if err != nil {
+		return nil, err
+	}
+	proxyThird, err := ccvProxy.NewCCVProxy(proxyThirdAddr, rpcThird)
+	if err != nil {
+		return nil, err
 	}
 
 	aggSrcAddr, err := GetContractAddrForSelector(addresses, srcChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
@@ -141,36 +128,30 @@ func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, ws
 		return nil, err
 	}
 
-	var aggThird *ccvAggregator.CCVAggregator
-	if len(chainIDs) > 2 {
-		aggThirdAddr, err := GetContractAddrForSelector(addresses, thirdChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
-		if err != nil {
-			return nil, err
-		}
-		aggThird, err = ccvAggregator.NewCCVAggregator(aggThirdAddr, rpcThird)
-		if err != nil {
-			return nil, err
-		}
+	aggThirdAddr, err := GetContractAddrForSelector(addresses, thirdChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
+	if err != nil {
+		return nil, err
+	}
+	aggThird, err := ccvAggregator.NewCCVAggregator(aggThirdAddr, rpcThird)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build the maps
 	proxyBySelector := map[uint64]*ccvProxy.CCVProxy{
-		srcChain.ChainSelector: proxySrc,
-		dstChain.ChainSelector: proxyDst,
+		srcChain.ChainSelector:   proxySrc,
+		dstChain.ChainSelector:   proxyDst,
+		thirdChain.ChainSelector: proxyThird,
 	}
 	aggBySelector := map[uint64]*ccvAggregator.CCVAggregator{
-		srcChain.ChainSelector: aggSrc,
-		dstChain.ChainSelector: aggDst,
+		srcChain.ChainSelector:   aggSrc,
+		dstChain.ChainSelector:   aggDst,
+		thirdChain.ChainSelector: aggThird,
 	}
 	chainDetailsBySelector := map[uint64]chainsel.ChainDetails{
-		srcChain.ChainSelector: srcChain,
-		dstChain.ChainSelector: dstChain,
-	}
-
-	if len(chainIDs) > 2 {
-		proxyBySelector[thirdChain.ChainSelector] = proxyThird
-		aggBySelector[thirdChain.ChainSelector] = aggThird
-		chainDetailsBySelector[thirdChain.ChainSelector] = thirdChain
+		srcChain.ChainSelector:   srcChain,
+		dstChain.ChainSelector:   dstChain,
+		thirdChain.ChainSelector: thirdChain,
 	}
 
 	return &CCIP17EVM{
