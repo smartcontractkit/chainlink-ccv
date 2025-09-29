@@ -50,7 +50,6 @@ func TestE2ESmoke(t *testing.T) {
 			toSelector   uint64
 		}
 
-		// Generate test cases for all possible chain combinations
 		tcs := []testcase{
 			{
 				name:         "src->dst msg execution",
