@@ -527,7 +527,7 @@ func TestPaginationWithThousandMessages(t *testing.T) {
 	t.Logf("Starting to create and submit %d messages...", numMessages)
 
 	// Track all message IDs for later verification
-	messageIds := make([]types.Bytes32, 0, numMessages)
+	messageIds := make([]protocol.Bytes32, 0, numMessages)
 
 	// Create and submit messages in batches for better performance
 	startTime := time.Now()
@@ -538,7 +538,7 @@ func TestPaginationWithThousandMessages(t *testing.T) {
 
 		// Create unique message by varying the nonce
 		message := NewProtocolMessage(t)
-		message.Nonce = types.Nonce(i + 1) // Ensure unique nonce for each message
+		message.Nonce = protocol.Nonce(i + 1) // Ensure unique nonce for each message
 
 		messageId, err := message.MessageID()
 		require.NoError(t, err, "failed to compute message ID for message %d", i)
@@ -617,11 +617,11 @@ func TestPaginationWithThousandMessages(t *testing.T) {
 			require.NotNil(t, report.Message, "Message should not be nil in response")
 
 			// Convert pb.Message to types.Message to compute message ID
-			msg := &types.Message{
+			msg := &protocol.Message{
 				Version:              uint8(report.Message.Version),
-				SourceChainSelector:  types.ChainSelector(report.Message.SourceChainSelector),
-				DestChainSelector:    types.ChainSelector(report.Message.DestChainSelector),
-				Nonce:                types.Nonce(report.Message.Nonce),
+				SourceChainSelector:  protocol.ChainSelector(report.Message.SourceChainSelector),
+				DestChainSelector:    protocol.ChainSelector(report.Message.DestChainSelector),
+				Nonce:                protocol.Nonce(report.Message.Nonce),
 				OnRampAddressLength:  uint8(report.Message.OnRampAddressLength),
 				OnRampAddress:        report.Message.OnRampAddress,
 				OffRampAddressLength: uint8(report.Message.OffRampAddressLength),
