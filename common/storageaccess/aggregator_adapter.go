@@ -276,8 +276,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 
 func (a *AggregatorReader) getNextTimestamp(results []protocol.QueryResponse) int64 {
 	if len(results) > 0 {
-		// The database query uses `created_at >= $2` which is inclusive
-		// So we need to use the last message's timestamp + 1 to avoid duplicates
+		// Get the timestamp of the last message
 		lastTimestamp := results[len(results)-1].Data.Timestamp
 
 		// Always add 1 second to ensure we don't get the same data again
