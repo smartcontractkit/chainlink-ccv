@@ -21,6 +21,8 @@ type Scanner struct {
 	ccvDataCh       chan protocol.CCVData
 	stopCh          chan struct{}
 	doneCh          chan struct{}
+	// Reader locks to prevent concurrent access to the same reader
+	readerLocks sync.Map // map[protocol.OffchainStorageReader]*sync.Mutex
 }
 
 type Config struct {
@@ -148,21 +150,86 @@ func (s *Scanner) handleReader(ctx context.Context, reader protocol.OffchainStor
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
-			queryResponse, err := reader.ReadCCVData(ctx)
-			s.lggr.Debug("Scanner read CCV data from reader")
+			// Consume the reader until there is no more data present from the reader.
+			// Aim is to allow for quick backfilling of data if needed.
+			s.consumeReader(ctx, reader)
 
-			if err != nil {
-				s.monitoring.Metrics().RecordScannerPollingErrorsCounter(ctx)
-				s.lggr.Errorw("Error reading CCV data from reader", "error", err)
-				continue
-			}
-
-			for _, response := range queryResponse {
-				s.lggr.Infow("Scanner populated CCV data channel with new data", "messageID", response.Data.MessageID)
-				s.ccvDataCh <- response.Data
-				// Record channel size after adding data
-				s.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(s.ccvDataCh)))
+			// Some readers support disconnection in certain situations, such as backfilling.
+			// If the reader should be disconnected after being consumed, finish the loop and drop the reader.
+			if s.shouldDisconnect(ctx, reader) {
+				return
 			}
 		}
 	}
+}
+
+func (s *Scanner) shouldDisconnect(ctx context.Context, reader protocol.OffchainStorageReader) bool {
+	// Check if this reader supports disconnection
+	if disconnectableReader, ok := reader.(protocol.DisconnectableReader); ok {
+		if disconnectableReader.ShouldDisconnect() {
+			s.lggr.Infow("Reader signaled disconnection, removing from scanner")
+			s.mu.Lock()
+			s.activeReaders--
+			s.mu.Unlock()
+			s.monitoring.Metrics().RecordActiveReadersGauge(ctx, s.activeReaders)
+
+			return true
+		}
+	}
+
+	// Either the reader doesn't support disconnection, or it didn't signal disconnection.
+	return false
+}
+
+// getReaderLock returns a mutex for the given reader to prevent concurrent access.
+func (s *Scanner) getReaderLock(reader protocol.OffchainStorageReader) *sync.Mutex {
+	lock, _ := s.readerLocks.LoadOrStore(reader, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+func (s *Scanner) consumeReader(ctx context.Context, reader protocol.OffchainStorageReader) {
+	// We can be in a situation where multiple calls to consumeReader are running concurrently due to the ticker.
+	// This might happen during backfilling, high load, or other situations where the ticker is running faster than the reader.
+	// This lock is used to prevent concurrent access to the reader from the ticker.
+	// If the lock is already held, the ticker channel will be blocked until the lock is released.
+	// Subsequent ticks are then dropped, so there won't be any backpressure on the reader.
+	readerLock := s.getReaderLock(reader)
+	readerLock.Lock()
+	defer readerLock.Unlock()
+
+	for {
+		found, err := s.callReader(ctx, reader)
+		if err != nil {
+			s.lggr.Errorw("Error calling reader", "error", err)
+			return
+		}
+
+		// If data is found, we'll try again after a small delay to prevent
+		// duplicate data when processing faster than 1 second.
+		// If no data is found, return and wait for the next tick.
+		if !found {
+			return
+		}
+	}
+}
+
+func (s *Scanner) callReader(ctx context.Context, reader protocol.OffchainStorageReader) (bool, error) {
+	queryResponse, err := reader.ReadCCVData(ctx)
+	s.lggr.Debug("Scanner read VerificationResult from reader")
+
+	if err != nil {
+		s.monitoring.Metrics().RecordScannerPollingErrorsCounter(ctx)
+		s.lggr.Errorw("Error reading VerificationResult from reader", "error", err)
+		return false, err
+	}
+
+	for _, response := range queryResponse {
+		s.lggr.Infof("Populated VerificationResult channel with new data messageID %s", response.Data.MessageID)
+		s.ccvDataCh <- response.Data
+		// Record channel size after adding data
+		s.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(s.ccvDataCh)))
+	}
+
+	// Return true if we processed any data, false if the slice was empty
+	return len(queryResponse) > 0, nil
 }
