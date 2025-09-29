@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -15,7 +15,7 @@ import (
 // This encapsulates the metadata needed for timestamp-based querying
 // while keeping the storage implementation details clean and maintainable.
 type StorageEntry struct {
-	CCVData        types.CCVData
+	CCVData        protocol.CCVData
 	CreatedAt      int64
 	InsertionOrder int64
 }
@@ -45,8 +45,8 @@ type InMemoryOffchainStorage struct {
 	timeProvider         TimeProvider
 	storedCh             chan struct{}
 	storage              []StorageEntry
-	destChainSelectors   []types.ChainSelector
-	sourceChainSelectors []types.ChainSelector
+	destChainSelectors   []protocol.ChainSelector
+	sourceChainSelectors []protocol.ChainSelector
 	insertionCounter     int64
 	limit                uint64
 	offset               uint64
@@ -63,8 +63,8 @@ func NewInMemoryOffchainStorage(lggr logger.Logger) *InMemoryOffchainStorage {
 func NewInMemoryOffchainStorageWithTimeProvider(
 	lggr logger.Logger,
 	timeProvider TimeProvider,
-	destChainSelectors []types.ChainSelector,
-	sourceChainSelectors []types.ChainSelector,
+	destChainSelectors []protocol.ChainSelector,
+	sourceChainSelectors []protocol.ChainSelector,
 	limit uint64,
 	offset uint64,
 	startTimestamp int64,
@@ -84,12 +84,12 @@ func NewInMemoryOffchainStorageWithTimeProvider(
 }
 
 // CreateReaderOnly creates a read-only view of the storage that only implements OffchainStorageReader.
-func CreateReaderOnly(storage *InMemoryOffchainStorage) types.OffchainStorageReader {
+func CreateReaderOnly(storage *InMemoryOffchainStorage) protocol.OffchainStorageReader {
 	return &ReaderOnlyView{storage: storage}
 }
 
 // CreateWriterOnly creates a write-only view of the storage that only implements OffchainStorageWriter.
-func CreateWriterOnly(storage *InMemoryOffchainStorage) types.OffchainStorageWriter {
+func CreateWriterOnly(storage *InMemoryOffchainStorage) protocol.OffchainStorageWriter {
 	return &WriterOnlyView{storage: storage}
 }
 
@@ -104,7 +104,7 @@ func (s *InMemoryOffchainStorage) WaitForStore(ctx context.Context) error {
 }
 
 // WriteCCVNodeData stores multiple CCV data entries in the offchain storage.
-func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []types.CCVData) error {
+func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -150,7 +150,7 @@ func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataL
 }
 
 // ReadCCVData fetches CCV data by timestamp.
-func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
+func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -214,9 +214,9 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]types.Quer
 	}
 
 	// Prepare result data
-	resultData := make([]types.QueryResponse, len(paginatedEntries))
+	resultData := make([]protocol.QueryResponse, len(paginatedEntries))
 	for i, entry := range paginatedEntries {
-		resultData[i] = types.QueryResponse{
+		resultData[i] = protocol.QueryResponse{
 			Data:      entry.CCVData,
 			Timestamp: &entry.CreatedAt,
 		}
@@ -229,11 +229,11 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]types.Quer
 }
 
 // GetAllCCVData retrieves all CCV data for a verifier (for testing/debugging).
-func (s *InMemoryOffchainStorage) GetAllCCVData(verifierAddress []byte) ([]types.CCVData, error) {
+func (s *InMemoryOffchainStorage) GetAllCCVData(verifierAddress []byte) ([]protocol.CCVData, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make([]types.CCVData, 0, len(s.storage))
+	result := make([]protocol.CCVData, 0, len(s.storage))
 	for _, entry := range s.storage {
 		if string(entry.CCVData.SourceVerifierAddress) == string(verifierAddress) {
 			result = append(result, entry.CCVData)
@@ -244,7 +244,7 @@ func (s *InMemoryOffchainStorage) GetAllCCVData(verifierAddress []byte) ([]types
 }
 
 // ReadCCVDataByMessageID retrieves CCV data by message ID (for testing/debugging).
-func (s *InMemoryOffchainStorage) ReadCCVDataByMessageID(messageID types.Bytes32) (*types.CCVData, error) {
+func (s *InMemoryOffchainStorage) ReadCCVDataByMessageID(messageID protocol.Bytes32) (*protocol.CCVData, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -296,16 +296,16 @@ func (s *InMemoryOffchainStorage) GetTotalCount() int {
 }
 
 // Helper methods for testing and debugging (not part of the interface).
-func (s *InMemoryOffchainStorage) ListDestChains() []types.ChainSelector {
+func (s *InMemoryOffchainStorage) ListDestChains() []protocol.ChainSelector {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	destChains := make(map[types.ChainSelector]bool)
+	destChains := make(map[protocol.ChainSelector]bool)
 	for _, entry := range s.storage {
 		destChains[entry.CCVData.DestChainSelector] = true
 	}
 
-	result := make([]types.ChainSelector, 0, len(destChains))
+	result := make([]protocol.ChainSelector, 0, len(destChains))
 	for destChain := range destChains {
 		result = append(result, destChain)
 	}
@@ -317,18 +317,18 @@ func (s *InMemoryOffchainStorage) ListDestChains() []types.ChainSelector {
 	return result
 }
 
-func (s *InMemoryOffchainStorage) ListSourceChains(destChainSelector types.ChainSelector) []types.ChainSelector {
+func (s *InMemoryOffchainStorage) ListSourceChains(destChainSelector protocol.ChainSelector) []protocol.ChainSelector {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	sourceChains := make(map[types.ChainSelector]bool)
+	sourceChains := make(map[protocol.ChainSelector]bool)
 	for _, entry := range s.storage {
 		if entry.CCVData.DestChainSelector == destChainSelector {
 			sourceChains[entry.CCVData.SourceChainSelector] = true
 		}
 	}
 
-	result := make([]types.ChainSelector, 0, len(sourceChains))
+	result := make([]protocol.ChainSelector, 0, len(sourceChains))
 	for sourceChain := range sourceChains {
 		result = append(result, sourceChain)
 	}
@@ -340,7 +340,7 @@ func (s *InMemoryOffchainStorage) ListSourceChains(destChainSelector types.Chain
 	return result
 }
 
-func (s *InMemoryOffchainStorage) ListVerifierAddresses(destChainSelector, sourceChainSelector types.ChainSelector) [][]byte {
+func (s *InMemoryOffchainStorage) ListVerifierAddresses(destChainSelector, sourceChainSelector protocol.ChainSelector) [][]byte {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -370,7 +370,7 @@ type ReaderOnlyView struct {
 	storage *InMemoryOffchainStorage
 }
 
-func (r *ReaderOnlyView) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
+func (r *ReaderOnlyView) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	return r.storage.ReadCCVData(ctx)
 }
 
@@ -384,6 +384,6 @@ type WriterOnlyView struct {
 	storage *InMemoryOffchainStorage
 }
 
-func (w *WriterOnlyView) WriteCCVData(ctx context.Context, ccvDataList []types.CCVData) error {
+func (w *WriterOnlyView) WriteCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	return w.storage.WriteCCVNodeData(ctx, ccvDataList)
 }

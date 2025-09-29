@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
@@ -21,7 +22,6 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Configuration flags.
@@ -96,7 +96,7 @@ func main() {
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
-	envConfig := os.Getenv("VERIFIER_CONFIG")
+	envConfig := os.Getenv("VERIFIER_CONFIG_PATH")
 	if envConfig != "" {
 		filePath = envConfig
 	}

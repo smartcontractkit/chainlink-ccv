@@ -10,12 +10,12 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ccvagg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	mockreceiver "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_receiver_v2"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 )
 
 // Ensure ChainlinkExecutor implements the Executor interface.
-var _ DestinationReader = &EvmDestinationReader{}
+var _ executor.DestinationReader = &EvmDestinationReader{}
 
 type cacheKey struct {
 	sourceChainSelector protocol.ChainSelector
@@ -37,7 +37,7 @@ type EvmDestinationReader struct {
 	lggr             logger.Logger
 	client           bind.ContractCaller
 	chainSelector    uint64
-	ccvCache         *expirable.LRU[cacheKey, types.CcvAddressInfo]
+	ccvCache         *expirable.LRU[cacheKey, executor.CcvAddressInfo]
 }
 
 func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *protocol.BlockchainInfo) *EvmDestinationReader {
@@ -49,7 +49,7 @@ func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logge
 		lggr.Errorw("Failed to create CCV Aggregator caller", "error", err, "address", ccvAddr.Hex(), "chainSelector", chainSelector)
 	}
 	// Create cache with max 1000 entries and 5-minute TTL
-	ccvCache := expirable.NewLRU[cacheKey, types.CcvAddressInfo](1000, nil, 5*time.Minute)
+	ccvCache := expirable.NewLRU[cacheKey, executor.CcvAddressInfo](1000, nil, 5*time.Minute)
 
 	return &EvmDestinationReader{
 		aggregatorCaller: *ccvAgg,
@@ -62,7 +62,7 @@ func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logge
 
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.
 // The ABI is defined here https://github.com/smartcontractkit/chainlink-ccip/blob/0e7fcfd20ab005d75d0eb863790470f91fa5b8d7/chains/evm/contracts/interfaces/IAny2EVMMessageReceiverV2.sol
-func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (types.CcvAddressInfo, error) {
+func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CcvAddressInfo, error) {
 	_ = ctx
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 	evmReceiverAddress := common.BytesToAddress(receiverAddress)
@@ -81,7 +81,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		// Special case for EOA addresses which don't have the getCCVs function
 		// Hardcoding for now until new on-chain changes are merged which we can just use the offramp directly to get the
 		// CCV Offramp addresses instead of getting it from the receiver
-		return types.CcvAddressInfo{
+		return executor.CcvAddressInfo{
 			RequiredCcvs:      []protocol.UnknownAddress{[]byte("0x68B1D87F95878fE05B998F19b66F4baba5De1aed")},
 			OptionalCcvs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -93,7 +93,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		// Special case for EOA addresses which don't have the getCCVs function
 		// Hardcoding for now until new on-chain changes are merged which we can just use the offramp directly to get the
 		// CCV Offramp addresses instead of getting it from the receiver
-		return types.CcvAddressInfo{
+		return executor.CcvAddressInfo{
 			RequiredCcvs:      []protocol.UnknownAddress{[]byte("0x68B1D87F95878fE05B998F19b66F4baba5De1aed")},
 			OptionalCcvs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -110,7 +110,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		optionalCCVs = append(optionalCCVs, protocol.UnknownAddress(addr.Hex()))
 	}
 
-	ccvInfo = types.CcvAddressInfo{
+	ccvInfo = executor.CcvAddressInfo{
 		RequiredCcvs:      requiredCCVs,
 		OptionalCcvs:      optionalCCVs,
 		OptionalThreshold: optThreshold,

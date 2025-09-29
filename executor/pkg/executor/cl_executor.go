@@ -6,12 +6,8 @@ import (
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	ct "github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
-	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Ensure ChainlinkExecutor implements the Executor interface.
@@ -19,14 +15,14 @@ var _ executor.Executor = &ChainlinkExecutor{}
 
 type ChainlinkExecutor struct {
 	lggr                 logger.Logger
-	contractTransmitters map[protocol.ChainSelector]ct.ContractTransmitter
-	destinationReaders   map[protocol.ChainSelector]dr.DestinationReader
+	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter
+	destinationReaders   map[protocol.ChainSelector]executor.DestinationReader
 }
 
 func NewChainlinkExecutor(
 	lggr logger.Logger,
-	contractTransmitters map[protocol.ChainSelector]ct.ContractTransmitter,
-	destinationReaders map[protocol.ChainSelector]dr.DestinationReader,
+	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter,
+	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
 		lggr:                 lggr,
@@ -35,7 +31,7 @@ func NewChainlinkExecutor(
 	}
 }
 
-func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error {
+func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, messageWithCCVData executor.MessageWithCCVData) error {
 	destinationChain := messageWithCCVData.Message.DestChainSelector
 	_, ok := cle.destinationReaders[destinationChain]
 	if !ok {
@@ -48,7 +44,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, messageWith
 	return nil
 }
 
-func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCVData types.MessageWithCCVData) error {
+func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCVData executor.MessageWithCCVData) error {
 	destinationChain := messageWithCCVData.Message.DestChainSelector
 	messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 		ctx,
@@ -75,7 +71,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
 	}
 
-	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, types.AbstractAggregatedReport{
+	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, executor.AbstractAggregatedReport{
 		Message: messageWithCCVData.Message,
 		CCVS:    orderedCcvOfframps,
 		CCVData: orderedCcvData,
@@ -87,7 +83,7 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 	return nil
 }
 
-func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverDefinedCcvs types.CcvAddressInfo) ([]protocol.UnknownAddress, [][]byte, error) {
+func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverDefinedCcvs executor.CcvAddressInfo) ([]protocol.UnknownAddress, [][]byte, error) {
 	orderedCcvData := make([][]byte, 0)
 	orderedCcvOfframps := make([]protocol.UnknownAddress, 0)
 

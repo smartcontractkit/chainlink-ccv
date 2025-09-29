@@ -15,8 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/signature"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
@@ -226,7 +225,7 @@ func WithValidSignatureFrom(signer *SignerFixture) SignatureValidationOption {
 	}
 }
 
-func assertCCVDataNotFound(t *testing.T, ctx context.Context, ccvDataClient pb.CCVDataClient, messageId types.Bytes32) {
+func assertCCVDataNotFound(t *testing.T, ctx context.Context, ccvDataClient pb.CCVDataClient, messageId protocol.Bytes32) {
 	// Wait a moment for the aggregation to process
 	time.Sleep(50 * time.Millisecond)
 	respCcvData, err := ccvDataClient.GetCCVDataForMessage(ctx, &pb.GetCCVDataForMessageRequest{
@@ -241,7 +240,7 @@ func assertCCVDataFound(
 	t *testing.T,
 	ctx context.Context,
 	ccvDataClient pb.CCVDataClient,
-	messageId types.Bytes32,
+	messageId protocol.Bytes32,
 	message *pb.Message,
 	sourceVerifierAddress []byte,
 	destVerifierAddress []byte,
@@ -285,7 +284,7 @@ func assertCCVDataFound(
 }
 
 // validateSignatures decodes the CCV data and validates signatures from expected signers.
-func validateSignatures(t *testing.T, ccvData []byte, messageId types.Bytes32, options ...SignatureValidationOption) {
+func validateSignatures(t *testing.T, ccvData []byte, messageId protocol.Bytes32, options ...SignatureValidationOption) {
 	// Build configuration from options
 	config := &signatureValidationConfig{}
 	for _, opt := range options {
@@ -297,7 +296,7 @@ func validateSignatures(t *testing.T, ccvData []byte, messageId types.Bytes32, o
 	}
 
 	// Decode the signature data
-	rs, ss, err := signature.DecodeSignatures(ccvData)
+	rs, ss, err := protocol.DecodeSignatures(ccvData)
 	require.NoError(t, err, "failed to decode CCV signature data")
 	require.Equal(t, len(rs), len(ss), "rs and ss arrays should have the same length")
 
@@ -321,7 +320,7 @@ func validateSignatures(t *testing.T, ccvData []byte, messageId types.Bytes32, o
 	var hash32 [32]byte
 	copy(hash32[:], signatureHash[:])
 
-	recoveredAddresses, err := signature.RecoverSigners(hash32, rs, ss)
+	recoveredAddresses, err := protocol.RecoverSigners(hash32, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup

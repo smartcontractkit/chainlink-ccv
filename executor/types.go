@@ -1,13 +1,13 @@
-package types
+package executor
 
 import (
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type AbstractAggregatedReport struct {
-	CCVS    []types.UnknownAddress
+	CCVS    []protocol.UnknownAddress
 	CCVData [][]byte
-	Message types.Message
+	Message protocol.Message
 }
 
 // ContractAddresses is a map of contract names across all chain selectors and their address.
@@ -16,13 +16,13 @@ type ContractAddresses map[string]map[uint64]string
 
 // MessageWithCCVData is a struct that represents the data in between the indexer and executor.
 type MessageWithCCVData struct {
-	CCVData           []types.CCVData
-	Message           types.Message
+	CCVData           []protocol.CCVData
+	Message           protocol.Message
 	VerifiedTimestamp int64
 }
 
 type CcvAddressInfo struct {
-	RequiredCcvs      []types.UnknownAddress
-	OptionalCcvs      []types.UnknownAddress
+	RequiredCcvs      []protocol.UnknownAddress
+	OptionalCcvs      []protocol.UnknownAddress
 	OptionalThreshold uint8
 }

@@ -9,18 +9,16 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	dr "github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	coordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 )
 
 type mockDestinationReader struct {
 	executedErr error
 	ccvInfoErr  error
-	ccvInfo     types.CcvAddressInfo
+	ccvInfo     coordinator.CcvAddressInfo
 	executed    bool
 }
 
@@ -28,7 +26,7 @@ func (m *mockDestinationReader) IsMessageExecuted(ctx context.Context, message p
 	return m.executed, m.executedErr
 }
 
-func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (types.CcvAddressInfo, error) {
+func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (coordinator.CcvAddressInfo, error) {
 	return m.ccvInfo, m.ccvInfoErr
 }
 
@@ -46,7 +44,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		ctChains                   []protocol.ChainSelector
 		dr                         *mockDestinationReader
 		drChains                   []protocol.ChainSelector
-		msg                        types.MessageWithCCVData
+		msg                        coordinator.MessageWithCCVData
 		validateShouldError        bool
 		validateMessageShouldError bool
 		executeShouldError         bool
@@ -57,7 +55,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			ctChains:                   []protocol.ChainSelector{1, 2},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1, 2},
-			msg:                        types.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
+			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        false,
 			validateMessageShouldError: false,
 			executeShouldError:         false,
@@ -68,7 +66,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1, 2},
-			msg:                        types.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
+			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        true,
 			validateMessageShouldError: false,
 			executeShouldError:         false,
@@ -83,7 +81,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1},
-			msg:                        types.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
+			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        false,
 			validateMessageShouldError: false,
 			executeShouldError:         true,
@@ -94,7 +92,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{executed: true, executedErr: nil},
 			drChains:                   []protocol.ChainSelector{1},
-			msg:                        types.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
+			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        false,
 			validateMessageShouldError: false,
 			executeShouldError:         false,
@@ -103,13 +101,13 @@ func Test_ChainlinkExecutor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			allContractTransmitters := make(map[protocol.ChainSelector]contracttransmitter.ContractTransmitter)
+			allContractTransmitters := make(map[protocol.ChainSelector]coordinator.ContractTransmitter)
 			ct := tc.ct()
 			for _, chain := range tc.ctChains {
 				allContractTransmitters[chain] = ct
 			}
 
-			allDestinationReaders := make(map[protocol.ChainSelector]dr.DestinationReader)
+			allDestinationReaders := make(map[protocol.ChainSelector]coordinator.DestinationReader)
 			for _, chain := range tc.drChains {
 				allDestinationReaders[chain] = tc.dr
 			}
@@ -143,7 +141,7 @@ func TestChainlinkExecutor_orderCcvData(t *testing.T) {
 	executor := NewChainlinkExecutor(nil, nil, nil)
 	ccvAddr := protocol.UnknownAddress{}
 	ccvData := []protocol.CCVData{{DestVerifierAddress: ccvAddr, CCVData: []byte("data")}}
-	ccvInfo := types.CcvAddressInfo{
+	ccvInfo := coordinator.CcvAddressInfo{
 		RequiredCcvs:      []protocol.UnknownAddress{ccvAddr},
 		OptionalCcvs:      []protocol.UnknownAddress{},
 		OptionalThreshold: 0,

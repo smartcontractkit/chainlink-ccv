@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
@@ -68,7 +68,7 @@ type LaneStreamConfig struct {
 type LaneStreams struct {
 	SentEvents    []*ccvProxy.CCVProxyCCIPMessageSent
 	ExecEvents    []*ccvAggregator.CCVAggregatorExecutionStateChanged
-	Verifications []types.QueryResponse
+	Verifications []protocol.QueryResponse
 }
 
 type SentEventPlusMeta struct {
@@ -90,7 +90,7 @@ func ToAnySlice[T any](slice []T) []any {
 }
 
 // ProcessLaneEvents collects, pushes and observes sent and executed messages for lane.
-func ProcessLaneEvents(ctx context.Context, c *Contracts, lp *LokiPusher, tp *TempoPusher, cfg *LaneStreamConfig) error {
+func ProcessLaneEvents(ctx context.Context, c *CCIP17EVM, lp *LokiPusher, tp *TempoPusher, cfg *LaneStreamConfig) error {
 	lggr := zerolog.Ctx(ctx)
 	lggr.Info().Uint64("FromSelector", cfg.FromSelector).Uint64("ToSelector", cfg.ToSelector).Msg("Processing events")
 	streams, err := FetchLaneEvents(ctx, c, cfg)
@@ -141,9 +141,9 @@ func ProcessLaneEvents(ctx context.Context, c *Contracts, lp *LokiPusher, tp *Te
 }
 
 func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Span {
-	idToMsgSent := make(map[types.Bytes32]*ccvProxy.CCVProxyCCIPMessageSent)
-	idToMsgExec := make(map[types.Bytes32]*ccvAggregator.CCVAggregatorExecutionStateChanged)
-	idToReport := make(map[types.Bytes32]*types.CCVData)
+	idToMsgSent := make(map[protocol.Bytes32]*ccvProxy.CCVProxyCCIPMessageSent)
+	idToMsgExec := make(map[protocol.Bytes32]*ccvAggregator.CCVAggregatorExecutionStateChanged)
+	idToReport := make(map[protocol.Bytes32]*protocol.CCVData)
 	for _, event := range streams.SentEvents {
 		idToMsgSent[event.MessageId] = event
 	}
@@ -255,12 +255,12 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 }
 
 // FetchLaneEvents fetch sent and exec events for lane.
-func FetchLaneEvents(ctx context.Context, c *Contracts, cfg *LaneStreamConfig) (*LaneStreams, error) {
-	msgSentEvent, err := c.FetchAllSentEventsBySelector(ctx, cfg.FromSelector, cfg.ToSelector)
+func FetchLaneEvents(ctx context.Context, c *CCIP17EVM, cfg *LaneStreamConfig) (*LaneStreams, error) {
+	msgSentEvent, err := c.fetchAllSentEventsBySelector(ctx, cfg.FromSelector, cfg.ToSelector)
 	if err != nil {
 		return nil, err
 	}
-	execEvents, err := c.FetchAllExecEventsBySelector(ctx, cfg.ToSelector, cfg.FromSelector)
+	execEvents, err := c.fetchAllExecEventsBySelector(ctx, cfg.ToSelector, cfg.FromSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +275,7 @@ func FetchLaneEvents(ctx context.Context, c *Contracts, cfg *LaneStreamConfig) (
 	}, nil
 }
 
-func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggregatorSince int64) ([]types.QueryResponse, error) {
+func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggregatorSince int64) ([]protocol.QueryResponse, error) {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Encoding = "console"

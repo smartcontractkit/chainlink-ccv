@@ -1,7 +1,7 @@
 package verifier
 
 import (
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // sourceState manages state for a single source chain reader.

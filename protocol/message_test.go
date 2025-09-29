@@ -1,4 +1,4 @@
-package pkg
+package protocol
 
 import (
 	"encoding/binary"
@@ -6,8 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 func TestMessageEncodeDecode(t *testing.T) {
@@ -22,13 +20,13 @@ func TestMessageEncodeDecode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create empty token transfer
-	tokenTransfer := types.NewEmptyTokenTransfer()
+	tokenTransfer := NewEmptyTokenTransfer()
 
 	// Create a test message
-	msg, err := types.NewMessage(
-		types.ChainSelector(1337),
-		types.ChainSelector(2337),
-		types.Nonce(123),
+	msg, err := NewMessage(
+		ChainSelector(1337),
+		ChainSelector(2337),
+		Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10, // finality
@@ -46,7 +44,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 	require.NotEmpty(t, encoded)
 
 	// Decode
-	decoded, err := types.DecodeMessage(encoded)
+	decoded, err := DecodeMessage(encoded)
 	require.NoError(t, err)
 
 	// Verify all fields match
@@ -81,12 +79,12 @@ func TestMessageID(t *testing.T) {
 	require.NoError(t, err)
 	offRampAddr, err := RandomAddress()
 	require.NoError(t, err)
-	tokenTransfer := types.NewEmptyTokenTransfer()
+	tokenTransfer := NewEmptyTokenTransfer()
 
-	msg1, err := types.NewMessage(
-		types.ChainSelector(1337),
-		types.ChainSelector(2337),
-		types.Nonce(123),
+	msg1, err := NewMessage(
+		ChainSelector(1337),
+		ChainSelector(2337),
+		Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -98,10 +96,10 @@ func TestMessageID(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	msg2, err := types.NewMessage(
-		types.ChainSelector(1337),
-		types.ChainSelector(2337),
-		types.Nonce(123),
+	msg2, err := NewMessage(
+		ChainSelector(1337),
+		ChainSelector(2337),
+		Nonce(123),
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -121,10 +119,10 @@ func TestMessageID(t *testing.T) {
 	assert.Equal(t, id1, id2)
 
 	// Different nonce should give different message ID
-	msg3, err := types.NewMessage(
-		types.ChainSelector(1337),
-		types.ChainSelector(2337),
-		types.Nonce(124), // Different nonce
+	msg3, err := NewMessage(
+		ChainSelector(1337),
+		ChainSelector(2337),
+		Nonce(124), // Different nonce
 		onRampAddr,
 		offRampAddr,
 		10,
@@ -183,7 +181,7 @@ func TestMessageDecodingErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := types.DecodeMessage(tt.data)
+			_, err := DecodeMessage(tt.data)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectErr)
 		})

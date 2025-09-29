@@ -5,7 +5,7 @@ package executor_mocks
 import (
 	context "context"
 
-	types "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -23,23 +23,23 @@ func (_m *MockOffchainStorageReader) EXPECT() *MockOffchainStorageReader_Expecte
 }
 
 // ReadCCVData provides a mock function with given fields: ctx
-func (_m *MockOffchainStorageReader) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
+func (_m *MockOffchainStorageReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReadCCVData")
 	}
 
-	var r0 []types.QueryResponse
+	var r0 []protocol.QueryResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]types.QueryResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) ([]protocol.QueryResponse, error)); ok {
 		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) []types.QueryResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) []protocol.QueryResponse); ok {
 		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]types.QueryResponse)
+			r0 = ret.Get(0).([]protocol.QueryResponse)
 		}
 	}
 
@@ -70,12 +70,12 @@ func (_c *MockOffchainStorageReader_ReadCCVData_Call) Run(run func(ctx context.C
 	return _c
 }
 
-func (_c *MockOffchainStorageReader_ReadCCVData_Call) Return(_a0 []types.QueryResponse, _a1 error) *MockOffchainStorageReader_ReadCCVData_Call {
+func (_c *MockOffchainStorageReader_ReadCCVData_Call) Return(_a0 []protocol.QueryResponse, _a1 error) *MockOffchainStorageReader_ReadCCVData_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockOffchainStorageReader_ReadCCVData_Call) RunAndReturn(run func(context.Context) ([]types.QueryResponse, error)) *MockOffchainStorageReader_ReadCCVData_Call {
+func (_c *MockOffchainStorageReader_ReadCCVData_Call) RunAndReturn(run func(context.Context) ([]protocol.QueryResponse, error)) *MockOffchainStorageReader_ReadCCVData_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -8,11 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	th "github.com/smartcontractkit/chainlink-ccv/executor/internal/timestamp_heap"
-	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 )
 
 // BackoffDuration is the duration to backoff when there is an error reading from the ccv data reader.
@@ -21,13 +17,13 @@ const BackoffDuration = 5 * time.Second
 type Coordinator struct {
 	executor            Executor
 	ccvStreamer         CCVResultStreamer
-	leaderElector       le.LeaderElector
+	leaderElector       LeaderElector
 	lggr                logger.Logger
-	ccvDataCh           chan types.MessageWithCCVData
-	executableMessageCh chan types.MessageWithCCVData //nolint:unused //will be used by executor
+	ccvDataCh           chan MessageWithCCVData
+	executableMessageCh chan MessageWithCCVData //nolint:unused //will be used by executor
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
-	delayedMessageHeap  *th.MessageHeap
+	delayedMessageHeap  *messageHeap
 	mu                  sync.RWMutex
 	running             bool
 }
@@ -52,7 +48,7 @@ func WithCCVResultStreamer(streamer CCVResultStreamer) Option {
 	}
 }
 
-func WithLeaderElector(leaderElector le.LeaderElector) Option {
+func WithLeaderElector(leaderElector LeaderElector) Option {
 	return func(ec *Coordinator) {
 		ec.leaderElector = leaderElector
 	}
@@ -60,7 +56,7 @@ func WithLeaderElector(leaderElector le.LeaderElector) Option {
 
 func NewCoordinator(options ...Option) (*Coordinator, error) {
 	ec := &Coordinator{
-		ccvDataCh: make(chan types.MessageWithCCVData, 100),
+		ccvDataCh: make(chan MessageWithCCVData, 100),
 		doneCh:    make(chan struct{}),
 	}
 
@@ -95,7 +91,7 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 	ec.running = true
 	ctx, cancel := context.WithCancel(ctx)
 	ec.cancel = cancel
-	ec.delayedMessageHeap = &th.MessageHeap{}
+	ec.delayedMessageHeap = &messageHeap{}
 	heap.Init(ec.delayedMessageHeap)
 
 	go ec.run(ctx)
@@ -168,7 +164,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 				// get message delay from leader elector
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
 
-				heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
+				heap.Push(ec.delayedMessageHeap, &messageWithTimestamp{
 					Payload:   &msg,
 					ReadyTime: readyTimestamp,
 				})

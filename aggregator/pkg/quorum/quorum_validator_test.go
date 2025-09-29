@@ -9,7 +9,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
@@ -161,7 +161,7 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 		}
 
 		// Create a proper signed verification record
-		protocolMessage := fixtures.NewProtocolMessage(t, func(m *types.Message) *types.Message {
+		protocolMessage := fixtures.NewProtocolMessage(t, func(m *protocol.Message) *protocol.Message {
 			m.DestChainSelector = 1 // Match the config
 			return m
 		})

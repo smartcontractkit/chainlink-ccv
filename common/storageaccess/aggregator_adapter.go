@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -21,7 +21,7 @@ type AggregatorWriter struct {
 	lggr   logger.Logger
 }
 
-func mapReceiptBlob(receiptBlob types.ReceiptWithBlob) (*pb.ReceiptBlob, error) {
+func mapReceiptBlob(receiptBlob protocol.ReceiptWithBlob) (*pb.ReceiptBlob, error) {
 	return &pb.ReceiptBlob{
 		Issuer:            receiptBlob.Issuer[:],
 		Blob:              receiptBlob.Blob[:],
@@ -31,7 +31,7 @@ func mapReceiptBlob(receiptBlob types.ReceiptWithBlob) (*pb.ReceiptBlob, error) 
 	}, nil
 }
 
-func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*pb.ReceiptBlob, error) {
+func mapReceiptBlobs(receiptBlobs []protocol.ReceiptWithBlob) ([]*pb.ReceiptBlob, error) {
 	var result []*pb.ReceiptBlob
 	for _, blob := range receiptBlobs {
 		mapped, err := mapReceiptBlob(blob)
@@ -45,7 +45,7 @@ func mapReceiptBlobs(receiptBlobs []types.ReceiptWithBlob) ([]*pb.ReceiptBlob, e
 	return result, nil
 }
 
-func mapCCVDataToCCVNodeDataProto(ccvData types.CCVData) (*pb.WriteCommitCCVNodeDataRequest, error) {
+func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitCCVNodeDataRequest, error) {
 	receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData types.CCVData) (*pb.WriteCommitCCVNode
 }
 
 // WriteCCVNodeData writes CCV data to the aggregator via gRPC.
-func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []types.CCVData) error {
+func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 	for _, ccvData := range ccvDataList {
 		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
@@ -165,14 +165,14 @@ func (a *AggregatorReader) Close() error {
 	return nil
 }
 
-func mapMessage(msg *pb.Message) (types.Message, error) {
+func mapMessage(msg *pb.Message) (protocol.Message, error) {
 	if msg == nil {
-		return types.Message{}, nil
+		return protocol.Message{}, nil
 	}
-	result := types.Message{
-		SourceChainSelector: types.ChainSelector(msg.SourceChainSelector),
-		DestChainSelector:   types.ChainSelector(msg.DestChainSelector),
-		Nonce:               types.Nonce(msg.Nonce),
+	result := protocol.Message{
+		SourceChainSelector: protocol.ChainSelector(msg.SourceChainSelector),
+		DestChainSelector:   protocol.ChainSelector(msg.DestChainSelector),
+		Nonce:               protocol.Nonce(msg.Nonce),
 		OnRampAddress:       msg.OnRampAddress[:],
 		OffRampAddress:      msg.OffRampAddress[:],
 		Sender:              msg.Sender[:],
@@ -183,41 +183,41 @@ func mapMessage(msg *pb.Message) (types.Message, error) {
 	}
 
 	if msg.Version > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("field Version %d exceeds uint8 max", msg.Version)
+		return protocol.Message{}, fmt.Errorf("field Version %d exceeds uint8 max", msg.Version)
 	}
 	result.Version = uint8(msg.Version)
 	if msg.OnRampAddressLength > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("field OnRampAddressLength %d exceeds uint8 max",
+		return protocol.Message{}, fmt.Errorf("field OnRampAddressLength %d exceeds uint8 max",
 			msg.OnRampAddressLength)
 	}
 	result.OnRampAddressLength = uint8(msg.OnRampAddressLength)
 	if msg.OffRampAddressLength > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("field OffRampAddressLength %d exceeds uint8 max",
+		return protocol.Message{}, fmt.Errorf("field OffRampAddressLength %d exceeds uint8 max",
 			msg.OffRampAddressLength)
 	}
 	result.OffRampAddressLength = uint8(msg.OffRampAddressLength)
 	if msg.Finality > math.MaxUint16 {
-		return types.Message{}, fmt.Errorf("field Finality %d exceeds uint16 max", msg.Finality)
+		return protocol.Message{}, fmt.Errorf("field Finality %d exceeds uint16 max", msg.Finality)
 	}
 	result.Finality = uint16(msg.Finality)
 	if msg.SenderLength > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("field SenderLength %d exceeds uint8 max", msg.SenderLength)
+		return protocol.Message{}, fmt.Errorf("field SenderLength %d exceeds uint8 max", msg.SenderLength)
 	}
 	result.SenderLength = uint8(msg.SenderLength)
 	if msg.ReceiverLength > math.MaxUint8 {
-		return types.Message{}, fmt.Errorf("field ReceiverLength %d exceeds uint8 max", msg.ReceiverLength)
+		return protocol.Message{}, fmt.Errorf("field ReceiverLength %d exceeds uint8 max", msg.ReceiverLength)
 	}
 	result.ReceiverLength = uint8(msg.ReceiverLength)
 	if msg.DestBlobLength > math.MaxUint16 {
-		return types.Message{}, fmt.Errorf("field DestBlobLength %d exceeds uint16 max", msg.DestBlobLength)
+		return protocol.Message{}, fmt.Errorf("field DestBlobLength %d exceeds uint16 max", msg.DestBlobLength)
 	}
 	result.DestBlobLength = uint16(msg.DestBlobLength)
 	if msg.TokenTransferLength > math.MaxUint16 {
-		return types.Message{}, fmt.Errorf("field TokenTransferLength %d exceeds uint16 max", msg.TokenTransferLength)
+		return protocol.Message{}, fmt.Errorf("field TokenTransferLength %d exceeds uint16 max", msg.TokenTransferLength)
 	}
 	result.TokenTransferLength = uint16(msg.TokenTransferLength)
 	if msg.DataLength > math.MaxUint16 {
-		return types.Message{}, fmt.Errorf("field DataLength %d exceeds uint16 max", msg.DataLength)
+		return protocol.Message{}, fmt.Errorf("field DataLength %d exceeds uint16 max", msg.DataLength)
 	}
 	result.DataLength = uint16(msg.DataLength)
 
@@ -225,7 +225,7 @@ func mapMessage(msg *pb.Message) (types.Message, error) {
 }
 
 // ReadCCVData returns the next available CCV data entries.
-func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryResponse, error) {
+func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	resp, err := a.client.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
 		Since:     a.since,
 		NextToken: a.token,
@@ -236,7 +236,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 
 	a.lggr.Debugw("Got messages since", "count", len(resp.Results))
 	// Convert the response to []types.QueryResponse
-	results := make([]types.QueryResponse, 0, len(resp.Results))
+	results := make([]protocol.QueryResponse, 0, len(resp.Results))
 	for i, result := range resp.Results {
 		msg, err := mapMessage(result.Message)
 		if err != nil {
@@ -249,9 +249,9 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 			return nil, fmt.Errorf("error computing message ID at index %d: %w", i, err)
 		}
 
-		results = append(results, types.QueryResponse{
+		results = append(results, protocol.QueryResponse{
 			Timestamp: nil,
-			Data: types.CCVData{
+			Data: protocol.CCVData{
 				SourceVerifierAddress: result.GetSourceVerifierAddress(),
 				DestVerifierAddress:   result.GetDestVerifierAddress(),
 				CCVData:               result.CcvData,
@@ -273,7 +273,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]types.QueryRespon
 	return results, nil
 }
 
-func (a *AggregatorReader) getNextTimestamp(results []types.QueryResponse) int64 {
+func (a *AggregatorReader) getNextTimestamp(results []protocol.QueryResponse) int64 {
 	if len(results) > 0 {
 		return results[len(results)-1].Data.Timestamp + 1
 	}

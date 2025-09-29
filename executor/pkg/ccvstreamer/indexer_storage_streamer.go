@@ -9,10 +9,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
 )
 
 // Ensure IndexerStorageStreamer implements the CCVResultStreamer interface.
@@ -89,7 +87,7 @@ func (oss *IndexerStorageStreamer) Start(
 				// Context canceled, stop loop.
 				return
 			default:
-				msgs := make([]types.MessageWithCCVData, 0)
+				msgs := make([]executor.MessageWithCCVData, 0)
 				// Non-blocking: call ReadCCVData
 				lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
 				responses, err := oss.reader.ReadVerifierResults(ctx, storageaccess.VerifierResultsRequest{
@@ -116,7 +114,7 @@ func (oss *IndexerStorageStreamer) Start(
 					}
 
 					lggr.Infow("received message", "messageID", id, "ccvData", verifierResults)
-					msgs = append(msgs, types.MessageWithCCVData{
+					msgs = append(msgs, executor.MessageWithCCVData{
 						Message:           verifierResults[0].Message,
 						CCVData:           verifierResults,
 						VerifiedTimestamp: verifierResults[0].Timestamp,

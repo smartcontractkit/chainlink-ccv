@@ -4,24 +4,24 @@ import (
 	"context"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 var _ common.ReaderDiscovery = (*StaticDiscovery)(nil)
 
 type StaticDiscovery struct {
-	offChainStorageReaderCh chan types.OffchainStorageReader
-	readers                 []types.OffchainStorageReader
+	offChainStorageReaderCh chan protocol.OffchainStorageReader
+	readers                 []protocol.OffchainStorageReader
 }
 
-func NewStaticDiscovery(readers []types.OffchainStorageReader) common.ReaderDiscovery {
+func NewStaticDiscovery(readers []protocol.OffchainStorageReader) common.ReaderDiscovery {
 	return &StaticDiscovery{
-		offChainStorageReaderCh: make(chan types.OffchainStorageReader, 1000),
+		offChainStorageReaderCh: make(chan protocol.OffchainStorageReader, 1000),
 		readers:                 readers,
 	}
 }
 
-func (d *StaticDiscovery) Run(ctx context.Context) chan types.OffchainStorageReader {
+func (d *StaticDiscovery) Run(ctx context.Context) chan protocol.OffchainStorageReader {
 	// Populate the offChainStorageReaderCh with the readers taken from the configuration
 	for _, reader := range d.readers {
 		d.offChainStorageReaderCh <- reader
@@ -30,7 +30,7 @@ func (d *StaticDiscovery) Run(ctx context.Context) chan types.OffchainStorageRea
 	return d.offChainStorageReaderCh
 }
 
-func (d *StaticDiscovery) AddReaders(readers []types.OffchainStorageReader) {
+func (d *StaticDiscovery) AddReaders(readers []protocol.OffchainStorageReader) {
 	// This is primarily used for replays from a given timeframe
 	d.readers = append(d.readers, readers...)
 
