@@ -225,7 +225,6 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 }
 
 // ReadCCVData returns the next available CCV data entries.
-// This method is thread-safe and prevents concurrent calls that could cause race conditions.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	resp, err := a.client.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
 		Since:     a.since,
