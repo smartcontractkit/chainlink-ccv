@@ -140,57 +140,6 @@ func aggregatorDefaults(in *AggregatorInput) {
 		}
 	}
 
-	monitoringConfig := MonitoringConfig{
-		Enabled: true,
-		Type:    "beholder",
-		Beholder: BeholderConfig{
-			InsecureConnection:       true,
-			OtelExporterHTTPEndpoint: "otel-collector:4318",
-			LogStreamingEnabled:      false,
-			MetricReaderInterval:     10,
-			TraceSampleRatio:         1.0,
-			TraceBatchTimeout:        5,
-		},
-	}
-
-	if in.AggregatorConfig == nil {
-		in.AggregatorConfig = &AggregatorConfig{
-			Monitoring: monitoringConfig,
-			Server: ServerConfig{
-				Address: ":50051",
-			},
-			Storage: StorageConfig{
-				StorageType:   "postgres",
-				ConnectionURL: DefaultAggregatorDBConnectionString,
-			},
-			Committees: map[string]*Committee{
-				"default": {
-					SourceVerifierAddresses: map[string]string{
-						"12922642891491394802": "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
-						"3379446385462418246":  "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
-					},
-					QuorumConfigs: map[string]*QuorumConfig{
-						"12922642891491394802": {
-							CommitteeVerifierAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-							Signers: []Signer{
-								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
-								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
-							},
-							Threshold: 2,
-						},
-						"3379446385462418246": {
-							CommitteeVerifierAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-							Signers: []Signer{
-								{ParticipantID: "participant1", Addresses: []string{"0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"}},
-								{ParticipantID: "participant2", Addresses: []string{"0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"}},
-							},
-							Threshold: 2,
-						},
-					},
-				},
-			},
-		}
-	}
 }
 
 func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {

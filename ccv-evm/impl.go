@@ -13,13 +13,14 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
-  chainsel "github.com/smartcontractkit/chain-selectors"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 
-  "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
@@ -45,10 +46,12 @@ import (
 )
 
 type CCIP17EVM struct {
-	Chain1337Details chainsel.ChainDetails
-	Chain2337Details chainsel.ChainDetails
-	ProxyBySelector  map[uint64]*ccvProxy.CCVProxy
-	AggBySelector    map[uint64]*ccvAggregator.CCVAggregator
+	Chain1337Details       chainsel.ChainDetails
+	Chain2337Details       chainsel.ChainDetails
+	Chain3337Details       chainsel.ChainDetails
+	ChainDetailsBySelector map[uint64]chainsel.ChainDetails
+	ProxyBySelector        map[uint64]*ccvProxy.CCVProxy
+	AggBySelector          map[uint64]*ccvAggregator.CCVAggregator
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation
@@ -61,6 +64,16 @@ func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, ws
 	if err != nil {
 		return nil, err
 	}
+
+	// Add third chain support if available
+	var thirdChain chainsel.ChainDetails
+	if len(chainIDs) > 2 {
+		thirdChain, err = chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[2], chainsel.FamilyEVM)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	gas := &GasSettings{
 		FeeCapMultiplier: 2,
 		TipCapMultiplier: 2,
@@ -73,6 +86,15 @@ func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, ws
 	if err != nil {
 		return nil, err
 	}
+
+	var rpcThird *ethclient.Client
+	if len(wsURLs) > 2 {
+		rpcThird, _, _, err = ETHClient(ctx, wsURLs[2], gas)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	proxySrcAddr, err := GetContractAddrForSelector(addresses, srcChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
 	if err != nil {
 		return nil, err
@@ -89,6 +111,19 @@ func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, ws
 	if err != nil {
 		return nil, err
 	}
+
+	var proxyThird *ccvProxy.CCVProxy
+	if len(chainIDs) > 2 {
+		proxyThirdAddr, err := GetContractAddrForSelector(addresses, thirdChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
+		if err != nil {
+			return nil, err
+		}
+		proxyThird, err = ccvProxy.NewCCVProxy(proxyThirdAddr, rpcThird)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	aggSrcAddr, err := GetContractAddrForSelector(addresses, srcChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
 	if err != nil {
 		return nil, err
@@ -105,17 +140,46 @@ func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, ws
 	if err != nil {
 		return nil, err
 	}
+
+	var aggThird *ccvAggregator.CCVAggregator
+	if len(chainIDs) > 2 {
+		aggThirdAddr, err := GetContractAddrForSelector(addresses, thirdChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
+		if err != nil {
+			return nil, err
+		}
+		aggThird, err = ccvAggregator.NewCCVAggregator(aggThirdAddr, rpcThird)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Build the maps
+	proxyBySelector := map[uint64]*ccvProxy.CCVProxy{
+		srcChain.ChainSelector: proxySrc,
+		dstChain.ChainSelector: proxyDst,
+	}
+	aggBySelector := map[uint64]*ccvAggregator.CCVAggregator{
+		srcChain.ChainSelector: aggSrc,
+		dstChain.ChainSelector: aggDst,
+	}
+	chainDetailsBySelector := map[uint64]chainsel.ChainDetails{
+		srcChain.ChainSelector: srcChain,
+		dstChain.ChainSelector: dstChain,
+	}
+
+	if len(chainIDs) > 2 {
+		proxyBySelector[thirdChain.ChainSelector] = proxyThird
+		aggBySelector[thirdChain.ChainSelector] = aggThird
+		chainDetailsBySelector[thirdChain.ChainSelector] = thirdChain
+	}
+
 	return &CCIP17EVM{
-		Chain1337Details: srcChain,
-		Chain2337Details: dstChain,
-		ProxyBySelector: map[uint64]*ccvProxy.CCVProxy{
-			srcChain.ChainSelector: proxySrc,
-			dstChain.ChainSelector: proxyDst,
-		},
-		AggBySelector: map[uint64]*ccvAggregator.CCVAggregator{
-			srcChain.ChainSelector: aggSrc,
-			dstChain.ChainSelector: aggDst,
-		},
+		Chain1337Details:       srcChain,
+		Chain2337Details:       dstChain,
+		Chain3337Details:       thirdChain,
+		ChainDetailsBySelector: chainDetailsBySelector,
+		ProxyBySelector:        proxyBySelector,
+		AggBySelector:          aggBySelector,
 	}, nil
 }
 
@@ -257,9 +321,9 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	agg, ok := m.AggBySelector[from]
+	agg, ok := m.AggBySelector[to]
 	if !ok {
-		return nil, fmt.Errorf("no aggregator for selector %d", from)
+		return nil, fmt.Errorf("no aggregator for selector %d", to)
 	}
 
 	l.Info().Msg("Awaiting ExecutionStateChanged event")
@@ -269,7 +333,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-ticker.C:
-			filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
+			filter, err := agg.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{from}, []uint64{seq}, nil)
 			if err != nil {
 				l.Warn().Err(err).Msg("Failed to create filter")
 				continue
@@ -507,6 +571,30 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 	), nil
 }
 
+// getCommitteeSignatureConfig returns the committee configuration for a specific chain selector
+func getCommitteeSignatureConfig(selector uint64) commit_offramp.SetSignatureConfigArgs {
+	// Default configuration with 2 signers and threshold=2
+	defaultConfig := commit_offramp.SetSignatureConfigArgs{
+		Threshold: 2,
+		Signers: []common.Address{
+			common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
+			common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
+		},
+	}
+
+	// Special configuration for chain 3337 (selector 4793464827907405086) - threshold=1
+	if selector == 4793464827907405086 {
+		return commit_offramp.SetSignatureConfigArgs{
+			Threshold: 1,
+			Signers: []common.Address{
+				common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
+			},
+		}
+	}
+
+	return defaultConfig
+}
+
 func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64) (datastore.DataStore, error) {
 	l := zerolog.Ctx(ctx)
 	l.Info().Msg("Configuring contracts for selector")
@@ -556,13 +644,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				USDPerWETH:                     usdPerWeth,
 			},
 			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: commit_offramp.SetSignatureConfigArgs{
-					Threshold: 2,
-					Signers: []common.Address{
-						common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
-						common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
-					},
-				},
+				SignatureConfigArgs: getCommitteeSignatureConfig(selector),
 			},
 		},
 	})
