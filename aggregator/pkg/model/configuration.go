@@ -226,9 +226,6 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Pagination.PageLimit == 0 {
 		c.Pagination.PageLimit = 100
 	}
-	if c.Pagination.TokenSecret == "" {
-		c.Pagination.TokenSecret = "default-pagination-secret-32bytes"
-	}
 }
 
 // ValidateAPIKeyConfig validates the API key configuration.
@@ -273,6 +270,10 @@ func (c *AggregatorConfig) ValidatePaginationConfig() error {
 
 	if c.Pagination.PageLimit > 10000 {
 		return errors.New("pagination.pageLimit must not exceed 10000")
+	}
+
+	if strings.TrimSpace(c.Pagination.TokenSecret) == "" {
+		return errors.New("pagination.tokenSecret cannot be empty")
 	}
 
 	if len(c.Pagination.TokenSecret) < 32 {
