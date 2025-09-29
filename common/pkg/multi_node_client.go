@@ -43,7 +43,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 	httpURL, _ := blockchainInfo.GetInternalRPCEndpoint()
 	nodeConfigs := []client.NodeConfig{
 		{
-			Name:    ptr(blockchainInfo.ContainerName),
+			Name:    ptr(blockchainInfo.UniqueChainName),
 			WSURL:   ptr(wsURL),
 			HTTPURL: ptr(httpURL),
 		},
@@ -52,11 +52,15 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 	safeDepth := ptr(uint32(6))
 	finalityTagEnabled := ptr(true)
 	lggr.Infow("🔍 Testing multinode chain client", "chainSelector", blockchainInfo.ChainID, "wsURL", wsURL, "httpURL", httpURL)
-	chainCfg, nodePool, nodes, _ := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
+	chainCfg, nodePool, nodes, err := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
 		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
 		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
 		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
 
+	if err != nil {
+		lggr.Errorw("Failed to create client configs", "error", err)
+		return nil
+	}
 	idBigInt, _ := new(big.Int).SetString(blockchainInfo.ChainID, 10)
 
 	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, idBigInt, nodes, chaintype.ChainType(chainTypeStr))

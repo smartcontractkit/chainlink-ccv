@@ -18,7 +18,7 @@ type BlockchainInfo struct {
 	ChainID       string  `json:"chain_id"`
 	Type          string  `json:"type"`
 	Family        string  `json:"family"`
-	ContainerName string  `json:"container_name"`
+	UniqueChainName string  `json:"unique_chain_name"`
 	Nodes         []*Node `json:"nodes"`
 }
 
@@ -110,7 +110,7 @@ func (bh *BlockchainHelper) GetBlockchainInfo(chainSelector ChainSelector) (stri
 	}
 
 	return fmt.Sprintf("Chain ID: %s, Type: %s, Family: %s, Container: %s, Nodes: %d, RPC: %s",
-		info.ChainID, info.Type, info.Family, info.ContainerName, nodeCount, rpcURL), nil
+		info.ChainID, info.Type, info.Family, info.UniqueChainName, nodeCount, rpcURL), nil
 }
 
 // GetWebSocketEndpoint returns the WebSocket endpoint for a blockchain by chain selector
