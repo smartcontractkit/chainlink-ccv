@@ -1,4 +1,5 @@
 aggregator_address = "aggregator:50051"
+aggregator_api_key = "dev-api-key-verifier-2"
 private_key = "dev-private-key2-12345678901234567890"
 verifier_on_ramp_1337 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
 verifier_on_ramp_2337 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"

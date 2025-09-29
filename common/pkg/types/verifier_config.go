@@ -6,6 +6,7 @@ import (
 
 type VerifierConfig struct {
 	AggregatorAddress  string                              `toml:"aggregator_address"`
+	AggregatorAPIKey   string                              `toml:"aggregator_api_key"`
 	PrivateKey         string                              `toml:"private_key"`
 	BlockchainInfos    map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	VerifierOnRamp1337 string                              `toml:"verifier_on_ramp_1337"`

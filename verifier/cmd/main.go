@@ -150,7 +150,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
+	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create storage writer", "error", err)
 	}
@@ -163,14 +163,14 @@ func main() {
 		lggr.Errorw("No chainclient or VerifierOnRamp1337 address", "chain", 1337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainIDA, lggr)
+	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainIDA, storageWriter, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
 
 	if chainClient2 == nil || verifierConfig.VerifierOnRamp2337 == "" {
 		lggr.Errorw("No chainclient or VerifierOnRamp2337 address", "chain", 2337)
 		os.Exit(1)
 	}
-	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainIDB, lggr)
+	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainIDB, storageWriter, lggr)
 	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration

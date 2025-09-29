@@ -36,3 +36,12 @@ type SourceReader interface {
 	// LatestFinalizedBlock returns the latest finalized block height
 	LatestFinalizedBlock(ctx context.Context) (*big.Int, error)
 }
+
+// CheckpointManager defines the interface for checkpoint operations.
+type CheckpointManager interface {
+	// WriteCheckpoint writes a checkpoint for a specific chain
+	WriteCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector, blockHeight *big.Int) error
+
+	// ReadCheckpoint reads a checkpoint for a specific chain, returns nil if not found
+	ReadCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error)
+}

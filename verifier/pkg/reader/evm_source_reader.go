@@ -20,6 +20,21 @@ import (
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
+const (
+	// CheckpointBufferBlocks is the number of blocks to lag behind finalized
+	// to ensure downstream processing is complete
+	CheckpointBufferBlocks = 20
+
+	// CheckpointInterval is how often to write checkpoints
+	CheckpointInterval = 30 * time.Second
+
+	// StartupLookbackHours when no checkpoint exists
+	StartupLookbackHours = 8
+
+	// CheckpointRetryAttempts on startup
+	CheckpointRetryAttempts = 5
+)
+
 // EVMSourceReader implements SourceReader for reading CCIPMessageSent events from blockchain.
 type EVMSourceReader struct {
 	chainClient          client.Client
@@ -34,6 +49,11 @@ type EVMSourceReader struct {
 	chainSelector        protocol.ChainSelector
 	mu                   sync.RWMutex
 	isRunning            bool
+
+	// Checkpoint management
+	checkpointManager     verifiertypes.CheckpointManager
+	lastCheckpointTime    time.Time
+	lastCheckpointedBlock *big.Int
 }
 
 // NewEVMSourceReader creates a new blockchain-based source reader.
@@ -41,6 +61,7 @@ func NewEVMSourceReader(
 	chainClient client.Client,
 	contractAddress string,
 	chainSelector protocol.ChainSelector,
+	checkpointManager verifiertypes.CheckpointManager,
 	logger logger.Logger,
 ) *EVMSourceReader {
 	return &EVMSourceReader{
@@ -52,6 +73,7 @@ func NewEVMSourceReader(
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
 		contractAddress:      contractAddress,
+		checkpointManager:    checkpointManager,
 	}
 }
 
@@ -147,6 +169,213 @@ func (r *EVMSourceReader) testConnectivity(ctx context.Context) error {
 	return nil
 }
 
+// readCheckpointWithRetries tries to read checkpoint from aggregator with exponential backoff.
+func (r *EVMSourceReader) readCheckpointWithRetries(ctx context.Context, maxAttempts int) (*big.Int, error) {
+	if r.checkpointManager == nil {
+		r.logger.Debugw("No checkpoint manager available for checkpoint reading")
+		return nil, nil
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		checkpoint, err := r.checkpointManager.ReadCheckpoint(ctx, r.chainSelector)
+		if err == nil {
+			return checkpoint, nil
+		}
+
+		lastErr = err
+		r.logger.Warnw("Failed to read checkpoint",
+			"attempt", attempt,
+			"maxAttempts", maxAttempts,
+			"error", err)
+
+		if attempt < maxAttempts {
+			// Exponential backoff: 1s, 2s, 4s
+			backoffDuration := time.Duration(1<<(attempt-1)) * time.Second
+			r.logger.Debugw("Retrying checkpoint read after backoff", "duration", backoffDuration)
+
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoffDuration):
+				// Continue to next attempt
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("failed to read checkpoint after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// calculateBlockFrom8HoursAgo calculates the block number from 8 hours ago.
+func (r *EVMSourceReader) calculateBlockFrom8HoursAgo(ctx context.Context) (*big.Int, error) {
+	currentBlock, err := r.chainClient.LatestBlockHeight(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current block height: %w", err)
+	}
+
+	// Try to sample recent blocks to estimate block time
+	sampleSize := int64(100)
+	startBlock := new(big.Int).Sub(currentBlock, big.NewInt(sampleSize))
+	if startBlock.Sign() < 0 {
+		startBlock = big.NewInt(0)
+	}
+
+	// Get timestamps for block time calculation
+	startHeader, err := r.chainClient.HeaderByNumber(ctx, startBlock)
+	if err != nil {
+		r.logger.Warnw("Failed to get start header for block time calculation, using fallback", "error", err)
+		return r.fallbackBlockEstimate(currentBlock), nil
+	}
+
+	currentHeader, err := r.chainClient.HeaderByNumber(ctx, currentBlock)
+	if err != nil {
+		r.logger.Warnw("Failed to get current header for block time calculation, using fallback", "error", err)
+		return r.fallbackBlockEstimate(currentBlock), nil
+	}
+
+	// Calculate average block time
+	blockDiff := new(big.Int).Sub(currentBlock, startBlock)
+	timeDiff := int64(currentHeader.Time) - int64(startHeader.Time)
+
+	if blockDiff.Sign() > 0 && timeDiff > 0 {
+		avgBlockTime := timeDiff / blockDiff.Int64()
+		blocksIn8Hours := (StartupLookbackHours * 3600) / avgBlockTime
+		lookbackBlock := new(big.Int).Sub(currentBlock, big.NewInt(blocksIn8Hours))
+
+		if lookbackBlock.Sign() < 0 {
+			lookbackBlock = big.NewInt(0)
+		}
+
+		r.logger.Infow("Calculated 8-hour lookback",
+			"currentBlock", currentBlock.String(),
+			"avgBlockTime", avgBlockTime,
+			"blocksIn8Hours", blocksIn8Hours,
+			"lookbackBlock", lookbackBlock.String())
+
+		return lookbackBlock, nil
+	}
+
+	return r.fallbackBlockEstimate(currentBlock), nil
+}
+
+// fallbackBlockEstimate provides a conservative fallback when block time calculation fails.
+func (r *EVMSourceReader) fallbackBlockEstimate(currentBlock *big.Int) *big.Int {
+	// Conservative fallback: 100 blocks
+	lookback := new(big.Int).Sub(currentBlock, big.NewInt(100))
+	if lookback.Sign() < 0 {
+		return big.NewInt(0)
+	}
+
+	r.logger.Infow("Using fallback block estimate",
+		"currentBlock", currentBlock.String(),
+		"fallbackLookback", lookback.String())
+
+	return lookback
+}
+
+// initializeStartBlock determines the starting block for event monitoring.
+func (r *EVMSourceReader) initializeStartBlock(ctx context.Context) (*big.Int, error) {
+	r.logger.Infow("Initializing start block for event monitoring")
+
+	// Try to read checkpoint with retries
+	checkpoint, err := r.readCheckpointWithRetries(ctx, CheckpointRetryAttempts)
+	if err != nil {
+		r.logger.Warnw("Failed to read checkpoint after retries, falling back to 8-hour window", "error", err)
+	}
+
+	if checkpoint == nil {
+		r.logger.Infow("No checkpoint found, calculating from 8 hours ago")
+		return r.calculateBlockFrom8HoursAgo(ctx)
+	}
+
+	// Resume from checkpoint + 1
+	startBlock := new(big.Int).Add(checkpoint, big.NewInt(1))
+	r.logger.Infow("Resuming from checkpoint",
+		"checkpointBlock", checkpoint.String(),
+		"startBlock", startBlock.String())
+
+	return startBlock, nil
+}
+
+// calculateCheckpointBlock determines the safe checkpoint block (finalized - buffer).
+func (r *EVMSourceReader) calculateCheckpointBlock(ctx context.Context) (*big.Int, error) {
+	finalized, err := r.LatestFinalizedBlock(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get finalized block: %w", err)
+	}
+
+	checkpointBlock := new(big.Int).Sub(finalized, big.NewInt(CheckpointBufferBlocks))
+
+	// Handle early chain scenario
+	if checkpointBlock.Sign() <= 0 {
+		r.logger.Debugw("Too early to checkpoint",
+			"finalized", finalized.String(),
+			"buffer", CheckpointBufferBlocks)
+		return nil, nil
+	}
+
+	// Safety: don't checkpoint beyond what we've read
+	if r.lastProcessedBlock != nil && checkpointBlock.Cmp(r.lastProcessedBlock) > 0 {
+		checkpointBlock = new(big.Int).Set(r.lastProcessedBlock)
+		r.logger.Debugw("Capping checkpoint at last processed block",
+			"finalized", finalized.String(),
+			"lastProcessed", r.lastProcessedBlock.String(),
+			"checkpoint", checkpointBlock.String())
+	}
+
+	return checkpointBlock, nil
+}
+
+// updateCheckpoint writes a checkpoint if conditions are met.
+func (r *EVMSourceReader) updateCheckpoint(ctx context.Context) {
+	// Skip if no checkpoint manager
+	if r.checkpointManager == nil {
+		return
+	}
+
+	// Only checkpoint periodically
+	if time.Since(r.lastCheckpointTime) < CheckpointInterval {
+		return
+	}
+
+	// Calculate safe checkpoint block (finalized - buffer)
+	checkpointBlock, err := r.calculateCheckpointBlock(ctx)
+	if err != nil {
+		r.logger.Warnw("Failed to calculate checkpoint block", "error", err)
+		return
+	}
+
+	if checkpointBlock == nil {
+		// Too early to checkpoint (still in buffer zone from genesis)
+		r.logger.Debugw("Skipping checkpoint - too early")
+		return
+	}
+
+	// Don't re-checkpoint the same block
+	if r.lastCheckpointedBlock != nil &&
+		checkpointBlock.Cmp(r.lastCheckpointedBlock) <= 0 {
+		r.logger.Debugw("Skipping checkpoint - no progress",
+			"checkpointBlock", checkpointBlock.String(),
+			"lastCheckpointed", r.lastCheckpointedBlock.String())
+		return
+	}
+
+	// Write checkpoint (fire-and-forget, just log errors)
+	err = r.checkpointManager.WriteCheckpoint(ctx, r.chainSelector, checkpointBlock)
+	if err != nil {
+		r.logger.Errorw("Failed to write checkpoint",
+			"error", err,
+			"block", checkpointBlock.String())
+		// Continue processing, don't fail
+	} else {
+		r.logger.Infow("Checkpoint updated",
+			"checkpointBlock", checkpointBlock.String(),
+			"currentProcessed", r.lastProcessedBlock.String())
+		r.lastCheckpointTime = time.Now()
+		r.lastCheckpointedBlock = new(big.Int).Set(checkpointBlock)
+	}
+}
+
 // eventMonitoringLoop runs the continuous event monitoring.
 func (r *EVMSourceReader) eventMonitoringLoop(ctx context.Context) {
 	defer r.wg.Done()
@@ -157,6 +386,18 @@ func (r *EVMSourceReader) eventMonitoringLoop(ctx context.Context) {
 			r.logger.Errorw("❌ Recovered from panic in event monitoring loop", "panic", rec)
 		}
 	}()
+
+	// Initialize start block on first run
+	if r.lastProcessedBlock == nil {
+		startBlock, err := r.initializeStartBlock(ctx)
+		if err != nil {
+			r.logger.Errorw("Failed to initialize start block", "error", err)
+			// Use fallback
+			startBlock = big.NewInt(1)
+		}
+		r.lastProcessedBlock = startBlock
+		r.logger.Infow("Initialized start block", "block", startBlock.String())
+	}
 
 	contractAddr := common.HexToAddress(r.contractAddress)
 	ticker := time.NewTicker(r.pollInterval)
@@ -204,9 +445,9 @@ func (r *EVMSourceReader) processEventCycle(ctx context.Context, contractAddr co
 	var fromBlock *big.Int
 	if r.lastProcessedBlock != nil {
 		fromBlock = new(big.Int).Add(r.lastProcessedBlock, big.NewInt(1))
-	} else if currentBlock.Cmp(big.NewInt(100)) > 0 {
-		fromBlock = new(big.Int).Sub(currentBlock, big.NewInt(100))
 	} else {
+		// This should not happen since we initialize lastProcessedBlock in eventMonitoringLoop
+		r.logger.Errorw("lastProcessedBlock is nil in processEventCycle - this should not happen")
 		fromBlock = big.NewInt(1)
 	}
 
@@ -241,6 +482,9 @@ func (r *EVMSourceReader) processEventCycle(ctx context.Context, contractAddr co
 
 	// Update processed block
 	r.lastProcessedBlock = new(big.Int).Set(currentBlock)
+
+	// Try to checkpoint if appropriate
+	r.updateCheckpoint(ctx)
 
 	if len(logs) > 0 {
 		r.logger.Infow("📈 Processed block range",
