@@ -207,7 +207,7 @@ func (r *EVMSourceReader) readCheckpointWithRetries(ctx context.Context, maxAtte
 }
 
 // calculateBlockFromHoursAgo calculates the block number from the specified hours ago.
-func (r *EVMSourceReader) calculateBlockFromHoursAgo(ctx context.Context, lookbackHours int64) (*big.Int, error) {
+func (r *EVMSourceReader) calculateBlockFromHoursAgo(ctx context.Context, lookbackHours uint64) (*big.Int, error) {
 	currentBlock, err := r.chainClient.LatestBlockHeight(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current block height: %w", err)
@@ -235,12 +235,12 @@ func (r *EVMSourceReader) calculateBlockFromHoursAgo(ctx context.Context, lookba
 
 	// Calculate average block time
 	blockDiff := new(big.Int).Sub(currentBlock, startBlock)
-	timeDiff := int64(currentHeader.Time) - int64(startHeader.Time)
+	timeDiff := currentHeader.Time - startHeader.Time
 
 	if blockDiff.Sign() > 0 && timeDiff > 0 {
-		avgBlockTime := timeDiff / blockDiff.Int64()
+		avgBlockTime := timeDiff / blockDiff.Uint64()
 		blocksInLookback := (lookbackHours * 3600) / avgBlockTime
-		lookbackBlock := new(big.Int).Sub(currentBlock, big.NewInt(blocksInLookback))
+		lookbackBlock := new(big.Int).Sub(currentBlock, new(big.Int).SetUint64(blocksInLookback))
 
 		if lookbackBlock.Sign() < 0 {
 			lookbackBlock = big.NewInt(0)
