@@ -153,11 +153,11 @@ func (s *Scanner) handleReader(ctx context.Context, reader protocol.OffchainStor
 		case <-ticker.C:
 			// Create a child context with a timeout to prevent a single call from blocking the entire reader.
 			readerCtx, cancel := context.WithTimeout(ctx, s.config.ReaderTimeout)
-			defer cancel()
 
 			// Consume the reader until there is no more data present from the reader.
 			// Aim is to allow for quick backfilling of data if needed.
 			s.consumeReader(readerCtx, reader)
+			cancel()
 
 			// Some readers support disconnection in certain situations, such as backfilling.
 			// If the reader should be disconnected after being consumed, finish the loop and drop the reader.
