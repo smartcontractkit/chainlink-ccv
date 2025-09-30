@@ -91,7 +91,7 @@ func main() {
 		}
 
 		dr := destinationreader.NewEvmDestinationReaderFromChainInfo(ctx, lggr, selector, chain, executorConfig.OffRampAddresses[strSel])
-		pk := os.Getenv("PK_ENV_VAR")
+		pk := os.Getenv(PK_ENV_VAR)
 		if pk == "" {
 			lggr.Errorf("Environment variable %S is not set", PK_ENV_VAR)
 			os.Exit(1)
