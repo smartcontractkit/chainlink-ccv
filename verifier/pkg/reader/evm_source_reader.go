@@ -205,8 +205,8 @@ func (r *EVMSourceReader) readCheckpointWithRetries(ctx context.Context, maxAtte
 	return nil, fmt.Errorf("failed to read checkpoint after %d attempts: %w", maxAttempts, lastErr)
 }
 
-// calculateBlockFrom8HoursAgo calculates the block number from 8 hours ago.
-func (r *EVMSourceReader) calculateBlockFrom8HoursAgo(ctx context.Context) (*big.Int, error) {
+// calculateBlockFromHoursAgo calculates the block number from the specified hours ago.
+func (r *EVMSourceReader) calculateBlockFromHoursAgo(ctx context.Context, lookbackHours int64) (*big.Int, error) {
 	currentBlock, err := r.chainClient.LatestBlockHeight(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current block height: %w", err)
@@ -238,17 +238,18 @@ func (r *EVMSourceReader) calculateBlockFrom8HoursAgo(ctx context.Context) (*big
 
 	if blockDiff.Sign() > 0 && timeDiff > 0 {
 		avgBlockTime := timeDiff / blockDiff.Int64()
-		blocksIn8Hours := (StartupLookbackHours * 3600) / avgBlockTime
-		lookbackBlock := new(big.Int).Sub(currentBlock, big.NewInt(blocksIn8Hours))
+		blocksInLookback := (lookbackHours * 3600) / avgBlockTime
+		lookbackBlock := new(big.Int).Sub(currentBlock, big.NewInt(blocksInLookback))
 
 		if lookbackBlock.Sign() < 0 {
 			lookbackBlock = big.NewInt(0)
 		}
 
-		r.logger.Infow("Calculated 8-hour lookback",
+		r.logger.Infow("Calculated lookback",
 			"currentBlock", currentBlock.String(),
+			"lookbackHours", lookbackHours,
 			"avgBlockTime", avgBlockTime,
-			"blocksIn8Hours", blocksIn8Hours,
+			"blocksInLookback", blocksInLookback,
 			"lookbackBlock", lookbackBlock.String())
 
 		return lookbackBlock, nil
@@ -279,12 +280,14 @@ func (r *EVMSourceReader) initializeStartBlock(ctx context.Context) (*big.Int, e
 	// Try to read checkpoint with retries
 	checkpoint, err := r.readCheckpointWithRetries(ctx, CheckpointRetryAttempts)
 	if err != nil {
-		r.logger.Warnw("Failed to read checkpoint after retries, falling back to 8-hour window", "error", err)
+		r.logger.Warnw("Failed to read checkpoint after retries, falling back to lookback hours window",
+			"lookbackHours", StartupLookbackHours,
+			"error", err)
 	}
 
 	if checkpoint == nil {
-		r.logger.Infow("No checkpoint found, calculating from 8 hours ago")
-		return r.calculateBlockFrom8HoursAgo(ctx)
+		r.logger.Infow("No checkpoint found, calculating from lookback hours ago", "lookbackHours", StartupLookbackHours)
+		return r.calculateBlockFromHoursAgo(ctx, StartupLookbackHours)
 	}
 
 	// Resume from checkpoint + 1
