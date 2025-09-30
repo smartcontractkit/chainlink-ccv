@@ -81,6 +81,7 @@ type VerifierInput struct {
 	ConfigFilePath    string                     `toml:"config_file_path"`
 	BlockchainOutputs []*blockchain.Output       `toml:"-"`
 	AggregatorAddress string                     `toml:"aggregator_address"`
+	SigningKey        string                     `toml:"signing_key"`
 }
 
 type VerifierOutput struct {
@@ -161,7 +162,8 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
 		Env: map[string]string{
-			"VERIFIER_CONFIG_PATH": in.ConfigFilePath,
+			"VERIFIER_CONFIG_PATH":        in.ConfigFilePath,
+			"VERIFIER_SIGNER_PRIVATE_KEY": in.SigningKey,
 		},
 		// ExposedPorts
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp

@@ -25,6 +25,11 @@ import (
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 )
 
+const (
+	PK_ENV_VAR  = "VERIFIER_SIGNER_PRIVATE_KEY"
+	CONFIG_PATH = "VERIFIER_CONFIG_PATH"
+)
+
 func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
 	var config commontypes.VerifierConfig
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
@@ -86,7 +91,7 @@ func main() {
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
-	envConfig := os.Getenv("VERIFIER_CONFIG_PATH")
+	envConfig := os.Getenv(CONFIG_PATH)
 	if envConfig != "" {
 		filePath = envConfig
 	}
@@ -190,16 +195,21 @@ func main() {
 	}
 
 	config := verifier.CoordinatorConfig{
-		VerifierID:            "dev-verifier-1",
+		VerifierID:            verifierConfig.VerifierID,
 		SourceConfigs:         sourceConfigs,
 		ProcessingChannelSize: 1000,
 		ProcessingTimeout:     30 * time.Second,
 		MaxBatchSize:          100,
 	}
 
+	pk := os.Getenv(PK_ENV_VAR)
+	if pk == "" {
+		lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
+		os.Exit(1)
+	}
 	// Create message signer (mock for development)
 	privateKey := make([]byte, 32)
-	copy(privateKey, []byte(verifierConfig.PrivateKey)) // Mock key
+	copy(privateKey, pk) // Mock key
 	signer, err := commit.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)

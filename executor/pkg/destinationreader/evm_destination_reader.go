@@ -40,10 +40,10 @@ type EvmDestinationReader struct {
 	ccvCache         *expirable.LRU[cacheKey, executor.CcvAddressInfo]
 }
 
-func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *protocol.BlockchainInfo) *EvmDestinationReader {
+func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *protocol.BlockchainInfo, offrampAddress string) *EvmDestinationReader {
 	chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chainInfo, lggr)
 
-	ccvAddr := common.HexToAddress(chainInfo.OfframpAddress)
+	ccvAddr := common.HexToAddress(offrampAddress)
 	ccvAgg, err := ccvagg.NewCCVAggregatorCaller(ccvAddr, chainClient)
 	if err != nil {
 		lggr.Errorw("Failed to create CCV Aggregator caller", "error", err, "address", ccvAddr.Hex(), "chainSelector", chainSelector)
