@@ -28,6 +28,7 @@ type Scanner struct {
 type Config struct {
 	ScanInterval   time.Duration
 	MetricInterval time.Duration
+	ReaderTimeout  time.Duration
 }
 
 // Option is the functional option type for Scanner.
@@ -150,12 +151,17 @@ func (s *Scanner) handleReader(ctx context.Context, reader protocol.OffchainStor
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
+			// Create a child context with a timeout to prevent a single call from blocking the entire reader.
+			readerCtx, cancel := context.WithTimeout(ctx, s.config.ReaderTimeout)
+			defer cancel()
+
 			// Consume the reader until there is no more data present from the reader.
 			// Aim is to allow for quick backfilling of data if needed.
-			s.consumeReader(ctx, reader)
+			s.consumeReader(readerCtx, reader)
 
 			// Some readers support disconnection in certain situations, such as backfilling.
 			// If the reader should be disconnected after being consumed, finish the loop and drop the reader.
+			// The context passed here is the parent context, which is not timed out so we can publish metrics if needed.
 			if s.shouldDisconnect(ctx, reader) {
 				return
 			}
@@ -203,18 +209,24 @@ func (s *Scanner) consumeReader(ctx context.Context, reader protocol.OffchainSto
 	readerLock.Lock()
 	defer readerLock.Unlock()
 
-	for {
-		found, err := s.callReader(ctx, reader)
-		if err != nil {
-			s.lggr.Errorw("Error calling reader", "error", err)
-			return
-		}
+	select {
+	case <-ctx.Done():
+		s.lggr.Infof("Reader timed out, cancelling consumeReader")
+		return
+	default:
+		for {
+			found, err := s.callReader(ctx, reader)
+			if err != nil {
+				s.lggr.Errorw("Error calling reader", "error", err)
+				return
+			}
 
-		// If data is found, we'll try again after a small delay to prevent
-		// duplicate data when processing faster than 1 second.
-		// If no data is found, return and wait for the next tick.
-		if !found {
-			return
+			// If data is found, we'll try again after a small delay to prevent
+			// duplicate data when processing faster than 1 second.
+			// If no data is found, return and wait for the next tick.
+			if !found {
+				return
+			}
 		}
 	}
 }
