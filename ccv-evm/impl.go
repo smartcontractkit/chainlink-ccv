@@ -558,8 +558,8 @@ func getCommitteeSignatureConfig(selector uint64) commit_offramp.SetSignatureCon
 	defaultConfig := commit_offramp.SetSignatureConfigArgs{
 		Threshold: 2,
 		Signers: []common.Address{
-			common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
-			common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
+			common.HexToAddress("0x6b3131d871c63c7fa592863e173cba2da5ffa68b"),
+			common.HexToAddress("0x099125558781da4bcdb16e457e15d997ecac68a8"),
 		},
 	}
 
@@ -568,7 +568,7 @@ func getCommitteeSignatureConfig(selector uint64) commit_offramp.SetSignatureCon
 		return commit_offramp.SetSignatureConfigArgs{
 			Threshold: 1,
 			Signers: []common.Address{
-				common.HexToAddress("0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"),
+				common.HexToAddress("0x6b3131d871c63c7fa592863e173cba2da5ffa68b"),
 			},
 		}
 	}

@@ -24,8 +24,13 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
+const (
+	CONFIG_PATH = "EXECUTOR_CONFIG_PATH"
+	PK_ENV_VAR  = "EXECUTOR_TRANSMITTER_PRIVATE_KEY"
+)
+
 func main() {
-	configPath, ok := os.LookupEnv("EXECUTOR_CONFIG_PATH")
+	configPath, ok := os.LookupEnv(CONFIG_PATH)
 	if !ok {
 		configPath = "executor_config.toml"
 	}
@@ -85,15 +90,20 @@ func main() {
 			continue
 		}
 
-		dr := destinationreader.NewEvmDestinationReaderFromChainInfo(ctx, lggr, selector, chain)
+		dr := destinationreader.NewEvmDestinationReaderFromChainInfo(ctx, lggr, selector, chain, executorConfig.OffRampAddresses[strSel])
+		pk := os.Getenv(PK_ENV_VAR)
+		if pk == "" {
+			lggr.Errorf("Environment variable %S is not set", PK_ENV_VAR)
+			os.Exit(1)
+		}
 
 		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
 			ctx,
 			lggr,
 			selector,
 			chain.Nodes[0].InternalHTTPUrl,
-			executorConfig.PrivateKey,
-			common.HexToAddress(chain.OfframpAddress),
+			pk,
+			common.HexToAddress(executorConfig.OffRampAddresses[strSel]),
 		)
 		if err != nil {
 			lggr.Errorw("Failed to create contract transmitter", "error", err)
