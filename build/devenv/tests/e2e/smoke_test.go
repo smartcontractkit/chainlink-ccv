@@ -106,7 +106,7 @@ func TestE2ESmoke(t *testing.T) {
 
 		verifierAddress := common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
 		execOnRamp := "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
-		mockReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+		//mockReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
 		eoaReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443b"
 		mandatoryCCVs := []protocol.CCV{
 			{
@@ -143,26 +143,28 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:      eoaReceiver,
 				mandatoryCCVs: mandatoryCCVs,
 			},
-			{
-				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-				name:          "src_dst msg execution with mock receiver",
-				srcSelector:   c.Chain1337Details.ChainSelector,
-				dstSelector:   c.Chain2337Details.ChainSelector,
-				finality:      1,
-				execOnRamp:    execOnRamp,
-				receiver:      mockReceiver,
-				mandatoryCCVs: mandatoryCCVs,
-			},
-			{
-				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-				name:          "dst_src msg execution with mock receiver",
-				srcSelector:   c.Chain2337Details.ChainSelector,
-				dstSelector:   c.Chain1337Details.ChainSelector,
-				finality:      1,
-				execOnRamp:    execOnRamp,
-				receiver:      mockReceiver,
-				mandatoryCCVs: mandatoryCCVs,
-			},
+			// TODO: Un skip these once the NOT_ENOUGH_GAS_FOR_CALL_SIG is fixed
+			// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
+			//{
+			//	// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+			//	name:          "src_dst msg execution with mock receiver",
+			//	srcSelector:   c.Chain1337Details.ChainSelector,
+			//	dstSelector:   c.Chain2337Details.ChainSelector,
+			//	finality:      1,
+			//	execOnRamp:    execOnRamp,
+			//	receiver:      mockReceiver,
+			//	mandatoryCCVs: mandatoryCCVs,
+			//},
+			//{
+			//	// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+			//	name:          "dst_src msg execution with mock receiver",
+			//	srcSelector:   c.Chain2337Details.ChainSelector,
+			//	dstSelector:   c.Chain1337Details.ChainSelector,
+			//	finality:      1,
+			//	execOnRamp:    execOnRamp,
+			//	receiver:      mockReceiver,
+			//	mandatoryCCVs: mandatoryCCVs,
+			//},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
