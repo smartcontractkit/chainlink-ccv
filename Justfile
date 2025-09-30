@@ -55,3 +55,6 @@ fmt: ensure-golangci-lint
 mod-tidy-all: ensure-gomods
     gomods tidy
     ./tools/bin/modgraph.sh > go.md
+
+sh:
+    cd ./build/devenv && go run ./cmd/ccv sh
