@@ -48,3 +48,6 @@ lint-all fix="":
 mod-tidy-all: ensure-gomods ensure-modgraph
     gomods tidy
     ./tools/bin/modgraph.sh > go.md
+
+sh:
+    cd ./build/devenv && go run ./cmd/ccv sh
