@@ -66,6 +66,8 @@ func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCV
 		return fmt.Errorf("failed to get CCV Offramp info for message: %w", err)
 	}
 
+	cle.lggr.Infof("CCV Offramp info for message: %+v", ccvInfo)
+	cle.lggr.Infof("CCV Data for message: %+v", messageWithCCVData.CCVData)
 	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(messageWithCCVData.CCVData, ccvInfo)
 	if err != nil {
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
