@@ -214,7 +214,7 @@ func (r *EVMSourceReader) calculateBlockFromHoursAgo(ctx context.Context, lookba
 	}
 
 	// Try to sample recent blocks to estimate block time
-	sampleSize := int64(5)
+	sampleSize := int64(2)
 	startBlock := new(big.Int).Sub(currentBlock, big.NewInt(sampleSize))
 	if startBlock.Sign() < 0 {
 		startBlock = big.NewInt(0)
