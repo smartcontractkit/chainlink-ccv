@@ -11,12 +11,11 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func createTestEVMSourceReader(t *testing.T, checkpointManager verifiertypes.CheckpointManager) *EVMSourceReader {
+func createTestEVMSourceReader(t *testing.T, checkpointManager protocol.CheckpointManager) *EVMSourceReader {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
@@ -33,7 +32,7 @@ func createTestEVMSourceReader(t *testing.T, checkpointManager verifiertypes.Che
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_HappyPath(t *testing.T) {
-	mockCheckpointManager := verifier_mocks.NewMockCheckpointManager(t)
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
@@ -63,7 +62,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_NoCheckpointManager(t *testin
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_NoCheckpointFound(t *testing.T) {
-	mockCheckpointManager := verifier_mocks.NewMockCheckpointManager(t)
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
@@ -81,7 +80,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_NoCheckpointFound(t *testing.
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_RetryLogic(t *testing.T) {
-	mockCheckpointManager := verifier_mocks.NewMockCheckpointManager(t)
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
@@ -115,7 +114,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_RetryLogic(t *testing.T) {
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_AllRetriesFail(t *testing.T) {
-	mockCheckpointManager := verifier_mocks.NewMockCheckpointManager(t)
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
@@ -135,7 +134,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_AllRetriesFail(t *testing.T) 
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_ContextCancellation(t *testing.T) {
-	mockCheckpointManager := verifier_mocks.NewMockCheckpointManager(t)
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -161,7 +160,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_ContextCancellation(t *testin
 }
 
 func TestEVMSourceReader_InitializeStartBlock_WithCheckpoint(t *testing.T) {
-	mockCheckpointManager := verifier_mocks.NewMockCheckpointManager(t)
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
@@ -182,7 +181,7 @@ func TestEVMSourceReader_InitializeStartBlock_WithCheckpoint(t *testing.T) {
 }
 
 func TestEVMSourceReader_UpdateCheckpoint_TooFrequent(t *testing.T) {
-	mockCheckpointManager := verifier_mocks.NewMockCheckpointManager(t)
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
@@ -197,7 +196,7 @@ func TestEVMSourceReader_UpdateCheckpoint_TooFrequent(t *testing.T) {
 
 // TestEVMSourceReader_ConstructorWithCheckpointManager verifies the constructor properly sets up checkpoint manager
 func TestEVMSourceReader_ConstructorWithCheckpointManager(t *testing.T) {
-	mockCheckpointManager := verifier_mocks.NewMockCheckpointManager(t)
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)
 
 	require.NotNil(t, reader)

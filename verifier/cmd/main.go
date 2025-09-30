@@ -139,10 +139,15 @@ func main() {
 		verifierAddresses[selector] = addr
 	}
 
-	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr)
+	// Create checkpoint manager (includes both writer and reader)
+	checkpointManager, err := storageaccess.NewAggregatorCheckpointManager(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr)
 	if err != nil {
-		lggr.Errorw("Failed to create storage writer", "error", err)
+		lggr.Errorw("Failed to create checkpoint manager", "error", err)
+		os.Exit(1)
 	}
+
+	// Get the storage writer from the checkpoint manager
+	storageWriter := checkpointManager.(*storageaccess.AggregatorCheckpointManager).GetWriter()
 
 	// Create source readers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
@@ -162,7 +167,7 @@ func main() {
 			continue
 		}
 
-		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], verifierConfig.CcvProxyAddresses[strSelector], selector, storageWriter, lggr)
+		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], verifierConfig.CcvProxyAddresses[strSelector], selector, checkpointManager, lggr)
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
 

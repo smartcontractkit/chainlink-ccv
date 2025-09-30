@@ -157,34 +157,6 @@ func (a *AggregatorWriter) WriteCheckpoint(ctx context.Context, chainSelector pr
 	return nil
 }
 
-// ReadCheckpoint reads a checkpoint from the aggregator.
-func (a *AggregatorWriter) ReadCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
-	// Add API key to metadata
-	md := metadata.New(map[string]string{
-		"api-key": a.apiKey,
-	})
-	ctx = metadata.NewOutgoingContext(ctx, md)
-
-	// Create read request
-	req := &pb.ReadBlockCheckpointRequest{}
-
-	// Make the gRPC call
-	resp, err := a.client.ReadBlockCheckpoint(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read checkpoint: %w", err)
-	}
-
-	// Find checkpoint for our chain selector
-	for _, checkpoint := range resp.Checkpoints {
-		if checkpoint.ChainSelector == uint64(chainSelector) {
-			return big.NewInt(int64(checkpoint.FinalizedBlockHeight)), nil
-		}
-	}
-
-	// No checkpoint found for this chain selector
-	return nil, nil
-}
-
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
 func NewAggregatorWriter(address string, apiKey string, lggr logger.Logger) (*AggregatorWriter, error) {
 	// Create a gRPC connection to the aggregator server
@@ -207,10 +179,11 @@ type AggregatorReader struct {
 	conn   *grpc.ClientConn
 	token  string
 	since  int64
+	apiKey string
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
-func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
+func NewAggregatorReader(address string, apiKey string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -221,6 +194,7 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*Aggr
 		conn:   conn,
 		lggr:   lggr,
 		since:  since,
+		apiKey: apiKey,
 	}, nil
 }
 
@@ -230,6 +204,37 @@ func (a *AggregatorReader) Close() error {
 		return a.conn.Close()
 	}
 	return nil
+}
+
+// ReadCheckpoint reads a checkpoint from the aggregator.
+func (a *AggregatorReader) ReadCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
+	// Add API key to metadata
+	md := metadata.New(map[string]string{
+		"api-key": a.apiKey,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	// Create read request
+	req := &pb.ReadBlockCheckpointRequest{}
+
+	// Create aggregator client for checkpoint operations (different from CCV data client)
+	aggregatorClient := pb.NewAggregatorClient(a.conn)
+
+	// Make the gRPC call
+	resp, err := aggregatorClient.ReadBlockCheckpoint(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read checkpoint: %w", err)
+	}
+
+	// Find checkpoint for our chain selector
+	for _, checkpoint := range resp.Checkpoints {
+		if checkpoint.ChainSelector == uint64(chainSelector) {
+			return big.NewInt(int64(checkpoint.FinalizedBlockHeight)), nil
+		}
+	}
+
+	// No checkpoint found for this chain selector
+	return nil, nil
 }
 
 func mapMessage(msg *pb.Message) (protocol.Message, error) {

@@ -11,13 +11,12 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 const (
@@ -51,7 +50,7 @@ type EVMSourceReader struct {
 	isRunning            bool
 
 	// Checkpoint management
-	checkpointManager     verifiertypes.CheckpointManager
+	checkpointManager     protocol.CheckpointManager
 	lastCheckpointTime    time.Time
 	lastCheckpointedBlock *big.Int
 }
@@ -61,7 +60,7 @@ func NewEVMSourceReader(
 	chainClient client.Client,
 	contractAddress string,
 	chainSelector protocol.ChainSelector,
-	checkpointManager verifiertypes.CheckpointManager,
+	checkpointManager protocol.CheckpointManager,
 	logger logger.Logger,
 ) *EVMSourceReader {
 	return &EVMSourceReader{
@@ -214,7 +213,7 @@ func (r *EVMSourceReader) calculateBlockFrom8HoursAgo(ctx context.Context) (*big
 	}
 
 	// Try to sample recent blocks to estimate block time
-	sampleSize := int64(100)
+	sampleSize := int64(5)
 	startBlock := new(big.Int).Sub(currentBlock, big.NewInt(sampleSize))
 	if startBlock.Sign() < 0 {
 		startBlock = big.NewInt(0)
