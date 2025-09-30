@@ -176,7 +176,7 @@ func main() {
 	}
 
 	config := verifier.CoordinatorConfig{
-		VerifierID:            "dev-verifier-1",
+		VerifierID:            verifierConfig.VerifierID,
 		SourceConfigs:         sourceConfigs,
 		ProcessingChannelSize: 1000,
 		ProcessingTimeout:     30 * time.Second,
