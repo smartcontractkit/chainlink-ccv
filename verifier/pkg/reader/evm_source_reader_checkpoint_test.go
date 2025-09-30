@@ -194,7 +194,7 @@ func TestEVMSourceReader_UpdateCheckpoint_TooFrequent(t *testing.T) {
 	mockCheckpointManager.AssertNotCalled(t, "WriteCheckpoint")
 }
 
-// TestEVMSourceReader_ConstructorWithCheckpointManager verifies the constructor properly sets up checkpoint manager
+// TestEVMSourceReader_ConstructorWithCheckpointManager verifies the constructor properly sets up checkpoint manager.
 func TestEVMSourceReader_ConstructorWithCheckpointManager(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
 	reader := createTestEVMSourceReader(t, mockCheckpointManager)

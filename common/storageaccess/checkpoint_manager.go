@@ -5,7 +5,6 @@ import (
 	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // AggregatorCheckpointManager implements CheckpointManager using AggregatorWriter and AggregatorReader.
@@ -14,24 +13,12 @@ type AggregatorCheckpointManager struct {
 	reader *AggregatorReader
 }
 
-// NewAggregatorCheckpointManager creates a new checkpoint manager using aggregator services.
-func NewAggregatorCheckpointManager(address, apiKey string, lggr logger.Logger) (protocol.CheckpointManager, error) {
-	writer, err := NewAggregatorWriter(address, apiKey, lggr)
-	if err != nil {
-		return nil, err
-	}
-
-	reader, err := NewAggregatorReader(address, apiKey, lggr, 0) // since=0 for checkpoint reads
-	if err != nil {
-		// Clean up writer if reader creation fails
-		_ = writer.Close()
-		return nil, err
-	}
-
+// NewAggregatorCheckpointManager creates a new checkpoint manager with injected dependencies.
+func NewAggregatorCheckpointManager(writer *AggregatorWriter, reader *AggregatorReader) protocol.CheckpointManager {
 	return &AggregatorCheckpointManager{
 		writer: writer,
 		reader: reader,
-	}, nil
+	}
 }
 
 // WriteCheckpoint writes a checkpoint using the aggregator writer.

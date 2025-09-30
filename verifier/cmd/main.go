@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
@@ -18,7 +19,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
@@ -139,15 +139,24 @@ func main() {
 		verifierAddresses[selector] = addr
 	}
 
-	// Create checkpoint manager (includes both writer and reader)
-	checkpointManager, err := storageaccess.NewAggregatorCheckpointManager(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr)
 	if err != nil {
-		lggr.Errorw("Failed to create checkpoint manager", "error", err)
+		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		os.Exit(1)
 	}
 
-	// Get the storage writer from the checkpoint manager
-	storageWriter := checkpointManager.(*storageaccess.AggregatorCheckpointManager).GetWriter()
+	aggregatorReader, err := storageaccess.NewAggregatorReader(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr, 0) // since=0 for checkpoint reads
+	if err != nil {
+		// Clean up writer if reader creation fails
+		err := aggregatorWriter.Close()
+		if err != nil {
+			lggr.Errorw("Failed to close aggregator writer", "error", err)
+		}
+		lggr.Errorw("Failed to create aggregator reader", "error", err)
+		os.Exit(1)
+	}
+	// Create checkpoint manager (includes both writer and reader)
+	checkpointManager := storageaccess.NewAggregatorCheckpointManager(aggregatorWriter, aggregatorReader)
 
 	// Create source readers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
@@ -205,7 +214,7 @@ func main() {
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithStorage(storageWriter),
+		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(config),
 		verifier.WithLogger(lggr),
 	)
@@ -242,7 +251,7 @@ func main() {
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		stats := storageWriter.GetStats()
+		stats := aggregatorWriter.GetStats()
 		lggr.Infow("📊 Storage Statistics:\n")
 		for key, value := range stats {
 			lggr.Infow("%s: %v\n", key, value)

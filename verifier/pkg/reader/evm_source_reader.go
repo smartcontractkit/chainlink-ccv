@@ -11,26 +11,27 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+
+	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 const (
 	// CheckpointBufferBlocks is the number of blocks to lag behind finalized
-	// to ensure downstream processing is complete
+	// to ensure downstream processing is complete.
 	CheckpointBufferBlocks = 20
 
-	// CheckpointInterval is how often to write checkpoints
+	// CheckpointInterval is how often to write checkpoints.
 	CheckpointInterval = 30 * time.Second
 
-	// StartupLookbackHours when no checkpoint exists
+	// StartupLookbackHours when no checkpoint exists.
 	StartupLookbackHours = 8
 
-	// CheckpointRetryAttempts on startup
+	// CheckpointRetryAttempts on startup.
 	CheckpointRetryAttempts = 5
 )
 
