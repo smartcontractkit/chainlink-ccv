@@ -46,3 +46,6 @@ lint-all fix="":
 
 mod-tidy-all: ensure-gomods
     gomods tidy
+
+sh:
+    cd ./build/devenv && go run ./cmd/ccv sh

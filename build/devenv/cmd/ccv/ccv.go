@@ -28,6 +28,17 @@ const (
 var rootCmd = &cobra.Command{
 	Use:   "ccv",
 	Short: "A CCV local environment tool",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		debug, err := cmd.Flags().GetBool("debug")
+		if err != nil {
+			return err
+		}
+		if debug {
+			framework.L.Info().Msg("Debug mode enabled, setting CTF_CLNODE_DLV=true")
+			os.Setenv("CTF_CLNODE_DLV", "true")
+		}
+		return nil
+	},
 }
 
 var restartCmd = &cobra.Command{
@@ -70,6 +81,7 @@ var upCmd = &cobra.Command{
 		framework.L.Info().Str("Config", configFile).Msg("Creating development environment")
 		_ = os.Setenv("CTF_CONFIGS", configFile)
 		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+		_ = os.Setenv("CL_EVM_CMD", "''")
 		_, err := ccv.NewEnvironment()
 		if err != nil {
 			return err
@@ -334,6 +346,7 @@ var monitorContractsCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
 
 	// Blockscout, on-chain debug
 	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8555", "EVM RPC node URL (default to dst chain on 8555")
