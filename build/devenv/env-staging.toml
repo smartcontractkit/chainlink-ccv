@@ -9,6 +9,9 @@ type = "anvil"
 [blockchains.out]
 type = "anvil"
 use_cache = true
+chain_id = "43113"
+family = 'evm'
+container_name = 'fuji'
 
 [[blockchains.out.nodes]]
 http_url = "https://rpcs.cldev.sh/avalanche/fuji"
@@ -24,6 +27,9 @@ type = "anvil"
 [blockchains.out]
 type = "anvil"
 use_cache = true
+chain_id = "57054"
+family = 'evm'
+container_name = 'fuji'
 
 [[blockchains.out.nodes]]
 http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
