@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/big"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -19,6 +21,7 @@ type AggregatorWriter struct {
 	client pb.AggregatorClient
 	conn   *grpc.ClientConn
 	lggr   logger.Logger
+	apiKey string
 }
 
 func mapReceiptBlob(receiptBlob protocol.ReceiptWithBlob) (*pb.ReceiptBlob, error) {
@@ -119,8 +122,43 @@ func (a *AggregatorWriter) Close() error {
 	return nil
 }
 
+// WriteCheckpoint writes a checkpoint to the aggregator.
+func (a *AggregatorWriter) WriteCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector, blockHeight *big.Int) error {
+	// Add API key to metadata
+	md := metadata.New(map[string]string{
+		"api-key": a.apiKey,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	// Convert checkpoint to protobuf format
+	req := &pb.WriteBlockCheckpointRequest{
+		Checkpoints: []*pb.BlockCheckpoint{
+			{
+				ChainSelector:        uint64(chainSelector),
+				FinalizedBlockHeight: blockHeight.Uint64(),
+			},
+		},
+	}
+
+	// Make the gRPC call
+	resp, err := a.client.WriteBlockCheckpoint(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to write checkpoint: %w", err)
+	}
+
+	if resp.Status != pb.WriteStatus_SUCCESS {
+		return fmt.Errorf("checkpoint write failed with status: %s", resp.Status.String())
+	}
+
+	a.lggr.Debugw("Successfully wrote checkpoint",
+		"chainSelector", chainSelector,
+		"block", blockHeight.String())
+
+	return nil
+}
+
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
-func NewAggregatorWriter(address string, lggr logger.Logger) (*AggregatorWriter, error) {
+func NewAggregatorWriter(address, apiKey string, lggr logger.Logger) (*AggregatorWriter, error) {
 	// Create a gRPC connection to the aggregator server
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -131,6 +169,7 @@ func NewAggregatorWriter(address string, lggr logger.Logger) (*AggregatorWriter,
 		client: pb.NewAggregatorClient(conn),
 		conn:   conn,
 		lggr:   lggr,
+		apiKey: apiKey,
 	}, nil
 }
 
@@ -140,10 +179,11 @@ type AggregatorReader struct {
 	conn   *grpc.ClientConn
 	token  string
 	since  int64
+	apiKey string
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
-func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
+func NewAggregatorReader(address, apiKey string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -154,6 +194,7 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*Aggr
 		conn:   conn,
 		lggr:   lggr,
 		since:  since,
+		apiKey: apiKey,
 	}, nil
 }
 
@@ -163,6 +204,37 @@ func (a *AggregatorReader) Close() error {
 		return a.conn.Close()
 	}
 	return nil
+}
+
+// ReadCheckpoint reads a checkpoint from the aggregator.
+func (a *AggregatorReader) ReadCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
+	// Add API key to metadata
+	md := metadata.New(map[string]string{
+		"api-key": a.apiKey,
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	// Create read request
+	req := &pb.ReadBlockCheckpointRequest{}
+
+	// Create aggregator client for checkpoint operations (different from CCV data client)
+	aggregatorClient := pb.NewAggregatorClient(a.conn)
+
+	// Make the gRPC call
+	resp, err := aggregatorClient.ReadBlockCheckpoint(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read checkpoint: %w", err)
+	}
+
+	// Find checkpoint for our chain selector
+	for _, checkpoint := range resp.Checkpoints {
+		if checkpoint.ChainSelector == uint64(chainSelector) {
+			return new(big.Int).SetUint64(checkpoint.FinalizedBlockHeight), nil
+		}
+	}
+
+	// No checkpoint found for this chain selector
+	return nil, nil
 }
 
 func mapMessage(msg *pb.Message) (protocol.Message, error) {

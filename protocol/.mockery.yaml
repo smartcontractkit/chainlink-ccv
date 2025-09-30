@@ -1,0 +1,9 @@
+with-expecter: true
+
+dir: common/mocks
+outpkg: mocks
+
+packages:
+    github.com/smartcontractkit/chainlink-ccv/protocol:
+        interfaces:
+            CheckpointManager:

@@ -144,10 +144,24 @@ func main() {
 		verifierAddresses[selector] = addr
 	}
 
-	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr)
 	if err != nil {
-		lggr.Errorw("Failed to create storage writer", "error", err)
+		lggr.Errorw("Failed to create aggregator writer", "error", err)
+		os.Exit(1)
 	}
+
+	aggregatorReader, err := storageaccess.NewAggregatorReader(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr, 0) // since=0 for checkpoint reads
+	if err != nil {
+		// Clean up writer if reader creation fails
+		err := aggregatorWriter.Close()
+		if err != nil {
+			lggr.Errorw("Failed to close aggregator writer", "error", err)
+		}
+		lggr.Errorw("Failed to create aggregator reader", "error", err)
+		os.Exit(1)
+	}
+	// Create checkpoint manager (includes both writer and reader)
+	checkpointManager := storageaccess.NewAggregatorCheckpointManager(aggregatorWriter, aggregatorReader)
 
 	// Create source readers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
@@ -167,7 +181,7 @@ func main() {
 			continue
 		}
 
-		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], verifierConfig.CcvProxyAddresses[strSelector], selector, lggr)
+		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], verifierConfig.CcvProxyAddresses[strSelector], selector, checkpointManager, lggr)
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
 
@@ -210,7 +224,7 @@ func main() {
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithStorage(storageWriter),
+		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(config),
 		verifier.WithLogger(lggr),
 	)
@@ -247,7 +261,7 @@ func main() {
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		stats := storageWriter.GetStats()
+		stats := aggregatorWriter.GetStats()
 		lggr.Infow("📊 Storage Statistics:\n")
 		for key, value := range stats {
 			lggr.Infow("%s: %v\n", key, value)
