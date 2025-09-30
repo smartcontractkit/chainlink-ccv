@@ -65,6 +65,13 @@ func TestE2ESmoke(t *testing.T) {
 				fromSelector: c.Chain2337Details.ChainSelector,
 				toSelector:   c.Chain1337Details.ChainSelector,
 			},
+			{
+				name:         "1337->3337 msg execution",
+				proxy:        c.ProxyBySelector[c.Chain1337Details.ChainSelector],
+				agg:          c.AggBySelector[c.Chain3337Details.ChainSelector],
+				fromSelector: c.Chain1337Details.ChainSelector,
+				toSelector:   c.Chain3337Details.ChainSelector,
+			},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
@@ -75,7 +82,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.toSelector, tc.fromSelector, seqNo, 5*time.Minute)
+				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
@@ -147,6 +154,15 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:      eoaReceiver,
 				mandatoryCCVs: mandatoryCCVs,
 			},
+			{
+				name:          "1337->3337 msg execution with EOA receiver",
+				srcSelector:   c.Chain1337Details.ChainSelector,
+				dstSelector:   c.Chain3337Details.ChainSelector,
+				finality:      1,
+				execOnRamp:    execOnRamp,
+				receiver:      eoaReceiver,
+				mandatoryCCVs: mandatoryCCVs,
+			},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
@@ -165,7 +181,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
-				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.dstSelector, tc.srcSelector, seqNo, 1*time.Minute)
+				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				require.Equal(t, uint8(2), e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)

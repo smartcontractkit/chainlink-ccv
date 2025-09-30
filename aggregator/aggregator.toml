@@ -32,9 +32,17 @@ pyroscope_url = "http://pyroscope:4040"
         [[committees.default.quorumConfigs.3379446385462418246.signers]]
           participantID = "participant2"
           addresses = ["0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"]
+      [committees.default.quorumConfigs.4793464827907405086]
+        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+        threshold = 1
+
+        [[committees.default.quorumConfigs.4793464827907405086.signers]]
+          participantID = "participant1"
+          addresses = ["0xffb9f9a3ae881f4b30e791d9e63e57a0e1facd66"]
     [committees.default.sourceVerifierAddresses]
       12922642891491394802 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
       3379446385462418246 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
+      4793464827907405086 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
 
 [metrics]
   enableMetrics = true
