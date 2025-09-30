@@ -9,3 +9,9 @@
   chain_id = "2337"
   port = "8555"
   type = "geth"
+
+[[blockchains]]
+  container_name = "blockchain-3rd"
+  chain_id = "3337"
+  port = "8565"
+  type = "geth"

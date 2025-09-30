@@ -84,7 +84,7 @@ func checkKeys(in *Cfg) error {
 
 func NewProductConfigurationFromNetwork(typ string) (CCIP17ProductConfiguration, error) {
 	switch typ {
-	case "anvil":
+	case "anvil", "geth":
 		return &ccvEvm.CCIP17EVM{}, nil
 	case "canton":
 		// see devenv-evm implementation and add Canton
