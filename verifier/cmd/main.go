@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -24,17 +25,6 @@ import (
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
 )
 
-// Configuration flags.
-const (
-	// Chain IDs for blockchain client connections.
-	chainIDA = protocol.ChainSelector(1337)
-	chainIDB = protocol.ChainSelector(2337)
-
-	// Actual chain selectors used in CCIP messages.
-	chainSelectorA = protocol.ChainSelector(3379446385462418246)  // Maps to chain ID 1337
-	chainSelectorB = protocol.ChainSelector(12922642891491394802) // Maps to chain ID 2337
-)
-
 func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
 	var config commontypes.VerifierConfig
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
@@ -44,7 +34,7 @@ func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
 }
 
 func logBlockchainInfo(blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger) {
-	for _, chainID := range []protocol.ChainSelector{chainIDA, chainIDB} {
+	for _, chainID := range blockchainHelper.GetAllChainSelectors() {
 		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
@@ -124,8 +114,7 @@ func main() {
 
 	// Use actual blockchain information from configuration
 	var blockchainHelper *protocol.BlockchainHelper
-	var chainClient1 client.Client
-	var chainClient2 client.Client
+	chainClients := make(map[protocol.ChainSelector]client.Client)
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
@@ -133,21 +122,21 @@ func main() {
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
-		chainClient1 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainIDA)
-		chainClient2 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainIDB)
+		for _, selector := range blockchainHelper.GetAllChainSelectors() {
+			lggr.Infow("Creating chain client", "chainSelector", selector)
+			chainClients[selector] = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, selector)
+		}
 	}
 
 	// Create verifier addresses before source readers setup
-	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp1337)
-	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
-		os.Exit(1)
-	}
-
-	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp2337)
-	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
-		os.Exit(1)
+	verifierAddresses := make(map[string]protocol.UnknownAddress)
+	for selector, address := range verifierConfig.CommitteeVerifierAddresses {
+		addr, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			lggr.Errorw("Failed to create verifier address", "error", err)
+			os.Exit(1)
+		}
+		verifierAddresses[selector] = addr
 	}
 
 	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
@@ -158,32 +147,37 @@ func main() {
 	// Create source readers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
 
+	lggr.Infow("Committee verifier addresses", "addresses", verifierConfig.CommitteeVerifierAddresses)
 	// Try to create blockchain source readers if possible
-	if chainClient1 == nil || verifierConfig.VerifierOnRamp1337 == "" {
-		lggr.Errorw("No chainclient or VerifierOnRamp1337 address", "chain", 1337)
-		os.Exit(1)
-	}
-	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainIDA, lggr)
-	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
+	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		lggr.Infow("Creating source reader", "chainSelector", selector, "strSelector", uint64(selector))
+		strSelector := strconv.FormatUint(uint64(selector), 10)
 
-	if chainClient2 == nil || verifierConfig.VerifierOnRamp2337 == "" {
-		lggr.Errorw("No chainclient or VerifierOnRamp2337 address", "chain", 2337)
-		os.Exit(1)
+		if verifierConfig.CommitteeVerifierAddresses[strSelector] == "" {
+			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
+			continue
+		}
+		if verifierConfig.CcvProxyAddresses[strSelector] == "" {
+			lggr.Errorw("CCV proxy address is not set", "chainSelector", selector)
+			continue
+		}
+
+		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], verifierConfig.CcvProxyAddresses[strSelector], selector, lggr)
+		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
-	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainIDB, lggr)
-	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration
+	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
+		sourceConfigs[selector] = verifier.SourceConfig{
+			VerifierAddress: verifierAddresses[strSelector],
+		}
+	}
+
 	config := verifier.CoordinatorConfig{
-		VerifierID: "dev-verifier-1",
-		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
-			chainSelectorA: {
-				VerifierAddress: verifierAddr,
-			},
-			chainSelectorB: {
-				VerifierAddress: verifierAddr2,
-			},
-		},
+		VerifierID:            "dev-verifier-1",
+		SourceConfigs:         sourceConfigs,
 		ProcessingChannelSize: 1000,
 		ProcessingTimeout:     30 * time.Second,
 		MaxBatchSize:          100,
@@ -218,8 +212,7 @@ func main() {
 	// Start the verification coordinator
 	lggr.Infow("🚀 Starting Verification Coordinator",
 		"verifierID", config.VerifierID,
-		"sourceChains", []protocol.ChainSelector{chainSelectorA, chainSelectorB},
-		"verifierAddress", []string{verifierAddr.String(), verifierAddr2.String()},
+		"verifierAddress", verifierAddresses,
 	)
 
 	if err := coordinator.Start(ctx); err != nil {
@@ -231,7 +224,6 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		lggr.Infow("✅ CCV Verifier is running!\n")
 		lggr.Infow("Verifier ID: %s\n", config.VerifierID)
-		lggr.Infow("Source Chains: [%d, %d]\n", chainSelectorA, chainSelectorB)
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

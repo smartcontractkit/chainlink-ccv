@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"strconv"
 )
 
 // Node represents a blockchain node with connection information.
@@ -81,13 +82,17 @@ func (bi *BlockchainInfo) GetRPCEndpoint() (string, error) {
 	return bi.Nodes[0].ExternalHTTPUrl, nil
 }
 
-// GetAllChainIDs returns all available chain IDs.
-func (bh *BlockchainHelper) GetAllChainIDs() []string {
-	chainIDs := make([]string, 0, len(bh.blockchainInfos))
-	for chainID := range bh.blockchainInfos {
-		chainIDs = append(chainIDs, chainID)
+// GetAllChainSelectors returns all available chain selectors.
+func (bh *BlockchainHelper) GetAllChainSelectors() []ChainSelector {
+	selectors := make([]ChainSelector, 0)
+	for sel := range bh.blockchainInfos {
+		selector, err := strconv.ParseUint(sel, 10, 64)
+		if err != nil {
+			continue
+		}
+		selectors = append(selectors, ChainSelector(selector))
 	}
-	return chainIDs
+	return selectors
 }
 
 // GetBlockchainInfo returns formatted information about a blockchain.
