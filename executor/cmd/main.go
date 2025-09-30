@@ -85,7 +85,7 @@ func main() {
 			continue
 		}
 
-		dr := destinationreader.NewEvmDestinationReaderFromChainInfo(ctx, lggr, selector, chain)
+		dr := destinationreader.NewEvmDestinationReaderFromChainInfo(ctx, lggr, selector, chain, executorConfig.OffRampAddresses[strSel])
 
 		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
 			ctx,
@@ -93,7 +93,7 @@ func main() {
 			selector,
 			chain.Nodes[0].InternalHTTPUrl,
 			executorConfig.PrivateKey,
-			common.HexToAddress(chain.OfframpAddress),
+			common.HexToAddress(executorConfig.OffRampAddresses[strSel]),
 		)
 		if err != nil {
 			lggr.Errorw("Failed to create contract transmitter", "error", err)

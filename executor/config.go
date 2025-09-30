@@ -16,6 +16,7 @@ type Configuration struct {
 	LookbackWindow    string                              `toml:"startup_lookback_window"`
 	IndexerQueryLimit uint64                              `toml:"indexer_query_limit"`
 	PyroscopeURL      string                              `toml:"pyroscope_url"`
+	OffRampAddresses  map[string]string                   `toml:"offramp_addresses"`
 }
 
 func (c *Configuration) Validate() error {
