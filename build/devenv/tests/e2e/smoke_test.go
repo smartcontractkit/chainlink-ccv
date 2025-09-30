@@ -144,6 +144,7 @@ func TestE2ESmoke(t *testing.T) {
 				mandatoryCCVs: mandatoryCCVs,
 			},
 			// TODO: Un skip these once the NOT_ENOUGH_GAS_FOR_CALL_SIG is fixed
+			// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
 			//{
 			//	// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 			//	name:          "src_dst msg execution with mock receiver",
