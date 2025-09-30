@@ -184,7 +184,13 @@ func (s *Scanner) shouldDisconnect(ctx context.Context, reader protocol.Offchain
 // getReaderLock returns a mutex for the given reader to prevent concurrent access.
 func (s *Scanner) getReaderLock(reader protocol.OffchainStorageReader) *sync.Mutex {
 	lock, _ := s.readerLocks.LoadOrStore(reader, &sync.Mutex{})
-	return lock.(*sync.Mutex)
+	mutex, ok := lock.(*sync.Mutex)
+	if !ok {
+		s.lggr.Errorw("Failed to assert type *sync.Mutex for reader lock, returning empty mutex. This should never happen")
+		return &sync.Mutex{}
+	}
+
+	return mutex
 }
 
 func (s *Scanner) consumeReader(ctx context.Context, reader protocol.OffchainStorageReader) {
