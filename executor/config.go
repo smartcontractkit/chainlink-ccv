@@ -10,7 +10,6 @@ import (
 type Configuration struct {
 	BlockchainInfos   map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	IndexerAddress    string                              `toml:"indexer_address"`
-	PrivateKey        string                              `toml:"private_key"`
 	PollingInterval   string                              `toml:"source_polling_interval"`
 	BackoffDuration   string                              `toml:"source_backoff_duration"`
 	LookbackWindow    string                              `toml:"startup_lookback_window"`
@@ -22,9 +21,6 @@ type Configuration struct {
 func (c *Configuration) Validate() error {
 	if len(c.BlockchainInfos) == 0 {
 		return fmt.Errorf("no destination chains configured to read from")
-	}
-	if c.PrivateKey == "" {
-		return fmt.Errorf("private key is required")
 	}
 	return nil
 }
