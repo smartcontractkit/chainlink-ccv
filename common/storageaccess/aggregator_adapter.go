@@ -158,7 +158,7 @@ func (a *AggregatorWriter) WriteCheckpoint(ctx context.Context, chainSelector pr
 }
 
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
-func NewAggregatorWriter(address string, apiKey string, lggr logger.Logger) (*AggregatorWriter, error) {
+func NewAggregatorWriter(address, apiKey string, lggr logger.Logger) (*AggregatorWriter, error) {
 	// Create a gRPC connection to the aggregator server
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -183,7 +183,7 @@ type AggregatorReader struct {
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
-func NewAggregatorReader(address string, apiKey string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
+func NewAggregatorReader(address, apiKey string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -229,7 +229,7 @@ func (a *AggregatorReader) ReadCheckpoint(ctx context.Context, chainSelector pro
 	// Find checkpoint for our chain selector
 	for _, checkpoint := range resp.Checkpoints {
 		if checkpoint.ChainSelector == uint64(chainSelector) {
-			return big.NewInt(int64(checkpoint.FinalizedBlockHeight)), nil
+			return new(big.Int).SetUint64(checkpoint.FinalizedBlockHeight), nil
 		}
 	}
 

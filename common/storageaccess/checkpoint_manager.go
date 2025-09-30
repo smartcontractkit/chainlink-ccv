@@ -15,7 +15,7 @@ type AggregatorCheckpointManager struct {
 }
 
 // NewAggregatorCheckpointManager creates a new checkpoint manager using aggregator services.
-func NewAggregatorCheckpointManager(address string, apiKey string, lggr logger.Logger) (protocol.CheckpointManager, error) {
+func NewAggregatorCheckpointManager(address, apiKey string, lggr logger.Logger) (protocol.CheckpointManager, error) {
 	writer, err := NewAggregatorWriter(address, apiKey, lggr)
 	if err != nil {
 		return nil, err
@@ -24,7 +24,7 @@ func NewAggregatorCheckpointManager(address string, apiKey string, lggr logger.L
 	reader, err := NewAggregatorReader(address, apiKey, lggr, 0) // since=0 for checkpoint reads
 	if err != nil {
 		// Clean up writer if reader creation fails
-		writer.Close()
+		_ = writer.Close()
 		return nil, err
 	}
 
