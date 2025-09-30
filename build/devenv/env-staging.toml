@@ -1,0 +1,32 @@
+[cldf]
+addresses = ['[{"address": "0x22047684FA5FEbFf09951B33CC36d90b7C07Fd74", "chainSelector": 14767482510784806043, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"}]', '[{"address": "0x1f67ec754cb13f8DFF0974eecD2AA37CB3477578", "chainSelector": 3676871237479449268, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"}]']
+
+[[blockchains]]
+container_name = "blockchain-src"
+chain_id = "43113"
+type = "anvil"
+
+[blockchains.out]
+type = "anvil"
+use_cache = true
+
+[[blockchains.out.nodes]]
+http_url = "https://rpcs.cldev.sh/avalanche/fuji"
+internal_http_url = "https://rpcs.cldev.sh/avalanche/fuji"
+internal_ws_url = "wss://rpcs.cldev.sh/avalanche/fuji"
+ws_url = "wss://rpcs.cldev.sh/avalanche/fuji"
+
+[[blockchains]]
+container_name = "blockchain-dst"
+chain_id = "57054"
+type = "anvil"
+
+[blockchains.out]
+type = "anvil"
+use_cache = true
+
+[[blockchains.out.nodes]]
+http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+internal_http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+internal_ws_url = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+ws_url = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"

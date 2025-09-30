@@ -443,7 +443,7 @@ var sendCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		ctx = ccv.Plog.WithContext(ctx)
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-staging.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
