@@ -37,7 +37,7 @@ type HealthReporter interface {
 // calls in a safe manner.
 type Service interface {
 	// Start the service.
-	//  - Must return promptly if the context is cancelled.
+	//  - Must return promptly if the context is canceled.
 	//  - Must not retain the context after returning (only applies to start-up)
 	//  - Must not depend on external resources (no blocking network calls)
 	Start(context.Context) error
