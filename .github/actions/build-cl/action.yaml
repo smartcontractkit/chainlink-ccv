@@ -10,7 +10,7 @@ runs:
   using: "composite"
   steps:
     - name: Checkout Chainlink repository
-      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      uses: actions/checkout@v5
       with:
         repository: smartcontractkit/chainlink
         path: chainlink-repo
