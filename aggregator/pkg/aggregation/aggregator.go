@@ -67,10 +67,18 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	lggr.Debugw("Verifications retrieved", "count", len(verifications))
 
+	var mostRecentTimestamp int64
+	for _, verification := range verifications {
+		if verificationTimestamp := verification.GetTimestamp(); verificationTimestamp > mostRecentTimestamp {
+			mostRecentTimestamp = verificationTimestamp
+		}
+	}
+
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
 		Verifications: verifications,
+		Timestamp:     mostRecentTimestamp,
 	}
 
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
