@@ -70,7 +70,7 @@ func main() {
 		scanner.WithConfig(scanner.Config{
 			ScanInterval:   time.Duration(config.Scanner.ScanInterval) * time.Second,
 			MetricInterval: time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
-			ReaderTimeout:  time.Duration(5) * time.Second,
+			ReaderTimeout:  time.Duration(config.Scanner.ReaderTimeout) * time.Second,
 		}),
 		scanner.WithStorageWriter(indexerStorage),
 		scanner.WithMonitoring(indexerMonitoring),
