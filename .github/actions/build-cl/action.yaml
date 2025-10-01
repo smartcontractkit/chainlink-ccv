@@ -15,10 +15,18 @@ runs:
         repository: smartcontractkit/chainlink
         path: chainlink-repo
 
+    - name: Setup path to go.mod
+      id: go-mod
+      shell: bash
+      env:
+        WORKSPACE: ${{ github.workspace }}
+      run: |
+        echo "path=${WORKSPACE}/chainlink-repo/go.mod" | tee -a $GITHUB_OUTPUT
+
     - name: Set up Go
       uses: actions/setup-go@v6 # v6
       with:
-        go-version-file: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/go.mod
+        go-version-file: ${{ steps.go-mod.outputs.path }}
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -26,12 +34,12 @@ runs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-cl-${{ hashFiles('/home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/go.mod') }}
+        key: ${{ runner.os }}-go-cl-${{ hashFiles(steps.go-mod.outputs.path) }}
         restore-keys: |
           ${{ runner.os }}-go-cl-
 
     - name: Download Go modules
-      working-directory: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo
+      working-directory: ${{ github.workspace }}/chainlink-repo
       shell: bash
       run: go mod download
 
@@ -43,8 +51,8 @@ runs:
       with:
         cache-from: type=gha,scope=ccv
         cache-to: type=gha,scope=ccv,mode=max
-        context: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo
-        file: /home/runner/work/chainlink-ccv/chainlink-ccv/chainlink-repo/plugins/chainlink.Dockerfile
+        context: ${{ github.workspace }}/chainlink-repo
+        file: ${{ github.workspace }}/chainlink-repo/plugins/chainlink.Dockerfile
         load: true
         tags: local
         build-args: |
