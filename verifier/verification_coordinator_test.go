@@ -226,10 +226,10 @@ func TestNewVerifierCoordinator(t *testing.T) {
 			name:    "missing every option",
 			options: []verifier.Option{},
 			err: []string{
+				"verifier is not set",
+				"storage is not set",
+				"logger is not set",
 				"at least one source reader is required",
-				"verifier is required",
-				"storage writer is required",
-				"logger is required",
 				"coordinator ID cannot be empty",
 			},
 		},
@@ -275,7 +275,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
 			},
-			err: []string{"verifier is required"},
+			err: []string{"verifier is not set"},
 		},
 		{
 			name: "missing storage",
@@ -285,7 +285,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithLogger(ts.logger),
 			},
-			err: []string{"storage writer is required"},
+			err: []string{"storage is not set"},
 		},
 		{
 			name: "missing logger",
@@ -295,7 +295,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
 			},
-			err: []string{"logger is required"},
+			err: []string{"logger is not set"},
 		},
 	}
 
@@ -402,7 +402,7 @@ func TestVerifier(t *testing.T) {
 	// Wait for processing and verify results
 	waitForMessages(ts, len(testTasks))
 
-	err = v.Stop()
+	err = v.Close()
 	require.NoError(t, err)
 
 	// Verify stored data
@@ -466,7 +466,7 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	totalMessages := len(tasksSource1) + len(tasksSource2)
 	waitForMessages(ts, totalMessages)
 
-	err = v.Stop()
+	err = v.Close()
 	require.NoError(t, err)
 
 	// Verify stored data for both sources
@@ -521,7 +521,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	sendTasksAsync(tasksSource1, mockSetup1.channel, nil, 5*time.Millisecond)
 	waitForMessages(ts, len(tasksSource1))
 
-	err = v.Stop()
+	err = v.Close()
 	require.NoError(t, err)
 
 	// Verify only source 1 data was stored
@@ -578,7 +578,7 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 	}
 }
 
-func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
+func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.cleanup()
 
@@ -587,13 +587,9 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 		sourceChain2: "0x5678",
 	})
 
-	// Create mock source readers with health check expectations
+	// Create mock source readers
 	mockSetup1 := setupMockSourceReader(t, false)
 	mockSetup2 := setupMockSourceReader(t, false)
-
-	// Set up health check expectations - one healthy, one unhealthy
-	mockSetup1.reader.EXPECT().HealthCheck(mock.Anything).Return(nil).Maybe()
-	mockSetup2.reader.EXPECT().HealthCheck(mock.Anything).Return(assert.AnError).Maybe()
 
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup1.reader,
@@ -603,18 +599,32 @@ func TestMultiSourceVerifier_HealthCheck(t *testing.T) {
 	v, err := createVerificationCoordinator(ts, config, sourceReaders)
 	require.NoError(t, err)
 
+	// Before starting, should not be ready
+	err = v.Ready()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "coordinator not running")
+
 	// Start the verifier
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
 
-	// Health check should fail if any source reader is unhealthy
-	err = v.HealthCheck(ts.ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "source reader unhealthy for chain")
-
-	// Stop the verifier
-	err = v.Stop()
+	// After starting, should be ready
+	err = v.Ready()
 	require.NoError(t, err)
+
+	// HealthReport should show coordinator is healthy
+	report := v.HealthReport()
+	require.NotNil(t, report)
+	require.Contains(t, report, v.Name())
+	require.NoError(t, report[v.Name()])
+
+	// Close the verifier
+	err = v.Close()
+	require.NoError(t, err)
+
+	// After stopping, should not be ready
+	err = v.Ready()
+	require.Error(t, err)
 }
 
 func TestVerificationErrorHandling(t *testing.T) {
@@ -659,7 +669,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	// Give some time for error processing
 	time.Sleep(50 * time.Millisecond)
 
-	err = v.Stop()
+	err = v.Close()
 	require.NoError(t, err)
 
 	// Verify results - only the configured source chain should have stored data
