@@ -59,6 +59,10 @@ func (s *MetricsAwareStorage) ListCommitVerificationByMessageID(ctx context.Cont
 	})
 }
 
+func (s *MetricsAwareStorage) ListOrphanedMessageCommitteePairs(ctx context.Context) (<-chan *model.MessageCommitteePair, <-chan error) {
+	return s.inner.ListOrphanedMessageCommitteePairs(ctx)
+}
+
 func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error) {
 	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() ([]*model.CommitAggregatedReport, error) {
 		return s.inner.QueryAggregatedReports(ctx, start, end, committeeID)
