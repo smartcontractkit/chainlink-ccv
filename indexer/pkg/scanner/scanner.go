@@ -71,7 +71,7 @@ func WithStorageWriter(storageWriter common.IndexerStorageWriter) Option {
 // NewScanner creates a new Scanner with the given options.
 func NewScanner(opts ...Option) *Scanner {
 	s := &Scanner{
-		ccvDataCh: make(chan protocol.CCVData, 1000),
+		ccvDataCh: make(chan protocol.CCVData),
 		stopCh:    make(chan struct{}),
 		doneCh:    make(chan struct{}),
 	}
@@ -113,11 +113,11 @@ func (s *Scanner) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.lggr.Info("Scanner stopped due to context cancellation")
-			wg.Wait()
+			s.close(ctx, &wg)
 			return
 		case <-s.stopCh:
 			s.lggr.Info("Scanner stopped due to stop signal")
-			wg.Wait()
+			s.close(ctx, &wg)
 			return
 		case reader := <-readerDiscoveryCh:
 			s.lggr.Info("Scanner discovered reader!")
@@ -125,6 +125,7 @@ func (s *Scanner) run(ctx context.Context) {
 			s.activeReaders++
 			s.mu.Unlock()
 			s.monitoring.Metrics().RecordActiveReadersGauge(ctx, s.activeReaders)
+			wg.Add(1)
 			go s.handleReader(ctx, reader, &wg)
 		case ccvData := <-s.ccvDataCh:
 			// Record channel size after consuming data
@@ -139,12 +140,32 @@ func (s *Scanner) run(ctx context.Context) {
 	}
 }
 
+func (s *Scanner) close(ctx context.Context, wg *sync.WaitGroup) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		case ccvData := <-s.ccvDataCh:
+			// Continue processing data while waiting for goroutines to finish
+			s.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(s.ccvDataCh)))
+			if err := s.storageWriter.InsertCCVData(ctx, ccvData); err != nil {
+				s.lggr.Errorw("Error inserting CCV data into indexer storage", "error", err)
+			}
+		}
+	}
+}
+
 func (s *Scanner) handleReader(ctx context.Context, reader protocol.OffchainStorageReader, wg *sync.WaitGroup) {
+	defer wg.Done()
 	// Create a ticker based on the scan interval configured
 	ticker := time.NewTicker(s.config.ScanInterval)
-	wg.Add(1)
 	defer ticker.Stop()
-	defer wg.Done()
 
 	for {
 		select {
@@ -176,8 +197,9 @@ func (s *Scanner) shouldDisconnect(ctx context.Context, reader protocol.Offchain
 			s.lggr.Infow("Reader signaled disconnection, removing from scanner")
 			s.mu.Lock()
 			s.activeReaders--
+			activeCount := s.activeReaders
 			s.mu.Unlock()
-			s.monitoring.Metrics().RecordActiveReadersGauge(ctx, s.activeReaders)
+			s.monitoring.Metrics().RecordActiveReadersGauge(ctx, activeCount)
 
 			return true
 		}
