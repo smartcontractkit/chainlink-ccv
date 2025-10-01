@@ -21,7 +21,7 @@ runs:
       env:
         WORKSPACE: ${{ github.workspace }}
       run: |
-        echo "path=${WORKSPACE}/chainlink-repo/go.mod" | tee -a $GITHUB_OUTPUT
+        echo "path=${WORKSPACE}/chainlink-repo/go.mod" | tee -a "$GITHUB_OUTPUT"
 
     - name: Set up Go
       uses: actions/setup-go@v6 # v6

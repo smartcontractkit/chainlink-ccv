@@ -56,6 +56,10 @@ jobs:
 
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
+        env:
+          # suppress tar warnings about existing files when setting up Go for a second time
+          # initially setup in the build-cl action
+          TAR_OPTIONS: --skip-old-files
         with:
           cache: true
           go-version-file: build/devenv/go.mod
