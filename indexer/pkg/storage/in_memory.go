@@ -115,12 +115,10 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 
 // generateUniqueKey creates a unique key for CCVData based on critical fields.
 func (i *InMemoryStorage) generateUniqueKey(ccvData protocol.CCVData) string {
-	return fmt.Sprintf("%s:%s:%s:%d:%d",
+	return fmt.Sprintf("%s:%s:%s",
 		ccvData.MessageID.String(),
 		ccvData.SourceVerifierAddress.String(),
 		ccvData.DestVerifierAddress.String(),
-		ccvData.SourceChainSelector,
-		ccvData.DestChainSelector,
 	)
 }
 
