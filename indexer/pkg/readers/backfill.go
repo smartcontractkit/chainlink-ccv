@@ -26,15 +26,20 @@ func (b *BackfillReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRespo
 		return nil, err
 	}
 
+	// Filter the query response to only include those within the timestamp range [startUnix, endUnix)
+	// If the timestamp is greater than or equal to the endUnix, signal for disconnection
+	var filteredQueryResponse []protocol.QueryResponse
 	for _, response := range queryResponse {
-		// If the timestamp is greater than or equal to the endUnix, signal for disconnection
+		if response.Timestamp != nil && *response.Timestamp >= b.startUnix && *response.Timestamp < b.endUnix {
+			filteredQueryResponse = append(filteredQueryResponse, response)
+		}
+
 		if response.Timestamp != nil && *response.Timestamp >= b.endUnix {
 			b.disconnectSignal = true
-			return queryResponse, err
 		}
 	}
 
-	return queryResponse, nil
+	return filteredQueryResponse, nil
 }
 
 // ShouldDisconnect implements the DisconnectableReader interface.
