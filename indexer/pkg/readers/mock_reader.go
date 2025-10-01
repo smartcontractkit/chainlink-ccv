@@ -298,6 +298,7 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 	sender, _ := protocol.RandomAddress()
 	receiver, _ := protocol.RandomAddress()
 
+	// #nosec G115 -- integer conversions are safe: messageNumber is controlled
 	message := protocol.Message{
 		Version:              protocol.MessageVersion,
 		SourceChainSelector:  protocol.ChainSelector(1),
@@ -347,7 +348,7 @@ func NewUniformLatencyGenerator(minLatency, maxLatency time.Duration) func() tim
 
 	latencyRange := maxLatency - minLatency
 	return func() time.Duration {
-		randomDuration := time.Duration(rand.Int64N(int64(latencyRange)))
+		randomDuration := time.Duration(rand.Int64N(int64(latencyRange))) // #nosec G404 -- weak random is acceptable for test latency simulation
 		return minLatency + randomDuration
 	}
 }

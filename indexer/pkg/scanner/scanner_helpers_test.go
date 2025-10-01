@@ -14,6 +14,8 @@ import (
 )
 
 // testSetup contains all the components needed for scanner tests.
+//
+//nolint:unused // used in scanner_race_test.go
 type testSetup struct {
 	Scanner   *Scanner
 	Logger    logger.Logger
@@ -25,6 +27,8 @@ type testSetup struct {
 }
 
 // Cleanup stops the scanner and cancels the context.
+//
+//nolint:unused // used in scanner_race_test.go
 func (ts *testSetup) Cleanup() {
 	if ts.Scanner != nil {
 		ts.Scanner.Stop()
@@ -35,6 +39,8 @@ func (ts *testSetup) Cleanup() {
 }
 
 // setupScannerTest creates a complete test setup with default configuration.
+//
+//nolint:unused // used in scanner_race_test.go
 func setupScannerTest(t *testing.T) *testSetup {
 	t.Helper()
 	return setupScannerTestWithConfig(t, Config{
@@ -45,12 +51,16 @@ func setupScannerTest(t *testing.T) *testSetup {
 }
 
 // setupScannerTestWithConfig creates a test setup with custom configuration.
+//
+//nolint:unused // used in scanner_race_test.go
 func setupScannerTestWithConfig(t *testing.T, config Config) *testSetup {
 	t.Helper()
 	return setupScannerTestWithTimeout(t, config, 5*time.Second)
 }
 
 // setupScannerTestWithTimeout creates a test setup with custom timeout.
+//
+//nolint:unused // used in scanner_race_test.go
 func setupScannerTestWithTimeout(t *testing.T, config Config, timeout time.Duration) *testSetup {
 	t.Helper()
 
@@ -81,6 +91,8 @@ func setupScannerTestWithTimeout(t *testing.T, config Config, timeout time.Durat
 }
 
 // setupScannerTestNoTimeout creates a test setup without a timeout context.
+//
+//nolint:unused // used in scanner_race_test.go
 func setupScannerTestNoTimeout(t *testing.T, config Config) *testSetup {
 	t.Helper()
 
@@ -111,6 +123,8 @@ func setupScannerTestNoTimeout(t *testing.T, config Config) *testSetup {
 }
 
 // defaultTestConfig returns the standard configuration used in most tests.
+//
+//nolint:unused // used in scanner_race_test.go
 func defaultTestConfig() Config {
 	return Config{
 		ScanInterval:   50 * time.Millisecond,
@@ -120,6 +134,8 @@ func defaultTestConfig() Config {
 }
 
 // fastScannerTestConfig returns a configuration with faster intervals for race testing.
+//
+//nolint:unused // used in scanner_race_test.go
 func fastScannerTestConfig() Config {
 	return Config{
 		ScanInterval:   1 * time.Millisecond,
@@ -129,6 +145,8 @@ func fastScannerTestConfig() Config {
 }
 
 // standardTestConfig returns a configuration with standard timing.
+//
+//nolint:unused // used in scanner_race_test.go
 func standardTestConfig() Config {
 	return Config{
 		ScanInterval:   20 * time.Millisecond,
