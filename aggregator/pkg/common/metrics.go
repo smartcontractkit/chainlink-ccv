@@ -42,6 +42,6 @@ type AggregatorMetricLabeler interface {
 	RecordDynamoDBReadCapacityUnits(ctx context.Context, units float64)
 	// RecordDynamoDBWriteCapacityUnits records the DynamoDB write capacity units consumed.
 	RecordDynamoDBWriteCapacityUnits(ctx context.Context, units float64)
-	// RecordDynamoDBConsumedCapacity records the DynamoDB consumed capacity.
+	// RecordCapacity records the DynamoDB consumed capacity.
 	RecordCapacity(capacity *types.ConsumedCapacity)
 }

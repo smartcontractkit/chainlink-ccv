@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 

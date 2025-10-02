@@ -1,3 +1,4 @@
+//nolint:gci
 package ddb
 
 import (
@@ -6,13 +7,13 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/stretchr/testify/require"
-
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 )
 
 const (
