@@ -5,7 +5,14 @@ pyroscope_url = "http://pyroscope:4040"
   address = ":50051"
 
 [storage]
-  type = "memory"
+  type = "dynamodb"
+  
+  [storage.dynamoDB]
+    region = "us-east-1"
+    endpoint = "http://aggregator-dynamodb:8000" # Local DynamoDB endpoint for development
+    commitVerificationRecordTableName = "commit_verification_records"
+    finalizedFeedTableName = "aggregated_reports"
+    checkpointTableName = "checkpoint_records"
 
 [committees]
   [committees.default]

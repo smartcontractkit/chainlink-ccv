@@ -387,3 +387,113 @@ func contextWithAPIKey(apiKey string) context.Context {
 	md := metadata.New(map[string]string{"api-key": apiKey})
 	return metadata.NewOutgoingContext(context.Background(), md)
 }
+
+// TestCheckpointClientIsolation_DynamoDB tests checkpoint isolation with DynamoDB storage.
+func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
+	t.Run("dynamodb_client_isolation", func(t *testing.T) {
+		// Setup with DynamoDB storage
+		client, _, cleanup, err := CreateServerAndClient(t, WithStorageType("dynamodb"))
+		require.NoError(t, err, "failed to create test server and client with DynamoDB")
+		defer cleanup()
+
+		client1Ctx := contextWithAPIKey("ddb-isolation-client-1")
+		client2Ctx := contextWithAPIKey("ddb-isolation-client-2")
+
+		// Client 1 stores checkpoints
+		writeReq1 := &pb.WriteBlockCheckpointRequest{
+			Checkpoints: []*pb.BlockCheckpoint{
+				{ChainSelector: 1, FinalizedBlockHeight: 1000},
+				{ChainSelector: 2, FinalizedBlockHeight: 2000},
+			},
+		}
+		_, err = client.WriteBlockCheckpoint(client1Ctx, writeReq1)
+		require.NoError(t, err, "client 1 write should succeed")
+
+		// Client 2 stores different checkpoints
+		writeReq2 := &pb.WriteBlockCheckpointRequest{
+			Checkpoints: []*pb.BlockCheckpoint{
+				{ChainSelector: 1, FinalizedBlockHeight: 1500}, // Same chain, different value
+				{ChainSelector: 3, FinalizedBlockHeight: 3000},
+			},
+		}
+		_, err = client.WriteBlockCheckpoint(client2Ctx, writeReq2)
+		require.NoError(t, err, "client 2 write should succeed")
+
+		// Verify client 1 sees only their data
+		resp1, err := client.ReadBlockCheckpoint(client1Ctx, &pb.ReadBlockCheckpointRequest{})
+		require.NoError(t, err, "client 1 read should succeed")
+		require.Len(t, resp1.Checkpoints, 2, "client 1 should see 2 checkpoints")
+
+		client1Data := make(map[uint64]uint64)
+		for _, cp := range resp1.Checkpoints {
+			client1Data[cp.ChainSelector] = cp.FinalizedBlockHeight
+		}
+		require.Equal(t, uint64(1000), client1Data[1], "client 1 should see their chain 1 value")
+		require.Equal(t, uint64(2000), client1Data[2], "client 1 should see their chain 2 value")
+
+		// Verify client 2 sees only their data
+		resp2, err := client.ReadBlockCheckpoint(client2Ctx, &pb.ReadBlockCheckpointRequest{})
+		require.NoError(t, err, "client 2 read should succeed")
+		require.Len(t, resp2.Checkpoints, 2, "client 2 should see 2 checkpoints")
+
+		client2Data := make(map[uint64]uint64)
+		for _, cp := range resp2.Checkpoints {
+			client2Data[cp.ChainSelector] = cp.FinalizedBlockHeight
+		}
+		require.Equal(t, uint64(1500), client2Data[1], "client 2 should see their chain 1 value")
+		require.Equal(t, uint64(3000), client2Data[3], "client 2 should see their chain 3 value")
+	})
+}
+
+// TestCheckpointConcurrency_DynamoDB tests concurrent checkpoint operations with DynamoDB.
+func TestCheckpointConcurrency_DynamoDB(t *testing.T) {
+	t.Run("dynamodb_concurrent_writes", func(t *testing.T) {
+		// Setup with DynamoDB storage
+		client, _, cleanup, err := CreateServerAndClient(t, WithStorageType("dynamodb"))
+		require.NoError(t, err, "failed to create test server and client with DynamoDB")
+		defer cleanup()
+
+		ctx := contextWithAPIKey("ddb-concurrent-client")
+		numGoroutines := 20
+		var wg sync.WaitGroup
+
+		// Concurrent writes to same client, different chains
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+
+				writeReq := &pb.WriteBlockCheckpointRequest{
+					Checkpoints: []*pb.BlockCheckpoint{
+						{
+							ChainSelector:        uint64(index + 10), // Start from 10 to avoid conflicts
+							FinalizedBlockHeight: uint64((index + 1) * 100),
+						},
+					},
+				}
+
+				_, err := client.WriteBlockCheckpoint(ctx, writeReq)
+				require.NoError(t, err, "concurrent write %d should succeed", index)
+			}(i)
+		}
+
+		wg.Wait()
+
+		// Verify all writes succeeded
+		resp, err := client.ReadBlockCheckpoint(ctx, &pb.ReadBlockCheckpointRequest{})
+		require.NoError(t, err, "read after concurrent writes should succeed")
+		require.Len(t, resp.Checkpoints, numGoroutines, "should have all concurrent checkpoints")
+
+		// Verify data integrity
+		resultMap := make(map[uint64]uint64)
+		for _, cp := range resp.Checkpoints {
+			resultMap[cp.ChainSelector] = cp.FinalizedBlockHeight
+		}
+
+		for i := 0; i < numGoroutines; i++ {
+			expectedChain := uint64(i + 10)
+			expectedHeight := uint64((i + 1) * 100)
+			require.Equal(t, expectedHeight, resultMap[expectedChain], "chain %d should have correct value", expectedChain)
+		}
+	})
+}

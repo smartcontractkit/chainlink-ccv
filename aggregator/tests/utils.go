@@ -203,6 +203,7 @@ func setupDynamoDBStorage(t *testing.T) (model.StorageConfig, func(), error) {
 		DynamoDB: model.DynamoDBConfig{
 			CommitVerificationRecordTableName: "commit_verification_records_test",
 			FinalizedFeedTableName:            "finalized_feed_test",
+			CheckpointTableName:               "checkpoint_storage_test",
 			Region:                            "us-east-1",
 			Endpoint:                          "http://" + connectionString,
 		},
@@ -233,6 +234,12 @@ func setupDynamoDBStorage(t *testing.T) (model.StorageConfig, func(), error) {
 	err = ddb.CreateFinalizedFeedTable(ctx, ddbClient, storageConfig.DynamoDB.FinalizedFeedTableName)
 	if err != nil {
 		return model.StorageConfig{}, nil, fmt.Errorf("failed to create finalized feed table: %w", err)
+	}
+
+	// Create the checkpoint table
+	err = ddb.CreateCheckpointTable(ctx, ddbClient, storageConfig.DynamoDB.CheckpointTableName)
+	if err != nil {
+		return model.StorageConfig{}, nil, fmt.Errorf("failed to create checkpoint table: %w", err)
 	}
 
 	cleanup := func() {

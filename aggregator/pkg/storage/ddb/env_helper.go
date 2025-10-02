@@ -117,3 +117,44 @@ func CreateCommitVerificationRecordsTable(ctx context.Context, client *dynamodb.
 
 	return nil
 }
+
+// CreateCheckpointTable creates the DynamoDB table for checkpoint storage.
+// This function is intended for test environments and development setup.
+func CreateCheckpointTable(ctx context.Context, client *dynamodb.Client, tableName string) error {
+	input := &dynamodb.CreateTableInput{
+		TableName: &tableName,
+		KeySchema: []types.KeySchemaElement{
+			{
+				AttributeName: aws.String(CheckpointFieldClientID), // Partition Key: ClientID
+				KeyType:       types.KeyTypeHash,
+			},
+			{
+				AttributeName: aws.String(CheckpointFieldChainSelector), // Sort Key: ChainSelector
+				KeyType:       types.KeyTypeRange,
+			},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{
+				AttributeName: aws.String(CheckpointFieldClientID),
+				AttributeType: types.ScalarAttributeTypeS, // String
+			},
+			{
+				AttributeName: aws.String(CheckpointFieldChainSelector),
+				AttributeType: types.ScalarAttributeTypeN, // Number
+			},
+		},
+		BillingMode: types.BillingModePayPerRequest, // On-demand billing for tests
+	}
+
+	_, err := client.CreateTable(ctx, input)
+	if err != nil {
+		var resourceInUseException *types.ResourceInUseException
+		if errors.As(err, &resourceInUseException) {
+			// Table already exists, which is fine
+			return nil
+		}
+		return fmt.Errorf("failed to create checkpoint table: %w", err)
+	}
+
+	return nil
+}

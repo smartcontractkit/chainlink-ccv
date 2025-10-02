@@ -84,9 +84,7 @@ func (f *Factory) CreateCheckpointStorage(config model.StorageConfig) (common.Ch
 		}
 		return postgres.NewDatabaseCheckpointStorage(sqlxDB), nil
 	case model.StorageTypeDynamoDB:
-		// For now, use memory storage for checkpoints when DynamoDB is configured
-		// TODO: Implement proper DynamoDB checkpoint storage
-		return memory.NewCheckpointStorage(), nil
+		return f.createDynamoDBCheckpointStorage(config)
 	default:
 		return nil, fmt.Errorf("unsupported checkpoint storage type: %s", config.StorageType)
 	}
@@ -122,12 +120,25 @@ func (f *Factory) createPostgreSQLStorage(config model.StorageConfig) (CommitVer
 
 // createDynamoDBStorage creates a DynamoDB-backed storage instance.
 func (f *Factory) createDynamoDBStorage(config model.StorageConfig) (CommitVerificationStorage, error) {
-	// Validate required configuration
-	if config.DynamoDB.CommitVerificationRecordTableName == "" {
-		return nil, fmt.Errorf("DynamoDB CommitVerificationRecordTableName is required")
+	client, err := createDynamoDBClient(config)
+	if err != nil {
+		return nil, err
 	}
-	if config.DynamoDB.FinalizedFeedTableName == "" {
-		return nil, fmt.Errorf("DynamoDB FinalizedFeedTableName is required")
+
+	// Create storage instance
+	storage := ddb.NewDynamoDBStorage(
+		client,
+		config.DynamoDB.CommitVerificationRecordTableName,
+		config.DynamoDB.FinalizedFeedTableName,
+	)
+
+	return storage, nil
+}
+
+func createDynamoDBClient(config model.StorageConfig) (*dynamodb.Client, error) {
+	// Validate required configuration
+	if config.DynamoDB.CheckpointTableName == "" {
+		return nil, fmt.Errorf("DynamoDB CheckpointTableName is required")
 	}
 
 	// Set default region if not specified
@@ -160,13 +171,21 @@ func (f *Factory) createDynamoDBStorage(config model.StorageConfig) (CommitVerif
 	} else {
 		client = dynamodb.NewFromConfig(awsConfig)
 	}
+	return client, nil
+}
 
-	// Create storage instance
-	storage := ddb.NewDynamoDBStorage(
+// createDynamoDBCheckpointStorage creates a DynamoDB-backed checkpoint storage instance.
+func (f *Factory) createDynamoDBCheckpointStorage(config model.StorageConfig) (common.CheckpointStorageInterface, error) {
+	client, err := createDynamoDBClient(config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create checkpoint storage instance
+	checkpointStorage := ddb.NewCheckpointStorage(
 		client,
-		config.DynamoDB.CommitVerificationRecordTableName,
-		config.DynamoDB.FinalizedFeedTableName,
+		config.DynamoDB.CheckpointTableName,
 	)
 
-	return storage, nil
+	return checkpointStorage, nil
 }

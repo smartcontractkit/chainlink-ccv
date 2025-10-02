@@ -100,15 +100,16 @@ const (
 type DynamoDBConfig struct {
 	CommitVerificationRecordTableName string `toml:"commitVerificationRecordTableName"`
 	FinalizedFeedTableName            string `toml:"finalizedFeedTableName"`
+	CheckpointTableName               string `toml:"checkpointTableName"`
 	Region                            string `toml:"region,omitempty"`
 	Endpoint                          string `toml:"endpoint,omitempty"`
 }
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType   StorageType `toml:"type"`
-	ConnectionURL string      `toml:"connectionURL,omitempty"`
-	DynamoDB      DynamoDBConfig
+	StorageType   StorageType    `toml:"type"`
+	ConnectionURL string         `toml:"connectionURL,omitempty"`
+	DynamoDB      DynamoDBConfig `toml:"dynamoDB,omitempty"`
 }
 
 // ServerConfig represents the configuration for the server.
