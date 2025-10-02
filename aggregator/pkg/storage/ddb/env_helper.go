@@ -4,11 +4,44 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
+
+const (
+	maxRetries = 3
+	retryDelay = 2 * time.Second
+)
+
+// createTableWithRetry is a helper function that implements retry logic for table creation.
+func createTableWithRetry(ctx context.Context, client *dynamodb.Client, input *dynamodb.CreateTableInput, tableName string) error {
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		_, err := client.CreateTable(ctx, input)
+		if err == nil {
+			return nil
+		}
+
+		// Check if table already exists - this is not an error
+		var resourceInUseException *types.ResourceInUseException
+		if errors.As(err, &resourceInUseException) {
+			return nil
+		}
+
+		lastErr = err
+
+		// Don't wait after the last attempt
+		if attempt < maxRetries {
+			time.Sleep(retryDelay)
+		}
+	}
+
+	return fmt.Errorf("failed to create %s table after %d attempts: %w", tableName, maxRetries, lastErr)
+}
 
 // CreateFinalizedFeedTable creates the FinalizedFeed table for storing aggregated reports.
 // This function is intended for test environments and development setup.
@@ -64,17 +97,7 @@ func CreateFinalizedFeedTable(ctx context.Context, client *dynamodb.Client, tabl
 		BillingMode: types.BillingModePayPerRequest,
 	}
 
-	_, err := client.CreateTable(ctx, tableInput)
-	if err != nil {
-		var resourceInUseException *types.ResourceInUseException
-		if errors.As(err, &resourceInUseException) {
-			// Table already exists, which is fine
-			return nil
-		}
-		return fmt.Errorf("failed to create FinalizedFeed table: %w", err)
-	}
-
-	return nil
+	return createTableWithRetry(ctx, client, tableInput, "FinalizedFeed")
 }
 
 // CreateCommitVerificationRecordsTable creates the DynamoDB table for CommitVerificationRecords.
@@ -105,17 +128,7 @@ func CreateCommitVerificationRecordsTable(ctx context.Context, client *dynamodb.
 		BillingMode: types.BillingModePayPerRequest, // On-demand billing for tests
 	}
 
-	_, err := client.CreateTable(ctx, input)
-	if err != nil {
-		var resourceInUseException *types.ResourceInUseException
-		if errors.As(err, &resourceInUseException) {
-			// Table already exists, which is fine
-			return nil
-		}
-		return fmt.Errorf("failed to create CommitVerificationRecords table: %w", err)
-	}
-
-	return nil
+	return createTableWithRetry(ctx, client, input, "CommitVerificationRecords")
 }
 
 // CreateCheckpointTable creates the DynamoDB table for checkpoint storage.
@@ -146,15 +159,5 @@ func CreateCheckpointTable(ctx context.Context, client *dynamodb.Client, tableNa
 		BillingMode: types.BillingModePayPerRequest, // On-demand billing for tests
 	}
 
-	_, err := client.CreateTable(ctx, input)
-	if err != nil {
-		var resourceInUseException *types.ResourceInUseException
-		if errors.As(err, &resourceInUseException) {
-			// Table already exists, which is fine
-			return nil
-		}
-		return fmt.Errorf("failed to create checkpoint table: %w", err)
-	}
-
-	return nil
+	return createTableWithRetry(ctx, client, input, "checkpoint")
 }
