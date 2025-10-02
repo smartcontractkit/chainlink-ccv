@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/testcontainers/testcontainers-go"
 	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
@@ -23,7 +25,9 @@ func setupTestDynamoDB(t *testing.T) (*dynamodb.Client, func()) {
 	ctx := context.Background()
 
 	// Start DynamoDB Local container
-	dynamoContainer, err := dynamodbcontainer.Run(ctx, "amazon/dynamodb-local:2.2.1")
+	dynamoContainer, err := dynamodbcontainer.Run(ctx, "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithStatusCodeMatcher(func(status int) bool {
+		return status == 400
+	})))
 	require.NoError(t, err, "failed to start DynamoDB container")
 
 	// Get connection string

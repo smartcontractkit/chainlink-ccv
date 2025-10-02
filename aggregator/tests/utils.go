@@ -137,7 +137,9 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 
 func setupDynamoDBStorage(t *testing.T) (model.StorageConfig, func(), error) {
 	// Start DynamoDB Local container
-	dynamoContainer, err := dynamodb.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForLog("SharedDb:	false")))
+	dynamoContainer, err := dynamodb.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithStatusCodeMatcher(func(status int) bool {
+		return status == 400
+	})))
 	if err != nil {
 		return model.StorageConfig{}, nil, err
 	}

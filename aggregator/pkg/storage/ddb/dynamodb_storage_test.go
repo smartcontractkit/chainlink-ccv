@@ -41,7 +41,9 @@ func setupDynamoDBStorage(t *testing.T) (*ddb.DynamoDBStorage, func()) {
 	ctx := context.Background()
 
 	// Start DynamoDB Local container
-	container, err := dynamodblocal.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForLog("SharedDb:	false")))
+	container, err := dynamodblocal.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithStatusCodeMatcher(func(status int) bool {
+		return status == 400
+	})))
 	require.NoError(t, err, "failed to start DynamoDB container")
 
 	hostPort, err := container.ConnectionString(ctx)
