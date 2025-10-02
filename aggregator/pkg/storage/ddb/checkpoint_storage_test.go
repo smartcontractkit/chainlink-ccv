@@ -4,70 +4,16 @@ import (
 	"context"
 	"strconv"
 	"testing"
-	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb"
 )
-
-const (
-	testCheckpointTableName = "checkpoint_test_table"
-)
-
-// setupTestDynamoDB creates a test DynamoDB container and client for checkpoint tests.
-func setupTestDynamoDB(t *testing.T) (*dynamodb.Client, func()) {
-	ctx := context.Background()
-
-	// Start DynamoDB Local container
-	dynamoContainer, err := dynamodbcontainer.Run(ctx, "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithStatusCodeMatcher(func(status int) bool {
-		return status == 400
-	})))
-	require.NoError(t, err, "failed to start DynamoDB container")
-	time.Sleep(2 * time.Second) // Wait for container to be fully ready
-
-	// Get connection string
-	connectionString, err := dynamoContainer.ConnectionString(ctx)
-	require.NoError(t, err, "failed to get connection string")
-
-	// Create AWS config for testing
-	awsConfig, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithRegion("us-east-1"),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "test")),
-	)
-	require.NoError(t, err, "failed to load AWS config")
-
-	// Create DynamoDB client
-	client := dynamodb.NewFromConfig(awsConfig, func(o *dynamodb.Options) {
-		o.BaseEndpoint = aws.String("http://" + connectionString)
-	})
-
-	// Create the checkpoint table
-	err = CreateCheckpointTable(ctx, client, testCheckpointTableName)
-	require.NoError(t, err, "failed to create checkpoint table")
-
-	// Return client and cleanup function
-	cleanup := func() {
-		if err := dynamoContainer.Terminate(context.Background()); err != nil {
-			t.Errorf("failed to terminate DynamoDB container: %v", err)
-		}
-	}
-
-	return client, cleanup
-}
 
 // TestCheckpointStorage tests all checkpoint storage operations with shared DynamoDB infrastructure.
 func TestCheckpointStorage(t *testing.T) {
-	client, cleanup := setupTestDynamoDB(t)
+	client, cleanup := SetupTestDynamoDB(t)
 	defer cleanup()
 
-	storage := NewCheckpointStorage(client, testCheckpointTableName)
+	storage := NewCheckpointStorage(client, TestCheckpointTableName)
 	ctx := context.Background()
 
 	t.Run("Basic", func(t *testing.T) {

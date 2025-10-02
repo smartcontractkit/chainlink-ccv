@@ -7,21 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 
-	smithyendpoints "github.com/aws/smithy-go/endpoints"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"        //nolint:goimports
-	dynamodblocal "github.com/testcontainers/testcontainers-go/modules/dynamodb" //nolint:goimports
+	smithyendpoints "github.com/aws/smithy-go/endpoints" //nolint:goimports
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type DynamoDBLocalResolver struct {
@@ -32,55 +26,6 @@ func (r *DynamoDBLocalResolver) ResolveEndpoint(ctx context.Context, params dyna
 	return smithyendpoints.Endpoint{
 		URI: url.URL{Host: r.hostAndPort, Scheme: "http"},
 	}, nil
-}
-
-// Test Helper Functions
-
-// setupDynamoDBStorage creates a DynamoDB storage instance with test containers.
-func setupDynamoDBStorage(t *testing.T) (*ddb.DynamoDBStorage, func()) {
-	ctx := context.Background()
-
-	// Start DynamoDB Local container
-	container, err := dynamodblocal.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithStatusCodeMatcher(func(status int) bool {
-		return status == 400
-	})))
-	require.NoError(t, err, "failed to start DynamoDB container")
-	time.Sleep(2 * time.Second) // Wait for container to be fully ready
-
-	hostPort, err := container.ConnectionString(ctx)
-	require.NoError(t, err, "failed to get connection string")
-
-	// Create DynamoDB client
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
-		Value: aws.Credentials{
-			AccessKeyID:     "DUMMYIDEXAMPLE",
-			SecretAccessKey: "DUMMYEXAMPLEKEY",
-		},
-	}))
-	require.NoError(t, err, "failed to load config")
-
-	client := dynamodb.NewFromConfig(cfg, dynamodb.WithEndpointResolverV2(&DynamoDBLocalResolver{hostAndPort: hostPort}))
-
-	// Create tables
-	tableName := "commit_verification_records_test"
-	finalizedFeedTableName := "finalized_feed_test"
-
-	err = ddb.CreateCommitVerificationRecordsTable(ctx, client, tableName)
-	require.NoError(t, err, "failed to create verification records table")
-
-	err = ddb.CreateFinalizedFeedTable(ctx, client, finalizedFeedTableName)
-	require.NoError(t, err, "failed to create finalized feed table")
-
-	// Use a test-friendly minimum date (2020-01-01) that allows all test dates
-	testMinDate := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	storage := ddb.NewDynamoDBStorage(client, tableName, finalizedFeedTableName, testMinDate)
-
-	cleanup := func() {
-		err := container.Terminate(ctx)
-		require.NoError(t, err, "failed to terminate container")
-	}
-
-	return storage, cleanup
 }
 
 // createTestMessageID generates a test MessageID with the given seed byte.
@@ -185,9 +130,13 @@ func assertTimestampOrdering(t *testing.T, reports []*model.CommitAggregatedRepo
 
 // TestCommitVerificationRecordOperations tests all verification record CRUD operations.
 func TestCommitVerificationRecordOperations(t *testing.T) {
-	storage, cleanup := setupDynamoDBStorage(t)
+	client, cleanup := ddb.SetupTestDynamoDB(t)
 	defer cleanup()
 	ctx := context.Background()
+
+	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince)
 
 	t.Run("save and retrieve", func(t *testing.T) {
 		messageID := createTestMessageID(1)
@@ -295,9 +244,13 @@ func TestCommitVerificationRecordOperations(t *testing.T) {
 
 // TestAggregatedReportOperations tests all aggregated report operations.
 func TestAggregatedReportOperations(t *testing.T) {
-	storage, cleanup := setupDynamoDBStorage(t)
+	client, cleanup := ddb.SetupTestDynamoDB(t)
 	defer cleanup()
 	ctx := context.Background()
+
+	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince)
 
 	t.Run("submit and query reports", func(t *testing.T) {
 		baseTime := int64(1704067200) // 2024-01-01 00:00:00 UTC in seconds

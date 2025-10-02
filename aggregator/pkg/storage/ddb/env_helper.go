@@ -4,16 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
+
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb"
 )
 
 const (
 	maxRetries = 3
 	retryDelay = 2 * time.Second
+)
+
+const (
+	TestCommitVerificationRecordTableName = "commit_verification_records_test"
+	TestFinalizedFeedTableName            = "finalized_feed_test"
+	TestCheckpointTableName               = "checkpoint_storage_test"
 )
 
 // createTableWithRetry is a helper function that implements retry logic for table creation.
@@ -160,4 +174,53 @@ func CreateCheckpointTable(ctx context.Context, client *dynamodb.Client, tableNa
 	}
 
 	return createTableWithRetry(ctx, client, input, "checkpoint")
+}
+
+// SetupTestDynamoDB creates a test DynamoDB container and client for checkpoint tests.
+func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, func()) {
+	ctx := context.Background()
+
+	// Start DynamoDB Local container
+	dynamoContainer, err := dynamodbcontainer.Run(ctx, "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithStatusCodeMatcher(func(status int) bool {
+		return status == 400
+	})))
+	require.NoError(t, err, "failed to start DynamoDB container")
+	time.Sleep(2 * time.Second) // Wait for container to be fully ready
+
+	// Get connection string
+	connectionString, err := dynamoContainer.ConnectionString(ctx)
+	require.NoError(t, err, "failed to get connection string")
+
+	// Create AWS config for testing
+	awsConfig, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion("us-east-1"),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "test")),
+	)
+	require.NoError(t, err, "failed to load AWS config")
+
+	// Create DynamoDB client
+	client := dynamodb.NewFromConfig(awsConfig, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String("http://" + connectionString)
+	})
+
+	// Create the checkpoint table
+	err = CreateCheckpointTable(ctx, client, TestCheckpointTableName)
+	require.NoError(t, err, "failed to create checkpoint table")
+
+	// Create the commit verification records table
+	err = CreateCommitVerificationRecordsTable(ctx, client, TestCommitVerificationRecordTableName)
+	require.NoError(t, err, "failed to create commit verification records table")
+
+	// Create the finalized feed table
+	err = CreateFinalizedFeedTable(ctx, client, TestFinalizedFeedTableName)
+	require.NoError(t, err, "failed to create finalized feed table")
+
+	// Return client and cleanup function
+	cleanup := func() {
+		if err := dynamoContainer.Terminate(context.Background()); err != nil {
+			t.Errorf("failed to terminate DynamoDB container: %v", err)
+		}
+	}
+
+	return client, cleanup
 }
