@@ -155,7 +155,7 @@ func main() {
 	defer shutdownCancel()
 
 	// Stop execution coordinator
-	if err := coordinator.Stop(); err != nil {
+	if err := coordinator.Close(); err != nil {
 		lggr.Errorw("Execution coordinator stop error", "error", err)
 	}
 

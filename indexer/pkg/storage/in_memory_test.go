@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -297,8 +298,8 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 		SourceChainSelector:   sourceChain,
 		DestChainSelector:     destChain,
 		Nonce:                 protocol.Nonce(1),
-		SourceVerifierAddress: protocol.UnknownAddress{0x01, 0x02, 0x03},
-		DestVerifierAddress:   protocol.UnknownAddress{0x04, 0x05, 0x06},
+		SourceVerifierAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+		DestVerifierAddress:   protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
 		CCVData:               []byte{0x07, 0x08, 0x09},
 		BlobData:              []byte{0x0a, 0x0b, 0x0c},
 		ReceiptBlobs:          []protocol.ReceiptWithBlob{},

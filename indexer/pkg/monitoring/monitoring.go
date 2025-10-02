@@ -39,7 +39,6 @@ func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "indexer",
 		ServerAddress:   "http://pyroscope:4040",
-		Logger:          pyroscope.StandardLogger,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,

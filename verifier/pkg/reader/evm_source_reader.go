@@ -417,7 +417,7 @@ func (r *EVMSourceReader) eventMonitoringLoop(ctx context.Context) {
 			return
 
 		case <-r.stopCh:
-			r.logger.Infow("🛑 Stop signal received, stopping event monitoring")
+			r.logger.Infow("🛑 Close signal received, stopping event monitoring")
 			return
 
 		case <-ticker.C:
