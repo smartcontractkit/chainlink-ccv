@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
@@ -18,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -95,7 +97,7 @@ func main() {
 	if envConfig != "" {
 		filePath = envConfig
 	}
-	verifierConfig, err := loadConfiguration(filePath)
+	config, err := loadConfiguration(filePath)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		os.Exit(1)
@@ -103,7 +105,7 @@ func main() {
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "verifier",
-		ServerAddress:   verifierConfig.PyroscopeURL,
+		ServerAddress:   config.PyroscopeURL,
 		Logger:          pyroscope.StandardLogger,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
@@ -120,12 +122,12 @@ func main() {
 	// Use actual blockchain information from configuration
 	var blockchainHelper *protocol.BlockchainHelper
 	chainClients := make(map[protocol.ChainSelector]client.Client)
-	if len(verifierConfig.BlockchainInfos) == 0 {
+	if len(config.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
-		blockchainHelper = protocol.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		blockchainHelper = protocol.NewBlockchainHelper(config.BlockchainInfos)
 		lggr.Infow("✅ Using real blockchain information from environment",
-			"chainCount", len(verifierConfig.BlockchainInfos))
+			"chainCount", len(config.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
 		for _, selector := range blockchainHelper.GetAllChainSelectors() {
 			lggr.Infow("Creating chain client", "chainSelector", selector)
@@ -135,7 +137,7 @@ func main() {
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
-	for selector, address := range verifierConfig.CommitteeVerifierAddresses {
+	for selector, address := range config.CommitteeVerifierAddresses {
 		addr, err := protocol.NewUnknownAddressFromHex(address)
 		if err != nil {
 			lggr.Errorw("Failed to create verifier address", "error", err)
@@ -144,13 +146,13 @@ func main() {
 		verifierAddresses[selector] = addr
 	}
 
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, config.AggregatorAPIKey, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		os.Exit(1)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr, 0) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, config.AggregatorAPIKey, lggr, 0) // since=0 for checkpoint reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()
@@ -166,22 +168,22 @@ func main() {
 	// Create source readers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
 
-	lggr.Infow("Committee verifier addresses", "addresses", verifierConfig.CommitteeVerifierAddresses)
+	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)
 	// Try to create blockchain source readers if possible
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		lggr.Infow("Creating source reader", "chainSelector", selector, "strSelector", uint64(selector))
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 
-		if verifierConfig.CommitteeVerifierAddresses[strSelector] == "" {
+		if config.CommitteeVerifierAddresses[strSelector] == "" {
 			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
 			continue
 		}
-		if verifierConfig.CcvProxyAddresses[strSelector] == "" {
+		if config.CcvProxyAddresses[strSelector] == "" {
 			lggr.Errorw("CCV proxy address is not set", "chainSelector", selector)
 			continue
 		}
 
-		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], verifierConfig.CcvProxyAddresses[strSelector], selector, checkpointManager, lggr)
+		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], config.CcvProxyAddresses[strSelector], selector, checkpointManager, lggr)
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
 
@@ -194,8 +196,8 @@ func main() {
 		}
 	}
 
-	config := verifier.CoordinatorConfig{
-		VerifierID:            verifierConfig.VerifierID,
+	coordinatorConfig := verifier.CoordinatorConfig{
+		VerifierID:            config.VerifierID,
 		SourceConfigs:         sourceConfigs,
 		ProcessingChannelSize: 1000,
 		ProcessingTimeout:     30 * time.Second,
@@ -217,16 +219,32 @@ func main() {
 	}
 	lggr.Infow("Using signer address", "address", signer.GetSignerAddress().String())
 
+	// Setup OTEL Monitoring (via beholder)
+	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
+		InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
+		CACertFile:               config.Monitoring.Beholder.CACertFile,
+		OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+		OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+		LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
+		MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
+		TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
+		TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
+	})
+	if err != nil {
+		lggr.Fatalf("Failed to initialize verifier monitoring: %v", err)
+	}
+
 	// Create commit verifier
-	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
+	commitVerifier := commit.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
 
 	// Create verification coordinator
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
 		verifier.WithStorage(aggregatorWriter),
-		verifier.WithConfig(config),
+		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),
+		verifier.WithMonitoring(verifierMonitoring),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
@@ -235,7 +253,7 @@ func main() {
 
 	// Start the verification coordinator
 	lggr.Infow("🚀 Starting Verification Coordinator",
-		"verifierID", config.VerifierID,
+		"verifierID", coordinatorConfig.VerifierID,
 		"verifierAddress", verifierAddresses,
 	)
 
@@ -247,7 +265,7 @@ func main() {
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		lggr.Infow("✅ CCV Verifier is running!\n")
-		lggr.Infow("Verifier ID: %s\n", config.VerifierID)
+		lggr.Infow("Verifier ID: %s\n", coordinatorConfig.VerifierID)
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -215,7 +216,8 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	}
 	ts := newTestSetup(t)
 
-	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
+	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
+	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
 
 	testcases := []struct {
 		name    string
@@ -323,7 +325,8 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader) (*verifier.Coordinator, error) {
-	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
+	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
+	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
 
 	return verifier.NewVerificationCoordinator(
 		verifier.WithConfig(config),
@@ -331,6 +334,7 @@ func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorCon
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithStorage(ts.storage),
 		verifier.WithLogger(ts.logger),
+		verifier.WithMonitoring(noopMonitoring),
 	)
 }
 

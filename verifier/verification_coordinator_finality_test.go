@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -236,6 +237,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		VerifierID: verifierID,
 	}
 
+	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(mockVerifier),
 		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
@@ -244,6 +246,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		verifier.WithStorage(mockStorage),
 		verifier.WithConfig(config),
 		verifier.WithLogger(lggr),
+		verifier.WithMonitoring(noopMonitoring),
 		verifier.WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
