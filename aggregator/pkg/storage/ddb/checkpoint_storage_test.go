@@ -9,11 +9,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/testcontainers/testcontainers-go"
 	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
