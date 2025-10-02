@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/dynamodb"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -53,43 +52,8 @@ func WithStubMode(stub bool) ConfigOption {
 }
 
 // CreateServerAndClient creates a test server and client for functional testing.
-// Uses PostgreSQL as the default storage backend unless overridden with WithStorageType option.
+// Uses DynamoDB storage by default, but can be overridden with options.
 func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.CCVDataClient, func(), error) {
-	// Create initial config with default postgres storage
-	config := &model.AggregatorConfig{
-		Storage: model.StorageConfig{
-			StorageType: model.StorageTypePostgreSQL,
-		},
-	}
-
-	// Apply all options to get final configuration
-	for _, option := range options {
-		config = option(config)
-	}
-
-	// Setup storage based on final configuration
-	var storageConfig model.StorageConfig
-	var cleanupStorage func()
-
-	switch config.Storage.StorageType {
-	case model.StorageTypePostgreSQL:
-		sc, cleanup, err := setupPostgresStorage(t)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		storageConfig = sc
-		cleanupStorage = cleanup
-	case model.StorageTypeDynamoDB:
-		sc, cleanup, err := setupDynamoDBStorage(t)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		storageConfig = sc
-		cleanupStorage = cleanup
-	default:
-		t.Fatalf("unsupported storage type: %s", config.Storage.StorageType)
-	}
-
 	buf := bufconn.Listen(bufSize)
 	// Setup logging - always debug level for now
 	lggr, err := logger.NewWith(func(logConfig *zap.Config) {
@@ -104,18 +68,40 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 	// Use SugaredLogger for better API
 	sugaredLggr := logger.Sugared(lggr)
 
-	// Update the config with the actual storage config
-	config.Server = model.ServerConfig{
-		Address: ":50051",
-	}
-	config.Storage = storageConfig
-	config.Monitoring = model.MonitoringConfig{
-		Enabled: false,
+	// Create base config with DynamoDB storage as default
+	config := &model.AggregatorConfig{
+		Server: model.ServerConfig{
+			Address: ":50051",
+		},
+		Storage: model.StorageConfig{
+			StorageType: model.StorageTypeDynamoDB, // Default to DynamoDB
+		},
+		Monitoring: model.MonitoringConfig{
+			Enabled: false,
+		},
 	}
 
-	// Apply options again in case they override server/monitoring settings
+	// Apply options for committee config, stub mode, storage type, etc.
 	for _, option := range options {
 		config = option(config)
+	}
+
+	// Setup storage based on final configuration
+	var cleanupStorage func()
+
+	switch config.Storage.StorageType {
+	case model.StorageTypeDynamoDB:
+		storageConfig, cleanup, err := setupDynamoDBStorage(t)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		config.Storage = storageConfig
+		cleanupStorage = cleanup
+	case model.StorageTypeMemory:
+		// No setup needed for memory storage
+		cleanupStorage = func() {}
+	default:
+		return nil, nil, nil, fmt.Errorf("unsupported storage type: %s", config.Storage.StorageType)
 	}
 
 	s := agg.NewServer(sugaredLggr, config)
@@ -147,42 +133,6 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 		}
 		cleanupStorage()
 	}, nil
-}
-
-func setupPostgresStorage(t *testing.T) (model.StorageConfig, func(), error) {
-	// Start PostgreSQL testcontainer
-	postgresContainer, err := postgres.Run(t.Context(),
-		"postgres:15-alpine",
-		postgres.WithDatabase("test_db"),
-		postgres.WithUsername("test_user"),
-		postgres.WithPassword("test_password"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second)),
-	)
-	if err != nil {
-		return model.StorageConfig{}, nil, err
-	}
-
-	// Get connection string from container
-	connectionString, err := postgresContainer.ConnectionString(t.Context(), "sslmode=disable")
-	if err != nil {
-		return model.StorageConfig{}, nil, err
-	}
-
-	storageConfig := model.StorageConfig{
-		StorageType:   "postgres",
-		ConnectionURL: connectionString,
-	}
-
-	cleanup := func() {
-		if err := postgresContainer.Terminate(context.Background()); err != nil {
-			t.Errorf("failed to terminate postgres container: %v", err)
-		}
-	}
-
-	return storageConfig, cleanup, nil
 }
 
 func setupDynamoDBStorage(t *testing.T) (model.StorageConfig, func(), error) {
