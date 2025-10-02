@@ -19,13 +19,6 @@ func StartCCVComitteeVerifier(
 	cfg CCVConfig,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 ) {
-	wait := true
-	for wait {
-		wait = true
-		lggr.Warn("verifier waiting...")
-		time.Sleep(1 * time.Second)
-	}
-
 	// Initialize chain components.
 	sourceReader := map[protocol.ChainSelector]verifier.SourceReader{}
 	for sel, chain := range relayers {
