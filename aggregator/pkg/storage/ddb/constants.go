@@ -77,3 +77,20 @@ const (
 const (
 	GSIDayCommitteeIndex = "Day-Committee-Index"
 )
+
+// Checkpoint Storage Constants.
+const (
+	CheckpointFieldClientID             = "ClientID"
+	CheckpointFieldChainSelector        = "ChainSelector"
+	CheckpointFieldFinalizedBlockHeight = "FinalizedBlockHeight"
+	CheckpointFieldLastUpdated          = "LastUpdated"
+)
+
+const (
+	QueryCheckpointsByClient = CheckpointFieldClientID + " = :client_id"
+	QueryAllCheckpoints      = "scan"
+)
+
+const (
+	ConditionPreventDuplicateCheckpoint = "attribute_not_exists(" + CheckpointFieldClientID + ") AND attribute_not_exists(" + CheckpointFieldChainSelector + ")"
+)

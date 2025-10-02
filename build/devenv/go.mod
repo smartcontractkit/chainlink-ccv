@@ -3,11 +3,11 @@ module github.com/smartcontractkit/chainlink-ccv/devenv
 go 1.24.6
 
 require (
-	github.com/BurntSushi/toml v1.4.0
+	github.com/BurntSushi/toml v1.5.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
-	github.com/docker/docker v28.3.1+incompatible
-	github.com/docker/go-connections v0.5.0
+	github.com/docker/docker v28.3.3+incompatible
+	github.com/docker/go-connections v0.6.0
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/prometheus/client_golang v1.22.0
@@ -15,6 +15,7 @@ require (
 	github.com/smartcontractkit/chain-selectors v1.0.67
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250919202442-70ebf972c3ee
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250919202442-70ebf972c3ee
+	github.com/smartcontractkit/chainlink-ccv/aggregator v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/ccv-evm v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/indexer v0.0.0-00010101000000-000000000000
@@ -25,9 +26,16 @@ require (
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
-	github.com/testcontainers/testcontainers-go v0.38.0
-	github.com/testcontainers/testcontainers-go/modules/postgres v0.38.0
+	github.com/testcontainers/testcontainers-go v0.39.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
 	go.uber.org/zap v1.27.0
+)
+
+require (
+	github.com/aws/aws-sdk-go-v2 v1.39.2
+	github.com/aws/aws-sdk-go-v2/config v1.31.12
+	github.com/aws/aws-sdk-go-v2/credentials v1.18.16
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.50.5
 )
 
 require (
@@ -56,6 +64,17 @@ require (
 	github.com/avast/retry-go/v4 v4.6.1 // indirect
 	github.com/awalterschulze/gographviz v2.0.3+incompatible // indirect
 	github.com/aws/aws-sdk-go v1.55.7 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.9 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.9 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.9 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.11.9 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.9 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.29.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.38.6 // indirect
+	github.com/aws/smithy-go v1.23.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bboreham/go-loser v0.0.0-20230920113527-fcc2c21820a3 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
@@ -301,7 +320,7 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/sercand/kuberesolver/v5 v5.1.1 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
-	github.com/shirou/gopsutil/v4 v4.25.5 // indirect
+	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sigurn/crc16 v0.0.0-20211026045750-20ab5afb07e3 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
@@ -430,6 +449,7 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
+	github.com/smartcontractkit/chainlink-ccv/aggregator => ../../aggregator
 	//github.com/smartcontractkit/chainlink-ccip => ../../../chainlink-ccip
 	github.com/smartcontractkit/chainlink-ccv/common => ../../common
 	github.com/smartcontractkit/chainlink-ccv/indexer => ../../indexer

@@ -202,6 +202,9 @@ var deployCommitVerifierCmd = &cobra.Command{
 			Threshold: uint8(threshold),
 			Signers:   addresses,
 		})
+		if err != nil {
+			return fmt.Errorf("deploying commit verifier contracts: %w", err)
+		}
 		in.CLDF.Addresses = append(in.CLDF.Addresses, allAddrs...)
 		return framework.Store(in)
 	},
@@ -376,8 +379,6 @@ var indexerDBShellCmd = &cobra.Command{
 		switch args[0] {
 		case "indexer":
 			url = services.DefaultIndexerDBConnectionString
-		case "aggregator":
-			url = services.DefaultAggregatorDBConnectionString
 		case "verifier":
 			url = services.DefaultVerifierDBConnectionString
 		default:

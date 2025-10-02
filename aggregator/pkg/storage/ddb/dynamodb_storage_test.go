@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -12,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
@@ -38,7 +41,7 @@ func setupDynamoDBStorage(t *testing.T) (*ddb.DynamoDBStorage, func()) {
 	ctx := context.Background()
 
 	// Start DynamoDB Local container
-	container, err := dynamodblocal.Run(ctx, "amazon/dynamodb-local:2.2.1")
+	container, err := dynamodblocal.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForLog("SharedDb:	false")))
 	require.NoError(t, err, "failed to start DynamoDB container")
 
 	hostPort, err := container.ConnectionString(ctx)
@@ -65,7 +68,9 @@ func setupDynamoDBStorage(t *testing.T) (*ddb.DynamoDBStorage, func()) {
 	err = ddb.CreateFinalizedFeedTable(ctx, client, finalizedFeedTableName)
 	require.NoError(t, err, "failed to create finalized feed table")
 
-	storage := ddb.NewDynamoDBStorage(client, tableName, finalizedFeedTableName)
+	// Use a test-friendly minimum date (2020-01-01) that allows all test dates
+	testMinDate := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	storage := ddb.NewDynamoDBStorage(client, tableName, finalizedFeedTableName, testMinDate)
 
 	cleanup := func() {
 		err := container.Terminate(ctx)

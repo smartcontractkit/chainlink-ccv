@@ -10,9 +10,13 @@ type DayIterator struct {
 	done    bool
 }
 
-func NewDayIterator(start, end int64) *DayIterator {
+func NewDayIterator(start, end int64, minDate time.Time) *DayIterator {
 	startDay := time.Unix(start, 0).UTC()
 	endDay := time.Unix(end, 0).UTC()
+
+	if startDay.Before(minDate) {
+		startDay = minDate
+	}
 
 	startDate := time.Date(startDay.Year(), startDay.Month(), startDay.Day(), 0, 0, 0, 0, time.UTC)
 	endDate := time.Date(endDay.Year(), endDay.Month(), endDay.Day(), 0, 0, 0, 0, time.UTC)

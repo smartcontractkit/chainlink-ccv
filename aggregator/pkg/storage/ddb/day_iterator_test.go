@@ -8,6 +8,9 @@ import (
 )
 
 func TestDayIterator(t *testing.T) {
+	// Use a minimum date that's before all test dates
+	testMinDate := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
 	tests := []struct {
 		name     string
 		start    int64
@@ -48,7 +51,7 @@ func TestDayIterator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			iterator := NewDayIterator(tt.start, tt.end)
+			iterator := NewDayIterator(tt.start, tt.end, testMinDate)
 			var result []string
 
 			for iterator.Next() {
@@ -62,11 +65,14 @@ func TestDayIterator(t *testing.T) {
 }
 
 func TestDayIteratorBehavior(t *testing.T) {
+	// Use a minimum date that's before all test dates
+	testMinDate := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
 	t.Run("iterator exhaustion", func(t *testing.T) {
 		start := time.Date(2023, 10, 15, 14, 30, 0, 0, time.UTC).Unix()
 		end := time.Date(2023, 10, 16, 16, 45, 0, 0, time.UTC).Unix()
 
-		iterator := NewDayIterator(start, end)
+		iterator := NewDayIterator(start, end, testMinDate)
 
 		// First iteration
 		require.True(t, iterator.Next())
@@ -87,7 +93,7 @@ func TestDayIteratorBehavior(t *testing.T) {
 		start := time.Date(2023, 10, 15, 14, 30, 0, 0, time.UTC).Unix()
 		end := time.Date(2023, 10, 15, 16, 45, 0, 0, time.UTC).Unix()
 
-		iterator := NewDayIterator(start, end)
+		iterator := NewDayIterator(start, end, testMinDate)
 		require.True(t, iterator.Next())
 
 		// Multiple calls should return the same value

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -20,6 +21,7 @@ type DynamoDBStorage struct {
 	client                 *dynamodb.Client
 	tableName              string
 	finalizedFeedTableName string
+	minDate                time.Time
 }
 
 var (
@@ -28,11 +30,12 @@ var (
 	_ pkgcommon.Sink                              = (*DynamoDBStorage)(nil)
 )
 
-func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string) *DynamoDBStorage {
+func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time) *DynamoDBStorage {
 	return &DynamoDBStorage{
 		client:                 client,
 		tableName:              tableName,
 		finalizedFeedTableName: finalizedFeedTableName,
+		minDate:                minDate,
 	}
 }
 
@@ -219,7 +222,7 @@ func (d *DynamoDBStorage) QueryAggregatedReports(ctx context.Context, start, end
 
 	var allReports []*model.CommitAggregatedReport
 
-	dayIterator := NewDayIterator(start, end)
+	dayIterator := NewDayIterator(start, end, d.minDate)
 
 	for dayIterator.Next() {
 		day := dayIterator.Day()
