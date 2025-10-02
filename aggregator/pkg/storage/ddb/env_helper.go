@@ -21,7 +21,7 @@ import (
 
 const (
 	maxRetries = 3
-	retryDelay = 2 * time.Second
+	retryDelay = 5 * time.Second
 )
 
 const (
@@ -181,7 +181,7 @@ func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, func()) {
 	ctx := context.Background()
 
 	// Start DynamoDB Local container
-	dynamoContainer, err := dynamodbcontainer.Run(ctx, "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithStatusCodeMatcher(func(status int) bool {
+	dynamoContainer, err := dynamodbcontainer.Run(ctx, "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithMethod("POST").WithStatusCodeMatcher(func(status int) bool {
 		return status == 400
 	})))
 	require.NoError(t, err, "failed to start DynamoDB container")
