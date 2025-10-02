@@ -181,8 +181,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		Cmd:        []string{"-jar", "DynamoDBLocal.jar", "-sharedDb"},
 		WaitingFor: wait.ForLog("SharedDb:	true"),
 	}
-	// Allow some time for DynamoDB Local to initialize
-	time.Sleep(5 * time.Second)
 
 	dynamoContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: dynamoReq,
@@ -191,6 +189,9 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DynamoDB container: %w", err)
 	}
+
+	// Allow some time for DynamoDB Local to initialize
+	time.Sleep(5 * time.Second)
 
 	// Get the connection string for localhost access (for table creation)
 	host, err := dynamoContainer.Host(ctx)
