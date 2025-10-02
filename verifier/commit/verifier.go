@@ -53,15 +53,6 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 	start := time.Now()
 	message := verificationTask.Message
 
-	// Defer recording verification duration metric
-	defer func() {
-		if cv.monitoring != nil {
-			cv.monitoring.Metrics().
-				With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
-				RecordMessageVerificationDuration(ctx, time.Since(start))
-		}
-	}()
-
 	messageID, err := message.MessageID()
 	if err != nil {
 		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to compute message ID: %w", err), verificationErrorCh, cv.lggr)
@@ -125,6 +116,9 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 			cv.monitoring.Metrics().
 				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
 				IncrementMessagesProcessed(ctx)
+			cv.monitoring.Metrics().
+				With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
+				RecordMessageVerificationDuration(ctx, time.Since(start))
 		}
 
 		cv.lggr.Infow("CCV data sent to storage channel",
