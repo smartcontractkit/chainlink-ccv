@@ -12,6 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
@@ -38,7 +40,7 @@ func setupDynamoDBStorage(t *testing.T) (*ddb.DynamoDBStorage, func()) {
 	ctx := context.Background()
 
 	// Start DynamoDB Local container
-	container, err := dynamodblocal.Run(ctx, "amazon/dynamodb-local:2.2.1")
+	container, err := dynamodblocal.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForLog("SharedDb:	true")))
 	require.NoError(t, err, "failed to start DynamoDB container")
 
 	hostPort, err := container.ConnectionString(ctx)

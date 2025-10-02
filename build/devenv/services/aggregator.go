@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -176,7 +177,8 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 				},
 			}
 		},
-		Cmd: []string{"-jar", "DynamoDBLocal.jar", "-sharedDb"},
+		Cmd:        []string{"-jar", "DynamoDBLocal.jar", "-sharedDb"},
+		WaitingFor: wait.ForLog("SharedDb:	true"),
 	}
 
 	dynamoContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

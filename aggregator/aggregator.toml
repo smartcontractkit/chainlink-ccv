@@ -51,6 +51,15 @@ pyroscope_url = "http://pyroscope:4040"
       3379446385462418246 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
       4793464827907405086 = "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
 
-[metrics]
-  enableMetrics = true
-  endpoint = "otel-collector:4318"
+[Monitoring]
+Enabled = true
+Type = "beholder"
+[Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
