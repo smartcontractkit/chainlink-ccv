@@ -41,7 +41,7 @@ func TestAggregationHappyPath(t *testing.T) {
 			},
 		},
 	}
-	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config))
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType("dynamodb"))
 	t.Cleanup(cleanup)
 	require.NoError(t, err, "failed to create server and client")
 
@@ -114,7 +114,7 @@ func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
 			},
 		},
 	}
-	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config))
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType("dynamodb"))
 	t.Cleanup(cleanup)
 	require.NoError(t, err, "failed to create server and client")
 
@@ -191,7 +191,7 @@ func TestIdempotency(t *testing.T) {
 			},
 		},
 	}
-	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config))
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType("dynamodb"))
 	t.Cleanup(cleanup)
 	require.NoError(t, err, "failed to create server and client")
 
@@ -361,7 +361,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 			},
 		},
 	}
-	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config))
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType("dynamodb"))
 	t.Cleanup(cleanup)
 	require.NoError(t, err, "failed to create server and client")
 
@@ -432,7 +432,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 			},
 		},
 	}
-	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config))
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType("dynamodb"))
 	t.Cleanup(cleanup)
 	require.NoError(t, err, "failed to create server and client")
 
