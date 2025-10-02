@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -29,6 +30,7 @@ func setupTestDynamoDB(t *testing.T) (*dynamodb.Client, func()) {
 		return status == 400
 	})))
 	require.NoError(t, err, "failed to start DynamoDB container")
+	time.Sleep(2 * time.Second) // Wait for container to be fully ready
 
 	// Get connection string
 	connectionString, err := dynamoContainer.ConnectionString(ctx)

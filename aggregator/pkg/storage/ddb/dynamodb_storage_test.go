@@ -45,6 +45,7 @@ func setupDynamoDBStorage(t *testing.T) (*ddb.DynamoDBStorage, func()) {
 		return status == 400
 	})))
 	require.NoError(t, err, "failed to start DynamoDB container")
+	time.Sleep(2 * time.Second) // Wait for container to be fully ready
 
 	hostPort, err := container.ConnectionString(ctx)
 	require.NoError(t, err, "failed to get connection string")
