@@ -53,6 +53,8 @@ type BeholderConfig struct {
 type ScannerConfig struct {
 	// ScanInterval is the interval to read from each off-chain storage (in seconds).
 	ScanInterval int64 `toml:"ScanInterval"`
+	// ReaderTimeout is the timeout for a single reader call (in seconds).
+	ReaderTimeout int64 `toml:"ReaderTimeout"`
 }
 
 // StorageConfig allows you to change the storage backend used by the indexer.
