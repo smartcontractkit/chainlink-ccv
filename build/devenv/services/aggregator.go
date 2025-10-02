@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -180,6 +181,8 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		Cmd:        []string{"-jar", "DynamoDBLocal.jar", "-sharedDb"},
 		WaitingFor: wait.ForLog("SharedDb:	true"),
 	}
+	// Allow some time for DynamoDB Local to initialize
+	time.Sleep(5 * time.Second)
 
 	dynamoContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: dynamoReq,
