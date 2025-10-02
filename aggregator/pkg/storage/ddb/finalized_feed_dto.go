@@ -158,11 +158,8 @@ func (dto *FinalizedFeedDTO) CreateFinalizedReport(report *model.CommitAggregate
 		Message:               messageBytes,
 	}
 
-	finalized := &FinalizedReport{
-		SharedMessageData: sharedMessageData,
-		Verifications:     make([]FinalizedVerification, len(report.Verifications)),
-	}
-
+	// Filter out verifications with nil IdentifierSigner to avoid empty binary attributes in DynamoDB
+	var validVerifications []FinalizedVerification
 	for i, v := range report.Verifications {
 		if v.IdentifierSigner != nil {
 			var receiptBlobsBytes []byte
@@ -176,7 +173,7 @@ func (dto *FinalizedFeedDTO) CreateFinalizedReport(report *model.CommitAggregate
 				}
 			}
 
-			finalized.Verifications[i] = FinalizedVerification{
+			validVerifications = append(validVerifications, FinalizedVerification{
 				ParticipantID: v.IdentifierSigner.ParticipantID,
 				Address:       v.IdentifierSigner.Address,
 				SignatureR:    v.IdentifierSigner.SignatureR[:],
@@ -185,8 +182,17 @@ func (dto *FinalizedFeedDTO) CreateFinalizedReport(report *model.CommitAggregate
 				BlobData:      v.GetBlobData(),
 				ReceiptBlobs:  receiptBlobsBytes,
 				Timestamp:     v.GetTimestamp(),
-			}
+			})
 		}
+	}
+
+	finalized := &FinalizedReport{
+		SharedMessageData: sharedMessageData,
+		Verifications:     validVerifications,
+	}
+
+	if len(validVerifications) == 0 {
+		return nil, fmt.Errorf("no valid verifications found after filtering out nil IdentifierSigner entries")
 	}
 
 	return finalized, nil
@@ -201,18 +207,25 @@ func (dto *FinalizedFeedDTO) finalizedReportToAttributeMap(report *FinalizedRepo
 
 	verificationsList := make([]types.AttributeValue, len(report.Verifications))
 	for i, v := range report.Verifications {
-		verificationsList[i] = &types.AttributeValueMemberM{
-			Value: map[string]types.AttributeValue{
-				"participant_id": &types.AttributeValueMemberS{Value: v.ParticipantID},
-				"address":        &types.AttributeValueMemberB{Value: v.Address},
-				"signature_r":    &types.AttributeValueMemberB{Value: v.SignatureR},
-				"signature_s":    &types.AttributeValueMemberB{Value: v.SignatureS},
-				"ccv_data":       &types.AttributeValueMemberB{Value: v.CCVData},
-				"blob_data":      &types.AttributeValueMemberB{Value: v.BlobData},
-				"receipt_blobs":  &types.AttributeValueMemberB{Value: v.ReceiptBlobs},
-				"timestamp":      &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", v.Timestamp)},
-			},
+		verificationMap := map[string]types.AttributeValue{
+			"participant_id": &types.AttributeValueMemberS{Value: v.ParticipantID},
+			"address":        &types.AttributeValueMemberB{Value: v.Address},
+			"signature_r":    &types.AttributeValueMemberB{Value: v.SignatureR},
+			"signature_s":    &types.AttributeValueMemberB{Value: v.SignatureS},
+			"ccv_data":       &types.AttributeValueMemberB{Value: v.CCVData},
+			"receipt_blobs":  &types.AttributeValueMemberB{Value: v.ReceiptBlobs},
+			"timestamp":      &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", v.Timestamp)},
 		}
+
+		// Handle BlobData - only add if not nil/empty to avoid DynamoDB validation error
+		if len(v.BlobData) > 0 {
+			verificationMap["blob_data"] = &types.AttributeValueMemberB{Value: v.BlobData}
+		} else {
+			// Use NULL attribute type for empty/nil blob data
+			verificationMap["blob_data"] = &types.AttributeValueMemberNULL{Value: true}
+		}
+
+		verificationsList[i] = &types.AttributeValueMemberM{Value: verificationMap}
 	}
 
 	return map[string]types.AttributeValue{
@@ -285,9 +298,13 @@ func (dto *FinalizedFeedDTO) attributeMapToFinalizedReport(attrMap map[string]ty
 			return nil, fmt.Errorf("verification %d ccv_data is missing or not binary", i)
 		}
 
-		blobData, ok := vMap.Value["blob_data"].(*types.AttributeValueMemberB)
-		if !ok {
-			return nil, fmt.Errorf("verification %d blob_data is missing or not binary", i)
+		var blobDataValue []byte
+		if blobDataAttr, ok := vMap.Value["blob_data"].(*types.AttributeValueMemberB); ok {
+			blobDataValue = blobDataAttr.Value
+		} else if _, ok := vMap.Value["blob_data"].(*types.AttributeValueMemberNULL); ok {
+			blobDataValue = nil
+		} else {
+			return nil, fmt.Errorf("verification %d blob_data is missing or not binary/null", i)
 		}
 
 		receiptBlobs, ok := vMap.Value["receipt_blobs"].(*types.AttributeValueMemberB)
@@ -311,7 +328,7 @@ func (dto *FinalizedFeedDTO) attributeMapToFinalizedReport(attrMap map[string]ty
 			SignatureR:    signatureR.Value,
 			SignatureS:    signatureS.Value,
 			CCVData:       ccvData.Value,
-			BlobData:      blobData.Value,
+			BlobData:      blobDataValue,
 			ReceiptBlobs:  receiptBlobs.Value,
 			Timestamp:     timestamp,
 		}

@@ -31,17 +31,17 @@ func BuildGSIPartitionKey(day, committeeID string, version int, shard string) st
 }
 
 func BuildGSISortKey(finalizedAt int64, verificationCount int, messageIDHex string) string {
-	return fmt.Sprintf("%013d%s%05d%s%s", finalizedAt, KeySeparator, verificationCount, KeySeparator, messageIDHex)
+	return fmt.Sprintf("%010d%s%05d%s%s", finalizedAt, KeySeparator, verificationCount, KeySeparator, messageIDHex)
 }
 
 func ComputeFinalizedAt(report *model.CommitAggregatedReport) int64 {
 	if len(report.Verifications) == 0 {
-		return time.Now().UnixMilli()
+		return time.Now().Unix()
 	}
 
-	return report.Timestamp / 1000
+	return report.Timestamp
 }
 
-func FormatDay(timestampMs int64) string {
-	return time.Unix(timestampMs/1000, 0).UTC().Format("2006-01-02")
+func FormatDay(timestampSeconds int64) string {
+	return time.Unix(timestampSeconds, 0).UTC().Format("2006-01-02")
 }

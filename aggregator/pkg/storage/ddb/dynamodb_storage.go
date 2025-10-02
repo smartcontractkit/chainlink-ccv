@@ -217,9 +217,6 @@ func (d *DynamoDBStorage) QueryAggregatedReports(ctx context.Context, start, end
 		return nil, fmt.Errorf("start time (%d) cannot be greater than end time (%d)", start, end)
 	}
 
-	startMs := start * 1000
-	endMs := end * 1000
-
 	var allReports []*model.CommitAggregatedReport
 
 	dayIterator := NewDayIterator(start, end)
@@ -229,7 +226,7 @@ func (d *DynamoDBStorage) QueryAggregatedReports(ctx context.Context, start, end
 
 		gsiPK := BuildGSIPartitionKey(day, committeeID, FinalizedFeedVersion, FinalizedFeedShard)
 
-		dayReports, err := d.queryFinalizedFeedByGSI(ctx, gsiPK, startMs, endMs)
+		dayReports, err := d.queryFinalizedFeedByGSI(ctx, gsiPK, start, end)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query day %s: %w", day, err)
 		}
@@ -275,7 +272,7 @@ func (d *DynamoDBStorage) GetCCVData(ctx context.Context, messageID model.Messag
 	return report, nil
 }
 
-func (d *DynamoDBStorage) queryFinalizedFeedByGSI(ctx context.Context, gsiPK string, startMs, endMs int64) ([]*model.CommitAggregatedReport, error) {
+func (d *DynamoDBStorage) queryFinalizedFeedByGSI(ctx context.Context, gsiPK string, startSeconds, endSeconds int64) ([]*model.CommitAggregatedReport, error) {
 	queryInput := &dynamodb.QueryInput{
 		TableName:              aws.String(d.finalizedFeedTableName),
 		IndexName:              aws.String(GSIDayCommitteeIndex),
@@ -285,10 +282,10 @@ func (d *DynamoDBStorage) queryFinalizedFeedByGSI(ctx context.Context, gsiPK str
 				Value: gsiPK,
 			},
 			":startKey": &types.AttributeValueMemberS{
-				Value: fmt.Sprintf("%013d#", startMs),
+				Value: fmt.Sprintf("%010d#", startSeconds),
 			},
 			":endKey": &types.AttributeValueMemberS{
-				Value: fmt.Sprintf("%013d#ZZZZZ", endMs),
+				Value: fmt.Sprintf("%010d#ZZZZZ", endSeconds),
 			},
 		},
 		ScanIndexForward: aws.Bool(true),

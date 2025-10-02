@@ -3,6 +3,7 @@ package aggregation
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
@@ -54,6 +55,18 @@ func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorM
 	return scope.AugmentMetrics(ctx, c.monitoring.Metrics())
 }
 
+func normalizeTimestampToSeconds(timestamp int64) int64 {
+	if timestamp <= 0 {
+		return timestamp
+	}
+	digits := int(math.Log10(float64(timestamp))) + 1
+	if digits > 10 {
+		divisor := int64(math.Pow10(digits - 10))
+		return timestamp / divisor
+	}
+	return timestamp
+}
+
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
@@ -69,7 +82,8 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	var mostRecentTimestamp int64
 	for _, verification := range verifications {
-		if verificationTimestamp := verification.GetTimestamp(); verificationTimestamp > mostRecentTimestamp {
+		verificationTimestamp := normalizeTimestampToSeconds(verification.GetTimestamp())
+		if verificationTimestamp > mostRecentTimestamp {
 			mostRecentTimestamp = verificationTimestamp
 		}
 	}

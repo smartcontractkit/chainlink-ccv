@@ -292,7 +292,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("submit and query reports", func(t *testing.T) {
-		baseTime := int64(1704067200000000) // 2024-01-01 00:00:00 UTC in microseconds
+		baseTime := int64(1704067200) // 2024-01-01 00:00:00 UTC in seconds
 		committeeID := "test-committee-query"
 
 		// Create test reports with different timestamps
@@ -305,16 +305,16 @@ func TestAggregatedReportOperations(t *testing.T) {
 			require.NoError(t, err, "SaveCommitVerification should succeed for record %d", i)
 
 			// Create and submit aggregated report
-			timestamp := baseTime + int64(i*3600*1000000) // each report 1 hour apart
+			timestamp := baseTime + int64(i*3600) // each report 1 hour apart in seconds
 			report := createTestAggregatedReport(messageID, committeeID, timestamp, []*model.CommitVerificationRecord{verification})
 
 			err = storage.SubmitReport(ctx, report)
 			require.NoError(t, err, "SubmitReport should succeed for report %d", i)
 		}
 
-		// Query reports in time range
-		start := baseTime / 1000000 // Convert to seconds for query
-		end := start + 7200         // 2 hours later
+		// Query reports in time range (using seconds for API)
+		start := baseTime          // Start time in seconds
+		end := start + int64(7200) // 2 hours later in seconds
 		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
 		require.Len(t, reports, 3, "Should return all 3 reports within time range")
@@ -327,7 +327,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 		messageID := createTestMessageID(50)
 		committeeID := "test-committee-idempotent"
 		verification := createTestVerificationRecord(messageID, "signer1", committeeID)
-		timestamp := int64(1704067200000000)
+		timestamp := int64(1704067200) // Seconds timestamp
 
 		report := createTestAggregatedReport(messageID, committeeID, timestamp, []*model.CommitVerificationRecord{verification})
 
@@ -338,9 +338,9 @@ func TestAggregatedReportOperations(t *testing.T) {
 		err = storage.SubmitReport(ctx, report)
 		require.NoError(t, err, "Second SubmitReport should succeed (idempotent)")
 
-		// Verify only one report exists
-		start := timestamp/1000000 - 3600 // 1 hour before
-		end := timestamp/1000000 + 3600   // 1 hour after
+		// Verify only one report exists (using seconds for API)
+		start := timestamp - int64(3600) // 1 hour before in seconds
+		end := timestamp + int64(3600)   // 1 hour after in seconds
 		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
 		require.Len(t, reports, 1, "Should have exactly one report after duplicate submission")
@@ -350,7 +350,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 		messageID := createTestMessageID(60)
 		committeeID := "test-committee-getccv"
 		verification := createTestVerificationRecord(messageID, "signer-getccv", committeeID)
-		timestamp := int64(1704067200000000)
+		timestamp := int64(1704067200)
 
 		// Save verification record first
 		err := storage.SaveCommitVerification(ctx, verification)
@@ -377,7 +377,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 	t.Run("multiple snapshots same message", func(t *testing.T) {
 		messageID := createTestMessageID(70)
 		committeeID := "test-committee-snapshots"
-		baseTime := int64(1704067200000000)
+		baseTime := int64(1704067200) // Seconds timestamp
 
 		// Create multiple reports for the same message at different timestamps (snapshots)
 		for i := 0; i < 2; i++ {
@@ -388,7 +388,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 			require.NoError(t, err, "SaveCommitVerification should succeed for snapshot %d", i)
 
 			// Create report with different timestamp
-			timestamp := baseTime + int64(i*3600*1000000) // 1 hour apart
+			timestamp := baseTime + int64(i*3600) // 1 hour apart in seconds
 			report := createTestAggregatedReport(messageID, committeeID, timestamp, []*model.CommitVerificationRecord{verification})
 
 			err = storage.SubmitReport(ctx, report)
@@ -400,12 +400,12 @@ func TestAggregatedReportOperations(t *testing.T) {
 		require.NoError(t, err, "GetCCVData should succeed")
 		require.NotNil(t, foundReport, "Should find the report")
 
-		expectedLatestTimestamp := baseTime + int64(1*3600*1000000)
+		expectedLatestTimestamp := baseTime + int64(1*3600) // Seconds timestamp
 		require.Equal(t, expectedLatestTimestamp, foundReport.Timestamp, "Should return the latest report by timestamp")
 
-		// Query should return both snapshots in correct order
-		start := baseTime/1000000 - 3600 // 1 hour before first
-		end := baseTime/1000000 + 7200   // 2 hours after first
+		// Query should return both snapshots in correct order (using seconds for API)
+		start := baseTime - int64(3600) // 1 hour before first in seconds
+		end := baseTime + int64(7200)   // 2 hours after first in seconds
 		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
 		require.Len(t, reports, 2, "Should return both snapshots")
@@ -413,16 +413,16 @@ func TestAggregatedReportOperations(t *testing.T) {
 	})
 
 	t.Run("empty results and validation", func(t *testing.T) {
-		// Query empty time range
-		start := int64(1500000000) // Much earlier time
-		end := int64(1500001000)
+		// Query empty time range (using seconds for API)
+		start := int64(1500000000) // Much earlier time in seconds
+		end := int64(1500001000)   // Still early time in seconds
 		reports, err := storage.QueryAggregatedReports(ctx, start, end, "nonexistent-committee")
 		require.NoError(t, err, "QueryAggregatedReports should succeed even with no results")
 		require.Empty(t, reports, "Should return empty slice for no results")
 
-		// Test invalid time range (start > end)
-		start = int64(2000000000)
-		end = int64(1000000000)
+		// Test invalid time range (start > end) in seconds
+		start = int64(2000000000) // Later time in seconds
+		end = int64(1000000000)   // Earlier time in seconds
 		reports, err = storage.QueryAggregatedReports(ctx, start, end, "test-committee")
 		require.Error(t, err, "Should return error for invalid time range")
 		require.Nil(t, reports, "Should return nil for invalid time range")
