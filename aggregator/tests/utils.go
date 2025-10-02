@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/dynamodb"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -17,14 +20,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 
+	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 const bufSize = 1024 * 1024

@@ -10,15 +10,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	smithyendpoints "github.com/aws/smithy-go/endpoints"
 	"github.com/ethereum/go-ethereum/common"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	"github.com/stretchr/testify/require"
+	dynamodblocal "github.com/testcontainers/testcontainers-go/modules/dynamodb"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
-
-	smithyendpoints "github.com/aws/smithy-go/endpoints"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
-	dynamodblocal "github.com/testcontainers/testcontainers-go/modules/dynamodb"
 )
 
 type DynamoDBLocalResolver struct {
