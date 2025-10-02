@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -26,6 +27,8 @@ const (
 	postgresDriver      = "postgres"
 	defaultMaxOpenConns = 25
 )
+
+var earliestDateForGetMessageSince = time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)
 
 // CommitVerificationStorage combines all storage interfaces for production use.
 type CommitVerificationStorage interface {
@@ -125,11 +128,12 @@ func (f *Factory) createDynamoDBStorage(config model.StorageConfig) (CommitVerif
 		return nil, err
 	}
 
-	// Create storage instance
+	// Create storage instance with configurable minimum date
 	storage := ddb.NewDynamoDBStorage(
 		client,
 		config.DynamoDB.CommitVerificationRecordTableName,
 		config.DynamoDB.FinalizedFeedTableName,
+		earliestDateForGetMessageSince,
 	)
 
 	return storage, nil

@@ -187,7 +187,7 @@ func setupPostgresStorage(t *testing.T) (model.StorageConfig, func(), error) {
 
 func setupDynamoDBStorage(t *testing.T) (model.StorageConfig, func(), error) {
 	// Start DynamoDB Local container
-	dynamoContainer, err := dynamodb.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForLog("SharedDb:	true")))
+	dynamoContainer, err := dynamodb.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForLog("SharedDb:	false")))
 	if err != nil {
 		return model.StorageConfig{}, nil, err
 	}
