@@ -115,11 +115,20 @@ type MonitoringConfig struct {
 	Beholder BeholderConfig `toml:"beholder"`
 }
 
+// PaginationConfig represents the configuration for pagination in GetMessagesSince API.
+type PaginationConfig struct {
+	// PageLimit is the maximum number of records returned per page (server-controlled)
+	PageLimit int `toml:"pageLimit"`
+	// TokenSecret is the secret key used for HMAC signing of pagination tokens
+	TokenSecret string `toml:"tokenSecret"`
+}
+
 // AggregatorConfig is the root configuration for the aggregator.
 type AggregatorConfig struct {
 	Server     ServerConfig          `toml:"server"`
 	Storage    StorageConfig         `toml:"storage"`
 	StubMode   bool                  `toml:"stubQuorumValidation"`
+	Pagination PaginationConfig      `toml:"pagination"`
 	Committees map[string]*Committee `toml:"committees"`
 	Monitoring MonitoringConfig      `toml:"monitoring"`
 }

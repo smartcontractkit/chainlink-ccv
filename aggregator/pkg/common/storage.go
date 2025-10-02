@@ -18,8 +18,14 @@ type CommitVerificationStore interface {
 }
 
 type CommitVerificationAggregatedStore interface {
-	// QueryAggregatedReports retrieves all aggregated reports within a specific time range.
-	QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error)
+	// QueryAggregatedReports retrieves aggregated reports within a specific time range with pagination support.
+	// Parameters:
+	//   - start, end: Unix timestamp range for filtering reports
+	//   - committeeID: Committee identifier for filtering
+	//   - limit: Maximum number of records to return (server-controlled)
+	//   - lastSeqNum: Sequence number of the last record from previous page (nil for first page)
+	// Returns paginated response with reports and metadata for next page generation.
+	QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string, limit int, lastSeqNum *int64) (*model.PaginatedAggregatedReportsResponse, error)
 	// GetCCVData retrieves the aggregated CCV data for a specific message ID.
 	GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error)
 }

@@ -137,6 +137,14 @@ type CheckpointConfig struct {
 	MaxCheckpointsPerRequest int `toml:"maxCheckpointsPerRequest"`
 }
 
+// PaginationConfig represents the configuration for pagination in GetMessagesSince API.
+type PaginationConfig struct {
+	// PageLimit is the maximum number of records returned per page (server-controlled)
+	PageLimit int `toml:"pageLimit"`
+	// TokenSecret is the secret key used for HMAC signing of pagination tokens
+	TokenSecret string `toml:"tokenSecret"`
+}
+
 // BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
 type BeholderConfig struct {
 	// InsecureConnection disables TLS for the beholder client.
@@ -206,6 +214,7 @@ type AggregatorConfig struct {
 	Storage           StorageConfig              `toml:"storage"`
 	APIKeys           APIKeyConfig               `toml:"apiKeys"`
 	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
+	Pagination        PaginationConfig           `toml:"pagination"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
 	Monitoring        MonitoringConfig           `toml:"monitoring"`
@@ -222,6 +231,9 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
+	}
+	if c.Pagination.PageLimit == 0 {
+		c.Pagination.PageLimit = 100
 	}
 }
 
@@ -259,6 +271,27 @@ func (c *AggregatorConfig) ValidateCheckpointConfig() error {
 	return nil
 }
 
+// ValidatePaginationConfig validates the pagination configuration.
+func (c *AggregatorConfig) ValidatePaginationConfig() error {
+	if c.Pagination.PageLimit <= 0 {
+		return errors.New("pagination.pageLimit must be greater than 0")
+	}
+
+	if c.Pagination.PageLimit > 10000 {
+		return errors.New("pagination.pageLimit must not exceed 10000")
+	}
+
+	if strings.TrimSpace(c.Pagination.TokenSecret) == "" {
+		return errors.New("pagination.tokenSecret cannot be empty")
+	}
+
+	if len(c.Pagination.TokenSecret) < 32 {
+		return errors.New("pagination.tokenSecret must be at least 32 bytes long")
+	}
+
+	return nil
+}
+
 // Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
 	// Set defaults first
@@ -272,6 +305,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate checkpoint configuration
 	if err := c.ValidateCheckpointConfig(); err != nil {
 		return fmt.Errorf("checkpoint configuration error: %w", err)
+	}
+
+	// Validate pagination configuration
+	if err := c.ValidatePaginationConfig(); err != nil {
+		return fmt.Errorf("pagination configuration error: %w", err)
 	}
 
 	// TODO: Add other validation logic
