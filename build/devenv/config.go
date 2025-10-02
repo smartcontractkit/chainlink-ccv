@@ -11,6 +11,7 @@ LoadCache[T] is used if you need to write outputs the second time.
 */
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,6 +22,8 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
 const (
@@ -90,8 +93,35 @@ func Store[T any](cfg *T) error {
 }
 
 // LoadOutput loads config output file from path.
+// TODO: why is this generic?
 func LoadOutput[T any](outputPath string) (*T, error) {
-	return Load[T]([]string{outputPath})
+	config, err := Load[T]([]string{outputPath})
+	if err != nil {
+		return nil, err
+	}
+
+	// Load addresses into the datastore so that tests can query them appropriately.
+	if c, ok := any(config).(*Cfg); ok {
+		if c.CLDF != nil && len(c.CLDF.Addresses) > 0 {
+			ds := datastore.NewMemoryDataStore()
+			for _, addrRefJSON := range c.CLDF.Addresses {
+				var addrs []datastore.AddressRef
+				if err := json.Unmarshal([]byte(addrRefJSON), &addrs); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal addresses from config: %w", err)
+				}
+				fmt.Println("loaded", len(addrs), "addresses")
+				for _, addr := range addrs {
+					fmt.Println("adding address to datastore", addr)
+					if err := ds.Addresses().Add(addr); err != nil {
+						return nil, fmt.Errorf("failed to set address in datastore: %w", err)
+					}
+				}
+			}
+			c.CLDF.DataStore = ds.Seal()
+		}
+	}
+
+	return config, nil
 }
 
 // BaseConfigPath returns base config path, ex. env.toml,overrides.toml -> env.toml.

@@ -5,17 +5,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+)
+
+const (
+	MockReceiverContractType    = "MockReceiver"
+	MockReceiverContractVersion = "1.7.0"
 )
 
 func TestE2ESmoke(t *testing.T) {
@@ -78,6 +85,14 @@ func TestE2ESmoke(t *testing.T) {
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+				require.NotNil(t, in.CLDF)
+				require.NotNil(t, in.CLDF.DataStore)
+				require.NotNil(t, in.CLDF.DataStore.Addresses())
+				mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
+					datastore.NewAddressRefKey(tc.toSelector, datastore.ContractType(MockReceiverContractType), semver.MustParse(MockReceiverContractVersion), ""),
+				)
+				require.NoError(t, err)
+				t.Logf("mockReceiverRef: %s", mockReceiverRef.Address)
 				err = c.SendArgsV2Message(ctx, e, in.CLDF.Addresses, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
 				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, 1*time.Minute)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
@@ -435,6 +436,49 @@ var monitorContractsCmd = &cobra.Command{
 	},
 }
 
+var txInfoCmd = &cobra.Command{
+	Use:   "tx-receipt <tx hash>",
+	Short: "Get transaction receipt information",
+	Args:  cobra.RangeArgs(1, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			return fmt.Errorf("expected 1 argument (tx hash), got %d", len(args))
+		}
+		txHash := common.HexToHash(args[0])
+		ctx := ccv.Plog.WithContext(cmd.Context())
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+
+		var found bool
+		for _, bc := range in.Blockchains {
+			if found {
+				break
+			}
+			client, err := ethclient.Dial(bc.Out.Nodes[0].ExternalWSUrl)
+			if err != nil {
+				return fmt.Errorf("failed to dial client: %w", err)
+			}
+			receipt, err := client.TransactionReceipt(ctx, txHash)
+			if err != nil {
+				continue
+			}
+			tx, _, err := client.TransactionByHash(ctx, txHash)
+			if err != nil {
+				continue
+			}
+			// check gas specified in the transaction and gas used in the receipt
+			ccv.Plog.Info().Msgf("gas specified in tx: %d, gas used in receipt: %d", tx.Gas(), receipt.GasUsed)
+			found = true
+		}
+		if !found {
+			return fmt.Errorf("transaction not found in any of the enabled chains")
+		}
+		return nil
+	},
+}
+
 var sendCmd = &cobra.Command{
 	Use:     "send",
 	Aliases: []string{"s"},
@@ -525,6 +569,7 @@ func init() {
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
+	rootCmd.AddCommand(txInfoCmd)
 
 	// contract management
 	rootCmd.AddCommand(deployCommitVerifierCmd)
