@@ -6,6 +6,7 @@ import (
 
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
@@ -24,8 +25,10 @@ type AggregatorMetrics struct {
 	timeToAggregation                      metric.Int64Histogram
 
 	// Storage metrics
-	storageLatency metric.Int64Histogram
-	storageError   metric.Int64Counter
+	storageLatency             metric.Int64Histogram
+	storageError               metric.Int64Counter
+	dynamodbReadCapacityUnits  metric.Float64Counter
+	dynamodbWriteCapacityUnits metric.Float64Counter
 }
 
 func MetricViews() []sdkmetric.View {
@@ -132,6 +135,22 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register time to aggregation histogram: %w", err)
 	}
 
+	am.dynamodbReadCapacityUnits, err = beholder.GetMeter().Float64Counter(
+		"aggregator_dynamodb_read_capacity_units",
+		metric.WithDescription("DynamoDB read capacity units consumed"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register DynamoDB read capacity units counter: %w", err)
+	}
+
+	am.dynamodbWriteCapacityUnits, err = beholder.GetMeter().Float64Counter(
+		"aggregator_dynamodb_write_capacity_units",
+		metric.WithDescription("DynamoDB write capacity units consumed"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register DynamoDB write capacity units histogram: %w", err)
+	}
+
 	return am, nil
 }
 
@@ -204,4 +223,40 @@ func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
 func (c *AggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, durationMs int64) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.timeToAggregation.Record(ctx, durationMs, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) RecordDynamoDBReadCapacityUnits(ctx context.Context, units float64) {
+	fmt.Println("Recording DynamoDB read capacity units")
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.dynamodbReadCapacityUnits.Add(ctx, units, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) RecordDynamoDBWriteCapacityUnits(ctx context.Context, units float64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.dynamodbWriteCapacityUnits.Add(ctx, units, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) RecordCapacity(capacity *types.ConsumedCapacity) {
+	if capacity != nil {
+		if capacity.TableName != nil && capacity.Table != nil {
+			metrics := c.With("table", *capacity.TableName)
+			if capacity.Table.ReadCapacityUnits != nil {
+				metrics.RecordDynamoDBReadCapacityUnits(context.Background(), *capacity.Table.ReadCapacityUnits)
+			}
+			if capacity.Table.WriteCapacityUnits != nil {
+				metrics.RecordDynamoDBWriteCapacityUnits(context.Background(), *capacity.Table.WriteCapacityUnits)
+			}
+		}
+		if capacity.GlobalSecondaryIndexes != nil {
+			for gsiName, gsiCapacity := range capacity.GlobalSecondaryIndexes {
+				gsiMetrics := c.With("table", *capacity.TableName, "gsi", gsiName)
+				if gsiCapacity.ReadCapacityUnits != nil {
+					gsiMetrics.RecordDynamoDBReadCapacityUnits(context.Background(), *gsiCapacity.ReadCapacityUnits)
+				}
+				if gsiCapacity.WriteCapacityUnits != nil {
+					gsiMetrics.RecordDynamoDBWriteCapacityUnits(context.Background(), *gsiCapacity.WriteCapacityUnits)
+				}
+			}
+		}
+	}
 }

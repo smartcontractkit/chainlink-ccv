@@ -17,6 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
@@ -70,7 +71,7 @@ func setupDynamoDBStorage(t *testing.T) (*ddb.DynamoDBStorage, func()) {
 
 	// Use a test-friendly minimum date (2020-01-01) that allows all test dates
 	testMinDate := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	storage := ddb.NewDynamoDBStorage(client, tableName, finalizedFeedTableName, testMinDate)
+	storage := ddb.NewDynamoDBStorage(client, tableName, finalizedFeedTableName, testMinDate, &monitoring.NoopAggregatorMonitoring{})
 
 	cleanup := func() {
 		err := container.Terminate(ctx)
