@@ -9,13 +9,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type SignatureValidator interface {
 	// ValidateSignature validates a signature for a MessageWithCCVNodeData and returns the signers.
-	ValidateSignature(ctx context.Context, report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
+	ValidateSignature(ctx context.Context, report *pb.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
 }
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
@@ -38,14 +39,14 @@ func (h *WriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.Sugar
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggregator.WriteCommitCCVNodeDataRequest) (*aggregator.WriteCommitCCVNodeDataResponse, error) {
+func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.WriteCommitCCVNodeDataRequest) (*pb.WriteCommitCCVNodeDataResponse, error) {
 	ctx = scope.WithMessageID(ctx, req.CcvNodeData.MessageId)
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received WriteCommitCCVNodeDataRequest")
 	if !h.disableValidation {
 		if err := validateWriteRequest(req); err != nil {
-			return &aggregator.WriteCommitCCVNodeDataResponse{
-				Status: aggregator.WriteStatus_FAILED,
+			return &pb.WriteCommitCCVNodeDataResponse{
+				Status: pb.WriteStatus_FAILED,
 			}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 		}
 	} else {
@@ -54,8 +55,8 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 
 	signers, _, err := h.signatureValidator.ValidateSignature(ctx, req.GetCcvNodeData())
 	if err != nil {
-		return &aggregator.WriteCommitCCVNodeDataResponse{
-			Status: aggregator.WriteStatus_FAILED,
+		return &pb.WriteCommitCCVNodeDataResponse{
+			Status: pb.WriteStatus_FAILED,
 		}, err
 	}
 
@@ -73,22 +74,22 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *aggrega
 		}
 		err := h.storage.SaveCommitVerification(signerCtx, &record)
 		if err != nil {
-			return &aggregator.WriteCommitCCVNodeDataResponse{
-				Status: aggregator.WriteStatus_FAILED,
+			return &pb.WriteCommitCCVNodeDataResponse{
+				Status: pb.WriteStatus_FAILED,
 			}, err
 		}
 		h.logger(signerCtx).Infof("Successfully saved commit verification record")
 	}
 
 	if err := h.aggregator.CheckAggregation(req.CcvNodeData.GetMessageId(), signers[0].CommitteeID); err != nil {
-		return &aggregator.WriteCommitCCVNodeDataResponse{
-			Status: aggregator.WriteStatus_FAILED,
+		return &pb.WriteCommitCCVNodeDataResponse{
+			Status: pb.WriteStatus_FAILED,
 		}, err
 	}
 	reqLogger.Infof("Triggered aggregation check")
 
-	return &aggregator.WriteCommitCCVNodeDataResponse{
-		Status: aggregator.WriteStatus_SUCCESS,
+	return &pb.WriteCommitCCVNodeDataResponse{
+		Status: pb.WriteStatus_SUCCESS,
 	}, nil
 }
 

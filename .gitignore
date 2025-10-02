@@ -6,3 +6,6 @@ build/devenv/fakes/tmp/**
 
 # local mise config
 mise.local.toml
+
+# indexer config
+indexer/config.toml

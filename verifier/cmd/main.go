@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -14,26 +15,19 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
 	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
 )
 
-// Configuration flags.
 const (
-	// Chain IDs for blockchain client connections.
-	chainIDA = protocol.ChainSelector(1337)
-	chainIDB = protocol.ChainSelector(2337)
-
-	// Actual chain selectors used in CCIP messages.
-	chainSelectorA = protocol.ChainSelector(3379446385462418246)  // Maps to chain ID 1337
-	chainSelectorB = protocol.ChainSelector(12922642891491394802) // Maps to chain ID 2337
+	PK_ENV_VAR  = "VERIFIER_SIGNER_PRIVATE_KEY"
+	CONFIG_PATH = "VERIFIER_CONFIG_PATH"
 )
 
 func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
@@ -44,13 +38,13 @@ func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
 	return &config, nil
 }
 
-func logBlockchainInfo(blockchainHelper *commontypes.BlockchainHelper, lggr logger.Logger) {
-	for _, chainID := range []protocol.ChainSelector{chainIDA, chainIDB} {
+func logBlockchainInfo(blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger) {
+	for _, chainID := range blockchainHelper.GetAllChainSelectors() {
 		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *commontypes.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo(blockchainHelper *protocol.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
 	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
 		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
 	}
@@ -97,7 +91,7 @@ func main() {
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
-	envConfig := os.Getenv("VERIFIER_CONFIG")
+	envConfig := os.Getenv(CONFIG_PATH)
 	if envConfig != "" {
 		filePath = envConfig
 	}
@@ -124,75 +118,98 @@ func main() {
 	}
 
 	// Use actual blockchain information from configuration
-	var blockchainHelper *commontypes.BlockchainHelper
-	var chainClient1 client.Client
-	var chainClient2 client.Client
+	var blockchainHelper *protocol.BlockchainHelper
+	chainClients := make(map[protocol.ChainSelector]client.Client)
 	if len(verifierConfig.BlockchainInfos) == 0 {
 		lggr.Warnw("⚠️ No blockchain information in config")
 	} else {
-		blockchainHelper = commontypes.NewBlockchainHelper(verifierConfig.BlockchainInfos)
+		blockchainHelper = protocol.NewBlockchainHelper(verifierConfig.BlockchainInfos)
 		lggr.Infow("✅ Using real blockchain information from environment",
 			"chainCount", len(verifierConfig.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
-		chainClient1 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainIDA)
-		chainClient2 = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, chainIDB)
+		for _, selector := range blockchainHelper.GetAllChainSelectors() {
+			lggr.Infow("Creating chain client", "chainSelector", selector)
+			chainClients[selector] = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, selector)
+		}
 	}
 
 	// Create verifier addresses before source readers setup
-	verifierAddr, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp1337)
+	verifierAddresses := make(map[string]protocol.UnknownAddress)
+	for selector, address := range verifierConfig.CommitteeVerifierAddresses {
+		addr, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			lggr.Errorw("Failed to create verifier address", "error", err)
+			os.Exit(1)
+		}
+		verifierAddresses[selector] = addr
+	}
+
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr)
 	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
+		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		os.Exit(1)
 	}
 
-	verifierAddr2, err := protocol.NewUnknownAddressFromHex(verifierConfig.VerifierOnRamp2337)
+	aggregatorReader, err := storageaccess.NewAggregatorReader(verifierConfig.AggregatorAddress, verifierConfig.AggregatorAPIKey, lggr, 0) // since=0 for checkpoint reads
 	if err != nil {
-		lggr.Errorw("Failed to create verifier address", "error", err)
+		// Clean up writer if reader creation fails
+		err := aggregatorWriter.Close()
+		if err != nil {
+			lggr.Errorw("Failed to close aggregator writer", "error", err)
+		}
+		lggr.Errorw("Failed to create aggregator reader", "error", err)
 		os.Exit(1)
 	}
-
-	storageWriter, err := storageaccess.NewAggregatorWriter(verifierConfig.AggregatorAddress, lggr)
-	if err != nil {
-		lggr.Errorw("Failed to create storage writer", "error", err)
-	}
+	// Create checkpoint manager (includes both writer and reader)
+	checkpointManager := storageaccess.NewAggregatorCheckpointManager(aggregatorWriter, aggregatorReader)
 
 	// Create source readers - either blockchain-based or mock
-	sourceReaders := make(map[protocol.ChainSelector]reader.SourceReader)
+	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
 
+	lggr.Infow("Committee verifier addresses", "addresses", verifierConfig.CommitteeVerifierAddresses)
 	// Try to create blockchain source readers if possible
-	if chainClient1 == nil || verifierConfig.VerifierOnRamp1337 == "" {
-		lggr.Errorw("No chainclient or VerifierOnRamp1337 address", "chain", 1337)
-		os.Exit(1)
-	}
-	sourceReaders[chainSelectorA] = reader.NewEVMSourceReader(chainClient1, verifierConfig.CCVProxy1337, chainIDA, lggr)
-	lggr.Infow("✅ Created blockchain source reader", "chain", 1337)
+	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		lggr.Infow("Creating source reader", "chainSelector", selector, "strSelector", uint64(selector))
+		strSelector := strconv.FormatUint(uint64(selector), 10)
 
-	if chainClient2 == nil || verifierConfig.VerifierOnRamp2337 == "" {
-		lggr.Errorw("No chainclient or VerifierOnRamp2337 address", "chain", 2337)
-		os.Exit(1)
+		if verifierConfig.CommitteeVerifierAddresses[strSelector] == "" {
+			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
+			continue
+		}
+		if verifierConfig.CcvProxyAddresses[strSelector] == "" {
+			lggr.Errorw("CCV proxy address is not set", "chainSelector", selector)
+			continue
+		}
+
+		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], verifierConfig.CcvProxyAddresses[strSelector], selector, checkpointManager, lggr)
+		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
-	sourceReaders[chainSelectorB] = reader.NewEVMSourceReader(chainClient2, verifierConfig.CCVProxy2337, chainIDB, lggr)
-	lggr.Infow("✅ Created blockchain source reader", "chain", 2337)
 
 	// Create coordinator configuration
-	config := verifiertypes.CoordinatorConfig{
-		VerifierID: "dev-verifier-1",
-		SourceConfigs: map[protocol.ChainSelector]verifiertypes.SourceConfig{
-			chainSelectorA: {
-				VerifierAddress: verifierAddr,
-			},
-			chainSelectorB: {
-				VerifierAddress: verifierAddr2,
-			},
-		},
+	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
+		sourceConfigs[selector] = verifier.SourceConfig{
+			VerifierAddress: verifierAddresses[strSelector],
+		}
+	}
+
+	config := verifier.CoordinatorConfig{
+		VerifierID:            verifierConfig.VerifierID,
+		SourceConfigs:         sourceConfigs,
 		ProcessingChannelSize: 1000,
 		ProcessingTimeout:     30 * time.Second,
 		MaxBatchSize:          100,
 	}
 
+	pk := os.Getenv(PK_ENV_VAR)
+	if pk == "" {
+		lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
+		os.Exit(1)
+	}
 	// Create message signer (mock for development)
 	privateKey := make([]byte, 32)
-	copy(privateKey, []byte(verifierConfig.PrivateKey)) // Mock key
+	copy(privateKey, pk) // Mock key
 	signer, err := commit.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
@@ -204,12 +221,12 @@ func main() {
 	commitVerifier := commit.NewCommitVerifier(config, signer, lggr)
 
 	// Create verification coordinator
-	coordinator, err := internal.NewVerificationCoordinator(
-		internal.WithVerifier(commitVerifier),
-		internal.WithSourceReaders(sourceReaders),
-		internal.WithStorage(storageWriter),
-		internal.WithConfig(config),
-		internal.WithLogger(lggr),
+	coordinator, err := verifier.NewVerificationCoordinator(
+		verifier.WithVerifier(commitVerifier),
+		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithStorage(aggregatorWriter),
+		verifier.WithConfig(config),
+		verifier.WithLogger(lggr),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
@@ -219,8 +236,7 @@ func main() {
 	// Start the verification coordinator
 	lggr.Infow("🚀 Starting Verification Coordinator",
 		"verifierID", config.VerifierID,
-		"sourceChains", []protocol.ChainSelector{chainSelectorA, chainSelectorB},
-		"verifierAddress", []string{verifierAddr.String(), verifierAddr2.String()},
+		"verifierAddress", verifierAddresses,
 	)
 
 	if err := coordinator.Start(ctx); err != nil {
@@ -232,11 +248,10 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		lggr.Infow("✅ CCV Verifier is running!\n")
 		lggr.Infow("Verifier ID: %s\n", config.VerifierID)
-		lggr.Infow("Source Chains: [%d, %d]\n", chainSelectorA, chainSelectorB)
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := coordinator.HealthCheck(ctx); err != nil {
+		if err := coordinator.Ready(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			lggr.Infow("❌ Unhealthy: %s\n", err.Error())
 			return
@@ -246,7 +261,7 @@ func main() {
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		stats := storageWriter.GetStats()
+		stats := aggregatorWriter.GetStats()
 		lggr.Infow("📊 Storage Statistics:\n")
 		for key, value := range stats {
 			lggr.Infow("%s: %v\n", key, value)
@@ -278,7 +293,7 @@ func main() {
 	}
 
 	// Stop verification coordinator
-	if err := coordinator.Stop(); err != nil {
+	if err := coordinator.Close(); err != nil {
 		lggr.Errorw("Coordinator stop error", "error", err)
 	}
 

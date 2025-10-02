@@ -8,11 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	th "github.com/smartcontractkit/chainlink-ccv/executor/internal/timestamp_heap"
-	le "github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 )
 
 // BackoffDuration is the duration to backoff when there is an error reading from the ccv data reader.
@@ -21,13 +17,13 @@ const BackoffDuration = 5 * time.Second
 type Coordinator struct {
 	executor            Executor
 	ccvStreamer         CCVResultStreamer
-	leaderElector       le.LeaderElector
+	leaderElector       LeaderElector
 	lggr                logger.Logger
-	ccvDataCh           chan types.MessageWithCCVData
-	executableMessageCh chan types.MessageWithCCVData //nolint:unused //will be used by executor
+	ccvDataCh           chan MessageWithCCVData
+	executableMessageCh chan MessageWithCCVData
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
-	delayedMessageHeap  *th.MessageHeap
+	delayedMessageHeap  *messageHeap
 	mu                  sync.RWMutex
 	running             bool
 }
@@ -52,7 +48,7 @@ func WithCCVResultStreamer(streamer CCVResultStreamer) Option {
 	}
 }
 
-func WithLeaderElector(leaderElector le.LeaderElector) Option {
+func WithLeaderElector(leaderElector LeaderElector) Option {
 	return func(ec *Coordinator) {
 		ec.leaderElector = leaderElector
 	}
@@ -60,7 +56,7 @@ func WithLeaderElector(leaderElector le.LeaderElector) Option {
 
 func NewCoordinator(options ...Option) (*Coordinator, error) {
 	ec := &Coordinator{
-		ccvDataCh: make(chan types.MessageWithCCVData, 100),
+		ccvDataCh: make(chan MessageWithCCVData, 100),
 		doneCh:    make(chan struct{}),
 	}
 
@@ -68,18 +64,8 @@ func NewCoordinator(options ...Option) (*Coordinator, error) {
 		opt(ec)
 	}
 
-	var errs []error
-	appendIfNil := func(field any, fieldName string) {
-		if field == nil {
-			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
-		}
-	}
-	appendIfNil(ec.executor, "executor")
-	appendIfNil(ec.leaderElector, "leaderElector")
-	appendIfNil(ec.lggr, "logger")
-	appendIfNil(ec.ccvStreamer, "ccvResultStreamer")
-	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+	if err := ec.validate(); err != nil {
+		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
 	}
 
 	return ec, nil
@@ -89,13 +75,13 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
 	if ec.running {
-		return fmt.Errorf("Coordinator already running")
+		return fmt.Errorf("coordinator already running")
 	}
 
 	ec.running = true
 	ctx, cancel := context.WithCancel(ctx)
 	ec.cancel = cancel
-	ec.delayedMessageHeap = &th.MessageHeap{}
+	ec.delayedMessageHeap = &messageHeap{}
 	heap.Init(ec.delayedMessageHeap)
 
 	go ec.run(ctx)
@@ -105,18 +91,29 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 	return nil
 }
 
-func (ec *Coordinator) Stop() error {
+func (ec *Coordinator) Close() error {
 	ec.mu.RLock()
 	if !ec.running {
 		ec.mu.RUnlock()
-		return fmt.Errorf("ExecutorCoordinator not started")
+		return fmt.Errorf("coordinator not running")
 	}
 	ec.mu.RUnlock()
 
 	ec.lggr.Infow("Coordinator stopping")
 	ec.cancel()
 	<-ec.doneCh
-	ec.lggr.Infow("ExecutorCoordinator stopped")
+
+	// Close all channels
+	close(ec.ccvDataCh)
+	if ec.executableMessageCh != nil {
+		close(ec.executableMessageCh)
+	}
+
+	ec.mu.Lock()
+	ec.running = false
+	ec.mu.Unlock()
+
+	ec.lggr.Infow("Coordinator stopped")
 
 	return nil
 }
@@ -168,7 +165,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 				// get message delay from leader elector
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
 
-				heap.Push(ec.delayedMessageHeap, &th.MessageWithTimestamp{
+				heap.Push(ec.delayedMessageHeap, &messageWithTimestamp{
 					Payload:   &msg,
 					ReadyTime: readyTimestamp,
 				})
@@ -192,9 +189,47 @@ func (ec *Coordinator) run(ctx context.Context) {
 	}
 }
 
-// IsRunning returns whether the coordinator is running.
-func (ec *Coordinator) IsRunning() bool {
+// validate checks that all required components are configured.
+func (ec *Coordinator) validate() error {
+	var errs []error
+	appendIfNil := func(field any, fieldName string) {
+		if field == nil {
+			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
+		}
+	}
+
+	appendIfNil(ec.executor, "executor")
+	appendIfNil(ec.leaderElector, "leaderElector")
+	appendIfNil(ec.lggr, "logger")
+	appendIfNil(ec.ccvStreamer, "ccvResultStreamer")
+
+	return errors.Join(errs...)
+}
+
+// Ready returns nil if the coordinator is ready, or an error otherwise.
+func (ec *Coordinator) Ready() error {
 	ec.mu.RLock()
 	defer ec.mu.RUnlock()
-	return ec.running
+
+	if !ec.running {
+		return errors.New("coordinator not running")
+	}
+
+	return nil
+}
+
+// HealthReport returns a full health report of the coordinator and its dependencies.
+func (ec *Coordinator) HealthReport() map[string]error {
+	ec.mu.RLock()
+	defer ec.mu.RUnlock()
+
+	report := make(map[string]error)
+	report[ec.Name()] = ec.Ready()
+
+	return report
+}
+
+// Name returns the fully qualified name of the coordinator.
+func (ec *Coordinator) Name() string {
+	return "executor.Coordinator"
 }

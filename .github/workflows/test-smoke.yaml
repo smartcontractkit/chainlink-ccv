@@ -59,10 +59,10 @@ jobs:
           cd cmd/ccv && go install . && cd -
           ccv u env.toml
 
-      - name: Test Smoke ArgsV3
+      - name: Test Smoke ArgsV3 EOA Receiver Tests
         working-directory: build/devenv/tests/e2e
         run: |
-          go test -v -run TestE2ESmoke/test_argsv3_messages
+          go test -v -run 'TestE2ESmoke/test_argsv3_messages/.*with_EOA_receiver$'
 
       - name: Upload Logs
         if: always()

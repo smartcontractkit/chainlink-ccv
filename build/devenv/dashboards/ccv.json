@@ -572,7 +572,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 40
+            "y": 48
           },
           "id": 20,
           "options": {
@@ -625,7 +625,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 41
+            "y": 49
           },
           "id": 21,
           "options": {
@@ -678,7 +678,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 42
+            "y": 50
           },
           "id": 22,
           "options": {
@@ -731,7 +731,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 55
+            "y": 63
           },
           "id": 25,
           "options": {
@@ -784,7 +784,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 23
+            "y": 31
           },
           "id": 6,
           "options": {
@@ -823,7 +823,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 28
+            "y": 36
           },
           "id": 8,
           "options": {
@@ -928,7 +928,7 @@
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 17
+            "y": 25
           },
           "id": 2,
           "options": {
@@ -1028,7 +1028,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 17
+            "y": 25
           },
           "id": 4,
           "options": {
@@ -1128,7 +1128,7 @@
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 24
+            "y": 32
           },
           "id": 3,
           "options": {
@@ -1228,7 +1228,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 24
+            "y": 32
           },
           "id": 5,
           "options": {
@@ -1288,7 +1288,7 @@
             "h": 4,
             "w": 24,
             "x": 0,
-            "y": 8
+            "y": 16
           },
           "id": 40,
           "options": {
@@ -1314,7 +1314,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 12
+            "y": 20
           },
           "id": 36,
           "targets": [
@@ -1344,7 +1344,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 21
+            "y": 29
           },
           "id": 37,
           "targets": [
@@ -1374,7 +1374,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 30
+            "y": 38
           },
           "id": 39,
           "targets": [
@@ -1404,7 +1404,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 39
+            "y": 47
           },
           "id": 38,
           "targets": [
@@ -1427,6 +1427,90 @@
       ],
       "title": "Pyroscope",
       "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 41,
+      "panels": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "P214B5B846CF3925F"
+          },
+          "description": "",
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 31
+          },
+          "id": 42,
+          "targets": [
+            {
+              "datasource": {
+                "type": "tempo",
+                "uid": "P214B5B846CF3925F"
+              },
+              "filters": [
+                {
+                  "id": "af07247a",
+                  "operator": "=",
+                  "scope": "span"
+                }
+              ],
+              "limit": 20,
+              "query": "{.messageId = \"$MsgIDHex\"}",
+              "queryType": "traceql",
+              "refId": "A"
+            }
+          ],
+          "title": "Message traces",
+          "type": "traces"
+        },
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "P214B5B846CF3925F"
+          },
+          "description": "",
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 43
+          },
+          "id": 43,
+          "targets": [
+            {
+              "datasource": {
+                "type": "tempo",
+                "uid": "P214B5B846CF3925F"
+              },
+              "filters": [
+                {
+                  "id": "af07247a",
+                  "operator": "=",
+                  "scope": "span"
+                }
+              ],
+              "limit": 20,
+              "query": "{.sourceChainSelector = \"$FromSelector\" && .destChainSelector=\"$ToSelector\"}",
+              "queryType": "traceql",
+              "refId": "A"
+            }
+          ],
+          "title": "All src->dest traces",
+          "type": "traces"
+        }
+      ],
+      "title": "Traces",
+      "type": "row"
     }
   ],
   "refresh": "5s",
@@ -1437,7 +1521,7 @@
     "list": [
       {
         "current": {
-          "selected": true,
+          "selected": false,
           "text": "3379446385462418246",
           "value": "3379446385462418246"
         },
@@ -1563,7 +1647,7 @@
     ]
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},

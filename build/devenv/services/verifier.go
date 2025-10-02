@@ -11,6 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -32,21 +33,21 @@ var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhos
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
 // ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*commontypes.BlockchainInfo {
-	infos := make(map[string]*commontypes.BlockchainInfo)
+func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*protocol.BlockchainInfo {
+	infos := make(map[string]*protocol.BlockchainInfo)
 	for _, output := range outputs {
-		info := &commontypes.BlockchainInfo{
+		info := &protocol.BlockchainInfo{
 			ChainID:       output.ChainID,
 			Type:          output.Type,
 			Family:        output.Family,
 			ContainerName: output.ContainerName,
-			Nodes:         make([]*commontypes.Node, 0, len(output.Nodes)),
+			Nodes:         make([]*protocol.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
-				convertedNode := &commontypes.Node{
+				convertedNode := &protocol.Node{
 					ExternalHTTPUrl: node.ExternalHTTPUrl,
 					InternalHTTPUrl: node.InternalHTTPUrl,
 					ExternalWSUrl:   node.ExternalWSUrl,
@@ -80,6 +81,7 @@ type VerifierInput struct {
 	ConfigFilePath    string                     `toml:"config_file_path"`
 	BlockchainOutputs []*blockchain.Output       `toml:"-"`
 	AggregatorAddress string                     `toml:"aggregator_address"`
+	SigningKey        string                     `toml:"signing_key"`
 }
 
 type VerifierOutput struct {
@@ -160,7 +162,8 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
 		Env: map[string]string{
-			"VERIFIER_CONFIG": in.ConfigFilePath,
+			"VERIFIER_CONFIG_PATH":        in.ConfigFilePath,
+			"VERIFIER_SIGNER_PRIVATE_KEY": in.SigningKey,
 		},
 		// ExposedPorts
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp

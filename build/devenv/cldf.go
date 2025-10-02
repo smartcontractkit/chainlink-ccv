@@ -1,0 +1,95 @@
+package ccv
+
+import (
+	"context"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	"go.uber.org/zap"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
+	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
+)
+
+var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
+
+type CLDF struct {
+	AddressesMu *sync.Mutex         `toml:"-"`
+	Addresses   []string            `toml:"addresses"`
+	DataStore   datastore.DataStore `toml:"-"`
+}
+
+func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment.Environment, error) {
+	providers := make([]cldf_chain.BlockChain, 0)
+	selectors := make([]uint64, 0)
+	for _, b := range bc {
+		chainID := b.Out.ChainID
+		rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
+		rpcHTTPURL := b.Out.Nodes[0].ExternalHTTPUrl
+
+		d, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
+		if err != nil {
+			return nil, nil, err
+		}
+		selectors = append(selectors, d.ChainSelector)
+
+		p, err := cldf_evm_provider.NewRPCChainProvider(
+			d.ChainSelector,
+			cldf_evm_provider.RPCChainProviderConfig{
+				DeployerTransactorGen: cldf_evm_provider.TransactorFromRaw(
+					getNetworkPrivateKey(),
+				),
+				RPCs: []deployment.RPC{
+					{
+						Name:               "default",
+						WSURL:              rpcWSURL,
+						HTTPURL:            rpcHTTPURL,
+						PreferredURLScheme: deployment.URLSchemePreferenceHTTP,
+					},
+				},
+				ConfirmFunctor: cldf_evm_provider.ConfirmFuncGeth(1 * time.Minute),
+			},
+		).Initialize(context.Background())
+		if err != nil {
+			return nil, nil, err
+		}
+		providers = append(providers, p)
+	}
+
+	blockchains := cldf_chain.NewBlockChainsFromSlice(providers)
+
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		config.Development = true
+		config.Encoding = "console"
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	e := deployment.Environment{
+		GetContext:  func() context.Context { return context.Background() },
+		Logger:      lggr,
+		BlockChains: blockchains,
+		DataStore:   datastore.NewMemoryDataStore().Seal(),
+	}
+	return selectors, &e, nil
+}
+
+// NewDefaultCLDFBundle creates a new default CLDF bundle.
+func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
+	return operations.NewBundle(
+		func() context.Context { return context.Background() },
+		e.Logger,
+		operations.NewMemoryReporter(),
+	)
+}

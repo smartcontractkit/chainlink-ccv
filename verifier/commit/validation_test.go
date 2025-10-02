@@ -6,42 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/types"
-
-	protocol "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
-
-// TestSignatureEncodingErrors tests signature encoding error conditions.
-func TestSignatureEncodingErrors(t *testing.T) {
-	tests := []struct {
-		name       string
-		expectErr  string
-		signatures []signature.Data
-		ccvArgs    []byte
-	}{
-		{
-			name:       "empty_signatures",
-			signatures: []signature.Data{},
-			ccvArgs:    []byte("test"),
-			expectErr:  "no signatures provided",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := signature.EncodeSignaturesABI(tt.ccvArgs, tt.signatures)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.expectErr)
-		})
-	}
-}
 
 // TestValidateMessageErrors tests message validation error conditions.
 func TestValidateMessageErrors(t *testing.T) {
 	tests := []struct {
-		task      *types.VerificationTask
+		task      *verifier.VerificationTask
 		name      string
 		expectErr string
 		verifier  protocol.UnknownAddress
@@ -54,7 +26,7 @@ func TestValidateMessageErrors(t *testing.T) {
 		},
 		{
 			name: "unsupported_version",
-			task: &types.VerificationTask{
+			task: &verifier.VerificationTask{
 				Message: protocol.Message{
 					Version: 99, // Unsupported version
 				},
@@ -64,7 +36,7 @@ func TestValidateMessageErrors(t *testing.T) {
 		},
 		{
 			name: "verifier_not_found",
-			task: &types.VerificationTask{
+			task: &verifier.VerificationTask{
 				Message: protocol.Message{
 					Version: protocol.MessageVersion,
 				},
@@ -94,15 +66,15 @@ func TestValidateMessageErrors(t *testing.T) {
 
 // TestValidateMessage tests message validation with valid cases.
 func TestValidateMessage(t *testing.T) {
-	sender, err := pkg.RandomAddress()
+	sender, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	receiver, err := pkg.RandomAddress()
+	receiver, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	onRampAddr, err := pkg.RandomAddress()
+	onRampAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	offRampAddr, err := pkg.RandomAddress()
+	offRampAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
-	verifierAddr, err := pkg.RandomAddress()
+	verifierAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
 
 	message, err := protocol.NewMessage(
@@ -121,7 +93,7 @@ func TestValidateMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create verification task with matching verifier address
-	task := &types.VerificationTask{
+	task := &verifier.VerificationTask{
 		Message: *message,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{
 			{
@@ -139,7 +111,7 @@ func TestValidateMessage(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should fail with different verifier address
-	differentAddr, err := pkg.RandomAddress()
+	differentAddr, err := protocol.RandomAddress()
 	require.NoError(t, err)
 	err = ValidateMessage(task, differentAddr)
 	assert.Error(t, err)

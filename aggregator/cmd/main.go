@@ -29,7 +29,10 @@ func main() {
 
 	sugaredLggr := logger.Sugared(lggr)
 
-	filePath := "aggregator.toml"
+	filePath, ok := os.LookupEnv("AGGREGATOR_CONFIG_PATH")
+	if !ok {
+		filePath = "aggregator.toml"
+	}
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}

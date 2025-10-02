@@ -10,10 +10,10 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
-	"github.com/smartcontractkit/chainlink-ccv/common/pb/aggregator"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/signature"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type EVMQuorumValidator struct {
@@ -31,7 +31,7 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 		return false, nil
 	}
 
-	_, quorumConfig, err := q.getQuorumConfig(types.ChainSelector(aggregatedReport.GetSourceChainSelector()), types.ChainSelector(aggregatedReport.GetDestinationSelector()), aggregatedReport.GetSourceVerifierAddress())
+	_, quorumConfig, err := q.getQuorumConfig(protocol.ChainSelector(aggregatedReport.GetSourceChainSelector()), protocol.ChainSelector(aggregatedReport.GetDestinationSelector()), aggregatedReport.GetSourceVerifierAddress())
 	if err != nil {
 		q.logger(ctx).Errorf("Failed to get quorum config: %v", err)
 		return false, err
@@ -65,7 +65,7 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 
 // ValidateSignature validates the signature of a commit verification record and returns the signers and the quorum config used.
 // It can return multiple signers from the same participant if they have multiple addresses in the config.
-func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggregator.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *pb.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	q.logger(ctx).Debug("Validating signature for report")
 	ccvData := report.CcvData
 	if ccvData == nil {
@@ -77,26 +77,24 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 
 	message := model.MapProtoMessageToProtocolMessage(reportMessage)
 
-	messageHash, err := message.MessageID()
+	messageID, err := message.MessageID()
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to compute message hash", "error", err)
 		return nil, nil, err
 	}
 
-	ccvArgs, rs, ss, err := signature.DecodeSignaturesABI(ccvData)
+	rs, ss, err := protocol.DecodeSignatures(ccvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
 		return nil, nil, err
 	}
-
-	signatureHash := q.calculateSignatureHash(messageHash, ccvArgs)
 
 	if len(rs) != len(ss) {
 		q.logger(ctx).Error("Mismatched signature lengths")
 		return nil, nil, fmt.Errorf("invalid signature format")
 	}
 
-	committeeName, quorumConfig, err := q.getQuorumConfig(types.ChainSelector(report.Message.SourceChainSelector), types.ChainSelector(report.Message.DestChainSelector), report.SourceVerifierAddress)
+	committeeName, quorumConfig, err := q.getQuorumConfig(protocol.ChainSelector(report.Message.SourceChainSelector), protocol.ChainSelector(report.Message.DestChainSelector), report.SourceVerifierAddress)
 	if err != nil {
 		q.logger(ctx).Errorf("Failed to get quorum config: %v", err)
 		return nil, nil, err
@@ -106,7 +104,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 		for vValue := byte(0); vValue <= 1; vValue++ {
 			combined := append(rs[i][:], ss[i][:]...)
 			combined = append(combined, vValue)
-			address, err := q.ecrecover(combined, signatureHash[:])
+			address, err := q.ecrecover(combined, messageID[:])
 			if err != nil {
 				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
 				continue
@@ -141,32 +139,18 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *aggr
 	return identifiedSigners, quorumConfig, nil
 }
 
-func keccak256(data []byte) [32]byte {
-	hash := crypto.Keccak256(data)
-	var result [32]byte
-	copy(result[:], hash)
-	return result
-}
-
-func (q *EVMQuorumValidator) calculateSignatureHash(messageHash types.Bytes32, ccvArgs []byte) [32]byte {
-	var buf bytes.Buffer
-	buf.Write(messageHash[:])
-	buf.Write(ccvArgs)
-	return keccak256(buf.Bytes())
-}
-
 func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {
 	pubKeyBytes, err := crypto.Ecrecover(msgHash, signature)
 	if err != nil {
 		return common.Address{}, err
 	}
 	// Skip the 0x04 prefix and hash the uncompressed public key
-	hash := crypto.Keccak256(pubKeyBytes[1:])
+	hash := protocol.Keccak256(pubKeyBytes[1:])
 	// Take the last 20 bytes
 	return common.BytesToAddress(hash[12:]), nil
 }
 
-func (q *EVMQuorumValidator) getQuorumConfig(sourceSelector, destSelector types.ChainSelector, sourceVerifierAddress []byte) (model.CommitteeID, *model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) getQuorumConfig(sourceSelector, destSelector protocol.ChainSelector, sourceVerifierAddress []byte) (model.CommitteeID, *model.QuorumConfig, error) {
 	for name, committee := range q.Committees {
 		sourceAddress, ok := committee.SourceVerifierAddresses[fmt.Sprintf("%d", uint64(sourceSelector))]
 		if !ok {

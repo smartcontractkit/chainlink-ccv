@@ -1,13 +1,17 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 
+	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -41,6 +45,7 @@ type IndexerInput struct {
 	ContainerName  string         `toml:"container_name"`
 	UseCache       bool           `toml:"use_cache"`
 	Out            *IndexerOutput `toml:"-"`
+	IndexerConfig  *config.Config `toml:"indexer_config"`
 }
 
 type IndexerOutput struct {
@@ -67,6 +72,42 @@ func defaults(in *IndexerInput) {
 			Image: DefaultIndexerDBImage,
 		}
 	}
+	if in.IndexerConfig == nil {
+		in.IndexerConfig = &config.Config{
+			Monitoring: config.MonitoringConfig{
+				Enabled: true,
+				Type:    "beholder",
+				Beholder: config.BeholderConfig{
+					InsecureConnection:       true,
+					OtelExporterHTTPEndpoint: "otel-collector:4318",
+					LogStreamingEnabled:      true,
+					MetricReaderInterval:     5,
+					TraceSampleRatio:         1.0,
+					TraceBatchTimeout:        10,
+				},
+			},
+			Scanner: config.ScannerConfig{
+				ScanInterval: 1,
+			},
+			Discovery: config.DiscoveryConfig{
+				Type: "static",
+				Static: config.StaticDiscoveryConfig{
+					Readers: []config.StaticDiscoveryReaderConfig{
+						{
+							Type: "aggregator",
+							Aggregator: config.AggregatorReaderConfig{
+								Address: "aggregator:50051",
+								Since:   0,
+							},
+						},
+					},
+				},
+			},
+			Storage: config.StorageConfig{
+				Type: "memory",
+			},
+		}
+	}
 }
 
 // NewIndexer creates and starts a new Service container using testcontainers.
@@ -82,6 +123,26 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
+	}
+
+	configPath, ok := os.LookupEnv("INDEXER_CONFIG_PATH")
+	if !ok {
+		configPath = filepath.Join(p, "config.toml")
+	}
+
+	if _, err := os.Stat(configPath); err != nil {
+		// Encode TOML to config file
+		buff := new(bytes.Buffer)
+		encoder := toml.NewEncoder(buff)
+		encoder.Indent = ""
+		err = encoder.Encode(in.IndexerConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode config: %w", err)
+		}
+		err = os.WriteFile(configPath, buff.Bytes(), 0o644)
+		if err != nil {
+			return nil, fmt.Errorf("failed to write config: %w", err)
+		}
 	}
 
 	/* Database */

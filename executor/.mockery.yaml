@@ -8,15 +8,9 @@ packages:
         interfaces:
             CCVResultStreamer:
             Executor:
-    github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter:
-        interfaces:
             ContractTransmitter:
-    github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector:
-        interfaces:
             LeaderElector:
-    github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader:
-        interfaces:
             DestinationReader:
-    github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types:
+    github.com/smartcontractkit/chainlink-ccv/protocol:
         interfaces:
             OffchainStorageReader:

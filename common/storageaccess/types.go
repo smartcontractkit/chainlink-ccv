@@ -3,25 +3,25 @@ package storageaccess
 import (
 	"context"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type IndexerAPI interface {
 	// ReadVerifierResults reads all data that matches the provided query parameters. Returns a map of messageID to an array of all known VerifierResults for that messageID. Does not provide a guarantee that the returned data is enough to be executed.
-	ReadVerifierResults(ctx context.Context, queryData VerifierResultsRequest) (map[string][]types.CCVData, error)
+	ReadVerifierResults(ctx context.Context, queryData VerifierResultsRequest) (map[string][]protocol.CCVData, error)
 }
 
 type VerifierResultsRequest struct {
-	SourceChainSelectors []types.ChainSelector // Excluded from form due to gin parsing
-	DestChainSelectors   []types.ChainSelector // Excluded from form due to gin parsing
-	Start                int64                 `form:"start"`
-	End                  int64                 `form:"end"`
-	Limit                uint64                `form:"limit"`
-	Offset               uint64                `form:"offset"`
+	SourceChainSelectors []protocol.ChainSelector // Excluded from form due to gin parsing
+	DestChainSelectors   []protocol.ChainSelector // Excluded from form due to gin parsing
+	Start                int64                    `form:"start"`
+	End                  int64                    `form:"end"`
+	Limit                uint64                   `form:"limit"`
+	Offset               uint64                   `form:"offset"`
 }
 
 type VerifierResultsResponse struct {
-	CCVData map[string][]types.CCVData `json:"ccvData"`
-	Error   string                     `json:"error,omitempty"`
-	Success bool                       `json:"success"`
+	CCVData map[string][]protocol.CCVData `json:"ccvData"`
+	Error   string                        `json:"error,omitempty"`
+	Success bool                          `json:"success"`
 }

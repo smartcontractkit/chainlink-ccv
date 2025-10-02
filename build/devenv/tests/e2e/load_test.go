@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"os"
@@ -11,16 +12,15 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -41,18 +41,22 @@ type GasTestCase struct {
 }
 
 type EVMTXGun struct {
-	cfg  *ccv.Cfg
-	e    *deployment.Environment
-	src  evm.Chain
-	dest evm.Chain
+	cfg       *ccv.Cfg
+	e         *deployment.Environment
+	selectors []uint64
+	impl      ccv.CCIP17ProductConfiguration
+	src       evm.Chain
+	dest      evm.Chain
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s, d evm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) *EVMTXGun {
 	return &EVMTXGun{
-		cfg:  cfg,
-		e:    e,
-		src:  s,
-		dest: d,
+		cfg:       cfg,
+		e:         e,
+		selectors: selectors,
+		impl:      impl,
+		src:       s,
+		dest:      d,
 	}
 }
 
@@ -60,50 +64,34 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, s, d evm.Chai
 func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
+	ctx := context.Background()
 
-	routerAddr := ccv.MustGetContractAddressForSelector(m.cfg, m.src.Selector, router.ContractType)
+	chainIDs := make([]string, 0)
+	for _, bc := range m.cfg.Blockchains {
+		chainIDs = append(chainIDs, bc.ChainID)
+	}
 
-	argsV3, err := ccv.NewV3ExtraArgs(1, common.Address{}, []byte{}, []byte{}, []types.CCV{}, []types.CCV{}, 0)
+	srcChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[0], chainsel.FamilyEVM)
+	if err != nil {
+		return &wasp.Response{Error: err.Error(), Failed: true}
+	}
+	dstChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[1], chainsel.FamilyEVM)
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
-	ccipSendArgs := router.CCIPSendArgs{
-		DestChainSelector: m.dest.Selector,
-		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(m.src.DeployerKey.From.Bytes(), 32),
-			Data:         []byte{},
-			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsV3,
+	err = m.impl.SendArgsV3Message(ctx, m.e, m.cfg.CLDF.Addresses, m.selectors, srcChain.ChainSelector, dstChain.ChainSelector, uint16(1), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", nil, nil,
+		[]protocol.CCV{
+			{
+				CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
+				Args:       []byte{},
+				ArgsLen:    0,
+			},
 		},
-	}
-
-	feeReport, err := operations.ExecuteOperation(b, router.GetFee, m.src, contract.FunctionInput[router.CCIPSendArgs]{
-		ChainSelector: m.src.Selector,
-		Address:       routerAddr,
-		Args:          ccipSendArgs,
-	})
+		[]protocol.CCV{}, 0)
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
-
-	ccipSendArgs.Value = feeReport.Output
-	sendReport, err := operations.ExecuteOperation(b, router.CCIPSend, m.src, contract.FunctionInput[router.CCIPSendArgs]{
-		ChainSelector: m.src.Selector,
-		Address:       routerAddr,
-		Args:          ccipSendArgs,
-	})
-	if err != nil {
-		return &wasp.Response{Error: err.Error(), Failed: true}
-	}
-	if !sendReport.Output.Executed {
-		return &wasp.Response{Error: "CLDF operation was not executed", Failed: true}
-	}
-	ccv.Plog.Info().Bool("Executed", sendReport.Output.Executed).
-		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
-		Uint64("DestChainSelector", m.dest.Selector).
-		Str("SrcRouter", sendReport.Output.Tx.To).
-		Msg("CCIP message sent")
 	return &wasp.Response{Data: "ok"}
 }
 
@@ -134,7 +122,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, s, d evm.Chain) *wasp.Profile {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) *wasp.Profile {
 	return wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,
@@ -142,7 +130,7 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 			Schedule: wasp.Combine(
 				wasp.Plain(rps, testDuration),
 			),
-			Gun: NewEVMTransactionGun(in, e, s, d),
+			Gun: NewEVMTransactionGun(in, e, selectors, impl, s, d),
 			Labels: map[string]string{
 				"go_test_name": "load-clean-src",
 				"branch":       "test",
@@ -170,9 +158,11 @@ func TestE2ELoad(t *testing.T) {
 	b := ccv.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
 
+	impl := &ccvEvm.CCIP17EVM{}
+
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
-		_, err = createLoadProfile(in, 5, 30*time.Second, e, srcChain, dstChain).Run(true)
+		_, err = createLoadProfile(in, 5, 30*time.Second, e, selectors, impl, srcChain, dstChain).Run(true)
 		require.NoError(t, err)
 		// assert any metrics you need
 		checkCPUMem(t, in, time.Now())
@@ -182,13 +172,13 @@ func TestE2ELoad(t *testing.T) {
 		// 400ms latency for any RPC node
 		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=5m delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
-		_, err = createLoadProfile(in, 1, 5*time.Minute, e, srcChain, dstChain).Run(true)
+		_, err = createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain).Run(true)
 		require.NoError(t, err)
 	})
 
 	t.Run("gas", func(t *testing.T) {
 		// test slow and fast gas spikes on both chains
-		p := createLoadProfile(in, 1, 5*time.Minute, e, srcChain, dstChain)
+		p := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
 		_, err = p.Run(false)
 		require.NoError(t, err)
 
@@ -242,7 +232,7 @@ func TestE2ELoad(t *testing.T) {
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
-		p := createLoadProfile(in, 1, 5*time.Minute, e, srcChain, dstChain)
+		p := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
 		_, err = p.Run(false)
 		require.NoError(t, err)
 		tcs := []struct {
@@ -388,7 +378,7 @@ func TestE2ELoad(t *testing.T) {
 				validate: func() error { return nil },
 			},
 		}
-		p := createLoadProfile(in, 1, 5*time.Minute, e, srcChain, dstChain)
+		p := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
 		_, err = p.Run(false)
 		require.NoError(t, err)
 

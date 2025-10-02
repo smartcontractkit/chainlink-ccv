@@ -71,7 +71,6 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
 		Verifications: verifications,
-		Timestamp:     time.Now().Unix(),
 	}
 
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
@@ -85,8 +84,10 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 			lggr.Errorw("Failed to submit report", "error", err)
 			return nil, err
 		}
-		lggr.Infow("Report submitted successfully", "verifications", len(verifications))
+		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
+		lggr.Infow("Report submitted successfully", "verifications", len(verifications), "timeToAggregation", timeToAggregation)
 		c.metrics(ctx).IncrementCompletedAggregations(ctx)
+		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation.Milliseconds())
 	} else {
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}

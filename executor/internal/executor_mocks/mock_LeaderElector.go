@@ -3,7 +3,7 @@
 package executor_mocks
 
 import (
-	types "github.com/smartcontractkit/chainlink-ccv/protocol/pkg/types"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -21,7 +21,7 @@ func (_m *MockLeaderElector) EXPECT() *MockLeaderElector_Expecter {
 }
 
 // GetReadyTimestamp provides a mock function with given fields: messageID, message, verifierTimestamp
-func (_m *MockLeaderElector) GetReadyTimestamp(messageID types.Bytes32, message types.Message, verifierTimestamp int64) int64 {
+func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, message protocol.Message, verifierTimestamp int64) int64 {
 	ret := _m.Called(messageID, message, verifierTimestamp)
 
 	if len(ret) == 0 {
@@ -29,7 +29,7 @@ func (_m *MockLeaderElector) GetReadyTimestamp(messageID types.Bytes32, message 
 	}
 
 	var r0 int64
-	if rf, ok := ret.Get(0).(func(types.Bytes32, types.Message, int64) int64); ok {
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.Message, int64) int64); ok {
 		r0 = rf(messageID, message, verifierTimestamp)
 	} else {
 		r0 = ret.Get(0).(int64)
@@ -44,16 +44,16 @@ type MockLeaderElector_GetReadyTimestamp_Call struct {
 }
 
 // GetReadyTimestamp is a helper method to define mock.On call
-//   - messageID types.Bytes32
-//   - message types.Message
+//   - messageID protocol.Bytes32
+//   - message protocol.Message
 //   - verifierTimestamp int64
 func (_e *MockLeaderElector_Expecter) GetReadyTimestamp(messageID interface{}, message interface{}, verifierTimestamp interface{}) *MockLeaderElector_GetReadyTimestamp_Call {
 	return &MockLeaderElector_GetReadyTimestamp_Call{Call: _e.mock.On("GetReadyTimestamp", messageID, message, verifierTimestamp)}
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID types.Bytes32, message types.Message, verifierTimestamp int64)) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID protocol.Bytes32, message protocol.Message, verifierTimestamp int64)) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(types.Bytes32), args[1].(types.Message), args[2].(int64))
+		run(args[0].(protocol.Bytes32), args[1].(protocol.Message), args[2].(int64))
 	})
 	return _c
 }
@@ -63,7 +63,7 @@ func (_c *MockLeaderElector_GetReadyTimestamp_Call) Return(_a0 int64) *MockLeade
 	return _c
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(types.Bytes32, types.Message, int64) int64) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protocol.Bytes32, protocol.Message, int64) int64) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Return(run)
 	return _c
 }
