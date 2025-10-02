@@ -143,7 +143,7 @@ func setupDynamoDBStorage(t *testing.T) (model.StorageConfig, func(), error) {
 	if err != nil {
 		return model.StorageConfig{}, nil, err
 	}
-	time.Sleep(2 * time.Second) // Wait for container to be fully ready
+	time.Sleep(5 * time.Second) // Wait for container to be fully ready
 
 	// Get connection string
 	connectionString, err := dynamoContainer.ConnectionString(t.Context())
