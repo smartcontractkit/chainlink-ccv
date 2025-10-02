@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
+// StartCCVExecutor starts an executor with evm chains.
 func StartCCVExecutor(
 	ctx context.Context,
 	lggr logger.Logger,

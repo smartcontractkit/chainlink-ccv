@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
+// StartCCVComitteeVerifier starts the Committee Verifier with evm chains.
 func StartCCVComitteeVerifier(
 	ctx context.Context,
 	lggr logger.Logger,
