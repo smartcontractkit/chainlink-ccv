@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 
 	smithyendpoints "github.com/aws/smithy-go/endpoints" //nolint:goimports
@@ -136,7 +137,7 @@ func TestCommitVerificationRecordOperations(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince)
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, monitoring.NewNoopAggregatorMonitoring())
 
 	t.Run("save and retrieve", func(t *testing.T) {
 		messageID := createTestMessageID(1)
@@ -250,7 +251,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince)
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, monitoring.NewNoopAggregatorMonitoring())
 
 	t.Run("submit and query reports", func(t *testing.T) {
 		baseTime := int64(1704067200) // 2024-01-01 00:00:00 UTC in seconds
