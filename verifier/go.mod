@@ -8,7 +8,7 @@ require (
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-common v0.9.5-0.20250910201107-cb4c31b624d3
+	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/smartcontractkit/chainlink-evm v0.3.3
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.0
@@ -112,7 +112,7 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/smartcontractkit/chain-selectors v1.0.67 // indirect
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250915134957-5014a52895ca
-	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.1 // indirect
+	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.4 // indirect
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20250717121125-2350c82883e2 // indirect
 	github.com/smartcontractkit/chainlink-framework/metrics v0.0.0-20250717121125-2350c82883e2 // indirect
 	github.com/smartcontractkit/chainlink-framework/multinode v0.0.0-20250729142306-508e798f6a5d // indirect

@@ -11,7 +11,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250915134957-5014a52895ca
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-common v0.9.5-0.20250910201107-cb4c31b624d3
+	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/smartcontractkit/chainlink-evm v0.3.3
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.0
@@ -120,13 +120,13 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
-	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.1 // indirect
+	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.4 // indirect
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250808121824-2c3544aab8f3 // indirect
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20250717121125-2350c82883e2 // indirect
 	github.com/smartcontractkit/chainlink-framework/metrics v0.0.0-20250717121125-2350c82883e2 // indirect
 	github.com/smartcontractkit/chainlink-framework/multinode v0.0.0-20250729142306-508e798f6a5d // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924193316-7b87b14901ab // indirect
-	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20250905211734-167560f092c1 // indirect
+	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20250911124514-5874cc6d62b2 // indirect
 	github.com/smartcontractkit/chainlink-protos/svr v1.1.0 // indirect
 	github.com/smartcontractkit/freeport v0.1.3-0.20250716200817-cb5dfd0e369e // indirect
 	github.com/smartcontractkit/libocr v0.0.0-20250707144819-babe0ec4e358 // indirect
