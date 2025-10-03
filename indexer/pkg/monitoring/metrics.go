@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -19,6 +20,7 @@ type IndexerMetrics struct {
 	// HTTP Metrics
 	httpRequestsCounter         metric.Int64Counter
 	activeRequestsUpDownCounter metric.Int64UpDownCounter
+	requestDurationSeconds      metric.Float64Histogram
 
 	// Storage Metrics
 	uniqueMessagesCounter       metric.Int64Counter
@@ -26,9 +28,6 @@ type IndexerMetrics struct {
 	storageQueryDurationSeconds metric.Float64Histogram
 	storageWriteDurationSeconds metric.Float64Histogram
 	storageInsertErrorsCounter  metric.Int64Counter
-
-	// Verification Record Metrics
-	verificationRecordRequestDurationSeconds metric.Float64Histogram
 
 	// Scanner Metrics
 	scannerPollingErrorsCounter        metric.Int64Counter
@@ -53,6 +52,14 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register active requests up down counter: %w", err)
+	}
+
+	im.requestDurationSeconds, err = beholder.GetMeter().Float64Histogram("indexer_http_request_duration_seconds",
+		metric.WithDescription("Total duration of requesting the HTTP request"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register http request duration histogram: %w", err)
 	}
 
 	im.uniqueMessagesCounter, err = beholder.GetMeter().Int64Counter(
@@ -95,14 +102,6 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register storage insert errors counter: %w", err)
 	}
 
-	im.verificationRecordRequestDurationSeconds, err = beholder.GetMeter().Float64Histogram("indexer_verification_record_request_duration_seconds",
-		metric.WithDescription("Total duration of requesting the verification record"),
-		metric.WithUnit("seconds"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register verification record request duration histogram: %w", err)
-	}
-
 	im.scannerPollingErrorsCounter, err = beholder.GetMeter().Int64Counter("indexer_scanner_polling_errors_total",
 		metric.WithDescription("Total number of errors when polling the scanner"),
 	)
@@ -143,7 +142,7 @@ func MetricViews() []sdkmetric.View {
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_verification_record_request_duration_seconds"},
+			sdkmetric.Instrument{Name: "indexer_http_request_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
@@ -184,6 +183,15 @@ func (c *IndexerMetricLabeler) DecrementActiveRequestsCounter(ctx context.Contex
 	c.im.activeRequestsUpDownCounter.Add(ctx, -1, metric.WithAttributes(otelLabels...))
 }
 
+func (c *IndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.requestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("path", path),
+		attribute.String("method", method),
+		attribute.Int("status", status),
+	}...), metric.WithAttributes(otelLabels...))
+}
+
 func (c *IndexerMetricLabeler) IncrementUniqueMessagesCounter(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.uniqueMessagesCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
@@ -207,11 +215,6 @@ func (c *IndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, d
 func (c *IndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.storageInsertErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
-}
-
-func (c *IndexerMetricLabeler) RecordVerificationRecordRequestDuration(ctx context.Context, duration time.Duration) {
-	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.verificationRecordRequestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Context) {

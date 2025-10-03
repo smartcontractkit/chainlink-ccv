@@ -21,12 +21,13 @@ func NewV1API(lggr logger.Logger, storage common.IndexerStorage, monitoring comm
 
 	v1Group := router.Group("/v1")
 
-	v1Group.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "pong"})
-	})
-
+	// View all known verifications over a time range
 	ccvDataV1Handler := v1.NewCCVDataV1Handler(storage, lggr, monitoring)
 	v1Group.GET("/ccvdata", ccvDataV1Handler.Handle)
+
+	// Get all verifications for a specific messageID
+	messageIDV1Handler := v1.NewMessageIDV1Handler(storage, lggr, monitoring)
+	v1Group.GET("/messageid/:messageID", messageIDV1Handler.Handle)
 
 	return router
 }

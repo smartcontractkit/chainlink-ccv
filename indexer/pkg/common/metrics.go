@@ -21,6 +21,8 @@ type IndexerMetricLabeler interface {
 	IncrementActiveRequestsCounter(ctx context.Context)
 	// DecrementActiveRequestsCounter decrements the active requests counter.
 	DecrementActiveRequestsCounter(ctx context.Context)
+	// RecordHTTPRequestDuration records the HTTP request duration.
+	RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int)
 	// IncrementUniqueMessagesCounter increments the unique messages counter.
 	IncrementUniqueMessagesCounter(ctx context.Context)
 	// IncrementVerificationRecordsCounter increments the verification records counter.
@@ -31,8 +33,6 @@ type IndexerMetricLabeler interface {
 	RecordStorageWriteDuration(ctx context.Context, duration time.Duration)
 	// RecordStorageInsertErrorsCounter records the storage insert errors counter.
 	RecordStorageInsertErrorsCounter(ctx context.Context)
-	// RecordVerificationRecordRequestDuration records the verification record request duration.
-	RecordVerificationRecordRequestDuration(ctx context.Context, duration time.Duration)
 	// RecordScannerPollingErrorsCounter records the scanner polling errors counter.
 	RecordScannerPollingErrorsCounter(ctx context.Context)
 	// RecordVerificationRecordChannelSizeGauge records the verification record channel size gauge.
