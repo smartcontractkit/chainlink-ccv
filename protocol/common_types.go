@@ -56,6 +56,96 @@ func (a UnknownAddress) Bytes() []byte {
 	return []byte(a)
 }
 
+// MarshalJSON returns the hex representation of the address.
+func (a UnknownAddress) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf(`"%s"`, a.String())), nil
+}
+
+// UnmarshalJSON decodes a hex string into an UnknownAddress.
+func (a *UnknownAddress) UnmarshalJSON(data []byte) error {
+	v := string(data)
+	if len(v) < 2 {
+		return fmt.Errorf("invalid UnknownAddress: %s", v)
+	}
+
+	// Handle empty string
+	if v == `""` {
+		*a = UnknownAddress{}
+		return nil
+	}
+
+	// trim quotes
+	v = v[1 : len(v)-1]
+
+	// Remove 0x prefix if present
+	v = strings.TrimPrefix(v, "0x")
+
+	bytes, err := hex.DecodeString(v)
+	if err != nil {
+		return fmt.Errorf("failed to decode hex: %w", err)
+	}
+
+	*a = UnknownAddress(bytes)
+	return nil
+}
+
+// ByteSlice is a wrapper around []byte that marshals/unmarshals to/from hex instead of base64.
+type ByteSlice []byte
+
+// MarshalJSON returns the hex representation of the bytes.
+func (h ByteSlice) MarshalJSON() ([]byte, error) {
+	if h == nil {
+		return []byte("null"), nil
+	}
+	if len(h) == 0 {
+		return []byte(`"0x"`), nil
+	}
+	return []byte(fmt.Sprintf(`"0x%s"`, hex.EncodeToString(h))), nil
+}
+
+// UnmarshalJSON decodes a hex string into HexBytes.
+func (h *ByteSlice) UnmarshalJSON(data []byte) error {
+	v := string(data)
+
+	// Handle null
+	if v == "null" {
+		*h = nil
+		return nil
+	}
+
+	if len(v) < 2 {
+		return fmt.Errorf("invalid HexBytes: %s", v)
+	}
+
+	// trim quotes
+	v = v[1 : len(v)-1]
+
+	// Handle empty string
+	if v == "" || v == "0x" {
+		*h = ByteSlice{}
+		return nil
+	}
+
+	// Remove 0x prefix if present
+	v = strings.TrimPrefix(v, "0x")
+
+	bytes, err := hex.DecodeString(v)
+	if err != nil {
+		return fmt.Errorf("failed to decode hex: %w", err)
+	}
+
+	*h = ByteSlice(bytes)
+	return nil
+}
+
+// String returns the hex representation with 0x prefix.
+func (h ByteSlice) String() string {
+	if len(h) == 0 {
+		return "0x"
+	}
+	return "0x" + hex.EncodeToString(h)
+}
+
 type Bytes32 [32]byte
 
 // NewBytes32FromString creates 32-sized bytes array from hex-encoded string or returns an error.

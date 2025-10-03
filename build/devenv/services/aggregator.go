@@ -178,8 +178,10 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 				},
 			}
 		},
-		Cmd:        []string{"-jar", "DynamoDBLocal.jar", "-sharedDb"},
-		WaitingFor: wait.ForLog("SharedDb:	true"),
+		Cmd: []string{"-jar", "DynamoDBLocal.jar", "-sharedDb"},
+		WaitingFor: wait.ForHTTP("/").WithMethod("POST").WithStatusCodeMatcher(func(status int) bool {
+			return status == 400
+		}),
 	}
 
 	dynamoContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

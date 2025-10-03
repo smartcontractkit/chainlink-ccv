@@ -28,6 +28,7 @@ flowchart LR
 	chainlink-ccv/common --> chainlink-evm
 	chainlink-ccv/common --> chainlink-protos/chainlink-ccv/go
 	click chainlink-ccv/common href "https://github.com/smartcontractkit/chainlink-ccv"
+	chainlink-ccv/devenv --> chainlink-ccv/aggregator
 	chainlink-ccv/devenv --> chainlink-ccv/ccv-evm
 	chainlink-ccv/devenv --> chainlink-ccv/indexer
 	chainlink-ccv/devenv --> chainlink-testing-framework/wasp
