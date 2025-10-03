@@ -5,7 +5,7 @@ go 1.24.6
 replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
 
 require (
-	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/smartcontractkit/chainlink-evm v0.3.3
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924193316-7b87b14901ab

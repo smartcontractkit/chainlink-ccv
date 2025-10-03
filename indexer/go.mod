@@ -11,8 +11,8 @@ require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/pelletier/go-toml/v2 v2.2.4
-	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
+	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/stretchr/testify v1.11.1
 	github.com/ulule/limiter/v3 v3.11.2
