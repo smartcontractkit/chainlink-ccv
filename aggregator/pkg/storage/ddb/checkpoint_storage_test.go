@@ -1,4 +1,3 @@
-//nolint:gci
 package ddb
 
 import (
