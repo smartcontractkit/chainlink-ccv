@@ -177,7 +177,7 @@ func CreateCheckpointTable(ctx context.Context, client *dynamodb.Client, tableNa
 }
 
 // SetupTestDynamoDB creates a test DynamoDB container and client for checkpoint tests.
-func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, func()) {
+func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 	ctx := context.Background()
 
 	// Start DynamoDB Local container
@@ -222,5 +222,5 @@ func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, func()) {
 		}
 	}
 
-	return client, cleanup
+	return client, connectionString, cleanup
 }

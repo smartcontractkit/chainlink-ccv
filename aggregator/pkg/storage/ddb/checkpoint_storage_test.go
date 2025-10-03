@@ -10,7 +10,7 @@ import (
 
 // TestCheckpointStorage tests all checkpoint storage operations with shared DynamoDB infrastructure.
 func TestCheckpointStorage(t *testing.T) {
-	client, cleanup := SetupTestDynamoDB(t)
+	client, _, cleanup := SetupTestDynamoDB(t)
 	defer cleanup()
 
 	storage := NewCheckpointStorage(client, TestCheckpointTableName)

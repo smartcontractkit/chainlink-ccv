@@ -7,11 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/dynamodb"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
@@ -20,8 +15,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb" //nolint:goimports
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
@@ -137,68 +130,17 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 
 func setupDynamoDBStorage(t *testing.T) (model.StorageConfig, func(), error) {
 	// Start DynamoDB Local container
-	dynamoContainer, err := dynamodb.Run(t.Context(), "amazon/dynamodb-local:2.2.1", testcontainers.WithWaitStrategy(wait.ForHTTP("/").WithMethod("POST").WithStatusCodeMatcher(func(status int) bool {
-		return status == 400
-	})))
-	if err != nil {
-		return model.StorageConfig{}, nil, err
-	}
-	time.Sleep(5 * time.Second) // Wait for container to be fully ready
-
-	// Get connection string
-	connectionString, err := dynamoContainer.ConnectionString(t.Context())
-	if err != nil {
-		return model.StorageConfig{}, nil, err
-	}
+	_, connectionString, cleanup := ddb.SetupTestDynamoDB(t)
 
 	storageConfig := model.StorageConfig{
 		StorageType: "dynamodb",
 		DynamoDB: model.DynamoDBConfig{
-			CommitVerificationRecordTableName: "commit_verification_records_test",
-			FinalizedFeedTableName:            "finalized_feed_test",
-			CheckpointTableName:               "checkpoint_storage_test",
+			CommitVerificationRecordTableName: ddb.TestCommitVerificationRecordTableName,
+			FinalizedFeedTableName:            ddb.TestFinalizedFeedTableName,
+			CheckpointTableName:               ddb.TestCheckpointTableName,
 			Region:                            "us-east-1",
 			Endpoint:                          "http://" + connectionString,
 		},
-	}
-
-	// Create DynamoDB client using the same pattern as the factory
-	awsConfig, err := awsconfig.LoadDefaultConfig(context.TODO(),
-		awsconfig.WithRegion(storageConfig.DynamoDB.Region),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "test")),
-	)
-	if err != nil {
-		return model.StorageConfig{}, nil, fmt.Errorf("failed to load AWS config: %w", err)
-	}
-
-	ddbClient := awsdynamodb.NewFromConfig(awsConfig, func(o *awsdynamodb.Options) {
-		o.BaseEndpoint = aws.String(storageConfig.DynamoDB.Endpoint)
-	})
-
-	ctx := context.Background()
-
-	// Create the commit verification records table
-	err = ddb.CreateCommitVerificationRecordsTable(ctx, ddbClient, storageConfig.DynamoDB.CommitVerificationRecordTableName)
-	if err != nil {
-		return model.StorageConfig{}, nil, fmt.Errorf("failed to create commit verification records table: %w", err)
-	}
-
-	// Create the finalized feed table
-	err = ddb.CreateFinalizedFeedTable(ctx, ddbClient, storageConfig.DynamoDB.FinalizedFeedTableName)
-	if err != nil {
-		return model.StorageConfig{}, nil, fmt.Errorf("failed to create finalized feed table: %w", err)
-	}
-
-	// Create the checkpoint table
-	err = ddb.CreateCheckpointTable(ctx, ddbClient, storageConfig.DynamoDB.CheckpointTableName)
-	if err != nil {
-		return model.StorageConfig{}, nil, fmt.Errorf("failed to create checkpoint table: %w", err)
-	}
-
-	cleanup := func() {
-		if err := dynamoContainer.Terminate(context.Background()); err != nil {
-			t.Errorf("failed to terminate dynamodb container: %v", err)
-		}
 	}
 
 	return storageConfig, cleanup, nil

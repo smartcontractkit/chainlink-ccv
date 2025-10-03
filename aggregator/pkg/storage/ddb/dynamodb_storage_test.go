@@ -130,7 +130,7 @@ func assertTimestampOrdering(t *testing.T, reports []*model.CommitAggregatedRepo
 
 // TestCommitVerificationRecordOperations tests all verification record CRUD operations.
 func TestCommitVerificationRecordOperations(t *testing.T) {
-	client, cleanup := ddb.SetupTestDynamoDB(t)
+	client, _, cleanup := ddb.SetupTestDynamoDB(t)
 	defer cleanup()
 	ctx := context.Background()
 
@@ -244,7 +244,7 @@ func TestCommitVerificationRecordOperations(t *testing.T) {
 
 // TestAggregatedReportOperations tests all aggregated report operations.
 func TestAggregatedReportOperations(t *testing.T) {
-	client, cleanup := ddb.SetupTestDynamoDB(t)
+	client, _, cleanup := ddb.SetupTestDynamoDB(t)
 	defer cleanup()
 	ctx := context.Background()
 
