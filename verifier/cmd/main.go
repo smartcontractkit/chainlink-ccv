@@ -11,7 +11,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
@@ -21,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
@@ -235,7 +235,11 @@ func main() {
 	}
 
 	// Create commit verifier
-	commitVerifier := commit.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
+	if err != nil {
+		lggr.Errorw("Failed to create commit verifier", "error", err)
+		os.Exit(1)
+	}
 
 	// Create verification coordinator
 	coordinator, err := verifier.NewVerificationCoordinator(

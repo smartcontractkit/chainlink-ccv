@@ -217,7 +217,8 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	ts := newTestSetup(t)
 
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	require.NoError(t, err)
 
 	testcases := []struct {
 		name    string
@@ -326,7 +327,8 @@ func TestNewVerifierCoordinator(t *testing.T) {
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	require.NoError(ts.t, err)
 
 	return verifier.NewVerificationCoordinator(
 		verifier.WithConfig(config),

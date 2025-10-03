@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/grafana/pyroscope-go"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"

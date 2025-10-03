@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 // VerifierMetrics provides all metrics for the verifier.

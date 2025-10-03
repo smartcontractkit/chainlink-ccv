@@ -234,9 +234,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 			// Write CCVData to offchain storage
 			storageStart := time.Now()
 			if err := vc.storage.WriteCCVNodeData(ctx, []protocol.CCVData{ccvData}); err != nil {
-				if vc.monitoring != nil {
-					vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
-				}
+				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
 					"messageID", ccvData.MessageID,
@@ -247,21 +245,17 @@ func (vc *Coordinator) run(ctx context.Context) {
 				storageDuration := time.Since(storageStart)
 
 				// Record storage write duration
-				if vc.monitoring != nil {
-					vc.monitoring.Metrics().
-						With("verifier_id", vc.config.VerifierID).
-						RecordStorageWriteDuration(ctx, storageDuration)
-				}
+				vc.monitoring.Metrics().
+					With("verifier_id", vc.config.VerifierID).
+					RecordStorageWriteDuration(ctx, storageDuration)
 
 				// Calculate and record E2E latency
 				vc.timestampsMu.Lock()
 				if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
 					e2eDuration := time.Since(createdAt)
-					if vc.monitoring != nil {
-						vc.monitoring.Metrics().
-							With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
-							RecordMessageE2ELatency(ctx, e2eDuration)
-					}
+					vc.monitoring.Metrics().
+						With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
+						RecordMessageE2ELatency(ctx, e2eDuration)
 
 					// Clean up timestamp entry
 					delete(vc.messageTimestamps, ccvData.MessageID)
@@ -276,11 +270,9 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 		case <-channelSizeTicker.C:
 			// Periodic channel size sampling for monitoring
-			if vc.monitoring != nil {
-				vc.monitoring.Metrics().
-					With("verifier_id", vc.config.VerifierID).
-					RecordCCVDataChannelSize(ctx, int64(len(vc.ccvDataCh)))
-			}
+			vc.monitoring.Metrics().
+				With("verifier_id", vc.config.VerifierID).
+				RecordCCVDataChannelSize(ctx, int64(len(vc.ccvDataCh)))
 		}
 	}
 }
@@ -337,11 +329,9 @@ func (vc *Coordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGro
 			}
 
 			// Record verification error metric
-			if vc.monitoring != nil {
-				vc.monitoring.Metrics().
-					With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
-					IncrementMessagesVerificationFailed(ctx)
-			}
+			vc.monitoring.Metrics().
+				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
+				IncrementMessagesVerificationFailed(ctx)
 
 			vc.lggr.Errorw("Verification error received",
 				"error", verificationError.Error,
@@ -368,6 +358,7 @@ func (vc *Coordinator) validate() error {
 	appendIfNil(vc.verifier, "verifier")
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
+	appendIfNil(vc.monitoring, "monitoring")
 
 	if len(vc.sourceStates) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
@@ -496,12 +487,9 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 		return
 	}
 
-	// Record current finality queue size
-	if vc.monitoring != nil {
-		vc.monitoring.Metrics().
-			With("verifier_id", vc.config.VerifierID).
-			RecordFinalityQueueSize(ctx, int64(len(vc.pendingTasks)))
-	}
+	vc.monitoring.Metrics().
+		With("verifier_id", vc.config.VerifierID).
+		RecordFinalityQueueSize(ctx, int64(len(vc.pendingTasks)))
 
 	var readyTasks []VerificationTask
 	var remainingTasks []VerificationTask
@@ -517,11 +505,9 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 		latestBlocks[chainSelector] = latestBlock
 
 		// Record chain state metric
-		if vc.monitoring != nil {
-			vc.monitoring.Metrics().
-				With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
-				RecordSourceChainLatestBlock(ctx, latestBlock.Int64())
-		}
+		vc.monitoring.Metrics().
+			With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
+			RecordSourceChainLatestBlock(ctx, latestBlock.Int64())
 	}
 	latestFinalizedBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
@@ -533,11 +519,9 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 		latestFinalizedBlocks[chainSelector] = latestFinalizedBlock
 
 		// Record chain state metric
-		if vc.monitoring != nil {
-			vc.monitoring.Metrics().
-				With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
-				RecordSourceChainFinalizedBlock(ctx, latestFinalizedBlock.Int64())
-		}
+		vc.monitoring.Metrics().
+			With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
+			RecordSourceChainFinalizedBlock(ctx, latestFinalizedBlock.Int64())
 	}
 
 	for _, task := range vc.pendingTasks {

@@ -2,6 +2,7 @@ package commit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,13 +23,42 @@ type Verifier struct {
 }
 
 // NewCommitVerifier creates a new commit verifier.
-func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring common.VerifierMonitoring) verifier.Verifier {
-	return &Verifier{
+func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring common.VerifierMonitoring) (verifier.Verifier, error) {
+	cv := &Verifier{
 		config:     config,
 		signer:     signer,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}
+
+	if err := cv.validate(); err != nil {
+		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
+	}
+
+	return cv, nil
+}
+
+func (cv *Verifier) validate() error {
+	var errs []error
+	appendIfNil := func(field any, fieldName string) {
+		if field == nil {
+			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
+		}
+	}
+	appendIfNil(cv.config, "config")
+	appendIfNil(cv.signer, "signer")
+	appendIfNil(cv.lggr, "lggr")
+	appendIfNil(cv.monitoring, "monitoring")
+
+	if len(cv.config.SourceConfigs) == 0 {
+		errs = append(errs, fmt.Errorf("at least one source chain is required"))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("verifier is not fully initialized: %w", errors.Join(errs...))
+	}
+
+	return nil
 }
 
 // ValidateMessage validates the new message format.
@@ -112,14 +142,12 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 	select {
 	case ccvDataCh <- *ccvData:
 		// Record successful message processing
-		if cv.monitoring != nil {
-			cv.monitoring.Metrics().
-				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
-				IncrementMessagesProcessed(ctx)
-			cv.monitoring.Metrics().
-				With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
-				RecordMessageVerificationDuration(ctx, time.Since(start))
-		}
+		cv.monitoring.Metrics().
+			With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
+			IncrementMessagesProcessed(ctx)
+		cv.monitoring.Metrics().
+			With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
+			RecordMessageVerificationDuration(ctx, time.Since(start))
 
 		cv.lggr.Infow("CCV data sent to storage channel",
 			"messageID", messageID,
