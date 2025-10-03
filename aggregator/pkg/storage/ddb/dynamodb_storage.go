@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
@@ -22,6 +23,7 @@ type DynamoDBStorage struct {
 	tableName              string
 	finalizedFeedTableName string
 	minDate                time.Time
+	logger                 logger.SugaredLogger
 	monitoring             pkgcommon.AggregatorMonitoring
 }
 
@@ -31,12 +33,13 @@ var (
 	_ pkgcommon.Sink                              = (*DynamoDBStorage)(nil)
 )
 
-func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, monitoring pkgcommon.AggregatorMonitoring) *DynamoDBStorage {
+func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, logger logger.SugaredLogger, monitoring pkgcommon.AggregatorMonitoring) *DynamoDBStorage {
 	return &DynamoDBStorage{
 		client:                 client,
 		tableName:              tableName,
 		finalizedFeedTableName: finalizedFeedTableName,
 		minDate:                minDate,
+		logger:                 logger,
 		monitoring:             monitoring,
 	}
 }
@@ -232,6 +235,7 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return fmt.Errorf("failed to map aggregated report to FinalizedFeed item: %w", err)
 	}
 
+	// First, submit the finalized feed record
 	putInput := &dynamodb.PutItemInput{
 		TableName:              aws.String(d.finalizedFeedTableName),
 		Item:                   finalizedFeedRecord,
@@ -249,6 +253,47 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 			return nil
 		}
 		return fmt.Errorf("failed to submit report to FinalizedFeed table: %w", err)
+	}
+
+	// Now remove the PendingAggregation field from the accumulator record to mark it as no longer orphaned
+	err = d.markAccumulatorAsAggregated(ctx, report.MessageID, report.CommitteeID)
+	if err != nil {
+		// Log error but don't fail the entire operation since the report was already saved
+		// This is a best-effort cleanup operation
+		logger := d.logger.With("messageID", report.MessageID, "committeeID", report.CommitteeID)
+		logger.Warnf("failed to mark accumulator as aggregated: %v", err)
+	}
+
+	return nil
+}
+
+// markAccumulatorAsAggregated removes the PendingAggregation field from the accumulator record.
+func (d *DynamoDBStorage) markAccumulatorAsAggregated(ctx context.Context, messageID model.MessageID, committeeID string) error {
+	partitionKey := BuildPartitionKey(messageID, committeeID)
+
+	updateInput := &dynamodb.UpdateItemInput{
+		TableName: aws.String(d.tableName),
+		Key: map[string]types.AttributeValue{
+			FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
+			FieldSortKey:      &types.AttributeValueMemberS{Value: AccumulatorSortKey},
+		},
+		UpdateExpression: aws.String("REMOVE " + AccumulatorFieldPendingAggregation +
+			" SET " + AccumulatorFieldQuorumStatus + " = :status"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":status": &types.AttributeValueMemberS{Value: "AGGREGATED"},
+		},
+		// Only update if the record exists
+		ConditionExpression: aws.String("attribute_exists(" + FieldPartitionKey + ")"),
+	}
+
+	_, err := d.client.UpdateItem(ctx, updateInput)
+	if err != nil {
+		var conditionalCheckFailedException *types.ConditionalCheckFailedException
+		if errors.As(err, &conditionalCheckFailedException) {
+			// Record doesn't exist or was already updated - this is fine
+			return nil
+		}
+		return fmt.Errorf("failed to update accumulator record: %w", err)
 	}
 
 	return nil
@@ -357,4 +402,81 @@ func (d *DynamoDBStorage) queryFinalizedFeedByGSI(ctx context.Context, gsiPK str
 	}
 
 	return reports, nil
+}
+
+func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
+	resultChan := make(chan model.MessageID, 100)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(resultChan)
+		defer close(errorChan)
+
+		queryInput := &dynamodb.QueryInput{
+			TableName:              aws.String(d.tableName),
+			IndexName:              aws.String(GSIPendingAggregationIndex),
+			KeyConditionExpression: aws.String(fmt.Sprintf("%s = :gsiPK", AccumulatorFieldPendingAggregation)),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":gsiPK": &types.AttributeValueMemberS{Value: GetPendingAggregationKeyForRecord(committeeID)},
+			},
+		}
+
+		var lastEvaluatedKey map[string]types.AttributeValue
+		accumulatorDTO := &AccumulatorRecordDTO{}
+
+		for {
+			if lastEvaluatedKey != nil {
+				queryInput.ExclusiveStartKey = lastEvaluatedKey
+			}
+
+			result, err := d.client.Query(ctx, queryInput)
+			if err != nil {
+				select {
+				case errorChan <- fmt.Errorf("failed to scan orphaned records: %w", err):
+				case <-ctx.Done():
+				}
+				return
+			}
+
+			// Process results
+			for _, item := range result.Items {
+				if !accumulatorDTO.IsAccumulatorRecord(item) {
+					continue // Skip non-accumulator records
+				}
+
+				// Extract MessageID and CommitteeID from the item directly
+				messageID, err := d.extractMessageIDFromItem(item)
+				if err != nil {
+					select {
+					case errorChan <- fmt.Errorf("failed to extract MessageID: %w", err):
+					case <-ctx.Done():
+					}
+					return
+				}
+
+				select {
+				case resultChan <- messageID:
+				case <-ctx.Done():
+					return
+				}
+			}
+
+			// Check if we need to continue pagination
+			if result.LastEvaluatedKey == nil {
+				break
+			}
+			lastEvaluatedKey = result.LastEvaluatedKey
+		}
+	}()
+
+	return resultChan, errorChan
+}
+
+// extractMessageIDFromItem extracts the MessageID from a DynamoDB item.
+func (d *DynamoDBStorage) extractMessageIDFromItem(item map[string]types.AttributeValue) (model.MessageID, error) {
+	messageIDValue, ok := item[AccumulatorFieldMessageID].(*types.AttributeValueMemberB)
+	if !ok {
+		return nil, errors.New("MessageID field not found or wrong type")
+	}
+	return messageIDValue.Value, nil
 }

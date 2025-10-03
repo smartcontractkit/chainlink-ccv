@@ -41,6 +41,9 @@ func (dto *AccumulatorRecordDTO) ToItem(record *model.CommitVerificationRecord) 
 		AccumulatorFieldTimestamp:             &types.AttributeValueMemberN{Value: strconv.FormatInt(record.GetTimestamp(), 10)},
 		AccumulatorFieldQuorumStatus:          &types.AttributeValueMemberS{Value: AccumulatorQuorumStatusPending},
 		FieldCreatedAt:                        &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().Unix(), 10)},
+
+		// Orphan recovery fields - sparse GSI for efficient scanning
+		AccumulatorFieldPendingAggregation: &types.AttributeValueMemberS{Value: GetPendingAggregationKeyForRecord(record.CommitteeID)},
 	}
 
 	if record.GetBlobData() != nil {

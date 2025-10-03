@@ -40,6 +40,10 @@ type Server struct {
 	pb.UnimplementedCCVDataServer
 
 	l                                  logger.Logger
+	config                             *model.AggregatorConfig
+	store                              common.CommitVerificationStore
+	aggregator                         handlers.AggregationTriggerer
+	recoverer                          *OrphanRecoverer
 	readCommitCCVNodeDataHandler       *handlers.ReadCommitCCVNodeDataHandler
 	writeCommitCCVNodeDataHandler      *handlers.WriteCommitCCVNodeDataHandler
 	getMessagesSinceHandler            *handlers.GetMessagesSinceHandler
@@ -128,6 +132,13 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {})
 
+	ctx, cancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		return s.recoverer.Start(ctx)
+	}, func(error) {
+		cancel()
+	})
+
 	s.runGroup = g
 	s.started = true
 
@@ -203,7 +214,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		l.Info("Monitoring enabled")
 	}
 
-	factory := storage.NewStorageFactory()
+	factory := storage.NewStorageFactory(l)
 	store, err := factory.CreateStorage(config.Storage, aggMonitoring)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create storage: %v", err))
@@ -261,8 +272,13 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		),
 	)
 
+	recoverer := NewOrphanRecoverer(store, agg, config, l)
+
 	server := &Server{
 		l:                                  l,
+		config:                             config,
+		store:                              store,
+		aggregator:                         agg,
 		readCommitCCVNodeDataHandler:       readCommitCCVNodeDataHandler,
 		writeCommitCCVNodeDataHandler:      writeHandler,
 		getMessagesSinceHandler:            getMessagesSinceHandler,
@@ -272,6 +288,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		batchWriteCommitCCVNodeDataHandler: batchWriteCommitCCVNodeDataHandler,
 		checkpointStorage:                  checkpointStorage,
 		grpcServer:                         grpcServer,
+		recoverer:                          recoverer,
 		started:                            false,
 		mu:                                 sync.Mutex{},
 	}
