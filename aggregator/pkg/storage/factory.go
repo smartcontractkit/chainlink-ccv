@@ -42,30 +42,30 @@ func NewStorageFactory(logger logger.SugaredLogger) *Factory {
 }
 
 // CreateStorage creates a storage instance based on the provided configuration.
-func (f *Factory) CreateStorage(config model.StorageConfig) (CommitVerificationStorage, error) {
+func (f *Factory) CreateStorage(config model.StorageConfig, monitoring common.AggregatorMonitoring) (CommitVerificationStorage, error) {
 	switch config.StorageType {
 	case model.StorageTypeMemory:
 		return memory.NewInMemoryStorage(), nil
 	case model.StorageTypeDynamoDB:
-		return f.createDynamoDBStorage(config)
+		return f.createDynamoDBStorage(config, monitoring)
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", config.StorageType)
 	}
 }
 
-func (f *Factory) CreateCheckpointStorage(config model.StorageConfig) (common.CheckpointStorageInterface, error) {
+func (f *Factory) CreateCheckpointStorage(config model.StorageConfig, monitoring common.AggregatorMonitoring) (common.CheckpointStorageInterface, error) {
 	switch config.StorageType {
 	case model.StorageTypeMemory:
 		return memory.NewCheckpointStorage(), nil
 	case model.StorageTypeDynamoDB:
-		return f.createDynamoDBCheckpointStorage(config)
+		return f.createDynamoDBCheckpointStorage(config, monitoring)
 	default:
 		return nil, fmt.Errorf("unsupported checkpoint storage type: %s", config.StorageType)
 	}
 }
 
 // createDynamoDBStorage creates a DynamoDB-backed storage instance.
-func (f *Factory) createDynamoDBStorage(config model.StorageConfig) (CommitVerificationStorage, error) {
+func (f *Factory) createDynamoDBStorage(config model.StorageConfig, monitoring common.AggregatorMonitoring) (CommitVerificationStorage, error) {
 	client, err := createDynamoDBClient(config)
 	if err != nil {
 		return nil, err
@@ -78,6 +78,7 @@ func (f *Factory) createDynamoDBStorage(config model.StorageConfig) (CommitVerif
 		config.DynamoDB.FinalizedFeedTableName,
 		earliestDateForGetMessageSince,
 		f.logger,
+		monitoring,
 	)
 
 	return storage, nil
@@ -123,7 +124,7 @@ func createDynamoDBClient(config model.StorageConfig) (*dynamodb.Client, error) 
 }
 
 // createDynamoDBCheckpointStorage creates a DynamoDB-backed checkpoint storage instance.
-func (f *Factory) createDynamoDBCheckpointStorage(config model.StorageConfig) (common.CheckpointStorageInterface, error) {
+func (f *Factory) createDynamoDBCheckpointStorage(config model.StorageConfig, monitoring common.AggregatorMonitoring) (common.CheckpointStorageInterface, error) {
 	client, err := createDynamoDBClient(config)
 	if err != nil {
 		return nil, err
@@ -133,6 +134,7 @@ func (f *Factory) createDynamoDBCheckpointStorage(config model.StorageConfig) (c
 	checkpointStorage := ddb.NewCheckpointStorage(
 		client,
 		config.DynamoDB.CheckpointTableName,
+		monitoring,
 	)
 
 	return checkpointStorage, nil

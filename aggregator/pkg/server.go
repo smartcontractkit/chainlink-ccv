@@ -192,12 +192,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	// Set defaults for configuration
 	config.SetDefaults()
 
-	factory := storage.NewStorageFactory(l)
-	store, err := factory.CreateStorage(config.Storage)
-	if err != nil {
-		panic(fmt.Sprintf("failed to create storage: %v", err))
-	}
-
 	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
 
 	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
@@ -218,6 +212,12 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 		aggMonitoring = m
 		l.Info("Monitoring enabled")
+	}
+
+	factory := storage.NewStorageFactory(l)
+	store, err := factory.CreateStorage(config.Storage, aggMonitoring)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create storage: %v", err))
 	}
 
 	store = storage.WrapWithMetrics(store, aggMonitoring)
@@ -242,7 +242,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
 	// Initialize checkpoint storage
-	checkpointStorage, err := factory.CreateCheckpointStorage(config.Storage)
+	checkpointStorage, err := factory.CreateCheckpointStorage(config.Storage, aggMonitoring)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create checkpoint storage: %v", err))
 	}

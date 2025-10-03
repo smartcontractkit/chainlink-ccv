@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 )
 
 // TestCheckpointStorage tests all checkpoint storage operations with shared DynamoDB infrastructure.
@@ -13,7 +15,7 @@ func TestCheckpointStorage(t *testing.T) {
 	client, _, cleanup := SetupTestDynamoDB(t)
 	defer cleanup()
 
-	storage := NewCheckpointStorage(client, TestCheckpointTableName)
+	storage := NewCheckpointStorage(client, TestCheckpointTableName, monitoring.NewNoopAggregatorMonitoring())
 	ctx := context.Background()
 
 	t.Run("Basic", func(t *testing.T) {

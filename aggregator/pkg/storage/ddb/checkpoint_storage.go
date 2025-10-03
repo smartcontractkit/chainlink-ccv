@@ -13,20 +13,28 @@ import (
 
 // CheckpointStorage provides DynamoDB-backed storage for blockchain checkpoints.
 type CheckpointStorage struct {
-	client    *dynamodb.Client
-	tableName string
-	dto       *CheckpointDTO
+	client     *dynamodb.Client
+	tableName  string
+	dto        *CheckpointDTO
+	monitoring common.AggregatorMonitoring
 }
 
 // Ensure CheckpointStorage implements the interface.
 var _ common.CheckpointStorageInterface = (*CheckpointStorage)(nil)
 
 // NewCheckpointStorage creates a new DynamoDB-backed checkpoint storage instance.
-func NewCheckpointStorage(client *dynamodb.Client, tableName string) *CheckpointStorage {
+func NewCheckpointStorage(client *dynamodb.Client, tableName string, monitoring common.AggregatorMonitoring) *CheckpointStorage {
 	return &CheckpointStorage{
-		client:    client,
-		tableName: tableName,
-		dto:       &CheckpointDTO{},
+		client:     client,
+		tableName:  tableName,
+		dto:        &CheckpointDTO{},
+		monitoring: monitoring,
+	}
+}
+
+func (s *CheckpointStorage) RecordCapacity(capacity *types.ConsumedCapacity) {
+	if s.monitoring != nil && capacity != nil {
+		s.monitoring.Metrics().RecordCapacity(capacity)
 	}
 }
 
@@ -60,9 +68,17 @@ func (s *CheckpointStorage) StoreCheckpoints(ctx context.Context, clientID strin
 		})
 	}
 
-	_, err := s.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
-		TransactItems: transactItems,
+	result, err := s.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems:          transactItems,
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
+
+	if result != nil {
+		for _, item := range result.ConsumedCapacity {
+			s.RecordCapacity(&item)
+		}
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to store checkpoints for client %s: %w", clientID, err)
 	}
@@ -83,9 +99,15 @@ func (s *CheckpointStorage) GetClientCheckpoints(ctx context.Context, clientID s
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":client_id": &types.AttributeValueMemberS{Value: clientID},
 		},
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 
 	result, err := s.client.Query(ctx, input)
+
+	if result != nil {
+		s.RecordCapacity(result.ConsumedCapacity)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to query checkpoints for client %s: %w", clientID, err)
 	}
@@ -108,8 +130,9 @@ func (s *CheckpointStorage) GetAllClients(ctx context.Context) ([]string, error)
 	// Use Scan to get all items (since we need all unique client IDs)
 	// Note: This can be expensive for large datasets, but it's primarily for testing
 	input := &dynamodb.ScanInput{
-		TableName:            aws.String(s.tableName),
-		ProjectionExpression: aws.String(CheckpointFieldClientID),
+		TableName:              aws.String(s.tableName),
+		ProjectionExpression:   aws.String(CheckpointFieldClientID),
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 
 	clientSet := make(map[string]bool)
@@ -121,6 +144,11 @@ func (s *CheckpointStorage) GetAllClients(ctx context.Context) ([]string, error)
 		}
 
 		result, err := s.client.Scan(ctx, input)
+
+		if result != nil {
+			s.RecordCapacity(result.ConsumedCapacity)
+		}
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan checkpoint table: %w", err)
 		}

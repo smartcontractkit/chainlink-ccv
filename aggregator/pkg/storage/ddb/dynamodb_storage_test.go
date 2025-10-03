@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -137,7 +138,7 @@ func TestCommitVerificationRecordOperations(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.Sugared(logger.Nop()))
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
 
 	t.Run("save and retrieve", func(t *testing.T) {
 		messageID := createTestMessageID(1)
@@ -251,7 +252,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.Sugared(logger.Nop()))
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
 
 	t.Run("submit and query reports", func(t *testing.T) {
 		baseTime := int64(1704067200) // 2024-01-01 00:00:00 UTC in seconds
@@ -399,7 +400,7 @@ func TestOrphanRecovery(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.Sugared(logger.Nop()))
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
 
 	t.Run("ListOrphanedMessageCommitteemessageIds with pending records", func(t *testing.T) {
 		// Create test verification records that are "orphaned" (not aggregated)
@@ -533,7 +534,7 @@ func TestOrphanRecovery(t *testing.T) {
 
 		earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-		storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.Sugared(logger.Nop()))
+		storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
 
 		defer cleanup()
 
