@@ -50,10 +50,6 @@ func (cv *Verifier) validate() error {
 	appendIfNil(cv.lggr, "lggr")
 	appendIfNil(cv.monitoring, "monitoring")
 
-	if len(cv.config.SourceConfigs) == 0 {
-		errs = append(errs, fmt.Errorf("at least one source chain is required"))
-	}
-
 	if len(errs) > 0 {
 		return fmt.Errorf("verifier is not fully initialized: %w", errors.Join(errs...))
 	}
