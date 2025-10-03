@@ -71,7 +71,7 @@ func StartCCVExecutor(
 	}
 
 	for {
-		lggr.Info("Executor is running:", exec.IsRunning())
+		lggr.Info("Executor is running:", exec.HealthReport())
 		time.Sleep(10 * time.Second)
 	}
 }

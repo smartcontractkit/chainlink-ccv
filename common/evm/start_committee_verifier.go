@@ -64,7 +64,7 @@ func StartCCVComitteeVerifier(
 	}
 
 	for {
-		lggr.Infow("verifier health", "HealthCheck()", verifierCoordinator.HealthCheck(ctx))
+		lggr.Infow("verifier health", "HealthCheck()", verifierCoordinator.HealthReport())
 		time.Sleep(10 * time.Second)
 	}
 }
