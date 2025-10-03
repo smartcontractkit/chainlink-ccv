@@ -18,7 +18,7 @@ const (
 	queryAggregatedReportsOp = "QueryAggregatedReports"
 	getCCVDataOp             = "GetCCVData"
 	submitReportOp           = "SubmitReport"
-	listOrphanedMessageIdsOp = "ListOrphanedMessageIds"
+	ListOrphanedMessageIDsOp = "ListOrphanedMessageIDs"
 )
 
 type MetricsAwareStorage struct {
@@ -78,12 +78,12 @@ func (s *MetricsAwareStorage) SubmitReport(ctx context.Context, report *model.Co
 	})
 }
 
-func (s *MetricsAwareStorage) ListOrphanedMessageIds(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
-	metrics := s.metrics(ctx, listOrphanedMessageIdsOp)
+func (s *MetricsAwareStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
+	metrics := s.metrics(ctx, ListOrphanedMessageIDsOp)
 	resultChan := make(chan model.MessageID, 100)
 	errorChan := make(chan error, 1)
 
-	innerResultChan, innerErrorChan := s.inner.ListOrphanedMessageIds(ctx, committeeID)
+	innerResultChan, innerErrorChan := s.inner.ListOrphanedMessageIDs(ctx, committeeID)
 
 	go func() {
 		now := time.Now()

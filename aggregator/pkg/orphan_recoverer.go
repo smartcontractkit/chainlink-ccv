@@ -61,13 +61,13 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 	for committeeID := range o.config.Committees {
 		// Get channels for orphaned message/committee pairs
-		orphansChan, errorChan := o.storage.ListOrphanedMessageIds(ctx, committeeID)
+		orphansChan, errorChan := o.storage.ListOrphanedMessageIDs(ctx, committeeID)
 
 		var processedCount, errorCount int
 
 		for {
 			select {
-			case messageId, ok := <-orphansChan:
+			case messageID, ok := <-orphansChan:
 				if !ok {
 					// Channel closed, we're done
 					o.logger.Infow("Orphan recovery completed",
@@ -77,16 +77,16 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 				}
 
 				// Process this orphaned record
-				err := o.processOrphanedRecord(messageId, committeeID)
+				err := o.processOrphanedRecord(messageID, committeeID)
 				if err != nil {
 					o.logger.Errorw("Failed to process orphaned record",
-						"messageID", fmt.Sprintf("%x", messageId),
+						"messageID", fmt.Sprintf("%x", messageID),
 						"committeeID", committeeID,
 						"error", err)
 					errorCount++
 				} else {
 					o.logger.Debugw("Successfully processed orphaned record",
-						"messageID", fmt.Sprintf("%x", messageId),
+						"messageID", fmt.Sprintf("%x", messageID),
 						"committeeID", committeeID)
 					processedCount++
 				}

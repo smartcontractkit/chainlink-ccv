@@ -85,9 +85,9 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 	return nil, nil
 }
 
-// ListOrphanedMessageIds streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
+// ListOrphanedMessageIDs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
 // Returns a channel for pairs and a channel for errors. Both channels will be closed when iteration is complete.
-func (s *InMemoryStorage) ListOrphanedMessageIds(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
+func (s *InMemoryStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
 	pairCh := make(chan model.MessageID, 10) // Buffered for performance
 	errCh := make(chan error, 1)
 

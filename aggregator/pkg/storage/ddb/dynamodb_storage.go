@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
@@ -23,6 +23,7 @@ type DynamoDBStorage struct {
 	tableName              string
 	finalizedFeedTableName string
 	minDate                time.Time
+	logger                 logger.SugaredLogger
 }
 
 var (
@@ -31,12 +32,13 @@ var (
 	_ pkgcommon.Sink                              = (*DynamoDBStorage)(nil)
 )
 
-func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time) *DynamoDBStorage {
+func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, logger logger.SugaredLogger) *DynamoDBStorage {
 	return &DynamoDBStorage{
 		client:                 client,
 		tableName:              tableName,
 		finalizedFeedTableName: finalizedFeedTableName,
 		minDate:                minDate,
+		logger:                 logger,
 	}
 }
 
@@ -219,8 +221,8 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 	if err != nil {
 		// Log error but don't fail the entire operation since the report was already saved
 		// This is a best-effort cleanup operation
-		fmt.Printf("Warning: failed to mark accumulator as aggregated for messageID %x, committee %s: %v\n",
-			report.MessageID, report.CommitteeID, err)
+		logger := d.logger.With("messageID", report.MessageID, "committeeID", report.CommitteeID)
+		logger.Warnf("failed to mark accumulator as aggregated: %v", err)
 	}
 
 	return nil
@@ -355,7 +357,7 @@ func (d *DynamoDBStorage) queryFinalizedFeedByGSI(ctx context.Context, gsiPK str
 	return reports, nil
 }
 
-func (d *DynamoDBStorage) ListOrphanedMessageIds(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
+func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
 	resultChan := make(chan model.MessageID, 100)
 	errorChan := make(chan error, 1)
 
@@ -429,21 +431,5 @@ func (d *DynamoDBStorage) extractMessageIDFromItem(item map[string]types.Attribu
 	if !ok {
 		return nil, errors.New("MessageID field not found or wrong type")
 	}
-	return model.MessageID(messageIDValue.Value), nil
-}
-
-// extractCommitteeIDFromItem extracts the CommitteeID from the partition key.
-func (d *DynamoDBStorage) extractCommitteeIDFromItem(item map[string]types.AttributeValue) (string, error) {
-	partitionKeyValue, ok := item[FieldPartitionKey].(*types.AttributeValueMemberS)
-	if !ok {
-		return "", errors.New("PartitionKey field not found or wrong type")
-	}
-
-	// Parse the partition key format: "committee#messageID"
-	parts := strings.Split(partitionKeyValue.Value, KeySeparator)
-	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid partition key format: %s", partitionKeyValue.Value)
-	}
-
-	return parts[0], nil
+	return messageIDValue.Value, nil
 }
