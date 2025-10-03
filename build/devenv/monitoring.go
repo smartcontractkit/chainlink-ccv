@@ -12,6 +12,14 @@ import (
 )
 
 /*
+Loki labels
+*/
+const (
+	LokiCCIPMessageSentLabel       = "on-chain-sent"
+	LokiExecutionStateChangedLabel = "on-chain-exec"
+)
+
+/*
 This file includes common monitoring utilities that work with Loki/Prometheus/Tempo
 This package should not define any particular product metrics but provide clients and common wrappers for products to use
 */

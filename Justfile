@@ -16,6 +16,10 @@ install-go-tools:
     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$VERSION_GOLANGCI_LINT
     go install github.com/vektra/mockery/v2@v$VERSION_MOCKERY
 
+install-pre-commit:
+    brew install pre-commit
+    pre-commit install
+
 # Run go test on all modules.
 test-all:
     @echo "Testing common"
@@ -45,6 +49,9 @@ lint-all fix="":
     @echo "Linting devenv"
     @just ./build/devenv/lint {{fix}}
 
-mod-tidy-all: ensure-gomods ensure-modgraph
+fmt: ensure-golangci-lint
+    golangci-lint fmt
+
+mod-tidy-all: ensure-gomods
     gomods tidy
     ./tools/bin/modgraph.sh > go.md
