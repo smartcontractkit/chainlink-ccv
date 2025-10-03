@@ -16,7 +16,7 @@ replace (
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
-	github.com/ethereum/go-ethereum v1.16.3
+	github.com/ethereum/go-ethereum v1.16.2
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.22.0
