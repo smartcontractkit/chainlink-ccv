@@ -12,6 +12,7 @@ TraceBatchTimeout = 10
 
 [Scanner]
 ScanInterval = 1
+ReaderTimeout = 5
 
 [Discovery]
 Type = "static"
