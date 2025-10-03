@@ -87,7 +87,8 @@ func defaults(in *IndexerInput) {
 				},
 			},
 			Scanner: config.ScannerConfig{
-				ScanInterval: 1,
+				ScanInterval:  1,
+				ReaderTimeout: 5,
 			},
 			Discovery: config.DiscoveryConfig{
 				Type: "static",

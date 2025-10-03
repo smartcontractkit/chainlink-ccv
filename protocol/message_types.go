@@ -412,6 +412,17 @@ type OffchainStorageReader interface {
 	ReadCCVData(ctx context.Context) ([]QueryResponse, error)
 }
 
+// DisconnectableReader extends OffchainStorageReader with the ability to signal disconnection.
+// This is useful for readers that have a specific lifecycle (like BackfillReader) and need
+// to signal when they should be removed from the scanner.
+type DisconnectableReader interface {
+	OffchainStorageReader
+
+	// ShouldDisconnect returns true if this reader should be disconnected or no longer used.
+	// This method should be called after each ReadCCVData call to check the readers validity.
+	ShouldDisconnect() bool
+}
+
 // Helper functions for creating empty/default values
 
 // NewEmptyTokenTransfer creates an empty token transfer.
