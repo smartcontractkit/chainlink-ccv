@@ -14,8 +14,6 @@ import (
 
 var _ common.IndexerStorage = (*InMemoryStorage)(nil)
 
-var ErrCCVDataNotFound = fmt.Errorf("CCV data not found")
-
 // InMemoryStorage provides efficient in-memory storage optimized for query performance.
 type InMemoryStorage struct {
 	// Primary storage: messageID -> []CCVData (for O(1) lookup by messageID)
@@ -28,6 +26,9 @@ type InMemoryStorage struct {
 	bySourceChain map[protocol.ChainSelector][]int
 	byDestChain   map[protocol.ChainSelector][]int
 
+	// Deduplication index: unique key -> bool (for duplicate detection)
+	uniqueKeys map[string]bool
+
 	mu         sync.RWMutex
 	monitoring common.IndexerMonitoring
 	lggr       logger.Logger
@@ -39,6 +40,7 @@ func NewInMemoryStorage(lggr logger.Logger, monitoring common.IndexerMonitoring)
 		byTimestamp:   make([]protocol.CCVData, 0),
 		bySourceChain: make(map[protocol.ChainSelector][]int),
 		byDestChain:   make(map[protocol.ChainSelector][]int),
+		uniqueKeys:    make(map[string]bool),
 		lggr:          lggr,
 		monitoring:    monitoring,
 	}
@@ -106,11 +108,26 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	return results, nil
 }
 
+// generateUniqueKey creates a unique key for CCVData based on critical fields.
+func (i *InMemoryStorage) generateUniqueKey(ccvData protocol.CCVData) string {
+	return fmt.Sprintf("%s:%s:%s",
+		ccvData.MessageID.String(),
+		ccvData.SourceVerifierAddress.String(),
+		ccvData.DestVerifierAddress.String(),
+	)
+}
+
 // InsertCCVData appends a new CCVData to the storage for the given messageID.
 func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error {
 	startInsertMetric := time.Now()
 	i.mu.Lock()
 	defer i.mu.Unlock()
+
+	// Check for duplicates
+	uniqueKey := i.generateUniqueKey(ccvData)
+	if i.uniqueKeys[uniqueKey] {
+		return ErrDuplicateCCVData
+	}
 
 	// Add to messageID index
 	messageID := ccvData.MessageID.String()
@@ -121,6 +138,9 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 	}
 
 	i.byMessageID[messageID] = append(i.byMessageID[messageID], ccvData)
+
+	// Mark this data as inserted
+	i.uniqueKeys[uniqueKey] = true
 
 	// Increment the verification records counter
 	i.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)

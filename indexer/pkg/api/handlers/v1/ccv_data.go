@@ -38,8 +38,6 @@ func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 		Offset:               0,
 	}
 
-	startDuration := time.Now()
-
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -62,9 +60,8 @@ func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 		return
 	}
 
-	h.lggr.Debugw("ccvData ", "ccvData", ccvData)
+	h.lggr.Debugw("/v1/ccvdata", "number of messages returned", len(ccvData))
 	c.JSON(http.StatusOK, gin.H{"success": true, "ccvData": ccvData})
-	h.monitoring.Metrics().RecordVerificationRecordRequestDuration(c.Request.Context(), time.Since(startDuration))
 }
 
 func (h *CCVDataV1Handler) parseSelectorTypes(c *gin.Context, paramName string) ([]protocol.ChainSelector, bool) {

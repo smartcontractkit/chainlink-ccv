@@ -21,16 +21,16 @@ const (
 
 // TokenTransfer represents a chain-agnostic token transfer with canonical encoding.
 type TokenTransfer struct {
-	Amount                   *big.Int `json:"amount"`
-	SourceTokenAddress       []byte   `json:"source_token_address"`
-	DestTokenAddress         []byte   `json:"dest_token_address"`
-	TokenReceiver            []byte   `json:"token_receiver"`
-	ExtraData                []byte   `json:"extra_data"`
-	Version                  uint8    `json:"version"`
-	SourceTokenAddressLength uint8    `json:"source_token_address_length"`
-	DestTokenAddressLength   uint8    `json:"dest_token_address_length"`
-	TokenReceiverLength      uint8    `json:"token_receiver_length"`
-	ExtraDataLength          uint8    `json:"extra_data_length"`
+	Amount                   *big.Int  `json:"amount"`
+	SourceTokenAddress       ByteSlice `json:"source_token_address"`
+	DestTokenAddress         ByteSlice `json:"dest_token_address"`
+	TokenReceiver            ByteSlice `json:"token_receiver"`
+	ExtraData                ByteSlice `json:"extra_data"`
+	Version                  uint8     `json:"version"`
+	SourceTokenAddressLength uint8     `json:"source_token_address_length"`
+	DestTokenAddressLength   uint8     `json:"dest_token_address_length"`
+	TokenReceiverLength      uint8     `json:"token_receiver_length"`
+	ExtraDataLength          uint8     `json:"extra_data_length"`
 }
 
 // Encode returns the canonical encoding of this token transfer.
@@ -143,26 +143,26 @@ func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 
 // Message represents the chain-agnostic CCIP message format.
 type Message struct {
-	Sender        []byte `json:"sender"`
-	Data          []byte `json:"data"`
-	OnRampAddress []byte `json:"on_ramp_address"`
-	TokenTransfer []byte `json:"token_transfer"`
+	Sender        UnknownAddress `json:"sender"`
+	Data          ByteSlice      `json:"data"`
+	OnRampAddress UnknownAddress `json:"on_ramp_address"`
+	TokenTransfer ByteSlice      `json:"token_transfer"`
 	// This is CCVAggregator
-	OffRampAddress       []byte        `json:"off_ramp_address"`
-	DestBlob             []byte        `json:"dest_blob"`
-	Receiver             []byte        `json:"receiver"`
-	SourceChainSelector  ChainSelector `json:"source_chain_selector"`
-	DestChainSelector    ChainSelector `json:"dest_chain_selector"`
-	Nonce                Nonce         `json:"nonce"`
-	Finality             uint16        `json:"finality"`
-	DestBlobLength       uint16        `json:"dest_blob_length"`
-	TokenTransferLength  uint16        `json:"token_transfer_length"`
-	DataLength           uint16        `json:"data_length"`
-	ReceiverLength       uint8         `json:"receiver_length"`
-	SenderLength         uint8         `json:"sender_length"`
-	Version              uint8         `json:"version"`
-	OffRampAddressLength uint8         `json:"off_ramp_address_length"`
-	OnRampAddressLength  uint8         `json:"on_ramp_address_length"`
+	OffRampAddress       UnknownAddress `json:"off_ramp_address"`
+	DestBlob             ByteSlice      `json:"dest_blob"`
+	Receiver             UnknownAddress `json:"receiver"`
+	SourceChainSelector  ChainSelector  `json:"source_chain_selector"`
+	DestChainSelector    ChainSelector  `json:"dest_chain_selector"`
+	Nonce                Nonce          `json:"nonce"`
+	Finality             uint16         `json:"finality"`
+	DestBlobLength       uint16         `json:"dest_blob_length"`
+	TokenTransferLength  uint16         `json:"token_transfer_length"`
+	DataLength           uint16         `json:"data_length"`
+	ReceiverLength       uint8          `json:"receiver_length"`
+	SenderLength         uint8          `json:"sender_length"`
+	Version              uint8          `json:"version"`
+	OffRampAddressLength uint8          `json:"off_ramp_address_length"`
+	OnRampAddressLength  uint8          `json:"on_ramp_address_length"`
 }
 
 // Encode returns the canonical encoding of this message.
@@ -360,8 +360,8 @@ func (m *Message) MessageID() (Bytes32, error) {
 // ReceiptWithBlob represents a chain-agnostic receipt with blob.
 type ReceiptWithBlob struct {
 	Issuer            UnknownAddress `json:"issuer"`
-	Blob              []byte         `json:"blob"`
-	ExtraArgs         []byte         `json:"extra_args"`
+	Blob              ByteSlice      `json:"blob"`
+	ExtraArgs         ByteSlice      `json:"extra_args"`
 	DestGasLimit      uint64         `json:"dest_gas_limit"`
 	DestBytesOverhead uint32         `json:"dest_bytes_overhead"`
 }
@@ -369,7 +369,7 @@ type ReceiptWithBlob struct {
 // CCV represents a Cross-Chain Verifier configuration.
 type CCV struct {
 	CCVAddress UnknownAddress
-	Args       []byte
+	Args       ByteSlice
 	ArgsLen    uint16
 }
 
@@ -377,8 +377,8 @@ type CCV struct {
 type CCVData struct {
 	SourceVerifierAddress UnknownAddress    `json:"source_verifier_address"`
 	DestVerifierAddress   UnknownAddress    `json:"dest_verifier_address"`
-	CCVData               []byte            `json:"ccv_data"`
-	BlobData              []byte            `json:"blob_data"`
+	CCVData               ByteSlice         `json:"ccv_data"`
+	BlobData              ByteSlice         `json:"blob_data"`
 	ReceiptBlobs          []ReceiptWithBlob `json:"receipt_blobs"`
 	Message               Message           `json:"message"`
 	Nonce                 Nonce             `json:"nonce"`
@@ -410,6 +410,17 @@ type OffchainStorageWriter interface {
 type OffchainStorageReader interface {
 	// ReadCCVData returns the next available CCV data entries.
 	ReadCCVData(ctx context.Context) ([]QueryResponse, error)
+}
+
+// DisconnectableReader extends OffchainStorageReader with the ability to signal disconnection.
+// This is useful for readers that have a specific lifecycle (like BackfillReader) and need
+// to signal when they should be removed from the scanner.
+type DisconnectableReader interface {
+	OffchainStorageReader
+
+	// ShouldDisconnect returns true if this reader should be disconnected or no longer used.
+	// This method should be called after each ReadCCVData call to check the readers validity.
+	ShouldDisconnect() bool
 }
 
 // Helper functions for creating empty/default values

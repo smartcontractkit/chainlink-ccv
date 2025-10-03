@@ -27,8 +27,7 @@ type Coordinator struct {
 	mu                    sync.RWMutex
 	pendingMu             sync.RWMutex
 	verifyingWg           sync.WaitGroup
-	started               bool
-	stopped               bool
+	running               bool
 }
 
 // Option is the functional option type for Coordinator.
@@ -121,12 +120,8 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 
-	if vc.started {
-		return fmt.Errorf("coordinator already started")
-	}
-
-	if vc.stopped {
-		return errors.New("coordinator stopped")
+	if vc.running {
+		return fmt.Errorf("coordinator already running")
 	}
 
 	// Start all source readers
@@ -136,7 +131,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		}
 	}
 
-	vc.started = true
+	vc.running = true
 
 	ctx, cancel := context.WithCancel(ctx)
 	vc.cancel = cancel
@@ -152,17 +147,14 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the verification coordinator processing.
-func (vc *Coordinator) Stop() error {
+// Close stops the verification coordinator processing.
+func (vc *Coordinator) Close() error {
 	vc.mu.Lock()
-	defer vc.mu.Unlock()
-
-	if vc.stopped {
-		return nil
+	if !vc.running {
+		vc.mu.Unlock()
+		return fmt.Errorf("coordinator not running")
 	}
-
-	vc.stopped = true
-	vc.started = false
+	vc.mu.Unlock()
 
 	// 1. Signal all goroutines to stop processing new work.
 	vc.cancel()
@@ -171,7 +163,7 @@ func (vc *Coordinator) Stop() error {
 	// These are the tasks that might write to verificationErrorCh.
 	vc.verifyingWg.Wait()
 
-	// 3. Stop source readers and close error channels.
+	// 3. Close source readers and close error channels.
 	for chainSelector, state := range vc.sourceStates {
 		if err := state.reader.Stop(); err != nil {
 			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
@@ -183,6 +175,10 @@ func (vc *Coordinator) Stop() error {
 
 	// 4. Wait for the main run loop to finish.
 	<-vc.doneCh
+
+	vc.mu.Lock()
+	vc.running = false
+	vc.mu.Unlock()
 
 	vc.lggr.Infow("Coordinator stopped")
 
@@ -303,6 +299,15 @@ func (vc *Coordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGro
 // validate checks that all required components are configured.
 func (vc *Coordinator) validate() error {
 	var errs []error
+	appendIfNil := func(field any, fieldName string) {
+		if field == nil {
+			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
+		}
+	}
+
+	appendIfNil(vc.verifier, "verifier")
+	appendIfNil(vc.storage, "storage")
+	appendIfNil(vc.lggr, "logger")
 
 	if len(vc.sourceStates) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
@@ -315,18 +320,6 @@ func (vc *Coordinator) validate() error {
 		}
 	}
 
-	if vc.verifier == nil {
-		errs = append(errs, fmt.Errorf("verifier is required"))
-	}
-
-	if vc.storage == nil {
-		errs = append(errs, fmt.Errorf("storage writer is required"))
-	}
-
-	if vc.lggr == nil {
-		errs = append(errs, fmt.Errorf("logger is required"))
-	}
-
 	if vc.config.VerifierID == "" {
 		errs = append(errs, fmt.Errorf("coordinator ID cannot be empty"))
 	}
@@ -334,27 +327,32 @@ func (vc *Coordinator) validate() error {
 	return errors.Join(errs...)
 }
 
-// HealthCheck returns the current health status.
-func (vc *Coordinator) HealthCheck(ctx context.Context) error {
+// Ready returns nil if the coordinator is ready, or an error otherwise.
+func (vc *Coordinator) Ready() error {
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
 
-	if vc.stopped {
-		return errors.New("coordinator stopped")
-	}
-
-	if !vc.started {
-		return errors.New("coordinator not started")
-	}
-
-	// Check all source readers health
-	for chainSelector, state := range vc.sourceStates {
-		if err := state.reader.HealthCheck(ctx); err != nil {
-			return fmt.Errorf("source reader unhealthy for chain %d: %w", chainSelector, err)
-		}
+	if !vc.running {
+		return errors.New("coordinator not running")
 	}
 
 	return nil
+}
+
+// HealthReport returns a full health report of the coordinator and its dependencies.
+func (vc *Coordinator) HealthReport() map[string]error {
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+
+	report := make(map[string]error)
+	report[vc.Name()] = vc.Ready()
+
+	return report
+}
+
+// Name returns the fully qualified name of the coordinator.
+func (vc *Coordinator) Name() string {
+	return fmt.Sprintf("verifier.Coordinator[%s]", vc.config.VerifierID)
 }
 
 // addToPendingQueue adds a verification task to the pending queue for finality checking.

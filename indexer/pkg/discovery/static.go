@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -12,6 +13,7 @@ var _ common.ReaderDiscovery = (*StaticDiscovery)(nil)
 type StaticDiscovery struct {
 	offChainStorageReaderCh chan protocol.OffchainStorageReader
 	readers                 []protocol.OffchainStorageReader
+	mu                      sync.RWMutex
 }
 
 func NewStaticDiscovery(readers []protocol.OffchainStorageReader) common.ReaderDiscovery {
@@ -23,7 +25,12 @@ func NewStaticDiscovery(readers []protocol.OffchainStorageReader) common.ReaderD
 
 func (d *StaticDiscovery) Run(ctx context.Context) chan protocol.OffchainStorageReader {
 	// Populate the offChainStorageReaderCh with the readers taken from the configuration
-	for _, reader := range d.readers {
+	d.mu.RLock()
+	readers := make([]protocol.OffchainStorageReader, len(d.readers))
+	copy(readers, d.readers)
+	d.mu.RUnlock()
+
+	for _, reader := range readers {
 		d.offChainStorageReaderCh <- reader
 	}
 
@@ -31,8 +38,9 @@ func (d *StaticDiscovery) Run(ctx context.Context) chan protocol.OffchainStorage
 }
 
 func (d *StaticDiscovery) AddReaders(readers []protocol.OffchainStorageReader) {
-	// This is primarily used for replays from a given timeframe
+	d.mu.Lock()
 	d.readers = append(d.readers, readers...)
+	d.mu.Unlock()
 
 	for _, reader := range readers {
 		d.offChainStorageReaderCh <- reader

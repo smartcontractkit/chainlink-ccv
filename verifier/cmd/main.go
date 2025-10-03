@@ -251,7 +251,7 @@ func main() {
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := coordinator.HealthCheck(ctx); err != nil {
+		if err := coordinator.Ready(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			lggr.Infow("❌ Unhealthy: %s\n", err.Error())
 			return
@@ -293,7 +293,7 @@ func main() {
 	}
 
 	// Stop verification coordinator
-	if err := coordinator.Stop(); err != nil {
+	if err := coordinator.Close(); err != nil {
 		lggr.Errorw("Coordinator stop error", "error", err)
 	}
 

@@ -87,7 +87,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	err := setup.coordinator.Start(ctx)
 	require.NoError(t, err)
-	defer setup.coordinator.Stop()
+	defer setup.coordinator.Close()
 
 	// Message at block 940 (< finalized 950) should be processed immediately
 	finalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
@@ -121,7 +121,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	err := setup.coordinator.Start(ctx)
 	require.NoError(t, err)
-	defer setup.coordinator.Stop()
+	defer setup.coordinator.Close()
 
 	customFinality := uint16(15)
 
@@ -155,7 +155,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	err := setup.coordinator.Start(ctx)
 	require.NoError(t, err)
-	defer setup.coordinator.Stop()
+	defer setup.coordinator.Close()
 
 	nonFinalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
