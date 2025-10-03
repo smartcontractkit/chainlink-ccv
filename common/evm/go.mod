@@ -13,9 +13,9 @@ replace (
 
 require (
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-ccv/executor v0.0.0-20251001125846-aa78379a22b0
+	github.com/smartcontractkit/chainlink-ccv/executor v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-ccv/verifier v0.0.0-20251001125846-aa78379a22b0
+	github.com/smartcontractkit/chainlink-ccv/verifier v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/smartcontractkit/chainlink-evm v0.3.3
 )
