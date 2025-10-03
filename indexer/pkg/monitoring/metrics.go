@@ -183,7 +183,7 @@ func (c *IndexerMetricLabeler) DecrementActiveRequestsCounter(ctx context.Contex
 	c.im.activeRequestsUpDownCounter.Add(ctx, -1, metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path string, method string, status int) {
+func (c *IndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.requestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
 		attribute.String("path", path),

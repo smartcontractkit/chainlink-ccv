@@ -27,7 +27,7 @@ func (n *NoopIndexerMetricLabeler) With(keyValues ...string) common.IndexerMetri
 func (n *NoopIndexerMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context)    {}
 func (n *NoopIndexerMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context) {}
-func (n *NoopIndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path string, method string, status int) {
+func (n *NoopIndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 }
 func (n *NoopIndexerMetricLabeler) IncrementUniqueMessagesCounter(ctx context.Context)      {}
 func (n *NoopIndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {}

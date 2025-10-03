@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -40,7 +41,6 @@ func (h *MessageIDV1Handler) Handle(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "MessageID not found"})
 		return
 	case nil:
-		break
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
 		return
