@@ -85,6 +85,34 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 	return nil, nil
 }
 
+// ListOrphanedMessageIds streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
+// Returns a channel for pairs and a channel for errors. Both channels will be closed when iteration is complete.
+func (s *InMemoryStorage) ListOrphanedMessageIds(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
+	pairCh := make(chan model.MessageID, 10) // Buffered for performance
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(pairCh)
+		defer close(errCh)
+
+		s.records.Range(func(key, value any) bool {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return false
+			default:
+			}
+
+			if record, ok := value.(*model.CommitVerificationRecord); ok {
+				pairCh <- record.MessageId
+			}
+			return true
+		})
+	}()
+
+	return pairCh, errCh
+}
+
 // NewInMemoryStorage creates a new instance of InMemoryStorage.
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{
