@@ -3,7 +3,7 @@ module github.com/smartcontractkit/chainlink-ccv/verifier
 go 1.24.6
 
 require (
-	github.com/BurntSushi/toml v1.4.0
+	github.com/BurntSushi/toml v1.5.0
 	github.com/ethereum/go-ethereum v1.16.2
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
