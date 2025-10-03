@@ -21,14 +21,14 @@ type IndexerMetrics struct {
 	activeRequestsUpDownCounter metric.Int64UpDownCounter
 
 	// Storage Metrics
-	uniqueMessagesCounter            metric.Int64Counter
-	verificationRecordsCounter       metric.Int64Counter
-	storageQueryDurationMilliseconds metric.Int64Histogram
-	storageWriteDurationMilliseconds metric.Int64Histogram
-	storageInsertErrorsCounter       metric.Int64Counter
+	uniqueMessagesCounter       metric.Int64Counter
+	verificationRecordsCounter  metric.Int64Counter
+	storageQueryDurationSeconds metric.Float64Histogram
+	storageWriteDurationSeconds metric.Float64Histogram
+	storageInsertErrorsCounter  metric.Int64Counter
 
 	// Verification Record Metrics
-	verificationRecordRequestDurationMilliseconds metric.Int64Histogram
+	verificationRecordRequestDurationSeconds metric.Float64Histogram
 
 	// Scanner Metrics
 	scannerPollingErrorsCounter        metric.Int64Counter
@@ -71,18 +71,18 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register verification records counter: %w", err)
 	}
 
-	im.storageQueryDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"indexer_storage_query_duration_milliseconds",
+	im.storageQueryDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"indexer_storage_query_duration_seconds",
 		metric.WithDescription("Total duration of querying the storage of the Indexer"),
-		metric.WithUnit("milliseconds"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register storage query duration histogram: %w", err)
 	}
 
-	im.storageWriteDurationMilliseconds, err = beholder.GetMeter().Int64Histogram("indexer_storage_write_duration_milliseconds",
+	im.storageWriteDurationSeconds, err = beholder.GetMeter().Float64Histogram("indexer_storage_write_duration_seconds",
 		metric.WithDescription("Total duration of writing to the storage of the Indexer"),
-		metric.WithUnit("milliseconds"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register storage write duration histogram: %w", err)
@@ -95,9 +95,9 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register storage insert errors counter: %w", err)
 	}
 
-	im.verificationRecordRequestDurationMilliseconds, err = beholder.GetMeter().Int64Histogram("indexer_verification_record_request_duration_milliseconds",
+	im.verificationRecordRequestDurationSeconds, err = beholder.GetMeter().Float64Histogram("indexer_verification_record_request_duration_seconds",
 		metric.WithDescription("Total duration of requesting the verification record"),
-		metric.WithUnit("milliseconds"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register verification record request duration histogram: %w", err)
@@ -131,27 +131,21 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 func MetricViews() []sdkmetric.View {
 	return []sdkmetric.View{
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_storage_query_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "indexer_storage_query_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_storage_write_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "indexer_storage_write_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_verification_record_request_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "indexer_verification_record_request_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
-			}},
-		),
-		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_reader_latency_milliseconds"},
-			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 	}
@@ -202,12 +196,12 @@ func (c *IndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.C
 
 func (c *IndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.storageQueryDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	c.im.storageQueryDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.storageWriteDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	c.im.storageWriteDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context) {
@@ -217,7 +211,7 @@ func (c *IndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Cont
 
 func (c *IndexerMetricLabeler) RecordVerificationRecordRequestDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.verificationRecordRequestDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	c.im.verificationRecordRequestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Context) {
