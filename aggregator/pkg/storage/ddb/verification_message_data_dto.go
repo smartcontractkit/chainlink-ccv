@@ -40,7 +40,7 @@ func (dto *VerificationMessageDataRecordDTO) ToItem(record *model.CommitVerifica
 		VerificationMessageDataFieldMessage:               &types.AttributeValueMemberB{Value: messageData},
 		VerificationMessageDataFieldTimestamp:             &types.AttributeValueMemberN{Value: strconv.FormatInt(record.GetTimestamp(), 10)},
 		VerificationMessageDataFieldQuorumStatus:          &types.AttributeValueMemberS{Value: VerificationMessageDataQuorumStatusPending},
-		FieldCreatedAt:                                     &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().Unix(), 10)},
+		FieldCreatedAt:                                    &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().Unix(), 10)},
 
 		// Orphan recovery fields - sparse GSI for efficient scanning
 		// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html
