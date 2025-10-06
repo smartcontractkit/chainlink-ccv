@@ -56,7 +56,6 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
 		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
 		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
-
 	if err != nil {
 		lggr.Errorw("Failed to create client configs", "error", err)
 		return nil

@@ -15,11 +15,11 @@ type Node struct {
 
 // BlockchainInfo represents blockchain connection information.
 type BlockchainInfo struct {
-	ChainID       string  `json:"chain_id"`
-	Type          string  `json:"type"`
-	Family        string  `json:"family"`
+	ChainID         string  `json:"chain_id"`
+	Type            string  `json:"type"`
+	Family          string  `json:"family"`
 	UniqueChainName string  `json:"unique_chain_name"`
-	Nodes         []*Node `json:"nodes"`
+	Nodes           []*Node `json:"nodes"`
 }
 
 // BlockchainHelper provides utilities for working with blockchain information.

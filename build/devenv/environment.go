@@ -10,16 +10,14 @@ import (
 	"strings"
 	"sync"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
-	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
-
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
+	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
 const (
@@ -60,14 +58,14 @@ const (
 )
 
 type Cfg struct {
-	CLDF               *CLDF                     `toml:"cldf" validate:"required"`
-	Fake               *services.FakeInput       `toml:"fake"        validate:"required"`
-	Verifier           []*services.VerifierInput `toml:"verifier"    validate:"required"`
-	Executor           *services.ExecutorInput   `toml:"executor"    validate:"required"`
-	Indexer            *services.IndexerInput    `toml:"indexer"     validate:"required"`
-	Aggregator         *services.AggregatorInput `toml:"aggregator"  validate:"required"`
-	Blockchains        []*blockchain.Input       `toml:"blockchains" validate:"required"`
-	NodeSets           []*ns.Input               `toml:"nodesets"    validate:"required"`
+	CLDF               *CLDF                     `toml:"cldf"                  validate:"required"`
+	Fake               *services.FakeInput       `toml:"fake"                  validate:"required"`
+	Verifier           []*services.VerifierInput `toml:"verifier"              validate:"required"`
+	Executor           *services.ExecutorInput   `toml:"executor"              validate:"required"`
+	Indexer            *services.IndexerInput    `toml:"indexer"               validate:"required"`
+	Aggregator         *services.AggregatorInput `toml:"aggregator"            validate:"required"`
+	Blockchains        []*blockchain.Input       `toml:"blockchains"           validate:"required"`
+	NodeSets           []*ns.Input               `toml:"nodesets"              validate:"required"`
 	CLNodesFundingETH  float64                   `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                   `toml:"cl_nodes_funding_link"`
 }

@@ -1,4 +1,3 @@
-//nolint:gci,goimports
 package monitoring
 
 import (
@@ -6,12 +5,13 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
-	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
+	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 // IndexerMetrics provides all metrics provided by the indexer.
