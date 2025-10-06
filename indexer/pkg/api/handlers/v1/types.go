@@ -12,8 +12,8 @@ type MessagesV1Request struct {
 	DestChainSelectors   []protocol.ChainSelector // Excluded from form due to gin parsing
 	Start                int64                    `form:"start"`
 	End                  int64                    `form:"end"`
-	Limit                int64                    `form:"limit"`
-	Offset               int64                    `form:"offset"`
+	Limit                uint64                   `form:"limit"`
+	Offset               uint64                   `form:"offset"`
 }
 
 type MessagesV1Response struct {
