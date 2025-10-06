@@ -37,11 +37,16 @@ func StartCCVComitteeVerifier(
 			logger.With(lggr, "component", "SourceReader", "chainID", sel))
 	}
 
-	cv := commit.NewCommitVerifier(
+	cv, err := commit.NewCommitVerifier(
 		verifier.CoordinatorConfig{},
 		nil,
 		logger.With(lggr, "component", "CommitVerifier"),
+		nil,
 	)
+	if err != nil {
+		lggr.Errorw("Failed to create commit verifier.", "error", err)
+		return
+	}
 
 	verifierCoordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithLogger(logger.With(lggr, "component", "VerifierCoordinator")),
