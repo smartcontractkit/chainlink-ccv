@@ -96,15 +96,15 @@ type ResilientReader struct {
 // NewResilientReader wraps a reader with resiliency policies.
 func NewResilientReader(underlying protocol.OffchainStorageReader, lggr logger.Logger, config ResilienceConfig) *ResilientReader {
 	// Rate limits incoming requests
-	rl := createQueryRateLimiter(config)
+	rl := createRateLimiter(config)
 	// Limits concurrent requests
-	bh := createQueryBulkhead(config, lggr)
+	bh := createBulkhead(config, lggr)
 	// Circuit breaks if too many errors occur
-	cb := createQueryCircuitBreaker(config, lggr)
+	cb := createCircuitBreaker(config, lggr)
 	// Retries if the request fails
-	retry := createQueryRetryPolicy(config, lggr)
+	retry := createRetryPolicy(config, lggr)
 	// Timeout the underlying request
-	timeoutPolicy := createQueryTimeoutPolicy(config, lggr)
+	timeoutPolicy := createTimeoutPolicy(config, lggr)
 
 	// Build failsafe executor with all policies
 	// Order matters: outermost to innermost
@@ -214,8 +214,8 @@ func (r *ResilientReader) handleError(err error) error {
 	return fmt.Errorf("failed to fetch data: %w", err)
 }
 
-// createQueryCircuitBreaker creates a circuit breaker for query responses.
-func createQueryCircuitBreaker(config ResilienceConfig, lggr logger.Logger) circuitbreaker.CircuitBreaker[[]protocol.QueryResponse] {
+// createCircuitBreaker creates a circuit breaker for query responses.
+func createCircuitBreaker(config ResilienceConfig, lggr logger.Logger) circuitbreaker.CircuitBreaker[[]protocol.QueryResponse] {
 	handleIf := func(response []protocol.QueryResponse, err error) bool {
 		// Open circuit on errors
 		return err != nil
@@ -242,8 +242,8 @@ func createQueryCircuitBreaker(config ResilienceConfig, lggr logger.Logger) circ
 		Build()
 }
 
-// createQueryRetryPolicy creates a retry policy for query responses.
-func createQueryRetryPolicy(config ResilienceConfig, lggr logger.Logger) retrypolicy.RetryPolicy[[]protocol.QueryResponse] {
+// createRetryPolicy creates a retry policy for query responses.
+func createRetryPolicy(config ResilienceConfig, lggr logger.Logger) retrypolicy.RetryPolicy[[]protocol.QueryResponse] {
 	handleIf := func(response []protocol.QueryResponse, err error) bool {
 		// Retry on any errors
 		return err != nil
@@ -270,8 +270,8 @@ func createQueryRetryPolicy(config ResilienceConfig, lggr logger.Logger) retrypo
 		Build()
 }
 
-// createQueryTimeoutPolicy creates a timeout policy for query responses.
-func createQueryTimeoutPolicy(config ResilienceConfig, lggr logger.Logger) timeout.Timeout[[]protocol.QueryResponse] {
+// createTimeoutPolicy creates a timeout policy for query responses.
+func createTimeoutPolicy(config ResilienceConfig, lggr logger.Logger) timeout.Timeout[[]protocol.QueryResponse] {
 	return timeout.NewBuilder[[]protocol.QueryResponse](config.RequestTimeout).
 		OnTimeoutExceeded(func(event failsafe.ExecutionDoneEvent[[]protocol.QueryResponse]) {
 			lggr.Warnw("Request timeout exceeded", "timeout", config.RequestTimeout)
@@ -279,8 +279,8 @@ func createQueryTimeoutPolicy(config ResilienceConfig, lggr logger.Logger) timeo
 		Build()
 }
 
-// createQueryBulkhead creates a bulkhead for query responses.
-func createQueryBulkhead(config ResilienceConfig, lggr logger.Logger) bulkhead.Bulkhead[[]protocol.QueryResponse] {
+// createBulkhead creates a bulkhead for query responses.
+func createBulkhead(config ResilienceConfig, lggr logger.Logger) bulkhead.Bulkhead[[]protocol.QueryResponse] {
 	return bulkhead.NewBuilder[[]protocol.QueryResponse](config.MaxConcurrentRequests).
 		OnFull(func(event failsafe.ExecutionEvent[[]protocol.QueryResponse]) {
 			lggr.Warnw("Bulkhead is full", "max_concurrent_requests", config.MaxConcurrentRequests)
@@ -288,8 +288,8 @@ func createQueryBulkhead(config ResilienceConfig, lggr logger.Logger) bulkhead.B
 		Build()
 }
 
-// createQueryRateLimiter creates a rate limiter for query responses.
-func createQueryRateLimiter(config ResilienceConfig) ratelimiter.RateLimiter[[]protocol.QueryResponse] {
+// createRateLimiter creates a rate limiter for query responses.
+func createRateLimiter(config ResilienceConfig) ratelimiter.RateLimiter[[]protocol.QueryResponse] {
 	// Convert requests per second to time interval between requests
 	requestsPerSecond := int64(config.MaxRequestsPerSecond) // #nosec G115 - config value expected to be reasonable
 	maxRateInterval := time.Second / time.Duration(requestsPerSecond)
