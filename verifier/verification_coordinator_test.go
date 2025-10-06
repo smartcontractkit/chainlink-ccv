@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -215,7 +216,9 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	}
 	ts := newTestSetup(t)
 
-	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
+	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	require.NoError(t, err)
 
 	testcases := []struct {
 		name    string
@@ -230,6 +233,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				"storage is not set",
 				"logger is not set",
 				"at least one source reader is required",
+				"monitoring is not set",
 				"coordinator ID cannot be empty",
 			},
 		},
@@ -241,6 +245,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: nil,
 		},
@@ -251,6 +256,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{"coordinator ID cannot be empty"},
 		},
@@ -261,6 +267,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{
 				"at least one source reader is required",
@@ -274,6 +281,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithSourceReaders(sourceReaders),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{"verifier is not set"},
 		},
@@ -284,6 +292,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithSourceReaders(sourceReaders),
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{"storage is not set"},
 		},
@@ -294,8 +303,20 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithSourceReaders(sourceReaders),
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{"logger is not set"},
+		},
+		{
+			name: "missing monitoring",
+			options: []verifier.Option{
+				verifier.WithConfig(config),
+				verifier.WithSourceReaders(sourceReaders),
+				verifier.WithVerifier(commitVerifier),
+				verifier.WithLogger(ts.logger),
+				verifier.WithStorage(ts.storage),
+			},
+			err: []string{"monitoring is not set"},
 		},
 	}
 
@@ -323,7 +344,9 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader) (*verifier.Coordinator, error) {
-	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
+	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	require.NoError(ts.t, err)
 
 	return verifier.NewVerificationCoordinator(
 		verifier.WithConfig(config),
@@ -331,6 +354,7 @@ func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorCon
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithStorage(ts.storage),
 		verifier.WithLogger(ts.logger),
+		verifier.WithMonitoring(noopMonitoring),
 	)
 }
 
