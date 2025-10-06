@@ -1,11 +1,14 @@
-FROM golang:1.24.6-alpine
-RUN go install github.com/air-verse/air@v1.62.0
+FROM golang:1.24.6-alpine AS builder
 WORKDIR /app
-COPY verifier/go.mod verifier/go.sum ./
+COPY . .
 WORKDIR /
 COPY protocol/ ./protocol/
 COPY common/ ./common/
 WORKDIR /app
 RUN go mod download
-COPY verifier/air.toml ./
-CMD ["air", "-c", "air.toml"]
+RUN cd verifier && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier cmd/main.go
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+COPY --from=builder /bin/verifier /bin/
+CMD ["/bin/verifier"]
