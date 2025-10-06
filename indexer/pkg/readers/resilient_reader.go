@@ -17,12 +17,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+// Ensure ResilientReader conforms to both interfaces
 var (
 	_ protocol.OffchainStorageReader = (*ResilientReader)(nil)
 	_ protocol.DisconnectableReader  = (*ResilientReader)(nil)
 )
 
-// ResilienceConfig contains configuration for resilience policies.
+// ResilienceConfig contains configuration for resiliency policies.
 type ResilienceConfig struct {
 	// Error Handlers
 	CircuitBreakerErrorHandler func(response []protocol.QueryResponse, err error) bool // Default: nil
@@ -63,7 +64,7 @@ func DefaultResilienceConfig() ResilienceConfig {
 		CircuitBreakerDelay:        3 * time.Second,
 		CircuitBreakerTimeout:      1 * time.Second,
 		MaxRetries:                 3,
-		InitialBackoff:             100 * time.Millisecond,
+		InitialBackoff:             150 * time.Millisecond,
 		MaxBackoff:                 5 * time.Second,
 		BackoffMultiplier:          2.0,
 		Jitter:                     50 * time.Millisecond,
@@ -92,14 +93,18 @@ type ResilientReader struct {
 	maxConsecutiveErrors int
 }
 
-// NewResilientReader wraps a reader with resilience policies.
+// NewResilientReader wraps a reader with resiliency policies.
 func NewResilientReader(underlying protocol.OffchainStorageReader, lggr logger.Logger, config ResilienceConfig) *ResilientReader {
-	// Create all failsafe policies
-	cb := createQueryCircuitBreaker(config, lggr)
-	retry := createQueryRetryPolicy(config, lggr)
-	timeoutPolicy := createQueryTimeoutPolicy(config, lggr)
-	bh := createQueryBulkhead(config, lggr)
+	// Rate limits incoming requests
 	rl := createQueryRateLimiter(config)
+	// Limits concurrent requests
+	bh := createQueryBulkhead(config, lggr)
+	// Circuit breaks if too many errors occur
+	cb := createQueryCircuitBreaker(config, lggr)
+	// Retries if the request fails
+	retry := createQueryRetryPolicy(config, lggr)
+	// Timeout the underlying request
+	timeoutPolicy := createQueryTimeoutPolicy(config, lggr)
 
 	// Build failsafe executor with all policies
 	// Order matters: outermost to innermost
@@ -123,6 +128,7 @@ func NewResilientReader(underlying protocol.OffchainStorageReader, lggr logger.L
 // ReadCCVData implements the OffchainStorageReader interface with resilience policies applied.
 func (r *ResilientReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	if r.isDisconnected() {
+		// Shouldn't be called, but just in case we do, don't call the reader again
 		return []protocol.QueryResponse{}, fmt.Errorf("reader is disconnected")
 	}
 
@@ -131,6 +137,7 @@ func (r *ResilientReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResp
 		return r.underlying.ReadCCVData(ctx)
 	})
 
+	// If the request fails, record and handle the error
 	if err != nil {
 		r.recordError()
 		return nil, r.handleError(err)
@@ -150,7 +157,7 @@ func (r *ResilientReader) ShouldDisconnect() bool {
 		return false
 	}
 
-	// Check if underlying reader should disconnect
+	// Check if underlying reader wants to disconnect, if it does this takes priority
 	if disconnectable, ok := r.underlying.(protocol.DisconnectableReader); ok {
 		if disconnectable.ShouldDisconnect() {
 			return true
@@ -165,10 +172,6 @@ func (r *ResilientReader) ShouldDisconnect() bool {
 func (r *ResilientReader) GetCircuitBreakerState() circuitbreaker.State {
 	return r.circuitBreaker.State()
 }
-
-// ============================================================================
-// Internal State Management
-// ============================================================================
 
 // isDisconnected checks if the reader has received a disconnect signal.
 func (r *ResilientReader) isDisconnected() bool {
@@ -210,10 +213,6 @@ func (r *ResilientReader) handleError(err error) error {
 
 	return fmt.Errorf("failed to fetch data: %w", err)
 }
-
-// ============================================================================
-// Policy Creation for Query Responses
-// ============================================================================
 
 // createQueryCircuitBreaker creates a circuit breaker for query responses.
 func createQueryCircuitBreaker(config ResilienceConfig, lggr logger.Logger) circuitbreaker.CircuitBreaker[[]protocol.QueryResponse] {
