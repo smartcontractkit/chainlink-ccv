@@ -18,9 +18,7 @@ const (
 	jsonContentType = "application/json"
 )
 
-var (
-	_ protocol.OffchainStorageReader = (*restReader)(nil)
-)
+var _ protocol.OffchainStorageReader = (*restReader)(nil)
 
 type RestReaderConfig struct {
 	BaseURL        string        // Base URL for the REST API

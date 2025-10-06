@@ -12,9 +12,9 @@ import (
 	"github.com/failsafe-go/failsafe-go/ratelimiter"
 	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"github.com/failsafe-go/failsafe-go/timeout"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // Ensure ResilientReader conforms to both interfaces.
@@ -144,7 +144,6 @@ func (r *ResilientReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResp
 	responses, err := r.executor.GetWithExecution(func(exec failsafe.Execution[[]protocol.QueryResponse]) ([]protocol.QueryResponse, error) {
 		return r.underlying.ReadCCVData(ctx)
 	})
-
 	// If the request fails, record and handle the error
 	if err != nil {
 		r.recordError()
