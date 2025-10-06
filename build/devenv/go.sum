@@ -1032,10 +1032,10 @@ github.com/smartcontractkit/chain-selectors v1.0.71 h1:5DY50sdoUuBkA2FAOmxXbdzl4
 github.com/smartcontractkit/chain-selectors v1.0.71/go.mod h1:xsKM0aN3YGcQKTPRPDDtPx2l4mlTN1Djmg0VVXV40b8=
 github.com/smartcontractkit/chainlink-aptos v0.0.0-20250915164817-46a35eda083d h1:bcfnHPXAhrhUw95X60Y/lDhQAb4SxSyTrqyVCHqfXPI=
 github.com/smartcontractkit/chainlink-aptos v0.0.0-20250915164817-46a35eda083d/go.mod h1:tEjqontct1/5cKHm4q75nopZa1rwzaQZwd9U9wn0uZE=
-github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006173025-8a8f40e04162 h1:LmOLqU1s6o4KFXWATZ9mS6O5ZTnZ6v/4bOlMN3//4s0=
-github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006173025-8a8f40e04162/go.mod h1:W07PuORJZ6EtcB5Bk3zb1pdew/BixvYUgihw0uZV5bU=
-github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006173025-8a8f40e04162 h1:bu8OEaKwl72j2UkqeMhBeV/Io89GS9sX1a7xfd/L/Oc=
-github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006173025-8a8f40e04162/go.mod h1:dPVPOTb4dPZySJs58owYB7ejemz60TJ+FuVxDkqZA78=
+github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006181703-d18c115668b9 h1:h7PLcnWkEpXdjy+cGtSx49TMfB4dLj0CXW46BqHsrbs=
+github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006181703-d18c115668b9/go.mod h1:W3d6TbZ4PNLGb8QOK8URc/tVWBhnAOwtAYsQ2iPgwtw=
+github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006181703-d18c115668b9 h1:77GhI0OheP65QSHDXfkPRlWIXKLkkR0Pm7SFL9/C5MM=
+github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006181703-d18c115668b9/go.mod h1:iDXw+HcThBv80J6Noe6GXBNCFwkTC0fp+fvMsSuS8Oc=
 github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250908144012-8184001834b5 h1:GmJQqNrWn5pNc8YTei6l2TOSYjK2fRd4+edFZIifCrU=
 github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250908144012-8184001834b5/go.mod h1:Ve1xD71bl193YIZQEoJMmBqLGQJdNs29bwbuObwvbhQ=
 github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20250908144012-8184001834b5 h1:QhcYGEhRLInr1/qh/3RJiVdvJ0nxBHKhPe65WLbSBnU=
