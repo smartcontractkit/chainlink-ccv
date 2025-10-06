@@ -20,32 +20,26 @@ install-pre-commit:
     brew install pre-commit
     pre-commit install
 
+mod-tidy: ensure-go
+    go mod tidy
+
 # Run go test on all modules.
-test-all:
-    @echo "Testing common"
-    @just ./common/test
+test-all: mod-tidy
     @echo "Testing verifier"
     @just ./verifier/test
     @echo "Testing executor"
     @just ./executor/test
-    @echo "Testing aggregator"
-    @just ./aggregator/test
-    @echo "Testing indexer"
-    @just ./indexer/test
 
-lint-all fix="":
+lint fix="": ensure-golangci-lint
+    golangci-lint run --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
+
+lint-all fix="": lint
     @echo "Linting protocol"
     @just ./protocol/lint {{fix}}
-    @echo "Linting common"
-    @just ./common/lint {{fix}}
     @echo "Linting verifier"
     @just ./verifier/lint {{fix}}
     @echo "Linting executor"
     @just ./executor/lint {{fix}}
-    @echo "Linting aggregator"
-    @just ./aggregator/lint {{fix}}
-    @echo "Linting indexer"
-    @just ./indexer/lint {{fix}}
     @echo "Linting devenv"
     @just ./build/devenv/lint {{fix}}
 
@@ -55,3 +49,9 @@ fmt: ensure-golangci-lint
 mod-tidy-all: ensure-gomods
     gomods tidy
     ./tools/bin/modgraph.sh > go.md
+
+test: ensure-go
+    go test -v -race ./...
+
+test-coverage:
+    go test -v -race -coverprofile=coverage.out ./...
