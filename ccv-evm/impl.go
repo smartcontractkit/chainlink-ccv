@@ -26,7 +26,7 @@ import (
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	offramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	onramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
@@ -367,7 +367,7 @@ func (m *CCIP17EVM) SendArgsV2Message(ctx context.Context, e *deployment.Environ
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
 
-	receiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+	receiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443b"
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
@@ -387,7 +387,7 @@ func (m *CCIP17EVM) SendArgsV2Message(ctx context.Context, e *deployment.Environ
 	if err != nil {
 		return fmt.Errorf("failed to send CCIP message: %w", err)
 	}
-	l.Info().Bool("Executed", sendReport.Output.Executed).
+	l.Info().Bool("Executed", sendReport.Output.Executed()).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
@@ -466,7 +466,7 @@ func (m *CCIP17EVM) SendArgsV3Message(
 		return fmt.Errorf("failed to send CCIP message: %w", err)
 	}
 
-	l.Info().Bool("Executed", sendReport.Output.Executed).
+	l.Info().Bool("Executed", sendReport.Output.Executed()).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
@@ -597,23 +597,30 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		ChainSel: selector,
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
-			RMNRemote:     sequences.RMNRemoteParams{},
-			CCVAggregator: sequences.CCVAggregatorParams{},
+			RMNRemote: sequences.RMNRemoteParams{
+				Version: semver.MustParse("1.6.0"),
+			},
+			CCVAggregator: sequences.CCVAggregatorParams{
+				Version: semver.MustParse("1.7.0"),
+			},
 			CommitteeVerifier: sequences.CommitteeVerifierParams{
+				Version: semver.MustParse("1.7.0"),
 				// TODO: add mocked contract here
 				FeeAggregator:       common.HexToAddress("0x01"),
 				SignatureConfigArgs: getCommitteeSignatureConfig(selector),
 			},
 			CCVProxy: sequences.CCVProxyParams{
+				Version:       semver.MustParse("1.7.0"),
 				FeeAggregator: common.HexToAddress("0x01"),
 			},
 			ExecutorOnRamp: sequences.ExecutorOnRampParams{
+				Version:       semver.MustParse("1.7.0"),
 				MaxCCVsPerMsg: 10,
 			},
 			FeeQuoter: sequences.FeeQuoterParams{
+				Version: semver.MustParse("1.7.0"),
 				// expose in TOML config
 				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-				TokenPriceStalenessThreshold:   uint32(24 * 60 * 60),
 				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
 				WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
 				USDPerLINK:                     usdPerLink,
@@ -675,24 +682,17 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled: false,
 			},
-			FeeQuoterDestChainConfig: fee_quoter_v2.DestChainConfig{
-				IsEnabled:                         true,
-				MaxNumberOfTokensPerMsg:           10,
-				MaxDataBytes:                      30_000,
-				MaxPerMsgGasLimit:                 3_000_000,
-				DestGasOverhead:                   300_000,
-				DefaultTokenFeeUSDCents:           25,
-				DestGasPerPayloadByteBase:         16,
-				DestGasPerPayloadByteHigh:         40,
-				DestGasPerPayloadByteThreshold:    3000,
-				DestDataAvailabilityOverheadGas:   100,
-				DestGasPerDataAvailabilityByte:    16,
-				DestDataAvailabilityMultiplierBps: 1,
-				DefaultTokenDestGasOverhead:       90_000,
-				DefaultTxGasLimit:                 200_000,
-				GasMultiplierWeiPerEth:            11e17, // Gas multiplier in wei per eth is scaled by 1e18, so 11e17 is 1.1 = 110%
-				NetworkFeeUSDCents:                10,
-				ChainFamilySelector:               [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
+			FeeQuoterDestChainConfig: fee_quoter.DestChainConfig{
+				IsEnabled:                   true,
+				MaxDataBytes:                30_000,
+				MaxPerMsgGasLimit:           3_000_000,
+				DestGasOverhead:             300_000,
+				DefaultTokenFeeUSDCents:     25,
+				DestGasPerPayloadByteBase:   16,
+				DefaultTokenDestGasOverhead: 90_000,
+				DefaultTxGasLimit:           200_000,
+				NetworkFeeUSDCents:          10,
+				ChainFamilySelector:         [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
 			},
 		}
 	}

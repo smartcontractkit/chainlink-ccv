@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -238,7 +238,7 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 			sel,
 			committee_verifier.ConstructorArgs{
 				DynamicConfig: committee_verifier.DynamicConfig{
-					FeeQuoter:      MustGetContractAddressForSelector(addresses, sel, fee_quoter_v2.ContractType),
+					FeeQuoter:      MustGetContractAddressForSelector(addresses, sel, fee_quoter.ContractType),
 					FeeAggregator:  e.BlockChains.EVMChains()[sel].DeployerKey.From,
 					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
 				},
