@@ -25,6 +25,10 @@ func NewV1API(lggr logger.Logger, storage common.IndexerStorage, monitoring comm
 	ccvDataV1Handler := v1.NewCCVDataV1Handler(storage, lggr, monitoring)
 	v1Group.GET("/ccvdata", ccvDataV1Handler.Handle)
 
+	// Get all messages over a time range
+	messagesV1Handler := v1.NewMessagesV1Handler(storage, lggr, monitoring)
+	v1Group.GET("/messages", messagesV1Handler.Handle)
+
 	// Get all verifications for a specific messageID
 	messageIDV1Handler := v1.NewMessageIDV1Handler(storage, lggr, monitoring)
 	v1Group.GET("/messageid/:messageID", messageIDV1Handler.Handle)
