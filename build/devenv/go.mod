@@ -15,10 +15,7 @@ require (
 	github.com/smartcontractkit/chain-selectors v1.0.67
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250919202442-70ebf972c3ee
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250919202442-70ebf972c3ee
-	github.com/smartcontractkit/chainlink-ccv/aggregator v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-ccv/ccv-evm v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-ccv/indexer v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/smartcontractkit/chainlink-deployments-framework v0.37.1
@@ -36,6 +33,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.16
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.50.5
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251006193313-a834070352d0
 )
 
 require (
@@ -449,10 +447,8 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
-	github.com/smartcontractkit/chainlink-ccv/aggregator => ../../aggregator
 	//github.com/smartcontractkit/chainlink-ccip => ../../../chainlink-ccip
-	github.com/smartcontractkit/chainlink-ccv/common => ../../common
-	github.com/smartcontractkit/chainlink-ccv/indexer => ../../indexer
+	github.com/smartcontractkit/chainlink-ccv => ../..
 	github.com/smartcontractkit/chainlink-ccv/protocol => ../../protocol
 
 	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
