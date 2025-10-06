@@ -17,7 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// Ensure ResilientReader conforms to both interfaces
+// Ensure ResilientReader conforms to both interfaces.
 var (
 	_ protocol.OffchainStorageReader = (*ResilientReader)(nil)
 	_ protocol.DisconnectableReader  = (*ResilientReader)(nil)
