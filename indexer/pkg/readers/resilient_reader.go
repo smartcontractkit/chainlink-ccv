@@ -95,15 +95,23 @@ type ResilientReader struct {
 
 // NewResilientReader wraps a reader with resiliency policies.
 func NewResilientReader(underlying protocol.OffchainStorageReader, lggr logger.Logger, config ResilienceConfig) *ResilientReader {
+	// The resilient reader wraps an underlying offchain storage reader with resiliency policies.
+	// To do this, we create a failsafe executor with multiple layers of policies to prevent cascading failures.
+	//
+	// Each layer has a different purpose and they are daisy chained together.
+	// The order matters: outermost to innermost
+	// RateLimiter -> Bulkhead -> CircuitBreaker -> Retry -> Timeout
+	// This means that if the request fails, the next layer will not be called.
+
 	// Rate limits incoming requests
 	rl := createRateLimiter(config)
 	// Limits concurrent requests
 	bh := createBulkhead(config, lggr)
-	// Circuit breaks if too many errors occur
+	// Circuit breaks if too many errors occur, allows the downstream service to recover
 	cb := createCircuitBreaker(config, lggr)
-	// Retries if the request fails
+	// Retries if the request fails, if the request is determined to be non-retryable, the request will not be retried
 	retry := createRetryPolicy(config, lggr)
-	// Timeout the underlying request
+	// Timeout the underlying request, if the request takes too long, it will be aborted
 	timeoutPolicy := createTimeoutPolicy(config, lggr)
 
 	// Build failsafe executor with all policies
