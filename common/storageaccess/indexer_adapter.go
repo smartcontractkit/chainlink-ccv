@@ -41,6 +41,14 @@ type queryParams struct {
 	Offset               uint64
 }
 
+func verifierResultsRequestToQueryParams(req VerifierResultsRequest) queryParams {
+	return queryParams(req)
+}
+
+func messagesV1RequestToQueryParams(req MessagesV1Request) queryParams {
+	return queryParams(req)
+}
+
 func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, params queryParams, result any) error {
 	baseURL := strings.TrimSuffix(i.indexerURI, "/")
 	fullURL := fmt.Sprintf("%s%s", baseURL, endpoint)
@@ -96,7 +104,12 @@ func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, par
 		i.lggr.Errorw("Failed to make HTTP request", "error", err)
 		return fmt.Errorf("failed to make HTTP request: %w", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			i.lggr.Errorw("Failed to close response body", "error", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode)
@@ -116,14 +129,7 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 	queryData VerifierResultsRequest,
 ) (map[string][]protocol.CCVData, error) {
 	var response VerifierResultsResponse
-	err := i.makeRequest(ctx, "/v1/ccvdata", queryParams{
-		SourceChainSelectors: queryData.SourceChainSelectors,
-		DestChainSelectors:   queryData.DestChainSelectors,
-		Start:                queryData.Start,
-		End:                  queryData.End,
-		Limit:                queryData.Limit,
-		Offset:               queryData.Offset,
-	}, &response)
+	err := i.makeRequest(ctx, "/v1/ccvdata", verifierResultsRequestToQueryParams(queryData), &response)
 	if err != nil {
 		return nil, err
 	}
@@ -142,14 +148,7 @@ func (i *IndexerAPIReader) ReadMessages(
 	queryData MessagesV1Request,
 ) (map[string]protocol.Message, error) {
 	var response MessagesV1Response
-	err := i.makeRequest(ctx, "/v1/messages", queryParams{
-		SourceChainSelectors: queryData.SourceChainSelectors,
-		DestChainSelectors:   queryData.DestChainSelectors,
-		Start:                queryData.Start,
-		End:                  queryData.End,
-		Limit:                queryData.Limit,
-		Offset:               queryData.Offset,
-	}, &response)
+	err := i.makeRequest(ctx, "/v1/messages", messagesV1RequestToQueryParams(queryData), &response)
 	if err != nil {
 		return nil, err
 	}
