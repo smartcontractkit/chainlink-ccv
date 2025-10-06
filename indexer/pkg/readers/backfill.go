@@ -18,7 +18,10 @@ type BackfillReader struct {
 }
 
 func NewBackfillReader(reader protocol.OffchainStorageReader, lggr logger.Logger, startUnix, endUnix int64) *ResilientReader {
-	return NewResilientReader(&BackfillReader{reader: reader, startUnix: startUnix, endUnix: endUnix}, lggr, DefaultResilienceConfig())
+	config := DefaultResilienceConfig()
+	config.AllowDisconnect = true
+	config.MaxRequestsPerSecond = 100 // Allow high requests per second to quickly read the entire backfill
+	return NewResilientReader(&BackfillReader{reader: reader, startUnix: startUnix, endUnix: endUnix}, lggr, config)
 }
 
 func (b *BackfillReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
