@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/memory"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	_ "modernc.org/sqlite" // SQLite driver
 
@@ -29,11 +30,15 @@ type CommitVerificationStorage interface {
 }
 
 // Factory creates storage instances based on configuration.
-type Factory struct{}
+type Factory struct {
+	logger logger.SugaredLogger
+}
 
 // NewStorageFactory creates a new storage factory.
-func NewStorageFactory() *Factory {
-	return &Factory{}
+func NewStorageFactory(logger logger.SugaredLogger) *Factory {
+	return &Factory{
+		logger: logger,
+	}
 }
 
 // CreateStorage creates a storage instance based on the provided configuration.
@@ -72,6 +77,7 @@ func (f *Factory) createDynamoDBStorage(config model.StorageConfig, monitoring c
 		config.DynamoDB.CommitVerificationRecordTableName,
 		config.DynamoDB.FinalizedFeedTableName,
 		earliestDateForGetMessageSince,
+		f.logger,
 		monitoring,
 	)
 

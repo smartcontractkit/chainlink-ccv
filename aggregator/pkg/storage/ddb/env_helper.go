@@ -105,6 +105,32 @@ func CreateCommitVerificationRecordsTable(ctx context.Context, client *dynamodb.
 				AttributeName: aws.String(FieldSortKey),
 				AttributeType: types.ScalarAttributeTypeS, // String
 			},
+			{
+				AttributeName: aws.String(VerificationMessageDataFieldPendingAggregation), // For orphan recovery GSI
+				AttributeType: types.ScalarAttributeTypeS,                                 // String
+			},
+			{
+				AttributeName: aws.String(FieldCreatedAt), // For orphan recovery GSI sort key
+				AttributeType: types.ScalarAttributeTypeN, // Number
+			},
+		},
+		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+			{
+				IndexName: aws.String(GSIPendingAggregationIndex),
+				KeySchema: []types.KeySchemaElement{
+					{
+						AttributeName: aws.String(VerificationMessageDataFieldPendingAggregation), // GSI Partition Key
+						KeyType:       types.KeyTypeHash,
+					},
+					{
+						AttributeName: aws.String(FieldCreatedAt), // GSI Sort Key
+						KeyType:       types.KeyTypeRange,
+					},
+				},
+				Projection: &types.Projection{
+					ProjectionType: types.ProjectionTypeAll, // Project all attributes for orphan recovery
+				},
+			},
 		},
 		BillingMode: types.BillingModePayPerRequest, // On-demand billing for tests
 	}
@@ -162,7 +188,7 @@ func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 		// Return client and cleanup function
 		cleanup := func() {
 			if err := dynamoContainer.Terminate(context.Background()); err != nil {
-				t.Errorf("failed to terminate DynamoDB container: %v", err)
+				t.Log("failed to terminate container:", err)
 			}
 		}
 
