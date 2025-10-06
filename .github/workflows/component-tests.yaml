@@ -40,7 +40,7 @@ jobs:
       - name: Lint and Test Verifier
         uses: ./.github/actions/lint-test-component
         with:
-          dir: root
+          dir: ""
           go-mod-path: go.mod
           go-sum-path: go.sum
       - name: Checkout code
