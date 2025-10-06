@@ -6,12 +6,12 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -28,10 +28,14 @@ func main() {
 
 	// Setup logging
 	lggr, err := logger.NewWith(func(config *zap.Config) {
-		config.Development = true
+		config.Development = false
 		config.Encoding = "console"
 		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+		config.DisableStacktrace = true
 	})
+
+	lggr = logger.Named(lggr, "indexer")
+
 	if err != nil {
 		panic(err)
 	}
@@ -105,7 +109,7 @@ func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.Offc
 	for _, reader := range cfg.Discovery.Static.Readers {
 		switch reader.Type {
 		case config.ReaderTypeAggregator:
-			aggReader, err := storageaccess.NewAggregatorReader(reader.Aggregator.Address, "dummy-api-key", lggr, reader.Aggregator.Since)
+			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, "dummy-api-key", lggr, reader.Aggregator.Since)
 			if err != nil {
 				lggr.Fatalf("Failed to create aggregator reader: %v", err)
 			}

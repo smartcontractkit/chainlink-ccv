@@ -5,7 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -255,13 +258,18 @@ func (s *Scanner) consumeReader(ctx context.Context, reader protocol.OffchainSto
 
 func (s *Scanner) callReader(ctx context.Context, reader protocol.OffchainStorageReader) (bool, error) {
 	queryResponse, err := reader.ReadCCVData(ctx)
-	s.lggr.Debug("Scanner read VerificationResult from reader")
-
 	if err != nil {
+		if s.isCircuitBreakerOpen(reader) {
+			s.lggr.Errorw("Circuit breaker is open, skipping reader")
+			return false, nil
+		}
+
 		s.monitoring.Metrics().RecordScannerPollingErrorsCounter(ctx)
 		s.lggr.Errorw("Error reading VerificationResult from reader", "error", err)
 		return false, err
 	}
+
+	s.lggr.Debug("Scanner read VerificationResult from reader")
 
 	for _, response := range queryResponse {
 		s.lggr.Infof("Populated VerificationResult channel with new data messageID %s", response.Data.MessageID)
@@ -272,4 +280,12 @@ func (s *Scanner) callReader(ctx context.Context, reader protocol.OffchainStorag
 
 	// Return true if we processed any data, false if the slice was empty
 	return len(queryResponse) > 0, nil
+}
+
+func (s *Scanner) isCircuitBreakerOpen(reader protocol.OffchainStorageReader) bool {
+	if resilientReader, ok := reader.(*readers.ResilientReader); ok {
+		return resilientReader.GetCircuitBreakerState() == circuitbreaker.OpenState
+	}
+
+	return false
 }

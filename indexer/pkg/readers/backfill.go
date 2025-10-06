@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 var _ protocol.DisconnectableReader = (*BackfillReader)(nil)
@@ -16,8 +17,11 @@ type BackfillReader struct {
 	disconnectSignal bool
 }
 
-func NewBackfillReader(reader protocol.OffchainStorageReader, startUnix, endUnix int64) *BackfillReader {
-	return &BackfillReader{reader: reader, startUnix: startUnix, endUnix: endUnix}
+func NewBackfillReader(reader protocol.OffchainStorageReader, lggr logger.Logger, startUnix, endUnix int64) *ResilientReader {
+	config := DefaultResilienceConfig()
+	config.AllowDisconnect = true
+	config.MaxRequestsPerSecond = 100 // Allow high requests per second to quickly read the entire backfill
+	return NewResilientReader(&BackfillReader{reader: reader, startUnix: startUnix, endUnix: endUnix}, lggr, config)
 }
 
 func (b *BackfillReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {

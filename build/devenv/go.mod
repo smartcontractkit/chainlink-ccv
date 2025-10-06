@@ -79,7 +79,7 @@ require (
 	github.com/bboreham/go-loser v0.0.0-20230920113527-fcc2c21820a3 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.20.0 // indirect
+	github.com/bits-and-blooms/bitset v1.24.0 // indirect
 	github.com/blendle/zapdriver v1.3.1 // indirect
 	github.com/block-vision/sui-go-sdk v1.0.9 // indirect
 	github.com/btcsuite/btcd v0.24.2 // indirect
