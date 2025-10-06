@@ -41,7 +41,7 @@ type queryParams struct {
 	Offset               uint64
 }
 
-func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, params queryParams, result interface{}) error {
+func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, params queryParams, result any) error {
 	baseURL := strings.TrimSuffix(i.indexerURI, "/")
 	fullURL := fmt.Sprintf("%s%s", baseURL, endpoint)
 
