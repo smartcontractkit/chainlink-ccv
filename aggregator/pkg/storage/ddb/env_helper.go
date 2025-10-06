@@ -106,8 +106,8 @@ func CreateCommitVerificationRecordsTable(ctx context.Context, client *dynamodb.
 				AttributeType: types.ScalarAttributeTypeS, // String
 			},
 			{
-				AttributeName: aws.String(AccumulatorFieldPendingAggregation), // For orphan recovery GSI
-				AttributeType: types.ScalarAttributeTypeS,                     // String
+				AttributeName: aws.String(VerificationMessageDataFieldPendingAggregation), // For orphan recovery GSI
+				AttributeType: types.ScalarAttributeTypeS,                                 // String
 			},
 			{
 				AttributeName: aws.String(FieldCreatedAt), // For orphan recovery GSI sort key
@@ -119,7 +119,7 @@ func CreateCommitVerificationRecordsTable(ctx context.Context, client *dynamodb.
 				IndexName: aws.String(GSIPendingAggregationIndex),
 				KeySchema: []types.KeySchemaElement{
 					{
-						AttributeName: aws.String(AccumulatorFieldPendingAggregation), // GSI Partition Key
+						AttributeName: aws.String(VerificationMessageDataFieldPendingAggregation), // GSI Partition Key
 						KeyType:       types.KeyTypeHash,
 					},
 					{

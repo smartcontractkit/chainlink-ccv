@@ -23,14 +23,14 @@ const (
 )
 
 const (
-	AccumulatorFieldMessageID             = "MessageID"
-	AccumulatorFieldSourceVerifierAddress = "SourceVerifierAddress"
-	AccumulatorFieldMessage               = "Message"
-	AccumulatorFieldBlobData              = "BlobData"
-	AccumulatorFieldTimestamp             = "Timestamp"
-	AccumulatorFieldReceiptBlobs          = "ReceiptBlobs"
-	AccumulatorFieldQuorumStatus          = "QuorumStatus"
-	AccumulatorFieldPendingAggregation    = "PendingAggregation"
+	VerificationMessageDataFieldMessageID             = "MessageID"
+	VerificationMessageDataFieldSourceVerifierAddress = "SourceVerifierAddress"
+	VerificationMessageDataFieldMessage               = "Message"
+	VerificationMessageDataFieldBlobData              = "BlobData"
+	VerificationMessageDataFieldTimestamp             = "Timestamp"
+	VerificationMessageDataFieldReceiptBlobs          = "ReceiptBlobs"
+	VerificationMessageDataFieldQuorumStatus          = "QuorumStatus"
+	VerificationMessageDataFieldPendingAggregation    = "PendingAggregation"
 )
 
 const (
@@ -48,19 +48,19 @@ const (
 )
 
 const (
-	SignatureRecordPrefix   = "SIGNATURE"
-	AccumulatorRecordPrefix = "ACCUMULATOR"
+	SignatureRecordPrefix               = "SIGNATURE"
+	VerificationMessageDataRecordPrefix = "VERIFICATION_MESSAGE_DATA"
 )
 
 const (
-	KeySeparator       = "#"
-	AccumulatorSortKey = AccumulatorRecordPrefix
+	KeySeparator                   = "#"
+	VerificationMessageDataSortKey = VerificationMessageDataRecordPrefix
 )
 
 const (
-	AccumulatorQuorumStatusPending = "PENDING"
-	PendingAggregationPrefix       = "PENDING"
-	PendingShardIndex              = 0 // Start with single shard, can be increased later
+	VerificationMessageDataQuorumStatusPending = "PENDING"
+	PendingAggregationPrefix                   = "PENDING"
+	PendingShardIndex                          = 0 // Start with single shard, can be increased later
 )
 
 const (
@@ -73,13 +73,13 @@ const (
 	QueryReportsInTimeRange             = FinalizedFeedFieldCommitteeIDMessageID + " = :pk AND " + FinalizedFeedFieldFinalizedAt + " BETWEEN :startKey AND :endKey"
 	QueryLatestReportByCommitteeMessage = FinalizedFeedFieldCommitteeIDMessageID + " = :pk"
 	QueryReportsInDayCommitteeRange     = FinalizedFeedFieldGSIPK + " = :gsiPK AND " + FinalizedFeedFieldGSISK + " BETWEEN :startKey AND :endKey"
-	QueryOrphanedRecordsByPending       = AccumulatorFieldPendingAggregation + " = :pending_key"
+	QueryOrphanedRecordsByPending       = VerificationMessageDataFieldPendingAggregation + " = :pending_key"
 )
 
 const (
-	ConditionPreventDuplicateRecord        = "attribute_not_exists(" + FieldPartitionKey + ") AND attribute_not_exists(" + FieldSortKey + ")"
-	ConditionPreventDuplicateAccumulator   = "attribute_not_exists(" + FieldSortKey + ")"
-	ConditionPreventDuplicateFinalizedFeed = "attribute_not_exists(" + FinalizedFeedFieldCommitteeIDMessageID + ") AND attribute_not_exists(" + FinalizedFeedFieldFinalizedAt + ")"
+	ConditionPreventDuplicateRecord                  = "attribute_not_exists(" + FieldPartitionKey + ") AND attribute_not_exists(" + FieldSortKey + ")"
+	ConditionPreventDuplicateVerificationMessageData = "attribute_not_exists(" + FieldSortKey + ")"
+	ConditionPreventDuplicateFinalizedFeed           = "attribute_not_exists(" + FinalizedFeedFieldCommitteeIDMessageID + ") AND attribute_not_exists(" + FinalizedFeedFieldFinalizedAt + ")"
 )
 
 const (

@@ -106,7 +106,7 @@ func assertVerificationRecordEquals(t *testing.T, expected, actual *model.Commit
 	require.Equal(t, expected.IdentifierSigner.SignatureS, actual.IdentifierSigner.SignatureS, "SignatureS should match")
 	require.Equal(t, expected.MessageId, actual.MessageId, "MessageId should match")
 
-	// Verify message content (tests that ACCUMULATOR record is properly fetched)
+	// Verify message content (tests that MessageData record is properly fetched)
 	require.NotNil(t, actual.Message, "Message should not be nil")
 	require.Equal(t, expected.Message.SourceChainSelector, actual.Message.SourceChainSelector, "SourceChainSelector should match")
 	require.Equal(t, expected.Message.DestChainSelector, actual.Message.DestChainSelector, "DestChainSelector should match")

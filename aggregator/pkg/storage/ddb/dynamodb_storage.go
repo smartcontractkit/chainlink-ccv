@@ -52,16 +52,16 @@ func (d *DynamoDBStorage) RecordCapacity(capacity *types.ConsumedCapacity) {
 
 func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error {
 	signatureDTO := &SignatureRecordDTO{}
-	accumulatorDTO := &AccumulatorRecordDTO{}
+	verificationMessageDataDTO := &VerificationMessageDataRecordDTO{}
 
 	signatureItem, err := signatureDTO.ToItem(record)
 	if err != nil {
 		return fmt.Errorf("failed to create signature item: %w", err)
 	}
 
-	accumulatorItem, err := accumulatorDTO.ToItem(record)
+	verificationMessageDataItem, err := verificationMessageDataDTO.ToItem(record)
 	if err != nil {
-		return fmt.Errorf("failed to create accumulator item: %w", err)
+		return fmt.Errorf("failed to create verification message data item: %w", err)
 	}
 
 	output, err := d.client.PutItem(ctx, &dynamodb.PutItemInput{
@@ -83,8 +83,8 @@ func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *mo
 
 	output, err = d.client.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:              &d.tableName,
-		Item:                   accumulatorItem,
-		ConditionExpression:    aws.String(ConditionPreventDuplicateAccumulator),
+		Item:                   verificationMessageDataItem,
+		ConditionExpression:    aws.String(ConditionPreventDuplicateVerificationMessageData),
 		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
 
@@ -95,20 +95,20 @@ func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *mo
 	if err != nil {
 		var conditionCheckFailedException *types.ConditionalCheckFailedException
 		if !errors.As(err, &conditionCheckFailedException) {
-			return fmt.Errorf("failed to save accumulator record: %w", err)
+			return fmt.Errorf("failed to save verification message data record: %w", err)
 		}
 	}
 
 	return nil
 }
 
-func (d *DynamoDBStorage) getAccumulatorRecord(ctx context.Context, partitionKey string) (map[string]types.AttributeValue, error) {
+func (d *DynamoDBStorage) getVerificationMessageDataRecord(ctx context.Context, partitionKey string) (map[string]types.AttributeValue, error) {
 	result, err := d.client.Query(ctx, &dynamodb.QueryInput{
 		TableName:              &d.tableName,
 		KeyConditionExpression: aws.String(QueryRecordsByTypePrefix),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk":        &types.AttributeValueMemberS{Value: partitionKey},
-			":sk_prefix": &types.AttributeValueMemberS{Value: AccumulatorSortKey},
+			":sk_prefix": &types.AttributeValueMemberS{Value: VerificationMessageDataSortKey},
 		},
 		ConsistentRead:         aws.Bool(false),
 		Limit:                  aws.Int32(1),
@@ -120,7 +120,7 @@ func (d *DynamoDBStorage) getAccumulatorRecord(ctx context.Context, partitionKey
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to query accumulator record: %w", err)
+		return nil, fmt.Errorf("failed to query verification message data record: %w", err)
 	}
 
 	if len(result.Items) == 0 {
@@ -135,7 +135,7 @@ func (d *DynamoDBStorage) GetCommitVerification(ctx context.Context, id model.Co
 	signerAddressHex := common.BytesToAddress(id.Address).Hex()
 	partitionKey := BuildPartitionKey(id.MessageID, id.CommitteeID)
 
-	accumulatorRecord, err := d.getAccumulatorRecord(ctx, partitionKey)
+	verificationMessageDataRecord, err := d.getVerificationMessageDataRecord(ctx, partitionKey)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +164,7 @@ func (d *DynamoDBStorage) GetCommitVerification(ctx context.Context, id model.Co
 		return nil, fmt.Errorf("commit verification record not found")
 	}
 
-	record, err := signatureDTO.FromItem(signatureResult.Items[0], id.MessageID, id.CommitteeID, accumulatorRecord)
+	record, err := signatureDTO.FromItem(signatureResult.Items[0], id.MessageID, id.CommitteeID, verificationMessageDataRecord)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse signature record: %w", err)
 	}
@@ -174,7 +174,7 @@ func (d *DynamoDBStorage) GetCommitVerification(ctx context.Context, id model.Co
 
 func (d *DynamoDBStorage) ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
 	signatureDTO := &SignatureRecordDTO{}
-	accumulatorDTO := &AccumulatorRecordDTO{}
+	verificationMessageDataDTO := &VerificationMessageDataRecordDTO{}
 	partitionKey := BuildPartitionKey(messageID, committee)
 
 	result, err := d.client.Query(ctx, &dynamodb.QueryInput{
@@ -195,11 +195,11 @@ func (d *DynamoDBStorage) ListCommitVerificationByMessageID(ctx context.Context,
 	}
 
 	records := make([]*model.CommitVerificationRecord, 0, len(result.Items))
-	var accumulatorItem map[string]types.AttributeValue
+	var verificationMessageDataItem map[string]types.AttributeValue
 
 	for _, item := range result.Items {
-		if accumulatorDTO.IsAccumulatorRecord(item) {
-			accumulatorItem = item
+		if verificationMessageDataDTO.IsVerificationMessageDataRecord(item) {
+			verificationMessageDataItem = item
 			break
 		}
 	}
@@ -209,7 +209,7 @@ func (d *DynamoDBStorage) ListCommitVerificationByMessageID(ctx context.Context,
 			continue
 		}
 
-		record, err := signatureDTO.FromItem(item, messageID, committee, accumulatorItem)
+		record, err := signatureDTO.FromItem(item, messageID, committee, verificationMessageDataItem)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse signature record: %w", err)
 		}
@@ -255,30 +255,30 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return fmt.Errorf("failed to submit report to FinalizedFeed table: %w", err)
 	}
 
-	// Now remove the PendingAggregation field from the accumulator record to mark it as no longer orphaned
-	err = d.markAccumulatorAsAggregated(ctx, report.MessageID, report.CommitteeID)
+	// Now remove the PendingAggregation field from the verification message data record to mark it as no longer orphaned
+	err = d.markVerificationMessageDataAsAggregated(ctx, report.MessageID, report.CommitteeID)
 	if err != nil {
 		// Log error but don't fail the entire operation since the report was already saved
 		// This is a best-effort cleanup operation
 		logger := d.logger.With("messageID", report.MessageID, "committeeID", report.CommitteeID)
-		logger.Warnf("failed to mark accumulator as aggregated: %v", err)
+		logger.Warnf("failed to mark verification message data as aggregated: %v", err)
 	}
 
 	return nil
 }
 
-// markAccumulatorAsAggregated removes the PendingAggregation field from the accumulator record.
-func (d *DynamoDBStorage) markAccumulatorAsAggregated(ctx context.Context, messageID model.MessageID, committeeID string) error {
+// markVerificationMessageDataAsAggregated removes the PendingAggregation field from the verification message data record.
+func (d *DynamoDBStorage) markVerificationMessageDataAsAggregated(ctx context.Context, messageID model.MessageID, committeeID string) error {
 	partitionKey := BuildPartitionKey(messageID, committeeID)
 
 	updateInput := &dynamodb.UpdateItemInput{
 		TableName: aws.String(d.tableName),
 		Key: map[string]types.AttributeValue{
 			FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
-			FieldSortKey:      &types.AttributeValueMemberS{Value: AccumulatorSortKey},
+			FieldSortKey:      &types.AttributeValueMemberS{Value: VerificationMessageDataSortKey},
 		},
-		UpdateExpression: aws.String("REMOVE " + AccumulatorFieldPendingAggregation +
-			" SET " + AccumulatorFieldQuorumStatus + " = :status"),
+		UpdateExpression: aws.String("REMOVE " + VerificationMessageDataFieldPendingAggregation +
+			" SET " + VerificationMessageDataFieldQuorumStatus + " = :status"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":status": &types.AttributeValueMemberS{Value: "AGGREGATED"},
 		},
@@ -293,7 +293,7 @@ func (d *DynamoDBStorage) markAccumulatorAsAggregated(ctx context.Context, messa
 			// Record doesn't exist or was already updated - this is fine
 			return nil
 		}
-		return fmt.Errorf("failed to update accumulator record: %w", err)
+		return fmt.Errorf("failed to update verification message data record: %w", err)
 	}
 
 	return nil
@@ -415,14 +415,14 @@ func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 		queryInput := &dynamodb.QueryInput{
 			TableName:              aws.String(d.tableName),
 			IndexName:              aws.String(GSIPendingAggregationIndex),
-			KeyConditionExpression: aws.String(fmt.Sprintf("%s = :gsiPK", AccumulatorFieldPendingAggregation)),
+			KeyConditionExpression: aws.String(fmt.Sprintf("%s = :gsiPK", VerificationMessageDataFieldPendingAggregation)),
 			ExpressionAttributeValues: map[string]types.AttributeValue{
 				":gsiPK": &types.AttributeValueMemberS{Value: GetPendingAggregationKeyForRecord(committeeID)},
 			},
 		}
 
 		var lastEvaluatedKey map[string]types.AttributeValue
-		accumulatorDTO := &AccumulatorRecordDTO{}
+		verificationMessageDataDTO := &VerificationMessageDataRecordDTO{}
 
 		for {
 			if lastEvaluatedKey != nil {
@@ -440,8 +440,8 @@ func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 
 			// Process results
 			for _, item := range result.Items {
-				if !accumulatorDTO.IsAccumulatorRecord(item) {
-					continue // Skip non-accumulator records
+				if !verificationMessageDataDTO.IsVerificationMessageDataRecord(item) {
+					continue // Skip non-verification message data records
 				}
 
 				// Extract MessageID and CommitteeID from the item directly
@@ -474,7 +474,7 @@ func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 
 // extractMessageIDFromItem extracts the MessageID from a DynamoDB item.
 func (d *DynamoDBStorage) extractMessageIDFromItem(item map[string]types.AttributeValue) (model.MessageID, error) {
-	messageIDValue, ok := item[AccumulatorFieldMessageID].(*types.AttributeValueMemberB)
+	messageIDValue, ok := item[VerificationMessageDataFieldMessageID].(*types.AttributeValueMemberB)
 	if !ok {
 		return nil, errors.New("MessageID field not found or wrong type")
 	}
