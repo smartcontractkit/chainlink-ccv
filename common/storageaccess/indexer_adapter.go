@@ -41,17 +41,12 @@ type queryParams struct {
 	Offset               uint64
 }
 
-func verifierResultsRequestToQueryParams(req VerifierResultsRequest) queryParams {
-	return queryParams(req)
-}
-
-func messagesV1RequestToQueryParams(req MessagesV1Request) queryParams {
-	return queryParams(req)
-}
-
 func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, params queryParams, result any) error {
-	baseURL := strings.TrimSuffix(i.indexerURI, "/")
-	fullURL := fmt.Sprintf("%s%s", baseURL, endpoint)
+	fullURL, err := url.JoinPath(i.indexerURI, endpoint)
+	if err != nil {
+		i.lggr.Errorw("Failed to join indexer URI and endpoint", "error", err, "uri", i.indexerURI, "endpoint", endpoint)
+		return fmt.Errorf("failed to join indexer URI and endpoint: %w", err)
+	}
 
 	u, err := url.Parse(fullURL)
 	if err != nil {
@@ -129,7 +124,7 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 	queryData VerifierResultsRequest,
 ) (map[string][]protocol.CCVData, error) {
 	var response VerifierResultsResponse
-	err := i.makeRequest(ctx, "/v1/ccvdata", verifierResultsRequestToQueryParams(queryData), &response)
+	err := i.makeRequest(ctx, "/v1/ccvdata", queryParams(queryData), &response)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +143,7 @@ func (i *IndexerAPIReader) ReadMessages(
 	queryData MessagesV1Request,
 ) (map[string]protocol.Message, error) {
 	var response MessagesV1Response
-	err := i.makeRequest(ctx, "/v1/messages", messagesV1RequestToQueryParams(queryData), &response)
+	err := i.makeRequest(ctx, "/v1/messages", queryParams(queryData), &response)
 	if err != nil {
 		return nil, err
 	}
