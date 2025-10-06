@@ -22,6 +22,7 @@ type DynamoDBStorage struct {
 	tableName              string
 	finalizedFeedTableName string
 	minDate                time.Time
+	monitoring             pkgcommon.AggregatorMonitoring
 }
 
 var (
@@ -30,12 +31,19 @@ var (
 	_ pkgcommon.Sink                              = (*DynamoDBStorage)(nil)
 )
 
-func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time) *DynamoDBStorage {
+func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, monitoring pkgcommon.AggregatorMonitoring) *DynamoDBStorage {
 	return &DynamoDBStorage{
 		client:                 client,
 		tableName:              tableName,
 		finalizedFeedTableName: finalizedFeedTableName,
 		minDate:                minDate,
+		monitoring:             monitoring,
+	}
+}
+
+func (d *DynamoDBStorage) RecordCapacity(capacity *types.ConsumedCapacity) {
+	if d.monitoring != nil && capacity != nil {
+		d.monitoring.Metrics().RecordCapacity(capacity)
 	}
 }
 
@@ -53,11 +61,16 @@ func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *mo
 		return fmt.Errorf("failed to create accumulator item: %w", err)
 	}
 
-	_, err = d.client.PutItem(ctx, &dynamodb.PutItemInput{
+	output, err := d.client.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:           &d.tableName,
 		Item:                signatureItem,
 		ConditionExpression: aws.String(ConditionPreventDuplicateRecord),
 	})
+
+	if output != nil {
+		d.RecordCapacity(output.ConsumedCapacity)
+	}
+
 	if err != nil {
 		var conditionCheckFailedException *types.ConditionalCheckFailedException
 		if !errors.As(err, &conditionCheckFailedException) {
@@ -65,11 +78,17 @@ func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *mo
 		}
 	}
 
-	_, err = d.client.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName:           &d.tableName,
-		Item:                accumulatorItem,
-		ConditionExpression: aws.String(ConditionPreventDuplicateAccumulator),
+	output, err = d.client.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName:              &d.tableName,
+		Item:                   accumulatorItem,
+		ConditionExpression:    aws.String(ConditionPreventDuplicateAccumulator),
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
+
+	if output != nil {
+		d.RecordCapacity(output.ConsumedCapacity)
+	}
+
 	if err != nil {
 		var conditionCheckFailedException *types.ConditionalCheckFailedException
 		if !errors.As(err, &conditionCheckFailedException) {
@@ -88,9 +107,15 @@ func (d *DynamoDBStorage) getAccumulatorRecord(ctx context.Context, partitionKey
 			":pk":        &types.AttributeValueMemberS{Value: partitionKey},
 			":sk_prefix": &types.AttributeValueMemberS{Value: AccumulatorSortKey},
 		},
-		ConsistentRead: aws.Bool(false),
-		Limit:          aws.Int32(1),
+		ConsistentRead:         aws.Bool(false),
+		Limit:                  aws.Int32(1),
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
+
+	if result != nil {
+		d.RecordCapacity(result.ConsumedCapacity)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to query accumulator record: %w", err)
 	}
@@ -119,10 +144,15 @@ func (d *DynamoDBStorage) GetCommitVerification(ctx context.Context, id model.Co
 			":pk":        &types.AttributeValueMemberS{Value: partitionKey},
 			":sk_prefix": &types.AttributeValueMemberS{Value: fmt.Sprintf("%s#%s#", SignatureRecordPrefix, signerAddressHex)},
 		},
-		ConsistentRead:   aws.Bool(false),
-		Limit:            aws.Int32(1),
-		ScanIndexForward: aws.Bool(false),
+		ConsistentRead:         aws.Bool(false),
+		Limit:                  aws.Int32(1),
+		ScanIndexForward:       aws.Bool(false),
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
+
+	if signatureResult != nil {
+		d.RecordCapacity(signatureResult.ConsumedCapacity)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query signature record: %w", err)
 	}
@@ -150,8 +180,13 @@ func (d *DynamoDBStorage) ListCommitVerificationByMessageID(ctx context.Context,
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
-		ConsistentRead: aws.Bool(false),
+		ConsistentRead:         aws.Bool(false),
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
+
+	if result != nil {
+		d.RecordCapacity(result.ConsumedCapacity)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query records: %w", err)
 	}
@@ -198,12 +233,16 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 	}
 
 	putInput := &dynamodb.PutItemInput{
-		TableName:           aws.String(d.finalizedFeedTableName),
-		Item:                finalizedFeedRecord,
-		ConditionExpression: aws.String(ConditionPreventDuplicateFinalizedFeed),
+		TableName:              aws.String(d.finalizedFeedTableName),
+		Item:                   finalizedFeedRecord,
+		ConditionExpression:    aws.String(ConditionPreventDuplicateFinalizedFeed),
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 
-	_, err = d.client.PutItem(ctx, putInput)
+	output, err := d.client.PutItem(ctx, putInput)
+	if output != nil {
+		d.RecordCapacity(output.ConsumedCapacity)
+	}
 	if err != nil {
 		var conditionalCheckFailedException *types.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckFailedException) {
@@ -252,11 +291,15 @@ func (d *DynamoDBStorage) GetCCVData(ctx context.Context, messageID model.Messag
 				Value: pk,
 			},
 		},
-		ScanIndexForward: aws.Bool(false),
-		Limit:            aws.Int32(1),
+		ScanIndexForward:       aws.Bool(false),
+		Limit:                  aws.Int32(1),
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 
 	result, err := d.client.Query(ctx, queryInput)
+	if result != nil {
+		d.RecordCapacity(result.ConsumedCapacity)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query for committeeID %s and messageID %s: %w", committeeID, hex.EncodeToString(messageID), err)
 	}
@@ -291,10 +334,14 @@ func (d *DynamoDBStorage) queryFinalizedFeedByGSI(ctx context.Context, gsiPK str
 				Value: fmt.Sprintf("%010d#ZZZZZ", endSeconds),
 			},
 		},
-		ScanIndexForward: aws.Bool(true),
+		ScanIndexForward:       aws.Bool(true),
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 
 	result, err := d.client.Query(ctx, queryInput)
+	if result != nil {
+		d.RecordCapacity(result.ConsumedCapacity)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query FinalizedFeed GSI partition %s: %w", gsiPK, err)
 	}

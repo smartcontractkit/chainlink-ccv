@@ -14,11 +14,6 @@ import (
 
 var _ common.IndexerStorage = (*InMemoryStorage)(nil)
 
-var (
-	ErrCCVDataNotFound  = fmt.Errorf("CCV data not found")
-	ErrDuplicateCCVData = fmt.Errorf("duplicate CCV data")
-)
-
 // InMemoryStorage provides efficient in-memory storage optimized for query performance.
 type InMemoryStorage struct {
 	// Primary storage: messageID -> []CCVData (for O(1) lookup by messageID)

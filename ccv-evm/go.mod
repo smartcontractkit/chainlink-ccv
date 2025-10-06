@@ -8,7 +8,6 @@ replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
 	github.com/smartcontractkit/chainlink-ccv/common => ../common
-	github.com/smartcontractkit/chainlink-ccv/indexer => ../indexer
 	github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
 
 	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
@@ -16,7 +15,7 @@ replace (
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
-	github.com/ethereum/go-ethereum v1.16.3
+	github.com/ethereum/go-ethereum v1.16.2
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.22.0
@@ -24,8 +23,8 @@ require (
 	github.com/smartcontractkit/chain-selectors v1.0.67
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20250919202442-70ebf972c3ee
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20250919202442-70ebf972c3ee
-	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
+	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/smartcontractkit/chainlink-deployments-framework v0.37.1
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.29

@@ -1,6 +1,10 @@
 package common
 
-import "context"
+import (
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+)
 
 // AggregatorMonitoring provides access to aggregator monitoring capabilities.
 type AggregatorMonitoring interface {
@@ -34,4 +38,10 @@ type AggregatorMetricLabeler interface {
 	IncrementStorageError(ctx context.Context)
 	// RecordTimeToAggregation records the time taken to complete an aggregation.
 	RecordTimeToAggregation(ctx context.Context, durationMs int64)
+	// RecordDynamoDBReadCapacityUnits records the DynamoDB read capacity units consumed.
+	RecordDynamoDBReadCapacityUnits(ctx context.Context, units float64)
+	// RecordDynamoDBWriteCapacityUnits records the DynamoDB write capacity units consumed.
+	RecordDynamoDBWriteCapacityUnits(ctx context.Context, units float64)
+	// RecordCapacity records the DynamoDB consumed capacity.
+	RecordCapacity(capacity *types.ConsumedCapacity)
 }
