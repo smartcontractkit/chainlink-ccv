@@ -477,9 +477,10 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to parse finality config: %w", err)
 			}
 
+			rcv := ccvEvm.MustGetContractAddressForSelector(in.CLDF.Addresses, dest, mock_receiver.ContractType)
 			return impl.SendArgsV3Message(ctx, e, in.CLDF.Addresses, selectors, src, dest, uint16(finality),
 				"0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", // executor address
-				"0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", // mock receiver
+				rcv.String(), // mock receiver
 				nil, nil,
 				[]protocol.CCV{
 					{
