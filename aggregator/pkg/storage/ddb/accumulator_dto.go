@@ -43,6 +43,7 @@ func (dto *AccumulatorRecordDTO) ToItem(record *model.CommitVerificationRecord) 
 		FieldCreatedAt:                        &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().Unix(), 10)},
 
 		// Orphan recovery fields - sparse GSI for efficient scanning
+		// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html
 		AccumulatorFieldPendingAggregation: &types.AttributeValueMemberS{Value: GetPendingAggregationKeyForRecord(record.CommitteeID)},
 	}
 
