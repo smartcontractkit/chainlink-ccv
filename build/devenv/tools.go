@@ -62,6 +62,10 @@ func (t *TimeTracker) Print() {
 		Msg("Total environment boot up time")
 }
 
+func (t *TimeTracker) SinceStart() time.Duration {
+	return time.Since(t.start)
+}
+
 func PrintCLDFAddresses(in *Cfg) error {
 	for _, addr := range in.CLDF.Addresses {
 		var refs []datastore.AddressRef
