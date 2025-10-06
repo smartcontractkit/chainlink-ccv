@@ -21,7 +21,7 @@ func StartCCVComitteeVerifier(
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 ) {
 	// Initialize chain components.
-	sourceReader := map[protocol.ChainSelector]verifier.SourceReader{}
+	sourceReader := make(map[protocol.ChainSelector]verifier.SourceReader)
 	for sel, chain := range relayers {
 		if _, ok := cfg.ChainConfigs[sel]; !ok {
 			lggr.Warnw("No config for chain, skipping.", "chainID", sel)

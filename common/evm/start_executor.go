@@ -8,11 +8,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/destinationreader"
-	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
+
+	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
 // StartCCVExecutor starts an executor with evm chains.
