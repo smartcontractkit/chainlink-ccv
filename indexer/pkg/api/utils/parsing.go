@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
