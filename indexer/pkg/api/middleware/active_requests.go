@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,18 +13,11 @@ import (
 // ActiveRequestsMiddleware creates a gin middleware that tracks active requests.
 func ActiveRequestsMiddleware(monitoring common.IndexerMonitoring, lggr logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get the metrics labeler with request-specific labels
-		metrics := monitoring.Metrics().With(
-			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
-			"status", "pending", // Will be updated when request completes
-		)
-
 		// Increment active requests counter
-		metrics.IncrementActiveRequestsCounter(c.Request.Context())
+		monitoring.Metrics().IncrementActiveRequestsCounter(c.Request.Context())
 
 		// Increment HTTP request counter
-		metrics.IncrementHTTPRequestCounter(c.Request.Context())
+		monitoring.Metrics().IncrementHTTPRequestCounter(c.Request.Context())
 
 		// Record start time for potential duration tracking
 		start := time.Now()
@@ -32,25 +25,13 @@ func ActiveRequestsMiddleware(monitoring common.IndexerMonitoring, lggr logger.L
 		// Process the request
 		c.Next()
 
-		// Update status based on response
-		status := "success"
-		if c.Writer.Status() >= 400 {
-			status = "error"
-		}
-
-		// Get updated metrics with final status
-		finalMetrics := monitoring.Metrics().With(
-			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
-			"status", status,
-			"status_code", http.StatusText(c.Writer.Status()),
-		)
-
 		// Decrement active requests counter
-		finalMetrics.DecrementActiveRequestsCounter(c.Request.Context())
+		monitoring.Metrics().DecrementActiveRequestsCounter(c.Request.Context())
 
 		// Log request completion with duration
 		duration := time.Since(start)
+
+		monitoring.Metrics().RecordHTTPRequestDuration(c.Request.Context(), duration, removeMessageIDFromPath(c.Request.URL.Path), c.Request.Method, c.Writer.Status())
 		lggr.Debugw("Request completed",
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
@@ -58,4 +39,13 @@ func ActiveRequestsMiddleware(monitoring common.IndexerMonitoring, lggr logger.L
 			"duration_ms", duration.Milliseconds(),
 		)
 	}
+}
+
+func removeMessageIDFromPath(path string) string {
+	if strings.Contains(path, "/messageid/") {
+		parts := strings.Split(path, "/")[0:3]
+		return strings.Join(parts, "/")
+	}
+
+	return path
 }

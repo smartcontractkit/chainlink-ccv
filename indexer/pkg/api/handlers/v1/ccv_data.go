@@ -2,13 +2,12 @@ package v1
 
 import (
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/utils"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -38,18 +37,16 @@ func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 		Offset:               0,
 	}
 
-	startDuration := time.Now()
-
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	sourceChainSelectors, ok := h.parseSelectorTypes(c, "sourceChainSelectors")
+	sourceChainSelectors, ok := utils.ParseSelectorTypes(c, "sourceChainSelectors")
 	if !ok {
 		return
 	}
-	destChainSelectors, ok := h.parseSelectorTypes(c, "destChainSelectors")
+	destChainSelectors, ok := utils.ParseSelectorTypes(c, "destChainSelectors")
 	if !ok {
 		return
 	}
@@ -62,26 +59,6 @@ func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 		return
 	}
 
-	h.lggr.Debugw("ccvData ", "ccvData", ccvData)
+	h.lggr.Debugw("/v1/ccvdata", "number of messages returned", len(ccvData))
 	c.JSON(http.StatusOK, gin.H{"success": true, "ccvData": ccvData})
-	h.monitoring.Metrics().RecordVerificationRecordRequestDuration(c.Request.Context(), time.Since(startDuration))
-}
-
-func (h *CCVDataV1Handler) parseSelectorTypes(c *gin.Context, paramName string) ([]protocol.ChainSelector, bool) {
-	var selectorTypes []protocol.ChainSelector
-	var selectorTypesAsString string
-	var selectorTypesAsArrayOfStrings []string
-	selectorTypesAsString, success := c.GetQuery(paramName)
-	selectorTypesAsArrayOfStrings = strings.Split(selectorTypesAsString, ",")
-	if success {
-		for _, propertyTypeAsString := range selectorTypesAsArrayOfStrings {
-			u, err := strconv.ParseUint(propertyTypeAsString, 10, 64)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Bad Request", "status": http.StatusBadRequest})
-				return nil, false
-			}
-			selectorTypes = append(selectorTypes, protocol.ChainSelector(u)) // #nosec G115
-		}
-	}
-	return selectorTypes, true
 }

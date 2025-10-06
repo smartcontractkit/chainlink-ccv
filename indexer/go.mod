@@ -11,11 +11,12 @@ require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/pelletier/go-toml/v2 v2.2.4
-	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
+	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/stretchr/testify v1.11.1
 	github.com/ulule/limiter/v3 v3.11.2
+	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/metric v1.38.0
 	go.opentelemetry.io/otel/sdk/metric v1.37.0
 	go.uber.org/zap v1.27.0
@@ -31,7 +32,7 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
-	github.com/ethereum/go-ethereum v1.16.3 // indirect
+	github.com/ethereum/go-ethereum v1.16.2 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -60,7 +61,6 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
-	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.12.2 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.12.2 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.36.0 // indirect
