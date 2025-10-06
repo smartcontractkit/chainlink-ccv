@@ -11,9 +11,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -25,59 +24,48 @@ import (
 func DeployCommitVerifierForSelector(
 	e *deployment.Environment,
 	selector uint64,
-	onRampConstructorArgs commit_onramp.ConstructorArgs,
-	offRampConstructorArgs commit_offramp.ConstructorArgs,
-	signatureConfigArgs commit_offramp.SetSignatureConfigArgs,
-) (onRamp, offRamp datastore.AddressRef, err error) {
+	committeeVerifierConstructorArgs committee_verifier.ConstructorArgs,
+	signatureConfigArgs committee_verifier.SetSignatureConfigArgs,
+) (committeeVerifier datastore.AddressRef, err error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		err = fmt.Errorf("no EVM chain found for selector %d", selector)
-		return onRamp, offRamp, err
+		return committeeVerifier, err
 	}
-	commitOnRampReport, err := operations.ExecuteOperation(e.OperationsBundle, commit_onramp.Deploy, chain, contract.DeployInput[commit_onramp.ConstructorArgs]{
+	committeeVerifierReport, err := operations.ExecuteOperation(e.OperationsBundle, committee_verifier.Deploy, chain, contract.DeployInput[committee_verifier.ConstructorArgs]{
 		ChainSelector: chain.Selector,
-		Args:          onRampConstructorArgs,
+		Args:          committeeVerifierConstructorArgs,
 	})
 	if err != nil {
-		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
-		return onRamp, offRamp, err
+		err = fmt.Errorf("failed to deploy Committee Verifier: %w", err)
+		return committeeVerifier, err
 	}
-	commitOffRampReport, err := operations.ExecuteOperation(e.OperationsBundle, commit_offramp.Deploy, chain, contract.DeployInput[commit_offramp.ConstructorArgs]{
-		ChainSelector: chain.Selector,
-		Args:          offRampConstructorArgs,
-	})
-	if err != nil {
-		err = fmt.Errorf("failed to deploy CommitOnRamp: %w", err)
-		return onRamp, offRamp, err
-	}
-	_, err = operations.ExecuteOperation(e.OperationsBundle, commit_offramp.SetSignatureConfigs, chain, contract.FunctionInput[commit_offramp.SetSignatureConfigArgs]{
-		Address:       common.HexToAddress(commitOffRampReport.Output.Address),
+	_, err = operations.ExecuteOperation(e.OperationsBundle, committee_verifier.SetSignatureConfigs, chain, contract.FunctionInput[committee_verifier.SetSignatureConfigArgs]{
+		Address:       common.HexToAddress(committeeVerifierReport.Output.Address),
 		ChainSelector: chain.Selector,
 		Args:          signatureConfigArgs,
 	})
 	if err != nil {
 		err = fmt.Errorf("failed to set CommitOffRamp signature config: %w", err)
-		return onRamp, offRamp, err
+		return committeeVerifier, err
 	}
-	onRamp = commitOnRampReport.Output
-	offRamp = commitOffRampReport.Output
-	return onRamp, offRamp, err
+	return committeeVerifierReport.Output, err
 }
 
 // ConfigureCommitVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes.
-func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, commitOnRamp common.Address, destConfigArgs []commit_onramp.DestChainConfigArgs) error {
+func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, committeeVerifier common.Address, destConfigArgs []committee_verifier.DestChainConfigArgs) error {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return fmt.Errorf("no EVM chain found for selector %d", selector)
 	}
 
-	_, err := operations.ExecuteOperation(e.OperationsBundle, commit_onramp.ApplyDestChainConfigUpdates, chain, contract.FunctionInput[[]commit_onramp.DestChainConfigArgs]{
+	_, err := operations.ExecuteOperation(e.OperationsBundle, committee_verifier.ApplyDestChainConfigUpdates, chain, contract.FunctionInput[[]committee_verifier.DestChainConfigArgs]{
 		ChainSelector: chain.Selector,
-		Address:       commitOnRamp,
+		Address:       committeeVerifier,
 		Args:          destConfigArgs,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to apply dest chain config updates to CommitOnRamp(%s) on chain %s: %w", commitOnRamp, chain, err)
+		return fmt.Errorf("failed to apply dest chain config updates to CommitteeVerifier(%s) on chain %s: %w", committeeVerifier, chain, err)
 	}
 
 	return nil
@@ -99,7 +87,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 	return report.Output, nil
 }
 
-// NewV3ExtraArgs encodes v3 extra args params
+// NewV3ExtraArgs encodes v3 extra args params.
 func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []protocol.CCV, optionalThreshold uint8) ([]byte, error) {
 	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
@@ -234,7 +222,7 @@ func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresse
 	return addrs, nil
 }
 
-func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, signatureConfigArgs commit_offramp.SetSignatureConfigArgs) ([]string, error) {
+func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, signatureConfigArgs committee_verifier.SetSignatureConfigArgs) ([]string, error) {
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
 		e.Logger,
@@ -245,54 +233,52 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 	allAddrs := make([]string, 0)
 
 	for _, sel := range selectors {
-		onRamp, offRamp, err := DeployCommitVerifierForSelector(
+		committeeVerifier, err := DeployCommitVerifierForSelector(
 			e,
 			sel,
-			commit_onramp.ConstructorArgs{
-				DynamicConfig: commit_onramp.DynamicConfig{
-					FeeQuoter:      MustGetContractAddressForSelector(addresses, sel, fee_quoter_v2.ContractType),
+			committee_verifier.ConstructorArgs{
+				DynamicConfig: committee_verifier.DynamicConfig{
+					FeeQuoter:      MustGetContractAddressForSelector(addresses, sel, fee_quoter.ContractType),
 					FeeAggregator:  e.BlockChains.EVMChains()[sel].DeployerKey.From,
 					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
 				},
-			},
-			commit_offramp.ConstructorArgs{
-				//NonceManager: MustGetContractAddressForSelector(addresses, sel, nonce_manager.ContractType),
 			},
 			signatureConfigArgs,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to deploy commit onramp and offramp for selector %d: %w", sel, err)
 		}
-
-		var destConfigArgs []commit_onramp.DestChainConfigArgs
-		for _, destSel := range selectors {
-			if destSel == sel {
-				continue
-			}
-			destConfigArgs = append(destConfigArgs, commit_onramp.DestChainConfigArgs{
-				AllowlistEnabled:  false,
-				Router:            MustGetContractAddressForSelector(addresses, sel, router.ContractType),
-				DestChainSelector: destSel,
-			})
-		}
-
-		err = ConfigureCommitVerifierOnSelectorForLanes(e, sel, common.HexToAddress(onRamp.Address), destConfigArgs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
-		}
-
-		addrs, err := MergeAddresses(addresses, sel, []datastore.AddressRef{onRamp, offRamp})
+		addrs, err := MergeAddresses(addresses, sel, []datastore.AddressRef{committeeVerifier})
 		if err != nil {
 			return nil, fmt.Errorf("failed to save contract refs for selector %d: %w", sel, err)
 		}
 		allAddrs = append(allAddrs, addrs...)
 	}
 
+	for _, sel := range selectors {
+		var destConfigArgs []committee_verifier.DestChainConfigArgs
+		for _, destSel := range selectors {
+			if destSel == sel {
+				continue
+			}
+			destConfigArgs = append(destConfigArgs, committee_verifier.DestChainConfigArgs{
+				AllowlistEnabled:  false,
+				Router:            MustGetContractAddressForSelector(addresses, sel, router.ContractType),
+				DestChainSelector: destSel,
+			})
+		}
+
+		err := ConfigureCommitVerifierOnSelectorForLanes(e, sel, MustGetContractAddressForSelector(addresses, sel, committee_verifier.ContractType), destConfigArgs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
+		}
+	}
+
 	return allAddrs, nil
 }
 
 func MergeAddresses(addrs []string, sel uint64, refs []datastore.AddressRef) ([]string, error) {
-	var addresses []datastore.AddressRef
+	addresses := make([]datastore.AddressRef, 0)
 	for _, addressesForSelector := range addrs {
 		var refs []datastore.AddressRef
 		if err := json.Unmarshal([]byte(addressesForSelector), &refs); err != nil {

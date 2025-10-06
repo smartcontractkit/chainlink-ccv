@@ -16,7 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
 	ccvagg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
-	mockreceiver "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_receiver_v2"
 )
 
 const (
@@ -69,7 +68,6 @@ func NewEvmDestinationReader(lggr logger.Logger, chainSelector uint64, chainClie
 func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CcvAddressInfo, error) {
 	_ = ctx
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
-	evmReceiverAddress := common.BytesToAddress(receiverAddress)
 	// Try to get CCV info from cache first
 	// TODO: Do we need custom cache eviction logic beyond ttl?
 	ccvInfo, found := dr.ccvCache.Get(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: string(receiverAddress)})
@@ -79,30 +77,16 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		return ccvInfo, nil
 	}
 
-	// TODO: use the new function from the CCVAggregator / offramp
-	receiverContract, err := mockreceiver.NewMockReceiverV2Caller(evmReceiverAddress, dr.client)
+	encodedMsg, err := message.Encode()
 	if err != nil {
-		// Special case for EOA addresses which don't have the getCCVs function
-		// Hardcoding for now until new on-chain changes are merged which we can just use the offramp directly to get the
-		// CCV Offramp addresses instead of getting it from the receiver
-		return executor.CcvAddressInfo{
-			RequiredCcvs:      []protocol.UnknownAddress{[]byte("0x68B1D87F95878fE05B998F19b66F4baba5De1aed")},
-			OptionalCcvs:      []protocol.UnknownAddress{},
-			OptionalThreshold: 0,
-		}, fmt.Errorf("failed to create receiver contract instance: %w", err)
+		return executor.CcvAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
+	}
+	chainCCVInfo, err := dr.aggregatorCaller.GetCCVsForMessage(nil, encodedMsg)
+	if err != nil {
+		return executor.CcvAddressInfo{}, fmt.Errorf("failed to call GetCCVSForMessage: %w", err)
 	}
 
-	req, opt, optThreshold, err := receiverContract.GetCCVs(nil, uint64(sourceSelector))
-	if err != nil {
-		// Special case for EOA addresses which don't have the getCCVs function
-		// Hardcoding for now until new on-chain changes are merged which we can just use the offramp directly to get the
-		// CCV Offramp addresses instead of getting it from the receiver
-		return executor.CcvAddressInfo{
-			RequiredCcvs:      []protocol.UnknownAddress{[]byte("0x68B1D87F95878fE05B998F19b66F4baba5De1aed")},
-			OptionalCcvs:      []protocol.UnknownAddress{},
-			OptionalThreshold: 0,
-		}, fmt.Errorf("failed to call getCCVs: %w", err)
-	}
+	req, opt, optThreshold := chainCCVInfo.RequiredCCVs, chainCCVInfo.OptionalCCVs, chainCCVInfo.Threshold
 
 	requiredCCVs := make([]protocol.UnknownAddress, 0)
 	optionalCCVs := make([]protocol.UnknownAddress, 0)
