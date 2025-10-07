@@ -397,23 +397,6 @@ func (r *ReadConditionConfig) Validate(index int) error {
 	return nil
 }
 
-// Validate performs validation on the beholder configuration.
-func (b *BeholderConfig) Validate() error {
-	if b.MetricReaderInterval <= 0 {
-		return fmt.Errorf("metric_reader_interval must be positive, got %d", b.MetricReaderInterval)
-	}
-
-	if b.TraceSampleRatio < 0 || b.TraceSampleRatio > 1 {
-		return fmt.Errorf("trace_sample_ratio must be between 0 and 1, got %f", b.TraceSampleRatio)
-	}
-
-	if b.TraceBatchTimeout <= 0 {
-		return fmt.Errorf("trace_batch_timeout must be positive, got %d", b.TraceBatchTimeout)
-	}
-
-	return nil
-}
-
 // Validate performs validation on the static discovery configuration.
 func (s *StaticDiscoveryConfig) Validate() error {
 	if len(s.Readers) == 0 {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -16,6 +17,7 @@ type Configuration struct {
 	IndexerQueryLimit uint64                              `toml:"indexer_query_limit"`
 	PyroscopeURL      string                              `toml:"pyroscope_url"`
 	OffRampAddresses  map[string]string                   `toml:"offramp_addresses"`
+	Monitoring        monitoring.Config                   `toml:"Monitoring"`
 }
 
 func (c *Configuration) Validate() error {

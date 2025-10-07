@@ -47,7 +47,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 
 	// E2E Latency
 	vm.messageE2ELatencyMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"verifier_message_e2e_latency_milliseconds",
+		"verifier_message_e2e_latency_seconds",
 		metric.WithDescription("Full message lifecycle latency from source read to storage write"),
 		metric.WithUnit("milliseconds"),
 	)
@@ -74,7 +74,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 
 	// Fine-Grained Latency Breakdown
 	vm.finalityWaitDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"verifier_finality_wait_duration_milliseconds",
+		"verifier_finality_wait_duration_seconds",
 		metric.WithDescription("Time a message spent waiting in the finality queue"),
 		metric.WithUnit("milliseconds"),
 	)
@@ -83,7 +83,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 	}
 
 	vm.messageVerificationDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"verifier_message_verification_duration_milliseconds",
+		"verifier_message_verification_duration_seconds",
 		metric.WithDescription("Duration of the full VerifyMessage operation"),
 		metric.WithUnit("milliseconds"),
 	)
@@ -92,7 +92,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 	}
 
 	vm.storageWriteDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"verifier_storage_write_duration_milliseconds",
+		"verifier_storage_write_duration_seconds",
 		metric.WithDescription("Duration of writing to offchain storage"),
 		metric.WithUnit("milliseconds"),
 	)
@@ -151,29 +151,29 @@ func MetricViews() []sdkmetric.View {
 	return []sdkmetric.View{
 		// E2E Latency - wider range for full message lifecycle (reading -> finality -> verification -> storage write)
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "verifier_message_e2e_latency_milliseconds"},
+			sdkmetric.Instrument{Name: "verifier_message_e2e_latency_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 100, 500, 1000, 2000, 5000, 10000, 20000, 30000, 60000, 90000, 120000, 180000, 240000, 300000, 360000, 420000, 480000, 540000, 600000, 900000, 1200000, 1800000, 2400000, 3000000, 3600000, 4200000, 4800000, 5400000, 6000000},
+				Boundaries: []float64{0.1, 0.5, 1, 2, 5, 10, 20, 30, 60, 90, 120, 180, 240, 300, 360, 420, 480, 540, 600, 900, 1200, 1800, 2400, 3000, 3600, 4200, 4800, 5400, 6000},
 			}},
 		),
 		// Finality Wait
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "verifier_finality_wait_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "verifier_finality_wait_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 1000, 5000, 10000, 20000, 30000, 60000, 90000, 120000, 180000, 240000, 300000, 360000, 420000, 480000, 540000, 600000, 900000, 1200000, 1800000, 2400000, 3000000, 3600000, 4200000, 4800000, 5400000, 6000000},
+				Boundaries: []float64{1, 5, 10, 20, 30, 60, 90, 120, 180, 240, 300, 360, 420, 480, 540, 600, 900, 1200, 1800, 2400, 3000, 3600, 4200, 4800, 5400, 6000},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "verifier_message_verification_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "verifier_message_verification_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000},
+				Boundaries: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000},
 			}},
 		),
 		// Storage Write
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "verifier_storage_write_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "verifier_storage_write_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000},
+				Boundaries: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000},
 			}},
 		),
 	}

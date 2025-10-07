@@ -4,6 +4,20 @@ source_backoff_duration="15s"
 startup_lookback_window="1h"
 indexer_query_limit=20
 pyroscope_url="http://pyroscope:4040"
+
+[Monitoring]
+Enabled = true
+Type = "beholder"
+[Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
 [offramp_addresses]
     3379446385462418246 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
     12922642891491394802 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"

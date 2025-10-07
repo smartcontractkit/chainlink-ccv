@@ -19,8 +19,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	executorcommon "github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
@@ -56,7 +59,6 @@ func main() {
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
 		ServerAddress:   executorConfig.PyroscopeURL,
-		Logger:          pyroscope.StandardLogger,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,
@@ -73,6 +75,27 @@ func main() {
 	lggr = logger.Sugared(lggr)
 
 	lggr.Infow("Executor configuration", "config", executorConfig)
+
+	// Setup OTEL Monitoring (via beholder)
+	var executorMonitoring executorcommon.ExecutorMonitoring
+	if executorConfig.Monitoring.Enabled && executorConfig.Monitoring.Type == "beholder" {
+		executorMonitoring, err = monitoring.InitMonitoring(beholder.Config{
+			InsecureConnection:       executorConfig.Monitoring.Beholder.InsecureConnection,
+			CACertFile:               executorConfig.Monitoring.Beholder.CACertFile,
+			OtelExporterHTTPEndpoint: executorConfig.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+			OtelExporterGRPCEndpoint: executorConfig.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+			LogStreamingEnabled:      executorConfig.Monitoring.Beholder.LogStreamingEnabled,
+			MetricReaderInterval:     time.Second * time.Duration(executorConfig.Monitoring.Beholder.MetricReaderInterval),
+			TraceSampleRatio:         executorConfig.Monitoring.Beholder.TraceSampleRatio,
+			TraceBatchTimeout:        time.Second * time.Duration(executorConfig.Monitoring.Beholder.TraceBatchTimeout),
+		})
+		if err != nil {
+			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
+		}
+	} else {
+		lggr.Info("Using noop monitoring")
+		executorMonitoring = monitoring.NewNoopExecutorMonitoring()
+	}
 
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,7 +144,7 @@ func main() {
 	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
 
 	// create executor
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient)
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient, executorMonitoring)
 
 	// create dummy leader elector
 	le := leaderelector.RandomDelayLeader{}
@@ -142,6 +165,7 @@ func main() {
 		executor.WithExecutor(ex),
 		executor.WithLeaderElector(&le),
 		executor.WithMessageSubscriber(indexerStream),
+		executor.WithMonitoring(executorMonitoring),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)
