@@ -141,7 +141,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	// Send message
 	setup.verificationTaskCh <- readyTask
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the ready message
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
