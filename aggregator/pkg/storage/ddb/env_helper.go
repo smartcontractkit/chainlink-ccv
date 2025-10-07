@@ -6,15 +6,17 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config" //nolint:gci
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
+	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb" //nolint
+	"github.com/testcontainers/testcontainers-go/wait"                               //nolint
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb"
+	//nolint
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 )
 
 const (
@@ -30,42 +32,42 @@ func CreateFinalizedFeedTable(ctx context.Context, client *dynamodb.Client, tabl
 		TableName: aws.String(tableName),
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(FinalizedFeedFieldCommitteeIDMessageID), // Partition Key
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldCommitteeIDMessageID), // Partition Key
 				KeyType:       types.KeyTypeHash,
 			},
 			{
-				AttributeName: aws.String(FinalizedFeedFieldFinalizedAt), // Sort Key
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAt), // Sort Key
 				KeyType:       types.KeyTypeRange,
 			},
 		},
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
-				AttributeName: aws.String(FinalizedFeedFieldCommitteeIDMessageID), // Primary Partition Key
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldCommitteeIDMessageID), // Primary Partition Key
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(FinalizedFeedFieldFinalizedAt), // Primary Sort Key
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAt), // Primary Sort Key
 				AttributeType: types.ScalarAttributeTypeN,
 			},
 			{
-				AttributeName: aws.String(FinalizedFeedFieldGSIPK), // GSI Partition Key
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldGSIPK), // GSI Partition Key
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(FinalizedFeedFieldGSISK), // GSI Sort Key
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldGSISK), // GSI Sort Key
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 		},
 		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
 			{
-				IndexName: aws.String(GSIDayCommitteeIndex),
+				IndexName: aws.String(ddbconstant.GSIDayCommitteeIndex),
 				KeySchema: []types.KeySchemaElement{
 					{
-						AttributeName: aws.String(FinalizedFeedFieldGSIPK),
+						AttributeName: aws.String(ddbconstant.FinalizedFeedFieldGSIPK),
 						KeyType:       types.KeyTypeHash,
 					},
 					{
-						AttributeName: aws.String(FinalizedFeedFieldGSISK),
+						AttributeName: aws.String(ddbconstant.FinalizedFeedFieldGSISK),
 						KeyType:       types.KeyTypeRange,
 					},
 				},
@@ -88,42 +90,42 @@ func CreateCommitVerificationRecordsTable(ctx context.Context, client *dynamodb.
 		TableName: &tableName,
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(FieldPartitionKey), // Partition Key: CommitteeID#MessageID
+				AttributeName: aws.String(ddbconstant.FieldPartitionKey), // Partition Key: CommitteeID#MessageID
 				KeyType:       types.KeyTypeHash,
 			},
 			{
-				AttributeName: aws.String(FieldSortKey), // Sort Key: RecordType#Identifier#Timestamp
+				AttributeName: aws.String(ddbconstant.FieldSortKey), // Sort Key: RecordType#Identifier#Timestamp
 				KeyType:       types.KeyTypeRange,
 			},
 		},
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
-				AttributeName: aws.String(FieldPartitionKey),
+				AttributeName: aws.String(ddbconstant.FieldPartitionKey),
 				AttributeType: types.ScalarAttributeTypeS, // String
 			},
 			{
-				AttributeName: aws.String(FieldSortKey),
+				AttributeName: aws.String(ddbconstant.FieldSortKey),
 				AttributeType: types.ScalarAttributeTypeS, // String
 			},
 			{
-				AttributeName: aws.String(VerificationMessageDataFieldPendingAggregation), // For orphan recovery GSI
-				AttributeType: types.ScalarAttributeTypeS,                                 // String
+				AttributeName: aws.String(ddbconstant.VerificationMessageDataFieldPendingAggregation), // For orphan recovery GSI
+				AttributeType: types.ScalarAttributeTypeS,                                             // String
 			},
 			{
-				AttributeName: aws.String(FieldCreatedAt), // For orphan recovery GSI sort key
-				AttributeType: types.ScalarAttributeTypeN, // Number
+				AttributeName: aws.String(ddbconstant.FieldCreatedAt), // For orphan recovery GSI sort key
+				AttributeType: types.ScalarAttributeTypeN,             // Number
 			},
 		},
 		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
 			{
-				IndexName: aws.String(GSIPendingAggregationIndex),
+				IndexName: aws.String(ddbconstant.GSIPendingAggregationIndex),
 				KeySchema: []types.KeySchemaElement{
 					{
-						AttributeName: aws.String(VerificationMessageDataFieldPendingAggregation), // GSI Partition Key
+						AttributeName: aws.String(ddbconstant.VerificationMessageDataFieldPendingAggregation), // GSI Partition Key
 						KeyType:       types.KeyTypeHash,
 					},
 					{
-						AttributeName: aws.String(FieldCreatedAt), // GSI Sort Key
+						AttributeName: aws.String(ddbconstant.FieldCreatedAt), // GSI Sort Key
 						KeyType:       types.KeyTypeRange,
 					},
 				},
@@ -146,21 +148,21 @@ func CreateCheckpointTable(ctx context.Context, client *dynamodb.Client, tableNa
 		TableName: &tableName,
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(CheckpointFieldClientID), // Partition Key: ClientID
+				AttributeName: aws.String(ddbconstant.CheckpointFieldClientID), // Partition Key: ClientID
 				KeyType:       types.KeyTypeHash,
 			},
 			{
-				AttributeName: aws.String(CheckpointFieldChainSelector), // Sort Key: ChainSelector
+				AttributeName: aws.String(ddbconstant.CheckpointFieldChainSelector), // Sort Key: ChainSelector
 				KeyType:       types.KeyTypeRange,
 			},
 		},
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
-				AttributeName: aws.String(CheckpointFieldClientID),
+				AttributeName: aws.String(ddbconstant.CheckpointFieldClientID),
 				AttributeType: types.ScalarAttributeTypeS, // String
 			},
 			{
-				AttributeName: aws.String(CheckpointFieldChainSelector),
+				AttributeName: aws.String(ddbconstant.CheckpointFieldChainSelector),
 				AttributeType: types.ScalarAttributeTypeN, // Number
 			},
 		},

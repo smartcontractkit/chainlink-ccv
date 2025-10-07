@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,9 +14,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/query"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 )
 
 type DynamoDBStorage struct {
@@ -25,6 +28,8 @@ type DynamoDBStorage struct {
 	minDate                time.Time
 	logger                 logger.SugaredLogger
 	monitoring             pkgcommon.AggregatorMonitoring
+	pageSize               int
+	shardCount             int
 }
 
 var (
@@ -33,7 +38,7 @@ var (
 	_ pkgcommon.Sink                              = (*DynamoDBStorage)(nil)
 )
 
-func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, logger logger.SugaredLogger, monitoring pkgcommon.AggregatorMonitoring) *DynamoDBStorage {
+func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, logger logger.SugaredLogger, monitoring pkgcommon.AggregatorMonitoring, pageSize, shardCount int) *DynamoDBStorage {
 	return &DynamoDBStorage{
 		client:                 client,
 		tableName:              tableName,
@@ -41,6 +46,8 @@ func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableNa
 		minDate:                minDate,
 		logger:                 logger,
 		monitoring:             monitoring,
+		pageSize:               pageSize,
+		shardCount:             shardCount,
 	}
 }
 
@@ -67,7 +74,7 @@ func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *mo
 	output, err := d.client.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:           &d.tableName,
 		Item:                signatureItem,
-		ConditionExpression: aws.String(ConditionPreventDuplicateRecord),
+		ConditionExpression: aws.String(ddbconstant.ConditionPreventDuplicateRecord),
 	})
 
 	if output != nil {
@@ -84,7 +91,7 @@ func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *mo
 	output, err = d.client.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:              &d.tableName,
 		Item:                   verificationMessageDataItem,
-		ConditionExpression:    aws.String(ConditionPreventDuplicateVerificationMessageData),
+		ConditionExpression:    aws.String(ddbconstant.ConditionPreventDuplicateVerificationMessageData),
 		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
 
@@ -105,10 +112,10 @@ func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *mo
 func (d *DynamoDBStorage) getVerificationMessageDataRecord(ctx context.Context, partitionKey string) (map[string]types.AttributeValue, error) {
 	result, err := d.client.Query(ctx, &dynamodb.QueryInput{
 		TableName:              &d.tableName,
-		KeyConditionExpression: aws.String(QueryRecordsByTypePrefix),
+		KeyConditionExpression: aws.String(ddbconstant.QueryRecordsByTypePrefix),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk":        &types.AttributeValueMemberS{Value: partitionKey},
-			":sk_prefix": &types.AttributeValueMemberS{Value: VerificationMessageDataSortKey},
+			":sk_prefix": &types.AttributeValueMemberS{Value: ddbconstant.VerificationMessageDataSortKey},
 		},
 		ConsistentRead:         aws.Bool(false),
 		Limit:                  aws.Int32(1),
@@ -142,10 +149,10 @@ func (d *DynamoDBStorage) GetCommitVerification(ctx context.Context, id model.Co
 
 	signatureResult, err := d.client.Query(ctx, &dynamodb.QueryInput{
 		TableName:              &d.tableName,
-		KeyConditionExpression: aws.String(QuerySignatureRecordsBySigner),
+		KeyConditionExpression: aws.String(ddbconstant.QuerySignatureRecordsBySigner),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk":        &types.AttributeValueMemberS{Value: partitionKey},
-			":sk_prefix": &types.AttributeValueMemberS{Value: fmt.Sprintf("%s#%s#", SignatureRecordPrefix, signerAddressHex)},
+			":sk_prefix": &types.AttributeValueMemberS{Value: fmt.Sprintf("%s#%s#", ddbconstant.SignatureRecordPrefix, signerAddressHex)},
 		},
 		ConsistentRead:         aws.Bool(false),
 		Limit:                  aws.Int32(1),
@@ -179,7 +186,7 @@ func (d *DynamoDBStorage) ListCommitVerificationByMessageID(ctx context.Context,
 
 	result, err := d.client.Query(ctx, &dynamodb.QueryInput{
 		TableName:              &d.tableName,
-		KeyConditionExpression: aws.String(QueryAllRecordsInPartition),
+		KeyConditionExpression: aws.String(ddbconstant.QueryAllRecordsInPartition),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
@@ -228,9 +235,10 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return fmt.Errorf("report must contain at least one verification")
 	}
 
-	finalizedFeedDTO := &FinalizedFeedDTO{}
+	// Calculate shard based on messageID and shardCount
+	shard := ddbconstant.CalculateShardFromMessageID(report.MessageID, d.shardCount)
 
-	finalizedFeedRecord, err := finalizedFeedDTO.ToItem(report)
+	finalizedFeedRecord, err := CommitAggregatedReportToItem(report, shard)
 	if err != nil {
 		return fmt.Errorf("failed to map aggregated report to FinalizedFeed item: %w", err)
 	}
@@ -239,7 +247,7 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 	putInput := &dynamodb.PutItemInput{
 		TableName:              aws.String(d.finalizedFeedTableName),
 		Item:                   finalizedFeedRecord,
-		ConditionExpression:    aws.String(ConditionPreventDuplicateFinalizedFeed),
+		ConditionExpression:    aws.String(ddbconstant.ConditionPreventDuplicateFinalizedFeed),
 		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 
@@ -274,16 +282,16 @@ func (d *DynamoDBStorage) markVerificationMessageDataAsAggregated(ctx context.Co
 	updateInput := &dynamodb.UpdateItemInput{
 		TableName: aws.String(d.tableName),
 		Key: map[string]types.AttributeValue{
-			FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
-			FieldSortKey:      &types.AttributeValueMemberS{Value: VerificationMessageDataSortKey},
+			ddbconstant.FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
+			ddbconstant.FieldSortKey:      &types.AttributeValueMemberS{Value: ddbconstant.VerificationMessageDataSortKey},
 		},
-		UpdateExpression: aws.String("REMOVE " + VerificationMessageDataFieldPendingAggregation +
-			" SET " + VerificationMessageDataFieldQuorumStatus + " = :status"),
+		UpdateExpression: aws.String("REMOVE " + ddbconstant.VerificationMessageDataFieldPendingAggregation +
+			" SET " + ddbconstant.VerificationMessageDataFieldQuorumStatus + " = :status"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":status": &types.AttributeValueMemberS{Value: "AGGREGATED"},
 		},
 		// Only update if the record exists
-		ConditionExpression: aws.String("attribute_exists(" + FieldPartitionKey + ")"),
+		ConditionExpression: aws.String("attribute_exists(" + ddbconstant.FieldPartitionKey + ")"),
 	}
 
 	_, err := d.client.UpdateItem(ctx, updateInput)
@@ -299,30 +307,90 @@ func (d *DynamoDBStorage) markVerificationMessageDataAsAggregated(ctx context.Co
 	return nil
 }
 
-func (d *DynamoDBStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error) {
+func (d *DynamoDBStorage) shardQueryIteratorForDay(
+	gsiPK string,
+	start, end int64,
+	pagination *query.SinglePartitionPaginationToken,
+	singleShardPageSize int32,
+) *query.Iterator {
+	in := &dynamodb.QueryInput{
+		TableName:                 aws.String(d.finalizedFeedTableName),
+		IndexName:                 aws.String(ddbconstant.GSIDayCommitteeIndex),
+		KeyConditionExpression:    aws.String(fmt.Sprintf("%s = :pk", ddbconstant.FinalizedFeedFieldGSIPK)),
+		ExpressionAttributeValues: map[string]types.AttributeValue{":pk": &types.AttributeValueMemberS{Value: gsiPK}, ":start": &types.AttributeValueMemberN{Value: strconv.FormatInt(start, 10)}, ":end": &types.AttributeValueMemberN{Value: strconv.FormatInt(end, 10)}},
+		FilterExpression:          aws.String(fmt.Sprintf("%s BETWEEN :start AND :end", ddbconstant.FinalizedFeedFieldFinalizedAt)),
+		ScanIndexForward:          aws.Bool(true),
+		ReturnConsumedCapacity:    types.ReturnConsumedCapacityIndexes,
+	}
+	if pagination != nil {
+		in.ExclusiveStartKey = pagination.ToExclusiveStartKey()
+	}
+
+	it := query.NewIterator(d.client, in, d.monitoring)
+	it.SetPageLimit(singleShardPageSize)
+	return it
+}
+
+func (d *DynamoDBStorage) QueryAggregatedReports(
+	ctx context.Context,
+	start, end int64,
+	committeeID string,
+	paginationToken *string,
+) (*model.PaginatedAggregatedReports, error) {
 	if start > end {
 		return nil, fmt.Errorf("start time (%d) cannot be greater than end time (%d)", start, end)
 	}
 
-	var allReports []*model.CommitAggregatedReport
+	pageSize := d.pageSize
+	pagedResults := make([]*model.CommitAggregatedReport, 0, pageSize)
 
-	dayIterator := NewDayIterator(start, end, d.minDate)
-
-	for dayIterator.Next() {
-		day := dayIterator.Day()
-
-		gsiPK := BuildGSIPartitionKey(day, committeeID, FinalizedFeedVersion, FinalizedFeedShard)
-
-		dayReports, err := d.queryFinalizedFeedByGSI(ctx, gsiPK, start, end)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query day %s: %w", day, err)
-		}
-
-		allReports = append(allReports, dayReports...)
-		dayIterator.Advance()
+	inTok, err := query.ParsePaginationToken(paginationToken)
+	if err != nil {
+		return nil, err
 	}
 
-	return allReports, nil
+	shards := ddbconstant.CreateShardIDs(d.shardCount)
+	// Calculate page size per shard with overflow protection
+	pagePerShard := (pageSize / len(shards)) + 1
+	if pagePerShard > int(^uint32(0)>>1) {
+		pagePerShard = int(^uint32(0) >> 1) // Max int32 value
+	}
+	singleShardPageSize := int32(pagePerShard) //nolint:gosec // overflow protection added above
+
+	shardIteratorFactory := func(day, shard string, prev *query.SinglePartitionPaginationToken) query.ItemIterator {
+		gsiPK := BuildGSIPartitionKey(day, committeeID, ddbconstant.FinalizedFeedVersion, shard)
+		return d.shardQueryIteratorForDay(gsiPK, start, end, prev, singleShardPageSize)
+	}
+
+	di := query.NewDynamoAggregatedReportFeedIterator(
+		start, end, d.minDate, inTok,
+		shards,
+		shardIteratorFactory,
+	)
+
+	for len(pagedResults) < pageSize && di.Next(ctx) {
+		item := di.Item()
+		ff, err := CommitAggregatedReportFromItem(item)
+		if err != nil {
+			return nil, fmt.Errorf("decode item: %w", err)
+		}
+		pagedResults = append(pagedResults, ff)
+	}
+	if err := di.Err(); err != nil {
+		return nil, err
+	}
+
+	nextPaginationToken := di.NextPageToken()
+
+	nextTokenStr, err := query.SerializePaginationToken(nextPaginationToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.PaginatedAggregatedReports{
+		Reports:       pagedResults,
+		NextPageToken: nextTokenStr,
+	}, nil
 }
 
 func (d *DynamoDBStorage) GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {
@@ -330,7 +398,7 @@ func (d *DynamoDBStorage) GetCCVData(ctx context.Context, messageID model.Messag
 
 	queryInput := &dynamodb.QueryInput{
 		TableName:              aws.String(d.finalizedFeedTableName),
-		KeyConditionExpression: aws.String(QueryLatestReportByCommitteeMessage),
+		KeyConditionExpression: aws.String(ddbconstant.QueryLatestReportByCommitteeMessage),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{
 				Value: pk,
@@ -353,55 +421,12 @@ func (d *DynamoDBStorage) GetCCVData(ctx context.Context, messageID model.Messag
 		return nil, nil
 	}
 
-	finalizedFeedDTO := &FinalizedFeedDTO{}
-
-	report, err := finalizedFeedDTO.FromItem(result.Items[0])
+	report, err := CommitAggregatedReportFromItem(result.Items[0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to map FinalizedFeed item to aggregated report: %w", err)
 	}
 
 	return report, nil
-}
-
-func (d *DynamoDBStorage) queryFinalizedFeedByGSI(ctx context.Context, gsiPK string, startSeconds, endSeconds int64) ([]*model.CommitAggregatedReport, error) {
-	queryInput := &dynamodb.QueryInput{
-		TableName:              aws.String(d.finalizedFeedTableName),
-		IndexName:              aws.String(GSIDayCommitteeIndex),
-		KeyConditionExpression: aws.String(QueryReportsInDayCommitteeRange),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":gsiPK": &types.AttributeValueMemberS{
-				Value: gsiPK,
-			},
-			":startKey": &types.AttributeValueMemberS{
-				Value: fmt.Sprintf("%010d#", startSeconds),
-			},
-			":endKey": &types.AttributeValueMemberS{
-				Value: fmt.Sprintf("%010d#ZZZZZ", endSeconds),
-			},
-		},
-		ScanIndexForward:       aws.Bool(true),
-		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
-	}
-
-	result, err := d.client.Query(ctx, queryInput)
-	if result != nil {
-		d.RecordCapacity(result.ConsumedCapacity)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query FinalizedFeed GSI partition %s: %w", gsiPK, err)
-	}
-
-	finalizedFeedDTO := &FinalizedFeedDTO{}
-	reports := make([]*model.CommitAggregatedReport, 0, len(result.Items))
-	for _, item := range result.Items {
-		report, err := finalizedFeedDTO.FromItem(item)
-		if err != nil {
-			return nil, fmt.Errorf("failed to map FinalizedFeed item to aggregated report: %w", err)
-		}
-		reports = append(reports, report)
-	}
-
-	return reports, nil
 }
 
 func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
@@ -414,10 +439,10 @@ func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 
 		queryInput := &dynamodb.QueryInput{
 			TableName:              aws.String(d.tableName),
-			IndexName:              aws.String(GSIPendingAggregationIndex),
-			KeyConditionExpression: aws.String(fmt.Sprintf("%s = :gsiPK", VerificationMessageDataFieldPendingAggregation)),
+			IndexName:              aws.String(ddbconstant.GSIPendingAggregationIndex),
+			KeyConditionExpression: aws.String(fmt.Sprintf("%s = :gsiPK", ddbconstant.VerificationMessageDataFieldPendingAggregation)),
 			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":gsiPK": &types.AttributeValueMemberS{Value: GetPendingAggregationKeyForRecord(committeeID)},
+				":gsiPK": &types.AttributeValueMemberS{Value: ddbconstant.GetPendingAggregationKeyForRecord(committeeID)},
 			},
 		}
 
@@ -474,7 +499,7 @@ func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 
 // extractMessageIDFromItem extracts the MessageID from a DynamoDB item.
 func (d *DynamoDBStorage) extractMessageIDFromItem(item map[string]types.AttributeValue) (model.MessageID, error) {
-	messageIDValue, ok := item[VerificationMessageDataFieldMessageID].(*types.AttributeValueMemberB)
+	messageIDValue, ok := item[ddbconstant.VerificationMessageDataFieldMessageID].(*types.AttributeValueMemberB)
 	if !ok {
 		return nil, errors.New("MessageID field not found or wrong type")
 	}

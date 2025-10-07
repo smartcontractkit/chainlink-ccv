@@ -11,6 +11,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 )
 
 type VerificationMessageDataRecordDTO struct{}
@@ -32,23 +34,23 @@ func (dto *VerificationMessageDataRecordDTO) ToItem(record *model.CommitVerifica
 	}
 
 	item := map[string]types.AttributeValue{
-		FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
-		FieldSortKey:      &types.AttributeValueMemberS{Value: VerificationMessageDataSortKey},
+		ddbconstant.FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
+		ddbconstant.FieldSortKey:      &types.AttributeValueMemberS{Value: ddbconstant.VerificationMessageDataSortKey},
 
-		VerificationMessageDataFieldMessageID:             &types.AttributeValueMemberB{Value: record.GetMessageId()},
-		VerificationMessageDataFieldSourceVerifierAddress: &types.AttributeValueMemberB{Value: record.GetSourceVerifierAddress()},
-		VerificationMessageDataFieldMessage:               &types.AttributeValueMemberB{Value: messageData},
-		VerificationMessageDataFieldTimestamp:             &types.AttributeValueMemberN{Value: strconv.FormatInt(record.GetTimestamp(), 10)},
-		VerificationMessageDataFieldQuorumStatus:          &types.AttributeValueMemberS{Value: VerificationMessageDataQuorumStatusPending},
-		FieldCreatedAt:                                    &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().Unix(), 10)},
+		ddbconstant.VerificationMessageDataFieldMessageID:             &types.AttributeValueMemberB{Value: record.GetMessageId()},
+		ddbconstant.VerificationMessageDataFieldSourceVerifierAddress: &types.AttributeValueMemberB{Value: record.GetSourceVerifierAddress()},
+		ddbconstant.VerificationMessageDataFieldMessage:               &types.AttributeValueMemberB{Value: messageData},
+		ddbconstant.VerificationMessageDataFieldTimestamp:             &types.AttributeValueMemberN{Value: strconv.FormatInt(record.GetTimestamp(), 10)},
+		ddbconstant.VerificationMessageDataFieldQuorumStatus:          &types.AttributeValueMemberS{Value: ddbconstant.VerificationMessageDataQuorumStatusPending},
+		ddbconstant.FieldCreatedAt:                                    &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().Unix(), 10)},
 
 		// Orphan recovery fields - sparse GSI for efficient scanning
 		// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html
-		VerificationMessageDataFieldPendingAggregation: &types.AttributeValueMemberS{Value: GetPendingAggregationKeyForRecord(record.CommitteeID)},
+		ddbconstant.VerificationMessageDataFieldPendingAggregation: &types.AttributeValueMemberS{Value: ddbconstant.GetPendingAggregationKeyForRecord(record.CommitteeID)},
 	}
 
 	if record.GetBlobData() != nil {
-		item[VerificationMessageDataFieldBlobData] = &types.AttributeValueMemberB{Value: record.GetBlobData()}
+		item[ddbconstant.VerificationMessageDataFieldBlobData] = &types.AttributeValueMemberB{Value: record.GetBlobData()}
 	}
 
 	if len(record.GetReceiptBlobs()) > 0 {
@@ -60,16 +62,16 @@ func (dto *VerificationMessageDataRecordDTO) ToItem(record *model.CommitVerifica
 			}
 			receiptBlobs[i] = &types.AttributeValueMemberB{Value: blobData}
 		}
-		item[VerificationMessageDataFieldReceiptBlobs] = &types.AttributeValueMemberL{Value: receiptBlobs}
+		item[ddbconstant.VerificationMessageDataFieldReceiptBlobs] = &types.AttributeValueMemberL{Value: receiptBlobs}
 	}
 
 	return item, nil
 }
 
 func (dto *VerificationMessageDataRecordDTO) IsVerificationMessageDataRecord(item map[string]types.AttributeValue) bool {
-	sortKeyValue, ok := item[FieldSortKey].(*types.AttributeValueMemberS)
+	sortKeyValue, ok := item[ddbconstant.FieldSortKey].(*types.AttributeValueMemberS)
 	if !ok {
 		return false
 	}
-	return strings.HasPrefix(sortKeyValue.Value, VerificationMessageDataRecordPrefix)
+	return strings.HasPrefix(sortKeyValue.Value, ddbconstant.VerificationMessageDataRecordPrefix)
 }

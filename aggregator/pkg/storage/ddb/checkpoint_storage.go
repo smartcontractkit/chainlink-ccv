@@ -9,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 )
 
 // CheckpointStorage provides DynamoDB-backed storage for blockchain checkpoints.
@@ -95,7 +97,7 @@ func (s *CheckpointStorage) GetClientCheckpoints(ctx context.Context, clientID s
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(s.tableName),
-		KeyConditionExpression: aws.String(QueryCheckpointsByClient),
+		KeyConditionExpression: aws.String(ddbconstant.QueryCheckpointsByClient),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":client_id": &types.AttributeValueMemberS{Value: clientID},
 		},
@@ -131,7 +133,7 @@ func (s *CheckpointStorage) GetAllClients(ctx context.Context) ([]string, error)
 	// Note: This can be expensive for large datasets, but it's primarily for testing
 	input := &dynamodb.ScanInput{
 		TableName:              aws.String(s.tableName),
-		ProjectionExpression:   aws.String(CheckpointFieldClientID),
+		ProjectionExpression:   aws.String(ddbconstant.CheckpointFieldClientID),
 		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 
@@ -154,7 +156,7 @@ func (s *CheckpointStorage) GetAllClients(ctx context.Context) ([]string, error)
 		}
 
 		for _, item := range result.Items {
-			clientIDAttr, ok := item[CheckpointFieldClientID].(*types.AttributeValueMemberS)
+			clientIDAttr, ok := item[ddbconstant.CheckpointFieldClientID].(*types.AttributeValueMemberS)
 			if ok {
 				clientSet[clientIDAttr.Value] = true
 			}

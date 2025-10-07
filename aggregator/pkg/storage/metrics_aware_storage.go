@@ -60,9 +60,9 @@ func (s *MetricsAwareStorage) ListCommitVerificationByMessageID(ctx context.Cont
 	})
 }
 
-func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error) {
-	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() ([]*model.CommitAggregatedReport, error) {
-		return s.inner.QueryAggregatedReports(ctx, start, end, committeeID)
+func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
+	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() (*model.PaginatedAggregatedReports, error) {
+		return s.inner.QueryAggregatedReports(ctx, start, end, committeeID, token)
 	})
 }
 
