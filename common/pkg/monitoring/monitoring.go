@@ -1,11 +1,11 @@
-package config
+package monitoring
 
 import (
 	"fmt"
 )
 
-// MonitoringConfig provides monitoring configuration for CCV services (verifier, executor, indexer, aggregator).
-type MonitoringConfig struct {
+// Config provides monitoring configuration for CCV services (verifier, executor, indexer, aggregator).
+type Config struct {
 	// Enabled enables the monitoring system.
 	Enabled bool `toml:"Enabled"`
 	// Type is the type of monitoring system to use (beholder, noop).
@@ -35,7 +35,7 @@ type BeholderConfig struct {
 }
 
 // Validate performs validation on the monitoring configuration.
-func (m *MonitoringConfig) Validate() error {
+func (m *Config) Validate() error {
 	if m.Enabled && m.Type == "" {
 		return fmt.Errorf("monitoring type is required when monitoring is enabled")
 	}

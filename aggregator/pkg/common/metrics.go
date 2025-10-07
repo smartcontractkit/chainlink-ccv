@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -23,7 +24,7 @@ type AggregatorMetricLabeler interface {
 	// IncrementCompletedAggregations increments the completed aggregations counter.
 	IncrementCompletedAggregations(ctx context.Context)
 	// RecordAPIRequestDuration records the duration of an API request in milliseconds.
-	RecordAPIRequestDuration(ctx context.Context, durationMs int64)
+	RecordAPIRequestDuration(ctx context.Context, duration time.Duration)
 	// IncrementAPIRequestErrors increments the API request errors counter.
 	IncrementAPIRequestErrors(ctx context.Context)
 	// RecordMessageSinceNumberOfRecordsReturned records the number of records returned for a GetMessageSince request.
@@ -33,11 +34,11 @@ type AggregatorMetricLabeler interface {
 	// DecrementPendingAggregationsChannelBuffer decrements the pending aggregations channel buffer counter.
 	DecrementPendingAggregationsChannelBuffer(ctx context.Context, count int)
 	// RecordStorageLatency records storage operation latency in milliseconds.
-	RecordStorageLatency(ctx context.Context, latencyMs int64)
+	RecordStorageLatency(ctx context.Context, duration time.Duration)
 	// IncrementStorageError increments the storage error counter.
 	IncrementStorageError(ctx context.Context)
 	// RecordTimeToAggregation records the time taken to complete an aggregation.
-	RecordTimeToAggregation(ctx context.Context, durationMs int64)
+	RecordTimeToAggregation(ctx context.Context, duration time.Duration)
 	// RecordDynamoDBReadCapacityUnits records the DynamoDB read capacity units consumed.
 	RecordDynamoDBReadCapacityUnits(ctx context.Context, units float64)
 	// RecordDynamoDBWriteCapacityUnits records the DynamoDB write capacity units consumed.
