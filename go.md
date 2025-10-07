@@ -21,9 +21,7 @@ flowchart LR
 	click chainlink-ccip/chains/solana/gobindings href "https://github.com/smartcontractkit/chainlink-ccip"
 	chainlink-ccip/deployment --> chainlink-deployments-framework
 	click chainlink-ccip/deployment href "https://github.com/smartcontractkit/chainlink-ccip"
-	chainlink-ccv/aggregator --> chainlink-ccv/protocol
-	chainlink-ccv/aggregator --> chainlink-common
-	chainlink-ccv/aggregator --> chainlink-protos/chainlink-ccv/go
+	chainlink-ccv/aggregator --> chainlink-ccv/common
 	click chainlink-ccv/aggregator href "https://github.com/smartcontractkit/chainlink-ccv"
 	chainlink-ccv/ccv-evm --> chainlink-ccip/chains/evm/deployment
 	chainlink-ccv/ccv-evm --> chainlink-ccv/common

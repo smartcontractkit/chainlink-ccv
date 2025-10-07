@@ -21,7 +21,7 @@ func (m *MetricMiddleware) Intercept(ctx context.Context, req any, info *grpc.Un
 	defer metrics.DecrementActiveRequestsCounter(ctx)
 	defer func() {
 		duration := time.Since(startTime)
-		metrics.RecordAPIRequestDuration(ctx, duration.Milliseconds())
+		metrics.RecordAPIRequestDuration(ctx, duration)
 	}()
 
 	resp, err = handler(ctx, req)

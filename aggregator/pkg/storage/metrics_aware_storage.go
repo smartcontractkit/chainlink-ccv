@@ -88,8 +88,7 @@ func (s *MetricsAwareStorage) ListOrphanedMessageIDs(ctx context.Context, commit
 	go func() {
 		now := time.Now()
 		defer func() {
-			latency := time.Since(now).Milliseconds()
-			metrics.RecordStorageLatency(ctx, latency)
+			metrics.RecordStorageLatency(ctx, time.Since(now))
 		}()
 
 		for {
@@ -158,8 +157,7 @@ func (s *MetricsAwareCheckpointStorage) GetAllClients(ctx context.Context) ([]st
 func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricLabeler, fn func() (T, error)) (T, error) {
 	now := time.Now()
 	defer func() {
-		latency := time.Since(now).Milliseconds()
-		metrics.RecordStorageLatency(ctx, latency)
+		metrics.RecordStorageLatency(ctx, time.Since(now))
 	}()
 
 	res, err := fn()

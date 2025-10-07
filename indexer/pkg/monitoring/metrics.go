@@ -20,14 +20,14 @@ type IndexerMetrics struct {
 	// HTTP Metrics
 	httpRequestsCounter         metric.Int64Counter
 	activeRequestsUpDownCounter metric.Int64UpDownCounter
-	requestDurationSeconds      metric.Float64Histogram
+	requestDurationMilliseconds metric.Int64Histogram
 
 	// Storage Metrics
-	uniqueMessagesCounter       metric.Int64Counter
-	verificationRecordsCounter  metric.Int64Counter
-	storageQueryDurationSeconds metric.Float64Histogram
-	storageWriteDurationSeconds metric.Float64Histogram
-	storageInsertErrorsCounter  metric.Int64Counter
+	uniqueMessagesCounter            metric.Int64Counter
+	verificationRecordsCounter       metric.Int64Counter
+	storageQueryDurationMilliseconds metric.Int64Histogram
+	storageWriteDurationMilliseconds metric.Int64Histogram
+	storageInsertErrorsCounter       metric.Int64Counter
 
 	// Scanner Metrics
 	scannerPollingErrorsCounter        metric.Int64Counter
@@ -54,9 +54,9 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register active requests up down counter: %w", err)
 	}
 
-	im.requestDurationSeconds, err = beholder.GetMeter().Float64Histogram("indexer_http_request_duration_seconds",
+	im.requestDurationMilliseconds, err = beholder.GetMeter().Int64Histogram("indexer_http_request_duration_ms",
 		metric.WithDescription("Total duration of requesting the HTTP request"),
-		metric.WithUnit("seconds"),
+		metric.WithUnit("milliseconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register http request duration histogram: %w", err)
@@ -78,18 +78,18 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register verification records counter: %w", err)
 	}
 
-	im.storageQueryDurationSeconds, err = beholder.GetMeter().Float64Histogram(
-		"indexer_storage_query_duration_seconds",
+	im.storageQueryDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
+		"indexer_storage_query_duration_ms",
 		metric.WithDescription("Total duration of querying the storage of the Indexer"),
-		metric.WithUnit("seconds"),
+		metric.WithUnit("milliseconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register storage query duration histogram: %w", err)
 	}
 
-	im.storageWriteDurationSeconds, err = beholder.GetMeter().Float64Histogram("indexer_storage_write_duration_seconds",
+	im.storageWriteDurationMilliseconds, err = beholder.GetMeter().Int64Histogram("indexer_storage_write_duration_ms",
 		metric.WithDescription("Total duration of writing to the storage of the Indexer"),
-		metric.WithUnit("seconds"),
+		metric.WithUnit("milliseconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register storage write duration histogram: %w", err)
@@ -130,21 +130,21 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 func MetricViews() []sdkmetric.View {
 	return []sdkmetric.View{
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_storage_query_duration_seconds"},
+			sdkmetric.Instrument{Name: "indexer_storage_query_duration_ms"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2.5, 5, 10},
+				Boundaries: []float64{1, 10, 25, 50, 100, 250, 500, 100, 250, 500, 1000, 2500, 5000, 10000},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_storage_write_duration_seconds"},
+			sdkmetric.Instrument{Name: "indexer_storage_write_duration_ms"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+				Boundaries: []float64{1, 5, 10, 25, 50, 100, 250, 500, 100, 250, 500, 1000, 2500, 5000, 10000},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_http_request_duration_seconds"},
+			sdkmetric.Instrument{Name: "indexer_http_request_duration_ms"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+				Boundaries: []float64{1, 5, 10, 25, 50, 100, 250, 500, 100, 250, 500, 1000, 2500, 5000, 10000},
 			}},
 		),
 	}
@@ -185,7 +185,7 @@ func (c *IndexerMetricLabeler) DecrementActiveRequestsCounter(ctx context.Contex
 
 func (c *IndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.requestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
+	c.im.requestDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes([]attribute.KeyValue{
 		attribute.String("path", path),
 		attribute.String("method", method),
 		attribute.Int("status", status),
@@ -204,12 +204,12 @@ func (c *IndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.C
 
 func (c *IndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.storageQueryDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+	c.im.storageQueryDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.storageWriteDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+	c.im.storageWriteDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context) {
