@@ -1,20 +1,21 @@
-//nolint:gci,goimports
 package monitoring
 
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
-	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
+	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
-// IndexerMetrics provides all metrics provided by the indexer.
+// AggregatorMetrics provides all metrics provided by the indexer.
 type AggregatorMetrics struct {
 	activeRequestsUpDownCounter            metric.Int64UpDownCounter
 	completedAggregations                  metric.Int64Counter
@@ -34,13 +35,13 @@ type AggregatorMetrics struct {
 func MetricViews() []sdkmetric.View {
 	return []sdkmetric.View{
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "aggregator_time_to_aggregation"},
+			sdkmetric.Instrument{Name: "aggregator_time_to_aggregation_ms"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "aggregator_api_request_duration"},
+			sdkmetric.Instrument{Name: "aggregator_api_request_duration_ms"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
 			}},
@@ -185,9 +186,9 @@ func (c *AggregatorMetricLabeler) IncrementCompletedAggregations(ctx context.Con
 	c.am.completedAggregations.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) RecordAPIRequestDuration(ctx context.Context, durationMs int64) {
+func (c *AggregatorMetricLabeler) RecordAPIRequestDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.apiRequestDuration.Record(ctx, durationMs, metric.WithAttributes(otelLabels...))
+	c.am.apiRequestDuration.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Context) {
@@ -210,9 +211,9 @@ func (c *AggregatorMetricLabeler) DecrementPendingAggregationsChannelBuffer(ctx 
 	c.am.pendingAggregationsChannelBuffer.Add(ctx, -int64(count), metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, latencyMs int64) {
+func (c *AggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.storageLatency.Record(ctx, latencyMs, metric.WithAttributes(otelLabels...))
+	c.am.storageLatency.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
@@ -220,9 +221,9 @@ func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
 	c.am.storageError.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, durationMs int64) {
+func (c *AggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.timeToAggregation.Record(ctx, durationMs, metric.WithAttributes(otelLabels...))
+	c.am.timeToAggregation.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) RecordDynamoDBReadCapacityUnits(ctx context.Context, units float64) {

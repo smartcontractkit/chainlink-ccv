@@ -2,7 +2,10 @@ module github.com/smartcontractkit/chainlink-ccv/aggregator
 
 go 1.24.6
 
-replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
+replace (
+	github.com/smartcontractkit/chainlink-ccv/common => ../common
+	github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
+)
 
 require (
 	github.com/BurntSushi/toml v1.5.0
@@ -17,6 +20,7 @@ require (
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2
 	github.com/oklog/run v1.2.0
+	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.5
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924193316-7b87b14901ab

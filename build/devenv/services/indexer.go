@@ -14,6 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -73,10 +74,10 @@ func defaults(in *IndexerInput) {
 	}
 	if in.IndexerConfig == nil {
 		in.IndexerConfig = &config.Config{
-			Monitoring: config.MonitoringConfig{
+			Monitoring: monitoring.Config{
 				Enabled: true,
 				Type:    "beholder",
-				Beholder: config.BeholderConfig{
+				Beholder: monitoring.BeholderConfig{
 					InsecureConnection:       true,
 					OtelExporterHTTPEndpoint: "otel-collector:4318",
 					LogStreamingEnabled:      true,

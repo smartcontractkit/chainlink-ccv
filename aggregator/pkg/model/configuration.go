@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/monitoring"
 )
 
 // Signer represents a participant in the commit verification process.
@@ -166,16 +168,6 @@ type BeholderConfig struct {
 	TraceBatchTimeout int64 `toml:"traceBatchTimeout"`
 }
 
-// MonitoringConfig provides all configuration for the monitoring system inside the aggregator.
-type MonitoringConfig struct {
-	// Enabled enables the monitoring system.
-	Enabled bool `toml:"enabled"`
-	// Type is the type of monitoring system to use (beholder, noop).
-	Type string `toml:"type"`
-	// Beholder is the configuration for the beholder client (Not required if type is noop).
-	Beholder BeholderConfig `toml:"beholder"`
-}
-
 // GetClientByAPIKey returns the client configuration for a given API key.
 func (c *APIKeyConfig) GetClientByAPIKey(apiKey string) (*APIClient, bool) {
 	client, exists := c.Clients[apiKey]
@@ -218,7 +210,7 @@ type AggregatorConfig struct {
 	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
-	Monitoring        MonitoringConfig           `toml:"monitoring"`
+	Monitoring        monitoring.Config          `toml:"monitoring"`
 	PyroscopeURL      string                     `toml:"pyroscope_url"`
 }
 
