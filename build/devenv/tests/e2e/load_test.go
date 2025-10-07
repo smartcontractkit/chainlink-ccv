@@ -53,7 +53,8 @@ type MessageMetrics struct {
 
 // MetricsSummary holds aggregate metrics for all messages
 type MetricsSummary struct {
-	TotalMessages int
+	TotalSent     int
+	TotalVerified int
 	MinLatency    time.Duration
 	MaxLatency    time.Duration
 	P90Latency    time.Duration
@@ -157,28 +158,45 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 }
 
 // verifyMessagesAsync starts async verification of messages as they are sent via channel
-// Returns a function that blocks until all messages are verified and returns metrics
+// Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts
 // The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent
-func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) func() []MessageMetrics {
+func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) func() ([]MessageMetrics, int, int) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
 
 	metricsChan := make(chan MessageMetrics, 100)
 	var wg sync.WaitGroup
+	var totalSent, totalVerified int
+	var countMu sync.Mutex
+
+	// Create a context with timeout for verification
+	verifyCtx, cancelVerify := context.WithTimeout(ctx, timeout)
 
 	// Start verification goroutine that reads from the sent messages channel
 	go func() {
 		defer close(metricsChan)
+		defer cancelVerify()
 
 		// Read from channel until it's closed
 		for sentMsg := range gun.sentMsgCh {
+			countMu.Lock()
+			totalSent++
+			countMu.Unlock()
+
 			// Launch a goroutine for each message to verify it
 			wg.Add(1)
 			go func(msg SentMessage) {
 				defer wg.Done()
 
-				// Wait for the execution event
-				execEvent, err := impl.WaitOneExecEventBySeqNo(ctx, fromSelector, toSelector, msg.SeqNo, timeout)
+				// Wait for the execution event with context
+				execEvent, err := impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, timeout)
+
+				if verifyCtx.Err() != nil {
+					// Context cancelled or timed out
+					t.Logf("Message %d verification timed out", msg.SeqNo)
+					return
+				}
+
 				if err != nil {
 					t.Logf("Failed to get execution event for sequence number %d: %v", msg.SeqNo, err)
 					return
@@ -202,6 +220,10 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 				t.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
 
+				countMu.Lock()
+				totalVerified++
+				countMu.Unlock()
+
 				// Send metrics
 				metricsChan <- MessageMetrics{
 					SeqNo:           msg.SeqNo,
@@ -212,27 +234,53 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 			}(sentMsg)
 		}
 
-		// Channel is closed, wait for all verification goroutines to complete
+		// Channel is closed, wait for all verification goroutines to complete or timeout
 		t.Logf("All messages received, waiting for verification to complete")
-		wg.Wait()
-		t.Logf("All verification goroutines completed")
+
+		// Wait for either all goroutines to finish or context timeout
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			t.Logf("All verification goroutines completed")
+		case <-verifyCtx.Done():
+			t.Logf("Verification timeout reached, some goroutines may still be running")
+		}
 	}()
 
-	// Return function that collects metrics
-	return func() []MessageMetrics {
+	// Return function that collects metrics and counts
+	return func() ([]MessageMetrics, int, int) {
 		metrics := make([]MessageMetrics, 0, 100)
 		for metric := range metricsChan {
 			metrics = append(metrics, metric)
 		}
-		t.Logf("Successfully verified all %d messages were executed", len(metrics))
-		return metrics
+
+		countMu.Lock()
+		sent := totalSent
+		verified := totalVerified
+		countMu.Unlock()
+
+		notVerified := sent - verified
+		t.Logf("Verification complete - Sent: %d, Verified: %d, Not Verified: %d",
+			sent, verified, notVerified)
+
+		return metrics, sent, verified
 	}
 }
 
 // calculateMetricsSummary computes aggregate statistics from message metrics
-func calculateMetricsSummary(metrics []MessageMetrics) MetricsSummary {
+func calculateMetricsSummary(metrics []MessageMetrics, totalSent, totalVerified int) MetricsSummary {
+	summary := MetricsSummary{
+		TotalSent:     totalSent,
+		TotalVerified: totalVerified,
+	}
+
 	if len(metrics) == 0 {
-		return MetricsSummary{}
+		return summary
 	}
 
 	// Extract and sort latencies
@@ -260,30 +308,42 @@ func calculateMetricsSummary(metrics []MessageMetrics) MetricsSummary {
 		p99Index = len(latencies) - 1
 	}
 
-	return MetricsSummary{
-		TotalMessages: len(metrics),
-		MinLatency:    latencies[0],
-		MaxLatency:    latencies[len(latencies)-1],
-		P90Latency:    latencies[p90Index],
-		P95Latency:    latencies[p95Index],
-		P99Latency:    latencies[p99Index],
-	}
+	summary.MinLatency = latencies[0]
+	summary.MaxLatency = latencies[len(latencies)-1]
+	summary.P90Latency = latencies[p90Index]
+	summary.P95Latency = latencies[p95Index]
+	summary.P99Latency = latencies[p99Index]
+
+	return summary
 }
 
 // printMetricsSummary outputs message timing metrics in a readable format
 func printMetricsSummary(t *testing.T, summary MetricsSummary) {
+	notVerified := summary.TotalSent - summary.TotalVerified
+	successRate := 0.0
+	if summary.TotalSent > 0 {
+		successRate = float64(summary.TotalVerified) / float64(summary.TotalSent) * 100
+	}
+
 	t.Logf("\n"+
 		"========================================\n"+
 		"         Message Timing Metrics        \n"+
 		"========================================\n"+
-		"Total Messages:  %d\n"+
+		"Total Sent:      %d\n"+
+		"Total Verified:  %d\n"+
+		"Not Verified:    %d\n"+
+		"Success Rate:    %.2f%%\n"+
+		"----------------------------------------\n"+
 		"Min Latency:     %v\n"+
 		"Max Latency:     %v\n"+
 		"P90 Latency:     %v\n"+
 		"P95 Latency:     %v\n"+
 		"P99 Latency:     %v\n"+
 		"========================================",
-		summary.TotalMessages,
+		summary.TotalSent,
+		summary.TotalVerified,
+		notVerified,
+		successRate,
 		summary.MinLatency,
 		summary.MaxLatency,
 		summary.P90Latency,
@@ -384,8 +444,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics := waitForMetrics()
-		summary := calculateMetricsSummary(metrics)
+		metrics, totalSent, totalVerified := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
 		printMetricsSummary(t, summary)
 
 		// assert any metrics you need
@@ -398,12 +458,12 @@ func TestE2ELoad(t *testing.T) {
 		require.NoError(t, err)
 
 		rps := int64(1)
-		testDuration := 30 * time.Second
+		testDuration := 200 * time.Second
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 5*time.Minute)
+		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 250*time.Second)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -412,8 +472,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics := waitForMetrics()
-		summary := calculateMetricsSummary(metrics)
+		metrics, totalSent, totalVerified := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
 		printMetricsSummary(t, summary)
 	})
 
@@ -482,8 +542,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics := waitForMetrics()
-		summary := calculateMetricsSummary(metrics)
+		metrics, totalSent, totalVerified := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
 		printMetricsSummary(t, summary)
 	})
 
@@ -561,8 +621,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics := waitForMetrics()
-		summary := calculateMetricsSummary(metrics)
+		metrics, totalSent, totalVerified := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
 		printMetricsSummary(t, summary)
 	})
 
@@ -677,8 +737,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics := waitForMetrics()
-		summary := calculateMetricsSummary(metrics)
+		metrics, totalSent, totalVerified := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
 		printMetricsSummary(t, summary)
 	})
 }
