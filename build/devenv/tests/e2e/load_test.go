@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -42,6 +43,24 @@ type GasTestCase struct {
 	waitBetweenTests time.Duration
 }
 
+// MessageMetrics tracks timing information for a single message
+type MessageMetrics struct {
+	SeqNo           uint64
+	SentTime        time.Time
+	ExecutedTime    time.Time
+	LatencyDuration time.Duration
+}
+
+// MetricsSummary holds aggregate metrics for all messages
+type MetricsSummary struct {
+	TotalMessages int
+	MinLatency    time.Duration
+	MaxLatency    time.Duration
+	P90Latency    time.Duration
+	P95Latency    time.Duration
+	P99Latency    time.Duration
+}
+
 type EVMTXGun struct {
 	cfg        *ccv.Cfg
 	e          *deployment.Environment
@@ -50,6 +69,7 @@ type EVMTXGun struct {
 	src        evm.Chain
 	dest       evm.Chain
 	sentSeqNos []uint64
+	sentTimes  map[uint64]time.Time
 	seqNosMu   sync.Mutex
 }
 
@@ -62,6 +82,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		src:        s,
 		dest:       d,
 		sentSeqNos: make([]uint64, 0),
+		sentTimes:  make(map[uint64]time.Time),
 	}
 }
 
@@ -85,13 +106,15 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
-	// Get sequence number before sending
+	// Get sequence number before sending and record timestamp
 	c, ok := m.impl.(*ccvEvm.CCIP17EVM)
 	if ok {
 		seqNo, err := c.GetExpectedNextSequenceNumber(ctx, srcChain.ChainSelector, dstChain.ChainSelector)
 		if err == nil {
+			sentTime := time.Now()
 			m.seqNosMu.Lock()
 			m.sentSeqNos = append(m.sentSeqNos, seqNo)
+			m.sentTimes[seqNo] = sentTime
 			m.seqNosMu.Unlock()
 		}
 	}
@@ -112,10 +135,15 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 }
 
 // verifyAllMessagesExecuted checks that all messages tracked by the gun were successfully executed
-func verifyAllMessagesExecuted(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) {
+// and collects timing metrics for each message
+func verifyAllMessagesExecuted(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) []MessageMetrics {
 	gun.seqNosMu.Lock()
 	seqNos := make([]uint64, len(gun.sentSeqNos))
 	copy(seqNos, gun.sentSeqNos)
+	sentTimes := make(map[uint64]time.Time)
+	for k, v := range gun.sentTimes {
+		sentTimes[k] = v
+	}
 	gun.seqNosMu.Unlock()
 
 	fromSelector := gun.src.Selector
@@ -123,17 +151,98 @@ func verifyAllMessagesExecuted(t *testing.T, ctx context.Context, gun *EVMTXGun,
 
 	t.Logf("Verifying %d messages were executed from selector %d to %d", len(seqNos), fromSelector, toSelector)
 
+	metrics := make([]MessageMetrics, 0, len(seqNos))
+
 	for _, seqNo := range seqNos {
 		execEvent, err := impl.WaitOneExecEventBySeqNo(ctx, fromSelector, toSelector, seqNo, timeout)
 		require.NoError(t, err, "Failed to get execution event for sequence number %d", seqNo)
 		require.NotNil(t, execEvent)
 
 		// State 2 indicates successful execution
-		state := execEvent.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State
+		event := execEvent.(*ccvAggregator.CCVAggregatorExecutionStateChanged)
+		state := event.State
 		require.Equal(t, uint8(2), state, "Message with sequence number %d was not successfully executed, state: %d", seqNo, state)
+
+		t.Logf("Message with sequence number %d successfully executed", seqNo)
+		// Record execution time and calculate latency
+		executedTime := time.Now()
+		sentTime, ok := sentTimes[seqNo]
+		if ok {
+			latency := executedTime.Sub(sentTime)
+			metrics = append(metrics, MessageMetrics{
+				SeqNo:           seqNo,
+				SentTime:        sentTime,
+				ExecutedTime:    executedTime,
+				LatencyDuration: latency,
+			})
+		}
 	}
 
 	t.Logf("Successfully verified all %d messages were executed", len(seqNos))
+	return metrics
+}
+
+// calculateMetricsSummary computes aggregate statistics from message metrics
+func calculateMetricsSummary(metrics []MessageMetrics) MetricsSummary {
+	if len(metrics) == 0 {
+		return MetricsSummary{}
+	}
+
+	// Extract and sort latencies
+	latencies := make([]time.Duration, len(metrics))
+	for i, m := range metrics {
+		latencies[i] = m.LatencyDuration
+	}
+	sort.Slice(latencies, func(i, j int) bool {
+		return latencies[i] < latencies[j]
+	})
+
+	// Calculate percentiles
+	p90Index := int(float64(len(latencies)) * 0.90)
+	p95Index := int(float64(len(latencies)) * 0.95)
+	p99Index := int(float64(len(latencies)) * 0.99)
+
+	// Handle edge cases for small sample sizes
+	if p90Index >= len(latencies) {
+		p90Index = len(latencies) - 1
+	}
+	if p95Index >= len(latencies) {
+		p95Index = len(latencies) - 1
+	}
+	if p99Index >= len(latencies) {
+		p99Index = len(latencies) - 1
+	}
+
+	return MetricsSummary{
+		TotalMessages: len(metrics),
+		MinLatency:    latencies[0],
+		MaxLatency:    latencies[len(latencies)-1],
+		P90Latency:    latencies[p90Index],
+		P95Latency:    latencies[p95Index],
+		P99Latency:    latencies[p99Index],
+	}
+}
+
+// printMetricsSummary outputs message timing metrics in a readable format
+func printMetricsSummary(t *testing.T, summary MetricsSummary) {
+	t.Logf("\n"+
+		"========================================\n"+
+		"         Message Timing Metrics        \n"+
+		"========================================\n"+
+		"Total Messages:  %d\n"+
+		"Min Latency:     %v\n"+
+		"Max Latency:     %v\n"+
+		"P90 Latency:     %v\n"+
+		"P95 Latency:     %v\n"+
+		"P99 Latency:     %v\n"+
+		"========================================",
+		summary.TotalMessages,
+		summary.MinLatency,
+		summary.MaxLatency,
+		summary.P90Latency,
+		summary.P95Latency,
+		summary.P99Latency,
+	)
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
@@ -216,8 +325,10 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, 5, 30*time.Second, e, selectors, impl, srcChain, dstChain)
 		_, err = p.Run(true)
 		require.NoError(t, err)
-		// verify all messages were executed
-		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		// verify all messages were executed and collect metrics
+		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		summary := calculateMetricsSummary(metrics)
+		printMetricsSummary(t, summary)
 		// assert any metrics you need
 		checkCPUMem(t, in, time.Now())
 	})
@@ -226,11 +337,13 @@ func TestE2ELoad(t *testing.T) {
 		// 400ms latency for any RPC node
 		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=5m delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
-		p, gun := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, 1, 5*time.Second, e, selectors, impl, srcChain, dstChain)
 		_, err = p.Run(true)
 		require.NoError(t, err)
-		// verify all messages were executed
-		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		// verify all messages were executed and collect metrics
+		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		summary := calculateMetricsSummary(metrics)
+		printMetricsSummary(t, summary)
 	})
 
 	t.Run("gas", func(t *testing.T) {
@@ -286,8 +399,10 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
-		// verify all messages were executed
-		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		// verify all messages were executed and collect metrics
+		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		summary := calculateMetricsSummary(metrics)
+		printMetricsSummary(t, summary)
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
@@ -351,8 +466,10 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
-		// verify all messages were executed
-		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		// verify all messages were executed and collect metrics
+		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		summary := calculateMetricsSummary(metrics)
+		printMetricsSummary(t, summary)
 	})
 
 	t.Run("services_chaos", func(t *testing.T) {
@@ -453,8 +570,10 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
-		// verify all messages were executed
-		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		// verify all messages were executed and collect metrics
+		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+		summary := calculateMetricsSummary(metrics)
+		printMetricsSummary(t, summary)
 	})
 }
 
