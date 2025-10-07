@@ -48,7 +48,7 @@ func (cv *Verifier) validate() error {
 	appendIfNil(cv.config, "config")
 	appendIfNil(cv.signer, "signer")
 	appendIfNil(cv.lggr, "lggr")
-	appendIfNil(cv.monitoring, "monitoring")
+	// appendIfNil(cv.monitoring, "monitoring")
 
 	if len(errs) > 0 {
 		return fmt.Errorf("verifier is not fully initialized: %w", errors.Join(errs...))
@@ -138,12 +138,14 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 	select {
 	case ccvDataCh <- *ccvData:
 		// Record successful message processing
-		cv.monitoring.Metrics().
-			With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
-			IncrementMessagesProcessed(ctx)
-		cv.monitoring.Metrics().
-			With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
-			RecordMessageVerificationDuration(ctx, time.Since(start))
+		if cv.monitoring != nil {
+			cv.monitoring.Metrics().
+				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
+				IncrementMessagesProcessed(ctx)
+			cv.monitoring.Metrics().
+				With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
+				RecordMessageVerificationDuration(ctx, time.Since(start))
+		}
 
 		cv.lggr.Infow("CCV data sent to storage channel",
 			"messageID", messageID,
