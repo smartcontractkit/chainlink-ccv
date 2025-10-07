@@ -227,6 +227,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Checkpoints.MaxCheckpointsPerRequest == 0 {
 		c.Checkpoints.MaxCheckpointsPerRequest = 1000
 	}
+	// Initialize Storage config if nil
+	if c.Storage == nil {
+		c.Storage = &StorageConfig{}
+	}
 	if c.Storage.PageSize == 0 {
 		c.Storage.PageSize = 100
 	}
