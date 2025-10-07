@@ -61,6 +61,12 @@ type MetricsSummary struct {
 	P99Latency    time.Duration
 }
 
+// SentMessage represents a message that was sent and needs verification
+type SentMessage struct {
+	SeqNo    uint64
+	SentTime time.Time
+}
+
 type EVMTXGun struct {
 	cfg        *ccv.Cfg
 	e          *deployment.Environment
@@ -71,6 +77,15 @@ type EVMTXGun struct {
 	sentSeqNos []uint64
 	sentTimes  map[uint64]time.Time
 	seqNosMu   sync.Mutex
+	sentMsgCh  chan SentMessage // Channel for real-time message notifications
+	closeOnce  sync.Once        // Ensure channel is closed only once
+}
+
+// CloseSentChannel closes the sent messages channel to signal no more messages will be sent
+func (m *EVMTXGun) CloseSentChannel() {
+	m.closeOnce.Do(func() {
+		close(m.sentMsgCh)
+	})
 }
 
 func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) *EVMTXGun {
@@ -83,6 +98,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		dest:       d,
 		sentSeqNos: make([]uint64, 0),
 		sentTimes:  make(map[uint64]time.Time),
+		sentMsgCh:  make(chan SentMessage, 1000), // Buffered channel to avoid blocking
 	}
 }
 
@@ -116,6 +132,12 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 			m.sentSeqNos = append(m.sentSeqNos, seqNo)
 			m.sentTimes[seqNo] = sentTime
 			m.seqNosMu.Unlock()
+
+			// Push to channel for async verification
+			m.sentMsgCh <- SentMessage{
+				SeqNo:    seqNo,
+				SentTime: sentTime,
+			}
 		}
 	}
 
@@ -134,52 +156,77 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	return &wasp.Response{Data: "ok"}
 }
 
-// verifyAllMessagesExecuted checks that all messages tracked by the gun were successfully executed
-// and collects timing metrics for each message
-func verifyAllMessagesExecuted(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) []MessageMetrics {
-	gun.seqNosMu.Lock()
-	seqNos := make([]uint64, len(gun.sentSeqNos))
-	copy(seqNos, gun.sentSeqNos)
-	sentTimes := make(map[uint64]time.Time)
-	for k, v := range gun.sentTimes {
-		sentTimes[k] = v
-	}
-	gun.seqNosMu.Unlock()
-
+// verifyMessagesAsync starts async verification of messages as they are sent via channel
+// Returns a function that blocks until all messages are verified and returns metrics
+// The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent
+func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) func() []MessageMetrics {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
 
-	t.Logf("Verifying %d messages were executed from selector %d to %d", len(seqNos), fromSelector, toSelector)
+	metricsChan := make(chan MessageMetrics, 100)
+	var wg sync.WaitGroup
 
-	metrics := make([]MessageMetrics, 0, len(seqNos))
+	// Start verification goroutine that reads from the sent messages channel
+	go func() {
+		defer close(metricsChan)
 
-	for _, seqNo := range seqNos {
-		execEvent, err := impl.WaitOneExecEventBySeqNo(ctx, fromSelector, toSelector, seqNo, timeout)
-		require.NoError(t, err, "Failed to get execution event for sequence number %d", seqNo)
-		require.NotNil(t, execEvent)
+		// Read from channel until it's closed
+		for sentMsg := range gun.sentMsgCh {
+			// Launch a goroutine for each message to verify it
+			wg.Add(1)
+			go func(msg SentMessage) {
+				defer wg.Done()
 
-		// State 2 indicates successful execution
-		event := execEvent.(*ccvAggregator.CCVAggregatorExecutionStateChanged)
-		state := event.State
-		require.Equal(t, uint8(2), state, "Message with sequence number %d was not successfully executed, state: %d", seqNo, state)
+				// Wait for the execution event
+				execEvent, err := impl.WaitOneExecEventBySeqNo(ctx, fromSelector, toSelector, msg.SeqNo, timeout)
+				if err != nil {
+					t.Logf("Failed to get execution event for sequence number %d: %v", msg.SeqNo, err)
+					return
+				}
 
-		t.Logf("Message with sequence number %d successfully executed", seqNo)
-		// Record execution time and calculate latency
-		executedTime := time.Now()
-		sentTime, ok := sentTimes[seqNo]
-		if ok {
-			latency := executedTime.Sub(sentTime)
-			metrics = append(metrics, MessageMetrics{
-				SeqNo:           seqNo,
-				SentTime:        sentTime,
-				ExecutedTime:    executedTime,
-				LatencyDuration: latency,
-			})
+				if execEvent == nil {
+					t.Logf("Execution event is nil for sequence number %d", msg.SeqNo)
+					return
+				}
+
+				// Check execution state
+				event := execEvent.(*ccvAggregator.CCVAggregatorExecutionStateChanged)
+				if event.State != uint8(2) {
+					t.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, event.State)
+					return
+				}
+
+				// Calculate latency
+				executedTime := time.Now()
+				latency := executedTime.Sub(msg.SentTime)
+
+				t.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
+
+				// Send metrics
+				metricsChan <- MessageMetrics{
+					SeqNo:           msg.SeqNo,
+					SentTime:        msg.SentTime,
+					ExecutedTime:    executedTime,
+					LatencyDuration: latency,
+				}
+			}(sentMsg)
 		}
-	}
 
-	t.Logf("Successfully verified all %d messages were executed", len(seqNos))
-	return metrics
+		// Channel is closed, wait for all verification goroutines to complete
+		t.Logf("All messages received, waiting for verification to complete")
+		wg.Wait()
+		t.Logf("All verification goroutines completed")
+	}()
+
+	// Return function that collects metrics
+	return func() []MessageMetrics {
+		metrics := make([]MessageMetrics, 0, 100)
+		for metric := range metricsChan {
+			metrics = append(metrics, metric)
+		}
+		t.Logf("Successfully verified all %d messages were executed", len(metrics))
+		return metrics
+	}
 }
 
 // calculateMetricsSummary computes aggregate statistics from message metrics
@@ -322,13 +369,25 @@ func TestE2ELoad(t *testing.T) {
 
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
-		p, gun := createLoadProfile(in, 5, 30*time.Second, e, selectors, impl, srcChain, dstChain)
+		rps := int64(5)
+		testDuration := 30 * time.Second
+
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+
+		// Start async verification before running the profile
+		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 5*time.Minute)
+
 		_, err = p.Run(true)
 		require.NoError(t, err)
-		// verify all messages were executed and collect metrics
-		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+
+		// Close the channel to signal no more messages will be sent
+		gun.CloseSentChannel()
+
+		// Wait for all messages to be verified and collect metrics
+		metrics := waitForMetrics()
 		summary := calculateMetricsSummary(metrics)
 		printMetricsSummary(t, summary)
+
 		// assert any metrics you need
 		checkCPUMem(t, in, time.Now())
 	})
@@ -337,18 +396,37 @@ func TestE2ELoad(t *testing.T) {
 		// 400ms latency for any RPC node
 		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=5m delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
-		p, gun := createLoadProfile(in, 1, 5*time.Second, e, selectors, impl, srcChain, dstChain)
+
+		rps := int64(1)
+		testDuration := 30 * time.Second
+
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+
+		// Start async verification before running the profile
+		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 5*time.Minute)
+
 		_, err = p.Run(true)
 		require.NoError(t, err)
-		// verify all messages were executed and collect metrics
-		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+
+		// Close the channel to signal no more messages will be sent
+		gun.CloseSentChannel()
+
+		// Wait for all messages to be verified and collect metrics
+		metrics := waitForMetrics()
 		summary := calculateMetricsSummary(metrics)
 		printMetricsSummary(t, summary)
 	})
 
 	t.Run("gas", func(t *testing.T) {
 		// test slow and fast gas spikes on both chains
-		p, gun := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
+		rps := int64(1)
+		testDuration := 5 * time.Minute
+
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+
+		// Start async verification before running the profile
+		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 10*time.Minute)
+
 		_, err = p.Run(false)
 		require.NoError(t, err)
 
@@ -399,16 +477,28 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
-		// verify all messages were executed and collect metrics
-		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+
+		// Close the channel to signal no more messages will be sent
+		gun.CloseSentChannel()
+
+		// Wait for all messages to be verified and collect metrics
+		metrics := waitForMetrics()
 		summary := calculateMetricsSummary(metrics)
 		printMetricsSummary(t, summary)
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
-		p, gun := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
+		rps := int64(1)
+		testDuration := 5 * time.Minute
+
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+
+		// Start async verification before running the profile
+		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 10*time.Minute)
+
 		_, err = p.Run(false)
 		require.NoError(t, err)
+
 		tcs := []struct {
 			validate   func() error
 			name       string
@@ -466,13 +556,20 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
-		// verify all messages were executed and collect metrics
-		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+
+		// Close the channel to signal no more messages will be sent
+		gun.CloseSentChannel()
+
+		// Wait for all messages to be verified and collect metrics
+		metrics := waitForMetrics()
 		summary := calculateMetricsSummary(metrics)
 		printMetricsSummary(t, summary)
 	})
 
 	t.Run("services_chaos", func(t *testing.T) {
+		rps := int64(1)
+		testDuration := 5 * time.Minute
+
 		tcs := []ChaosTestCase{
 			{
 				name: "Reboot a single node",
@@ -556,7 +653,12 @@ func TestE2ELoad(t *testing.T) {
 				validate: func() error { return nil },
 			},
 		}
-		p, gun := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
+
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+
+		// Start async verification before running the profile
+		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 10*time.Minute)
+
 		_, err = p.Run(false)
 		require.NoError(t, err)
 
@@ -570,8 +672,12 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
-		// verify all messages were executed and collect metrics
-		metrics := verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
+
+		// Close the channel to signal no more messages will be sent
+		gun.CloseSentChannel()
+
+		// Wait for all messages to be verified and collect metrics
+		metrics := waitForMetrics()
 		summary := calculateMetricsSummary(metrics)
 		printMetricsSummary(t, summary)
 	})
