@@ -47,9 +47,9 @@ func (dto *SignatureRecordDTO) ToItem(record *model.CommitVerificationRecord) (m
 	return item, nil
 }
 
-func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, messageID []byte, committeeID string, accumulatorItem map[string]types.AttributeValue) (*model.CommitVerificationRecord, error) {
-	if accumulatorItem == nil {
-		return nil, errors.New("accumulatorItem is required for signature record reconstruction")
+func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, messageID []byte, committeeID string, verificationMessageDataItem map[string]types.AttributeValue) (*model.CommitVerificationRecord, error) {
+	if verificationMessageDataItem == nil {
+		return nil, errors.New("verificationMessageDataItem is required for signature record reconstruction")
 	}
 
 	signerAddressValue, ok := item[SignatureFieldSignerAddress].(*types.AttributeValueMemberS)
@@ -78,9 +78,9 @@ func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, me
 
 	signerAddress := common.HexToAddress(signerAddressValue.Value).Bytes()
 
-	messageWithCCVNodeData, err := dto.reconstructMessageFromAccumulator(accumulatorItem)
+	messageWithCCVNodeData, err := dto.reconstructMessageFromVerificationMessageData(verificationMessageDataItem)
 	if err != nil {
-		return nil, fmt.Errorf("failed to reconstruct message from accumulator: %w", err)
+		return nil, fmt.Errorf("failed to reconstruct message from verification message data: %w", err)
 	}
 
 	sigData := []protocol.Data{
@@ -140,20 +140,20 @@ func (dto *SignatureRecordDTO) ExtractSignerAddressFromSortKey(sortKey string) (
 	return parts[1], nil
 }
 
-func (dto *SignatureRecordDTO) reconstructMessageFromAccumulator(accumulatorItem map[string]types.AttributeValue) (*pb.MessageWithCCVNodeData, error) {
-	messageIDValue, ok := accumulatorItem[AccumulatorFieldMessageID].(*types.AttributeValueMemberB)
+func (dto *SignatureRecordDTO) reconstructMessageFromVerificationMessageData(verificationMessageDataItem map[string]types.AttributeValue) (*pb.MessageWithCCVNodeData, error) {
+	messageIDValue, ok := verificationMessageDataItem[VerificationMessageDataFieldMessageID].(*types.AttributeValueMemberB)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", AccumulatorFieldMessageID)
+		return nil, fmt.Errorf("missing or invalid %s", VerificationMessageDataFieldMessageID)
 	}
 
-	sourceVerifierAddressValue, ok := accumulatorItem[AccumulatorFieldSourceVerifierAddress].(*types.AttributeValueMemberB)
+	sourceVerifierAddressValue, ok := verificationMessageDataItem[VerificationMessageDataFieldSourceVerifierAddress].(*types.AttributeValueMemberB)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", AccumulatorFieldSourceVerifierAddress)
+		return nil, fmt.Errorf("missing or invalid %s", VerificationMessageDataFieldSourceVerifierAddress)
 	}
 
-	messageValue, ok := accumulatorItem[AccumulatorFieldMessage].(*types.AttributeValueMemberB)
+	messageValue, ok := verificationMessageDataItem[VerificationMessageDataFieldMessage].(*types.AttributeValueMemberB)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", AccumulatorFieldMessage)
+		return nil, fmt.Errorf("missing or invalid %s", VerificationMessageDataFieldMessage)
 	}
 
 	var message pb.Message
@@ -161,9 +161,9 @@ func (dto *SignatureRecordDTO) reconstructMessageFromAccumulator(accumulatorItem
 		return nil, fmt.Errorf("failed to unmarshal Message: %w", err)
 	}
 
-	timestampValue, ok := accumulatorItem[AccumulatorFieldTimestamp].(*types.AttributeValueMemberN)
+	timestampValue, ok := verificationMessageDataItem[VerificationMessageDataFieldTimestamp].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", AccumulatorFieldTimestamp)
+		return nil, fmt.Errorf("missing or invalid %s", VerificationMessageDataFieldTimestamp)
 	}
 
 	timestamp, err := strconv.ParseInt(timestampValue.Value, 10, 64)
@@ -178,11 +178,11 @@ func (dto *SignatureRecordDTO) reconstructMessageFromAccumulator(accumulatorItem
 		Timestamp:             timestamp,
 	}
 
-	if blobDataValue, ok := accumulatorItem[AccumulatorFieldBlobData].(*types.AttributeValueMemberB); ok {
+	if blobDataValue, ok := verificationMessageDataItem[VerificationMessageDataFieldBlobData].(*types.AttributeValueMemberB); ok {
 		messageWithCCVNodeData.BlobData = blobDataValue.Value
 	}
 
-	if receiptBlobsValue, ok := accumulatorItem[AccumulatorFieldReceiptBlobs].(*types.AttributeValueMemberL); ok {
+	if receiptBlobsValue, ok := verificationMessageDataItem[VerificationMessageDataFieldReceiptBlobs].(*types.AttributeValueMemberL); ok {
 		receiptBlobs := make([]*pb.ReceiptBlob, len(receiptBlobsValue.Value))
 		for i, blobValue := range receiptBlobsValue.Value {
 			if binaryValue, ok := blobValue.(*types.AttributeValueMemberB); ok {

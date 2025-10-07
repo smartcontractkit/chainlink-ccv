@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	smithyendpoints "github.com/aws/smithy-go/endpoints" //nolint:goimports
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -105,7 +106,7 @@ func assertVerificationRecordEquals(t *testing.T, expected, actual *model.Commit
 	require.Equal(t, expected.IdentifierSigner.SignatureS, actual.IdentifierSigner.SignatureS, "SignatureS should match")
 	require.Equal(t, expected.MessageId, actual.MessageId, "MessageId should match")
 
-	// Verify message content (tests that ACCUMULATOR record is properly fetched)
+	// Verify message content (tests that MessageData record is properly fetched)
 	require.NotNil(t, actual.Message, "Message should not be nil")
 	require.Equal(t, expected.Message.SourceChainSelector, actual.Message.SourceChainSelector, "SourceChainSelector should match")
 	require.Equal(t, expected.Message.DestChainSelector, actual.Message.DestChainSelector, "DestChainSelector should match")
@@ -137,7 +138,7 @@ func TestCommitVerificationRecordOperations(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, monitoring.NewNoopAggregatorMonitoring())
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
 
 	t.Run("save and retrieve", func(t *testing.T) {
 		messageID := createTestMessageID(1)
@@ -251,7 +252,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, monitoring.NewNoopAggregatorMonitoring())
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
 
 	t.Run("submit and query reports", func(t *testing.T) {
 		baseTime := int64(1704067200) // 2024-01-01 00:00:00 UTC in seconds
@@ -389,5 +390,181 @@ func TestAggregatedReportOperations(t *testing.T) {
 		require.Error(t, err, "Should return error for invalid time range")
 		require.Nil(t, reports, "Should return nil for invalid time range")
 		require.Contains(t, err.Error(), "start time", "Error should mention start time")
+	})
+}
+
+func TestOrphanRecovery(t *testing.T) {
+	client, _, cleanup := ddb.SetupTestDynamoDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
+
+	t.Run("ListOrphanedMessageCommitteemessageIds with pending records", func(t *testing.T) {
+		// Create test verification records that are "orphaned" (not aggregated)
+		messageID1 := createTestMessageID(0x10)
+		messageID2 := createTestMessageID(0x20)
+
+		committee1 := "committee-1"
+
+		// Save verification records (these will have PendingAggregation field set)
+		record1 := createTestVerificationRecord(messageID1, "participant-1", committee1)
+		record2 := createTestVerificationRecord(messageID2, "participant-2", committee1)
+		record3 := createTestVerificationRecord(messageID1, "participant-3", committee1) // Same message/committee as record1
+
+		err := storage.SaveCommitVerification(ctx, record1)
+		require.NoError(t, err, "Failed to save verification record 1")
+
+		err = storage.SaveCommitVerification(ctx, record2)
+		require.NoError(t, err, "Failed to save verification record 2")
+
+		err = storage.SaveCommitVerification(ctx, record3)
+		require.NoError(t, err, "Failed to save verification record 3")
+
+		// Call ListOrphanedMessageIDs
+		orphansChan, errorChan := storage.ListOrphanedMessageIDs(ctx, committee1)
+
+		// Collect results
+		var orphans []model.MessageID
+		var errors []error
+
+		for {
+			select {
+			case messageId, ok := <-orphansChan:
+				if !ok {
+					orphansChan = nil
+				} else {
+					orphans = append(orphans, messageId)
+				}
+			case err, ok := <-errorChan:
+				if !ok {
+					errorChan = nil
+				} else if err != nil {
+					errors = append(errors, err)
+				}
+			}
+
+			if orphansChan == nil && errorChan == nil {
+				break
+			}
+		}
+
+		// Verify results
+		require.Empty(t, errors, "Should not have any errors")
+		require.Len(t, orphans, 2, "Should find 2 unique message/committee messageIds")
+
+		// Check that we got the expected messageIds (order may vary)
+		foundmessageIds := make(map[string]bool)
+		for _, orphan := range orphans {
+			key := fmt.Sprintf("%x", orphan)
+			foundmessageIds[key] = true
+		}
+
+		expectedKey1 := fmt.Sprintf("%x", messageID1)
+		expectedKey2 := fmt.Sprintf("%x", messageID2)
+
+		require.True(t, foundmessageIds[expectedKey1], "Should find message1 messageId")
+		require.True(t, foundmessageIds[expectedKey2], "Should find message2 messageId")
+	})
+
+	t.Run("ListOrphanedMessageCommitteemessageIds with aggregated records", func(t *testing.T) {
+		// Create a verification record and then submit a report to mark it as aggregated
+		messageID := createTestMessageID(0x30)
+		committee := "committee-3"
+
+		record := createTestVerificationRecord(messageID, "participant-4", committee)
+		err := storage.SaveCommitVerification(ctx, record)
+		require.NoError(t, err, "Failed to save verification record")
+
+		// Create and submit an aggregated report - this should remove the PendingAggregation field
+		report := &model.CommitAggregatedReport{
+			MessageID:     messageID,
+			CommitteeID:   committee,
+			Timestamp:     time.Now().Unix(),
+			Verifications: []*model.CommitVerificationRecord{record},
+		}
+
+		err = storage.SubmitReport(ctx, report)
+		require.NoError(t, err, "Failed to submit report")
+
+		// Now check orphans - this message/committee should not appear
+		orphansChan, errorChan := storage.ListOrphanedMessageIDs(ctx, committee)
+
+		var orphans []model.MessageID
+		var errors []error
+
+		for {
+			select {
+			case messageId, ok := <-orphansChan:
+				if !ok {
+					orphansChan = nil
+				} else {
+					orphans = append(orphans, messageId)
+				}
+			case err, ok := <-errorChan:
+				if !ok {
+					errorChan = nil
+				} else if err != nil {
+					errors = append(errors, err)
+				}
+			}
+
+			if orphansChan == nil && errorChan == nil {
+				break
+			}
+		}
+
+		require.Empty(t, errors, "Should not have any errors")
+
+		// The aggregated record should not appear in orphans
+		aggregatedKey := fmt.Sprintf("%x:%s", messageID, committee)
+		for _, orphan := range orphans {
+			orphanKey := fmt.Sprintf("%x:%s", orphan, committee)
+			require.NotEqual(t, aggregatedKey, orphanKey, "Aggregated record should not appear in orphans")
+		}
+	})
+
+	t.Run("ListOrphanedMessageCommitteemessageIds with no orphans", func(t *testing.T) {
+		// Use a fresh storage with no records
+		client, _, cleanup := ddb.SetupTestDynamoDB(t)
+		defer cleanup()
+		ctx := context.Background()
+
+		earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+		storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
+
+		defer cleanup()
+
+		orphansChan, errorChan := storage.ListOrphanedMessageIDs(ctx, "nonexistent-committee")
+
+		var orphans []model.MessageID
+		var errors []error
+
+		for {
+			select {
+			case messageId, ok := <-orphansChan:
+				if !ok {
+					orphansChan = nil
+				} else {
+					orphans = append(orphans, messageId)
+				}
+			case err, ok := <-errorChan:
+				if !ok {
+					errorChan = nil
+				} else if err != nil {
+					errors = append(errors, err)
+				}
+			}
+
+			if orphansChan == nil && errorChan == nil {
+				break
+			}
+		}
+
+		require.Empty(t, errors, "Should not have any errors")
+		require.Empty(t, orphans, "Should not find any orphans in empty table")
 	})
 }

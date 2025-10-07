@@ -1,5 +1,9 @@
 package ddb
 
+import (
+	"fmt"
+)
+
 const (
 	FinalizedFeedVersion = 1
 	FinalizedFeedShard   = "s00"
@@ -19,13 +23,14 @@ const (
 )
 
 const (
-	AccumulatorFieldMessageID             = "MessageID"
-	AccumulatorFieldSourceVerifierAddress = "SourceVerifierAddress"
-	AccumulatorFieldMessage               = "Message"
-	AccumulatorFieldBlobData              = "BlobData"
-	AccumulatorFieldTimestamp             = "Timestamp"
-	AccumulatorFieldReceiptBlobs          = "ReceiptBlobs"
-	AccumulatorFieldQuorumStatus          = "QuorumStatus"
+	VerificationMessageDataFieldMessageID             = "MessageID"
+	VerificationMessageDataFieldSourceVerifierAddress = "SourceVerifierAddress"
+	VerificationMessageDataFieldMessage               = "Message"
+	VerificationMessageDataFieldBlobData              = "BlobData"
+	VerificationMessageDataFieldTimestamp             = "Timestamp"
+	VerificationMessageDataFieldReceiptBlobs          = "ReceiptBlobs"
+	VerificationMessageDataFieldQuorumStatus          = "QuorumStatus"
+	VerificationMessageDataFieldPendingAggregation    = "PendingAggregation"
 )
 
 const (
@@ -43,17 +48,19 @@ const (
 )
 
 const (
-	SignatureRecordPrefix   = "SIGNATURE"
-	AccumulatorRecordPrefix = "ACCUMULATOR"
+	SignatureRecordPrefix               = "SIGNATURE"
+	VerificationMessageDataRecordPrefix = "VERIFICATION_MESSAGE_DATA"
 )
 
 const (
-	KeySeparator       = "#"
-	AccumulatorSortKey = AccumulatorRecordPrefix
+	KeySeparator                   = "#"
+	VerificationMessageDataSortKey = VerificationMessageDataRecordPrefix
 )
 
 const (
-	AccumulatorQuorumStatusPending = "PENDING"
+	VerificationMessageDataQuorumStatusPending = "PENDING"
+	PendingAggregationPrefix                   = "PENDING"
+	PendingShardIndex                          = 0 // Start with single shard, can be increased later
 )
 
 const (
@@ -66,16 +73,18 @@ const (
 	QueryReportsInTimeRange             = FinalizedFeedFieldCommitteeIDMessageID + " = :pk AND " + FinalizedFeedFieldFinalizedAt + " BETWEEN :startKey AND :endKey"
 	QueryLatestReportByCommitteeMessage = FinalizedFeedFieldCommitteeIDMessageID + " = :pk"
 	QueryReportsInDayCommitteeRange     = FinalizedFeedFieldGSIPK + " = :gsiPK AND " + FinalizedFeedFieldGSISK + " BETWEEN :startKey AND :endKey"
+	QueryOrphanedRecordsByPending       = VerificationMessageDataFieldPendingAggregation + " = :pending_key"
 )
 
 const (
-	ConditionPreventDuplicateRecord        = "attribute_not_exists(" + FieldPartitionKey + ") AND attribute_not_exists(" + FieldSortKey + ")"
-	ConditionPreventDuplicateAccumulator   = "attribute_not_exists(" + FieldSortKey + ")"
-	ConditionPreventDuplicateFinalizedFeed = "attribute_not_exists(" + FinalizedFeedFieldCommitteeIDMessageID + ") AND attribute_not_exists(" + FinalizedFeedFieldFinalizedAt + ")"
+	ConditionPreventDuplicateRecord                  = "attribute_not_exists(" + FieldPartitionKey + ") AND attribute_not_exists(" + FieldSortKey + ")"
+	ConditionPreventDuplicateVerificationMessageData = "attribute_not_exists(" + FieldSortKey + ")"
+	ConditionPreventDuplicateFinalizedFeed           = "attribute_not_exists(" + FinalizedFeedFieldCommitteeIDMessageID + ") AND attribute_not_exists(" + FinalizedFeedFieldFinalizedAt + ")"
 )
 
 const (
-	GSIDayCommitteeIndex = "Day-Committee-Index"
+	GSIDayCommitteeIndex       = "Day-Committee-Index"
+	GSIPendingAggregationIndex = "PendingAggregation-Index"
 )
 
 // Checkpoint Storage Constants.
@@ -94,3 +103,17 @@ const (
 const (
 	ConditionPreventDuplicateCheckpoint = "attribute_not_exists(" + CheckpointFieldClientID + ") AND attribute_not_exists(" + CheckpointFieldChainSelector + ")"
 )
+
+// Orphan Recovery Helper Functions
+
+// GetPendingAggregationKey generates the pending aggregation key for a committee and shard.
+// Format: "PENDING_<committee>_<shard>".
+func GetPendingAggregationKey(committeeID string, shard int) string {
+	return fmt.Sprintf("%s_%s_%d", PendingAggregationPrefix, committeeID, shard)
+}
+
+// GetPendingAggregationKeyForRecord generates the pending aggregation key for a specific record.
+// Currently uses shard 0, but can be enhanced to distribute load later.
+func GetPendingAggregationKeyForRecord(committeeID string) string {
+	return GetPendingAggregationKey(committeeID, PendingShardIndex)
+}

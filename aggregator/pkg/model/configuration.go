@@ -137,6 +137,13 @@ type CheckpointConfig struct {
 	MaxCheckpointsPerRequest int `toml:"maxCheckpointsPerRequest"`
 }
 
+type OrphanRecoveryConfig struct {
+	// Enabled controls whether orphan recovery is enabled
+	Enabled bool `toml:"enabled"`
+	// IntervalSeconds controls how often orphan recovery runs (in seconds)
+	IntervalSeconds int `toml:"intervalSeconds"`
+}
+
 // BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
 type BeholderConfig struct {
 	// InsecureConnection disables TLS for the beholder client.
@@ -206,6 +213,7 @@ type AggregatorConfig struct {
 	Storage           StorageConfig              `toml:"storage"`
 	APIKeys           APIKeyConfig               `toml:"apiKeys"`
 	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
+	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
 	Monitoring        MonitoringConfig           `toml:"monitoring"`
@@ -222,6 +230,14 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
+	}
+	// Default orphan recovery: enabled with 5 minute interval
+	if c.OrphanRecovery.IntervalSeconds == 0 {
+		c.OrphanRecovery.IntervalSeconds = 300 // 5 minutes
+	}
+	// Default orphan recovery enabled unless explicitly disabled
+	if !c.OrphanRecovery.Enabled && c.OrphanRecovery.IntervalSeconds > 0 {
+		c.OrphanRecovery.Enabled = true
 	}
 }
 
