@@ -96,10 +96,10 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		}
 	}
 
-	err = m.impl.SendArgsV3Message(ctx, m.e, m.cfg.CLDF.Addresses, m.selectors, srcChain.ChainSelector, dstChain.ChainSelector, uint16(1), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", nil, nil,
+	err = m.impl.SendArgsV3Message(ctx, m.e, m.cfg.CLDF.Addresses, m.selectors, srcChain.ChainSelector, dstChain.ChainSelector, uint16(1), "0x68B1D87F95878fE05B998F19b66F4baba5De1aed", "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", nil, nil,
 		[]protocol.CCV{
 			{
-				CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
+				CCVAddress: common.HexToAddress("0x0B306BF915C4d645ff596e518fAf3F9669b97016").Bytes(),
 				Args:       []byte{},
 				ArgsLen:    0,
 			},
