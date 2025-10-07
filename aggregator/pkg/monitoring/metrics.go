@@ -19,14 +19,14 @@ import (
 type AggregatorMetrics struct {
 	activeRequestsUpDownCounter            metric.Int64UpDownCounter
 	completedAggregations                  metric.Int64Counter
-	apiRequestDuration                     metric.Int64Histogram
+	apiRequestDuration                     metric.Float64Histogram
 	apiRequestError                        metric.Int64Counter
 	getMessageSinceNumberOfRecordsReturned metric.Int64Histogram
 	pendingAggregationsChannelBuffer       metric.Int64UpDownCounter
-	timeToAggregation                      metric.Int64Histogram
+	timeToAggregation                      metric.Float64Histogram
 
 	// Storage metrics
-	storageLatency             metric.Int64Histogram
+	storageLatency             metric.Float64Histogram
 	storageError               metric.Int64Counter
 	dynamodbReadCapacityUnits  metric.Float64Counter
 	dynamodbWriteCapacityUnits metric.Float64Counter
@@ -35,15 +35,15 @@ type AggregatorMetrics struct {
 func MetricViews() []sdkmetric.View {
 	return []sdkmetric.View{
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "aggregator_time_to_aggregation_ms"},
+			sdkmetric.Instrument{Name: "aggregator_time_to_aggregation_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+				Boundaries: []float64{0, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "aggregator_api_request_duration_ms"},
+			sdkmetric.Instrument{Name: "aggregator_api_request_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+				Boundaries: []float64{0, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 		sdkmetric.NewView(
@@ -53,9 +53,9 @@ func MetricViews() []sdkmetric.View {
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "aggregator_storage_latency"},
+			sdkmetric.Instrument{Name: "aggregator_storage_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
+				Boundaries: []float64{0, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 	}
@@ -80,8 +80,8 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register completed aggregations counter: %w", err)
 	}
 
-	am.apiRequestDuration, err = beholder.GetMeter().Int64Histogram(
-		"aggregator_api_request_duration",
+	am.apiRequestDuration, err = beholder.GetMeter().Float64Histogram(
+		"aggregator_api_request_duration_seconds",
 		metric.WithDescription("Duration of API requests"),
 	)
 	if err != nil {
@@ -112,8 +112,8 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register pending aggregations channel buffer up down counter: %w", err)
 	}
 
-	am.storageLatency, err = beholder.GetMeter().Int64Histogram(
-		"aggregator_storage_latency",
+	am.storageLatency, err = beholder.GetMeter().Float64Histogram(
+		"aggregator_storage_duration_seconds",
 		metric.WithDescription("Latency of storage operations"),
 	)
 	if err != nil {
@@ -128,8 +128,8 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register storage errors counter: %w", err)
 	}
 
-	am.timeToAggregation, err = beholder.GetMeter().Int64Histogram(
-		"aggregator_time_to_aggregation",
+	am.timeToAggregation, err = beholder.GetMeter().Float64Histogram(
+		"aggregator_time_to_aggregation_seconds",
 		metric.WithDescription("Time taken to complete an aggregation"),
 	)
 	if err != nil {
@@ -188,7 +188,7 @@ func (c *AggregatorMetricLabeler) IncrementCompletedAggregations(ctx context.Con
 
 func (c *AggregatorMetricLabeler) RecordAPIRequestDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.apiRequestDuration.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	c.am.apiRequestDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Context) {
@@ -213,7 +213,7 @@ func (c *AggregatorMetricLabeler) DecrementPendingAggregationsChannelBuffer(ctx 
 
 func (c *AggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.storageLatency.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	c.am.storageLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
@@ -223,7 +223,7 @@ func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
 
 func (c *AggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.timeToAggregation.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	c.am.timeToAggregation.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) RecordDynamoDBReadCapacityUnits(ctx context.Context, units float64) {

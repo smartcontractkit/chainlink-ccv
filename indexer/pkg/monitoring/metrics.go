@@ -79,7 +79,7 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	}
 
 	im.storageQueryDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"indexer_storage_query_duration_ms",
+		"indexer_storage_query_duration_seconds",
 		metric.WithDescription("Total duration of querying the storage of the Indexer"),
 		metric.WithUnit("milliseconds"),
 	)
@@ -87,7 +87,7 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register storage query duration histogram: %w", err)
 	}
 
-	im.storageWriteDurationMilliseconds, err = beholder.GetMeter().Int64Histogram("indexer_storage_write_duration_ms",
+	im.storageWriteDurationMilliseconds, err = beholder.GetMeter().Int64Histogram("indexer_storage_write_duration_seconds",
 		metric.WithDescription("Total duration of writing to the storage of the Indexer"),
 		metric.WithUnit("milliseconds"),
 	)
@@ -130,21 +130,21 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 func MetricViews() []sdkmetric.View {
 	return []sdkmetric.View{
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_storage_query_duration_ms"},
+			sdkmetric.Instrument{Name: "indexer_storage_query_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{1, 10, 25, 50, 100, 250, 500, 100, 250, 500, 1000, 2500, 5000, 10000},
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_storage_write_duration_ms"},
+			sdkmetric.Instrument{Name: "indexer_storage_write_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{1, 5, 10, 25, 50, 100, 250, 500, 100, 250, 500, 1000, 2500, 5000, 10000},
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "indexer_http_request_duration_ms"},
+			sdkmetric.Instrument{Name: "indexer_http_request_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{1, 5, 10, 25, 50, 100, 250, 500, 100, 250, 500, 1000, 2500, 5000, 10000},
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 	}

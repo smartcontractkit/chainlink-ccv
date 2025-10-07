@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -19,6 +20,7 @@ type Coordinator struct {
 	ccvStreamer         CCVResultStreamer
 	leaderElector       LeaderElector
 	lggr                logger.Logger
+	monitoring          common.ExecutorMonitoring
 	ccvDataCh           chan MessageWithCCVData
 	executableMessageCh chan MessageWithCCVData
 	doneCh              chan struct{}
@@ -182,7 +184,11 @@ func (ec *Coordinator) run(ctx context.Context) {
 					err := ec.executor.ExecuteMessage(ctx, message)
 					if err != nil {
 						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
+						ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
+						return
 					}
+					ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+					ec.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(time.UnixMicro(message.VerifiedTimestamp)))
 				}()
 			}
 		}
