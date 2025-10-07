@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -41,22 +43,25 @@ type GasTestCase struct {
 }
 
 type EVMTXGun struct {
-	cfg       *ccv.Cfg
-	e         *deployment.Environment
-	selectors []uint64
-	impl      ccv.CCIP17ProductConfiguration
-	src       evm.Chain
-	dest      evm.Chain
+	cfg        *ccv.Cfg
+	e          *deployment.Environment
+	selectors  []uint64
+	impl       ccv.CCIP17ProductConfiguration
+	src        evm.Chain
+	dest       evm.Chain
+	sentSeqNos []uint64
+	seqNosMu   sync.Mutex
 }
 
 func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) *EVMTXGun {
 	return &EVMTXGun{
-		cfg:       cfg,
-		e:         e,
-		selectors: selectors,
-		impl:      impl,
-		src:       s,
-		dest:      d,
+		cfg:        cfg,
+		e:          e,
+		selectors:  selectors,
+		impl:       impl,
+		src:        s,
+		dest:       d,
+		sentSeqNos: make([]uint64, 0),
 	}
 }
 
@@ -80,6 +85,17 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
+	// Get sequence number before sending
+	c, ok := m.impl.(*ccvEvm.CCIP17EVM)
+	if ok {
+		seqNo, err := c.GetExpectedNextSequenceNumber(ctx, srcChain.ChainSelector, dstChain.ChainSelector)
+		if err == nil {
+			m.seqNosMu.Lock()
+			m.sentSeqNos = append(m.sentSeqNos, seqNo)
+			m.seqNosMu.Unlock()
+		}
+	}
+
 	err = m.impl.SendArgsV3Message(ctx, m.e, m.cfg.CLDF.Addresses, m.selectors, srcChain.ChainSelector, dstChain.ChainSelector, uint16(1), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", nil, nil,
 		[]protocol.CCV{
 			{
@@ -93,6 +109,31 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 	return &wasp.Response{Data: "ok"}
+}
+
+// verifyAllMessagesExecuted checks that all messages tracked by the gun were successfully executed
+func verifyAllMessagesExecuted(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) {
+	gun.seqNosMu.Lock()
+	seqNos := make([]uint64, len(gun.sentSeqNos))
+	copy(seqNos, gun.sentSeqNos)
+	gun.seqNosMu.Unlock()
+
+	fromSelector := gun.src.Selector
+	toSelector := gun.dest.Selector
+
+	t.Logf("Verifying %d messages were executed from selector %d to %d", len(seqNos), fromSelector, toSelector)
+
+	for _, seqNo := range seqNos {
+		execEvent, err := impl.WaitOneExecEventBySeqNo(ctx, fromSelector, toSelector, seqNo, timeout)
+		require.NoError(t, err, "Failed to get execution event for sequence number %d", seqNo)
+		require.NotNil(t, execEvent)
+
+		// State 2 indicates successful execution
+		state := execEvent.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State
+		require.Equal(t, uint8(2), state, "Message with sequence number %d was not successfully executed, state: %d", seqNo, state)
+	}
+
+	t.Logf("Successfully verified all %d messages were executed", len(seqNos))
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
@@ -122,15 +163,16 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) *wasp.Profile {
-	return wasp.NewProfile().
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) (*wasp.Profile, *EVMTXGun) {
+	gun := NewEVMTransactionGun(in, e, selectors, impl, s, d)
+	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,
 			GenName:  "src-dst-single-token",
 			Schedule: wasp.Combine(
 				wasp.Plain(rps, testDuration),
 			),
-			Gun: NewEVMTransactionGun(in, e, selectors, impl, s, d),
+			Gun: gun,
 			Labels: map[string]string{
 				"go_test_name": "load-clean-src",
 				"branch":       "test",
@@ -138,6 +180,7 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 			},
 			LokiConfig: wasp.NewEnvLokiConfig(),
 		}))
+	return profile, gun
 }
 
 func TestE2ELoad(t *testing.T) {
@@ -158,12 +201,23 @@ func TestE2ELoad(t *testing.T) {
 	b := ccv.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
 
-	impl := &ccvEvm.CCIP17EVM{}
+	ctx := context.Background()
+	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+	for _, bc := range in.Blockchains {
+		chainIDs = append(chainIDs, bc.ChainID)
+		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	}
+
+	impl, err := ccvEvm.NewCCIP17EVM(ctx, in.CLDF.Addresses, chainIDs, wsURLs)
+	require.NoError(t, err)
 
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
-		_, err = createLoadProfile(in, 5, 30*time.Second, e, selectors, impl, srcChain, dstChain).Run(true)
+		p, gun := createLoadProfile(in, 5, 30*time.Second, e, selectors, impl, srcChain, dstChain)
+		_, err = p.Run(true)
 		require.NoError(t, err)
+		// verify all messages were executed
+		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
 		// assert any metrics you need
 		checkCPUMem(t, in, time.Now())
 	})
@@ -172,13 +226,16 @@ func TestE2ELoad(t *testing.T) {
 		// 400ms latency for any RPC node
 		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=5m delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
-		_, err = createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain).Run(true)
+		p, gun := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
+		_, err = p.Run(true)
 		require.NoError(t, err)
+		// verify all messages were executed
+		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
 	})
 
 	t.Run("gas", func(t *testing.T) {
 		// test slow and fast gas spikes on both chains
-		p := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
 		_, err = p.Run(false)
 		require.NoError(t, err)
 
@@ -229,10 +286,12 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
+		// verify all messages were executed
+		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
-		p := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
 		_, err = p.Run(false)
 		require.NoError(t, err)
 		tcs := []struct {
@@ -292,6 +351,8 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
+		// verify all messages were executed
+		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
 	})
 
 	t.Run("services_chaos", func(t *testing.T) {
@@ -378,7 +439,7 @@ func TestE2ELoad(t *testing.T) {
 				validate: func() error { return nil },
 			},
 		}
-		p := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, 1, 5*time.Minute, e, selectors, impl, srcChain, dstChain)
 		_, err = p.Run(false)
 		require.NoError(t, err)
 
@@ -392,6 +453,8 @@ func TestE2ELoad(t *testing.T) {
 			})
 		}
 		p.Wait()
+		// verify all messages were executed
+		verifyAllMessagesExecuted(t, ctx, gun, impl, 5*time.Minute)
 	})
 }
 
