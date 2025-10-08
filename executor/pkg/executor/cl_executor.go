@@ -55,6 +55,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	destinationChain := message.DestChainSelector
 
 	g := errgroup.Group{}
+	alreadyExecuted := false
 	g.Go(func() error {
 		messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 			ctx,
@@ -64,7 +65,8 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 			return fmt.Errorf("failed to check IsMessageExecuted: %w", err)
 		}
 		if messageExecuted {
-			cle.lggr.Infof("message %d already executed on chain %d", message.Nonce, destinationChain)
+			cle.lggr.Infof("message %d already executed on chain %d, skipping...", message.Nonce, destinationChain)
+			alreadyExecuted = true
 			return fmt.Errorf("message already executed on destination chain %d", destinationChain)
 		}
 		return nil
@@ -94,7 +96,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return nil
 	})
 
-	if err := g.Wait(); err != nil {
+	if err := g.Wait(); err != nil && !alreadyExecuted {
 		return err
 	}
 
