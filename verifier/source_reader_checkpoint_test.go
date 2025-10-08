@@ -1,4 +1,4 @@
-package reader
+package verifier
 
 import (
 	"context"
@@ -8,32 +8,24 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func createTestEVMSourceReader(t *testing.T, checkpointManager protocol.CheckpointManager) *SourceReaderService {
-	lggr, err := logger.NewWith(func(config *zap.Config) {
-		config.Development = true
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	})
-	require.NoError(t, err)
-
-	return NewEVMSourceReader(
-		nil, // chain client not needed for checkpoint tests
-		"0x1234567890123456789012345678901234567890", // contract address
-		protocol.ChainSelector(1337),                 // chain selector
+func createTestSourceReader(t *testing.T, checkpointManager protocol.CheckpointManager) *SourceReaderService {
+	return NewSourceReaderService(
+		nil,
+		"0x1234567890123456789012345678901234567890",
+		protocol.ChainSelector(1337),
 		checkpointManager,
-		lggr,
-	)
+		logger.Test(t))
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_HappyPath(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
-	reader := createTestEVMSourceReader(t, mockCheckpointManager)
+	reader := createTestSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
 	expectedBlock := big.NewInt(12345)
@@ -51,7 +43,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_HappyPath(t *testing.T) {
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_NoCheckpointManager(t *testing.T) {
-	reader := createTestEVMSourceReader(t, nil) // No checkpoint manager
+	reader := createTestSourceReader(t, nil) // No checkpoint manager
 
 	ctx := context.Background()
 
@@ -63,7 +55,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_NoCheckpointManager(t *testin
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_NoCheckpointFound(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
-	reader := createTestEVMSourceReader(t, mockCheckpointManager)
+	reader := createTestSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
 
@@ -81,7 +73,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_NoCheckpointFound(t *testing.
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_RetryLogic(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
-	reader := createTestEVMSourceReader(t, mockCheckpointManager)
+	reader := createTestSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
 	expectedBlock := big.NewInt(54321)
@@ -115,7 +107,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_RetryLogic(t *testing.T) {
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_AllRetriesFail(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
-	reader := createTestEVMSourceReader(t, mockCheckpointManager)
+	reader := createTestSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
 
@@ -135,7 +127,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_AllRetriesFail(t *testing.T) 
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_ContextCancellation(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
-	reader := createTestEVMSourceReader(t, mockCheckpointManager)
+	reader := createTestSourceReader(t, mockCheckpointManager)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -161,7 +153,7 @@ func TestEVMSourceReader_ReadCheckpointWithRetries_ContextCancellation(t *testin
 
 func TestEVMSourceReader_InitializeStartBlock_WithCheckpoint(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
-	reader := createTestEVMSourceReader(t, mockCheckpointManager)
+	reader := createTestSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
 	checkpointBlock := big.NewInt(1000)
@@ -182,7 +174,7 @@ func TestEVMSourceReader_InitializeStartBlock_WithCheckpoint(t *testing.T) {
 
 func TestEVMSourceReader_UpdateCheckpoint_TooFrequent(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
-	reader := createTestEVMSourceReader(t, mockCheckpointManager)
+	reader := createTestSourceReader(t, mockCheckpointManager)
 
 	ctx := context.Background()
 	reader.lastCheckpointTime = time.Now() // Recent checkpoint
@@ -197,7 +189,7 @@ func TestEVMSourceReader_UpdateCheckpoint_TooFrequent(t *testing.T) {
 // TestEVMSourceReader_ConstructorWithCheckpointManager verifies the constructor properly sets up checkpoint manager.
 func TestEVMSourceReader_ConstructorWithCheckpointManager(t *testing.T) {
 	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
-	reader := createTestEVMSourceReader(t, mockCheckpointManager)
+	reader := createTestSourceReader(t, mockCheckpointManager)
 
 	require.NotNil(t, reader)
 	require.Equal(t, mockCheckpointManager, reader.checkpointManager)

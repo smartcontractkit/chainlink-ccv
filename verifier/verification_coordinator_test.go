@@ -176,24 +176,25 @@ func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSel
 }
 
 // setupMockSourceReader creates a mock source reader with expectations.
-func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetup {
+func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
 	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
 
-	mockReader.EXPECT().Start(mock.Anything).Return(nil)
-	mockReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(channel))
+	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b *big.Int, b2 *big.Int) ([]verifier.VerificationTask, error) {
+		var tasks []verifier.VerificationTask
+		for {
+			select {
+			case task := <-channel:
+				tasks = append(tasks, task)
+			default:
+				return tasks, nil
+			}
+		}
+	})
 
 	// Add missing LatestBlock expectation to prevent timeout
-	mockReader.EXPECT().LatestBlock(mock.Anything).Return(big.NewInt(1000), nil).Maybe()
-	mockReader.EXPECT().LatestFinalizedBlock(mock.Anything).Return(big.NewInt(950), nil).Maybe()
-
-	if shouldClose {
-		mockReader.EXPECT().Stop().Run(func() {
-			close(channel)
-		}).Return(nil)
-	} else {
-		mockReader.EXPECT().Stop().Return(nil)
-	}
+	mockReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(1000), nil).Maybe()
+	mockReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).Return(big.NewInt(950), nil).Maybe()
 
 	return &mockSourceReaderSetup{
 		reader:  mockReader,
@@ -208,8 +209,17 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
-	mockReader.EXPECT().Start(mock.Anything).Return(nil).Maybe()
-	mockReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(channel)).Maybe()
+	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b *big.Int, b2 *big.Int) ([]verifier.VerificationTask, error) {
+		var tasks []verifier.VerificationTask
+		for {
+			select {
+			case task := <-channel:
+				tasks = append(tasks, task)
+			default:
+				return tasks, nil
+			}
+		}
+	})
 
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockReader,
@@ -402,7 +412,7 @@ func TestVerifier(t *testing.T) {
 	})
 
 	// Set up mock source reader
-	mockSetup := setupMockSourceReader(t, true)
+	mockSetup := setupMockSourceReader(t)
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup.reader,
 	}
@@ -457,8 +467,8 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	})
 
 	// Set up mock source readers
-	mockSetup1 := setupMockSourceReader(t, true)
-	mockSetup2 := setupMockSourceReader(t, true)
+	mockSetup1 := setupMockSourceReader(t)
+	mockSetup2 := setupMockSourceReader(t)
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup1.reader,
 		sourceChain2: mockSetup2.reader,
@@ -519,8 +529,8 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	})
 
 	// Set up mock source readers - source 2 will fail by closing its channel immediately
-	mockSetup1 := setupMockSourceReader(t, true)
-	mockSetup2 := setupMockSourceReader(t, false)
+	mockSetup1 := setupMockSourceReader(t)
+	mockSetup2 := setupMockSourceReader(t)
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup1.reader,
 		sourceChain2: mockSetup2.reader,
@@ -584,7 +594,18 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 				// Create a mock that only expects VerificationTaskChannel call
 				mockReader := verifier_mocks.NewMockSourceReader(t)
 				mockCh := make(chan verifier.VerificationTask)
-				mockReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(mockCh))
+				mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b *big.Int, b2 *big.Int) ([]verifier.VerificationTask, error) {
+					var tasks []verifier.VerificationTask
+					for {
+						select {
+						case task := <-mockCh:
+							tasks = append(tasks, task)
+						default:
+							return tasks, nil
+						}
+					}
+				})
+
 				return map[protocol.ChainSelector]verifier.SourceReader{
 					sourceChain1: mockReader, // Missing reader for sourceChain2
 				}
@@ -612,8 +633,8 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	})
 
 	// Create mock source readers
-	mockSetup1 := setupMockSourceReader(t, false)
-	mockSetup2 := setupMockSourceReader(t, false)
+	mockSetup1 := setupMockSourceReader(t)
+	mockSetup2 := setupMockSourceReader(t)
 
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup1.reader,
@@ -662,8 +683,8 @@ func TestVerificationErrorHandling(t *testing.T) {
 	})
 
 	// Set up mock source readers for both chains
-	mockSetup1 := setupMockSourceReader(t, true)
-	mockSetup2 := setupMockSourceReader(t, true)
+	mockSetup1 := setupMockSourceReader(t)
+	mockSetup2 := setupMockSourceReader(t)
 
 	// Create source readers map that includes the unconfigured chain
 	// This simulates having a reader for a chain that's not in the coordinator config

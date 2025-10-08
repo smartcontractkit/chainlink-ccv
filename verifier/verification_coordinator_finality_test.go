@@ -211,19 +211,27 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	})
 	require.NoError(t, err)
 
-	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
 	mockVerifier := newTestVerifier()
+	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
 	mockStorage := &testStorage{}
-
 	verificationTaskCh := make(chan verifier.VerificationTask, 10)
-	mockSourceReader.EXPECT().Start(mock.Anything).Return(nil)
-	mockSourceReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(verificationTaskCh))
-	mockSourceReader.EXPECT().Stop().Return(nil)
+
+	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b *big.Int, b2 *big.Int) ([]verifier.VerificationTask, error) {
+		var tasks []verifier.VerificationTask
+		for {
+			select {
+			case task := <-verificationTaskCh:
+				tasks = append(tasks, task)
+			default:
+				return tasks, nil
+			}
+		}
+	})
 
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockSourceReader.EXPECT().LatestBlock(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
-	mockSourceReader.EXPECT().LatestFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*big.Int, error) {
+	mockSourceReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
+	mockSourceReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).RunAndReturn(func(ctx context.Context) (*big.Int, error) {
 		// Return a copy with proper synchronization to avoid data races
 		finalizedBlockMu.RLock()
 		defer finalizedBlockMu.RUnlock()
