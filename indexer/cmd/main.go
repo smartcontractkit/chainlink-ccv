@@ -149,7 +149,7 @@ func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, 
 		}
 
 		// Create a new postgres storage
-		dbStore, err := storage.NewDBStore(ctx, lggr, indexerMonitoring, cfg.Storage.Postgres.URI, dbConfig)
+		dbStore, err := storage.NewPostgresStorage(ctx, lggr, indexerMonitoring, cfg.Storage.Postgres.URI, dbConfig)
 		if err != nil {
 			lggr.Fatalf("Failed to create postgres storage: %v", err)
 		}

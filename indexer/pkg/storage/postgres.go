@@ -15,23 +15,23 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
 )
 
-var _ common.IndexerStorage = (*DBStore)(nil)
+var _ common.IndexerStorage = (*PostgresStorage)(nil)
 
-type DBStore struct {
+type PostgresStorage struct {
 	ds         sqlutil.DataSource
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 	mu         sync.RWMutex
 }
 
-func NewDBStore(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri string, config pg.DBConfig) (*DBStore, error) {
+func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri string, config pg.DBConfig) (*PostgresStorage, error) {
 	ds, err := config.New(ctx, uri, pg.DriverInMemoryPostgres)
 	if err != nil {
 		lggr.Errorw("Failed to create database", "error", err)
 		return nil, err
 	}
 
-	return &DBStore{
+	return &PostgresStorage{
 		ds:         ds,
 		lggr:       lggr,
 		monitoring: monitoring,
@@ -39,7 +39,7 @@ func NewDBStore(ctx context.Context, lggr logger.Logger, monitoring common.Index
 }
 
 // GetCCVData performs a lookup by messageID in the database.
-func (d *DBStore) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -93,7 +93,7 @@ func (d *DBStore) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([
 }
 
 // QueryCCVData retrieves all CCVData that matches the filter set with pagination.
-func (d *DBStore) QueryCCVData(
+func (d *PostgresStorage) QueryCCVData(
 	ctx context.Context,
 	start, end int64,
 	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
@@ -176,7 +176,7 @@ func (d *DBStore) QueryCCVData(
 }
 
 // InsertCCVData inserts a new CCVData entry into the database.
-func (d *DBStore) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error {
+func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error {
 	startInsertMetric := time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -260,7 +260,7 @@ func (d *DBStore) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) e
 
 // trackUniqueMessage checks if this is the first time we're seeing this message ID
 // and increments the unique messages counter if so.
-func (d *DBStore) trackUniqueMessage(ctx context.Context, messageID protocol.Bytes32) error {
+func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID protocol.Bytes32) error {
 	query := `
 		SELECT COUNT(DISTINCT message_id) = 1 as is_first
 		FROM indexer.verifier_results
@@ -281,7 +281,7 @@ func (d *DBStore) trackUniqueMessage(ctx context.Context, messageID protocol.Byt
 }
 
 // scanCCVData scans a database row into a CCVData struct.
-func (d *DBStore) scanCCVData(row interface {
+func (d *PostgresStorage) scanCCVData(row interface {
 	Scan(dest ...any) error
 },
 ) (protocol.CCVData, error) {
@@ -371,7 +371,7 @@ func convertChainSelectorsToUint64Array(selectors []protocol.ChainSelector) []ui
 }
 
 // Close closes the database connection.
-func (d *DBStore) Close() error {
+func (d *PostgresStorage) Close() error {
 	if closer, ok := d.ds.(interface{ Close() error }); ok {
 		return closer.Close()
 	}
@@ -379,7 +379,7 @@ func (d *DBStore) Close() error {
 }
 
 // queryContext executes a query that returns rows.
-func (d *DBStore) queryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+func (d *PostgresStorage) queryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	// Try to use the DataSource directly if it supports QueryContext
 	if querier, ok := d.ds.(interface {
 		QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -390,7 +390,7 @@ func (d *DBStore) queryContext(ctx context.Context, query string, args ...any) (
 }
 
 // queryRowContext executes a query that returns a single row.
-func (d *DBStore) queryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+func (d *PostgresStorage) queryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	// Try to use the DataSource directly if it supports QueryRowContext
 	if querier, ok := d.ds.(interface {
 		QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -402,7 +402,7 @@ func (d *DBStore) queryRowContext(ctx context.Context, query string, args ...any
 }
 
 // execContext executes a query without returning rows.
-func (d *DBStore) execContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (d *PostgresStorage) execContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	// Try to use the DataSource directly if it supports ExecContext
 	if execer, ok := d.ds.(interface {
 		ExecContext(context.Context, string, ...any) (sql.Result, error)
