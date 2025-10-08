@@ -497,7 +497,7 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 	// Get latest blocks and finalized blocks for all chains
 	latestBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
-		latestBlock, err := state.reader.LatestBlock(ctx)
+		latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
 		if err != nil {
 			vc.lggr.Errorw("Failed to get latest block", "error", err)
 			continue
@@ -511,7 +511,7 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 	}
 	latestFinalizedBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
-		latestFinalizedBlock, err := state.reader.LatestFinalizedBlock(ctx)
+		latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
 		if err != nil {
 			vc.lggr.Errorw("Failed to get latest finalized block", "error", err)
 			continue

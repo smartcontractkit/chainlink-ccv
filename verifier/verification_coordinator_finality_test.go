@@ -200,7 +200,7 @@ type coordinatorTestSetup struct {
 	mockSourceReader      *verifier_mocks.MockSourceReader
 	mockVerifier          *testVerifier
 	verificationTaskCh    chan verifier.VerificationTask
-	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlock
+	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
 

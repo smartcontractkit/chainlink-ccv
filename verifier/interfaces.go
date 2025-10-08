@@ -27,6 +27,6 @@ type SourceReader interface {
 	// LatestBlockHeight returns the latest block height
 	LatestBlockHeight(ctx context.Context) (*big.Int, error)
 
-	// LatestFinalizedBlock returns the latest finalized block height
-	LatestFinalizedBlock(ctx context.Context) (*big.Int, error)
+	// LatestFinalizedBlockHeight returns the latest finalized block height
+	LatestFinalizedBlockHeight(ctx context.Context) (*big.Int, error)
 }

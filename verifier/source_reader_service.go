@@ -291,7 +291,7 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 
 // calculateCheckpointBlock determines the safe checkpoint block (finalized - buffer).
 func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context) (*big.Int, error) {
-	finalized, err := r.sourceReader.LatestFinalizedBlock(ctx)
+	finalized, err := r.sourceReader.LatestFinalizedBlockHeight(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
@@ -500,4 +500,8 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, contractAdd
 			"fromBlock", fromBlock.String(),
 			"toBlock", currentBlock.String())
 	}
+}
+
+func (r *SourceReaderService) GetSourceReader() SourceReader {
+	return r.sourceReader
 }
