@@ -22,7 +22,7 @@ type CommitVerificationStore interface {
 
 type CommitVerificationAggregatedStore interface {
 	// QueryAggregatedReports retrieves all aggregated reports within a specific time range.
-	QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error)
+	QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error)
 	// GetCCVData retrieves the aggregated CCV data for a specific message ID.
 	GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error)
 }

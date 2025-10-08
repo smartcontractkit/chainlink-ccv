@@ -1,4 +1,4 @@
-package ddb
+package ddb_contant
 
 import (
 	"fmt"
@@ -116,4 +116,54 @@ func GetPendingAggregationKey(committeeID string, shard int) string {
 // Currently uses shard 0, but can be enhanced to distribute load later.
 func GetPendingAggregationKeyForRecord(committeeID string) string {
 	return GetPendingAggregationKey(committeeID, PendingShardIndex)
+}
+
+// GenerateShardIDs generates a list of shard identifiers (s00, s01, s02, etc.) based on the shard count.
+func GenerateShardIDs(shardCount int) []string {
+	if shardCount <= 1 {
+		return []string{FinalizedFeedShard} // Backward compatibility with single shard "s00"
+	}
+
+	shards := make([]string, shardCount)
+	for i := 0; i < shardCount; i++ {
+		shards[i] = fmt.Sprintf("s%02d", i)
+	}
+	return shards
+}
+
+// CalculateShardFromMessageID calculates which shard a message should be assigned to based on its messageID.
+// Uses a deterministic algorithm based on the first 4 bytes of the messageID for consistent shard assignment.
+func CalculateShardFromMessageID(messageID []byte, shardCount int) string {
+	if shardCount <= 1 {
+		return FinalizedFeedShard // Backward compatibility with single shard "s00"
+	}
+
+	if shardCount < 0 {
+		return FinalizedFeedShard // Safety check for negative values
+	}
+
+	if len(messageID) == 0 {
+		return "s00" // Fallback for empty messageID
+	}
+
+	// Use first 4 bytes of messageID for deterministic hash
+	var hash uint32
+	for i := 0; i < 4 && i < len(messageID); i++ {
+		hash = hash*256 + uint32(messageID[i])
+	}
+
+	shardIndex := hash % uint32(shardCount) //nolint:gosec // shardCount validated as positive
+	return fmt.Sprintf("s%02d", shardIndex)
+}
+
+func CreateShardIDs(shardCount int) []string {
+	if shardCount <= 1 {
+		return []string{FinalizedFeedShard} // Backward compatibility with single shard "s00"
+	}
+
+	shards := make([]string, shardCount)
+	for i := 0; i < shardCount; i++ {
+		shards[i] = fmt.Sprintf("s%02d", i)
+	}
+	return shards
 }

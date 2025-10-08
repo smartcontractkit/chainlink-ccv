@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -34,14 +35,14 @@ func (dto *SignatureRecordDTO) ToItem(record *model.CommitVerificationRecord) (m
 	sortKey := BuildSignatureSortKey(signerAddressHex, createdAt)
 
 	item := map[string]types.AttributeValue{
-		FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
-		FieldSortKey:      &types.AttributeValueMemberS{Value: sortKey},
+		ddbconstant.FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
+		ddbconstant.FieldSortKey:      &types.AttributeValueMemberS{Value: sortKey},
 
-		SignatureFieldSignerAddress: &types.AttributeValueMemberS{Value: signerAddressHex},
-		SignatureFieldParticipantID: &types.AttributeValueMemberS{Value: record.IdentifierSigner.ParticipantID},
-		SignatureFieldSignatureR:    &types.AttributeValueMemberB{Value: record.IdentifierSigner.SignatureR[:]},
-		SignatureFieldSignatureS:    &types.AttributeValueMemberB{Value: record.IdentifierSigner.SignatureS[:]},
-		FieldCreatedAt:              &types.AttributeValueMemberN{Value: strconv.FormatInt(createdAt, 10)},
+		ddbconstant.SignatureFieldSignerAddress: &types.AttributeValueMemberS{Value: signerAddressHex},
+		ddbconstant.SignatureFieldParticipantID: &types.AttributeValueMemberS{Value: record.IdentifierSigner.ParticipantID},
+		ddbconstant.SignatureFieldSignatureR:    &types.AttributeValueMemberB{Value: record.IdentifierSigner.SignatureR[:]},
+		ddbconstant.SignatureFieldSignatureS:    &types.AttributeValueMemberB{Value: record.IdentifierSigner.SignatureS[:]},
+		ddbconstant.FieldCreatedAt:              &types.AttributeValueMemberN{Value: strconv.FormatInt(createdAt, 10)},
 	}
 
 	return item, nil
@@ -52,24 +53,24 @@ func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, me
 		return nil, errors.New("verificationMessageDataItem is required for signature record reconstruction")
 	}
 
-	signerAddressValue, ok := item[SignatureFieldSignerAddress].(*types.AttributeValueMemberS)
+	signerAddressValue, ok := item[ddbconstant.SignatureFieldSignerAddress].(*types.AttributeValueMemberS)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", SignatureFieldSignerAddress)
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.SignatureFieldSignerAddress)
 	}
 
-	participantIDValue, ok := item[SignatureFieldParticipantID].(*types.AttributeValueMemberS)
+	participantIDValue, ok := item[ddbconstant.SignatureFieldParticipantID].(*types.AttributeValueMemberS)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", SignatureFieldParticipantID)
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.SignatureFieldParticipantID)
 	}
 
-	signatureRValue, ok := item[SignatureFieldSignatureR].(*types.AttributeValueMemberB)
+	signatureRValue, ok := item[ddbconstant.SignatureFieldSignatureR].(*types.AttributeValueMemberB)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", SignatureFieldSignatureR)
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.SignatureFieldSignatureR)
 	}
 
-	signatureSValue, ok := item[SignatureFieldSignatureS].(*types.AttributeValueMemberB)
+	signatureSValue, ok := item[ddbconstant.SignatureFieldSignatureS].(*types.AttributeValueMemberB)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", SignatureFieldSignatureS)
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.SignatureFieldSignatureS)
 	}
 
 	var signatureR, signatureS [32]byte
@@ -125,35 +126,35 @@ func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, me
 }
 
 func (dto *SignatureRecordDTO) IsSignatureRecord(item map[string]types.AttributeValue) bool {
-	sortKeyValue, ok := item[FieldSortKey].(*types.AttributeValueMemberS)
+	sortKeyValue, ok := item[ddbconstant.FieldSortKey].(*types.AttributeValueMemberS)
 	if !ok {
 		return false
 	}
-	return strings.HasPrefix(sortKeyValue.Value, SignatureRecordPrefix)
+	return strings.HasPrefix(sortKeyValue.Value, ddbconstant.SignatureRecordPrefix)
 }
 
 func (dto *SignatureRecordDTO) ExtractSignerAddressFromSortKey(sortKey string) (string, error) {
-	parts := strings.Split(sortKey, KeySeparator)
-	if len(parts) < 3 || parts[0] != SignatureRecordPrefix {
+	parts := strings.Split(sortKey, ddbconstant.KeySeparator)
+	if len(parts) < 3 || parts[0] != ddbconstant.SignatureRecordPrefix {
 		return "", fmt.Errorf("invalid signature record sort key format: %s", sortKey)
 	}
 	return parts[1], nil
 }
 
 func (dto *SignatureRecordDTO) reconstructMessageFromVerificationMessageData(verificationMessageDataItem map[string]types.AttributeValue) (*pb.MessageWithCCVNodeData, error) {
-	messageIDValue, ok := verificationMessageDataItem[VerificationMessageDataFieldMessageID].(*types.AttributeValueMemberB)
+	messageIDValue, ok := verificationMessageDataItem[ddbconstant.VerificationMessageDataFieldMessageID].(*types.AttributeValueMemberB)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", VerificationMessageDataFieldMessageID)
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.VerificationMessageDataFieldMessageID)
 	}
 
-	sourceVerifierAddressValue, ok := verificationMessageDataItem[VerificationMessageDataFieldSourceVerifierAddress].(*types.AttributeValueMemberB)
+	sourceVerifierAddressValue, ok := verificationMessageDataItem[ddbconstant.VerificationMessageDataFieldSourceVerifierAddress].(*types.AttributeValueMemberB)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", VerificationMessageDataFieldSourceVerifierAddress)
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.VerificationMessageDataFieldSourceVerifierAddress)
 	}
 
-	messageValue, ok := verificationMessageDataItem[VerificationMessageDataFieldMessage].(*types.AttributeValueMemberB)
+	messageValue, ok := verificationMessageDataItem[ddbconstant.VerificationMessageDataFieldMessage].(*types.AttributeValueMemberB)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", VerificationMessageDataFieldMessage)
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.VerificationMessageDataFieldMessage)
 	}
 
 	var message pb.Message
@@ -161,9 +162,9 @@ func (dto *SignatureRecordDTO) reconstructMessageFromVerificationMessageData(ver
 		return nil, fmt.Errorf("failed to unmarshal Message: %w", err)
 	}
 
-	timestampValue, ok := verificationMessageDataItem[VerificationMessageDataFieldTimestamp].(*types.AttributeValueMemberN)
+	timestampValue, ok := verificationMessageDataItem[ddbconstant.VerificationMessageDataFieldTimestamp].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s", VerificationMessageDataFieldTimestamp)
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.VerificationMessageDataFieldTimestamp)
 	}
 
 	timestamp, err := strconv.ParseInt(timestampValue.Value, 10, 64)
@@ -178,11 +179,11 @@ func (dto *SignatureRecordDTO) reconstructMessageFromVerificationMessageData(ver
 		Timestamp:             timestamp,
 	}
 
-	if blobDataValue, ok := verificationMessageDataItem[VerificationMessageDataFieldBlobData].(*types.AttributeValueMemberB); ok {
+	if blobDataValue, ok := verificationMessageDataItem[ddbconstant.VerificationMessageDataFieldBlobData].(*types.AttributeValueMemberB); ok {
 		messageWithCCVNodeData.BlobData = blobDataValue.Value
 	}
 
-	if receiptBlobsValue, ok := verificationMessageDataItem[VerificationMessageDataFieldReceiptBlobs].(*types.AttributeValueMemberL); ok {
+	if receiptBlobsValue, ok := verificationMessageDataItem[ddbconstant.VerificationMessageDataFieldReceiptBlobs].(*types.AttributeValueMemberL); ok {
 		receiptBlobs := make([]*pb.ReceiptBlob, len(receiptBlobsValue.Value))
 		for i, blobValue := range receiptBlobsValue.Value {
 			if binaryValue, ok := blobValue.(*types.AttributeValueMemberB); ok {

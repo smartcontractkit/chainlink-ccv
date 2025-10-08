@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
@@ -82,6 +83,13 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 
 type MessageWithCCVNodeDataOption = func(*pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData
 
+func WithCustomTimestamp(timestamp int64) MessageWithCCVNodeDataOption {
+	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
+		m.Timestamp = timestamp
+		return m
+	}
+}
+
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
 	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
@@ -144,7 +152,7 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 		},
 		BlobData:  []byte("test blob data"),
 		CcvData:   []byte("test ccv data"),
-		Timestamp: 1234567890,
+		Timestamp: time.Now().UnixMicro(),
 		ReceiptBlobs: []*pb.ReceiptBlob{
 			{
 				Issuer: sourceVerifierAddress,

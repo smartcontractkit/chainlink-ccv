@@ -71,7 +71,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
 	lggr = lggr.With("messageID", messageID, "committee", committeeID)
-	lggr.Infof("Checking aggregation for message ID: %s, committee: %s", messageID, committeeID)
+	lggr.Infof("Checking aggregation for message ID: %x, committee: %s", messageID, committeeID)
 	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committeeID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
