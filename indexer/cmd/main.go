@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
+	"github.com/pressly/goose/v3"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
@@ -17,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
 )
 
 func main() {
@@ -66,7 +69,7 @@ func main() {
 	readerDiscovery := createReaderDiscovery(lggr, config)
 
 	// Initialize the indexer storage
-	indexerStorage := createStorage(lggr, config, indexerMonitoring)
+	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
 
 	// Create a scanner, which will poll the off-chain storage(s) for CCV data
 	scanner := scanner.NewScanner(
@@ -124,15 +127,64 @@ func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.Offc
 }
 
 // createStorage creates the storage backend connection based on the configuration.
-func createStorage(lggr logger.Logger, cfg *config.Config, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
+func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
 	// Determine the appropriate storage backend based on the configuration
 	switch cfg.Storage.Type {
 	case config.StorageTypeMemory:
 		// Create a new in-memory storage
 		return storage.NewInMemoryStorage(lggr, indexerMonitoring)
+	case config.StorageTypePostgres:
+		// Run migrations first
+		migrationsDir := "./migrations"
+		if err := runMigrations(lggr, cfg.Storage.Postgres.URI, migrationsDir); err != nil {
+			lggr.Fatalf("Failed to run database migrations: %v", err)
+		}
+
+		// Create postgres database configuration
+		dbConfig := pg.DBConfig{
+			MaxOpenConns:           cfg.Storage.Postgres.MaxOpenConnections,
+			MaxIdleConns:           cfg.Storage.Postgres.MaxIdleConnections,
+			IdleInTxSessionTimeout: time.Duration(cfg.Storage.Postgres.IdleInTxSessionTimeout) * time.Second,
+			LockTimeout:            time.Duration(cfg.Storage.Postgres.LockTimeout) * time.Second,
+		}
+
+		// Create a new postgres storage
+		dbStore, err := storage.NewDBStore(ctx, lggr, indexerMonitoring, cfg.Storage.Postgres.URI, dbConfig)
+		if err != nil {
+			lggr.Fatalf("Failed to create postgres storage: %v", err)
+		}
+		return dbStore
 	default:
 		lggr.Fatalf("Unsupported storage type: %s", cfg.Storage.Type)
 	}
 
+	return nil
+}
+
+// runMigrations runs all pending database migrations using goose.
+func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
+	// Open a connection to the database for migrations
+	db, err := sql.Open("postgres", dbURI)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			lggr.Warnf("Error closing database: %v", cerr)
+		}
+	}()
+
+	// Set goose dialect
+	if err := goose.SetDialect("postgres"); err != nil {
+		return err
+	}
+
+	// Run migrations
+	if err := goose.Up(db, migrationsDir); err != nil {
+		return err
+	}
+
+	lggr.Info("Database migrations completed successfully")
 	return nil
 }

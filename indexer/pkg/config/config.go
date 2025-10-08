@@ -61,13 +61,30 @@ type ScannerConfig struct {
 type StorageConfig struct {
 	// Type is the type of storage to use (memory, postgres).
 	Type StorageType `toml:"Type"`
+	// Postgres is the configuration for the postgres storage backend (required if type is postgres).
+	Postgres PostgresConfig `toml:"Postgres"`
+}
+
+// PostgresConfig provides configuration for the postgres storage backend.
+type PostgresConfig struct {
+	// URI is the connection string for the postgres database.
+	URI string `toml:"URI"`
+	// MaxOpenConnections is the maximum number of open connections to the database.
+	MaxOpenConnections int `toml:"MaxOpenConnections"`
+	// MaxIdleConnections is the maximum number of idle connections to the database.
+	MaxIdleConnections int `toml:"MaxIdleConnections"`
+	// IdleInTxSessionTimeout is the idle_in_transaction_session_timeout in seconds.
+	IdleInTxSessionTimeout int64 `toml:"IdleInTxSessionTimeout"`
+	// LockTimeout is the lock_timeout in seconds.
+	LockTimeout int64 `toml:"LockTimeout"`
 }
 
 // StorageType is the type of storage to use (memory, postgres).
 type StorageType string
 
 const (
-	StorageTypeMemory StorageType = "memory"
+	StorageTypeMemory   StorageType = "memory"
+	StorageTypePostgres StorageType = "postgres"
 )
 
 // DiscoveryConfig allows you to change the discovery system used by the indexer.
@@ -155,6 +172,13 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("storage type is required")
 	}
 
+	// Validate postgres config if storage type is postgres
+	if c.Storage.Type == StorageTypePostgres {
+		if err := c.Storage.Postgres.Validate(); err != nil {
+			return fmt.Errorf("postgres config validation failed: %w", err)
+		}
+	}
+
 	if c.Discovery.Type == "" {
 		return fmt.Errorf("discovery type is required")
 	}
@@ -235,6 +259,35 @@ func (a *AggregatorReaderConfig) Validate(index int) error {
 
 	if a.Since < 0 {
 		return fmt.Errorf("reader %d aggregator since must be non-negative, got %d", index, a.Since)
+	}
+
+	return nil
+}
+
+// Validate performs validation on the postgres configuration.
+func (p *PostgresConfig) Validate() error {
+	if p.URI == "" {
+		return fmt.Errorf("postgres URI is required")
+	}
+
+	if p.MaxOpenConnections <= 0 {
+		return fmt.Errorf("postgres max_open_connections must be positive, got %d", p.MaxOpenConnections)
+	}
+
+	if p.MaxIdleConnections < 0 {
+		return fmt.Errorf("postgres max_idle_connections must be non-negative, got %d", p.MaxIdleConnections)
+	}
+
+	if p.MaxIdleConnections > p.MaxOpenConnections {
+		return fmt.Errorf("postgres max_idle_connections (%d) cannot be greater than max_open_connections (%d)", p.MaxIdleConnections, p.MaxOpenConnections)
+	}
+
+	if p.IdleInTxSessionTimeout < 0 {
+		return fmt.Errorf("postgres idle_in_tx_session_timeout must be non-negative, got %d", p.IdleInTxSessionTimeout)
+	}
+
+	if p.LockTimeout < 0 {
+		return fmt.Errorf("postgres lock_timeout must be non-negative, got %d", p.LockTimeout)
 	}
 
 	return nil

@@ -24,7 +24,6 @@ const (
 	DefaultIndexerImage    = "indexer:dev"
 	DefaultIndexerHTTPPort = 8102
 	DefaultIndexerDBPort   = 6432
-	DefaultIndexerSQLInit  = "init.sql"
 
 	DefaultIndexerDBImage = "postgres:16-alpine"
 )
@@ -160,11 +159,20 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 			}
 		}),
 		testcontainers.WithLabels(framework.DefaultTCLabels()),
+		testcontainers.CustomizeRequestOption(func(req *testcontainers.GenericContainerRequest) error {
+			req.Networks = []string{framework.DefaultNetworkName}
+			req.NetworkAliases = map[string][]string{
+				framework.DefaultNetworkName: {DefaultIndexerDBName},
+			}
+
+			return nil
+		}),
 		postgres.WithDatabase(DefaultIndexerName),
 		postgres.WithUsername(DefaultIndexerName),
 		postgres.WithPassword(DefaultIndexerName),
-		postgres.WithInitScripts(filepath.Join(p, DefaultIndexerSQLInit)),
+		// Migrations are now handled by the application using goose
 	)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
