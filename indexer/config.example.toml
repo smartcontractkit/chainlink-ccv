@@ -25,10 +25,31 @@ Address = "aggregator:50051"
 Since = 0
 
 [Storage]
+Strategy = "sink" # Options: "single", "sink"
+
+[[Storage.Sink.Storages]]
+Type = "memory" # Options: "memory", "postgres"
+
+[Storage.Sink.Storages.Memory]
+TTL = 3600            # 1 hour TTL
+MaxSize = 10000       # Keep up to 10k items
+CleanupInterval = 300 # Clean up every 5 minutes
+
+[Storage.Sink.Storages.ReadCondition]
+Type = "recent"
+LookbackWindowSeconds = 3600 # Only read data from last hour
+
+# Persistent Storage with read condition
+[[Storage.Sink.Storages]]
 Type = "postgres"
-[Storage.Postgres]
+
+# PostgreSQL storage configuration
+[Storage.Sink.Storages.Postgres]
 URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
 MaxOpenConnections = 20
 MaxIdleConnections = 5
 IdleInTxSessionTimeout = 60
 LockTimeout = 30
+
+[Storage.Sink.Storages.ReadCondition]
+Type = "always"

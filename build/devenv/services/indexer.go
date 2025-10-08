@@ -104,13 +104,35 @@ func defaults(in *IndexerInput) {
 				},
 			},
 			Storage: config.StorageConfig{
-				Type: "postgres",
-				Postgres: config.PostgresConfig{
-					URI:                    "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable",
-					MaxOpenConnections:     20,
-					MaxIdleConnections:     5,
-					IdleInTxSessionTimeout: 60,
-					LockTimeout:            30,
+				Strategy: config.StorageStrategySink,
+				Sink: &config.SinkStorageConfig{
+					Storages: []config.StorageBackendConfig{
+						{
+							Type: "memory",
+							Memory: &config.InMemoryStorageConfig{
+								TTL:             3600,
+								MaxSize:         10000,
+								CleanupInterval: 300,
+							},
+							ReadCondition: config.ReadConditionConfig{
+								Type:                  "recent",
+								LookbackWindowSeconds: &[]int64{3600}[0],
+							},
+						},
+						{
+							Type: "postgres",
+							Postgres: &config.PostgresConfig{
+								URI:                    "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable",
+								MaxOpenConnections:     20,
+								MaxIdleConnections:     5,
+								IdleInTxSessionTimeout: 60,
+								LockTimeout:            30,
+							},
+							ReadCondition: config.ReadConditionConfig{
+								Type: "always",
+							},
+						},
+					},
 				},
 			},
 		}
