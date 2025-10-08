@@ -2,13 +2,14 @@ package executor
 
 import (
 	"container/heap"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type messageHeap []*messageWithTimestamp
 
 type messageWithTimestamp struct {
 	ReadyTime int64
-	Payload   *MessageWithCCVData
+	Payload   *protocol.Message
 }
 
 func (mh messageHeap) Len() int {
@@ -45,8 +46,8 @@ func (mh *messageHeap) IsEmpty() bool {
 	return mh.Len() == 0
 }
 
-func (mh *messageHeap) PopAllReady(timestamp int64) []MessageWithCCVData {
-	var readyMessages []MessageWithCCVData
+func (mh *messageHeap) PopAllReady(timestamp int64) []protocol.Message {
+	var readyMessages []protocol.Message
 	for mh.Len() > 0 && mh.PeekTime() <= timestamp {
 		msg, ok := heap.Pop(mh).(*messageWithTimestamp)
 		if !ok {

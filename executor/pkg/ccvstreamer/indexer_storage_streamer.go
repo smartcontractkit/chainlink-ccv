@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/exp/maps"
 	"sync"
 	"time"
 
@@ -13,11 +14,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Ensure IndexerStorageStreamer implements the CCVResultStreamer interface.
-var _ executor.CCVResultStreamer = &IndexerStorageStreamer{}
+// Ensure IndexerStorageStreamer implements the MessageSubscriber interface.
+var _ executor.MessageSubscriber = &IndexerStorageStreamer{}
 
 type IndexerStorageConfig struct {
-	IndexerURI      string
+	IndexerClient   *storageaccess.IndexerAPIReader
 	LastQueryTime   int64
 	PollingInterval time.Duration
 	Backoff         time.Duration
@@ -28,10 +29,10 @@ func NewIndexerStorageStreamer(
 	lggr logger.Logger,
 	indexerConfig IndexerStorageConfig,
 ) *IndexerStorageStreamer {
-	client := storageaccess.NewIndexerAPIReader(lggr, indexerConfig.IndexerURI)
 
 	return &IndexerStorageStreamer{
-		reader:          client,
+		reader:          indexerConfig.IndexerClient,
+		lggr:            lggr,
 		queryLimit:      indexerConfig.QueryLimit,
 		lastQueryTime:   indexerConfig.LastQueryTime,
 		pollingInterval: indexerConfig.PollingInterval,
@@ -41,6 +42,7 @@ func NewIndexerStorageStreamer(
 
 type IndexerStorageStreamer struct {
 	reader          *storageaccess.IndexerAPIReader
+	lggr            logger.Logger
 	lastQueryTime   int64
 	pollingInterval time.Duration
 	backoff         time.Duration
@@ -56,10 +58,9 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 	return oss.running
 }
 
-// Start implements the CCVResultStreamer interface.
+// Start implements the MessageSubscriber interface.
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
-	lggr logger.Logger,
 	wg *sync.WaitGroup,
 ) (<-chan executor.StreamerResult, error) {
 	if oss.reader == nil {
@@ -87,10 +88,9 @@ func (oss *IndexerStorageStreamer) Start(
 				// Context canceled, stop loop.
 				return
 			default:
-				msgs := make([]executor.MessageWithCCVData, 0)
 				// Non-blocking: call ReadCCVData
-				lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
-				responses, err := oss.reader.ReadVerifierResults(ctx, storageaccess.VerifierResultsRequest{
+				oss.lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
+				responses, err := oss.reader.ReadMessages(ctx, storageaccess.MessagesV1Request{
 					Limit:                oss.queryLimit,
 					Offset:               offset,
 					Start:                oss.lastQueryTime,
@@ -99,30 +99,11 @@ func (oss *IndexerStorageStreamer) Start(
 					DestChainSelectors:   nil,
 				})
 				if len(responses) != 0 {
-					lggr.Infow("IndexerStorageStreamer found ccv data using query", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
-				}
-
-				for id, verifierResults := range responses {
-					if len(verifierResults) < 1 {
-						lggr.Errorw("invalid message from reader", "messageID", id, "verifierResults", verifierResults)
-						continue
-					}
-
-					if err := validateVerifierResults(verifierResults); err != nil {
-						lggr.Errorw("invalid verifier results from reader", "messageID", id, "error", err)
-						continue
-					}
-
-					lggr.Infow("received message", "messageID", id, "ccvData", verifierResults)
-					msgs = append(msgs, executor.MessageWithCCVData{
-						Message:           verifierResults[0].Message,
-						CCVData:           verifierResults,
-						VerifiedTimestamp: verifierResults[0].Timestamp,
-					})
+					oss.lggr.Infow("IndexerStorageStreamer found messages using query", "offset", offset, "start", oss.lastQueryTime, "end", newtime, "messages", responses)
 				}
 
 				result := executor.StreamerResult{
-					Messages: msgs,
+					Messages: maps.Values(responses),
 					Error:    err,
 				}
 
@@ -139,12 +120,12 @@ func (oss *IndexerStorageStreamer) Start(
 				switch {
 				case err != nil:
 					// Error occurred: backoff and retry with same parameters
-					lggr.Infow("IndexerStorageStreamer read error", "error", err)
+					oss.lggr.Infow("IndexerStorageStreamer read error", "error", err)
 					waitDuration = oss.backoff
 
 				case uint64(len(responses)) == oss.queryLimit:
 					// Hit query limit: query again immediately with same time range but incremented offset
-					lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
+					oss.lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
 					offset += oss.queryLimit
 					continue // Skip waiting and time updates, query immediately
 

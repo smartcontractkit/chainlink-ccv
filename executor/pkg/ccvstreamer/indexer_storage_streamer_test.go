@@ -15,7 +15,7 @@ import (
 )
 
 func TestNoReader(t *testing.T) {
-	oss := ccvstreamer.NewOffchainStorageStreamer(nil, 0, 0)
+	oss := ccvstreamer.NewIndexerStorageStreamer(nil, ccvstreamer.IndexerStorageConfig{})
 	require.NotNil(t, oss)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -31,7 +31,10 @@ func TestNoReader(t *testing.T) {
 func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	reader := executor_mocks.NewMockOffchainStorageReader(t)
 	reader.EXPECT().ReadCCVData(mock.Anything).Return(nil, nil)
-	oss := ccvstreamer.NewOffchainStorageStreamer(reader, 10*time.Millisecond, 0)
+	oss := ccvstreamer.NewIndexerStorageStreamer(nil, ccvstreamer.IndexerStorageConfig{
+		IndexerURI:      "/",
+		PollingInterval: 150 * time.Millisecond,
+	})
 	require.NotNil(t, oss)
 
 	ctx, cancel := context.WithCancel(t.Context())

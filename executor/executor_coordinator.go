@@ -16,7 +16,7 @@ const BackoffDuration = 5 * time.Second
 
 type Coordinator struct {
 	executor            Executor
-	ccvStreamer         CCVResultStreamer
+	messageSubscriber   MessageSubscriber
 	leaderElector       LeaderElector
 	lggr                logger.Logger
 	ccvDataCh           chan MessageWithCCVData
@@ -42,9 +42,9 @@ func WithExecutor(executor Executor) Option {
 	}
 }
 
-func WithCCVResultStreamer(streamer CCVResultStreamer) Option {
+func WithMessageSubscriber(sub MessageSubscriber) Option {
 	return func(ec *Coordinator) {
-		ec.ccvStreamer = streamer
+		ec.messageSubscriber = sub
 	}
 }
 
@@ -128,7 +128,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 	}()
 
 	var wg sync.WaitGroup
-	streamerResults, err := ec.ccvStreamer.Start(ctx, ec.lggr, &wg)
+	streamerResults, err := ec.messageSubscriber.Start(ctx, &wg)
 	if err != nil {
 		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
 		return
@@ -160,10 +160,10 @@ func (ec *Coordinator) run(ctx context.Context) {
 					continue
 				}
 
-				id, _ := msg.Message.MessageID()
+				id, _ := msg.MessageID()
 
 				// get message delay from leader elector
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.Message, msg.VerifiedTimestamp)
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg, time.Now().Unix())
 
 				heap.Push(ec.delayedMessageHeap, &messageWithTimestamp{
 					Payload:   &msg,
@@ -177,9 +177,9 @@ func (ec *Coordinator) run(ctx context.Context) {
 			for _, message := range readyMessages {
 				go func() {
 					message := message
-					id, _ := message.Message.MessageID() // can we make this less bad?
+					id, _ := message.MessageID() // can we make this less bad?
 					ec.lggr.Infow("processing message with ID", "messageID", id)
-					err := ec.executor.ExecuteMessage(ctx, message)
+					err := ec.executor.AttemptExecuteMessage(ctx, message)
 					if err != nil {
 						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
 					}
@@ -201,7 +201,7 @@ func (ec *Coordinator) validate() error {
 	appendIfNil(ec.executor, "executor")
 	appendIfNil(ec.leaderElector, "leaderElector")
 	appendIfNil(ec.lggr, "logger")
-	appendIfNil(ec.ccvStreamer, "ccvResultStreamer")
+	appendIfNil(ec.messageSubscriber, "messageSubscriber")
 
 	return errors.Join(errs...)
 }
