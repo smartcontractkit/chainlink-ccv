@@ -1,4 +1,4 @@
-package ddb
+package query
 
 import (
 	"testing"
@@ -51,7 +51,7 @@ func TestDayIterator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			iterator := NewDayIterator(tt.start, tt.end, testMinDate)
+			iterator := NewDayIterator(tt.start, tt.end, testMinDate, nil)
 			var result []string
 
 			for iterator.Next() {
@@ -72,7 +72,7 @@ func TestDayIteratorBehavior(t *testing.T) {
 		start := time.Date(2023, 10, 15, 14, 30, 0, 0, time.UTC).Unix()
 		end := time.Date(2023, 10, 16, 16, 45, 0, 0, time.UTC).Unix()
 
-		iterator := NewDayIterator(start, end, testMinDate)
+		iterator := NewDayIterator(start, end, testMinDate, nil)
 
 		// First iteration
 		require.True(t, iterator.Next())
@@ -93,12 +93,34 @@ func TestDayIteratorBehavior(t *testing.T) {
 		start := time.Date(2023, 10, 15, 14, 30, 0, 0, time.UTC).Unix()
 		end := time.Date(2023, 10, 15, 16, 45, 0, 0, time.UTC).Unix()
 
-		iterator := NewDayIterator(start, end, testMinDate)
+		iterator := NewDayIterator(start, end, testMinDate, nil)
 		require.True(t, iterator.Next())
 
 		// Multiple calls should return the same value
 		require.Equal(t, "2023-10-15", iterator.Day())
 		require.Equal(t, "2023-10-15", iterator.Day())
 		require.Equal(t, "2023-10-15", iterator.Day())
+	})
+
+	t.Run("start with pagination token on day after start", func(t *testing.T) {
+		start := time.Date(2023, 10, 15, 14, 30, 0, 0, time.UTC).Unix()
+		end := time.Date(2023, 10, 19, 16, 45, 0, 0, time.UTC).Unix()
+
+		paginationToken := &AggregatedReportPaginationToken{
+			LastDay: "2023-10-18",
+		}
+
+		iterator := NewDayIterator(start, end, testMinDate, paginationToken)
+
+		// Should start at the token day
+		require.True(t, iterator.Next())
+		require.Equal(t, "2023-10-18", iterator.Day())
+		iterator.Advance()
+
+		require.True(t, iterator.Next())
+		require.Equal(t, "2023-10-19", iterator.Day())
+		iterator.Advance()
+
+		require.False(t, iterator.Next()) // Exhausted
 	})
 }

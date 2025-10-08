@@ -14,6 +14,9 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	"go.uber.org/zap"
+
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -49,12 +52,12 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 				DeployerTransactorGen: cldf_evm_provider.TransactorFromRaw(
 					getNetworkPrivateKey(),
 				),
-				RPCs: []deployment.RPC{
+				RPCs: []rpcclient.RPC{
 					{
 						Name:               "default",
 						WSURL:              rpcWSURL,
 						HTTPURL:            rpcHTTPURL,
-						PreferredURLScheme: deployment.URLSchemePreferenceHTTP,
+						PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 					},
 				},
 				ConfirmFunctor: cldf_evm_provider.ConfirmFuncGeth(1 * time.Minute),

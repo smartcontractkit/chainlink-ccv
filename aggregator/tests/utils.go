@@ -44,6 +44,23 @@ func WithStubMode(stub bool) ConfigOption {
 	}
 }
 
+func WithPaginationConfig(pageSize int) ConfigOption {
+	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+		cfg.Storage.PageSize = pageSize
+		return cfg
+	}
+}
+
+func WithShardCount(shardCount int) ConfigOption {
+	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+		if cfg.Storage.DynamoDB == nil {
+			cfg.Storage.DynamoDB = &model.DynamoDBConfig{}
+		}
+		cfg.Storage.DynamoDB.ShardCount = shardCount
+		return cfg
+	}
+}
+
 // CreateServerAndClient creates a test server and client for functional testing.
 // Uses DynamoDB storage by default, but can be overridden with options.
 func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.CCVDataClient, func(), error) {
@@ -66,7 +83,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 		Server: model.ServerConfig{
 			Address: ":50051",
 		},
-		Storage: model.StorageConfig{
+		Storage: &model.StorageConfig{
 			StorageType: model.StorageTypeDynamoDB, // Default to DynamoDB
 		},
 		Monitoring: model.MonitoringConfig{
@@ -84,7 +101,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 
 	switch config.Storage.StorageType {
 	case model.StorageTypeDynamoDB:
-		storageConfig, cleanup, err := setupDynamoDBStorage(t)
+		storageConfig, cleanup, err := setupDynamoDBStorage(t, config.Storage)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -128,22 +145,22 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 	}, nil
 }
 
-func setupDynamoDBStorage(t *testing.T) (model.StorageConfig, func(), error) {
+func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
 	// Start DynamoDB Local container
 	_, connectionString, cleanup := ddb.SetupTestDynamoDB(t)
 
-	storageConfig := model.StorageConfig{
-		StorageType: "dynamodb",
-		DynamoDB: model.DynamoDBConfig{
-			CommitVerificationRecordTableName: ddb.TestCommitVerificationRecordTableName,
-			FinalizedFeedTableName:            ddb.TestFinalizedFeedTableName,
-			CheckpointTableName:               ddb.TestCheckpointTableName,
-			Region:                            "us-east-1",
-			Endpoint:                          "http://" + connectionString,
-		},
+	// Preserve existing storage config and only update DynamoDB-specific fields
+	if existingConfig.DynamoDB == nil {
+		existingConfig.DynamoDB = &model.DynamoDBConfig{}
 	}
 
-	return storageConfig, cleanup, nil
+	existingConfig.DynamoDB.CommitVerificationRecordTableName = ddb.TestCommitVerificationRecordTableName
+	existingConfig.DynamoDB.FinalizedFeedTableName = ddb.TestFinalizedFeedTableName
+	existingConfig.DynamoDB.CheckpointTableName = ddb.TestCheckpointTableName
+	existingConfig.DynamoDB.Region = "us-east-1"
+	existingConfig.DynamoDB.Endpoint = "http://" + connectionString
+
+	return existingConfig, cleanup, nil
 }
 
 func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (pb.CCVDataClient, *grpc.ClientConn, error) {
