@@ -144,7 +144,6 @@ func TestE2ESmoke(t *testing.T) {
 				mandatoryCCVs: mandatoryCCVs,
 			},
 			{
-				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				name:          "src_dst msg execution with mock receiver",
 				srcSelector:   c.Chain1337Details.ChainSelector,
 				dstSelector:   c.Chain2337Details.ChainSelector,
@@ -154,7 +153,6 @@ func TestE2ESmoke(t *testing.T) {
 				mandatoryCCVs: mandatoryCCVs,
 			},
 			{
-				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				name:          "dst_src msg execution with mock receiver",
 				srcSelector:   c.Chain2337Details.ChainSelector,
 				dstSelector:   c.Chain1337Details.ChainSelector,

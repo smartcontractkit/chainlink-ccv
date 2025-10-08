@@ -13,6 +13,7 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
@@ -90,7 +91,8 @@ func main() {
 			continue
 		}
 
-		dr := destinationreader.NewEvmDestinationReaderFromChainInfo(ctx, lggr, selector, chain, executorConfig.OffRampAddresses[strSel])
+		evmClient := pkg.CreateMultiNodeClientFromInfo(ctx, lggr, chain)
+		dr := destinationreader.NewEvmDestinationReader(lggr, selector, evmClient, executorConfig.OffRampAddresses[strSel])
 		pk := os.Getenv(PK_ENV_VAR)
 		if pk == "" {
 			lggr.Errorf("Environment variable %S is not set", PK_ENV_VAR)

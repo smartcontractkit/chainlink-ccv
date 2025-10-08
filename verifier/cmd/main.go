@@ -131,7 +131,7 @@ func main() {
 		logBlockchainInfo(blockchainHelper, lggr)
 		for _, selector := range blockchainHelper.GetAllChainSelectors() {
 			lggr.Infow("Creating chain client", "chainSelector", selector)
-			chainClients[selector] = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, selector)
+			chainClients[selector] = pkg.CreateHealthyMultiNodeClient(ctx, lggr, blockchainHelper, selector)
 		}
 	}
 
