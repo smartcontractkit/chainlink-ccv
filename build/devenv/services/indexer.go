@@ -11,10 +11,10 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -177,7 +177,6 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		postgres.WithPassword(DefaultIndexerName),
 		// Migrations are now handled by the application using goose
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
