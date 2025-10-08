@@ -49,7 +49,7 @@ type ResilienceConfig struct {
 	MaxConcurrentRequests uint // Maximum concurrent requests (default: 10)
 
 	// Rate Limiter configuration
-	MaxRequestsPerSecond uint // Maximum requests per second (default: 100)
+	MaxRequestsPerSecond uint // Maximum requests per second (default: 10)
 
 	AllowDisconnect bool // Allow disconnection from the underlying reader (default: false)
 }
@@ -70,7 +70,7 @@ func DefaultResilienceConfig() ResilienceConfig {
 		Jitter:                     50 * time.Millisecond,
 		RequestTimeout:             10 * time.Second,
 		MaxConcurrentRequests:      5,
-		MaxRequestsPerSecond:       2,
+		MaxRequestsPerSecond:       10,
 		AllowDisconnect:            false,
 	}
 }
@@ -297,9 +297,5 @@ func createBulkhead(config ResilienceConfig, lggr logger.Logger) bulkhead.Bulkhe
 
 // createRateLimiter creates a rate limiter for query responses.
 func createRateLimiter(config ResilienceConfig) ratelimiter.RateLimiter[[]protocol.QueryResponse] {
-	// Convert requests per second to time interval between requests
-	requestsPerSecond := int64(config.MaxRequestsPerSecond) // #nosec G115 - config value expected to be reasonable
-	maxRateInterval := time.Second / time.Duration(requestsPerSecond)
-	return ratelimiter.NewSmoothBuilderWithMaxRate[[]protocol.QueryResponse](maxRateInterval).
-		Build()
+	return ratelimiter.NewBursty[[]protocol.QueryResponse](config.MaxRequestsPerSecond, time.Second)
 }
