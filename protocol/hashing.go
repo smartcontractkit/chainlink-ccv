@@ -21,7 +21,7 @@ func Keccak256(data []byte) [32]byte {
 	}
 
 	h.Reset()
-	h.Write(data) // nolint:revive // keccak256 never returns an error
+	h.Write(data) //nolint:revive // keccak256 never returns an error
 	var out [32]byte
 	copy(out[:], h.Sum(nil))
 	h.Reset()
