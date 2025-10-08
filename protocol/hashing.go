@@ -17,7 +17,8 @@ var hasherPool = sync.Pool{
 func Keccak256(data []byte) [32]byte {
 	h, ok := hasherPool.Get().(hash.Hash)
 	if !ok {
-		panic("cannot get hasher")
+		// This should never happen, but just in case.
+		h = sha3.NewLegacyKeccak256()
 	}
 
 	h.Reset()
