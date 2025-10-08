@@ -691,7 +691,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	waitForMessages(ts, 1)
 
 	// Give some time for error processing
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	err = v.Close()
 	require.NoError(t, err)
