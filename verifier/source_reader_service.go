@@ -51,7 +51,7 @@ type SourceReaderService struct {
 }
 
 // NewEVMSourceReader creates a new blockchain-based source reader.
-func NewEVMSourceReader(
+func NewSourceReaderService(
 	sourceReader SourceReader,
 	contractAddress string,
 	chainSelector protocol.ChainSelector,

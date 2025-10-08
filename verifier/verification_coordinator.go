@@ -13,6 +13,14 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// sourceState manages state for a single source chain reader.
+type sourceState struct {
+	reader              *SourceReaderService
+	verificationTaskCh  <-chan VerificationTask
+	verificationErrorCh chan VerificationError
+	chainSelector       protocol.ChainSelector
+}
+
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
 	verifier              Verifier
@@ -33,6 +41,10 @@ type Coordinator struct {
 	pendingMu         sync.RWMutex
 	verifyingWg       sync.WaitGroup
 	running           bool
+
+	// Configuration
+	checkpointManager protocol.CheckpointManager
+	sourceReaders     map[protocol.ChainSelector]SourceReader
 }
 
 // Option is the functional option type for Coordinator.
@@ -45,28 +57,29 @@ func WithVerifier(verifier Verifier) Option {
 	}
 }
 
+// WithCheckpointManagers sets the checkpoint manager.
+func WithCheckpointManagers(manager protocol.CheckpointManager) Option {
+	return func(vc *Coordinator) {
+		vc.checkpointManager = manager
+	}
+}
+
 // WithSourceReaders sets multiple source readers.
 func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Option {
 	return func(vc *Coordinator) {
-		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
+		if vc.sourceReaders == nil {
+			vc.sourceReaders = make(map[protocol.ChainSelector]SourceReader)
 		}
+
 		for chainSelector, reader := range sourceReaders {
-			if reader != nil {
-				vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
-			}
+			vc.sourceReaders[chainSelector] = reader
 		}
 	}
 }
 
 // AddSourceReader adds a single source reader to the existing map.
 func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
-	return func(vc *Coordinator) {
-		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
-		}
-		vc.sourceStates[chainSelector] = newSourceState(chainSelector, sourceReader)
-	}
+	return WithSourceReaders(map[protocol.ChainSelector]SourceReader{chainSelector: sourceReader})
 }
 
 // WithStorage sets the storage writer.
@@ -107,6 +120,7 @@ func WithMonitoring(monitoring common.VerifierMonitoring) Option {
 // NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
+		// TODO: channels should have a buffer of 0 or 1, why is it 1000?
 		ccvDataCh:             make(chan protocol.CCVData, 1000),
 		doneCh:                make(chan struct{}),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
@@ -123,6 +137,27 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	// Validate required components
 	if err := vc.validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
+	}
+
+	// Initialize source states from provided source readers and configuration.
+	if vc.sourceStates == nil {
+		vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
+	}
+	for chainSelector, sourceReader := range vc.sourceReaders {
+		if sourceReader != nil {
+			cfg, ok := vc.config.SourceConfigs[chainSelector]
+			if !ok {
+				return nil, fmt.Errorf("no source config found for chain selector %d", chainSelector)
+			}
+			service := NewSourceReaderService(sourceReader, cfg.VerifierAddress.String(), chainSelector, vc.checkpointManager, vc.lggr)
+			vc.sourceStates[chainSelector] = &sourceState{
+				chainSelector:      chainSelector,
+				reader:             service,
+				verificationTaskCh: service.VerificationTaskChannel(),
+				// TODO: channels should have a buffer of 0 or 1, why is it 100?
+				verificationErrorCh: make(chan VerificationError, 100), // Buffered error channel
+			}
+		}
 	}
 
 	return vc, nil
@@ -359,8 +394,9 @@ func (vc *Coordinator) validate() error {
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
 	appendIfNil(vc.monitoring, "monitoring")
+	appendIfNil(vc.checkpointManager, "checkpointManager")
 
-	if len(vc.sourceStates) == 0 {
+	if len(vc.sourceReaders) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
 	}
 
