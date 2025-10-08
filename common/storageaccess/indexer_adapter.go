@@ -156,3 +156,18 @@ func (i *IndexerAPIReader) ReadMessages(
 	i.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(response.Messages))
 	return response.Messages, nil
 }
+
+func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+	var response MessageIDV1Response
+	err := i.makeRequest(ctx, "/messageid/"+messageID.String(), queryParams{}, &response)
+	if err != nil {
+		return nil, err
+	}
+	if !response.Success {
+		i.lggr.Errorw("Indexer returned error", "error", response.Error)
+		return nil, fmt.Errorf("indexer returned error: %s", response.Error)
+	}
+
+	i.lggr.Debugw("Successfully retrieved VerifierResults", "messageID", messageID, "numberOfResults", len(response.CCVData))
+	return response.CCVData, nil
+}

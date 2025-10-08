@@ -50,34 +50,34 @@ type IndexerStorageStreamer struct {
 	querymu         sync.RWMutex
 }
 
-func (oss *IndexerStorageStreamer) IsRunning() bool {
-	oss.mu.RLock()
-	defer oss.mu.RUnlock()
-	return oss.running
+func (iss *IndexerStorageStreamer) IsRunning() bool {
+	iss.mu.RLock()
+	defer iss.mu.RUnlock()
+	return iss.running
 }
 
-// Start implements the CCVResultStreamer interface.
-func (oss *IndexerStorageStreamer) Start(
+// Start implements the MessageUpdateStreamer interface.
+func (iss *IndexerStorageStreamer) Start(
 	ctx context.Context,
 	lggr logger.Logger,
 	wg *sync.WaitGroup,
 ) (<-chan executor.StreamerResult, error) {
-	if oss.reader == nil {
+	if iss.reader == nil {
 		return nil, errors.New("reader not set")
 	}
 
 	messagesCh := make(chan executor.StreamerResult)
 	wg.Add(1)
-	oss.running = true
+	iss.running = true
 
 	go func() {
 		defer func() {
 			wg.Done()
 			close(messagesCh)
 
-			oss.mu.Lock()
-			oss.running = false
-			oss.mu.Unlock()
+			iss.mu.Lock()
+			iss.running = false
+			iss.mu.Unlock()
 		}()
 		newtime := time.Now().Unix()
 		offset := uint64(0)
@@ -89,17 +89,17 @@ func (oss *IndexerStorageStreamer) Start(
 			default:
 				msgs := make([]executor.MessageWithCCVData, 0)
 				// Non-blocking: call ReadCCVData
-				lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
-				responses, err := oss.reader.ReadVerifierResults(ctx, storageaccess.VerifierResultsRequest{
-					Limit:                oss.queryLimit,
+				lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", iss.lastQueryTime, "end", newtime)
+				responses, err := iss.reader.ReadVerifierResults(ctx, storageaccess.VerifierResultsRequest{
+					Limit:                iss.queryLimit,
 					Offset:               offset,
-					Start:                oss.lastQueryTime,
+					Start:                iss.lastQueryTime,
 					End:                  newtime,
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
 				})
 				if len(responses) != 0 {
-					lggr.Infow("IndexerStorageStreamer found ccv data using query", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
+					lggr.Infow("IndexerStorageStreamer found ccv data using query", "offset", offset, "start", iss.lastQueryTime, "end", newtime)
 				}
 
 				for id, verifierResults := range responses {
@@ -140,17 +140,17 @@ func (oss *IndexerStorageStreamer) Start(
 				case err != nil:
 					// Error occurred: backoff and retry with same parameters
 					lggr.Infow("IndexerStorageStreamer read error", "error", err)
-					waitDuration = oss.backoff
+					waitDuration = iss.backoff
 
-				case uint64(len(responses)) == oss.queryLimit:
+				case uint64(len(responses)) == iss.queryLimit:
 					// Hit query limit: query again immediately with same time range but incremented offset
-					lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
-					offset += oss.queryLimit
+					lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", iss.queryLimit)
+					offset += iss.queryLimit
 					continue // Skip waiting and time updates, query immediately
 
 				default:
 					// Complete result set received: update query window and reset for next polling cycle
-					waitDuration = oss.pollingInterval
+					waitDuration = iss.pollingInterval
 					shouldUpdateQueryWindow = true
 					offset = 0
 				}
@@ -164,9 +164,9 @@ func (oss *IndexerStorageStreamer) Start(
 
 				// Update query window if we completed a full result set
 				if shouldUpdateQueryWindow {
-					oss.querymu.Lock()
-					oss.lastQueryTime = newtime
-					oss.querymu.Unlock()
+					iss.querymu.Lock()
+					iss.lastQueryTime = newtime
+					iss.querymu.Unlock()
 				}
 
 				// Update time for next iteration

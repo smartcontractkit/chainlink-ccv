@@ -9,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -38,11 +37,6 @@ type EvmDestinationReader struct {
 	client           bind.ContractCaller
 	chainSelector    uint64
 	ccvCache         *expirable.LRU[cacheKey, executor.CcvAddressInfo]
-}
-
-func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *protocol.BlockchainInfo, offrampAddress string) *EvmDestinationReader {
-	chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chainInfo, lggr)
-	return NewEvmDestinationReader(lggr, chainSelector, chainClient, offrampAddress)
 }
 
 func NewEvmDestinationReader(lggr logger.Logger, chainSelector uint64, chainClient client.Client, offrampAddress string) *EvmDestinationReader {

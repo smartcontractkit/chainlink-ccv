@@ -13,17 +13,17 @@ import (
 
 func ptr[T any](t T) *T { return &t }
 
-func CreateHealthyMultiNodeClient(ctx context.Context, blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger, chainSelector protocol.ChainSelector) client.Client {
+func CreateHealthyMultiNodeClient(ctx context.Context, lggr logger.Logger, blockchainHelper *protocol.BlockchainHelper, chainSelector protocol.ChainSelector) client.Client {
 	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
 	}
 
-	return CreateMultiNodeClientFromInfo(ctx, blockchainInfo, lggr)
+	return CreateMultiNodeClientFromInfo(ctx, lggr, blockchainInfo)
 }
 
 // CreateMultiNodeClientFromInfo tests the multinode chain client connection and returns the client if it's healthy.
-func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol.BlockchainInfo, lggr logger.Logger) client.Client {
+func CreateMultiNodeClientFromInfo(ctx context.Context, lggr logger.Logger, blockchainInfo *protocol.BlockchainInfo) client.Client {
 	noNewHeadsThreshold := 3 * time.Minute
 	selectionMode := ptr("HighestHead")
 	leaseDuration := 0 * time.Second
