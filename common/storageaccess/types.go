@@ -42,3 +42,9 @@ type MessagesV1Response struct {
 	Error    string                      `json:"error,omitempty"`
 	Success  bool                        `json:"success"`
 }
+
+type MessageIDV1Response struct {
+	Error           string             `json:"error,omitempty"`
+	Success         bool               `json:"success"`
+	VerifierResults []protocol.CCVData `json:"ccvData"`
+}

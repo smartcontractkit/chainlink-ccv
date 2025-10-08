@@ -168,6 +168,6 @@ func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID pro
 		return nil, fmt.Errorf("indexer returned error: %s", response.Error)
 	}
 
-	i.lggr.Debugw("Successfully retrieved VerifierResults", "messageID", messageID, "numberOfResults", len(response.CCVData))
-	return response.CCVData, nil
+	i.lggr.Debugw("Successfully retrieved VerifierResults", "messageID", messageID, "numberOfResults", len(response.VerifierResults))
+	return response.VerifierResults, nil
 }
