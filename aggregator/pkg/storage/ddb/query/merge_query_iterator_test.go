@@ -17,11 +17,11 @@ func avN64(n int64) *types.AttributeValueMemberN {
 	return &types.AttributeValueMemberN{Value: strconv.FormatInt(n, 10)}
 }
 
-func mkItem(id string, tsMillis int64) map[string]types.AttributeValue {
-	return map[string]types.AttributeValue{"id": avS(id), "ts": avN64(tsMillis)}
+func mkItem(id string, timestamp int64) map[string]types.AttributeValue {
+	return map[string]types.AttributeValue{"id": avS(id), "ts": avN64(timestamp)}
 }
 
-func extractTSMillis(item map[string]types.AttributeValue) (time.Time, error) {
+func extractTS(item map[string]types.AttributeValue) (time.Time, error) {
 	n, ok := item["ts"].(*types.AttributeValueMemberN)
 	if !ok {
 		return time.Time{}, errors.New("ts not a number")
@@ -110,7 +110,7 @@ func TestMergeIterator_OrdersByTimestampAscending(t *testing.T) {
 	m := NewMergeIterator(
 		[]ItemIterator{i1, i2, i3},
 		[]string{"shard-a", "shard-b", "shard-c"},
-		extractTSMillis,
+		extractTS,
 		keyFromID, // required for cursors (even if this test doesn't assert them)
 	)
 
@@ -142,7 +142,7 @@ func TestMergeIterator_EqualTimestamps_UsesSecondaryKeyThenStableIndex(t *testin
 	m := NewMergeIterator(
 		[]ItemIterator{it0, it1, it2},
 		[]string{"s0", "s1", "s2"},
-		extractTSMillis,
+		extractTS,
 		keyFromID,
 		extractID, // secondary key
 	)
@@ -170,7 +170,7 @@ func TestMergeIterator_ErrorDuringAdvance_IsDeferred(t *testing.T) {
 	m := NewMergeIterator(
 		[]ItemIterator{bad, ok},
 		[]string{"s0", "s1"},
-		extractTSMillis,
+		extractTS,
 		keyFromID,
 		extractID,
 	)
@@ -196,7 +196,7 @@ func TestMergeIterator_Cursors_PerShardAfterPartialPage(t *testing.T) {
 	m := NewMergeIterator(
 		[]ItemIterator{newStubIter(aItems, nil), newStubIter(bItems, nil)},
 		[]string{"shard-a", "shard-b"},
-		extractTSMillis,
+		extractTS,
 		keyFromID,
 		extractID,
 	)
@@ -228,7 +228,7 @@ func TestMergeIterator_Cursors_OnlyForContributingShards(t *testing.T) {
 	m := NewMergeIterator(
 		[]ItemIterator{newStubIter(aItems, nil), newStubIter(bItems, nil)},
 		[]string{"shard-a", "shard-b"},
-		extractTSMillis,
+		extractTS,
 		keyFromID,
 		extractID,
 	)
@@ -259,7 +259,7 @@ func TestMergeIterator_Cursors_EnableResumeWithoutDuplicates(t *testing.T) {
 	m1 := NewMergeIterator(
 		[]ItemIterator{newStubIter(aItems, nil), newStubIter(bItems, nil)},
 		[]string{"shard-a", "shard-b"},
-		extractTSMillis,
+		extractTS,
 		keyFromID,
 		extractID,
 	)
@@ -282,7 +282,7 @@ func TestMergeIterator_Cursors_EnableResumeWithoutDuplicates(t *testing.T) {
 	m2 := NewMergeIterator(
 		[]ItemIterator{newStubIter(aAfter, nil), newStubIter(bAfter, nil)},
 		[]string{"shard-a", "shard-b"},
-		extractTSMillis,
+		extractTS,
 		keyFromID,
 		extractID,
 	)
