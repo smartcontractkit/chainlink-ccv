@@ -24,8 +24,8 @@ type PostgresStorage struct {
 	mu         sync.RWMutex
 }
 
-func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri string, config pg.DBConfig) (*PostgresStorage, error) {
-	ds, err := config.New(ctx, uri, pg.DriverInMemoryPostgres)
+func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig) (*PostgresStorage, error) {
+	ds, err := config.New(ctx, uri, driverName)
 	if err != nil {
 		lggr.Errorw("Failed to create database", "error", err)
 		return nil, err
