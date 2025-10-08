@@ -3,14 +3,13 @@ package ccvstreamer
 import (
 	"context"
 	"errors"
-	"fmt"
-	"golang.org/x/exp/maps"
 	"sync"
 	"time"
 
+	"golang.org/x/exp/maps"
+
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -18,7 +17,7 @@ import (
 var _ executor.MessageSubscriber = &IndexerStorageStreamer{}
 
 type IndexerStorageConfig struct {
-	IndexerClient   *storageaccess.IndexerAPIReader
+	IndexerClient   executor.MessageReader
 	LastQueryTime   int64
 	PollingInterval time.Duration
 	Backoff         time.Duration
@@ -29,7 +28,6 @@ func NewIndexerStorageStreamer(
 	lggr logger.Logger,
 	indexerConfig IndexerStorageConfig,
 ) *IndexerStorageStreamer {
-
 	return &IndexerStorageStreamer{
 		reader:          indexerConfig.IndexerClient,
 		lggr:            lggr,
@@ -41,7 +39,7 @@ func NewIndexerStorageStreamer(
 }
 
 type IndexerStorageStreamer struct {
-	reader          *storageaccess.IndexerAPIReader
+	reader          executor.MessageReader
 	lggr            logger.Logger
 	lastQueryTime   int64
 	pollingInterval time.Duration
@@ -157,24 +155,4 @@ func (oss *IndexerStorageStreamer) Start(
 	}()
 
 	return messagesCh, nil
-}
-
-func validateVerifierResults(results []protocol.CCVData) error {
-	messageIDs := make(map[protocol.Bytes32]struct{}, 0)
-	generatedIDs := make(map[protocol.Bytes32]struct{}, 0)
-	for _, res := range results {
-		messageIDs[res.MessageID] = struct{}{}
-		genID, err := res.Message.MessageID()
-		if err != nil {
-			return fmt.Errorf("invalid generated messageId")
-		}
-		generatedIDs[genID] = struct{}{}
-	}
-	if len(messageIDs) != 1 {
-		return fmt.Errorf("verifier results contain multiple message IDs")
-	}
-	if len(generatedIDs) != 1 {
-		return fmt.Errorf("verifier results contain multiple generated message IDs")
-	}
-	return nil
 }

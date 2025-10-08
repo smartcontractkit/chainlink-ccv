@@ -44,6 +44,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		ctChains                   []protocol.ChainSelector
 		dr                         *mockDestinationReader
 		drChains                   []protocol.ChainSelector
+		vr                         *executor_mocks.MockVerifierResultReader
 		msg                        coordinator.MessageWithCCVData
 		validateShouldError        bool
 		validateMessageShouldError bool
@@ -55,6 +56,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			ctChains:                   []protocol.ChainSelector{1, 2},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1, 2},
+			vr:                         &executor_mocks.MockVerifierResultReader{},
 			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        false,
 			validateMessageShouldError: false,
@@ -66,6 +68,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1, 2},
+			vr:                         &executor_mocks.MockVerifierResultReader{},
 			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        true,
 			validateMessageShouldError: false,
@@ -81,6 +84,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{},
 			drChains:                   []protocol.ChainSelector{1},
+			vr:                         &executor_mocks.MockVerifierResultReader{},
 			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        false,
 			validateMessageShouldError: false,
@@ -92,6 +96,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			ctChains:                   []protocol.ChainSelector{1},
 			dr:                         &mockDestinationReader{executed: true, executedErr: nil},
 			drChains:                   []protocol.ChainSelector{1},
+			vr:                         &executor_mocks.MockVerifierResultReader{},
 			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        false,
 			validateMessageShouldError: false,
@@ -111,7 +116,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			for _, chain := range tc.drChains {
 				allDestinationReaders[chain] = tc.dr
 			}
-			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders)
+			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, tc.vr)
 			err := executor.Validate()
 			if tc.validateShouldError {
 				assert.Error(t, err)
@@ -119,7 +124,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			err = executor.CheckValidMessage(context.Background(), tc.msg)
+			err = executor.CheckValidMessage(context.Background(), tc.msg.Message)
 			if tc.validateMessageShouldError {
 				assert.Error(t, err)
 				return
@@ -127,7 +132,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			err = executor.ExecuteMessage(context.Background(), tc.msg)
+			err = executor.AttemptExecuteMessage(context.Background(), tc.msg.Message)
 			if tc.executeShouldError {
 				assert.Error(t, err)
 			} else {
@@ -138,7 +143,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 }
 
 func TestChainlinkExecutor_orderCcvData(t *testing.T) {
-	executor := NewChainlinkExecutor(nil, nil, nil)
+	executor := NewChainlinkExecutor(nil, nil, nil, nil)
 	ccvAddr := protocol.UnknownAddress{}
 	ccvData := []protocol.CCVData{{DestVerifierAddress: ccvAddr, CCVData: []byte("data")}}
 	ccvInfo := coordinator.CcvAddressInfo{

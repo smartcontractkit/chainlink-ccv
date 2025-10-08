@@ -12,3 +12,4 @@ packages:
             LeaderElector:
             DestinationReader:
             VerifierResultReader:
+            MessageReader:

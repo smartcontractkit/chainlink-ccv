@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"os"
 	"os/signal"
 	"strconv"
@@ -15,6 +13,8 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
@@ -117,6 +117,7 @@ func main() {
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
 	}
 
+	// create indexer client which implements MessageReader and VerifierResultReader
 	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
 
 	// create executor

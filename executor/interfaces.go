@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -13,7 +14,7 @@ type StreamerResult struct {
 	Messages []protocol.Message
 }
 
-// MessageSubscriber produces a channel of Messages objects that have new verifications
+// MessageSubscriber produces a channel of Messages objects that have new verifications.
 type MessageSubscriber interface {
 	// Start a streamer as a background process, it should send data to the
 	// message channel as it becomes available.
@@ -26,6 +27,13 @@ type MessageSubscriber interface {
 	IsRunning() bool
 }
 
+// MessageReader reads messages from a storage backend based on query parameters. It is implemented by the IndexerAPI.
+type MessageReader interface {
+	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
+	ReadMessages(ctx context.Context, queryData storageaccess.MessagesV1Request) (map[string]protocol.Message, error)
+}
+
+// VerifierResultReader reads verifier results from a storage backend based on messageID. It is implemented by the IndexerAPI.
 type VerifierResultReader interface {
 	// GetVerifierResults returns all verifierResults for a given messageID
 	GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error)

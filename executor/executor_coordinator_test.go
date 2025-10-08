@@ -141,16 +141,16 @@ func TestSubscribeMessagesError(t *testing.T) {
 	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
 
 	// Generate an error when SubscribeMessages() is called during Start().
-	ccvDataReader := executor_mocks.NewMockMessageSubscriber(t)
+	messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
 	messageChan := make(chan executor.StreamerResult)
 	sentinelError := fmt.Errorf("lilo & stitch")
-	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, sentinelError)
+	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, sentinelError)
 
 	ec, err := executor.NewCoordinator(
 		executor.WithLogger(lggr),
 		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
 		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-		executor.WithMessageSubscriber(executor_mocks.NewMockMessageSubscriber(t)),
+		executor.WithMessageSubscriber(messageSubscriber),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)

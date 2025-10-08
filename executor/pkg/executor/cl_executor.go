@@ -3,8 +3,9 @@ package executor
 import (
 	"context"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -76,9 +77,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		if err != nil {
 			return fmt.Errorf("failed to get CCV data for message: %w", err)
 		}
-		for _, r := range res {
-			ccvData = append(ccvData, r)
-		}
+		ccvData = append(ccvData, res...)
 		return nil
 	})
 

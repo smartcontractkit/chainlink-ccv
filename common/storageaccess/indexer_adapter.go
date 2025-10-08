@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var _ IndexerAPI = (*IndexerAPIReader)(nil)
+var _ IndexerAPI = &IndexerAPIReader{}
 
 type IndexerAPIReader struct {
 	httpClient *http.Client
@@ -164,7 +165,6 @@ func (i *IndexerAPIReader) ReadMessages(
 func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
 	var response MessageIDV1Response
 	request := "/v1/messageid/0x" + common.Bytes2Hex(messageID[:])
-	fmt.Println("requesturi: ", request)
 	err := i.makeRequest(ctx, request, queryParams{}, &response)
 	if err != nil {
 		return nil, err

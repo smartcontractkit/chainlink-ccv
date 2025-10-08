@@ -15,24 +15,25 @@ import (
 )
 
 func TestNoReader(t *testing.T) {
-	oss := ccvstreamer.NewIndexerStorageStreamer(nil, ccvstreamer.IndexerStorageConfig{})
+	lggr := logger.Test(t)
+	oss := ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{})
 	require.NotNil(t, oss)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	var wg sync.WaitGroup
-	lggr := logger.Test(t)
-	_, err := oss.Start(ctx, lggr, &wg)
+	_, err := oss.Start(ctx, &wg)
 
 	require.ErrorContains(t, err, "reader not set")
 }
 
 func TestOffchainStorageStreamerLifecycle(t *testing.T) {
-	reader := executor_mocks.NewMockOffchainStorageReader(t)
-	reader.EXPECT().ReadCCVData(mock.Anything).Return(nil, nil)
-	oss := ccvstreamer.NewIndexerStorageStreamer(nil, ccvstreamer.IndexerStorageConfig{
-		IndexerURI:      "/",
+	lggr := logger.Test(t)
+	reader := executor_mocks.MockMessageReader{}
+	reader.EXPECT().ReadMessages(mock.Anything, mock.Anything).Return(nil, nil)
+	oss := ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{
+		IndexerClient:   &reader,
 		PollingInterval: 150 * time.Millisecond,
 	})
 	require.NotNil(t, oss)
@@ -41,8 +42,7 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	lggr := logger.Test(t)
-	_, err := oss.Start(ctx, lggr, &wg)
+	_, err := oss.Start(ctx, &wg)
 
 	require.NoError(t, err)
 	require.True(t, oss.IsRunning())

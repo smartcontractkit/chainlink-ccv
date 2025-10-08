@@ -2,6 +2,7 @@ package executor
 
 import (
 	"container/heap"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
