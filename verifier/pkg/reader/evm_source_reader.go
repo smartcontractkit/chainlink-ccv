@@ -26,7 +26,7 @@ const (
 	CheckpointBufferBlocks = 20
 
 	// CheckpointInterval is how often to write checkpoints.
-	CheckpointInterval = 30 * time.Second
+	CheckpointInterval = 300 * time.Second
 
 	// StartupLookbackHours when no checkpoint exists.
 	StartupLookbackHours = 8
