@@ -28,13 +28,13 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 	committeeID := LoadCommitteeIDFromContext(ctx)
 
 	h.logger(ctx).Tracef("Received GetMessagesSinceRequest")
-	storage, err := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix(), committeeID)
+	storage, err := h.storage.QueryAggregatedReports(ctx, req.Since, time.Now().Unix(), committeeID, &req.NextToken)
 	if err != nil {
 		return nil, err
 	}
 
-	records := make([]*pb.MessageWithCCVData, 0, len(storage))
-	for _, report := range storage {
+	records := make([]*pb.MessageWithCCVData, 0, len(storage.Reports))
+	for _, report := range storage.Reports {
 		ccvData, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
 		if err != nil {
 			return nil, err
@@ -44,6 +44,13 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 
 	h.m.Metrics().RecordMessageSinceNumberOfRecordsReturned(ctx, len(records))
 	h.logger(ctx).Tracef("Returning %d records for GetMessagesSinceRequest", len(records))
+
+	if storage.NextPageToken != nil {
+		return &pb.GetMessagesSinceResponse{
+			Results:   records,
+			NextToken: *storage.NextPageToken,
+		}, nil
+	}
 
 	return &pb.GetMessagesSinceResponse{
 		Results: records,

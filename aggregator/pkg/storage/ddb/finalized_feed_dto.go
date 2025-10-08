@@ -11,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -36,9 +37,7 @@ type FinalizedReport struct {
 	Verifications     []FinalizedVerification `json:"verifications"`
 }
 
-type FinalizedFeedDTO struct{}
-
-func (dto *FinalizedFeedDTO) ToItem(report *model.CommitAggregatedReport) (map[string]types.AttributeValue, error) {
+func CommitAggregatedReportToItem(report *model.CommitAggregatedReport, shard string) (map[string]types.AttributeValue, error) {
 	if report == nil {
 		return nil, errors.New("report cannot be nil")
 	}
@@ -46,7 +45,7 @@ func (dto *FinalizedFeedDTO) ToItem(report *model.CommitAggregatedReport) (map[s
 		return nil, errors.New("report must contain at least one verification")
 	}
 
-	aggregatedReportObject, err := dto.CreateFinalizedReport(report)
+	aggregatedReportObject, err := createFinalizedReport(report)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create finalized aggregated report: %w", err)
 	}
@@ -59,32 +58,32 @@ func (dto *FinalizedFeedDTO) ToItem(report *model.CommitAggregatedReport) (map[s
 	pk := BuildFinalizedFeedPartitionKey(report.CommitteeID, report.MessageID)
 	sk := BuildFinalizedFeedSortKey(finalizedAt)
 
-	gsiPK := BuildGSIPartitionKey(day, report.CommitteeID, FinalizedFeedVersion, FinalizedFeedShard)
+	gsiPK := BuildGSIPartitionKey(day, report.CommitteeID, ddbconstant.FinalizedFeedVersion, shard)
 	gsiSK := BuildGSISortKey(finalizedAt, verificationCount, hex.EncodeToString(report.MessageID))
 
 	item := map[string]types.AttributeValue{
-		FinalizedFeedFieldCommitteeIDMessageID: &types.AttributeValueMemberS{
+		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID: &types.AttributeValueMemberS{
 			Value: pk,
 		},
-		FinalizedFeedFieldFinalizedAt: &types.AttributeValueMemberN{
+		ddbconstant.FinalizedFeedFieldFinalizedAt: &types.AttributeValueMemberN{
 			Value: sk,
 		},
-		FinalizedFeedFieldGSIPK: &types.AttributeValueMemberS{
+		ddbconstant.FinalizedFeedFieldGSIPK: &types.AttributeValueMemberS{
 			Value: gsiPK,
 		},
-		FinalizedFeedFieldGSISK: &types.AttributeValueMemberS{
+		ddbconstant.FinalizedFeedFieldGSISK: &types.AttributeValueMemberS{
 			Value: gsiSK,
 		},
-		FinalizedFeedFieldMessageID: &types.AttributeValueMemberS{
+		ddbconstant.FinalizedFeedFieldMessageID: &types.AttributeValueMemberS{
 			Value: hex.EncodeToString(report.MessageID),
 		},
-		FinalizedFeedFieldCommitteeID: &types.AttributeValueMemberS{
+		ddbconstant.FinalizedFeedFieldCommitteeID: &types.AttributeValueMemberS{
 			Value: report.CommitteeID,
 		},
-		FinalizedFeedFieldAggregatedReportData: &types.AttributeValueMemberM{
-			Value: dto.finalizedReportToAttributeMap(aggregatedReportObject),
+		ddbconstant.FinalizedFeedFieldAggregatedReportData: &types.AttributeValueMemberM{
+			Value: finalizedReportToAttributeMap(aggregatedReportObject),
 		},
-		FinalizedFeedFieldTimestamp: &types.AttributeValueMemberN{
+		ddbconstant.FinalizedFeedFieldTimestamp: &types.AttributeValueMemberN{
 			Value: strconv.FormatInt(report.Timestamp, 10),
 		},
 	}
@@ -92,29 +91,29 @@ func (dto *FinalizedFeedDTO) ToItem(report *model.CommitAggregatedReport) (map[s
 	return item, nil
 }
 
-func (dto *FinalizedFeedDTO) FromItem(item map[string]types.AttributeValue) (*model.CommitAggregatedReport, error) {
+func CommitAggregatedReportFromItem(item map[string]types.AttributeValue) (*model.CommitAggregatedReport, error) {
 	if item == nil {
 		return nil, errors.New("item cannot be nil")
 	}
 
-	messageIDValue, ok := item[FinalizedFeedFieldMessageID].(*types.AttributeValueMemberS)
+	messageIDValue, ok := item[ddbconstant.FinalizedFeedFieldMessageID].(*types.AttributeValueMemberS)
 	if !ok {
-		return nil, fmt.Errorf("%s attribute is missing or not a string", FinalizedFeedFieldMessageID)
+		return nil, fmt.Errorf("%s attribute is missing or not a string", ddbconstant.FinalizedFeedFieldMessageID)
 	}
 
-	committeeIDValue, ok := item[FinalizedFeedFieldCommitteeID].(*types.AttributeValueMemberS)
+	committeeIDValue, ok := item[ddbconstant.FinalizedFeedFieldCommitteeID].(*types.AttributeValueMemberS)
 	if !ok {
-		return nil, fmt.Errorf("%s attribute is missing or not a string", FinalizedFeedFieldCommitteeID)
+		return nil, fmt.Errorf("%s attribute is missing or not a string", ddbconstant.FinalizedFeedFieldCommitteeID)
 	}
 
-	timestampValue, ok := item[FinalizedFeedFieldTimestamp].(*types.AttributeValueMemberN)
+	timestampValue, ok := item[ddbconstant.FinalizedFeedFieldTimestamp].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("%s attribute is missing or not a number", FinalizedFeedFieldTimestamp)
+		return nil, fmt.Errorf("%s attribute is missing or not a number", ddbconstant.FinalizedFeedFieldTimestamp)
 	}
 
-	aggregatedReportDataValue, ok := item[FinalizedFeedFieldAggregatedReportData].(*types.AttributeValueMemberM)
+	aggregatedReportDataValue, ok := item[ddbconstant.FinalizedFeedFieldAggregatedReportData].(*types.AttributeValueMemberM)
 	if !ok {
-		return nil, fmt.Errorf("%s attribute is missing or not a map", FinalizedFeedFieldAggregatedReportData)
+		return nil, fmt.Errorf("%s attribute is missing or not a map", ddbconstant.FinalizedFeedFieldAggregatedReportData)
 	}
 
 	messageID, err := hex.DecodeString(messageIDValue.Value)
@@ -127,12 +126,12 @@ func (dto *FinalizedFeedDTO) FromItem(item map[string]types.AttributeValue) (*mo
 		return nil, fmt.Errorf("failed to parse timestamp: %w", err)
 	}
 
-	finalizedReport, err := dto.attributeMapToFinalizedReport(aggregatedReportDataValue.Value)
+	finalizedReport, err := attributeMapToFinalizedReport(aggregatedReportDataValue.Value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert nested object to finalized report: %w", err)
 	}
 
-	report, err := dto.reconstructReport(finalizedReport, messageID, committeeIDValue.Value, timestamp)
+	report, err := reconstructReport(finalizedReport, messageID, committeeIDValue.Value, timestamp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconstruct report from finalized data: %w", err)
 	}
@@ -140,7 +139,7 @@ func (dto *FinalizedFeedDTO) FromItem(item map[string]types.AttributeValue) (*mo
 	return report, nil
 }
 
-func (dto *FinalizedFeedDTO) CreateFinalizedReport(report *model.CommitAggregatedReport) (*FinalizedReport, error) {
+func createFinalizedReport(report *model.CommitAggregatedReport) (*FinalizedReport, error) {
 	if len(report.Verifications) == 0 {
 		return nil, fmt.Errorf("report must contain at least one verification")
 	}
@@ -198,7 +197,7 @@ func (dto *FinalizedFeedDTO) CreateFinalizedReport(report *model.CommitAggregate
 	return finalized, nil
 }
 
-func (dto *FinalizedFeedDTO) finalizedReportToAttributeMap(report *FinalizedReport) map[string]types.AttributeValue {
+func finalizedReportToAttributeMap(report *FinalizedReport) map[string]types.AttributeValue {
 	sharedMessageMap := map[string]types.AttributeValue{
 		"message_id":              &types.AttributeValueMemberB{Value: report.SharedMessageData.MessageID},
 		"source_verifier_address": &types.AttributeValueMemberB{Value: report.SharedMessageData.SourceVerifierAddress},
@@ -234,7 +233,7 @@ func (dto *FinalizedFeedDTO) finalizedReportToAttributeMap(report *FinalizedRepo
 	}
 }
 
-func (dto *FinalizedFeedDTO) attributeMapToFinalizedReport(attrMap map[string]types.AttributeValue) (*FinalizedReport, error) {
+func attributeMapToFinalizedReport(attrMap map[string]types.AttributeValue) (*FinalizedReport, error) {
 	sharedMessageAttr, ok := attrMap["shared_message_data"].(*types.AttributeValueMemberM)
 	if !ok {
 		return nil, fmt.Errorf("shared_message_data is missing or not a map")
@@ -340,7 +339,7 @@ func (dto *FinalizedFeedDTO) attributeMapToFinalizedReport(attrMap map[string]ty
 	}, nil
 }
 
-func (dto *FinalizedFeedDTO) reconstructReport(finalizedReport *FinalizedReport, messageID []byte, committeeID string, timestamp int64) (*model.CommitAggregatedReport, error) {
+func reconstructReport(finalizedReport *FinalizedReport, messageID []byte, committeeID string, timestamp int64) (*model.CommitAggregatedReport, error) {
 	report := &model.CommitAggregatedReport{
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
