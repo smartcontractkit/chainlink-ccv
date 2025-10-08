@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func createTestEVMSourceReader(t *testing.T, checkpointManager protocol.CheckpointManager) *EVMSourceReader {
+func createTestEVMSourceReader(t *testing.T, checkpointManager protocol.CheckpointManager) *SourceReaderService {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
