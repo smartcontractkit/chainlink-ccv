@@ -20,7 +20,7 @@ const (
 	CheckpointBufferBlocks = 20
 
 	// CheckpointInterval is how often to write checkpoints.
-	CheckpointInterval = 30 * time.Second
+	CheckpointInterval = 300 * time.Second
 
 	// StartupLookbackHours when no checkpoint exists.
 	StartupLookbackHours = 8
@@ -53,14 +53,12 @@ type SourceReaderService struct {
 // NewEVMSourceReader creates a new blockchain-based source reader.
 func NewSourceReaderService(
 	sourceReader SourceReader,
-	contractAddress string,
 	chainSelector protocol.ChainSelector,
 	checkpointManager protocol.CheckpointManager,
 	logger logger.Logger,
 ) *SourceReaderService {
 	return &SourceReaderService{
 		sourceReader:         sourceReader,
-		contractAddress:      contractAddress,
 		logger:               logger,
 		verificationTaskCh:   make(chan VerificationTask, 1),
 		stopCh:               make(chan struct{}),
@@ -391,7 +389,6 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 		r.logger.Infow("Initialized start block", "block", startBlock.String())
 	}
 
-	contractAddr := common.HexToAddress(r.contractAddress)
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 
@@ -410,13 +407,13 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 			return
 
 		case <-ticker.C:
-			r.processEventCycle(ctx, contractAddr)
+			r.processEventCycle(ctx)
 		}
 	}
 }
 
 // processEventCycle processes a single cycle of event monitoring.
-func (r *SourceReaderService) processEventCycle(ctx context.Context, contractAddr common.Address) {
+func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	// Check client connectivity
 	/*
 		if r.sourceReader == nil || len(r.chainClient.NodeStates()) == 0 {

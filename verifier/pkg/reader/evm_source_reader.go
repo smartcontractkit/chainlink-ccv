@@ -3,6 +3,7 @@ package reader
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -25,16 +26,50 @@ type EVMSourceReader struct {
 	lggr                 logger.Logger
 }
 
-// LatestBlock returns the latest block height from the chain client.
-func (r *EVMSourceReader) LatestBlock(ctx context.Context) (*big.Int, error) {
+func NewEVMSourceReader(chainClient client.Client, contractAddress common.Address, ccipMessageSentTopic string, chainSelector protocol.ChainSelector, lggr logger.Logger) (verifiertypes.SourceReader, error) {
+	var errs []error
+	appendIfNil := func(field any, fieldName string) {
+		if field == nil {
+			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
+		}
+	}
+
+	appendIfNil(chainClient, "chainClient")
+	appendIfNil(lggr, "logger")
+
+	if contractAddress == (common.Address{}) {
+		errs = append(errs, fmt.Errorf("contractAddress is not set"))
+	}
+	if ccipMessageSentTopic == "" {
+		errs = append(errs, fmt.Errorf("ccipMessageSentTopic is not set"))
+	}
+	if chainSelector == 0 {
+		errs = append(errs, fmt.Errorf("chainSelector is not set"))
+	}
+
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+
+	return &EVMSourceReader{
+		chainClient:          chainClient,
+		contractAddress:      contractAddress,
+		ccipMessageSentTopic: ccipMessageSentTopic,
+		chainSelector:        chainSelector,
+		lggr:                 lggr,
+	}, nil
+}
+
+// LatestBlockHeight returns the latest block height from the chain client.
+func (r *EVMSourceReader) LatestBlockHeight(ctx context.Context) (*big.Int, error) {
 	if r.chainClient == nil {
 		return nil, fmt.Errorf("chain client not configured")
 	}
 	return r.chainClient.LatestBlockHeight(ctx)
 }
 
-// LatestFinalizedBlock returns the latest finalized block height from the chain client.
-func (r *EVMSourceReader) LatestFinalizedBlock(ctx context.Context) (*big.Int, error) {
+// LatestFinalizedBlockHeight returns the latest finalized block height from the chain client.
+func (r *EVMSourceReader) LatestFinalizedBlockHeight(ctx context.Context) (*big.Int, error) {
 	if r.chainClient == nil {
 		return nil, fmt.Errorf("chain client not configured")
 	}

@@ -57,8 +57,8 @@ func WithVerifier(verifier Verifier) Option {
 	}
 }
 
-// WithCheckpointManagers sets the checkpoint manager.
-func WithCheckpointManagers(manager protocol.CheckpointManager) Option {
+// WithCheckpointManager sets the checkpoint manager.
+func WithCheckpointManager(manager protocol.CheckpointManager) Option {
 	return func(vc *Coordinator) {
 		vc.checkpointManager = manager
 	}
@@ -149,7 +149,7 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 			if !ok {
 				return nil, fmt.Errorf("no source config found for chain selector %d", chainSelector)
 			}
-			service := NewSourceReaderService(sourceReader, cfg.VerifierAddress.String(), chainSelector, vc.checkpointManager, vc.lggr)
+			service := NewSourceReaderService(sourceReader, chainSelector, vc.checkpointManager, vc.lggr)
 			vc.sourceStates[chainSelector] = &sourceState{
 				chainSelector:      chainSelector,
 				reader:             service,

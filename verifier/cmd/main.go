@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -183,7 +185,12 @@ func main() {
 			continue
 		}
 
-		sourceReaders[selector] = reader.NewEVMSourceReader(chainClients[selector], config.CcvProxyAddresses[strSelector], selector, checkpointManager, lggr)
+		sourceReaders[selector], err = reader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.CcvProxyAddresses[strSelector]), ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(), selector, lggr)
+		if err != nil {
+			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
+			continue
+		}
+		//sourceReaders[selector] = verifier.NewSourceReaderService(emvSourceReader, selector, checkpointManager, lggr)
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
 
@@ -245,6 +252,7 @@ func main() {
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithCheckpointManager(checkpointManager),
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),

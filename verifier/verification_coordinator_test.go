@@ -192,7 +192,7 @@ func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
 		}
 	})
 
-	// Add missing LatestBlock expectation to prevent timeout
+	// Add missing LatestBlockHeight expectation to prevent timeout
 	mockReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(1000), nil).Maybe()
 	mockReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).Return(big.NewInt(950), nil).Maybe()
 
