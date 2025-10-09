@@ -5,10 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -24,7 +24,7 @@ type Coordinator struct {
 	executableMessageCh chan MessageWithCCVData
 	doneCh              chan struct{}
 	cancel              context.CancelFunc
-	delayedMessageHeap  *message_heap.messageHeap
+	delayedMessageHeap  *message_heap.MessageHeap
 	mu                  sync.RWMutex
 	running             bool
 }
@@ -82,7 +82,7 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 	ec.running = true
 	ctx, cancel := context.WithCancel(ctx)
 	ec.cancel = cancel
-	ec.delayedMessageHeap = &message_heap.messageHeap{}
+	ec.delayedMessageHeap = &message_heap.MessageHeap{}
 	heap.Init(ec.delayedMessageHeap)
 
 	go ec.run(ctx)
@@ -166,7 +166,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 				// get message delay from leader elector
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg, time.Now().Unix())
 
-				heap.Push(ec.delayedMessageHeap, &message_heap.messageWithTimestamp{
+				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamp{
 					Payload:   &msg,
 					ReadyTime: readyTimestamp,
 				})
