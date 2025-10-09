@@ -54,8 +54,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message protocol.Message) error {
 	destinationChain := message.DestChainSelector
 
-	g := errgroup.Group{}
-	alreadyExecuted := false
+	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 			ctx,
@@ -66,8 +65,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		}
 		if messageExecuted {
 			cle.lggr.Infof("message %d already executed on chain %d, skipping...", message.Nonce, destinationChain)
-			alreadyExecuted = true
-			return fmt.Errorf("message already executed on destination chain %d", destinationChain)
+			return executor.ErrMsgAlreadyExecuted
 		}
 		return nil
 	})
@@ -96,7 +94,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return nil
 	})
 
-	if err := g.Wait(); err != nil && !alreadyExecuted {
+	if err := g.Wait(); err != nil {
 		return err
 	}
 
@@ -129,7 +127,7 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverD
 	for _, ccvAddress := range receiverDefinedCcvs.RequiredCcvs {
 		strAddr := strings.ToLower(string(ccvAddress))
 		if _, ok := mappedCcvData[strAddr]; !ok {
-			return nil, nil, fmt.Errorf("required CCV Offramp %s did not have an attestation", strAddr)
+			return nil, nil, executor.ErrInsufficientVerifiers
 		}
 		orderedCcvData = append(orderedCcvData, mappedCcvData[strAddr])
 		orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
@@ -145,7 +143,7 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverD
 	// check if we have enough optional CCVs. If any required CCVs were missing
 	// we would have already returned error above
 	if len(orderedCcvData)-len(receiverDefinedCcvs.RequiredCcvs) < int(receiverDefinedCcvs.OptionalThreshold) {
-		return nil, nil, fmt.Errorf("optional CCV Offramps did not meet threshold")
+		return nil, nil, executor.ErrInsufficientVerifiers
 	}
 	return orderedCcvOfframps, orderedCcvData, nil
 }

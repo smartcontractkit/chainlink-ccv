@@ -180,7 +180,13 @@ func (ec *Coordinator) run(ctx context.Context) {
 					id, _ := message.MessageID() // can we make this less bad?
 					ec.lggr.Infow("processing message with ID", "messageID", id)
 					err := ec.executor.AttemptExecuteMessage(ctx, message)
-					if err != nil {
+					if errors.Is(err, ErrMsgAlreadyExecuted) {
+						ec.lggr.Infow("message already executed, skipping", "messageID", id)
+						return
+					} else if errors.Is(err, ErrInsufficientVerifiers) {
+						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id)
+						return
+					} else if err != nil {
 						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
 					}
 				}()

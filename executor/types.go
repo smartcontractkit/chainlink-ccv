@@ -1,7 +1,14 @@
 package executor
 
 import (
+	"fmt"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+)
+
+var (
+	ErrMsgAlreadyExecuted    = fmt.Errorf("message already executed")
+	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
 )
 
 type AbstractAggregatedReport struct {
