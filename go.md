@@ -2,6 +2,8 @@
 ```mermaid
 flowchart LR
 
+	ccip-owner-contracts
+	click ccip-owner-contracts href "https://github.com/smartcontractkit/ccip-owner-contracts"
 	chain-selectors
 	click chain-selectors href "https://github.com/smartcontractkit/chain-selectors"
 	chainlink-aptos --> chainlink-common
@@ -21,7 +23,11 @@ flowchart LR
 	chainlink-ccv/aggregator --> chainlink-common
 	chainlink-ccv/aggregator --> chainlink-protos/chainlink-ccv/go
 	click chainlink-ccv/aggregator href "https://github.com/smartcontractkit/chainlink-ccv"
+	chainlink-ccv/cciptestinterfaces --> chainlink-ccv/protocol
+	chainlink-ccv/cciptestinterfaces --> chainlink-deployments-framework
+	click chainlink-ccv/cciptestinterfaces href "https://github.com/smartcontractkit/chainlink-ccv"
 	chainlink-ccv/ccv-evm --> chainlink-ccip/chains/evm/deployment
+	chainlink-ccv/ccv-evm --> chainlink-ccv/cciptestinterfaces
 	chainlink-ccv/ccv-evm --> chainlink-ccv/common
 	click chainlink-ccv/ccv-evm href "https://github.com/smartcontractkit/chainlink-ccv"
 	chainlink-ccv/common --> chainlink-ccv/protocol
@@ -56,8 +62,9 @@ flowchart LR
 	click chainlink-common/pkg/chipingress href "https://github.com/smartcontractkit/chainlink-common"
 	chainlink-common/pkg/values
 	click chainlink-common/pkg/values href "https://github.com/smartcontractkit/chainlink-common"
-	chainlink-deployments-framework --> chainlink-protos/chainlink-catalog
+	chainlink-deployments-framework --> ccip-owner-contracts
 	chainlink-deployments-framework --> chainlink-protos/job-distributor
+	chainlink-deployments-framework --> chainlink-protos/op-catalog
 	chainlink-deployments-framework --> chainlink-testing-framework/seth
 	chainlink-deployments-framework --> chainlink-tron/relayer
 	chainlink-deployments-framework --> mcms
@@ -80,14 +87,14 @@ flowchart LR
 	click chainlink-framework/multinode href "https://github.com/smartcontractkit/chainlink-framework"
 	chainlink-protos/billing/go
 	click chainlink-protos/billing/go href "https://github.com/smartcontractkit/chainlink-protos"
-	chainlink-protos/chainlink-catalog
-	click chainlink-protos/chainlink-catalog href "https://github.com/smartcontractkit/chainlink-protos"
 	chainlink-protos/chainlink-ccv/go
 	click chainlink-protos/chainlink-ccv/go href "https://github.com/smartcontractkit/chainlink-protos"
 	chainlink-protos/cre/go
 	click chainlink-protos/cre/go href "https://github.com/smartcontractkit/chainlink-protos"
 	chainlink-protos/job-distributor
 	click chainlink-protos/job-distributor href "https://github.com/smartcontractkit/chainlink-protos"
+	chainlink-protos/op-catalog
+	click chainlink-protos/op-catalog href "https://github.com/smartcontractkit/chainlink-protos"
 	chainlink-protos/rmn/v1.6/go
 	click chainlink-protos/rmn/v1.6/go href "https://github.com/smartcontractkit/chainlink-protos"
 	chainlink-protos/storage-service
@@ -139,6 +146,7 @@ flowchart LR
 
 	subgraph chainlink-ccv-repo[chainlink-ccv]
 		 chainlink-ccv/aggregator
+		 chainlink-ccv/cciptestinterfaces
 		 chainlink-ccv/ccv-evm
 		 chainlink-ccv/common
 		 chainlink-ccv/devenv
@@ -172,10 +180,10 @@ flowchart LR
 
 	subgraph chainlink-protos-repo[chainlink-protos]
 		 chainlink-protos/billing/go
-		 chainlink-protos/chainlink-catalog
 		 chainlink-protos/chainlink-ccv/go
 		 chainlink-protos/cre/go
 		 chainlink-protos/job-distributor
+		 chainlink-protos/op-catalog
 		 chainlink-protos/rmn/v1.6/go
 		 chainlink-protos/storage-service
 		 chainlink-protos/svr
