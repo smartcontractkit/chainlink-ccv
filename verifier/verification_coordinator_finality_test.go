@@ -106,8 +106,8 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	// Send message
 	setup.verificationTaskCh <- finalizedTask
-	// Wait for processing
-	time.Sleep(20 * time.Millisecond)
+	// Wait for processing (poll interval is 100ms, add some buffer)
+	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the finalized message
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
@@ -141,6 +141,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	// Send message
 	setup.verificationTaskCh <- readyTask
+	// Wait for processing (poll interval is 100ms, add some buffer)
 	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the ready message
@@ -175,10 +176,10 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	// Send message
 	setup.verificationTaskCh <- nonFinalizedTask
 
-	// Wait for processing
-	time.Sleep(20 * time.Millisecond)
+	// Wait for processing (poll interval is 100ms, add some buffer)
+	time.Sleep(200 * time.Millisecond)
 
-	// Should have processed the finalized message
+	// Should NOT have processed the non-finalized message yet
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
 	require.Equal(t, 0, processedCount, "Should not have processed the non-finalized message")
 
@@ -188,7 +189,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	setup.finalizedBlockMu.Unlock()
 
 	// Wait for the finality check to run (finality check interval is 10ms)
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Should have processed the now-finalized message
 	processedCount = setup.mockVerifier.getProcessedTaskCount()
@@ -228,6 +229,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		}
 	})
 
+	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
+
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
 	mockSourceReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
@@ -256,6 +259,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(noopMonitoring),
 		verifier.WithFinalityCheckInterval(10*time.Millisecond),
+		verifier.WithSourceReaderPollInterval(100*time.Millisecond), // Fast polling for tests
 	)
 	require.NoError(t, err)
 

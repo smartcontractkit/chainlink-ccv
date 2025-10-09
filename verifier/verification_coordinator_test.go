@@ -196,6 +196,8 @@ func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
 	mockReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(1000), nil).Maybe()
 	mockReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).Return(big.NewInt(950), nil).Maybe()
 
+	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
+
 	return &mockSourceReaderSetup{
 		reader:  mockReader,
 		channel: channel,
@@ -219,7 +221,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				return tasks, nil
 			}
 		}
-	})
+	}).Maybe()
 
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockReader,

@@ -49,23 +49,41 @@ type SourceReaderService struct {
 	lastCheckpointedBlock *big.Int
 }
 
+// SourceReaderServiceOption is a functional option for SourceReaderService.
+type SourceReaderServiceOption func(*SourceReaderService)
+
+// WithPollInterval sets the poll interval for the source reader service.
+func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
+	return func(s *SourceReaderService) {
+		s.pollInterval = interval
+	}
+}
+
 // NewEVMSourceReader creates a new blockchain-based source reader.
 func NewSourceReaderService(
 	sourceReader SourceReader,
 	chainSelector protocol.ChainSelector,
 	checkpointManager protocol.CheckpointManager,
 	logger logger.Logger,
+	opts ...SourceReaderServiceOption,
 ) *SourceReaderService {
-	return &SourceReaderService{
+	s := &SourceReaderService{
 		sourceReader:         sourceReader,
 		logger:               logger,
 		verificationTaskCh:   make(chan VerificationTask, 1),
 		stopCh:               make(chan struct{}),
-		pollInterval:         3 * time.Second,
+		pollInterval:         3 * time.Second, // Default poll interval
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
 		checkpointManager:    checkpointManager,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s
 }
 
 // Start begins reading messages and pushing them to the messages channel.
@@ -223,12 +241,21 @@ func (r *SourceReaderService) calculateBlockFromHoursAgo(ctx context.Context, lo
 	blockDiff := new(big.Int).Sub(currentBlock, startBlock)
 	timeDiff := currentTime - startTime
 
+	r.logger.Infow("Block time calculation",
+		"currentBlock", currentBlock.String(),
+		"startBlock", startBlock.String(),
+		"blockDiff", blockDiff.String(),
+		"currentTime", currentTime,
+		"startTime", startTime,
+		"timeDiff", timeDiff)
 	if blockDiff.Sign() > 0 && timeDiff > 0 {
 		avgBlockTime := timeDiff / blockDiff.Uint64()
 		blocksInLookback := (lookbackHours * 3600) / avgBlockTime
+
 		lookbackBlock := new(big.Int).Sub(currentBlock, new(big.Int).SetUint64(blocksInLookback))
 
 		if lookbackBlock.Sign() < 0 {
+			r.logger.Infow("Lookback block below zero, adjusting to zero", "calculatedLookbackBlock", lookbackBlock.String())
 			lookbackBlock = big.NewInt(0)
 		}
 
@@ -390,10 +417,6 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
-
-	// Initial delay
-	time.Sleep(5 * time.Second)
-	r.logger.Infow("⏳ Initial delay completed, starting event monitoring cycles")
 
 	for {
 		select {

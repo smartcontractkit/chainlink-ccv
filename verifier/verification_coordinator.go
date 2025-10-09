@@ -23,17 +23,18 @@ type sourceState struct {
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
-	verifier              Verifier
-	storage               protocol.CCVNodeDataWriter
-	lggr                  logger.Logger
-	monitoring            common.VerifierMonitoring
-	sourceStates          map[protocol.ChainSelector]*sourceState
-	cancel                context.CancelFunc
-	doneCh                chan struct{}
-	ccvDataCh             chan protocol.CCVData
-	pendingTasks          []VerificationTask
-	config                CoordinatorConfig
-	finalityCheckInterval time.Duration
+	verifier                 Verifier
+	storage                  protocol.CCVNodeDataWriter
+	lggr                     logger.Logger
+	monitoring               common.VerifierMonitoring
+	sourceStates             map[protocol.ChainSelector]*sourceState
+	cancel                   context.CancelFunc
+	doneCh                   chan struct{}
+	ccvDataCh                chan protocol.CCVData
+	pendingTasks             []VerificationTask
+	config                   CoordinatorConfig
+	finalityCheckInterval    time.Duration
+	sourceReaderPollInterval time.Duration
 	// Timestamp tracking for E2E latency measurement
 	messageTimestamps map[protocol.Bytes32]time.Time
 	timestampsMu      sync.RWMutex
@@ -110,6 +111,13 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 	}
 }
 
+// WithSourceReaderPollInterval sets the poll interval for source reader services (useful for testing).
+func WithSourceReaderPollInterval(interval time.Duration) Option {
+	return func(vc *Coordinator) {
+		vc.sourceReaderPollInterval = interval
+	}
+}
+
 // WithMonitoring sets the monitoring implementation.
 func WithMonitoring(monitoring common.VerifierMonitoring) Option {
 	return func(vc *Coordinator) {
@@ -145,7 +153,17 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	}
 	for chainSelector, sourceReader := range vc.sourceReaders {
 		if sourceReader != nil {
-			service := NewSourceReaderService(sourceReader, chainSelector, vc.checkpointManager, vc.lggr)
+			if _, ok := vc.config.SourceConfigs[chainSelector]; !ok {
+				return nil, fmt.Errorf("no source config found for chain selector %d", chainSelector)
+			}
+
+			// Build service options
+			var serviceOpts []SourceReaderServiceOption
+			if vc.sourceReaderPollInterval > 0 {
+				serviceOpts = append(serviceOpts, WithPollInterval(vc.sourceReaderPollInterval))
+			}
+
+			service := NewSourceReaderService(sourceReader, chainSelector, vc.checkpointManager, vc.lggr, serviceOpts...)
 			vc.sourceStates[chainSelector] = &sourceState{
 				chainSelector:      chainSelector,
 				reader:             service,
@@ -390,7 +408,7 @@ func (vc *Coordinator) validate() error {
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
 	appendIfNil(vc.monitoring, "monitoring")
-	appendIfNil(vc.checkpointManager, "checkpointManager")
+	// checkpointManager is optional, not required
 
 	if len(vc.sourceReaders) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
@@ -398,7 +416,7 @@ func (vc *Coordinator) validate() error {
 
 	// Validate that all configured sources have corresponding readers
 	for chainSelector := range vc.config.SourceConfigs {
-		if _, exists := vc.sourceStates[chainSelector]; !exists {
+		if _, exists := vc.sourceReaders[chainSelector]; !exists {
 			errs = append(errs, fmt.Errorf("source reader not found for chain selector %d", chainSelector))
 		}
 	}
