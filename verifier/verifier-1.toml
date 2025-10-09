@@ -30,7 +30,7 @@ TraceBatchTimeout = 10
     ChainID = "1337"
     Type = "anvil"
     Family = "evm"
-    ContainerName = "blockchain-src"
+    UniqueChainName = "blockchain-src"
     [[blockchain_infos.3379446385462418246.Nodes]]
       ExternalHTTPUrl = "http://host.docker.internal:8545"
       InternalHTTPUrl = "http://blockchain-src:8545"
@@ -40,7 +40,7 @@ TraceBatchTimeout = 10
     ChainID = "2337"
     Type = "anvil"
     Family = "evm"
-    ContainerName = "blockchain-dst"
+  UniqueChainName = "blockchain-dst"
     OfframpRouter = ""
 
     [[blockchain_infos.12922642891491394802.Nodes]]

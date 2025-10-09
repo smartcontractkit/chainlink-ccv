@@ -92,16 +92,14 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("test argsv3 messages", func(t *testing.T) {
 		type testcase struct {
-			name            string
-			srcSelector     uint64
-			dstSelector     uint64
-			finality        uint16
-			verifierAddress []byte
-			execOnRamp      string
-			receiver        string
-			mandatoryCCVs   []protocol.CCV
-			optionalCCVs    []protocol.CCV
-			threshold       uint8
+			name          string
+			srcSelector   uint64
+			dstSelector   uint64
+			finality      uint16
+			execOnRamp    string
+			receiver      string
+			mandatoryCCVs []protocol.CCV
+			optionalCCVs  []protocol.CCV
 		}
 
 		verifierAddress := common.HexToAddress("0x0B306BF915C4d645ff596e518fAf3F9669b97016")

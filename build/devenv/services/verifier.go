@@ -37,11 +37,11 @@ func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*pr
 	infos := make(map[string]*protocol.BlockchainInfo)
 	for _, output := range outputs {
 		info := &protocol.BlockchainInfo{
-			ChainID:       output.ChainID,
-			Type:          output.Type,
-			Family:        output.Family,
-			ContainerName: output.ContainerName,
-			Nodes:         make([]*protocol.Node, 0, len(output.Nodes)),
+			ChainID:         output.ChainID,
+			Type:            output.Type,
+			Family:          output.Family,
+			UniqueChainName: output.ContainerName,
+			Nodes:           make([]*protocol.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
