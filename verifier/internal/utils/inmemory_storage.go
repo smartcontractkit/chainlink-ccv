@@ -1,4 +1,4 @@
-package storageaccess
+package utils
 
 import (
 	"context"
