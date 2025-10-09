@@ -109,9 +109,7 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 				if err := json.Unmarshal([]byte(addrRefJSON), &addrs); err != nil {
 					return nil, fmt.Errorf("failed to unmarshal addresses from config: %w", err)
 				}
-				fmt.Println("loaded", len(addrs), "addresses")
 				for _, addr := range addrs {
-					fmt.Println("adding address to datastore", addr)
 					if err := ds.Addresses().Add(addr); err != nil {
 						return nil, fmt.Errorf("failed to set address in datastore: %w", err)
 					}

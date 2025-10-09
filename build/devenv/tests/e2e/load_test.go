@@ -156,7 +156,7 @@ func TestE2ELoad(t *testing.T) {
 	srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
 	dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
 
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
 	chains := e.BlockChains.EVMChains()
 	require.NotNil(t, chains)

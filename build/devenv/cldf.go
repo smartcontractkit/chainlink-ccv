@@ -30,7 +30,7 @@ type CLDF struct {
 	DataStore   datastore.DataStore `toml:"-"`
 }
 
-func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment.Environment, error) {
+func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.DataStore) ([]uint64, *deployment.Environment, error) {
 	providers := make([]cldf_chain.BlockChain, 0)
 	selectors := make([]uint64, 0)
 	for _, b := range bc {
@@ -81,7 +81,7 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 		GetContext:  func() context.Context { return context.Background() },
 		Logger:      lggr,
 		BlockChains: blockchains,
-		DataStore:   datastore.NewMemoryDataStore().Seal(),
+		DataStore:   dataStore,
 	}
 	return selectors, &e, nil
 }

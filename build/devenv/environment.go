@@ -166,7 +166,7 @@ func NewEnvironment() (*Cfg, error) {
 	}
 
 	in.CLDF.AddressesMu = &sync.Mutex{}
-	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	if err != nil {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
