@@ -260,7 +260,7 @@ var deployReceiverCmd = &cobra.Command{
 			OptionalThreshold: uint8(optionalThreshold),
 		}
 
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
@@ -525,7 +525,7 @@ var sendCmd = &cobra.Command{
 			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 		}
 
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}

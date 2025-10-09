@@ -553,7 +553,7 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	return append(selector, packed...)
 }
 
-func serializeExtraArgsSVMV1(opts cciptestinterfaces.MessageOptions) []byte {
+func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
 	// // Extra args tag for chains that use the Solana VM.
 	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
 

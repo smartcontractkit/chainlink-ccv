@@ -246,5 +246,5 @@ func NewEnvironment() (*Cfg, error) {
 	if err := PrintCLDFAddresses(in); err != nil {
 		return nil, err
 	}
-	return in, Store[Cfg](in)
+	return in, Store(in)
 }
