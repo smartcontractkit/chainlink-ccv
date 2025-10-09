@@ -17,8 +17,8 @@ func createTestMessage(nonce, sourceChain, destChain uint64) *protocol.Message {
 	}
 }
 
-func createMessageWithTimestamp(readyTime int64, nonce uint64) *messageWithTimestamp {
-	return &messageWithTimestamp{
+func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimestamp {
+	return &MessageWithTimestamp{
 		ReadyTime: readyTime,
 		Payload:   createTestMessage(nonce, 1, 2),
 	}
@@ -27,19 +27,19 @@ func createMessageWithTimestamp(readyTime int64, nonce uint64) *messageWithTimes
 func TestMessageHeap_PeekTime(t *testing.T) {
 	tests := []struct {
 		name     string
-		heap     messageHeap
+		heap     MessageHeap
 		expected int64
 	}{
 		{
 			name: "single element heap",
-			heap: messageHeap{
+			heap: MessageHeap{
 				createMessageWithTimestamp(100, 1),
 			},
 			expected: 100,
 		},
 		{
 			name: "multi-element heap - should return earliest",
-			heap: messageHeap{
+			heap: MessageHeap{
 				createMessageWithTimestamp(300, 3),
 				createMessageWithTimestamp(100, 1),
 				createMessageWithTimestamp(200, 2),
@@ -54,7 +54,7 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 			heap.Init(&tt.heap)
 
 			if got := tt.heap.PeekTime(); got != tt.expected {
-				t.Errorf("messageHeap.PeekTime() = %v, want %v", got, tt.expected)
+				t.Errorf("MessageHeap.PeekTime() = %v, want %v", got, tt.expected)
 			}
 		})
 	}
@@ -63,7 +63,7 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 func TestMessageHeap_PopAllReady(t *testing.T) {
 	tests := []struct {
 		name           string
-		heap           messageHeap
+		heap           MessageHeap
 		expectedNonces []uint64
 		timestamp      int64
 		expectedCount  int
@@ -71,7 +71,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 	}{
 		{
 			name:           "empty heap",
-			heap:           messageHeap{},
+			heap:           MessageHeap{},
 			timestamp:      100,
 			expectedCount:  0,
 			expectedNonces: []uint64{},
@@ -79,7 +79,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "no messages ready",
-			heap: messageHeap{
+			heap: MessageHeap{
 				createMessageWithTimestamp(300, 2),
 				createMessageWithTimestamp(200, 1),
 			},
@@ -90,7 +90,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "some messages ready",
-			heap: messageHeap{
+			heap: MessageHeap{
 				createMessageWithTimestamp(300, 4),
 				createMessageWithTimestamp(200, 3),
 				createMessageWithTimestamp(50, 1),
@@ -103,7 +103,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "all messages ready",
-			heap: messageHeap{
+			heap: MessageHeap{
 				createMessageWithTimestamp(150, 3),
 				createMessageWithTimestamp(50, 1),
 				createMessageWithTimestamp(100, 2),
@@ -147,7 +147,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 }
 
 func TestMessageHeap_Integration(t *testing.T) {
-	var mh messageHeap
+	var mh MessageHeap
 	heap.Init(&mh)
 
 	// Test that heap is initially empty
@@ -156,7 +156,7 @@ func TestMessageHeap_Integration(t *testing.T) {
 	}
 
 	// Push some messages out of order
-	messages := []*messageWithTimestamp{
+	messages := []*MessageWithTimestamp{
 		createMessageWithTimestamp(50, 0),
 		createMessageWithTimestamp(300, 3),
 		createMessageWithTimestamp(100, 1),
@@ -186,7 +186,7 @@ func TestMessageHeap_Integration(t *testing.T) {
 		}
 
 		result := heap.Pop(&mh)
-		msg, ok := result.(*messageWithTimestamp)
+		msg, ok := result.(*MessageWithTimestamp)
 		if !ok {
 			t.Errorf("Pop() returned wrong type: %T", result)
 			continue
