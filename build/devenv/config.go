@@ -102,7 +102,7 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 
 	// Load addresses into the datastore so that tests can query them appropriately.
 	if c, ok := any(config).(*Cfg); ok {
-		if c.CLDF != nil && len(c.CLDF.Addresses) > 0 {
+		if len(c.CLDF.Addresses) > 0 {
 			ds := datastore.NewMemoryDataStore()
 			for _, addrRefJSON := range c.CLDF.Addresses {
 				var addrs []datastore.AddressRef

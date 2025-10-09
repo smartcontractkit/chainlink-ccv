@@ -25,9 +25,19 @@ import (
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 type CLDF struct {
-	AddressesMu *sync.Mutex         `toml:"-"`
-	Addresses   []string            `toml:"addresses"`
-	DataStore   datastore.DataStore `toml:"-"`
+	mu        sync.Mutex          `toml:"-"`
+	Addresses []string            `toml:"addresses"`
+	DataStore datastore.DataStore `toml:"-"`
+}
+
+func (c *CLDF) Init() {
+	c.DataStore = datastore.NewMemoryDataStore().Seal()
+}
+
+func (c *CLDF) AddAddresses(addresses string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Addresses = append(c.Addresses, addresses)
 }
 
 func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.DataStore) ([]uint64, *deployment.Environment, error) {
