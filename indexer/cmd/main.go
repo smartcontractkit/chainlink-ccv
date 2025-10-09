@@ -117,6 +117,14 @@ func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.Offc
 				lggr.Fatalf("Failed to create aggregator reader: %v", err)
 			}
 			readerSlice = append(readerSlice, aggReader)
+		case config.ReaderTypeRest:
+			restReader := readers.NewRestReader(readers.RestReaderConfig{
+				BaseURL:        reader.Rest.BaseURL,
+				Since:          reader.Rest.Since,
+				RequestTimeout: time.Duration(reader.Rest.RequestTimeout) * time.Second,
+				Logger:         lggr,
+			})
+			readerSlice = append(readerSlice, restReader)
 		default:
 			lggr.Fatalf("Unsupported reader type: %s", reader.Type)
 		}

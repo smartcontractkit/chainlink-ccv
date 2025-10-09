@@ -100,6 +100,14 @@ func defaults(in *IndexerInput) {
 								Since:   0,
 							},
 						},
+						{
+							Type: "rest",
+							Rest: config.RestReaderConfig{
+								BaseURL:        "http://fake:9111",
+								Since:          0,
+								RequestTimeout: 5,
+							},
+						},
 					},
 				},
 			},

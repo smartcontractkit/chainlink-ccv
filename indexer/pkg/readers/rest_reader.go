@@ -115,7 +115,7 @@ func (r *restReader) updateSinceTimestamp(responses []protocol.QueryResponse) {
 	// Update since to the latest timestamp we've seen
 	for _, resp := range responses {
 		if resp.Timestamp != nil && *resp.Timestamp > r.since {
-			r.since = *resp.Timestamp
+			r.since = *resp.Timestamp + 1
 		}
 	}
 }
