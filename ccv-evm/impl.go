@@ -432,21 +432,6 @@ func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
 }
 
 func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
-	// 	// Tag to indicate a gas limit (or dest chain equivalent processing units) and Out Of Order Execution. This tag is
-	//   // available for multiple chain families. If there is no chain family specific tag, this is the default available
-	//   // for a chain.
-	//   // Note: not available for Solana VM based chains.
-	//   bytes4 public constant GENERIC_EXTRA_ARGS_V2_TAG = 0x181dcf10;
-
-	//   /// @param gasLimit: gas limit for the callback on the destination chain.
-	//   /// @param allowOutOfOrderExecution: if true, it indicates that the message can be executed in any order relative to
-	//   /// other messages from the same sender. This value's default varies by chain. On some chains, a particular value is
-	//   /// enforced, meaning if the expected value is not set, the message request will revert.
-	//   /// @dev Fully compatible with the previously existing EVMExtraArgsV2.
-	//   struct GenericExtraArgsV2 {
-	//     uint256 gasLimit;
-	//     bool allowOutOfOrderExecution;
-	//   }
 	genericExtraArgsV2Type, err := abi.NewType("tuple", "GenericExtraArgsV2", []abi.ArgumentMarshaling{
 		{Name: "gasLimit", Type: "uint256"},
 		{Name: "allowOutOfOrderExecution", Type: "bool"},
