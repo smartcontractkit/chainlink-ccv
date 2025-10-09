@@ -145,9 +145,9 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 
 func (i *IndexerAPIReader) ReadMessages(
 	ctx context.Context,
-	queryData MessagesV1Request,
+	queryData protocol.MessagesV1Request,
 ) (map[string]protocol.Message, error) {
-	var response MessagesV1Response
+	var response protocol.MessagesV1Response
 	err := i.makeRequest(ctx, "/v1/messages", queryParams(queryData), &response)
 	if err != nil {
 		return nil, err
@@ -163,7 +163,7 @@ func (i *IndexerAPIReader) ReadMessages(
 }
 
 func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
-	var response MessageIDV1Response
+	var response protocol.MessageIDV1Response
 	request := "/v1/messageid/0x" + common.Bytes2Hex(messageID[:])
 	err := i.makeRequest(ctx, request, queryParams{}, &response)
 	if err != nil {
