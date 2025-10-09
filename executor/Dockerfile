@@ -5,9 +5,9 @@ COPY executor/go.mod executor/go.sum ./
 WORKDIR /
 COPY protocol/ ./protocol/
 COPY common/ ./common/
-WORKDIR /app
+WORKDIR /common
 RUN go mod download
-RUN cd executor && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor cmd/main.go
+RUN cd executor && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor ../common/cmd/executor.go
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates

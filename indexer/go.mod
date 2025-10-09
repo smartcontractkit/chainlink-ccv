@@ -15,7 +15,7 @@ require (
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-common v0.9.5
+	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/stretchr/testify v1.11.1
 	github.com/ulule/limiter/v3 v3.11.2
 	go.opentelemetry.io/otel v1.38.0
@@ -37,8 +37,8 @@ require (
 	github.com/cloudevents/sdk-go/v2 v2.16.1 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
-	github.com/ethereum/go-ethereum v1.16.2 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
+	github.com/ethereum/go-ethereum v1.16.3 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -74,7 +74,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.22.0 // indirect
+	github.com/prometheus/client_golang v1.23.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
@@ -82,7 +82,7 @@ require (
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.4 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924193316-7b87b14901ab // indirect
-	github.com/smartcontractkit/libocr v0.0.0-20250707144819-babe0ec4e358 // indirect
+	github.com/smartcontractkit/libocr v0.0.0-20250905115425-2785a5cee79d // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
