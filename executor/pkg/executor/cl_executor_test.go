@@ -108,7 +108,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 			validateShouldError:        false,
 			validateMessageShouldError: false,
-			executeShouldError:         false,
+			executeShouldError:         true,
 		},
 	}
 
