@@ -1,11 +1,10 @@
 FROM golang:1.24.6-alpine AS builder
-WORKDIR /app
-COPY . .
-COPY executor/go.mod executor/go.sum ./
 WORKDIR /
 COPY protocol/ ./protocol/
 COPY common/ ./common/
-WORKDIR /common
+WORKDIR /app
+COPY . .
+COPY ../common/go.mod ../common/go.sum ./
 RUN go mod download
 RUN cd executor && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor ../common/cmd/executor.go
 

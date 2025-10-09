@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -30,7 +29,7 @@ type MessageSubscriber interface {
 // MessageReader reads messages from a storage backend based on query parameters. It is implemented by the IndexerAPI.
 type MessageReader interface {
 	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
-	ReadMessages(ctx context.Context, queryData storageaccess.MessagesV1Request) (map[string]protocol.Message, error)
+	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.Message, error)
 }
 
 // VerifierResultReader reads verifier results from a storage backend based on messageID. It is implemented by the IndexerAPI.
