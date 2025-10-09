@@ -32,7 +32,6 @@ const (
 // SourceReaderService implements SourceReader for reading CCIPMessageSent events from blockchain.
 type SourceReaderService struct {
 	sourceReader         SourceReader
-	contractAddress      string
 	logger               logger.Logger
 	lastProcessedBlock   *big.Int
 	verificationTaskCh   chan VerificationTask
@@ -451,10 +450,15 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	// Query for logs
 	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, currentBlock)
 	defer cancel()
-	/*
-	 */
+
+	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, currentBlock)
+	if err != nil {
+		r.logger.Warnw("⚠️ Failed to query logs", "error", err,
+			"fromBlock", fromBlock.String(),
+			"toBlock", currentBlock.String())
+		return
+	}
 
 	for _, task := range tasks {
 		event := task.Message
@@ -469,7 +473,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 			"destChain", event.DestChainSelector,
 			"nonce", event.Nonce,
 			"messageId", common.Bytes2Hex(id[:]),
-			//"receiptsCount", len(receiptBlobs)) ???
+			// "receiptsCount", len(receiptBlobs)) ???
 		)
 		// Send to verification channel (non-blocking)
 		select {

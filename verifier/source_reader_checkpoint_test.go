@@ -17,7 +17,6 @@ import (
 func createTestSourceReader(t *testing.T, checkpointManager protocol.CheckpointManager) *SourceReaderService {
 	return NewSourceReaderService(
 		nil,
-		"0x1234567890123456789012345678901234567890",
 		protocol.ChainSelector(1337),
 		checkpointManager,
 		logger.Test(t))

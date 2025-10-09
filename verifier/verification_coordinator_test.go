@@ -180,7 +180,7 @@ func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
 	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
 
-	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b *big.Int, b2 *big.Int) ([]verifier.VerificationTask, error) {
+	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
 		var tasks []verifier.VerificationTask
 		for {
 			select {
@@ -209,7 +209,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
-	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b *big.Int, b2 *big.Int) ([]verifier.VerificationTask, error) {
+	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
 		var tasks []verifier.VerificationTask
 		for {
 			select {
@@ -594,7 +594,7 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 				// Create a mock that only expects VerificationTaskChannel call
 				mockReader := verifier_mocks.NewMockSourceReader(t)
 				mockCh := make(chan verifier.VerificationTask)
-				mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b *big.Int, b2 *big.Int) ([]verifier.VerificationTask, error) {
+				mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
 					var tasks []verifier.VerificationTask
 					for {
 						select {

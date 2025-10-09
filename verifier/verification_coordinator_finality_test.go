@@ -216,7 +216,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	mockStorage := &testStorage{}
 	verificationTaskCh := make(chan verifier.VerificationTask, 10)
 
-	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b *big.Int, b2 *big.Int) ([]verifier.VerificationTask, error) {
+	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
 		var tasks []verifier.VerificationTask
 		for {
 			select {

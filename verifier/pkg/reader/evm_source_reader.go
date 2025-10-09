@@ -96,9 +96,8 @@ func (r *EVMSourceReader) BlockTime(ctx context.Context, block *big.Int) (uint64
 	return hdr.Time, nil
 }
 
-// VerificationTaskChannel returns the channel where new message events are delivered
+// VerificationTaskChannel returns the channel where new message events are delivered.
 func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]verifiertypes.VerificationTask, error) {
-
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
@@ -106,13 +105,12 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 		Topics:    [][]common.Hash{{common.HexToHash(r.ccipMessageSentTopic)}},
 	}
 	logs, err := r.chainClient.FilterLogs(ctx, rangeQuery)
-
 	if err != nil {
 		r.lggr.Warnw("⚠️ Failed to filter logs", "error", err)
 		return nil, err
 	}
 
-	var results []verifiertypes.VerificationTask
+	results := make([]verifiertypes.VerificationTask, 0, len(logs))
 
 	// Process found events
 	for _, log := range logs {

@@ -190,7 +190,7 @@ func main() {
 			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
 			continue
 		}
-		//sourceReaders[selector] = verifier.NewSourceReaderService(emvSourceReader, selector, checkpointManager, lggr)
+		// sourceReaders[selector] = verifier.NewSourceReaderService(emvSourceReader, selector, checkpointManager, lggr)
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
 

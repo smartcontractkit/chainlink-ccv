@@ -145,10 +145,6 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	}
 	for chainSelector, sourceReader := range vc.sourceReaders {
 		if sourceReader != nil {
-			cfg, ok := vc.config.SourceConfigs[chainSelector]
-			if !ok {
-				return nil, fmt.Errorf("no source config found for chain selector %d", chainSelector)
-			}
 			service := NewSourceReaderService(sourceReader, chainSelector, vc.checkpointManager, vc.lggr)
 			vc.sourceStates[chainSelector] = &sourceState{
 				chainSelector:      chainSelector,
