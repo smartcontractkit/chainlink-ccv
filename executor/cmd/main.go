@@ -13,6 +13,8 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/contracttransmitter"
@@ -90,7 +92,8 @@ func main() {
 			continue
 		}
 
-		dr := destinationreader.NewEvmDestinationReaderFromChainInfo(ctx, lggr, selector, chain, executorConfig.OffRampAddresses[strSel])
+		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
+		dr := destinationreader.NewEvmDestinationReader(lggr, selector, chainClient, executorConfig.OffRampAddresses[strSel], 5*time.Minute)
 		pk := os.Getenv(PK_ENV_VAR)
 		if pk == "" {
 			lggr.Errorf("Environment variable %S is not set", PK_ENV_VAR)
@@ -114,8 +117,11 @@ func main() {
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
 	}
 
+	// create indexer client which implements MessageReader and VerifierResultReader
+	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
+
 	// create executor
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders)
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient)
 
 	// create dummy leader elector
 	le := leaderelector.RandomDelayLeader{}
@@ -123,7 +129,7 @@ func main() {
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerURI:      executorConfig.IndexerAddress,
+			IndexerClient:   indexerClient,
 			LastQueryTime:   time.Now().Add(-1 * executorConfig.GetLookbackWindow()).Unix(),
 			PollingInterval: executorConfig.GetPollingInterval(),
 			Backoff:         executorConfig.GetBackoffDuration(),
@@ -135,7 +141,7 @@ func main() {
 		executor.WithLogger(lggr),
 		executor.WithExecutor(ex),
 		executor.WithLeaderElector(&le),
-		executor.WithCCVResultStreamer(indexerStream),
+		executor.WithMessageSubscriber(indexerStream),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)

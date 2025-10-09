@@ -15,7 +15,3 @@ type MessagesV1Request struct {
 	Limit                uint64                   `form:"limit"`
 	Offset               uint64                   `form:"offset"`
 }
-
-type MessagesV1Response struct {
-	Messages map[string]protocol.Message `json:"messages"`
-}

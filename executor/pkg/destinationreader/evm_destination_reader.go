@@ -9,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -40,19 +39,14 @@ type EvmDestinationReader struct {
 	ccvCache         *expirable.LRU[cacheKey, executor.CcvAddressInfo]
 }
 
-func NewEvmDestinationReaderFromChainInfo(ctx context.Context, lggr logger.Logger, chainSelector uint64, chainInfo *protocol.BlockchainInfo, offrampAddress string) *EvmDestinationReader {
-	chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chainInfo, lggr)
-	return NewEvmDestinationReader(lggr, chainSelector, chainClient, offrampAddress)
-}
-
-func NewEvmDestinationReader(lggr logger.Logger, chainSelector uint64, chainClient client.Client, offrampAddress string) *EvmDestinationReader {
+func NewEvmDestinationReader(lggr logger.Logger, chainSelector uint64, chainClient client.Client, offrampAddress string, cacheExpiry time.Duration) *EvmDestinationReader {
 	ccvAddr := common.HexToAddress(offrampAddress)
 	ccvAgg, err := ccvagg.NewCCVAggregatorCaller(ccvAddr, chainClient)
 	if err != nil {
 		lggr.Errorw("Failed to create CCV Aggregator caller", "error", err, "address", ccvAddr.Hex(), "chainSelector", chainSelector)
 	}
-	// Create cache with max 1000 entries and 5-minute TTL
-	ccvCache := expirable.NewLRU[cacheKey, executor.CcvAddressInfo](1000, nil, 5*time.Minute)
+	// Create cache with max 1000 entries and configurable expiry
+	ccvCache := expirable.NewLRU[cacheKey, executor.CcvAddressInfo](1000, nil, cacheExpiry)
 
 	return &EvmDestinationReader{
 		aggregatorCaller: *ccvAgg,
@@ -104,10 +98,12 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		OptionalThreshold: optThreshold,
 	}
 
-	// Store in cache for future use
+	dr.lggr.Infow("Using CCV Info", "sourceChain", sourceSelector, "receiver", string(receiverAddress), "chain", dr.chainSelector)
+
+	// Store in expirable cache for future use
 	dr.ccvCache.Add(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: string(receiverAddress)}, ccvInfo)
-	dr.lggr.Debugf("CCV info cached for receiver %s on source chain %d",
-		string(receiverAddress), sourceSelector)
+	dr.lggr.Debugf("CCV info cached for receiver %s on source chain %d: %+v",
+		string(receiverAddress), sourceSelector, ccvInfo)
 
 	return ccvInfo, nil
 }

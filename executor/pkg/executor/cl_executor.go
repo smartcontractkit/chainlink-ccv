@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -14,25 +16,28 @@ import (
 var _ executor.Executor = &ChainlinkExecutor{}
 
 type ChainlinkExecutor struct {
-	lggr                 logger.Logger
-	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter
-	destinationReaders   map[protocol.ChainSelector]executor.DestinationReader
+	lggr                  logger.Logger
+	contractTransmitters  map[protocol.ChainSelector]executor.ContractTransmitter
+	destinationReaders    map[protocol.ChainSelector]executor.DestinationReader
+	verifierResultsReader executor.VerifierResultReader
 }
 
 func NewChainlinkExecutor(
 	lggr logger.Logger,
 	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter,
 	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
+	verifierResultReader executor.VerifierResultReader,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
-		lggr:                 lggr,
-		contractTransmitters: contractTransmitters,
-		destinationReaders:   destinationReaders,
+		lggr:                  lggr,
+		contractTransmitters:  contractTransmitters,
+		destinationReaders:    destinationReaders,
+		verifierResultsReader: verifierResultReader,
 	}
 }
 
-func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, messageWithCCVData executor.MessageWithCCVData) error {
-	destinationChain := messageWithCCVData.Message.DestChainSelector
+func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message protocol.Message) error {
+	destinationChain := message.DestChainSelector
 	_, ok := cle.destinationReaders[destinationChain]
 	if !ok {
 		return fmt.Errorf("no destination reader for chain %d", destinationChain)
@@ -44,35 +49,62 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, messageWith
 	return nil
 }
 
-func (cle *ChainlinkExecutor) ExecuteMessage(ctx context.Context, messageWithCCVData executor.MessageWithCCVData) error {
-	destinationChain := messageWithCCVData.Message.DestChainSelector
-	messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
-		ctx,
-		messageWithCCVData.Message,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to check if message is executed: %w", err)
-	}
-	if messageExecuted {
-		cle.lggr.Infof("message %d already executed on chain %d", messageWithCCVData.Message.Nonce, messageWithCCVData.Message.DestChainSelector)
+// AttemptExecuteMessage will try to get all supplementary information for a message required for execution, then attempt the execution.
+// If not all supplementary information is available (ie not enough verifierResults) it will return an error and the message will not be attempted.
+func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message protocol.Message) error {
+	destinationChain := message.DestChainSelector
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
+			ctx,
+			message,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to check IsMessageExecuted: %w", err)
+		}
+		if messageExecuted {
+			cle.lggr.Infof("message %d already executed on chain %d, skipping...", message.Nonce, destinationChain)
+			return executor.ErrMsgAlreadyExecuted
+		}
 		return nil
+	})
+
+	ccvData := make([]protocol.CCVData, 0)
+	g.Go(func() error {
+		id, _ := message.MessageID()
+		res, err := cle.verifierResultsReader.GetVerifierResults(ctx, id)
+		if err != nil {
+			return fmt.Errorf("failed to get CCV data for message: %w", err)
+		}
+		ccvData = append(ccvData, res...)
+		return nil
+	})
+
+	var ccvInfo executor.CcvAddressInfo
+	g.Go(func() error {
+		res, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
+			ctx,
+			message,
+		)
+		if err != nil && len(ccvInfo.RequiredCcvs) == 0 {
+			return fmt.Errorf("failed to get CCV Offramp info for message: %w", err)
+		}
+		ccvInfo = res
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
-	ccvInfo, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
-		ctx,
-		messageWithCCVData.Message,
-	)
-	if err != nil && len(ccvInfo.RequiredCcvs) == 0 {
-		return fmt.Errorf("failed to get CCV Offramp info for message: %w", err)
-	}
-
-	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(messageWithCCVData.CCVData, ccvInfo)
+	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(ccvData, ccvInfo)
 	if err != nil {
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
 	}
 
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, executor.AbstractAggregatedReport{
-		Message: messageWithCCVData.Message,
+		Message: message,
 		CCVS:    orderedCcvOfframps,
 		CCVData: orderedCcvData,
 	})
@@ -95,7 +127,7 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverD
 	for _, ccvAddress := range receiverDefinedCcvs.RequiredCcvs {
 		strAddr := strings.ToLower(string(ccvAddress))
 		if _, ok := mappedCcvData[strAddr]; !ok {
-			return nil, nil, fmt.Errorf("required CCV Offramp %s did not have an attestation", strAddr)
+			return nil, nil, executor.ErrInsufficientVerifiers
 		}
 		orderedCcvData = append(orderedCcvData, mappedCcvData[strAddr])
 		orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
@@ -111,7 +143,7 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverD
 	// check if we have enough optional CCVs. If any required CCVs were missing
 	// we would have already returned error above
 	if len(orderedCcvData)-len(receiverDefinedCcvs.RequiredCcvs) < int(receiverDefinedCcvs.OptionalThreshold) {
-		return nil, nil, fmt.Errorf("optional CCV Offramps did not meet threshold")
+		return nil, nil, executor.ErrInsufficientVerifiers
 	}
 	return orderedCcvOfframps, orderedCcvData, nil
 }
