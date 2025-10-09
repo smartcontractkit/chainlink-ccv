@@ -52,8 +52,10 @@ type mockSourceReaderSetup struct {
 	channel chan verifier.VerificationTask
 }
 
-const latestBlockHeight = 1000
-const finalizedBlockHeight = 950
+const (
+	latestBlockHeight    = 1000
+	finalizedBlockHeight = 950
+)
 
 // setupMockSourceReader creates a mock source reader with expectations.
 func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
