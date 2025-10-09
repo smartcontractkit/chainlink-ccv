@@ -19,6 +19,7 @@ import (
 
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 )
 
@@ -82,7 +83,7 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewProductConfigurationFromNetwork(typ string) (CCIP17ProductConfiguration, error) {
+func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
 		return &ccvEvm.CCIP17EVM{}, nil
@@ -116,7 +117,7 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	impls := make([]CCIP17ProductConfiguration, 0)
+	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
 		impl, err := NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {

@@ -10,12 +10,12 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
-	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
@@ -39,8 +39,9 @@ func TestE2ESmoke(t *testing.T) {
 
 	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
 	require.NoError(t, err)
+	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
 
-	c, err := ccvEvm.NewCCIP17EVM(ctx, in.CLDF.Addresses, chainIDs, wsURLs)
+	c, err := ccvEvm.NewCCIP17EVM(ctx, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -51,8 +52,6 @@ func TestE2ESmoke(t *testing.T) {
 	t.Run("test argsv2 messages", func(t *testing.T) {
 		type testcase struct {
 			name         string
-			proxy        *ccvProxy.CCVProxy
-			agg          *ccvAggregator.CCVAggregator
 			fromSelector uint64
 			toSelector   uint64
 		}
@@ -60,24 +59,18 @@ func TestE2ESmoke(t *testing.T) {
 		tcs := []testcase{
 			{
 				name:         "src->dst msg execution",
-				proxy:        c.ProxyBySelector[c.Chain1337Details.ChainSelector],
-				agg:          c.AggBySelector[c.Chain2337Details.ChainSelector],
-				fromSelector: c.Chain1337Details.ChainSelector,
-				toSelector:   c.Chain2337Details.ChainSelector,
+				fromSelector: selectors[0],
+				toSelector:   selectors[1],
 			},
 			{
 				name:         "dst->src msg execution",
-				proxy:        c.ProxyBySelector[c.Chain2337Details.ChainSelector],
-				agg:          c.AggBySelector[c.Chain1337Details.ChainSelector],
-				fromSelector: c.Chain2337Details.ChainSelector,
-				toSelector:   c.Chain1337Details.ChainSelector,
+				fromSelector: selectors[1],
+				toSelector:   selectors[0],
 			},
 			{
 				name:         "1337->3337 msg execution",
-				proxy:        c.ProxyBySelector[c.Chain1337Details.ChainSelector],
-				agg:          c.AggBySelector[c.Chain3337Details.ChainSelector],
-				fromSelector: c.Chain1337Details.ChainSelector,
-				toSelector:   c.Chain3337Details.ChainSelector,
+				fromSelector: selectors[0],
+				toSelector:   selectors[2],
 			},
 		}
 		for _, tc := range tcs {
@@ -93,7 +86,14 @@ func TestE2ESmoke(t *testing.T) {
 				)
 				require.NoError(t, err)
 				t.Logf("mockReceiverRef: %s", mockReceiverRef.Address)
-				err = c.SendArgsV2Message(ctx, e, in.CLDF.Addresses, tc.fromSelector, tc.toSelector)
+				err = c.SendMessage(ctx, tc.fromSelector, tc.toSelector, cciptestinterfaces.MessageFields{
+					Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+					Data:     []byte{},
+				}, cciptestinterfaces.MessageOptions{
+					Version:             2,
+					GasLimit:            200_000,
+					OutOfOrderExecution: true,
+				})
 				require.NoError(t, err)
 				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
@@ -133,8 +133,8 @@ func TestE2ESmoke(t *testing.T) {
 		tcs := []testcase{
 			{
 				name:          "src_dst msg execution with EOA receiver",
-				srcSelector:   c.Chain1337Details.ChainSelector,
-				dstSelector:   c.Chain2337Details.ChainSelector,
+				srcSelector:   selectors[0],
+				dstSelector:   selectors[1],
 				finality:      1,
 				execOnRamp:    execOnRamp,
 				receiver:      eoaReceiver,
@@ -142,8 +142,8 @@ func TestE2ESmoke(t *testing.T) {
 			},
 			{
 				name:          "dst_src msg execution with EOA receiver",
-				srcSelector:   c.Chain2337Details.ChainSelector,
-				dstSelector:   c.Chain1337Details.ChainSelector,
+				srcSelector:   selectors[1],
+				dstSelector:   selectors[0],
 				finality:      1,
 				execOnRamp:    execOnRamp,
 				receiver:      eoaReceiver,
@@ -151,8 +151,8 @@ func TestE2ESmoke(t *testing.T) {
 			},
 			{
 				name:          "1337->3337 msg execution with EOA receiver",
-				srcSelector:   c.Chain1337Details.ChainSelector,
-				dstSelector:   c.Chain3337Details.ChainSelector,
+				srcSelector:   selectors[0],
+				dstSelector:   selectors[2],
 				finality:      1,
 				execOnRamp:    execOnRamp,
 				receiver:      eoaReceiver,
@@ -186,15 +186,18 @@ func TestE2ESmoke(t *testing.T) {
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.srcSelector, tc.dstSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = c.SendArgsV3Message(
-					ctx, e,
-					in.CLDF.Addresses, selectors,
-					tc.srcSelector, tc.dstSelector, tc.finality,
-					tc.execOnRamp, tc.receiver,
-					nil, nil,
-					tc.mandatoryCCVs, tc.optionalCCVs,
-					0,
-				)
+				err = c.SendMessage(
+					ctx, tc.srcSelector, tc.dstSelector, cciptestinterfaces.MessageFields{
+						Receiver: protocol.UnknownAddress(common.HexToAddress(tc.receiver).Bytes()),
+						Data:     []byte{},
+					}, cciptestinterfaces.MessageOptions{
+						Version:           3,
+						FinalityConfig:    uint16(tc.finality),
+						Executor:          protocol.UnknownAddress(tc.execOnRamp),
+						MandatoryCCVs:     tc.mandatoryCCVs,
+						OptionalCCVs:      tc.optionalCCVs,
+						OptionalThreshold: tc.threshold,
+					})
 				require.NoError(t, err)
 				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)

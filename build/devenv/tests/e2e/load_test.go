@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -44,12 +45,12 @@ type EVMTXGun struct {
 	cfg       *ccv.Cfg
 	e         *deployment.Environment
 	selectors []uint64
-	impl      ccv.CCIP17ProductConfiguration
+	impl      cciptestinterfaces.CCIP17ProductConfiguration
 	src       evm.Chain
 	dest      evm.Chain
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d evm.Chain) *EVMTXGun {
 	return &EVMTXGun{
 		cfg:       cfg,
 		e:         e,
@@ -80,15 +81,21 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
-	err = m.impl.SendArgsV3Message(ctx, m.e, m.cfg.CLDF.Addresses, m.selectors, srcChain.ChainSelector, dstChain.ChainSelector, uint16(1), "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE", "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", nil, nil,
-		[]protocol.CCV{
+	err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
+		Receiver: protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443c").Bytes()),
+		Data:     []byte{},
+	}, cciptestinterfaces.MessageOptions{
+		Version:        3,
+		FinalityConfig: uint16(1),
+		MandatoryCCVs: []protocol.CCV{
 			{
 				CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
 				Args:       []byte{},
 				ArgsLen:    0,
 			},
 		},
-		[]protocol.CCV{}, 0)
+		OptionalThreshold: 0,
+	})
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
@@ -122,7 +129,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) *wasp.Profile {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d evm.Chain) *wasp.Profile {
 	return wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,

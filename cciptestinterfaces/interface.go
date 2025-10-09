@@ -25,7 +25,7 @@ for CCIP16 and CCIP17
 // it deploys network-specific infrastructure, configures both CL nodes and contracts and returns
 // operations for testing and SLA/Metrics assertions.
 type CCIP17ProductConfiguration interface {
-	Testable
+	Chain
 	Observable
 	OnChainConfigurable
 	OffChainConfigurable
@@ -33,15 +33,65 @@ type CCIP17ProductConfiguration interface {
 
 // Observable pushes Loki streams and exposes Prometheus metrics and returns queries to assert SLAs.
 type Observable interface {
-	ExposeMetrics(ctx context.Context, addresses, chainIDs, wsURLs []string) ([]string, *prometheus.Registry, error)
+	ExposeMetrics(ctx context.Context, source, dest uint64, chainIDs, wsURLs []string) ([]string, *prometheus.Registry, error)
 }
 
-// Testable provides functions for a standardized CCIP test suite.
-type Testable interface {
-	// SendArgsV2Message sends a message with ArgsV2 params
-	SendArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, src, dest uint64) error
-	// SendArgsV3Message sends a message with ArgsV3 params
-	SendArgsV3Message(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, src, dest uint64, finality uint16, execAddr, receiverAddr string, execArgs, tokenArgs []byte, ccv, optCcv []protocol.CCV, threshold uint8) error
+// TokenAmount represents a token amount being sent in a CCIP message.
+type TokenAmount struct {
+	// Amount of tokens to send.
+	Amount *big.Int
+	// TokenAddress of the token on the source chain.
+	TokenAddress protocol.UnknownAddress
+}
+
+// MessageFields consist of the non-extraArgs part of the CCIP message.
+// These are typically always specified by the caller whereas extraArgs
+// may not be.
+type MessageFields struct {
+	// Receiver is the receiver address for the message on the destination chain.
+	// This is required.
+	Receiver protocol.UnknownAddress
+	// Data is the data for the message
+	// This is required.
+	Data []byte
+	// TokenAmounts are the token amounts for the message.
+	// This is optional - the default means no tokens are sent.
+	TokenAmounts []TokenAmount
+	// FeeToken is the fee token to pay in.
+	// This is optional - the default means native token is used.
+	FeeToken protocol.UnknownAddress
+}
+
+// MessageOptions consists of all the ways one can modify a CCIP message
+// using extraArgs.
+type MessageOptions struct {
+	// Version indicates the version of the extraArgs.
+	Version uint8
+	// GasLimit is the gas limit for the message
+	// Equivalent to ComputeLimit for solana.
+	GasLimit uint32
+	// OutOfOrderExecution is whether to execute the message out of order
+	OutOfOrderExecution bool
+	// MandatoryCCVs are the mandatory CCVs for the message
+	MandatoryCCVs []protocol.CCV
+	// OptionalCCVs are the optional CCVs for the message
+	OptionalCCVs []protocol.CCV
+	// OptionalThreshold is the threshold for the optional CCVs
+	OptionalThreshold uint8
+	// FinalityConfig is the finality config for the message
+	FinalityConfig uint16
+	// Executor is the executor address
+	Executor protocol.UnknownAddress
+	// ExecutorArgs are the executor arguments for the message
+	ExecutorArgs []byte
+	// TokenArgs are the token arguments for the message
+	TokenArgs []byte
+}
+
+// Chain provides methods to interact with a chain that has CCIP deployed.
+type Chain interface {
+	// SendMessage sends a CCIP message from src to dest with the specified message options.
+	SendMessage(ctx context.Context, src, dest uint64, fields MessageFields, opts MessageOptions) error
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
 	GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain

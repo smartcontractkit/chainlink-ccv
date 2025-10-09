@@ -19,6 +19,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 )
 
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
@@ -49,12 +50,12 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 				DeployerTransactorGen: cldf_evm_provider.TransactorFromRaw(
 					getNetworkPrivateKey(),
 				),
-				RPCs: []deployment.RPC{
+				RPCs: []rpcclient.RPC{
 					{
 						Name:               "default",
 						WSURL:              rpcWSURL,
 						HTTPURL:            rpcHTTPURL,
-						PreferredURLScheme: deployment.URLSchemePreferenceHTTP,
+						PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 					},
 				},
 				ConfirmFunctor: cldf_evm_provider.ConfirmFuncGeth(1 * time.Minute),
