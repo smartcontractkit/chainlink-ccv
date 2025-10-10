@@ -6,6 +6,8 @@ replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
 
 replace github.com/smartcontractkit/chainlink-ccv/executor => ../executor
 
+replace github.com/smartcontractkit/chainlink-ccv/verifier => ../verifier
+
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/ethereum/go-ethereum v1.16.2
@@ -13,8 +15,9 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/smartcontractkit/chain-selectors v1.0.71
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006181703-d18c115668b9
-	github.com/smartcontractkit/chainlink-ccv/executor v0.0.4-rc.0.20251009190246-e9183ed6c0df
-	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
+	github.com/smartcontractkit/chainlink-ccv/executor v0.0.4-rc.0.20251010204251-dac0b25b5606
+	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251010204251-dac0b25b5606
+	github.com/smartcontractkit/chainlink-ccv/verifier v0.0.4-rc.0.20251010204251-dac0b25b5606
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-evm v0.3.3
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924193316-7b87b14901ab
@@ -25,7 +28,7 @@ require (
 )
 
 require (
-	github.com/DataDog/zstd v1.5.6-0.20230824185856-869dae002e5e // indirect
+	github.com/DataDog/zstd v1.5.6 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/VictoriaMetrics/fastcache v1.12.2 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
@@ -37,13 +40,13 @@ require (
 	github.com/cloudevents/sdk-go/binding/format/protobuf/v2 v2.16.1 // indirect
 	github.com/cloudevents/sdk-go/v2 v2.16.1 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
-	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect
+	github.com/cockroachdb/fifo v0.0.0-20240816210425-c5d0cb0b6fc0 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
 	github.com/cockroachdb/pebble v1.1.5 // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/consensys/gnark-crypto v0.18.0 // indirect
-	github.com/cpuguy83/go-md2man/v2 v2.0.5 // indirect
+	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
 	github.com/crate-crypto/go-eth-kzg v1.3.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
