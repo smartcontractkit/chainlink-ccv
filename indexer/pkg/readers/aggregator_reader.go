@@ -9,8 +9,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewAggregatorReader(address, apiKey string, lggr logger.Logger, since int64) (*ResilientReader, error) {
-	reader, err := storageaccess.NewAggregatorReader(address, apiKey, lggr, since)
+func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*ResilientReader, error) {
+	reader, err := storageaccess.NewAggregatorReader(address, lggr, since, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
 	}

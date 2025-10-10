@@ -1,6 +1,7 @@
 verifier_id = "verifier-2"
 aggregator_address = "aggregator:50051"
 aggregator_api_key = "dev-api-key-verifier-2"
+aggregator_secret_key = "dev-secret-verifier-2"
 pyroscope_url = "http://pyroscope:4040"
 
 [Monitoring]
