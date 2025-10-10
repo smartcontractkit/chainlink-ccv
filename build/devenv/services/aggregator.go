@@ -28,6 +28,11 @@ const (
 	DefaultAggregatorDynamoDBName  = "aggregator-dynamodb"
 	DefaultAggregatorDynamoDBImage = "amazon/dynamodb-local:2.2.1"
 	DefaultAggregatorDynamoDBPort  = 8000
+
+	// Redis constants.
+	DefaultAggregatorRedisName  = "aggregator-redis"
+	DefaultAggregatorRedisImage = "redis:7-alpine"
+	DefaultAggregatorRedisPort  = 6379
 )
 
 type AggregatorInput struct {
@@ -194,6 +199,34 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 
 	// Allow some time for DynamoDB Local to initialize
 	time.Sleep(5 * time.Second)
+
+	// Create Redis container for rate limiting
+	redisReq := testcontainers.ContainerRequest{
+		Image:        DefaultAggregatorRedisImage,
+		Name:         DefaultAggregatorRedisName,
+		ExposedPorts: []string{"6379/tcp"},
+		Networks:     []string{framework.DefaultNetworkName},
+		NetworkAliases: map[string][]string{
+			framework.DefaultNetworkName: {DefaultAggregatorRedisName},
+		},
+		Labels: framework.DefaultTCLabels(),
+		HostConfigModifier: func(h *container.HostConfig) {
+			h.PortBindings = nat.PortMap{
+				"6379/tcp": []nat.PortBinding{
+					{HostPort: strconv.Itoa(DefaultAggregatorRedisPort)},
+				},
+			}
+		},
+		WaitingFor: wait.ForLog("Ready to accept connections"),
+	}
+
+	_, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: redisReq,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis container: %w", err)
+	}
 
 	// Get the connection string for localhost access (for table creation)
 	host, err := dynamoContainer.Host(ctx)

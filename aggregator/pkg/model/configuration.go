@@ -145,6 +145,40 @@ type OrphanRecoveryConfig struct {
 	IntervalSeconds int `toml:"intervalSeconds"`
 }
 
+// RateLimitConfig defines the rate limit for a specific method.
+type RateLimitConfig struct {
+	// LimitPerMinute is the number of requests allowed per minute
+	LimitPerMinute int `toml:"limit_per_minute"`
+}
+
+// RateLimiterStoreConfig defines the configuration for rate limiter storage.
+type RateLimiterStoreConfig struct {
+	// Type of storage: "memory" or "redis"
+	Type string `toml:"type"`
+
+	// Redis configuration (only used when Type is "redis")
+	RedisAddress  string `toml:"redis_address"`
+	RedisPassword string `toml:"redis_password"`
+	RedisDB       int    `toml:"redis_db"`
+
+	// Prefix for Redis keys (default: "ratelimit")
+	KeyPrefix string `toml:"key_prefix"`
+}
+
+// RateLimitingConfig is the top-level configuration for rate limiting.
+type RateLimitingConfig struct {
+	// Enabled controls whether rate limiting is active
+	Enabled bool `toml:"enabled"`
+
+	// Storage configuration
+	Storage RateLimiterStoreConfig `toml:"storage"`
+
+	// Limits defines per-caller, per-method rate limits
+	// Map structure: callerID -> method -> RateLimitConfig
+	// Use "default" as callerID for default limits
+	Limits map[string]map[string]RateLimitConfig `toml:"limits"`
+}
+
 // BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
 type BeholderConfig struct {
 	// InsecureConnection disables TLS for the beholder client.
@@ -211,6 +245,7 @@ type AggregatorConfig struct {
 	APIKeys           APIKeyConfig               `toml:"apiKeys"`
 	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
 	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
+	RateLimiting      RateLimitingConfig         `toml:"rateLimiting"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
 	Monitoring        MonitoringConfig           `toml:"monitoring"`
