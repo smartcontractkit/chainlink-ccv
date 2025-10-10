@@ -1,8 +1,6 @@
 FROM golang:1.24.6-alpine AS builder
 WORKDIR /
-COPY protocol/ ./protocol/
-COPY common/ ./common/
-COPY executor/ ./executor/
+COPY . .
 WORKDIR /app
 COPY . .
 COPY ../common/go.mod ../common/go.sum ./
