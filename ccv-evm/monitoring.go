@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -284,7 +285,19 @@ func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggreg
 	if err != nil {
 		return nil, err
 	}
-	reader, err := storageaccess.NewAggregatorReader(aggregatorAddress, "dummy-api-key", lggr, aggregatorSince)
+
+	hmacConfig := hmac.ClientConfig{
+		APIKey: "dev-api-key-monitoring",
+		Secret: "dev-secret-monitoring",
+	}
+
+	// Use monitoring API key and secret for infrastructure access
+	reader, err := storageaccess.NewAggregatorReader(
+		aggregatorAddress,
+		lggr,
+		aggregatorSince,
+		&hmacConfig,
+	)
 	if err != nil {
 		return nil, err
 	}

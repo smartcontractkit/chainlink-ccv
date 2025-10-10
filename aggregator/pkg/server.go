@@ -13,7 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/selector"
 	"github.com/oklog/run"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -237,7 +239,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
 	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring, time.Duration(config.MaxAnonymousGetMessageSinceRange)*time.Second)
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
@@ -249,13 +251,22 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	checkpointStorage = storage.WrapCheckpointWithMetrics(checkpointStorage, aggMonitoring)
 
-	// Initialize checkpoint handlers with configuration support
-	writeBlockCheckpointHandler := handlers.NewWriteBlockCheckpointHandler(checkpointStorage, &config.APIKeys, &config.Checkpoints)
-	readBlockCheckpointHandler := handlers.NewReadBlockCheckpointHandler(checkpointStorage, &config.APIKeys)
+	// Initialize checkpoint handlers
+	writeBlockCheckpointHandler := handlers.NewWriteBlockCheckpointHandler(checkpointStorage)
+	readBlockCheckpointHandler := handlers.NewReadBlockCheckpointHandler(checkpointStorage)
 
+	// Initialize middlewares
 	loggingMiddleware := middlewares.NewLoggingMiddleware(l)
 	metricsMiddleware := middlewares.NewMetricMiddleware(aggMonitoring)
 	scopingMiddleware := middlewares.NewScopingMiddleware()
+
+	// Initialize authentication middlewares
+	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(&config.APIKeys, l)
+	anonymousAuthMiddleware := middlewares.NewAnonymousAuthMiddleware()
+
+	isCCVDataService := func(ctx context.Context, callMeta interceptors.CallMeta) bool {
+		return callMeta.Service == pb.CCVData_ServiceDesc.ServiceName
+	}
 
 	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1000) // Pre-increment the buffer size metric
 	grpcPanicRecoveryHandler := func(p any) (err error) {
@@ -269,6 +280,16 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 			scopingMiddleware.Intercept,
 			loggingMiddleware.Intercept,
 			metricsMiddleware.Intercept,
+			hmacAuthMiddleware.Intercept,
+
+			// Anonymous auth fallback - only for CCVData service when HMAC didn't authenticate
+			selector.UnaryServerInterceptor(
+				anonymousAuthMiddleware.Intercept,
+				selector.MatchFunc(isCCVDataService),
+			),
+
+			// Require authentication for all requests (ensures identity is set)
+			middlewares.RequireAuthInterceptor,
 		),
 	)
 
