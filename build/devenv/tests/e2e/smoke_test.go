@@ -15,22 +15,15 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 const (
-	// TODO: should these be in another place that is easily accessible?
-	MockReceiverContractType    = "MockReceiver"
-	MockReceiverContractVersion = "1.7.0"
-
-	CommitteeVerifierContractType    = "CommitteeVerifier"
-	CommitteeVerifierContractVersion = "1.7.0"
-
-	ExecutorOnRampContractType    = "ExecutorOnRamp"
-	ExecutorOnRampContractVersion = "1.7.0"
-
 	// See Internal.sol for the full enum values
 	MessageExecutionStateSuccess uint8 = 2
 	MessageExecutionStateFailed  uint8 = 3
@@ -88,7 +81,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:         "1337->3337 msg execution mock receiver",
 				fromSelector: selectors[0],
 				toSelector:   selectors[2],
-				receiver:     getMockReceiverAddress(t, in, selectors[2]),
+				receiver:     getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
 				expectFail: false,
@@ -146,7 +139,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[0]),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -160,7 +153,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[1]),
+						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -174,7 +167,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[0]),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -186,10 +179,10 @@ func TestE2ESmoke(t *testing.T) {
 				srcSelector: selectors[0],
 				dstSelector: selectors[1],
 				finality:    1,
-				receiver:    getMockReceiverAddress(t, in, selectors[1]),
+				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[1]),
+						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -203,10 +196,10 @@ func TestE2ESmoke(t *testing.T) {
 				srcSelector: selectors[1],
 				dstSelector: selectors[0],
 				finality:    1,
-				receiver:    getMockReceiverAddress(t, in, selectors[0]),
+				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[0]),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -228,7 +221,7 @@ func TestE2ESmoke(t *testing.T) {
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
 						FinalityConfig:    uint16(tc.finality),
-						Executor:          getExecOnRampAddress(t, in, tc.srcSelector),
+						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor_onramp.ContractType), executor_onramp.Deploy.Version(), "executor on-ramp"),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,
 						OptionalThreshold: tc.threshold,
@@ -255,30 +248,11 @@ func mustGetEOAReceiverAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector 
 	return receiver
 }
 
-func getMockReceiverAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
-	mockReceiverRef, err := ccvCfg.CLDF.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(chainSelector, datastore.ContractType(MockReceiverContractType), semver.MustParse(MockReceiverContractVersion), ""),
+func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, contractType datastore.ContractType, version, contractName string) protocol.UnknownAddress {
+	ref, err := ccvCfg.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(chainSelector, contractType, semver.MustParse(version), ""),
 	)
-	require.NoErrorf(t, err, "failed to get mock receiver address for chain selector %d, ContractType: %s, ContractVersion: %s",
-		chainSelector, MockReceiverContractType, MockReceiverContractVersion)
-	return protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes())
-}
-
-func getExecOnRampAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
-
-	executorOnRampRef, err := ccvCfg.CLDF.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(chainSelector, datastore.ContractType(ExecutorOnRampContractType), semver.MustParse(ExecutorOnRampContractVersion), ""),
-	)
-	require.NoErrorf(t, err, "failed to get executor on ramp address for chain selector %d, ContractType: %s, ContractVersion: %s",
-		chainSelector, ExecutorOnRampContractType, ExecutorOnRampContractVersion)
-	return protocol.UnknownAddress(common.HexToAddress(executorOnRampRef.Address).Bytes())
-}
-
-func getCommitteeVerifierAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
-	committeeVerifierRef, err := ccvCfg.CLDF.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(chainSelector, datastore.ContractType(CommitteeVerifierContractType), semver.MustParse(CommitteeVerifierContractVersion), ""),
-	)
-	require.NoErrorf(t, err, "failed to get committee verifier address for chain selector %d, ContractType: %s, ContractVersion: %s",
-		chainSelector, CommitteeVerifierContractType, CommitteeVerifierContractVersion)
-	return protocol.UnknownAddress(common.HexToAddress(committeeVerifierRef.Address).Bytes())
+	require.NoErrorf(t, err, "failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s",
+		contractName, chainSelector, contractType, version)
+	return protocol.UnknownAddress(common.HexToAddress(ref.Address).Bytes())
 }
