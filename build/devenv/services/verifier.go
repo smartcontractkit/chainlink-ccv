@@ -189,6 +189,10 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			filepath.Join(p, "../verifier"),
 			"/verifier",
 		))
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
+			filepath.Join(p, "../executor"),
+			"/executor",
+		))
 
 		// The main binary is in common.
 		req.Mounts = append(req.Mounts, testcontainers.BindMount(
