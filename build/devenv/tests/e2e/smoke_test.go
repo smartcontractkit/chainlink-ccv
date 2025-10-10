@@ -25,7 +25,7 @@ const (
 	MockReceiverContractType    = "MockReceiver"
 	MockReceiverContractVersion = "1.7.0"
 
-	CommitteeVerifierContractType    = "CommitOnRamp"
+	CommitteeVerifierContractType    = "CommitteeVerifier"
 	CommitteeVerifierContractVersion = "1.7.0"
 
 	ExecutorOnRampContractType    = "ExecutorOnRamp"
@@ -91,7 +91,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:     getMockReceiverAddress(t, in, selectors[2]),
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
-				expectFail: true,
+				expectFail: false,
 			},
 		}
 		for _, tc := range tcs {
@@ -196,7 +196,7 @@ func TestE2ESmoke(t *testing.T) {
 				},
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
-				expectFail: true,
+				expectFail: false,
 			},
 			{
 				name:        "dst_src msg execution with mock receiver",
@@ -213,7 +213,7 @@ func TestE2ESmoke(t *testing.T) {
 				},
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
-				expectFail: true,
+				expectFail: false,
 			},
 		}
 		for _, tc := range tcs {
