@@ -23,6 +23,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -72,7 +73,7 @@ type EVMTXGun struct {
 	cfg        *ccv.Cfg
 	e          *deployment.Environment
 	selectors  []uint64
-	impl       ccv.CCIP17ProductConfiguration
+	impl       cciptestinterfaces.CCIP17ProductConfiguration
 	src        evm.Chain
 	dest       evm.Chain
 	sentSeqNos []uint64
@@ -89,7 +90,7 @@ func (m *EVMTXGun) CloseSentChannel() {
 	})
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d evm.Chain) *EVMTXGun {
 	return &EVMTXGun{
 		cfg:        cfg,
 		e:          e,
@@ -142,15 +143,21 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		}
 	}
 
-	err = m.impl.SendArgsV3Message(ctx, m.e, m.cfg.CLDF.Addresses, m.selectors, srcChain.ChainSelector, dstChain.ChainSelector, uint16(1), "0x68B1D87F95878fE05B998F19b66F4baba5De1aed", "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c", nil, nil,
-		[]protocol.CCV{
+	err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
+		Receiver: protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443c").Bytes()),
+		Data:     []byte{},
+	}, cciptestinterfaces.MessageOptions{
+		Version:        3,
+		FinalityConfig: uint16(1),
+		MandatoryCCVs: []protocol.CCV{
 			{
 				CCVAddress: common.HexToAddress("0x0B306BF915C4d645ff596e518fAf3F9669b97016").Bytes(),
 				Args:       []byte{},
 				ArgsLen:    0,
 			},
 		},
-		[]protocol.CCV{}, 0)
+		OptionalThreshold: 0,
+	})
 	if err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
@@ -379,7 +386,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl ccv.CCIP17ProductConfiguration, s, d evm.Chain) (*wasp.Profile, *EVMTXGun) {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d evm.Chain) (*wasp.Profile, *EVMTXGun) {
 	gun := NewEVMTransactionGun(in, e, selectors, impl, s, d)
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
@@ -408,7 +415,7 @@ func TestE2ELoad(t *testing.T) {
 	srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
 	dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
 
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains)
+	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
 	chains := e.BlockChains.EVMChains()
 	require.NotNil(t, chains)
@@ -424,7 +431,7 @@ func TestE2ELoad(t *testing.T) {
 		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 	}
 
-	impl, err := ccvEvm.NewCCIP17EVM(ctx, in.CLDF.Addresses, chainIDs, wsURLs)
+	impl, err := ccvEvm.NewCCIP17EVM(ctx, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Run("clean", func(t *testing.T) {

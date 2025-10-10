@@ -36,7 +36,7 @@ type GasSettings struct {
 }
 
 const (
-	DefaultNativeTransferGasPrice = 21000
+	DefaultNativeTransferGasLimit = 21_000
 )
 
 // ETHClient creates a basic Ethereum client using PRIVATE_KEY env var and tip/cap gas settings.
@@ -136,7 +136,7 @@ func FundNodeEIP1559(ctx context.Context, c *ethclient.Client, pkey, recipientAd
 		Nonce:     nonce,
 		To:        &recipient,
 		Value:     amountWei,
-		Gas:       DefaultNativeTransferGasPrice,
+		Gas:       DefaultNativeTransferGasLimit,
 		GasFeeCap: feeCap,
 		GasTipCap: tipCap,
 	})

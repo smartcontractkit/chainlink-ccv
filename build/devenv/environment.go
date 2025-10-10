@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"os"
 	"strings"
-	"sync"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -19,6 +18,7 @@ import (
 
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 )
 
@@ -60,7 +60,7 @@ const (
 )
 
 type Cfg struct {
-	CLDF               *CLDF                     `toml:"cldf" validate:"required"`
+	CLDF               CLDF                      `toml:"cldf" validate:"required"`
 	Fake               *services.FakeInput       `toml:"fake"        validate:"required"`
 	Verifier           []*services.VerifierInput `toml:"verifier"    validate:"required"`
 	Executor           *services.ExecutorInput   `toml:"executor"    validate:"required"`
@@ -82,7 +82,7 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewProductConfigurationFromNetwork(typ string) (CCIP17ProductConfiguration, error) {
+func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
 		return &ccvEvm.CCIP17EVM{}, nil
@@ -116,7 +116,7 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	impls := make([]CCIP17ProductConfiguration, 0)
+	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
 		impl, err := NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
@@ -164,8 +164,10 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
 	}
 
-	in.CLDF.AddressesMu = &sync.Mutex{}
-	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains)
+	// the CLDF datastore is not initialized at this point because contracts are not deployed yet.
+	// it will get populated in the loop below.
+	in.CLDF.Init()
+	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	if err != nil {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
@@ -189,13 +191,11 @@ func NewEnvironment() (*Cfg, error) {
 		if err != nil {
 			return nil, err
 		}
-		in.CLDF.AddressesMu.Lock()
 		a, err := json.Marshal(addresses)
 		if err != nil {
 			return nil, err
 		}
-		in.CLDF.Addresses = append(in.CLDF.Addresses, string(a))
-		in.CLDF.AddressesMu.Unlock()
+		in.CLDF.AddAddresses(string(a))
 		if err := ds.Merge(dsi); err != nil {
 			return nil, err
 		}
@@ -245,5 +245,5 @@ func NewEnvironment() (*Cfg, error) {
 	if err := PrintCLDFAddresses(in); err != nil {
 		return nil, err
 	}
-	return in, Store[Cfg](in)
+	return in, Store(in)
 }
