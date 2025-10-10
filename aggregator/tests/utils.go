@@ -16,54 +16,143 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/common/pkg/hmac"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 const bufSize = 1024 * 1024
 
-type ConfigOption = func(*model.AggregatorConfig) *model.AggregatorConfig
+var (
+	defaultAPIKey = "test-api-key"
+	defaultSecret = "test-secret-key"
+)
+
+// HMACAuthConfig holds the configuration for HMAC authentication in tests.
+type HMACAuthConfig struct {
+	APIKey string
+	Secret string
+}
+
+// ClientConfig holds configuration for test client behavior.
+type ClientConfig struct {
+	SkipAuth bool
+	APIKey   string
+	Secret   string
+}
+
+type ConfigOption = func(*model.AggregatorConfig, *ClientConfig) (*model.AggregatorConfig, *ClientConfig)
 
 func WithCommitteeConfig(committeeConfig map[string]*model.Committee) ConfigOption {
-	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.Committees = committeeConfig
-		return cfg
+		return cfg, clientCfg
 	}
 }
 
 func WithStorageType(storageType string) ConfigOption {
-	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.Storage.StorageType = model.StorageType(storageType)
-		return cfg
+		return cfg, clientCfg
 	}
 }
 
 func WithStubMode(stub bool) ConfigOption {
-	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.StubMode = stub
-		return cfg
+		return cfg, clientCfg
 	}
 }
 
 func WithPaginationConfig(pageSize int) ConfigOption {
-	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.Storage.PageSize = pageSize
-		return cfg
+		return cfg, clientCfg
 	}
 }
 
 func WithShardCount(shardCount int) ConfigOption {
-	return func(cfg *model.AggregatorConfig) *model.AggregatorConfig {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		if cfg.Storage.DynamoDB == nil {
 			cfg.Storage.DynamoDB = &model.DynamoDBConfig{}
 		}
 		cfg.Storage.DynamoDB.ShardCount = shardCount
-		return cfg
+		return cfg, clientCfg
+	}
+}
+
+func WithAPIKeyAuth(apiKey, secret string) ConfigOption {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
+		cfg.APIKeys.Clients[apiKey] = &model.APIClient{
+			ClientID:    apiKey,
+			Description: "Custom test client",
+			Enabled:     true,
+			Secrets: map[string]string{
+				"current": secret,
+			},
+		}
+		return cfg, clientCfg
+	}
+}
+
+func WithClientAuth(apiKey, secret string) ConfigOption {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
+		clientCfg.APIKey = apiKey
+		clientCfg.Secret = secret
+		clientCfg.SkipAuth = false
+		return cfg, clientCfg
+	}
+}
+
+func WithoutClientAuth() ConfigOption {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
+		clientCfg.SkipAuth = true
+		return cfg, clientCfg
 	}
 }
 
 // CreateServerAndClient creates a test server and client for functional testing.
 // Uses DynamoDB storage by default, but can be overridden with options.
 func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.CCVDataClient, func(), error) {
+	// Create server
+	listener, serverCleanup, err := CreateServerOnly(t, options...)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	clientConfig := &ClientConfig{
+		SkipAuth: false,
+		APIKey:   defaultAPIKey,
+		Secret:   defaultSecret,
+	}
+
+	dummyConfig := &model.AggregatorConfig{
+		Storage: &model.StorageConfig{
+			DynamoDB: &model.DynamoDBConfig{},
+		},
+		APIKeys: model.APIKeyConfig{
+			Clients: make(map[string]*model.APIClient),
+		},
+	}
+	for _, option := range options {
+		_, clientConfig = option(dummyConfig, clientConfig)
+	}
+
+	aggregatorClient, ccvDataClient, clientCleanup := CreateAuthenticatedClient(
+		t,
+		listener,
+		options...,
+	)
+
+	cleanup := func() {
+		clientCleanup()
+		serverCleanup()
+	}
+
+	return aggregatorClient, ccvDataClient, cleanup, nil
+}
+
+// CreateServerOnly creates and starts a test gRPC server using bufconn for in-memory communication.
+func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener, func(), error) {
 	buf := bufconn.Listen(bufSize)
 	// Setup logging - always debug level for now
 	lggr, err := logger.NewWith(func(logConfig *zap.Config) {
@@ -89,11 +178,28 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 		Monitoring: model.MonitoringConfig{
 			Enabled: false,
 		},
+		APIKeys: model.APIKeyConfig{
+			Clients: make(map[string]*model.APIClient),
+		},
 	}
 
-	// Apply options for committee config, stub mode, storage type, etc.
+	config.APIKeys.Clients[defaultAPIKey] = &model.APIClient{
+		ClientID:    "test-client",
+		Description: "Test client for integration tests",
+		Enabled:     true,
+		Secrets: map[string]string{
+			"current": defaultSecret,
+		},
+	}
+
+	clientConfig := &ClientConfig{
+		SkipAuth: false,
+		APIKey:   defaultAPIKey,
+		Secret:   defaultSecret,
+	}
+
 	for _, option := range options {
-		config = option(config)
+		config, clientConfig = option(config, clientConfig)
 	}
 
 	// Setup storage based on final configuration
@@ -103,7 +209,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 	case model.StorageTypeDynamoDB:
 		storageConfig, cleanup, err := setupDynamoDBStorage(t, config.Storage)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		config.Storage = storageConfig
 		cleanupStorage = cleanup
@@ -111,7 +217,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 		// No setup needed for memory storage
 		cleanupStorage = func() {}
 	default:
-		return nil, nil, nil, fmt.Errorf("unsupported storage type: %s", config.Storage.StorageType)
+		return nil, nil, fmt.Errorf("unsupported storage type: %s", config.Storage.StorageType)
 	}
 
 	s := agg.NewServer(sugaredLggr, config)
@@ -120,29 +226,76 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 		t.Fatalf("failed to start server: %v", err)
 	}
 
+	cleanup := func() {
+		cleanupStorage()
+	}
+
+	return buf, cleanup, nil
+}
+
+// CreateAuthenticatedClient creates a gRPC client with optional HMAC authentication.
+func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (pb.AggregatorClient, pb.CCVDataClient, func()) {
+	clientConfig := &ClientConfig{
+		SkipAuth: false,
+		APIKey:   defaultAPIKey,
+		Secret:   defaultSecret,
+	}
+
+	dummyConfig := &model.AggregatorConfig{
+		Storage: &model.StorageConfig{
+			DynamoDB: &model.DynamoDBConfig{},
+		},
+		APIKeys: model.APIKeyConfig{
+			Clients: make(map[string]*model.APIClient),
+		},
+	}
+	for _, option := range options {
+		_, clientConfig = option(dummyConfig, clientConfig)
+	}
+
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	aggregatorClient, aggregatorConn, err := createAggregatorClient(ctx, buf)
+	var clientOptions []grpc.DialOption
+	if !clientConfig.SkipAuth {
+		hmacConfig := &HMACAuthConfig{
+			APIKey: clientConfig.APIKey,
+			Secret: clientConfig.Secret,
+		}
+		clientOptions = []grpc.DialOption{
+			grpc.WithUnaryInterceptor(createSimpleHMACClientInterceptor(hmacConfig)),
+		}
+	}
+
+	aggregatorClient, aggregatorConn, err := createAggregatorClient(ctx, listener, clientOptions...)
 	if err != nil {
 		t.Fatalf("failed to create aggregator client: %v", err)
 	}
 
-	ccvDataClient, ccvDataConn, err := createCCVDataClient(ctx, buf)
+	ccvDataClient, ccvDataConn, err := createCCVDataClient(ctx, listener, clientOptions...)
 	if err != nil {
 		t.Fatalf("failed to create CCV data client: %v", err)
 	}
 
-	return aggregatorClient, ccvDataClient, func() {
+	cleanup := func() {
 		if err := aggregatorConn.Close(); err != nil {
-			t.Errorf("failed to close connection: %v", err)
+			t.Errorf("failed to close aggregator connection: %v", err)
 		}
 		if err := ccvDataConn.Close(); err != nil {
-			t.Errorf("failed to close connection: %v", err)
+			t.Errorf("failed to close ccv data connection: %v", err)
 		}
-		cleanupStorage()
-	}, nil
+	}
+
+	return aggregatorClient, ccvDataClient, cleanup
+}
+
+func createSimpleHMACClientInterceptor(config *HMACAuthConfig) grpc.UnaryClientInterceptor {
+	clientConfig := &hmacutil.ClientConfig{
+		APIKey: config.APIKey,
+		Secret: config.Secret,
+	}
+	return hmacutil.NewClientInterceptor(clientConfig)
 }
 
 func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
@@ -163,13 +316,22 @@ func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*m
 	return existingConfig, cleanup, nil
 }
 
-func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (pb.CCVDataClient, *grpc.ClientConn, error) {
+func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.CCVDataClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return ccvDataBuf.Dial()
 	}
 
 	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
-	ccvDataConn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(bufDialer), grpc.WithInsecure())
+	defaultOpts := []grpc.DialOption{
+		grpc.WithContextDialer(bufDialer),
+		grpc.WithInsecure(),
+	}
+
+	// Append custom options (like interceptors)
+	allOpts := append(defaultOpts, opts...)
+
+	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
+	ccvDataConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -178,13 +340,22 @@ func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener) (pb.
 	return client, ccvDataConn, nil
 }
 
-func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener) (pb.AggregatorClient, *grpc.ClientConn, error) {
+func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.AggregatorClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return aggregatorBuf.Dial()
 	}
 
 	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
-	aggregatorConn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(bufDialer), grpc.WithInsecure())
+	defaultOpts := []grpc.DialOption{
+		grpc.WithContextDialer(bufDialer),
+		grpc.WithInsecure(),
+	}
+
+	// Append custom options (like interceptors)
+	allOpts := append(defaultOpts, opts...)
+
+	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
+	aggregatorConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -3,59 +3,56 @@ package handlers
 import (
 	"context"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // ReadBlockCheckpointHandler handles ReadBlockCheckpoint gRPC requests.
 type ReadBlockCheckpointHandler struct {
-	storage   common.CheckpointStorageInterface
-	apiConfig *model.APIKeyConfig // Optional API key configuration for enhanced validation
+	storage common.CheckpointStorageInterface
 }
 
-// NewReadBlockCheckpointHandler creates a new ReadBlockCheckpointHandler with configuration.
-func NewReadBlockCheckpointHandler(storage common.CheckpointStorageInterface, apiConfig *model.APIKeyConfig) *ReadBlockCheckpointHandler {
+// NewReadBlockCheckpointHandler creates a new ReadBlockCheckpointHandler.
+func NewReadBlockCheckpointHandler(storage common.CheckpointStorageInterface) *ReadBlockCheckpointHandler {
 	return &ReadBlockCheckpointHandler{
-		storage:   storage,
-		apiConfig: apiConfig,
+		storage: storage,
 	}
 }
 
 // Handle processes a ReadBlockCheckpoint request.
 func (h *ReadBlockCheckpointHandler) Handle(ctx context.Context, req *pb.ReadBlockCheckpointRequest) (*pb.ReadBlockCheckpointResponse, error) {
-	var clientID string
-	var err error
-
-	// Use configuration-based authentication if clients are configured, otherwise fall back to basic
-	if h.apiConfig != nil && len(h.apiConfig.Clients) > 0 {
-		_, clientID, err = extractAPIKeyWithConfig(ctx, h.apiConfig)
-		if err != nil {
-			return nil, handleAuthenticationError(err)
-		}
-	} else {
-		// Fallback to basic API key validation and use API key as client ID
-		apiKey, err := extractAPIKey(ctx)
-		if err != nil {
-			return nil, handleAuthenticationError(err)
-		}
-		clientID = apiKey
+	// Extract caller identity from context (set by authentication middleware)
+	identity, ok := middlewares.IdentityFromContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "no caller identity in context")
 	}
 
 	// Validate the request (minimal validation required for read)
-	if err := model.ValidateReadBlockCheckpointRequest(req); err != nil {
-		return nil, handleValidationError(err)
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
 
-	// Retrieve checkpoints for this client
-	checkpointMap, err := h.storage.GetClientCheckpoints(ctx, clientID)
+	// Retrieve checkpoints for this client using their identity
+	checkpointMap, err := h.storage.GetClientCheckpoints(ctx, identity.CallerID)
 	if err != nil {
-		return nil, handleInternalError(err)
+		return nil, status.Errorf(codes.Internal, "failed to retrieve checkpoints: %v", err)
 	}
 
 	// Convert storage format to protobuf checkpoints
-	protoCheckpoints := model.MapToProtoCheckpoints(checkpointMap)
+	protoCheckpoints := make([]*pb.BlockCheckpoint, 0, len(checkpointMap))
+	for chainSelector, blockHeight := range checkpointMap {
+		protoCheckpoints = append(protoCheckpoints, &pb.BlockCheckpoint{
+			ChainSelector:        chainSelector,
+			FinalizedBlockHeight: blockHeight,
+		})
+	}
 
-	return model.NewReadBlockCheckpointResponse(protoCheckpoints), nil
+	return &pb.ReadBlockCheckpointResponse{
+		Checkpoints: protoCheckpoints,
+	}, nil
 }

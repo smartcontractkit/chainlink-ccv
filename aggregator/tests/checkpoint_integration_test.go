@@ -3,27 +3,81 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/metadata"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
+func WithCheckpointTestClients() ConfigOption {
+	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
+		testClients := []string{
+			"isolation-client-1", "isolation-client-2", "isolation-client-3",
+			"update-client-A", "update-client-B",
+			"concurrent-client",
+			"ddb-isolation-client-1", "ddb-isolation-client-2",
+			"ddb-concurrent-client",
+			"read-write-client",
+			"high-freq-client",
+		}
+
+		// Add clients for "same_chain_different_clients" test (10 clients A-J)
+		for i := 0; i < 10; i++ {
+			clientID := "same-chain-client-" + string(rune('A'+i))
+			testClients = append(testClients, clientID)
+		}
+
+		// Add clients for "concurrent_writes_different_clients" test (50 clients with AA, AB, etc. pattern)
+		for i := 0; i < 50; i++ {
+			clientID := "concurrent-client-" + string(rune('A'+i%26)) + string(rune('A'+i/26))
+			testClients = append(testClients, clientID)
+		}
+
+		// Add clients for "concurrent_access" test (100 clients)
+		for i := 0; i < 100; i++ {
+			clientID := fmt.Sprintf("concurrent-stress-client-%d", i)
+			testClients = append(testClients, clientID)
+		}
+
+		for _, clientID := range testClients {
+			secret := "secret-" + clientID
+			cfg.APIKeys.Clients[clientID] = &model.APIClient{
+				ClientID:    clientID,
+				Description: "Test client for " + clientID,
+				Enabled:     true,
+				Secrets: map[string]string{
+					"current": secret,
+				},
+			}
+		}
+
+		return cfg, clientCfg
+	}
+}
+
 // TestCheckpointClientIsolation tests that clients can't access each other's data.
 func TestCheckpointClientIsolation(t *testing.T) {
 	t.Run("different_clients_isolated_data", func(t *testing.T) {
-		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t)
-		require.NoError(t, err, "failed to create test server and client")
+		// Setup server
+		listener, cleanup, err := CreateServerOnly(t, WithCheckpointTestClients())
+		require.NoError(t, err, "failed to create test server")
 		defer cleanup()
 
-		client1Ctx := contextWithAPIKey("isolation-client-1")
-		client2Ctx := contextWithAPIKey("isolation-client-2")
-		client3Ctx := contextWithAPIKey("isolation-client-3")
+		// Create separate clients with different credentials
+		client1, _, cleanup1 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-1", "secret-isolation-client-1"))
+		defer cleanup1()
+
+		client2, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-2", "secret-isolation-client-2"))
+		defer cleanup2()
+
+		client3, _, cleanup3 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-3", "secret-isolation-client-3"))
+		defer cleanup3()
 
 		// Client 1 stores checkpoints
 		writeReq1 := &pb.WriteBlockCheckpointRequest{
@@ -32,7 +86,7 @@ func TestCheckpointClientIsolation(t *testing.T) {
 				{ChainSelector: 2, FinalizedBlockHeight: 2000},
 			},
 		}
-		_, err = client.WriteBlockCheckpoint(client1Ctx, writeReq1)
+		_, err = client1.WriteBlockCheckpoint(context.Background(), writeReq1)
 		require.NoError(t, err, "client 1 write should succeed")
 
 		// Client 2 stores different checkpoints
@@ -42,13 +96,13 @@ func TestCheckpointClientIsolation(t *testing.T) {
 				{ChainSelector: 3, FinalizedBlockHeight: 3000},
 			},
 		}
-		_, err = client.WriteBlockCheckpoint(client2Ctx, writeReq2)
+		_, err = client2.WriteBlockCheckpoint(context.Background(), writeReq2)
 		require.NoError(t, err, "client 2 write should succeed")
 
 		// Client 3 has no data stored
 
 		// Verify client 1 sees only their data
-		resp1, err := client.ReadBlockCheckpoint(client1Ctx, &pb.ReadBlockCheckpointRequest{})
+		resp1, err := client1.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 		require.NoError(t, err, "client 1 read should succeed")
 		require.Len(t, resp1.Checkpoints, 2, "client 1 should see 2 checkpoints")
 
@@ -60,7 +114,7 @@ func TestCheckpointClientIsolation(t *testing.T) {
 		require.Equal(t, uint64(2000), client1Data[2], "client 1 should see their chain 2 value")
 
 		// Verify client 2 sees only their data
-		resp2, err := client.ReadBlockCheckpoint(client2Ctx, &pb.ReadBlockCheckpointRequest{})
+		resp2, err := client2.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 		require.NoError(t, err, "client 2 read should succeed")
 		require.Len(t, resp2.Checkpoints, 2, "client 2 should see 2 checkpoints")
 
@@ -72,40 +126,57 @@ func TestCheckpointClientIsolation(t *testing.T) {
 		require.Equal(t, uint64(3000), client2Data[3], "client 2 should see their chain 3 value")
 
 		// Verify client 3 sees no data
-		resp3, err := client.ReadBlockCheckpoint(client3Ctx, &pb.ReadBlockCheckpointRequest{})
+		resp3, err := client3.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 		require.NoError(t, err, "client 3 read should succeed")
 		require.Empty(t, resp3.Checkpoints, "client 3 should see no checkpoints")
 	})
 
 	t.Run("same_chain_different_clients", func(t *testing.T) {
-		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t)
-		require.NoError(t, err, "failed to create test server and client")
+		// Setup server only
+		listener, cleanup, err := CreateServerOnly(t, WithCheckpointTestClients())
+		require.NoError(t, err, "failed to create test server")
 		defer cleanup()
 
 		numClients := 10
 		chainSelector := uint64(42) // All clients use same chain selector
 
-		// Each client stores their own value for the same chain
+		// Create all clients upfront
+		type clientInfo struct {
+			client   pb.AggregatorClient
+			clientID string
+			cleanup  func()
+		}
+		clients := make([]*clientInfo, numClients)
 		for i := 0; i < numClients; i++ {
 			clientID := "same-chain-client-" + string(rune('A'+i))
-			ctx := contextWithAPIKey(clientID)
+			aggClient, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth(clientID, "secret-"+clientID))
+			clients[i] = &clientInfo{
+				client:   aggClient,
+				clientID: clientID,
+				cleanup:  clientCleanup,
+			}
+		}
+		// Cleanup all clients at the end
+		defer func() {
+			for _, c := range clients {
+				c.cleanup()
+			}
+		}()
 
+		// Each client stores their own value for the same chain
+		for i := 0; i < numClients; i++ {
 			writeReq := &pb.WriteBlockCheckpointRequest{
 				Checkpoints: []*pb.BlockCheckpoint{
 					{ChainSelector: chainSelector, FinalizedBlockHeight: uint64((i + 1) * 100)},
 				},
 			}
-			_, err = client.WriteBlockCheckpoint(ctx, writeReq)
+			_, err = clients[i].client.WriteBlockCheckpoint(context.Background(), writeReq)
 			require.NoError(t, err, "client %d write should succeed", i)
 		}
 
 		// Verify each client sees only their own value
 		for i := 0; i < numClients; i++ {
-			clientID := "same-chain-client-" + string(rune('A'+i))
-			ctx := contextWithAPIKey(clientID)
-
-			resp, err := client.ReadBlockCheckpoint(ctx, &pb.ReadBlockCheckpointRequest{})
+			resp, err := clients[i].client.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 			require.NoError(t, err, "client %d read should succeed", i)
 			require.Len(t, resp.Checkpoints, 1, "client %d should see 1 checkpoint", i)
 
@@ -116,13 +187,16 @@ func TestCheckpointClientIsolation(t *testing.T) {
 	})
 
 	t.Run("client_updates_dont_affect_others", func(t *testing.T) {
-		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t)
-		require.NoError(t, err, "failed to create test server and client")
+		// Setup server only
+		listener, cleanup, err := CreateServerOnly(t, WithCheckpointTestClients())
+		require.NoError(t, err, "failed to create test server")
 		defer cleanup()
 
-		clientACtx := contextWithAPIKey("update-client-A")
-		clientBCtx := contextWithAPIKey("update-client-B")
+		// Create two separate clients
+		clientA, _, cleanupA := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-A", "secret-update-client-A"))
+		defer cleanupA()
+		clientB, _, cleanupB := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-B", "secret-update-client-B"))
+		defer cleanupB()
 
 		// Both clients store initial data
 		initialReq := &pb.WriteBlockCheckpointRequest{
@@ -130,9 +204,9 @@ func TestCheckpointClientIsolation(t *testing.T) {
 				{ChainSelector: 1, FinalizedBlockHeight: 100},
 			},
 		}
-		_, err = client.WriteBlockCheckpoint(clientACtx, initialReq)
+		_, err = clientA.WriteBlockCheckpoint(context.Background(), initialReq)
 		require.NoError(t, err, "client A initial write should succeed")
-		_, err = client.WriteBlockCheckpoint(clientBCtx, initialReq)
+		_, err = clientB.WriteBlockCheckpoint(context.Background(), initialReq)
 		require.NoError(t, err, "client B initial write should succeed")
 
 		// Client A updates their data
@@ -141,16 +215,16 @@ func TestCheckpointClientIsolation(t *testing.T) {
 				{ChainSelector: 1, FinalizedBlockHeight: 200},
 			},
 		}
-		_, err = client.WriteBlockCheckpoint(clientACtx, updateReq)
+		_, err = clientA.WriteBlockCheckpoint(context.Background(), updateReq)
 		require.NoError(t, err, "client A update should succeed")
 
 		// Verify client A sees updated data
-		respA, err := client.ReadBlockCheckpoint(clientACtx, &pb.ReadBlockCheckpointRequest{})
+		respA, err := clientA.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 		require.NoError(t, err, "client A read should succeed")
 		require.Equal(t, uint64(200), respA.Checkpoints[0].FinalizedBlockHeight, "client A should see updated value")
 
 		// Verify client B still sees original data
-		respB, err := client.ReadBlockCheckpoint(clientBCtx, &pb.ReadBlockCheckpointRequest{})
+		respB, err := clientB.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 		require.NoError(t, err, "client B read should succeed")
 		require.Equal(t, uint64(100), respB.Checkpoints[0].FinalizedBlockHeight, "client B should see original value")
 	})
@@ -160,11 +234,11 @@ func TestCheckpointClientIsolation(t *testing.T) {
 func TestCheckpointConcurrency(t *testing.T) {
 	t.Run("concurrent_writes_same_client", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t)
+		client, _, cleanup, err := CreateServerAndClient(t, WithCheckpointTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
-		ctx := contextWithAPIKey("concurrent-client")
+		ctx := context.Background()
 		numGoroutines := 50
 		var wg sync.WaitGroup
 
@@ -209,12 +283,36 @@ func TestCheckpointConcurrency(t *testing.T) {
 	})
 
 	t.Run("concurrent_writes_different_clients", func(t *testing.T) {
-		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t)
-		require.NoError(t, err, "failed to create test server and client")
+		// Setup server only
+		listener, cleanup, err := CreateServerOnly(t, WithCheckpointTestClients())
+		require.NoError(t, err, "failed to create test server")
 		defer cleanup()
 
 		numClients := 50
+
+		// Create all clients upfront
+		type clientInfo struct {
+			client   pb.AggregatorClient
+			clientID string
+			cleanup  func()
+		}
+		clients := make([]*clientInfo, numClients)
+		for i := 0; i < numClients; i++ {
+			clientID := "concurrent-client-" + string(rune('A'+i%26)) + string(rune('A'+i/26))
+			aggClient, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth(clientID, "secret-"+clientID))
+			clients[i] = &clientInfo{
+				client:   aggClient,
+				clientID: clientID,
+				cleanup:  clientCleanup,
+			}
+		}
+		// Cleanup all clients at the end
+		defer func() {
+			for _, c := range clients {
+				c.cleanup()
+			}
+		}()
+
 		var wg sync.WaitGroup
 
 		// Concurrent writes from different clients
@@ -222,9 +320,6 @@ func TestCheckpointConcurrency(t *testing.T) {
 			wg.Add(1)
 			go func(clientIndex int) {
 				defer wg.Done()
-
-				clientID := "concurrent-client-" + string(rune('A'+clientIndex%26)) + string(rune('A'+clientIndex/26))
-				ctx := contextWithAPIKey(clientID)
 
 				writeReq := &pb.WriteBlockCheckpointRequest{
 					Checkpoints: []*pb.BlockCheckpoint{
@@ -235,7 +330,7 @@ func TestCheckpointConcurrency(t *testing.T) {
 					},
 				}
 
-				_, err := client.WriteBlockCheckpoint(ctx, writeReq)
+				_, err := clients[clientIndex].client.WriteBlockCheckpoint(context.Background(), writeReq)
 				require.NoError(t, err, "concurrent client %d write should succeed", clientIndex)
 			}(i)
 		}
@@ -244,10 +339,7 @@ func TestCheckpointConcurrency(t *testing.T) {
 
 		// Verify each client has their own data
 		for i := 0; i < numClients; i++ {
-			clientID := "concurrent-client-" + string(rune('A'+i%26)) + string(rune('A'+i/26))
-			ctx := contextWithAPIKey(clientID)
-
-			resp, err := client.ReadBlockCheckpoint(ctx, &pb.ReadBlockCheckpointRequest{})
+			resp, err := clients[i].client.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 			require.NoError(t, err, "concurrent client %d read should succeed", i)
 			require.Len(t, resp.Checkpoints, 1, "client %d should have 1 checkpoint", i)
 
@@ -258,11 +350,11 @@ func TestCheckpointConcurrency(t *testing.T) {
 
 	t.Run("concurrent_read_write_operations", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t)
+		client, _, cleanup, err := CreateServerAndClient(t, WithCheckpointTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
-		ctx := contextWithAPIKey("read-write-client")
+		ctx := context.Background()
 
 		// Pre-populate some data
 		initialReq := &pb.WriteBlockCheckpointRequest{
@@ -339,11 +431,11 @@ func TestCheckpointConcurrency(t *testing.T) {
 
 	t.Run("high_frequency_updates_same_chain", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t)
+		client, _, cleanup, err := CreateServerAndClient(t, WithCheckpointTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
-		ctx := contextWithAPIKey("high-freq-client")
+		ctx := context.Background()
 		chainSelector := uint64(1)
 		numUpdates := 100
 		var wg sync.WaitGroup
@@ -381,23 +473,19 @@ func TestCheckpointConcurrency(t *testing.T) {
 	})
 }
 
-// Helper functions
-
-func contextWithAPIKey(apiKey string) context.Context {
-	md := metadata.New(map[string]string{"api-key": apiKey})
-	return metadata.NewOutgoingContext(context.Background(), md)
-}
-
 // TestCheckpointClientIsolation_DynamoDB tests checkpoint isolation with DynamoDB storage.
 func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
 	t.Run("dynamodb_client_isolation", func(t *testing.T) {
 		// Setup with DynamoDB storage
-		client, _, cleanup, err := CreateServerAndClient(t, WithStorageType("dynamodb"))
-		require.NoError(t, err, "failed to create test server and client with DynamoDB")
+		listener, cleanup, err := CreateServerOnly(t, WithStorageType("dynamodb"), WithCheckpointTestClients())
+		require.NoError(t, err, "failed to create test server with DynamoDB")
 		defer cleanup()
 
-		client1Ctx := contextWithAPIKey("ddb-isolation-client-1")
-		client2Ctx := contextWithAPIKey("ddb-isolation-client-2")
+		// Create two separate clients
+		client1, _, cleanup1 := CreateAuthenticatedClient(t, listener, WithClientAuth("ddb-isolation-client-1", "secret-ddb-isolation-client-1"))
+		defer cleanup1()
+		client2, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("ddb-isolation-client-2", "secret-ddb-isolation-client-2"))
+		defer cleanup2()
 
 		// Client 1 stores checkpoints
 		writeReq1 := &pb.WriteBlockCheckpointRequest{
@@ -406,7 +494,7 @@ func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
 				{ChainSelector: 2, FinalizedBlockHeight: 2000},
 			},
 		}
-		_, err = client.WriteBlockCheckpoint(client1Ctx, writeReq1)
+		_, err = client1.WriteBlockCheckpoint(context.Background(), writeReq1)
 		require.NoError(t, err, "client 1 write should succeed")
 
 		// Client 2 stores different checkpoints
@@ -416,11 +504,11 @@ func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
 				{ChainSelector: 3, FinalizedBlockHeight: 3000},
 			},
 		}
-		_, err = client.WriteBlockCheckpoint(client2Ctx, writeReq2)
+		_, err = client2.WriteBlockCheckpoint(context.Background(), writeReq2)
 		require.NoError(t, err, "client 2 write should succeed")
 
 		// Verify client 1 sees only their data
-		resp1, err := client.ReadBlockCheckpoint(client1Ctx, &pb.ReadBlockCheckpointRequest{})
+		resp1, err := client1.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 		require.NoError(t, err, "client 1 read should succeed")
 		require.Len(t, resp1.Checkpoints, 2, "client 1 should see 2 checkpoints")
 
@@ -432,7 +520,7 @@ func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
 		require.Equal(t, uint64(2000), client1Data[2], "client 1 should see their chain 2 value")
 
 		// Verify client 2 sees only their data
-		resp2, err := client.ReadBlockCheckpoint(client2Ctx, &pb.ReadBlockCheckpointRequest{})
+		resp2, err := client2.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
 		require.NoError(t, err, "client 2 read should succeed")
 		require.Len(t, resp2.Checkpoints, 2, "client 2 should see 2 checkpoints")
 
@@ -449,11 +537,11 @@ func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
 func TestCheckpointConcurrency_DynamoDB(t *testing.T) {
 	t.Run("dynamodb_concurrent_writes", func(t *testing.T) {
 		// Setup with DynamoDB storage
-		client, _, cleanup, err := CreateServerAndClient(t, WithStorageType("dynamodb"))
+		client, _, cleanup, err := CreateServerAndClient(t, WithStorageType("dynamodb"), WithCheckpointTestClients())
 		require.NoError(t, err, "failed to create test server and client with DynamoDB")
 		defer cleanup()
 
-		ctx := contextWithAPIKey("ddb-concurrent-client")
+		ctx := context.Background()
 		numGoroutines := 20
 		var wg sync.WaitGroup
 

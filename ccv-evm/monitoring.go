@@ -284,7 +284,14 @@ func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggreg
 	if err != nil {
 		return nil, err
 	}
-	reader, err := storageaccess.NewAggregatorReader(aggregatorAddress, "dummy-api-key", lggr, aggregatorSince)
+	// Use monitoring API key and secret for infrastructure access
+	reader, err := storageaccess.NewAggregatorReader(
+		aggregatorAddress,
+		"dev-api-key-monitoring",
+		"dev-secret-monitoring",
+		lggr,
+		aggregatorSince,
+	)
 	if err != nil {
 		return nil, err
 	}

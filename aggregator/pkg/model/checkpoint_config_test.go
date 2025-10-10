@@ -16,7 +16,6 @@ func TestAPIKeyConfig(t *testing.T) {
 					Enabled:     true,
 				},
 			},
-			MaxAPIKeyLength: 1000,
 		}
 
 		err := config.ValidateAPIKey("test-api-key")
@@ -32,7 +31,6 @@ func TestAPIKeyConfig(t *testing.T) {
 					Enabled:     false, // Disabled
 				},
 			},
-			MaxAPIKeyLength: 1000,
 		}
 
 		err := config.ValidateAPIKey("disabled-key")
@@ -42,8 +40,7 @@ func TestAPIKeyConfig(t *testing.T) {
 
 	t.Run("validate_api_key_with_unknown_key", func(t *testing.T) {
 		config := &APIKeyConfig{
-			Clients:         map[string]*APIClient{},
-			MaxAPIKeyLength: 1000,
+			Clients: map[string]*APIClient{},
 		}
 
 		err := config.ValidateAPIKey("unknown-key")
@@ -102,7 +99,6 @@ func TestAPIKeyConfig(t *testing.T) {
 		config.SetDefaults()
 
 		require.Equal(t, 1000, config.Checkpoints.MaxCheckpointsPerRequest)
-		require.Equal(t, 1000, config.APIKeys.MaxAPIKeyLength)
 		require.NotNil(t, config.APIKeys.Clients)
 	})
 }

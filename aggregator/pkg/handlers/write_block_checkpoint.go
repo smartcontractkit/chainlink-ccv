@@ -3,74 +3,73 @@ package handlers
 import (
 	"context"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // WriteBlockCheckpointHandler handles WriteBlockCheckpoint gRPC requests.
 type WriteBlockCheckpointHandler struct {
-	storage          common.CheckpointStorageInterface
-	apiConfig        *model.APIKeyConfig     // Optional API key configuration for enhanced validation
-	checkpointConfig *model.CheckpointConfig // Optional checkpoint configuration for limits
+	storage common.CheckpointStorageInterface
 }
 
-// NewWriteBlockCheckpointHandler creates a new WriteBlockCheckpointHandler with configuration.
-func NewWriteBlockCheckpointHandler(storage common.CheckpointStorageInterface, apiConfig *model.APIKeyConfig, checkpointConfig *model.CheckpointConfig) *WriteBlockCheckpointHandler {
+// NewWriteBlockCheckpointHandler creates a new WriteBlockCheckpointHandler.
+func NewWriteBlockCheckpointHandler(storage common.CheckpointStorageInterface) *WriteBlockCheckpointHandler {
 	return &WriteBlockCheckpointHandler{
-		storage:          storage,
-		apiConfig:        apiConfig,
-		checkpointConfig: checkpointConfig,
+		storage: storage,
 	}
 }
 
 // Handle processes a WriteBlockCheckpoint request.
 func (h *WriteBlockCheckpointHandler) Handle(ctx context.Context, req *pb.WriteBlockCheckpointRequest) (*pb.WriteBlockCheckpointResponse, error) {
-	var clientID string
-	var err error
-
-	// Use configuration-based authentication if clients are configured, otherwise fall back to basic
-	if h.apiConfig != nil && len(h.apiConfig.Clients) > 0 {
-		_, clientID, err = extractAPIKeyWithConfig(ctx, h.apiConfig)
-		if err != nil {
-			return model.NewWriteBlockCheckpointResponse(false), handleAuthenticationError(err)
-		}
-	} else {
-		// Fallback to basic API key validation and use API key as client ID
-		apiKey, err := extractAPIKey(ctx)
-		if err != nil {
-			return model.NewWriteBlockCheckpointResponse(false), handleAuthenticationError(err)
-		}
-		clientID = apiKey
+	// Extract caller identity from context (set by authentication middleware)
+	identity, ok := middlewares.IdentityFromContext(ctx)
+	if !ok {
+		return &pb.WriteBlockCheckpointResponse{Status: pb.WriteStatus_FAILED}, status.Error(codes.Unauthenticated, "no caller identity in context")
 	}
 
-	// Validate the request (use config limits if available)
-	if err := h.validateRequest(req); err != nil {
-		return model.NewWriteBlockCheckpointResponse(false), handleValidationError(err)
+	// Validate the request
+	if err := validateWriteBlockCheckpointRequest(req); err != nil {
+		return &pb.WriteBlockCheckpointResponse{Status: pb.WriteStatus_FAILED}, status.Errorf(codes.InvalidArgument, "invalid request: %v", err)
 	}
 
 	// Convert protobuf checkpoints to storage format
-	checkpointMap := model.ProtoCheckpointsToMap(req.Checkpoints)
-
-	// Store checkpoints using the client ID
-	if err := h.storage.StoreCheckpoints(ctx, clientID, checkpointMap); err != nil {
-		return model.NewWriteBlockCheckpointResponse(false), handleInternalError(err)
+	checkpointMap := make(map[uint64]uint64, len(req.Checkpoints))
+	for _, checkpoint := range req.Checkpoints {
+		checkpointMap[checkpoint.ChainSelector] = checkpoint.FinalizedBlockHeight
 	}
 
-	return model.NewWriteBlockCheckpointResponse(true), nil
+	// Store checkpoints using the caller's identity
+	if err := h.storage.StoreCheckpoints(ctx, identity.CallerID, checkpointMap); err != nil {
+		return &pb.WriteBlockCheckpointResponse{Status: pb.WriteStatus_FAILED}, status.Errorf(codes.Internal, "failed to store checkpoints: %v", err)
+	}
+
+	return &pb.WriteBlockCheckpointResponse{Status: pb.WriteStatus_SUCCESS}, nil
 }
 
-// validateRequest validates the request using configuration limits if available.
-func (h *WriteBlockCheckpointHandler) validateRequest(req *pb.WriteBlockCheckpointRequest) error {
+// validateWriteBlockCheckpointRequest validates the WriteBlockCheckpoint request.
+func validateWriteBlockCheckpointRequest(req *pb.WriteBlockCheckpointRequest) error {
 	if req == nil {
-		return model.ValidateWriteBlockCheckpointRequest(req) // Basic validation
+		return status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
 
-	// Use configuration limits if available
-	if h.checkpointConfig != nil && len(req.Checkpoints) > h.checkpointConfig.MaxCheckpointsPerRequest {
-		return model.ValidateWriteBlockCheckpointRequest(req) // This will catch the limit
+	if len(req.Checkpoints) == 0 {
+		return status.Error(codes.InvalidArgument, "checkpoints cannot be empty")
 	}
 
-	return model.ValidateWriteBlockCheckpointRequest(req)
+	// Validate each checkpoint
+	for _, checkpoint := range req.Checkpoints {
+		if checkpoint.ChainSelector == 0 {
+			return status.Error(codes.InvalidArgument, "chain_selector must be positive")
+		}
+		if checkpoint.FinalizedBlockHeight == 0 {
+			return status.Error(codes.InvalidArgument, "finalized_block_height must be positive")
+		}
+	}
+
+	return nil
 }

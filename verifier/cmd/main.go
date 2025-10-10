@@ -148,13 +148,13 @@ func main() {
 		verifierAddresses[selector] = addr
 	}
 
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, config.AggregatorAPIKey, lggr)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, config.AggregatorAPIKey, config.AggregatorSecretKey, lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		os.Exit(1)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, config.AggregatorAPIKey, lggr, 0) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, config.AggregatorAPIKey, config.AggregatorSecretKey, lggr, 0) // since=0 for checkpoint reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()
