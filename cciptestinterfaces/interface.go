@@ -25,7 +25,7 @@ for CCIP16 and CCIP17
 // it deploys network-specific infrastructure, configures both CL nodes and contracts and returns
 // operations for testing and SLA/Metrics assertions.
 type CCIP17ProductConfiguration interface {
-	Chain
+	Chains
 	Observable
 	OnChainConfigurable
 	OffChainConfigurable
@@ -88,8 +88,8 @@ type MessageOptions struct {
 	TokenArgs []byte
 }
 
-// Chain provides methods to interact with a chain that has CCIP deployed.
-type Chain interface {
+// Chains provides methods to interact with a set of chains that have CCIP deployed.
+type Chains interface {
 	// GetEOAReceiverAddress gets an EOA receiver address for the provided chain selector.
 	GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error)
 	// SendMessage sends a CCIP message from src to dest with the specified message options.
