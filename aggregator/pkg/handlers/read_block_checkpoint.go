@@ -6,8 +6,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
@@ -27,7 +27,7 @@ func NewReadBlockCheckpointHandler(storage common.CheckpointStorageInterface) *R
 // Handle processes a ReadBlockCheckpoint request.
 func (h *ReadBlockCheckpointHandler) Handle(ctx context.Context, req *pb.ReadBlockCheckpointRequest) (*pb.ReadBlockCheckpointResponse, error) {
 	// Extract caller identity from context (set by authentication middleware)
-	identity, ok := middlewares.IdentityFromContext(ctx)
+	identity, ok := auth.IdentityFromContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "no caller identity in context")
 	}

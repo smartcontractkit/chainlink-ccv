@@ -35,14 +35,14 @@ type ClientConfig struct {
 //	    APIKey: "your-api-key",
 //	    Secret: "your-secret",
 //	}
-//	
+//
 //	conn, err := grpc.Dial(
 //	    "localhost:50051",
 //	    grpc.WithInsecure(),
 //	    grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(config)),
 //	)
 func NewClientInterceptor(config *ClientConfig) grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		// Check if context already has authentication headers - if so, don't override them
 		// This allows manual signature generation or per-request credential overrides
 		if md, ok := metadata.FromOutgoingContext(ctx); ok {

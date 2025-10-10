@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -84,8 +85,8 @@ func (m *HMACAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.
 		return nil, status.Error(codes.Unauthenticated, "invalid signature")
 	}
 
-	identity := CreateCallerIdentity(client.ClientID, false)
-	ctx = ToContext(ctx, identity)
+	identity := auth.CreateCallerIdentity(client.ClientID, false)
+	ctx = auth.ToContext(ctx, identity)
 
 	m.logger.Debugf("Successfully authenticated client: %s", client.ClientID)
 

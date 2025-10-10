@@ -18,20 +18,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// HMAC authentication metadata header keys for gRPC
+// HMAC authentication metadata header keys for gRPC.
 const (
-	// HeaderAuthorization contains the API key (UUID format)
+	// HeaderAuthorization contains the API key (UUID format).
 	HeaderAuthorization = "authorization"
-	// HeaderTimestamp contains the current timestamp in milliseconds since Unix epoch
+	// HeaderTimestamp contains the current timestamp in milliseconds since Unix epoch.
 	HeaderTimestamp = "x-authorization-timestamp"
-	// HeaderSignature contains the HMAC-SHA256 signature (hex-encoded)
+	// HeaderSignature contains the HMAC-SHA256 signature (hex-encoded).
 	HeaderSignature = "x-authorization-signature-sha256"
-	// HTTPMethodPost is the HTTP method used for all gRPC requests
+	// HTTPMethodPost is the HTTP method used for all gRPC requests.
 	HTTPMethodPost = "POST"
 )
 
 // SerializeRequestBody marshals a protobuf message to bytes.
-func SerializeRequestBody(req interface{}) ([]byte, error) {
+func SerializeRequestBody(req any) ([]byte, error) {
 	protoMsg, ok := req.(proto.Message)
 	if !ok {
 		return nil, fmt.Errorf("request is not a proto.Message")

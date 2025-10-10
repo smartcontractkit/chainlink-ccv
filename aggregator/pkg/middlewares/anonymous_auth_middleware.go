@@ -6,6 +6,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 )
 
 type AnonymousAuthMiddleware struct{}
@@ -15,14 +17,14 @@ func NewAnonymousAuthMiddleware() *AnonymousAuthMiddleware {
 }
 
 func (m *AnonymousAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-	_, ok := IdentityFromContext(ctx)
+	_, ok := auth.IdentityFromContext(ctx)
 	if ok {
 		// Identity already present, pass through
 		return handler(ctx, req)
 	}
 
 	if ip, ok := tryGetIP(ctx); ok {
-		ctx = ToContext(ctx, CreateCallerIdentity(ip, true))
+		ctx = auth.ToContext(ctx, auth.CreateCallerIdentity(ip, true))
 	}
 
 	return handler(ctx, req)

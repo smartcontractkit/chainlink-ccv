@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -276,7 +277,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 
 			if tt.validateIdentity {
 				require.NotNil(t, capturingHandler.capturedCtx)
-				identity, ok := IdentityFromContext(capturingHandler.capturedCtx)
+				identity, ok := auth.IdentityFromContext(capturingHandler.capturedCtx)
 				require.True(t, ok, "CallerIdentity should be set in context")
 				require.Equal(t, tt.expectedClientID, identity.CallerID)
 			}

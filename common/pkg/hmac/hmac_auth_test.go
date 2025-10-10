@@ -183,7 +183,7 @@ func TestConstants(t *testing.T) {
 	require.Equal(t, "POST", HTTPMethodPost)
 }
 
-// Helper function to convert int64 to string
+// Helper function to convert int64 to string.
 func toString(i int64) string {
 	return fmt.Sprintf("%d", i)
 }

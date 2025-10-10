@@ -25,8 +25,8 @@ func TestNewClientInterceptor(t *testing.T) {
 		req := &emptypb.Empty{}
 
 		var capturedCtx context.Context
-		mockInvoker := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
-			capturedCtx = ctx
+		mockInvoker := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
+			capturedCtx = ctx //nolint:fatcontext // test helper needs to capture context for assertion
 			return nil
 		}
 
@@ -57,8 +57,8 @@ func TestNewClientInterceptor(t *testing.T) {
 		req := &emptypb.Empty{}
 
 		var capturedCtx context.Context
-		mockInvoker := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
-			capturedCtx = ctx
+		mockInvoker := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
+			capturedCtx = ctx //nolint:fatcontext // test helper needs to capture context for assertion
 			return nil
 		}
 
@@ -100,8 +100,8 @@ func TestNewClientInterceptor(t *testing.T) {
 		req := &emptypb.Empty{}
 
 		var capturedCtx context.Context
-		mockInvoker := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
-			capturedCtx = ctx
+		mockInvoker := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
+			capturedCtx = ctx //nolint:fatcontext // test helper needs to capture context for assertion
 			return nil
 		}
 
@@ -131,8 +131,8 @@ func TestNewClientInterceptor(t *testing.T) {
 		req := &emptypb.Empty{}
 
 		var capturedCtx context.Context
-		mockInvoker := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
-			capturedCtx = ctx
+		mockInvoker := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
+			capturedCtx = ctx //nolint:fatcontext // test helper needs to capture context for assertion
 			return nil
 		}
 
@@ -166,8 +166,8 @@ func TestNewClientInterceptor(t *testing.T) {
 		beforeTime := time.Now().UnixMilli()
 
 		var capturedCtx context.Context
-		mockInvoker := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
-			capturedCtx = ctx
+		mockInvoker := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
+			capturedCtx = ctx //nolint:fatcontext // test helper needs to capture context for assertion
 			return nil
 		}
 
@@ -197,7 +197,7 @@ func TestNewClientInterceptor(t *testing.T) {
 		// Pass a non-proto message
 		notProtoReq := "not a proto message"
 
-		mockInvoker := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
+		mockInvoker := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
 			return nil
 		}
 

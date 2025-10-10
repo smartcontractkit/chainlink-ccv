@@ -21,7 +21,6 @@ type AggregatorWriter struct {
 	client pb.AggregatorClient
 	conn   *grpc.ClientConn
 	lggr   logger.Logger
-	apiKey string
 }
 
 func mapReceiptBlob(receiptBlob protocol.ReceiptWithBlob) (*pb.ReceiptBlob, error) {
@@ -154,18 +153,19 @@ func (a *AggregatorWriter) WriteCheckpoint(ctx context.Context, chainSelector pr
 }
 
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
-func NewAggregatorWriter(address, apiKey, secret string, lggr logger.Logger) (*AggregatorWriter, error) {
-	// Create HMAC client interceptor for authentication
-	hmacConfig := &hmac.ClientConfig{
-		APIKey: apiKey,
-		Secret: secret,
+func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig) (*AggregatorWriter, error) {
+	dialOptions := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	if hmacConfig != nil {
+		dialOptions = append(dialOptions, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
 	}
 
 	// Create a gRPC connection to the aggregator server with HMAC authentication
 	conn, err := grpc.NewClient(
 		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)),
+		dialOptions...,
 	)
 	if err != nil {
 		return nil, err
@@ -175,7 +175,6 @@ func NewAggregatorWriter(address, apiKey, secret string, lggr logger.Logger) (*A
 		client: pb.NewAggregatorClient(conn),
 		conn:   conn,
 		lggr:   lggr,
-		apiKey: apiKey,
 	}, nil
 }
 
@@ -185,22 +184,22 @@ type AggregatorReader struct {
 	conn   *grpc.ClientConn
 	token  string
 	since  int64
-	apiKey string
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
-func NewAggregatorReader(address, apiKey, secret string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
-	// Create HMAC client interceptor for authentication
-	hmacConfig := &hmac.ClientConfig{
-		APIKey: apiKey,
-		Secret: secret,
+func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig) (*AggregatorReader, error) {
+	dialOptions := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	if hmacConfig != nil {
+		dialOptions = append(dialOptions, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
 	}
 
 	// Create a gRPC connection to the aggregator server with HMAC authentication
 	conn, err := grpc.NewClient(
 		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)),
+		dialOptions...,
 	)
 	if err != nil {
 		return nil, err
@@ -211,7 +210,6 @@ func NewAggregatorReader(address, apiKey, secret string, lggr logger.Logger, sin
 		conn:   conn,
 		lggr:   lggr,
 		since:  since,
-		apiKey: apiKey,
 	}, nil
 }
 
@@ -225,7 +223,6 @@ func (a *AggregatorReader) Close() error {
 
 // ReadCheckpoint reads a checkpoint from the aggregator.
 func (a *AggregatorReader) ReadCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
-
 	// Create read request
 	req := &pb.ReadBlockCheckpointRequest{}
 
