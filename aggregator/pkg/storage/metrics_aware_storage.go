@@ -18,6 +18,7 @@ const (
 	queryAggregatedReportsOp = "QueryAggregatedReports"
 	getCCVDataOp             = "GetCCVData"
 	submitReportOp           = "SubmitReport"
+	ListOrphanedMessageIDsOp = "ListOrphanedMessageIDs"
 )
 
 type MetricsAwareStorage struct {
@@ -59,9 +60,9 @@ func (s *MetricsAwareStorage) ListCommitVerificationByMessageID(ctx context.Cont
 	})
 }
 
-func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error) {
-	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() ([]*model.CommitAggregatedReport, error) {
-		return s.inner.QueryAggregatedReports(ctx, start, end, committeeID)
+func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
+	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() (*model.PaginatedAggregatedReports, error) {
+		return s.inner.QueryAggregatedReports(ctx, start, end, committeeID, token)
 	})
 }
 
@@ -75,6 +76,38 @@ func (s *MetricsAwareStorage) SubmitReport(ctx context.Context, report *model.Co
 	return captureMetricsNoReturn(ctx, s.metrics(ctx, submitReportOp), func() error {
 		return s.inner.SubmitReport(ctx, report)
 	})
+}
+
+func (s *MetricsAwareStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
+	metrics := s.metrics(ctx, ListOrphanedMessageIDsOp)
+	resultChan := make(chan model.MessageID, 100)
+	errorChan := make(chan error, 1)
+
+	innerResultChan, innerErrorChan := s.inner.ListOrphanedMessageIDs(ctx, committeeID)
+
+	go func() {
+		now := time.Now()
+		defer func() {
+			latency := time.Since(now).Milliseconds()
+			metrics.RecordStorageLatency(ctx, latency)
+		}()
+
+		for {
+			select {
+			case id, ok := <-innerResultChan:
+				if !ok {
+					close(resultChan)
+					return
+				}
+				resultChan <- id
+
+			case err := <-innerErrorChan:
+				errorChan <- err
+			}
+		}
+	}()
+
+	return resultChan, errorChan
 }
 
 const (

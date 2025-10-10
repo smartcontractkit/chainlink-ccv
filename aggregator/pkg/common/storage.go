@@ -15,11 +15,14 @@ type CommitVerificationStore interface {
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)
 	// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID and committee ID.
 	ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error)
+	// ListOrphanedMessageIDs finds verification records that have not been aggregated yet.
+	// Returns channels for streaming results: one for message/committee pairs, one for errors.
+	ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error)
 }
 
 type CommitVerificationAggregatedStore interface {
 	// QueryAggregatedReports retrieves all aggregated reports within a specific time range.
-	QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error)
+	QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error)
 	// GetCCVData retrieves the aggregated CCV data for a specific message ID.
 	GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error)
 }

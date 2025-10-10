@@ -12,7 +12,7 @@ import (
 
 var DefaultRateLimit = limiter.Rate{
 	Period: 1 * time.Second,
-	Limit:  1,
+	Limit:  10,
 }
 
 func RateLimit() gin.HandlerFunc {

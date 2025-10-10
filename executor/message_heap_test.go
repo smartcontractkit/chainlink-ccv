@@ -8,16 +8,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-func createTestMessage(nonce, sourceChain, destChain uint64) *MessageWithCCVData {
-	return &MessageWithCCVData{
-		CCVData: []protocol.CCVData{},
-		Message: protocol.Message{
-			Nonce:               protocol.Nonce(nonce),
-			SourceChainSelector: protocol.ChainSelector(sourceChain),
-			DestChainSelector:   protocol.ChainSelector(destChain),
-			Version:             1,
-		},
-		VerifiedTimestamp: 0,
+func createTestMessage(nonce, sourceChain, destChain uint64) *protocol.Message {
+	return &protocol.Message{
+		Nonce:               protocol.Nonce(nonce),
+		SourceChainSelector: protocol.ChainSelector(sourceChain),
+		DestChainSelector:   protocol.ChainSelector(destChain),
+		Version:             1,
 	}
 }
 
@@ -137,7 +133,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 			// Check that returned messages have expected nonces
 			var actualNonces []uint64
 			for _, msg := range result {
-				actualNonces = append(actualNonces, uint64(msg.Message.Nonce))
+				actualNonces = append(actualNonces, uint64(msg.Nonce))
 			}
 
 			if !reflect.DeepEqual(actualNonces, tt.expectedNonces) {
@@ -196,8 +192,8 @@ func TestMessageHeap_Integration(t *testing.T) {
 			continue
 		}
 
-		if uint64(msg.Payload.Message.Nonce) != expectedNonces[i] {
-			t.Errorf("Pop() at iteration %v returned nonce %v, want %v", i, msg.Payload.Message.Nonce, expectedNonces[i])
+		if uint64(msg.Payload.Nonce) != expectedNonces[i] {
+			t.Errorf("Pop() at iteration %v returned nonce %v, want %v", i, msg.Payload.Nonce, expectedNonces[i])
 		}
 	}
 

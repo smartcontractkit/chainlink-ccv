@@ -10,11 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var _ IndexerAPI = (*IndexerAPIReader)(nil)
+var _ IndexerAPI = &IndexerAPIReader{}
 
 type IndexerAPIReader struct {
 	httpClient *http.Client
@@ -23,6 +25,9 @@ type IndexerAPIReader struct {
 }
 
 func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReader {
+	if indexerURI == "" {
+		return nil
+	}
 	return &IndexerAPIReader{
 		lggr:       lggr,
 		indexerURI: indexerURI,
@@ -32,104 +37,143 @@ func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReade
 	}
 }
 
+type queryParams struct {
+	SourceChainSelectors []protocol.ChainSelector
+	DestChainSelectors   []protocol.ChainSelector
+	Start                int64
+	End                  int64
+	Limit                uint64
+	Offset               uint64
+}
+
+func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, params queryParams, result any) error {
+	fullURL, err := url.JoinPath(i.indexerURI, endpoint)
+	if err != nil {
+		i.lggr.Errorw("Failed to join indexer URI and endpoint", "error", err, "uri", i.indexerURI, "endpoint", endpoint)
+		return fmt.Errorf("failed to join indexer URI and endpoint: %w", err)
+	}
+
+	u, err := url.Parse(fullURL)
+	if err != nil {
+		i.lggr.Errorw("Failed to parse indexer URI", "error", err, "uri", i.indexerURI)
+		return fmt.Errorf("failed to parse indexer URI: %w", err)
+	}
+
+	queryValues := url.Values{}
+	if params.Start != 0 {
+		queryValues.Add("start", strconv.FormatInt(params.Start, 10))
+	}
+	if params.End != 0 {
+		queryValues.Add("end", strconv.FormatInt(params.End, 10))
+	}
+	if params.Limit != 0 {
+		queryValues.Add("limit", strconv.FormatUint(params.Limit, 10))
+	}
+	if params.Offset != 0 {
+		queryValues.Add("offset", strconv.FormatUint(params.Offset, 10))
+	}
+	if len(params.SourceChainSelectors) > 0 {
+		var sourceSelectors []string
+		for _, selector := range params.SourceChainSelectors {
+			sourceSelectors = append(sourceSelectors, strconv.FormatUint(uint64(selector), 10))
+		}
+		queryValues.Add("sourceChainSelectors", strings.Join(sourceSelectors, ","))
+	}
+	if len(params.DestChainSelectors) > 0 {
+		var destSelectors []string
+		for _, selector := range params.DestChainSelectors {
+			destSelectors = append(destSelectors, strconv.FormatUint(uint64(selector), 10))
+		}
+		queryValues.Add("destChainSelectors", strings.Join(destSelectors, ","))
+	}
+
+	u.RawQuery = queryValues.Encode()
+	i.lggr.Debugw("Making request to indexer", "url", u.String(), "params", queryValues)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if err != nil {
+		i.lggr.Errorw("Failed to create HTTP request", "error", err)
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := i.httpClient.Do(req)
+	if err != nil {
+		i.lggr.Errorw("Failed to make HTTP request", "error", err)
+		return fmt.Errorf("failed to make HTTP request: %w", err)
+	}
+
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			i.lggr.Errorw("Failed to close response body", "error", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode)
+		return fmt.Errorf("indexer returned status %d", resp.StatusCode)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		i.lggr.Errorw("Failed to decode JSON response", "error", err)
+		return fmt.Errorf("failed to decode JSON response: %w", err)
+	}
+
+	return nil
+}
+
 func (i *IndexerAPIReader) ReadVerifierResults(
 	ctx context.Context,
 	queryData VerifierResultsRequest,
 ) (map[string][]protocol.CCVData, error) {
-	// Build the URL with query parameters
-	baseURL := strings.TrimSuffix(i.indexerURI, "/")
-	endpoint := fmt.Sprintf("%s/v1/ccvdata", baseURL)
-
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		i.lggr.Errorw("Failed to parse indexer URI", "error", err, "uri", i.indexerURI)
-		return nil, fmt.Errorf("failed to parse indexer URI: %w", err)
-	}
-
-	// Build query parameters
-	params := url.Values{}
-
-	// Add timestamps
-	if queryData.Start != 0 {
-		params.Add("start", strconv.FormatInt(queryData.Start, 10))
-	}
-	if queryData.End != 0 {
-		params.Add("end", strconv.FormatInt(queryData.End, 10))
-	}
-
-	if queryData.Limit != 0 {
-		params.Add("limit", strconv.FormatUint(queryData.Limit, 10))
-	}
-
-	if queryData.Offset != 0 {
-		params.Add("offset", strconv.FormatUint(queryData.Offset, 10))
-	}
-
-	// Add source chain selectors (comma-separated)
-	if len(queryData.SourceChainSelectors) > 0 {
-		var sourceSelectors []string
-		for _, selector := range queryData.SourceChainSelectors {
-			sourceSelectors = append(sourceSelectors, strconv.FormatUint(uint64(selector), 10))
-		}
-		params.Add("sourceChainSelectors", strings.Join(sourceSelectors, ","))
-	}
-
-	// Add destination chain selectors (comma-separated)
-	if len(queryData.DestChainSelectors) > 0 {
-		var destSelectors []string
-		for _, selector := range queryData.DestChainSelectors {
-			destSelectors = append(destSelectors, strconv.FormatUint(uint64(selector), 10))
-		}
-		params.Add("destChainSelectors", strings.Join(destSelectors, ","))
-	}
-
-	u.RawQuery = params.Encode()
-
-	i.lggr.Debugw("Making request to indexer", "url", u.String(), "params", params)
-
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-	if err != nil {
-		i.lggr.Errorw("Failed to create HTTP request", "error", err)
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	// Make the HTTP request
-	resp, err := i.httpClient.Do(req)
-	if err != nil {
-		i.lggr.Errorw("Failed to make HTTP request", "error", err)
-		return nil, fmt.Errorf("failed to make HTTP request: %w", err)
-	}
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode)
-		return nil, fmt.Errorf("indexer returned status %d", resp.StatusCode)
-	}
-
-	// Parse JSON response
 	var response VerifierResultsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		i.lggr.Errorw("Failed to decode JSON response", "error", err)
-		return nil, fmt.Errorf("failed to decode JSON response: %w", err)
-	}
-
-	// Check if the response indicates success
-	if !response.Success {
-		i.lggr.Errorw("Indexer returned error", "error", response.Error)
-		return nil, fmt.Errorf("indexer returned error: %s", response.Error)
-	}
-
-	err = resp.Body.Close()
+	err := i.makeRequest(ctx, "/v1/ccvdata", queryParams(queryData), &response)
 	if err != nil {
-		i.lggr.Errorw("Failed to close response body", "error", err)
-		return nil, fmt.Errorf("failed to close response body: %w", err)
+		return nil, err
+	}
+
+	if !response.Success {
+		i.lggr.Errorw("Indexer ReadVerifierResults returned error", "error", response.Error)
+		return nil, fmt.Errorf("indexer ReadVerifierResults returned error: %s", response.Error)
 	}
 
 	i.lggr.Debugw("Successfully retrieved CCV data", "dataCount", len(response.CCVData))
 	return response.CCVData, nil
+}
+
+func (i *IndexerAPIReader) ReadMessages(
+	ctx context.Context,
+	queryData MessagesV1Request,
+) (map[string]protocol.Message, error) {
+	var response MessagesV1Response
+	err := i.makeRequest(ctx, "/v1/messages", queryParams(queryData), &response)
+	if err != nil {
+		return nil, err
+	}
+
+	if !response.Success {
+		i.lggr.Errorw("Indexer ReadMessages returned error", "error", response.Error)
+		return nil, fmt.Errorf("indexer ReadMessages returned error: %s", response.Error)
+	}
+
+	i.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(response.Messages))
+	return response.Messages, nil
+}
+
+func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+	var response MessageIDV1Response
+	request := "/v1/messageid/0x" + common.Bytes2Hex(messageID[:])
+	err := i.makeRequest(ctx, request, queryParams{}, &response)
+	if err != nil {
+		return nil, err
+	}
+	if !response.Success {
+		i.lggr.Errorw("Indexer GetVerifierResults returned error", "error", response.Error)
+		return nil, fmt.Errorf("indexer GetVerifierResults returned error: %s", response.Error)
+	}
+
+	i.lggr.Debugw("Successfully retrieved VerifierResults", "messageID", messageID, "numberOfResults", len(response.VerifierResults))
+	return response.VerifierResults, nil
 }

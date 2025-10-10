@@ -3,21 +3,21 @@ package ccvstreamer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
+	"golang.org/x/exp/maps"
+
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Ensure IndexerStorageStreamer implements the CCVResultStreamer interface.
-var _ executor.CCVResultStreamer = &IndexerStorageStreamer{}
+// Ensure IndexerStorageStreamer implements the MessageSubscriber interface.
+var _ executor.MessageSubscriber = &IndexerStorageStreamer{}
 
 type IndexerStorageConfig struct {
-	IndexerURI      string
+	IndexerClient   executor.MessageReader
 	LastQueryTime   int64
 	PollingInterval time.Duration
 	Backoff         time.Duration
@@ -28,10 +28,9 @@ func NewIndexerStorageStreamer(
 	lggr logger.Logger,
 	indexerConfig IndexerStorageConfig,
 ) *IndexerStorageStreamer {
-	client := storageaccess.NewIndexerAPIReader(lggr, indexerConfig.IndexerURI)
-
 	return &IndexerStorageStreamer{
-		reader:          client,
+		reader:          indexerConfig.IndexerClient,
+		lggr:            lggr,
 		queryLimit:      indexerConfig.QueryLimit,
 		lastQueryTime:   indexerConfig.LastQueryTime,
 		pollingInterval: indexerConfig.PollingInterval,
@@ -40,7 +39,8 @@ func NewIndexerStorageStreamer(
 }
 
 type IndexerStorageStreamer struct {
-	reader          *storageaccess.IndexerAPIReader
+	reader          executor.MessageReader
+	lggr            logger.Logger
 	lastQueryTime   int64
 	pollingInterval time.Duration
 	backoff         time.Duration
@@ -56,10 +56,9 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 	return oss.running
 }
 
-// Start implements the CCVResultStreamer interface.
+// Start implements the MessageSubscriber interface.
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
-	lggr logger.Logger,
 	wg *sync.WaitGroup,
 ) (<-chan executor.StreamerResult, error) {
 	if oss.reader == nil {
@@ -87,10 +86,9 @@ func (oss *IndexerStorageStreamer) Start(
 				// Context canceled, stop loop.
 				return
 			default:
-				msgs := make([]executor.MessageWithCCVData, 0)
 				// Non-blocking: call ReadCCVData
-				lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
-				responses, err := oss.reader.ReadVerifierResults(ctx, storageaccess.VerifierResultsRequest{
+				oss.lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
+				responses, err := oss.reader.ReadMessages(ctx, storageaccess.MessagesV1Request{
 					Limit:                oss.queryLimit,
 					Offset:               offset,
 					Start:                oss.lastQueryTime,
@@ -99,30 +97,11 @@ func (oss *IndexerStorageStreamer) Start(
 					DestChainSelectors:   nil,
 				})
 				if len(responses) != 0 {
-					lggr.Infow("IndexerStorageStreamer found ccv data using query", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
-				}
-
-				for id, verifierResults := range responses {
-					if len(verifierResults) < 1 {
-						lggr.Errorw("invalid message from reader", "messageID", id, "verifierResults", verifierResults)
-						continue
-					}
-
-					if err := validateVerifierResults(verifierResults); err != nil {
-						lggr.Errorw("invalid verifier results from reader", "messageID", id, "error", err)
-						continue
-					}
-
-					lggr.Infow("received message", "messageID", id, "ccvData", verifierResults)
-					msgs = append(msgs, executor.MessageWithCCVData{
-						Message:           verifierResults[0].Message,
-						CCVData:           verifierResults,
-						VerifiedTimestamp: verifierResults[0].Timestamp,
-					})
+					oss.lggr.Infow("IndexerStorageStreamer found messages using query", "offset", offset, "start", oss.lastQueryTime, "end", newtime, "messages", responses)
 				}
 
 				result := executor.StreamerResult{
-					Messages: msgs,
+					Messages: maps.Values(responses),
 					Error:    err,
 				}
 
@@ -139,12 +118,12 @@ func (oss *IndexerStorageStreamer) Start(
 				switch {
 				case err != nil:
 					// Error occurred: backoff and retry with same parameters
-					lggr.Infow("IndexerStorageStreamer read error", "error", err)
+					oss.lggr.Infow("IndexerStorageStreamer read error", "error", err)
 					waitDuration = oss.backoff
 
 				case uint64(len(responses)) == oss.queryLimit:
 					// Hit query limit: query again immediately with same time range but incremented offset
-					lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
+					oss.lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
 					offset += oss.queryLimit
 					continue // Skip waiting and time updates, query immediately
 
@@ -176,24 +155,4 @@ func (oss *IndexerStorageStreamer) Start(
 	}()
 
 	return messagesCh, nil
-}
-
-func validateVerifierResults(results []protocol.CCVData) error {
-	messageIDs := make(map[protocol.Bytes32]struct{}, 0)
-	generatedIDs := make(map[protocol.Bytes32]struct{}, 0)
-	for _, res := range results {
-		messageIDs[res.MessageID] = struct{}{}
-		genID, err := res.Message.MessageID()
-		if err != nil {
-			return fmt.Errorf("invalid generated messageId")
-		}
-		generatedIDs[genID] = struct{}{}
-	}
-	if len(messageIDs) != 1 {
-		return fmt.Errorf("verifier results contain multiple message IDs")
-	}
-	if len(generatedIDs) != 1 {
-		return fmt.Errorf("verifier results contain multiple generated message IDs")
-	}
-	return nil
 }

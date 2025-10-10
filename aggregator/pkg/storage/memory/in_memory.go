@@ -62,7 +62,7 @@ func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAg
 	return nil
 }
 
-func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end int64, committeeID string) ([]*model.CommitAggregatedReport, error) {
+func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
@@ -72,7 +72,7 @@ func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end i
 		}
 		return true
 	})
-	return results, nil
+	return &model.PaginatedAggregatedReports{Reports: results}, nil
 }
 
 func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {
@@ -83,6 +83,34 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 		}
 	}
 	return nil, nil
+}
+
+// ListOrphanedMessageIDs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
+// Returns a channel for pairs and a channel for errors. Both channels will be closed when iteration is complete.
+func (s *InMemoryStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
+	pairCh := make(chan model.MessageID, 10) // Buffered for performance
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(pairCh)
+		defer close(errCh)
+
+		s.records.Range(func(key, value any) bool {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return false
+			default:
+			}
+
+			if record, ok := value.(*model.CommitVerificationRecord); ok {
+				pairCh <- record.MessageId
+			}
+			return true
+		})
+	}()
+
+	return pairCh, errCh
 }
 
 // NewInMemoryStorage creates a new instance of InMemoryStorage.

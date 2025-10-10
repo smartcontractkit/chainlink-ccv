@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -105,8 +106,8 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	// Send message
 	setup.verificationTaskCh <- finalizedTask
-	// Wait for processing
-	time.Sleep(20 * time.Millisecond)
+	// Wait for processing (poll interval is 100ms, add some buffer)
+	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the finalized message
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
@@ -140,7 +141,8 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	// Send message
 	setup.verificationTaskCh <- readyTask
-	time.Sleep(20 * time.Millisecond)
+	// Wait for processing (poll interval is 100ms, add some buffer)
+	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the ready message
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
@@ -174,10 +176,10 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	// Send message
 	setup.verificationTaskCh <- nonFinalizedTask
 
-	// Wait for processing
-	time.Sleep(20 * time.Millisecond)
+	// Wait for processing (poll interval is 100ms, add some buffer)
+	time.Sleep(200 * time.Millisecond)
 
-	// Should have processed the finalized message
+	// Should NOT have processed the non-finalized message yet
 	processedCount := setup.mockVerifier.getProcessedTaskCount()
 	require.Equal(t, 0, processedCount, "Should not have processed the non-finalized message")
 
@@ -187,7 +189,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	setup.finalizedBlockMu.Unlock()
 
 	// Wait for the finality check to run (finality check interval is 10ms)
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Should have processed the now-finalized message
 	processedCount = setup.mockVerifier.getProcessedTaskCount()
@@ -199,7 +201,7 @@ type coordinatorTestSetup struct {
 	mockSourceReader      *verifier_mocks.MockSourceReader
 	mockVerifier          *testVerifier
 	verificationTaskCh    chan verifier.VerificationTask
-	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlock
+	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
 
@@ -210,19 +212,29 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	})
 	require.NoError(t, err)
 
-	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
 	mockVerifier := newTestVerifier()
+	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
 	mockStorage := &testStorage{}
-
 	verificationTaskCh := make(chan verifier.VerificationTask, 10)
-	mockSourceReader.EXPECT().Start(mock.Anything).Return(nil)
-	mockSourceReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(verificationTaskCh))
-	mockSourceReader.EXPECT().Stop().Return(nil)
+
+	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
+		var tasks []verifier.VerificationTask
+		for {
+			select {
+			case task := <-verificationTaskCh:
+				tasks = append(tasks, task)
+			default:
+				return tasks, nil
+			}
+		}
+	})
+
+	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
 
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockSourceReader.EXPECT().LatestBlock(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
-	mockSourceReader.EXPECT().LatestFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*big.Int, error) {
+	mockSourceReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
+	mockSourceReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).RunAndReturn(func(ctx context.Context) (*big.Int, error) {
 		// Return a copy with proper synchronization to avoid data races
 		finalizedBlockMu.RLock()
 		defer finalizedBlockMu.RUnlock()
@@ -236,6 +248,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		VerifierID: verifierID,
 	}
 
+	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(mockVerifier),
 		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
@@ -244,7 +257,9 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		verifier.WithStorage(mockStorage),
 		verifier.WithConfig(config),
 		verifier.WithLogger(lggr),
+		verifier.WithMonitoring(noopMonitoring),
 		verifier.WithFinalityCheckInterval(10*time.Millisecond),
+		verifier.WithSourceReaderPollInterval(100*time.Millisecond), // Fast polling for tests
 	)
 	require.NoError(t, err)
 

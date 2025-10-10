@@ -92,14 +92,25 @@ func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {
 type StorageType string
 
 const (
-	StorageTypeMemory     StorageType = "memory"
-	StorageTypePostgreSQL StorageType = "postgres"
+	StorageTypeMemory   StorageType = "memory"
+	StorageTypeDynamoDB StorageType = "dynamodb"
 )
+
+type DynamoDBConfig struct {
+	CommitVerificationRecordTableName string `toml:"commitVerificationRecordTableName"`
+	FinalizedFeedTableName            string `toml:"finalizedFeedTableName"`
+	CheckpointTableName               string `toml:"checkpointTableName"`
+	Region                            string `toml:"region,omitempty"`
+	Endpoint                          string `toml:"endpoint,omitempty"`
+	ShardCount                        int    `toml:"shardCount"`
+}
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType   StorageType `toml:"type"`
-	ConnectionURL string      `toml:"connectionURL,omitempty"`
+	StorageType   StorageType     `toml:"type"`
+	ConnectionURL string          `toml:"connectionURL,omitempty"`
+	DynamoDB      *DynamoDBConfig `toml:"dynamoDB,omitempty"`
+	PageSize      int             `toml:"pageSize"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -126,6 +137,13 @@ type APIKeyConfig struct {
 type CheckpointConfig struct {
 	// MaxCheckpointsPerRequest limits the number of checkpoints per write request
 	MaxCheckpointsPerRequest int `toml:"maxCheckpointsPerRequest"`
+}
+
+type OrphanRecoveryConfig struct {
+	// Enabled controls whether orphan recovery is enabled
+	Enabled bool `toml:"enabled"`
+	// IntervalSeconds controls how often orphan recovery runs (in seconds)
+	IntervalSeconds int `toml:"intervalSeconds"`
 }
 
 // BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
@@ -194,9 +212,10 @@ type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
 	Committees        map[CommitteeID]*Committee `toml:"committees"`
 	Server            ServerConfig               `toml:"server"`
-	Storage           StorageConfig              `toml:"storage"`
+	Storage           *StorageConfig             `toml:"storage"`
 	APIKeys           APIKeyConfig               `toml:"apiKeys"`
 	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
+	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
 	Monitoring        MonitoringConfig           `toml:"monitoring"`
@@ -208,11 +227,33 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Checkpoints.MaxCheckpointsPerRequest == 0 {
 		c.Checkpoints.MaxCheckpointsPerRequest = 1000
 	}
+	// Initialize Storage config if nil
+	if c.Storage == nil {
+		c.Storage = &StorageConfig{}
+	}
+	if c.Storage.PageSize == 0 {
+		c.Storage.PageSize = 100
+	}
+	// Initialize DynamoDB config if nil
+	if c.Storage.DynamoDB == nil {
+		c.Storage.DynamoDB = &DynamoDBConfig{}
+	}
+	if c.Storage.DynamoDB.ShardCount == 0 {
+		c.Storage.DynamoDB.ShardCount = 1
+	}
 	if c.APIKeys.MaxAPIKeyLength == 0 {
 		c.APIKeys.MaxAPIKeyLength = 1000
 	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
+	}
+	// Default orphan recovery: enabled with 5 minute interval
+	if c.OrphanRecovery.IntervalSeconds == 0 {
+		c.OrphanRecovery.IntervalSeconds = 300 // 5 minutes
+	}
+	// Default orphan recovery enabled unless explicitly disabled
+	if !c.OrphanRecovery.Enabled && c.OrphanRecovery.IntervalSeconds > 0 {
+		c.OrphanRecovery.Enabled = true
 	}
 }
 
@@ -250,6 +291,33 @@ func (c *AggregatorConfig) ValidateCheckpointConfig() error {
 	return nil
 }
 
+// ValidateStorageConfig validates the storage configuration.
+func (c *AggregatorConfig) ValidateStorageConfig() error {
+	if c.Storage.PageSize <= 0 {
+		return errors.New("storage.pageSize must be greater than 0")
+	}
+	if c.Storage.PageSize > 1000 {
+		return errors.New("storage.pageSize cannot exceed 1000")
+	}
+
+	return nil
+}
+
+// ValidateDynamoDBConfig validates the DynamoDB configuration.
+func (c *AggregatorConfig) ValidateDynamoDBConfig() error {
+	// Only validate DynamoDB-specific settings if using DynamoDB storage
+	if c.Storage.StorageType == StorageTypeDynamoDB {
+		if c.Storage.DynamoDB.ShardCount <= 0 {
+			return errors.New("dynamoDB.shardCount must be greater than 0")
+		}
+		if c.Storage.DynamoDB.ShardCount > 100 {
+			return errors.New("dynamoDB.shardCount cannot exceed 100")
+		}
+	}
+
+	return nil
+}
+
 // Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
 	// Set defaults first
@@ -263,6 +331,16 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate checkpoint configuration
 	if err := c.ValidateCheckpointConfig(); err != nil {
 		return fmt.Errorf("checkpoint configuration error: %w", err)
+	}
+
+	// Validate storage configuration
+	if err := c.ValidateStorageConfig(); err != nil {
+		return fmt.Errorf("storage configuration error: %w", err)
+	}
+
+	// Validate DynamoDB configuration
+	if err := c.ValidateDynamoDBConfig(); err != nil {
+		return fmt.Errorf("dynamoDB configuration error: %w", err)
 	}
 
 	// TODO: Add other validation logic

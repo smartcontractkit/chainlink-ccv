@@ -18,21 +18,15 @@ type MessageSigner interface {
 
 // SourceReader defines the interface for reading CCIP messages from source chains.
 type SourceReader interface {
-	// Start begins reading messages and pushing them to the messages channel
-	Start(ctx context.Context) error
+	// VerificationTasks returns tasks in the given block range
+	VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]VerificationTask, error)
 
-	// Stop stops the reader and closes the messages channel
-	Stop() error
+	// BlockTime returns the timestamp of a given block.
+	BlockTime(ctx context.Context, block *big.Int) (uint64, error)
 
-	// VerificationTaskChannel returns the channel where new message events are delivered
-	VerificationTaskChannel() <-chan VerificationTask
+	// LatestBlockHeight returns the latest block height
+	LatestBlockHeight(ctx context.Context) (*big.Int, error)
 
-	// HealthCheck returns the current health status of the reader
-	HealthCheck(ctx context.Context) error
-
-	// LatestBlock returns the latest block height
-	LatestBlock(ctx context.Context) (*big.Int, error)
-
-	// LatestFinalizedBlock returns the latest finalized block height
-	LatestFinalizedBlock(ctx context.Context) (*big.Int, error)
+	// LatestFinalizedBlockHeight returns the latest finalized block height
+	LatestFinalizedBlockHeight(ctx context.Context) (*big.Int, error)
 }

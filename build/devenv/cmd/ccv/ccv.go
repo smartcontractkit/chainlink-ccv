@@ -15,7 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/spf13/cobra"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -200,10 +200,13 @@ var deployCommitVerifierCmd = &cobra.Command{
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
 
-		allAddrs, err := ccvEvm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, commit_offramp.SetSignatureConfigArgs{
+		allAddrs, err := ccvEvm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, committee_verifier.SetSignatureConfigArgs{
 			Threshold: uint8(threshold),
 			Signers:   addresses,
 		})
+		if err != nil {
+			return fmt.Errorf("deploying commit verifier contracts: %w", err)
+		}
 		in.CLDF.Addresses = append(in.CLDF.Addresses, allAddrs...)
 		return framework.Store(in)
 	},
@@ -378,8 +381,6 @@ var indexerDBShellCmd = &cobra.Command{
 		switch args[0] {
 		case "indexer":
 			url = services.DefaultIndexerDBConnectionString
-		case "aggregator":
-			url = services.DefaultAggregatorDBConnectionString
 		case "verifier":
 			url = services.DefaultVerifierDBConnectionString
 		default:
@@ -553,7 +554,7 @@ var sendCmd = &cobra.Command{
 				TokenArgs:      nil,
 				MandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1").Bytes(),
+						CCVAddress: common.HexToAddress("0x0B306BF915C4d645ff596e518fAf3F9669b97016").Bytes(),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},

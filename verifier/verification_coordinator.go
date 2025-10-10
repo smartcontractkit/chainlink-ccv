@@ -9,25 +9,43 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// sourceState manages state for a single source chain reader.
+type sourceState struct {
+	reader              *SourceReaderService
+	verificationTaskCh  <-chan VerificationTask
+	verificationErrorCh chan VerificationError
+	chainSelector       protocol.ChainSelector
+}
+
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
-	verifier              Verifier
-	storage               protocol.CCVNodeDataWriter
-	lggr                  logger.Logger
-	sourceStates          map[protocol.ChainSelector]*sourceState
-	cancel                context.CancelFunc
-	doneCh                chan struct{}
-	ccvDataCh             chan protocol.CCVData
-	pendingTasks          []VerificationTask
-	config                CoordinatorConfig
-	finalityCheckInterval time.Duration
-	mu                    sync.RWMutex
-	pendingMu             sync.RWMutex
-	verifyingWg           sync.WaitGroup
-	running               bool
+	verifier                 Verifier
+	storage                  protocol.CCVNodeDataWriter
+	lggr                     logger.Logger
+	monitoring               common.VerifierMonitoring
+	sourceStates             map[protocol.ChainSelector]*sourceState
+	cancel                   context.CancelFunc
+	doneCh                   chan struct{}
+	ccvDataCh                chan protocol.CCVData
+	pendingTasks             []VerificationTask
+	config                   CoordinatorConfig
+	finalityCheckInterval    time.Duration
+	sourceReaderPollInterval time.Duration
+	// Timestamp tracking for E2E latency measurement
+	messageTimestamps map[protocol.Bytes32]time.Time
+	timestampsMu      sync.RWMutex
+	mu                sync.RWMutex
+	pendingMu         sync.RWMutex
+	verifyingWg       sync.WaitGroup
+	running           bool
+
+	// Configuration
+	checkpointManager protocol.CheckpointManager
+	sourceReaders     map[protocol.ChainSelector]SourceReader
 }
 
 // Option is the functional option type for Coordinator.
@@ -40,28 +58,29 @@ func WithVerifier(verifier Verifier) Option {
 	}
 }
 
+// WithCheckpointManager sets the checkpoint manager.
+func WithCheckpointManager(manager protocol.CheckpointManager) Option {
+	return func(vc *Coordinator) {
+		vc.checkpointManager = manager
+	}
+}
+
 // WithSourceReaders sets multiple source readers.
 func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Option {
 	return func(vc *Coordinator) {
-		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
+		if vc.sourceReaders == nil {
+			vc.sourceReaders = make(map[protocol.ChainSelector]SourceReader)
 		}
+
 		for chainSelector, reader := range sourceReaders {
-			if reader != nil {
-				vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
-			}
+			vc.sourceReaders[chainSelector] = reader
 		}
 	}
 }
 
 // AddSourceReader adds a single source reader to the existing map.
 func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
-	return func(vc *Coordinator) {
-		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
-		}
-		vc.sourceStates[chainSelector] = newSourceState(chainSelector, sourceReader)
-	}
+	return WithSourceReaders(map[protocol.ChainSelector]SourceReader{chainSelector: sourceReader})
 }
 
 // WithStorage sets the storage writer.
@@ -92,13 +111,29 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 	}
 }
 
+// WithSourceReaderPollInterval sets the poll interval for source reader services (useful for testing).
+func WithSourceReaderPollInterval(interval time.Duration) Option {
+	return func(vc *Coordinator) {
+		vc.sourceReaderPollInterval = interval
+	}
+}
+
+// WithMonitoring sets the monitoring implementation.
+func WithMonitoring(monitoring common.VerifierMonitoring) Option {
+	return func(vc *Coordinator) {
+		vc.monitoring = monitoring
+	}
+}
+
 // NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
+		// TODO: channels should have a buffer of 0 or 1, why is it 1000?
 		ccvDataCh:             make(chan protocol.CCVData, 1000),
 		doneCh:                make(chan struct{}),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		pendingTasks:          make([]VerificationTask, 0),
+		messageTimestamps:     make(map[protocol.Bytes32]time.Time),
 		finalityCheckInterval: 3 * time.Second, // Default finality check interval
 	}
 
@@ -110,6 +145,34 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	// Validate required components
 	if err := vc.validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
+	}
+
+	// Initialize source states from provided source readers and configuration.
+	if vc.sourceStates == nil {
+		vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
+	}
+	for chainSelector, sourceReader := range vc.sourceReaders {
+		if sourceReader != nil {
+			if _, ok := vc.config.SourceConfigs[chainSelector]; !ok {
+				vc.lggr.Warnw("skipping source reader: no source config found for chain selector %d", chainSelector)
+				continue
+			}
+
+			// Build service options
+			var serviceOpts []SourceReaderServiceOption
+			if vc.sourceReaderPollInterval > 0 {
+				serviceOpts = append(serviceOpts, WithPollInterval(vc.sourceReaderPollInterval))
+			}
+
+			service := NewSourceReaderService(sourceReader, chainSelector, vc.checkpointManager, vc.lggr, serviceOpts...)
+			vc.sourceStates[chainSelector] = &sourceState{
+				chainSelector:      chainSelector,
+				reader:             service,
+				verificationTaskCh: service.VerificationTaskChannel(),
+				// TODO: channels should have a buffer of 0 or 1, why is it 100?
+				verificationErrorCh: make(chan VerificationError, 100), // Buffered error channel
+			}
+		}
 	}
 
 	return vc, nil
@@ -200,6 +263,10 @@ func (vc *Coordinator) run(ctx context.Context) {
 		go vc.processSourceErrors(ctx, &wg, state)
 	}
 
+	// Ticker for periodic channel size sampling
+	channelSizeTicker := time.NewTicker(10 * time.Second)
+	defer channelSizeTicker.Stop()
+
 	// Main loop - focus solely on ccvDataCh processing and storage
 	for {
 		select {
@@ -215,7 +282,9 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 
 			// Write CCVData to offchain storage
+			storageStart := time.Now()
 			if err := vc.storage.WriteCCVNodeData(ctx, []protocol.CCVData{ccvData}); err != nil {
+				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 				vc.lggr.Errorw("Error storing CCV data",
 					"error", err,
 					"messageID", ccvData.MessageID,
@@ -223,12 +292,37 @@ func (vc *Coordinator) run(ctx context.Context) {
 					"sourceChain", ccvData.SourceChainSelector,
 				)
 			} else {
+				storageDuration := time.Since(storageStart)
+
+				// Record storage write duration
+				vc.monitoring.Metrics().
+					With("verifier_id", vc.config.VerifierID).
+					RecordStorageWriteDuration(ctx, storageDuration)
+
+				// Calculate and record E2E latency
+				vc.timestampsMu.Lock()
+				if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
+					e2eDuration := time.Since(createdAt)
+					vc.monitoring.Metrics().
+						With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
+						RecordMessageE2ELatency(ctx, e2eDuration)
+
+					// Clean up timestamp entry
+					delete(vc.messageTimestamps, ccvData.MessageID)
+				}
+				vc.timestampsMu.Unlock()
+
 				vc.lggr.Infow("CCV data stored successfully",
 					"messageID", ccvData.MessageID,
 					"nonce", ccvData.Nonce,
 					"sourceChain", ccvData.SourceChainSelector,
 				)
 			}
+		case <-channelSizeTicker.C:
+			// Periodic channel size sampling for monitoring
+			vc.monitoring.Metrics().
+				With("verifier_id", vc.config.VerifierID).
+				RecordCCVDataChannelSize(ctx, int64(len(vc.ccvDataCh)))
 		}
 	}
 }
@@ -283,6 +377,12 @@ func (vc *Coordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGro
 				vc.lggr.Errorw("Failed to compute message ID for error logging", "error", err)
 				messageID = protocol.Bytes32{} // Use empty message ID as fallback
 			}
+
+			// Record verification error metric
+			vc.monitoring.Metrics().
+				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
+				IncrementMessagesVerificationFailed(ctx)
+
 			vc.lggr.Errorw("Verification error received",
 				"error", verificationError.Error,
 				"messageID", messageID,
@@ -308,14 +408,16 @@ func (vc *Coordinator) validate() error {
 	appendIfNil(vc.verifier, "verifier")
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
+	appendIfNil(vc.monitoring, "monitoring")
+	// checkpointManager is optional, not required
 
-	if len(vc.sourceStates) == 0 {
+	if len(vc.sourceReaders) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
 	}
 
 	// Validate that all configured sources have corresponding readers
 	for chainSelector := range vc.config.SourceConfigs {
-		if _, exists := vc.sourceStates[chainSelector]; !exists {
+		if _, exists := vc.sourceReaders[chainSelector]; !exists {
 			errs = append(errs, fmt.Errorf("source reader not found for chain selector %d", chainSelector))
 		}
 	}
@@ -360,6 +462,8 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, chainSelector pr
 	vc.pendingMu.Lock()
 	defer vc.pendingMu.Unlock()
 
+	// Set QueuedAt timestamp for finality wait duration tracking
+	task.QueuedAt = time.Now()
 	vc.pendingTasks = append(vc.pendingTasks, task)
 
 	messageID, err := task.Message.MessageID()
@@ -367,6 +471,15 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, chainSelector pr
 		vc.lggr.Errorw("Failed to compute message ID for queuing", "error", err)
 		return
 	}
+
+	// Track message creation time for E2E latency measurement
+	vc.timestampsMu.Lock()
+	if task.CreatedAt.IsZero() {
+		// If CreatedAt was not set by source reader, set it now
+		task.CreatedAt = time.Now()
+	}
+	vc.messageTimestamps[messageID] = task.CreatedAt
+	vc.timestampsMu.Unlock()
 
 	vc.lggr.Infow("📋 Message added to finality queue",
 		"messageID", messageID,
@@ -382,6 +495,9 @@ func (vc *Coordinator) finalityCheckingLoop(ctx context.Context) {
 	ticker := time.NewTicker(vc.finalityCheckInterval)
 	defer ticker.Stop()
 
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+
 	vc.lggr.Infow("🔄 Starting finality checking loop")
 
 	for {
@@ -391,6 +507,24 @@ func (vc *Coordinator) finalityCheckingLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			vc.processFinalityQueue(ctx)
+		case <-cleanupTicker.C:
+			vc.cleanupOldTimestamps()
+		}
+	}
+}
+
+// cleanupOldTimestamps removes stale message timestamps older than 1 hour.
+func (vc *Coordinator) cleanupOldTimestamps() {
+	vc.timestampsMu.Lock()
+	defer vc.timestampsMu.Unlock()
+
+	cutoff := time.Now().Add(-1 * time.Hour)
+	for msgID, createdAt := range vc.messageTimestamps {
+		if createdAt.Before(cutoff) {
+			delete(vc.messageTimestamps, msgID)
+			vc.lggr.Warnw("Cleaned up stale message timestamp",
+				"messageID", msgID,
+				"age", time.Since(createdAt))
 		}
 	}
 }
@@ -404,27 +538,41 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 		return
 	}
 
+	vc.monitoring.Metrics().
+		With("verifier_id", vc.config.VerifierID).
+		RecordFinalityQueueSize(ctx, int64(len(vc.pendingTasks)))
+
 	var readyTasks []VerificationTask
 	var remainingTasks []VerificationTask
 
 	// Get latest blocks and finalized blocks for all chains
 	latestBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
-		latestBlock, err := state.reader.LatestBlock(ctx)
+		latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
 		if err != nil {
 			vc.lggr.Errorw("Failed to get latest block", "error", err)
 			continue
 		}
 		latestBlocks[chainSelector] = latestBlock
+
+		// Record chain state metric
+		vc.monitoring.Metrics().
+			With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
+			RecordSourceChainLatestBlock(ctx, latestBlock.Int64())
 	}
 	latestFinalizedBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
-		latestFinalizedBlock, err := state.reader.LatestFinalizedBlock(ctx)
+		latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
 		if err != nil {
 			vc.lggr.Errorw("Failed to get latest finalized block", "error", err)
 			continue
 		}
 		latestFinalizedBlocks[chainSelector] = latestFinalizedBlock
+
+		// Record chain state metric
+		vc.monitoring.Metrics().
+			With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
+			RecordSourceChainFinalizedBlock(ctx, latestFinalizedBlock.Int64())
 	}
 
 	for _, task := range vc.pendingTasks {
@@ -468,6 +616,14 @@ func (vc *Coordinator) processReadyTask(ctx context.Context, task VerificationTa
 	if err != nil {
 		vc.lggr.Errorw("Failed to compute message ID for ready task", "error", err)
 		return
+	}
+
+	// Record finality wait duration
+	if !task.QueuedAt.IsZero() && vc.monitoring != nil {
+		finalityWaitDuration := time.Since(task.QueuedAt)
+		vc.monitoring.Metrics().
+			With("source_chain", task.Message.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
+			RecordFinalityWaitDuration(ctx, finalityWaitDuration)
 	}
 
 	vc.lggr.Debugw("📤 Processing finalized message",

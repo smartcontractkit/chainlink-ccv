@@ -6,11 +6,10 @@ outpkg: executor_mocks
 packages:
     github.com/smartcontractkit/chainlink-ccv/executor:
         interfaces:
-            CCVResultStreamer:
+            MessageSubscriber:
             Executor:
             ContractTransmitter:
             LeaderElector:
             DestinationReader:
-    github.com/smartcontractkit/chainlink-ccv/protocol:
-        interfaces:
-            OffchainStorageReader:
+            VerifierResultReader:
+            MessageReader:

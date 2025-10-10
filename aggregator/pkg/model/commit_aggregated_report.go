@@ -16,6 +16,11 @@ type CommitAggregatedReport struct {
 	Timestamp     int64
 }
 
+type PaginatedAggregatedReports struct {
+	Reports       []*CommitAggregatedReport
+	NextPageToken *string
+}
+
 func GetAggregatedReportID(messageID MessageID, committeeID CommitteeID) string {
 	return hex.EncodeToString(messageID) + ":" + committeeID
 }

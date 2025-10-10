@@ -2,29 +2,59 @@ package commit
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // Verifier provides a basic verifier implementation using the new message format.
 type Verifier struct {
-	signer verifier.MessageSigner
-	lggr   logger.Logger
+	signer     verifier.MessageSigner
+	lggr       logger.Logger
+	monitoring common.VerifierMonitoring
 	// TODO: Use a separate config
 	config verifier.CoordinatorConfig
 }
 
 // NewCommitVerifier creates a new commit verifier.
-func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger) verifier.Verifier {
-	return &Verifier{
-		config: config,
-		signer: signer,
-		lggr:   lggr,
+func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring common.VerifierMonitoring) (verifier.Verifier, error) {
+	cv := &Verifier{
+		config:     config,
+		signer:     signer,
+		lggr:       lggr,
+		monitoring: monitoring,
 	}
+
+	if err := cv.validate(); err != nil {
+		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
+	}
+
+	return cv, nil
+}
+
+func (cv *Verifier) validate() error {
+	var errs []error
+	appendIfNil := func(field any, fieldName string) {
+		if field == nil {
+			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
+		}
+	}
+	appendIfNil(cv.config, "config")
+	appendIfNil(cv.signer, "signer")
+	appendIfNil(cv.lggr, "lggr")
+	appendIfNil(cv.monitoring, "monitoring")
+
+	if len(errs) > 0 {
+		return fmt.Errorf("verifier is not fully initialized: %w", errors.Join(errs...))
+	}
+
+	return nil
 }
 
 // ValidateMessage validates the new message format.
@@ -46,6 +76,7 @@ func (cv *Verifier) ValidateMessage(message protocol.Message) error {
 
 // VerifyMessage verifies a message using the new chain-agnostic format.
 func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataCh chan<- protocol.CCVData, verificationErrorCh chan<- verifier.VerificationError) {
+	start := time.Now()
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
@@ -84,7 +115,6 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
 	)
 
-	// 3. Sign the message event using the new chain-agnostic method
 	encodedSignature, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
 	if err != nil {
 		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to sign message event: %w", err), verificationErrorCh, cv.lggr)
@@ -107,6 +137,14 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 	// Send CCVData to channel for storage
 	select {
 	case ccvDataCh <- *ccvData:
+		// Record successful message processing
+		cv.monitoring.Metrics().
+			With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
+			IncrementMessagesProcessed(ctx)
+		cv.monitoring.Metrics().
+			With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
+			RecordMessageVerificationDuration(ctx, time.Since(start))
+
 		cv.lggr.Infow("CCV data sent to storage channel",
 			"messageID", messageID,
 			"nonce", message.Nonce,

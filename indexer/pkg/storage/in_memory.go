@@ -14,11 +14,6 @@ import (
 
 var _ common.IndexerStorage = (*InMemoryStorage)(nil)
 
-var (
-	ErrCCVDataNotFound  = fmt.Errorf("CCV data not found")
-	ErrDuplicateCCVData = fmt.Errorf("duplicate CCV data")
-)
-
 // InMemoryStorage provides efficient in-memory storage optimized for query performance.
 type InMemoryStorage struct {
 	// Primary storage: messageID -> []CCVData (for O(1) lookup by messageID)
@@ -34,21 +29,73 @@ type InMemoryStorage struct {
 	// Deduplication index: unique key -> bool (for duplicate detection)
 	uniqueKeys map[string]bool
 
+	// Eviction configuration
+	ttl         time.Duration // 0 means no TTL-based eviction
+	maxSize     int           // 0 means no size-based eviction
+	cleanupStop chan struct{}
+	cleanupDone chan struct{}
+
 	mu         sync.RWMutex
 	monitoring common.IndexerMonitoring
 	lggr       logger.Logger
 }
 
+// InMemoryStorageConfig holds configuration for InMemoryStorage.
+type InMemoryStorageConfig struct {
+	// TTL is the time-to-live for items. Items older than this will be evicted.
+	// Set to 0 to disable TTL-based eviction.
+	TTL time.Duration
+	// MaxSize is the maximum number of items to keep in storage.
+	// When exceeded, oldest items will be evicted.
+	// Set to 0 to disable size-based eviction.
+	MaxSize int
+	// CleanupInterval is how often to run the background cleanup goroutine.
+	// Defaults to 1 minute if not set and TTL is enabled.
+	CleanupInterval time.Duration
+}
+
 func NewInMemoryStorage(lggr logger.Logger, monitoring common.IndexerMonitoring) common.IndexerStorage {
-	return &InMemoryStorage{
+	return NewInMemoryStorageWithConfig(lggr, monitoring, InMemoryStorageConfig{})
+}
+
+func NewInMemoryStorageWithConfig(lggr logger.Logger, monitoring common.IndexerMonitoring, config InMemoryStorageConfig) common.IndexerStorage {
+	storage := &InMemoryStorage{
 		byMessageID:   make(map[string][]protocol.CCVData),
 		byTimestamp:   make([]protocol.CCVData, 0),
 		bySourceChain: make(map[protocol.ChainSelector][]int),
 		byDestChain:   make(map[protocol.ChainSelector][]int),
 		uniqueKeys:    make(map[string]bool),
+		ttl:           config.TTL,
+		maxSize:       config.MaxSize,
 		lggr:          lggr,
 		monitoring:    monitoring,
 	}
+
+	// Start background cleanup goroutine if TTL or MaxSize is enabled
+	if config.TTL > 0 || config.MaxSize > 0 {
+		cleanupInterval := config.CleanupInterval
+		if cleanupInterval == 0 {
+			if config.TTL > 0 {
+				cleanupInterval = 1 * time.Minute
+			} else {
+				// For size-only eviction, check less frequently
+				cleanupInterval = 5 * time.Minute
+			}
+		}
+
+		storage.cleanupStop = make(chan struct{})
+		storage.cleanupDone = make(chan struct{})
+
+		go storage.backgroundCleanup(cleanupInterval)
+
+		lggr.Infow("Started in-memory storage with eviction",
+			"ttl", config.TTL,
+			"maxSize", config.MaxSize,
+			"cleanupInterval", cleanupInterval,
+		)
+	}
+
+	return storage
 }
 
 // GetCCVData performs a O(1) lookup by messageID.
@@ -110,6 +157,10 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	}
 
 	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+	if len(results) == 0 {
+		return nil, ErrCCVDataNotFound
+	}
+
 	return results, nil
 }
 
@@ -237,4 +288,149 @@ func (i *InMemoryStorage) intersectTimestampAndChainIndices(startIdx, endIdx int
 		}
 	}
 	return candidates
+}
+
+// backgroundCleanup runs periodic cleanup to remove expired items.
+func (i *InMemoryStorage) backgroundCleanup(interval time.Duration) {
+	defer close(i.cleanupDone)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			i.cleanup()
+		case <-i.cleanupStop:
+			i.lggr.Info("Stopping background cleanup goroutine")
+			return
+		}
+	}
+}
+
+// cleanup removes items that have exceeded their TTL or exceed the max size.
+func (i *InMemoryStorage) cleanup() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	beforeCount := len(i.byTimestamp)
+	if beforeCount == 0 {
+		return
+	}
+
+	// Calculate how many items to remove
+	itemsToRemove := 0
+
+	// 1. Check for TTL-based eviction
+	if i.ttl > 0 {
+		cutoffTime := time.Now().Add(-i.ttl).Unix()
+		// Find the first index where timestamp is >= cutoffTime
+		expiredCount := 0
+		for _, data := range i.byTimestamp {
+			if data.Timestamp >= cutoffTime {
+				break // Since byTimestamp is sorted, we can stop here
+			}
+			expiredCount++
+		}
+		itemsToRemove = expiredCount
+	}
+
+	// 2. Check for size-based eviction
+	if i.maxSize > 0 {
+		remainingAfterTTL := beforeCount - itemsToRemove
+		if remainingAfterTTL > i.maxSize {
+			// Need to remove additional items beyond TTL expiration
+			additionalToRemove := remainingAfterTTL - i.maxSize
+			itemsToRemove += additionalToRemove
+		}
+	}
+
+	if itemsToRemove == 0 {
+		return
+	}
+
+	// Don't remove more than we have
+	if itemsToRemove > beforeCount {
+		itemsToRemove = beforeCount
+	}
+
+	// Remove items from the front of byTimestamp (oldest items)
+	i.evictOldestItems(itemsToRemove)
+
+	i.lggr.Infow("Cleaned up expired/excess items",
+		"removedCount", itemsToRemove,
+		"beforeCount", beforeCount,
+		"afterCount", len(i.byTimestamp),
+	)
+}
+
+// evictOldestItems removes the first n items from storage.
+// Must be called with lock held.
+func (i *InMemoryStorage) evictOldestItems(n int) {
+	if n <= 0 || n > len(i.byTimestamp) {
+		return
+	}
+
+	// Items to remove are at the front of the byTimestamp slice
+	itemsToRemove := i.byTimestamp[:n]
+
+	// Track which messageIDs need to be cleaned up
+	messageIDCounts := make(map[string]int)
+	for _, data := range i.byMessageID {
+		messageIDCounts[data[0].MessageID.String()] = len(data)
+	}
+
+	// Remove from indexes
+	for _, data := range itemsToRemove {
+		messageID := data.MessageID.String()
+
+		// Remove from uniqueKeys
+		uniqueKey := i.generateUniqueKey(data)
+		delete(i.uniqueKeys, uniqueKey)
+
+		// Remove from byMessageID
+		if existing, ok := i.byMessageID[messageID]; ok {
+			// Find and remove this specific entry
+			newList := make([]protocol.CCVData, 0, len(existing)-1)
+			for _, item := range existing {
+				if i.generateUniqueKey(item) != uniqueKey {
+					newList = append(newList, item)
+				}
+			}
+
+			if len(newList) == 0 {
+				delete(i.byMessageID, messageID)
+			} else {
+				i.byMessageID[messageID] = newList
+			}
+		}
+	}
+
+	// Remove from byTimestamp (just slice it)
+	i.byTimestamp = i.byTimestamp[n:]
+
+	// Rebuild chain selector indexes since indices have changed
+	i.rebuildChainIndexes()
+}
+
+// rebuildChainIndexes rebuilds the chain selector indexes after items are removed.
+// Must be called with lock held.
+func (i *InMemoryStorage) rebuildChainIndexes() {
+	i.bySourceChain = make(map[protocol.ChainSelector][]int)
+	i.byDestChain = make(map[protocol.ChainSelector][]int)
+
+	for idx, data := range i.byTimestamp {
+		i.bySourceChain[data.SourceChainSelector] = append(i.bySourceChain[data.SourceChainSelector], idx)
+		i.byDestChain[data.DestChainSelector] = append(i.byDestChain[data.DestChainSelector], idx)
+	}
+}
+
+// Close stops the background cleanup goroutine and releases resources.
+func (i *InMemoryStorage) Close() error {
+	if i.cleanupStop != nil {
+		close(i.cleanupStop)
+		<-i.cleanupDone
+		i.lggr.Info("In-memory storage closed")
+	}
+	return nil
 }

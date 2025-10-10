@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"errors"
 	"math/big"
 	"strings"
 	"sync/atomic"
@@ -15,11 +16,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -40,7 +42,7 @@ type testSetup struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	logger  logger.Logger
-	storage *storageaccess.InMemoryOffchainStorage
+	storage *utils.InMemoryOffchainStorage
 	signer  verifier.MessageSigner
 }
 
@@ -50,11 +52,50 @@ type mockSourceReaderSetup struct {
 	channel chan verifier.VerificationTask
 }
 
+const (
+	latestBlockHeight    = 1000
+	finalizedBlockHeight = 950
+)
+
+// setupMockSourceReader creates a mock source reader with expectations.
+func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
+	mockReader := verifier_mocks.NewMockSourceReader(t)
+	channel := make(chan verifier.VerificationTask, 10)
+
+	// Add missing LatestBlockHeight expectation to prevent timeout
+	mockReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(latestBlockHeight), nil).Maybe()
+	mockReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).Return(big.NewInt(finalizedBlockHeight), nil).Maybe()
+
+	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
+
+	return &mockSourceReaderSetup{
+		reader:  mockReader,
+		channel: channel,
+	}
+}
+
+func (msrs *mockSourceReaderSetup) ExpectVerificationTask(maybeVerificationTask bool) {
+	call := msrs.reader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
+		var tasks []verifier.VerificationTask
+		for {
+			select {
+			case task := <-msrs.channel:
+				tasks = append(tasks, task)
+			default:
+				return tasks, nil
+			}
+		}
+	})
+	if maybeVerificationTask {
+		call.Maybe()
+	}
+}
+
 // newTestSetup creates common test dependencies.
 func newTestSetup(t *testing.T) *testSetup {
 	ctx, cancel := context.WithCancel(context.Background())
 	lggr := logger.Test(t)
-	storage := storageaccess.NewInMemoryOffchainStorage(lggr)
+	storage := utils.NewInMemoryOffchainStorage(lggr)
 	signer := createTestSigner(t)
 
 	return &testSetup{
@@ -174,32 +215,6 @@ func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSel
 	}
 }
 
-// setupMockSourceReader creates a mock source reader with expectations.
-func setupMockSourceReader(t *testing.T, shouldClose bool) *mockSourceReaderSetup {
-	mockReader := verifier_mocks.NewMockSourceReader(t)
-	channel := make(chan verifier.VerificationTask, 10)
-
-	mockReader.EXPECT().Start(mock.Anything).Return(nil)
-	mockReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(channel))
-
-	// Add missing LatestBlock expectation to prevent timeout
-	mockReader.EXPECT().LatestBlock(mock.Anything).Return(big.NewInt(1000), nil).Maybe()
-	mockReader.EXPECT().LatestFinalizedBlock(mock.Anything).Return(big.NewInt(950), nil).Maybe()
-
-	if shouldClose {
-		mockReader.EXPECT().Stop().Run(func() {
-			close(channel)
-		}).Return(nil)
-	} else {
-		mockReader.EXPECT().Stop().Return(nil)
-	}
-
-	return &mockSourceReaderSetup{
-		reader:  mockReader,
-		channel: channel,
-	}
-}
-
 func TestNewVerifierCoordinator(t *testing.T) {
 	config := createCoordinatorConfig("test-custom-mockery-verifier", map[protocol.ChainSelector]string{
 		sourceChain1: "0x1234",
@@ -207,15 +222,26 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
-	mockReader.EXPECT().Start(mock.Anything).Return(nil).Maybe()
-	mockReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(channel)).Maybe()
+	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
+		var tasks []verifier.VerificationTask
+		for {
+			select {
+			case task := <-channel:
+				tasks = append(tasks, task)
+			default:
+				return tasks, nil
+			}
+		}
+	}).Maybe()
 
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockReader,
 	}
 	ts := newTestSetup(t)
 
-	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
+	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	require.NoError(t, err)
 
 	testcases := []struct {
 		name    string
@@ -230,6 +256,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				"storage is not set",
 				"logger is not set",
 				"at least one source reader is required",
+				"monitoring is not set",
 				"coordinator ID cannot be empty",
 			},
 		},
@@ -241,6 +268,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: nil,
 		},
@@ -251,6 +279,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{"coordinator ID cannot be empty"},
 		},
@@ -261,6 +290,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{
 				"at least one source reader is required",
@@ -274,6 +304,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithSourceReaders(sourceReaders),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{"verifier is not set"},
 		},
@@ -284,6 +315,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithSourceReaders(sourceReaders),
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithLogger(ts.logger),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{"storage is not set"},
 		},
@@ -294,8 +326,20 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithSourceReaders(sourceReaders),
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
+				verifier.WithMonitoring(noopMonitoring),
 			},
 			err: []string{"logger is not set"},
+		},
+		{
+			name: "missing monitoring",
+			options: []verifier.Option{
+				verifier.WithConfig(config),
+				verifier.WithSourceReaders(sourceReaders),
+				verifier.WithVerifier(commitVerifier),
+				verifier.WithLogger(ts.logger),
+				verifier.WithStorage(ts.storage),
+			},
+			err: []string{"monitoring is not set"},
 		},
 	}
 
@@ -323,7 +367,9 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader) (*verifier.Coordinator, error) {
-	commitVerifier := commit.NewCommitVerifier(config, ts.signer, ts.logger)
+	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	require.NoError(ts.t, err)
 
 	return verifier.NewVerificationCoordinator(
 		verifier.WithConfig(config),
@@ -331,6 +377,7 @@ func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorCon
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithStorage(ts.storage),
 		verifier.WithLogger(ts.logger),
+		verifier.WithMonitoring(noopMonitoring),
 	)
 }
 
@@ -378,7 +425,8 @@ func TestVerifier(t *testing.T) {
 	})
 
 	// Set up mock source reader
-	mockSetup := setupMockSourceReader(t, true)
+	mockSetup := setupMockSourceReader(t)
+	mockSetup.ExpectVerificationTask(false)
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup.reader,
 	}
@@ -433,8 +481,10 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	})
 
 	// Set up mock source readers
-	mockSetup1 := setupMockSourceReader(t, true)
-	mockSetup2 := setupMockSourceReader(t, true)
+	mockSetup1 := setupMockSourceReader(t)
+	mockSetup1.ExpectVerificationTask(false)
+	mockSetup2 := setupMockSourceReader(t)
+	mockSetup2.ExpectVerificationTask(false)
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup1.reader,
 		sourceChain2: mockSetup2.reader,
@@ -494,9 +544,15 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 		sourceChain2: "0x5678",
 	})
 
-	// Set up mock source readers - source 2 will fail by closing its channel immediately
-	mockSetup1 := setupMockSourceReader(t, true)
-	mockSetup2 := setupMockSourceReader(t, false)
+	// Set up mock source readers.
+	mockSetup1 := setupMockSourceReader(t)
+	mockSetup1.ExpectVerificationTask(false)
+
+	// Generate an error on source 2.
+	mockSetup2 := setupMockSourceReader(t)
+	sentinelError := errors.New("The Terminator")
+	mockSetup2.reader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).Return(nil, sentinelError)
+
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup1.reader,
 		sourceChain2: mockSetup2.reader,
@@ -508,9 +564,6 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
-
-	// Close source 2 channel immediately to simulate failure
-	close(mockSetup2.channel)
 
 	// Send verification tasks only to source 1
 	tasksSource1 := []verifier.VerificationTask{
@@ -560,7 +613,18 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 				// Create a mock that only expects VerificationTaskChannel call
 				mockReader := verifier_mocks.NewMockSourceReader(t)
 				mockCh := make(chan verifier.VerificationTask)
-				mockReader.EXPECT().VerificationTaskChannel().Return((<-chan verifier.VerificationTask)(mockCh))
+				mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
+					var tasks []verifier.VerificationTask
+					for {
+						select {
+						case task := <-mockCh:
+							tasks = append(tasks, task)
+						default:
+							return tasks, nil
+						}
+					}
+				}).Maybe()
+
 				return map[protocol.ChainSelector]verifier.SourceReader{
 					sourceChain1: mockReader, // Missing reader for sourceChain2
 				}
@@ -588,8 +652,10 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	})
 
 	// Create mock source readers
-	mockSetup1 := setupMockSourceReader(t, false)
-	mockSetup2 := setupMockSourceReader(t, false)
+	mockSetup1 := setupMockSourceReader(t)
+	mockSetup1.ExpectVerificationTask(true)
+	mockSetup2 := setupMockSourceReader(t)
+	mockSetup2.ExpectVerificationTask(true)
 
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup1.reader,
@@ -637,9 +703,11 @@ func TestVerificationErrorHandling(t *testing.T) {
 		// unconfiguredChain is intentionally not included in the config
 	})
 
-	// Set up mock source readers for both chains
-	mockSetup1 := setupMockSourceReader(t, true)
-	mockSetup2 := setupMockSourceReader(t, true)
+	// Set up mock source readers for both chains.
+	mockSetup1 := setupMockSourceReader(t)
+	mockSetup1.ExpectVerificationTask(false)
+	mockSetup2 := setupMockSourceReader(t)
+	mockSetup2.ExpectVerificationTask(true)
 
 	// Create source readers map that includes the unconfigured chain
 	// This simulates having a reader for a chain that's not in the coordinator config
@@ -667,7 +735,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	waitForMessages(ts, 1)
 
 	// Give some time for error processing
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	err = v.Close()
 	require.NoError(t, err)

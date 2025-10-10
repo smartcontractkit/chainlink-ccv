@@ -23,23 +23,19 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
-	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	offramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	onramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-
-	ccvAggregatorOps "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
-	ccvProxyOps "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -50,8 +46,8 @@ type CCIP17EVM struct {
 	e                      *deployment.Environment
 	chainDetailsBySelector map[uint64]chainsel.ChainDetails
 	ethClients             map[uint64]*ethclient.Client
-	proxyBySelector        map[uint64]*ccvProxy.CCVProxy
-	aggBySelector          map[uint64]*ccvAggregator.CCVAggregator
+	proxyBySelector        map[uint64]*onramp.CCVProxy
+	aggBySelector          map[uint64]*offramp.CCVAggregator
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation
@@ -67,8 +63,8 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []str
 	var (
 		chainDetailsBySelector = make(map[uint64]chainsel.ChainDetails)
 		ethClients             = make(map[uint64]*ethclient.Client)
-		proxyBySelector        = make(map[uint64]*ccvProxy.CCVProxy)
-		aggBySelector          = make(map[uint64]*ccvAggregator.CCVAggregator)
+		proxyBySelector        = make(map[uint64]*onramp.CCVProxy)
+		aggBySelector          = make(map[uint64]*offramp.CCVAggregator)
 	)
 	for i := range chainIDs {
 		chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[i], chainsel.FamilyEVM)
@@ -86,7 +82,7 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []str
 
 		proxyAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 			chainDetails.ChainSelector,
-			datastore.ContractType(ccvProxyOps.ContractType),
+			datastore.ContractType(onrampoperations.ContractType),
 			semver.MustParse("1.7.0"),
 			"",
 		))
@@ -95,18 +91,18 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []str
 		}
 		aggAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 			chainDetails.ChainSelector,
-			datastore.ContractType(ccvAggregatorOps.ContractType),
+			datastore.ContractType(offrampoperations.ContractType),
 			semver.MustParse("1.7.0"),
 			"",
 		))
 		if err != nil {
 			return nil, fmt.Errorf("get aggregator address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainIDs[i], err)
 		}
-		proxy, err := ccvProxy.NewCCVProxy(common.HexToAddress(proxyAddressRef.Address), client)
+		proxy, err := onramp.NewCCVProxy(common.HexToAddress(proxyAddressRef.Address), client)
 		if err != nil {
 			return nil, fmt.Errorf("create proxy wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainIDs[i], err)
 		}
-		aggregator, err := ccvAggregator.NewCCVAggregator(common.HexToAddress(aggAddressRef.Address), client)
+		aggregator, err := offramp.NewCCVAggregator(common.HexToAddress(aggAddressRef.Address), client)
 		if err != nil {
 			return nil, fmt.Errorf("create aggregator wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainIDs[i], err)
 		}
@@ -124,8 +120,8 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []str
 	}, nil
 }
 
-// fetchAllSentEventsBySelector fetch all CCIPMessageSent events from proxy contract
-func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to uint64) ([]*ccvProxy.CCVProxyCCIPMessageSent, error) {
+// fetchAllSentEventsBySelector fetch all CCIPMessageSent events from proxy contract.
+func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to uint64) ([]*onramp.CCVProxyCCIPMessageSent, error) {
 	l := zerolog.Ctx(ctx)
 	proxy, ok := m.proxyBySelector[from]
 	if !ok {
@@ -137,7 +133,7 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 	}
 	defer filter.Close()
 
-	var events []*ccvProxy.CCVProxyCCIPMessageSent
+	var events []*onramp.CCVProxyCCIPMessageSent
 
 	for filter.Next() {
 		event := filter.Event
@@ -159,7 +155,7 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 }
 
 // fetchAllExecEventsBySelector fetch all ExecutionStateChanged events from aggregator contract
-func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
+func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*offramp.CCVAggregatorExecutionStateChanged, error) {
 	l := zerolog.Ctx(ctx)
 	agg, ok := m.aggBySelector[from]
 	if !ok {
@@ -171,7 +167,7 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 	}
 	defer filter.Close()
 
-	var events []*ccvAggregator.CCVAggregatorExecutionStateChanged
+	var events []*offramp.CCVAggregatorExecutionStateChanged
 
 	for filter.Next() {
 		event := filter.Event
@@ -226,7 +222,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64
 				l.Warn().Err(err).Msg("Failed to create filter")
 				continue
 			}
-			var eventFound *ccvProxy.CCVProxyCCIPMessageSent
+			var eventFound *onramp.CCVProxyCCIPMessageSent
 			eventCount := 0
 
 			for filter.Next() {
@@ -280,7 +276,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64
 				continue
 			}
 
-			var eventFound *ccvAggregator.CCVAggregatorExecutionStateChanged
+			var eventFound *offramp.CCVAggregatorExecutionStateChanged
 			eventCount := 0
 
 			for filter.Next() {
@@ -382,7 +378,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	if err != nil {
 		return fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
-	l.Info().Bool("Executed", sendReport.Output.Executed).
+	l.Info().Bool("Executed", sendReport.Output.Executed()).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To). // TODO: how to get the message id?
@@ -585,10 +581,10 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 	), nil
 }
 
-// getCommitteeSignatureConfig returns the committee configuration for a specific chain selector
-func getCommitteeSignatureConfig(selector uint64) commit_offramp.SetSignatureConfigArgs {
+// getCommitteeSignatureConfig returns the committee configuration for a specific chain selector.
+func getCommitteeSignatureConfig(selector uint64) committee_verifier.SetSignatureConfigArgs {
 	// Default configuration with 2 signers and threshold=2
-	defaultConfig := commit_offramp.SetSignatureConfigArgs{
+	defaultConfig := committee_verifier.SetSignatureConfigArgs{
 		Threshold: 2,
 		Signers: []common.Address{
 			// TODO: why are these addresses hardcoded? where are they fetched from?
@@ -599,7 +595,7 @@ func getCommitteeSignatureConfig(selector uint64) commit_offramp.SetSignatureCon
 
 	// Special configuration for chain 3337 (selector 4793464827907405086) - threshold=1
 	if selector == 4793464827907405086 {
-		return commit_offramp.SetSignatureConfigArgs{
+		return committee_verifier.SetSignatureConfigArgs{
 			Threshold: 1,
 			Signers: []common.Address{
 				common.HexToAddress("0x6b3131d871c63c7fa592863e173cba2da5ffa68b"),
@@ -637,29 +633,34 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		ChainSel: selector,
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
-			RMNRemote:     sequences.RMNRemoteParams{},
-			CCVAggregator: sequences.CCVAggregatorParams{},
-			CommitOnRamp: sequences.CommitOnRampParams{
+			RMNRemote: sequences.RMNRemoteParams{
+				Version: semver.MustParse("1.6.0"),
+			},
+			CCVAggregator: sequences.CCVAggregatorParams{
+				Version: semver.MustParse("1.7.0"),
+			},
+			CommitteeVerifier: sequences.CommitteeVerifierParams{
+				Version: semver.MustParse("1.7.0"),
 				// TODO: add mocked contract here
-				FeeAggregator: common.HexToAddress("0x01"),
+				FeeAggregator:       common.HexToAddress("0x01"),
+				SignatureConfigArgs: getCommitteeSignatureConfig(selector),
 			},
 			CCVProxy: sequences.CCVProxyParams{
+				Version:       semver.MustParse("1.7.0"),
 				FeeAggregator: common.HexToAddress("0x01"),
 			},
 			ExecutorOnRamp: sequences.ExecutorOnRampParams{
+				Version:       semver.MustParse("1.7.0"),
 				MaxCCVsPerMsg: 10,
 			},
 			FeeQuoter: sequences.FeeQuoterParams{
+				Version: semver.MustParse("1.7.0"),
 				// expose in TOML config
 				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-				TokenPriceStalenessThreshold:   uint32(24 * 60 * 60),
 				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
 				WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
 				USDPerLINK:                     usdPerLink,
 				USDPerWETH:                     usdPerWeth,
-			},
-			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: getCommitteeSignatureConfig(selector),
 			},
 		},
 	})
@@ -695,46 +696,39 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		remoteChains[rs] = changesets.RemoteChainConfig{
 			AllowTrafficFrom: true,
 			CCIPMessageSource: datastore.AddressRef{
-				Type:    datastore.ContractType(ccv_proxy.ContractType),
+				Type:    datastore.ContractType(onrampoperations.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
 			CCIPMessageDest: datastore.AddressRef{
-				Type:    datastore.ContractType(ccv_aggregator.ContractType),
+				Type:    datastore.ContractType(offrampoperations.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
 			DefaultCCVOffRamps: []datastore.AddressRef{
-				{Type: datastore.ContractType(commit_offramp.ContractType), Version: semver.MustParse("1.7.0")},
+				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse("1.7.0")},
 			},
 			// LaneMandatedCCVOffRamps: []datastore.AddressRef{},
 			DefaultCCVOnRamps: []datastore.AddressRef{
-				{Type: datastore.ContractType(commit_onramp.ContractType), Version: semver.MustParse("1.7.0")},
+				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse("1.7.0")},
 			},
 			// LaneMandatedCCVOnRamps: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
 				Type:    datastore.ContractType(executor_onramp.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
-			CommitOnRampDestChainConfig: sequences.CommitOnRampDestChainConfig{
+			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled: false,
 			},
-			FeeQuoterDestChainConfig: fee_quoter_v2.DestChainConfig{
-				IsEnabled:                         true,
-				MaxNumberOfTokensPerMsg:           10,
-				MaxDataBytes:                      30_000,
-				MaxPerMsgGasLimit:                 3_000_000,
-				DestGasOverhead:                   300_000,
-				DefaultTokenFeeUSDCents:           25,
-				DestGasPerPayloadByteBase:         16,
-				DestGasPerPayloadByteHigh:         40,
-				DestGasPerPayloadByteThreshold:    3000,
-				DestDataAvailabilityOverheadGas:   100,
-				DestGasPerDataAvailabilityByte:    16,
-				DestDataAvailabilityMultiplierBps: 1,
-				DefaultTokenDestGasOverhead:       90_000,
-				DefaultTxGasLimit:                 200_000,
-				GasMultiplierWeiPerEth:            11e17, // Gas multiplier in wei per eth is scaled by 1e18, so 11e17 is 1.1 = 110%
-				NetworkFeeUSDCents:                10,
-				ChainFamilySelector:               [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
+			FeeQuoterDestChainConfig: fee_quoter.DestChainConfig{
+				IsEnabled:                   true,
+				MaxDataBytes:                30_000,
+				MaxPerMsgGasLimit:           3_000_000,
+				DestGasOverhead:             300_000,
+				DefaultTokenFeeUSDCents:     25,
+				DestGasPerPayloadByteBase:   16,
+				DefaultTokenDestGasOverhead: 90_000,
+				DefaultTxGasLimit:           200_000,
+				NetworkFeeUSDCents:          10,
+				ChainFamilySelector:         [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
 			},
 		}
 	}
