@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/ccvstreamer"
+	"github.com/smartcontractkit/chainlink-ccv/common/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -30,7 +30,7 @@ func TestNoReader(t *testing.T) {
 
 func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	lggr := logger.Test(t)
-	reader := executor_mocks.MockMessageReader{}
+	reader := mocks.MockMessageReader{}
 	reader.EXPECT().ReadMessages(mock.Anything, mock.Anything).Return(nil, nil)
 	oss := ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{
 		IndexerClient:   &reader,

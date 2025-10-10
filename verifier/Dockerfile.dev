@@ -1,11 +1,10 @@
 FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
-WORKDIR /app
-COPY verifier/go.mod verifier/go.sum ./
 WORKDIR /
 COPY protocol/ ./protocol/
 COPY common/ ./common/
 WORKDIR /app
+COPY verifier/go.mod verifier/go.sum ./
 RUN go mod download
 COPY verifier/air.toml ./
 CMD ["air", "-c", "air.toml"]

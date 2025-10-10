@@ -1,11 +1,11 @@
 FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
-WORKDIR /app
-COPY executor/go.mod executor/go.sum ./
 WORKDIR /
 COPY protocol/ ./protocol/
-COPY common/ ./common/
+COPY executor/ ./executor/
 WORKDIR /app
+COPY common/go.mod common/go.sum ./
 RUN go mod download
-COPY executor/air.toml ./
-CMD ["air", "-c", "air.toml"]
+RUN mkdir -p cmd/executor
+ENV EXECUTOR_CONFIG_PATH="/app/cmd/executor/executor_config.toml"
+CMD ["air", "-c", "cmd/executor/air.toml"]
