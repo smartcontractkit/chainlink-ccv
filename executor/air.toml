@@ -1,8 +1,8 @@
 root = ".."
 
 [build]
-cmd = "go build -o ./tmp/executor ../common/cmd/executor.go"
+cmd = "go build -o ./tmp/executor ../common/cmd/executor/main.go"
 bin = "tmp/executor"
-include_dir = ["app", "protocol", "common"]
+include_dir = ["app", "protocol", "common", "executor"]
 include_ext = ["go", "mod", "sum"]
 exclude_dir = ["tmp", "vendor", "testdata", ".git"]

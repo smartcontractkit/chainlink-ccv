@@ -4,6 +4,8 @@ go 1.24.6
 
 replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
 
+replace github.com/smartcontractkit/chainlink-ccv/executor => ../executor
+
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/ethereum/go-ethereum v1.16.3
