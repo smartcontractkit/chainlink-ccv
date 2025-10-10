@@ -14,7 +14,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
+	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251010204251-dac0b25b5606
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/stretchr/testify v1.11.1
 	github.com/ulule/limiter/v3 v3.11.2
