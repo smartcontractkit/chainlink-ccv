@@ -39,6 +39,7 @@ flowchart LR
 	chainlink-ccv/devenv --> chainlink-ccv/aggregator
 	chainlink-ccv/devenv --> chainlink-ccv/ccv-evm
 	chainlink-ccv/devenv --> chainlink-ccv/indexer
+	chainlink-ccv/devenv --> chainlink-testing-framework/wasp
 	click chainlink-ccv/devenv href "https://github.com/smartcontractkit/chainlink-ccv"
 	chainlink-ccv/executor --> chainlink-ccip
 	chainlink-ccv/executor --> chainlink-ccv/common
@@ -113,8 +114,15 @@ flowchart LR
 	click chainlink-testing-framework/framework href "https://github.com/smartcontractkit/chainlink-testing-framework"
 	chainlink-testing-framework/framework/components/fake --> chainlink-testing-framework/framework
 	click chainlink-testing-framework/framework/components/fake href "https://github.com/smartcontractkit/chainlink-testing-framework"
+	chainlink-testing-framework/lib
+	click chainlink-testing-framework/lib href "https://github.com/smartcontractkit/chainlink-testing-framework"
+	chainlink-testing-framework/lib/grafana
+	click chainlink-testing-framework/lib/grafana href "https://github.com/smartcontractkit/chainlink-testing-framework"
 	chainlink-testing-framework/seth
 	click chainlink-testing-framework/seth href "https://github.com/smartcontractkit/chainlink-testing-framework"
+	chainlink-testing-framework/wasp --> chainlink-testing-framework/lib
+	chainlink-testing-framework/wasp --> chainlink-testing-framework/lib/grafana
+	click chainlink-testing-framework/wasp href "https://github.com/smartcontractkit/chainlink-testing-framework"
 	chainlink-tron/relayer --> chainlink-common
 	chainlink-tron/relayer --> chainlink-common/pkg/values
 	click chainlink-tron/relayer href "https://github.com/smartcontractkit/chainlink-tron"
@@ -190,7 +198,10 @@ flowchart LR
 	subgraph chainlink-testing-framework-repo[chainlink-testing-framework]
 		 chainlink-testing-framework/framework
 		 chainlink-testing-framework/framework/components/fake
+		 chainlink-testing-framework/lib
+		 chainlink-testing-framework/lib/grafana
 		 chainlink-testing-framework/seth
+		 chainlink-testing-framework/wasp
 	end
 	click chainlink-testing-framework-repo href "https://github.com/smartcontractkit/chainlink-testing-framework"
 
