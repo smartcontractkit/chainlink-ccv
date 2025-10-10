@@ -33,6 +33,7 @@ import (
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -311,6 +312,17 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64
 	}
 }
 
+func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
+	_, ok := m.e.BlockChains.EVMChains()[chainSelector]
+	if !ok {
+		return protocol.UnknownAddress{}, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.e.BlockChains.EVMChains())
+	}
+
+	// returns the same address for each chain for now - we might need to extend this in the future if we'd ever
+	// need to access any funds on the EOA itself.
+	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
+}
+
 func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) error {
 	l := zerolog.Ctx(ctx)
 	chains := m.e.BlockChains.EVMChains()
@@ -349,6 +361,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		})
 	}
 
+	extraArgs := serializeExtraArgs(opts, destFamily)
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
@@ -356,7 +369,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			Data:         fields.Data,
 			TokenAmounts: tokenAmounts,
 			FeeToken:     common.HexToAddress(fields.FeeToken.String()),
-			ExtraArgs:    serializeExtraArgs(opts, destFamily),
+			ExtraArgs:    extraArgs,
 		},
 	}
 
@@ -367,7 +380,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		Args:          ccipSendArgs,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to send CCIP message: %w", err)
+		return fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
 	l.Info().Bool("Executed", sendReport.Output.Executed).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
@@ -465,77 +478,19 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 }
 
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
-	ccvComponents := []abi.ArgumentMarshaling{
-		{Name: "ccvAddress", Type: "address"},
-		{Name: "args", Type: "bytes"},
-	}
-
-	evmExtraArgsV3Type, err := abi.NewType("tuple", "EVMExtraArgsV3", []abi.ArgumentMarshaling{
-		{Name: "requiredCCV", Type: "tuple[]", Components: ccvComponents},
-		{Name: "optionalCCV", Type: "tuple[]", Components: ccvComponents},
-		{Name: "optionalThreshold", Type: "uint8"},
-		{Name: "finalityConfig", Type: "uint16"},
-		{Name: "executor", Type: "address"},
-		{Name: "executorArgs", Type: "bytes"},
-		{Name: "tokenArgs", Type: "bytes"},
-	})
+	extraArgs, err := NewV3ExtraArgs(
+		opts.FinalityConfig,
+		opts.Executor.String(),
+		opts.ExecutorArgs,
+		opts.TokenArgs,
+		opts.MandatoryCCVs,
+		opts.OptionalCCVs,
+		opts.OptionalThreshold,
+	)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create EVMExtraArgsV3 tuple type: %v", err))
+		panic(fmt.Sprintf("failed to create V3 extra args: %v", err))
 	}
-
-	arguments := abi.Arguments{
-		{
-			Type: evmExtraArgsV3Type,
-			Name: "extraArgs",
-		},
-	}
-
-	type CCV struct {
-		CcvAddress common.Address
-		Args       []byte
-	}
-
-	type EVMExtraArgsV3 struct {
-		RequiredCCV       []CCV
-		OptionalCCV       []CCV
-		OptionalThreshold uint8
-		FinalityConfig    uint16
-		Executor          common.Address
-		ExecutorArgs      []byte
-		TokenArgs         []byte
-	}
-
-	var requiredCCVs []CCV
-	for _, ccv := range opts.MandatoryCCVs {
-		requiredCCVs = append(requiredCCVs, CCV{
-			CcvAddress: common.HexToAddress(ccv.CCVAddress.String()),
-			Args:       ccv.Args,
-		})
-	}
-
-	var optionalCCVs []CCV
-	for _, ccv := range opts.OptionalCCVs {
-		optionalCCVs = append(optionalCCVs, CCV{
-			CcvAddress: common.HexToAddress(ccv.CCVAddress.String()),
-			Args:       ccv.Args,
-		})
-	}
-
-	packed, err := arguments.Pack(EVMExtraArgsV3{
-		RequiredCCV:       requiredCCVs,
-		OptionalCCV:       optionalCCVs,
-		OptionalThreshold: opts.OptionalThreshold,
-		FinalityConfig:    opts.FinalityConfig,
-		Executor:          common.HexToAddress(opts.Executor.String()),
-		ExecutorArgs:      opts.ExecutorArgs,
-		TokenArgs:         opts.TokenArgs,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("failed to pack extraArgs: %v", err))
-	}
-
-	selector, _ := hexutil.Decode("0x302326cb")
-	return append(selector, packed...)
+	return extraArgs
 }
 
 func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {

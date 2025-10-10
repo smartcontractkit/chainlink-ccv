@@ -21,8 +21,19 @@ import (
 )
 
 const (
+	// TODO: should these be in another place that is easily accessible?
 	MockReceiverContractType    = "MockReceiver"
 	MockReceiverContractVersion = "1.7.0"
+
+	CommitteeVerifierContractType    = "CommitOnRamp"
+	CommitteeVerifierContractVersion = "1.7.0"
+
+	ExecutorOnRampContractType    = "ExecutorOnRamp"
+	ExecutorOnRampContractVersion = "1.7.0"
+
+	// See Internal.sol for the full enum values
+	MessageExecutionStateSuccess uint8 = 2
+	MessageExecutionStateFailed  uint8 = 3
 )
 
 func TestE2ESmoke(t *testing.T) {
@@ -49,28 +60,38 @@ func TestE2ESmoke(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("test argsv2 messages", func(t *testing.T) {
+	t.Run("test extra args v2 messages", func(t *testing.T) {
 		type testcase struct {
 			name         string
 			fromSelector uint64
 			toSelector   uint64
+			receiver     protocol.UnknownAddress
+			expectFail   bool
 		}
 
 		tcs := []testcase{
 			{
-				name:         "src->dst msg execution",
+				name:         "src->dst msg execution eoa receiver",
 				fromSelector: selectors[0],
 				toSelector:   selectors[1],
+				receiver:     mustGetEOAReceiverAddress(t, c, selectors[1]),
+				expectFail:   false,
 			},
 			{
-				name:         "dst->src msg execution",
+				name:         "dst->src msg execution eoa receiver",
 				fromSelector: selectors[1],
 				toSelector:   selectors[0],
+				receiver:     mustGetEOAReceiverAddress(t, c, selectors[0]),
+				expectFail:   false,
 			},
 			{
-				name:         "1337->3337 msg execution",
+				name:         "1337->3337 msg execution mock receiver",
 				fromSelector: selectors[0],
 				toSelector:   selectors[2],
+				receiver:     getMockReceiverAddress(t, in, selectors[2]),
+				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
+				expectFail: true,
 			},
 		}
 		for _, tc := range tcs {
@@ -78,16 +99,8 @@ func TestE2ESmoke(t *testing.T) {
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				require.NotNil(t, in.CLDF)
-				require.NotNil(t, in.CLDF.DataStore)
-				require.NotNil(t, in.CLDF.DataStore.Addresses())
-				mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
-					datastore.NewAddressRefKey(tc.toSelector, datastore.ContractType(MockReceiverContractType), semver.MustParse(MockReceiverContractVersion), ""),
-				)
-				require.NoError(t, err)
-				t.Logf("mockReceiverRef: %s", mockReceiverRef.Address)
 				err = c.SendMessage(ctx, tc.fromSelector, tc.toSelector, cciptestinterfaces.MessageFields{
-					Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+					Receiver: tc.receiver,
 					Data:     []byte{},
 				}, cciptestinterfaces.MessageOptions{
 					Version:             2,
@@ -100,86 +113,108 @@ func TestE2ESmoke(t *testing.T) {
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, 5*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
-				require.Equal(t, uint8(2), e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+
+				if tc.expectFail {
+					require.Equal(t, MessageExecutionStateFailed, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+				} else {
+					require.Equal(t, MessageExecutionStateSuccess, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+				}
 			})
 		}
 	})
 
-	t.Run("test argsv3 messages", func(t *testing.T) {
+	t.Run("test extra args v3 messages", func(t *testing.T) {
 		type testcase struct {
 			name            string
 			srcSelector     uint64
 			dstSelector     uint64
 			finality        uint16
 			verifierAddress []byte
-			execOnRamp      string
-			receiver        string
+			receiver        protocol.UnknownAddress
 			mandatoryCCVs   []protocol.CCV
 			optionalCCVs    []protocol.CCV
 			threshold       uint8
+			expectFail      bool
 		}
 
-		verifierAddress := common.HexToAddress("0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1")
-		execOnRamp := "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
-		//mockReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
-		eoaReceiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443b"
-		mandatoryCCVs := []protocol.CCV{
-			{
-				CCVAddress: verifierAddress.Bytes(),
-				Args:       []byte{},
-				ArgsLen:    0,
-			},
-		}
 		tcs := []testcase{
 			{
-				name:          "src_dst msg execution with EOA receiver",
-				srcSelector:   selectors[0],
-				dstSelector:   selectors[1],
-				finality:      1,
-				execOnRamp:    execOnRamp,
-				receiver:      eoaReceiver,
-				mandatoryCCVs: mandatoryCCVs,
+				name:        "src_dst msg execution with EOA receiver",
+				srcSelector: selectors[0],
+				dstSelector: selectors[1],
+				finality:    1,
+				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
+				mandatoryCCVs: []protocol.CCV{
+					{
+						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[0]),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
 			},
 			{
-				name:          "dst_src msg execution with EOA receiver",
-				srcSelector:   selectors[1],
-				dstSelector:   selectors[0],
-				finality:      1,
-				execOnRamp:    execOnRamp,
-				receiver:      eoaReceiver,
-				mandatoryCCVs: mandatoryCCVs,
+				name:        "dst_src msg execution with EOA receiver",
+				srcSelector: selectors[1],
+				dstSelector: selectors[0],
+				finality:    1,
+				receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
+				mandatoryCCVs: []protocol.CCV{
+					{
+						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[1]),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
 			},
 			{
-				name:          "1337->3337 msg execution with EOA receiver",
-				srcSelector:   selectors[0],
-				dstSelector:   selectors[2],
-				finality:      1,
-				execOnRamp:    execOnRamp,
-				receiver:      eoaReceiver,
-				mandatoryCCVs: mandatoryCCVs,
+				name:        "1337->3337 msg execution with EOA receiver",
+				srcSelector: selectors[0],
+				dstSelector: selectors[2],
+				finality:    1,
+				receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
+				mandatoryCCVs: []protocol.CCV{
+					{
+						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[0]),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
 			},
-			// TODO: Un skip these once the NOT_ENOUGH_GAS_FOR_CALL_SIG is fixed
-			// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
-			//{
-			//	// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-			//	name:          "src_dst msg execution with mock receiver",
-			//	srcSelector:   c.Chain1337Details.ChainSelector,
-			//	dstSelector:   c.Chain2337Details.ChainSelector,
-			//	finality:      1,
-			//	execOnRamp:    execOnRamp,
-			//	receiver:      mockReceiver,
-			//	mandatoryCCVs: mandatoryCCVs,
-			//},
-			//{
-			//	// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-			//	name:          "dst_src msg execution with mock receiver",
-			//	srcSelector:   c.Chain2337Details.ChainSelector,
-			//	dstSelector:   c.Chain1337Details.ChainSelector,
-			//	finality:      1,
-			//	execOnRamp:    execOnRamp,
-			//	receiver:      mockReceiver,
-			//	mandatoryCCVs: mandatoryCCVs,
-			//},
+
+			{
+				name:        "src_dst msg execution with mock receiver",
+				srcSelector: selectors[0],
+				dstSelector: selectors[1],
+				finality:    1,
+				receiver:    getMockReceiverAddress(t, in, selectors[1]),
+				mandatoryCCVs: []protocol.CCV{
+					{
+						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[1]),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
+				expectFail: true,
+			},
+			{
+				name:        "dst_src msg execution with mock receiver",
+				srcSelector: selectors[1],
+				dstSelector: selectors[0],
+				finality:    1,
+				receiver:    getMockReceiverAddress(t, in, selectors[0]),
+				mandatoryCCVs: []protocol.CCV{
+					{
+						CCVAddress: getCommitteeVerifierAddress(t, in, selectors[0]),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
+				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
+				expectFail: true,
+			},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
@@ -188,12 +223,12 @@ func TestE2ESmoke(t *testing.T) {
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 				err = c.SendMessage(
 					ctx, tc.srcSelector, tc.dstSelector, cciptestinterfaces.MessageFields{
-						Receiver: protocol.UnknownAddress(common.HexToAddress(tc.receiver).Bytes()),
+						Receiver: tc.receiver,
 						Data:     []byte{},
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
 						FinalityConfig:    uint16(tc.finality),
-						Executor:          protocol.UnknownAddress(tc.execOnRamp),
+						Executor:          getExecOnRampAddress(t, in, tc.srcSelector),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,
 						OptionalThreshold: tc.threshold,
@@ -204,8 +239,46 @@ func TestE2ESmoke(t *testing.T) {
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, 1*time.Minute)
 				require.NoError(t, err)
 				require.NotNil(t, e)
-				require.Equal(t, uint8(2), e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+				if tc.expectFail {
+					require.Equal(t, MessageExecutionStateFailed, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+				} else {
+					require.Equal(t, MessageExecutionStateSuccess, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+				}
 			})
 		}
 	})
+}
+
+func mustGetEOAReceiverAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector uint64) protocol.UnknownAddress {
+	receiver, err := c.GetEOAReceiverAddress(chainSelector)
+	require.NoError(t, err)
+	return receiver
+}
+
+func getMockReceiverAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
+	mockReceiverRef, err := ccvCfg.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(chainSelector, datastore.ContractType(MockReceiverContractType), semver.MustParse(MockReceiverContractVersion), ""),
+	)
+	require.NoErrorf(t, err, "failed to get mock receiver address for chain selector %d, ContractType: %s, ContractVersion: %s",
+		chainSelector, MockReceiverContractType, MockReceiverContractVersion)
+	return protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes())
+}
+
+func getExecOnRampAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
+
+	executorOnRampRef, err := ccvCfg.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(chainSelector, datastore.ContractType(ExecutorOnRampContractType), semver.MustParse(ExecutorOnRampContractVersion), ""),
+	)
+	require.NoErrorf(t, err, "failed to get executor on ramp address for chain selector %d, ContractType: %s, ContractVersion: %s",
+		chainSelector, ExecutorOnRampContractType, ExecutorOnRampContractVersion)
+	return protocol.UnknownAddress(common.HexToAddress(executorOnRampRef.Address).Bytes())
+}
+
+func getCommitteeVerifierAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
+	committeeVerifierRef, err := ccvCfg.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(chainSelector, datastore.ContractType(CommitteeVerifierContractType), semver.MustParse(CommitteeVerifierContractVersion), ""),
+	)
+	require.NoErrorf(t, err, "failed to get committee verifier address for chain selector %d, ContractType: %s, ContractVersion: %s",
+		chainSelector, CommitteeVerifierContractType, CommitteeVerifierContractVersion)
+	return protocol.UnknownAddress(common.HexToAddress(committeeVerifierRef.Address).Bytes())
 }
