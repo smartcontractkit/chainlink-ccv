@@ -33,7 +33,7 @@ func main() {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = false
 		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 		config.DisableStacktrace = true
 	})
 
@@ -78,6 +78,8 @@ func main() {
 			ScanInterval:   time.Duration(config.Scanner.ScanInterval) * time.Second,
 			MetricInterval: time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
 			ReaderTimeout:  time.Duration(config.Scanner.ReaderTimeout) * time.Second,
+			BatchSize:      100,                    // Batch 100 messages before writing
+			BatchTimeout:   100 * time.Millisecond, // Flush batch every 100ms if not full
 		}),
 		scanner.WithStorageWriter(indexerStorage),
 		scanner.WithMonitoring(indexerMonitoring),
@@ -130,6 +132,7 @@ func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.Offc
 		}
 	}
 
+	lggr.Infof("Created %d readers", len(readerSlice))
 	// Return the readers
 	return readerSlice
 }

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -110,7 +109,7 @@ func (o *OffChainStorageAPI) Register() error {
 		// Filter messages by timestamp
 		var filtered []protocol.QueryResponse
 		for _, msg := range o.messages {
-			if msg.Timestamp != nil && *msg.Timestamp > since {
+			if msg.Data.Timestamp != 0 && msg.Data.Timestamp >= since {
 				filtered = append(filtered, msg)
 			}
 		}
@@ -127,22 +126,12 @@ func (o *OffChainStorageAPI) Register() error {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
 		o.AddMessage(msg)
+		ctx.JSON(200, gin.H{"message": "message received"})
 	})
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-// PopulateWithTestData populates the storage with some test data
-func (o *OffChainStorageAPI) PopulateWithTestData(count int) {
-	baseTime := time.Now().Unix()
-	for i := 1; i <= count; i++ {
-		timestamp := baseTime + int64(i)
-		msg := GenerateTestMessage(i, timestamp, protocol.ChainSelector(1), protocol.ChainSelector(2))
-		o.AddMessage(msg)
-	}
 }
