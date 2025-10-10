@@ -19,6 +19,7 @@ require (
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2
 	github.com/oklog/run v1.2.0
+	github.com/redis/go-redis/v9 v9.14.0
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.5
@@ -26,6 +27,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/testcontainers/testcontainers-go/modules/dynamodb v0.39.0
+	github.com/ulule/limiter/v3 v3.11.2
 	go.opentelemetry.io/otel/metric v1.37.0
 	go.opentelemetry.io/otel/sdk/metric v1.37.0
 	go.uber.org/zap v1.27.0
@@ -102,7 +104,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
-	github.com/redis/go-redis/v9 v9.14.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
@@ -112,7 +113,6 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tklauser/go-sysconf v0.3.15 // indirect
 	github.com/tklauser/numcpus v0.10.0 // indirect
-	github.com/ulule/limiter/v3 v3.11.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
