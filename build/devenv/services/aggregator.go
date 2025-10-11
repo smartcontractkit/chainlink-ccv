@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -240,13 +239,9 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.HostConfigModifier = func(hc *container.HostConfig) {
-			hc.Binds = append(hc.Binds,
-				fmt.Sprintf("%s:/common", filepath.Join(p, "../common")),
-				fmt.Sprintf("%s:/%s", filepath.Join(p, "../%s", in.RootPath), AppPathInsideContainer))
-
-			hc.Binds = append(hc.Binds, GoCacheMounts()...)
-		}
+		req.Mounts = testcontainers.Mounts()
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

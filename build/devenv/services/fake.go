@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strconv"
 
 	"github.com/docker/docker/api/types/container"
@@ -80,13 +79,7 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.HostConfigModifier = func(hc *container.HostConfig) {
-			hc.Binds = append(hc.Binds,
-				fmt.Sprintf("%s:/common", filepath.Join(p, "../common")),
-				fmt.Sprintf("%s:/%s", filepath.Join(p, "../%s", in.RootPath), AppPathInsideContainer))
-
-			hc.Binds = append(hc.Binds, GoCacheMounts()...)
-		}
+		req.Mounts = GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

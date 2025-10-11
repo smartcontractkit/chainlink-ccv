@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/testcontainers/testcontainers-go"
 )
 
 const (
@@ -20,11 +22,36 @@ func CwdSourcePath(sourcePath string) (string, error) {
 	return filepath.Join(filepath.Dir(wd), sourcePath), nil
 }
 
+// GoSourcePathMounts returns default Golang cache/build-cache and dev-image mounts.
+func GoSourcePathMounts(sourcePath, rootPath, containerDirTarget string) testcontainers.ContainerMounts {
+	absRootPath, err := filepath.Abs(
+		filepath.Join(rootPath, "common"),
+	)
+	if err != nil {
+		fmt.Println("error getting working directory", err)
+		return testcontainers.Mounts()
+	}
+
+	mounts := make([]testcontainers.ContainerMount, 0)
+	mounts = append(mounts,
+		testcontainers.BindMount(
+			sourcePath,
+			testcontainers.ContainerMountTarget(containerDirTarget),
+		),
+		testcontainers.BindMount(
+			absRootPath,
+			"/common",
+		),
+	)
+	return mounts
+}
+
 // GoCacheMounts returns Go cache mounts depending on platform
 // these variables can be found by using
 // go env GOCACHE
 // go env GOMODCACHE.
-func GoCacheMounts() []string {
+func GoCacheMounts() testcontainers.ContainerMounts {
+	mounts := testcontainers.Mounts()
 	homeDir, _ := os.UserHomeDir()
 	goHome := os.Getenv("GOPATH")
 	if goHome == "" {
@@ -43,9 +70,15 @@ func GoCacheMounts() []string {
 		goModCachePath = filepath.Join(goHome, "pkg", "mod")
 		goBuildCachePath = filepath.Join(homeDir, ".cache", "go-build")
 	}
-
-	return []string{
-		fmt.Sprintf("%s:/go/pkg/mod", goModCachePath),
-		fmt.Sprintf("%s:/root/.cache/go-build", goBuildCachePath),
-	}
+	mounts = append(mounts,
+		testcontainers.BindMount(
+			goModCachePath,
+			"/go/pkg/mod",
+		),
+		testcontainers.BindMount(
+			goBuildCachePath,
+			"/root/.cache/go-build",
+		),
+	)
+	return mounts
 }
