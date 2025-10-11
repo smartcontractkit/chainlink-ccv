@@ -83,7 +83,6 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 		req.HostConfigModifier = func(hc *container.HostConfig) {
 			hc.Binds = append(hc.Binds,
 				fmt.Sprintf("%s:/common", filepath.Join(p, "../common")),
-				// The main binary is in common.
 				fmt.Sprintf("%s:/%s", filepath.Join(p, "../%s", in.RootPath), AppPathInsideContainer))
 
 			hc.Binds = append(hc.Binds, GoCacheMounts()...)
