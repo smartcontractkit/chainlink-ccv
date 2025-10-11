@@ -4,9 +4,9 @@ COPY protocol/ ./protocol/
 COPY common/ ./common/
 COPY executor/ ./executor/
 WORKDIR /app
-COPY . .
-COPY ../common/go.mod ../common/go.sum ./
+COPY common/go.mod common/go.sum ./
 RUN go mod download
+COPY . .
 RUN cd common && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor cmd/executor/main.go
 
 FROM alpine:latest
