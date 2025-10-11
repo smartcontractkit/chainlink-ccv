@@ -8,6 +8,7 @@ COPY common/ ./common/
 WORKDIR /app
 ENV GOWORK=off
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /protocol && go mod download
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /common && go mod download
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go mod download
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd verifier && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier cmd/main.go
