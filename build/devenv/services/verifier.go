@@ -179,27 +179,18 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = testcontainers.Mounts()
 
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../protocol"),
-			"/protocol",
-		))
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../verifier"),
-			"/verifier",
-		))
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../executor"),
-			"/executor",
-		))
+		req.HostConfigModifier = func(hc *container.HostConfig) {
+			hc.Binds = append(hc.Binds,
+				fmt.Sprintf("%s:/protocol", filepath.Join(p, "../protocol")),
+				fmt.Sprintf("%s:/executor", filepath.Join(p, "../executor")),
+				fmt.Sprintf("%s:/verifier", filepath.Join(p, "../verifier")),
+				// The main binary is in common.
+				fmt.Sprintf("%s:/%s", filepath.Join(p, "../common"), AppPathInsideContainer))
 
-		// The main binary is in common.
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../common"),
-			AppPathInsideContainer,
-		))
-		req.Mounts = append(req.Mounts, GoCacheMounts()...)
+			hc.Binds = append(hc.Binds, GoCacheMounts()...)
+		}
+
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
