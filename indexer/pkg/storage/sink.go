@@ -242,6 +242,56 @@ func (d *Sink) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) erro
 	return nil
 }
 
+// BatchInsertCCVData writes multiple CCVData entries to all storages in order.
+// If any storage fails (except duplicate errors), it continues to the next storage
+// and returns an error at the end indicating which storages failed.
+func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+	if len(ccvDataList) == 0 {
+		return nil
+	}
+
+	var errs []error
+	successCount := 0
+
+	for i, storageWithCond := range d.storages {
+		d.lggr.Debugw("Attempting batch write to storage",
+			"storageIndex", i,
+			"batchSize", len(ccvDataList),
+		)
+
+		err := storageWithCond.Storage.BatchInsertCCVData(ctx, ccvDataList)
+		if err != nil {
+			// For batch inserts, we don't have individual duplicate errors
+			// so we just log warnings for any errors
+			d.lggr.Warnw("Failed to batch write to storage",
+				"storageIndex", i,
+				"batchSize", len(ccvDataList),
+				"error", err,
+			)
+			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
+			continue
+		}
+
+		d.lggr.Debugw("Successfully batch wrote to storage",
+			"storageIndex", i,
+			"batchSize", len(ccvDataList),
+		)
+		successCount++
+	}
+
+	// If no storages succeeded, return an error
+	if successCount == 0 {
+		return fmt.Errorf("failed to batch write to any storage: %v", errs)
+	}
+
+	// If some storages failed, return an error but mention partial success
+	if len(errs) > 0 {
+		return fmt.Errorf("partial batch write failure (%d/%d succeeded): %v", successCount, len(d.storages), errs)
+	}
+
+	return nil
+}
+
 // Close closes all underlying storages that implement the Closer interface.
 func (d *Sink) Close() error {
 	var errs []error

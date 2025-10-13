@@ -17,6 +17,20 @@ type Config struct {
 	Discovery DiscoveryConfig `toml:"Discovery"`
 	// Storage is the configuration for the storage inside the indexer.
 	Storage StorageConfig `toml:"Storage"`
+	// API is the configuration for the API inside the indexer.
+	API APIConfig `toml:"API"`
+}
+
+// APIConfig provides all configuration for the API inside the indexer.
+type APIConfig struct {
+	// RateLimit is the configuration for the rate limiting system inside the indexer.
+	RateLimit RateLimitConfig `toml:"RateLimit"`
+}
+
+// RateLimitConfig provides all configuration for the rate limiting system inside the indexer.
+type RateLimitConfig struct {
+	// Enabled enables the rate limiting system inside the indexer.
+	Enabled bool `toml:"Enabled"`
 }
 
 // MonitoringConfig provides all configuration for the monitoring system inside the indexer.
@@ -194,10 +208,12 @@ type StaticDiscoveryConfig struct {
 
 // StaticDiscoveryReaderConfig allows you to change the static discovery system used by the indexer.
 type StaticDiscoveryReaderConfig struct {
-	// Type is the type of reader to use (aggregator).
+	// Type is the type of reader to use (aggregator, rest).
 	Type ReaderType `toml:"type"`
 	// Aggregator is the configuration for the aggregator reader.
 	Aggregator AggregatorReaderConfig `toml:"Aggregator"`
+	// Rest is the configuration for the rest reader.
+	Rest RestReaderConfig `toml:"Rest"`
 }
 
 // ReaderType is the type of reader to use (aggregator).
@@ -205,6 +221,7 @@ type ReaderType string
 
 const (
 	ReaderTypeAggregator ReaderType = "aggregator"
+	ReaderTypeRest       ReaderType = "rest"
 )
 
 // AggregatorReaderConfig allows you to change the aggregator reader used by the indexer.
@@ -213,6 +230,16 @@ type AggregatorReaderConfig struct {
 	Address string `toml:"Address"`
 	// Since is the unix timestamp in seconds to start reading from.
 	Since int64 `toml:"Since"`
+}
+
+// RestReaderConfig allows you to change the rest reader used by the indexer.
+type RestReaderConfig struct {
+	// BaseURL is the base URL for the rest reader.
+	BaseURL string `toml:"BaseURL"`
+	// Since is the unix timestamp in seconds to start reading from.
+	Since int64 `toml:"Since"`
+	// RequestTimeout is the timeout in seconds for the rest reader.
+	RequestTimeout int64 `toml:"RequestTimeout"`
 }
 
 // LoadConfig loads configuration from a TOML file.

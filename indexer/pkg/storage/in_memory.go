@@ -215,6 +215,64 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 	return nil
 }
 
+// BatchInsertCCVData inserts multiple CCVData entries efficiently.
+func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+	if len(ccvDataList) == 0 {
+		return nil
+	}
+
+	startInsertMetric := time.Now()
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	// Track unique messages we've seen before this batch
+	newUniqueMessages := 0
+	insertedCount := 0
+
+	for _, ccvData := range ccvDataList {
+		// Check for duplicates
+		uniqueKey := i.generateUniqueKey(ccvData)
+		if i.uniqueKeys[uniqueKey] {
+			continue // Skip duplicates
+		}
+
+		// Add to messageID index
+		messageID := ccvData.MessageID.String()
+
+		// If the MessageID is not in the index, it must be a new message
+		if _, ok := i.byMessageID[messageID]; !ok {
+			newUniqueMessages++
+		}
+
+		i.byMessageID[messageID] = append(i.byMessageID[messageID], ccvData)
+
+		// Mark this data as inserted
+		i.uniqueKeys[uniqueKey] = true
+		insertedCount++
+
+		// Insert into timestamp-sorted index
+		insertPos := i.findTimestampIndex(ccvData.Timestamp, func(ts, target int64) bool { return ts > target })
+		i.byTimestamp = append(i.byTimestamp, protocol.CCVData{})
+		copy(i.byTimestamp[insertPos+1:], i.byTimestamp[insertPos:])
+		i.byTimestamp[insertPos] = ccvData
+
+		// Update chain selector indexes with index into timestamp slice
+		i.addToChainIndex(i.bySourceChain, ccvData.SourceChainSelector, insertPos)
+		i.addToChainIndex(i.byDestChain, ccvData.DestChainSelector, insertPos)
+	}
+
+	// Update metrics
+	for j := 0; j < newUniqueMessages; j++ {
+		i.monitoring.Metrics().IncrementUniqueMessagesCounter(ctx)
+	}
+	for j := 0; j < insertedCount; j++ {
+		i.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
+	}
+
+	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+	return nil
+}
+
 // findTimestampIndex finds the first index where timestamp satisfies the condition.
 func (i *InMemoryStorage) findTimestampIndex(timestamp int64, condition func(int64, int64) bool) int {
 	return sort.Search(len(i.byTimestamp), func(idx int) bool {
