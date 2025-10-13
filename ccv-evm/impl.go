@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	router_operations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
@@ -92,7 +93,7 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []str
 		proxyAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 			chainDetails.ChainSelector,
 			datastore.ContractType(onrampoperations.ContractType),
-			semver.MustParse("1.7.0"),
+			semver.MustParse(onrampoperations.Deploy.Version()),
 			"",
 		))
 		if err != nil {
@@ -101,7 +102,7 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []str
 		aggAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 			chainDetails.ChainSelector,
 			datastore.ContractType(offrampoperations.ContractType),
-			semver.MustParse("1.7.0"),
+			semver.MustParse(offrampoperations.Deploy.Version()),
 			"",
 		))
 		if err != nil {
@@ -777,27 +778,27 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
 			RMNRemote: sequences.RMNRemoteParams{
-				Version: semver.MustParse("1.6.0"),
+				Version: semver.MustParse(rmn_remote.Deploy.Version()),
 			},
 			CCVAggregator: sequences.CCVAggregatorParams{
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(offrampoperations.Deploy.Version()),
 			},
 			CommitteeVerifier: sequences.CommitteeVerifierParams{
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(committee_verifier.Deploy.Version()),
 				// TODO: add mocked contract here
 				FeeAggregator:       common.HexToAddress("0x01"),
 				SignatureConfigArgs: getCommitteeSignatureConfig(selector),
 			},
 			CCVProxy: sequences.CCVProxyParams{
-				Version:       semver.MustParse("1.7.0"),
+				Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 				FeeAggregator: common.HexToAddress("0x01"),
 			},
 			ExecutorOnRamp: sequences.ExecutorOnRampParams{
-				Version:       semver.MustParse("1.7.0"),
+				Version:       semver.MustParse(executor_onramp.Deploy.Version()),
 				MaxCCVsPerMsg: 10,
 			},
 			FeeQuoter: sequences.FeeQuoterParams{
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(fee_quoter.Deploy.Version()),
 				// expose in TOML config
 				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
 				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
@@ -840,23 +841,23 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			AllowTrafficFrom: true,
 			CCIPMessageSource: datastore.AddressRef{
 				Type:    datastore.ContractType(onrampoperations.ContractType),
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(onrampoperations.Deploy.Version()),
 			},
 			CCIPMessageDest: datastore.AddressRef{
 				Type:    datastore.ContractType(offrampoperations.ContractType),
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(offrampoperations.Deploy.Version()),
 			},
 			DefaultCCVOffRamps: []datastore.AddressRef{
-				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse("1.7.0")},
+				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
 			},
 			// LaneMandatedCCVOffRamps: []datastore.AddressRef{},
 			DefaultCCVOnRamps: []datastore.AddressRef{
-				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse("1.7.0")},
+				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
 			},
 			// LaneMandatedCCVOnRamps: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
 				Type:    datastore.ContractType(executor_onramp.ContractType),
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(executor_onramp.Deploy.Version()),
 			},
 			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled: false,
