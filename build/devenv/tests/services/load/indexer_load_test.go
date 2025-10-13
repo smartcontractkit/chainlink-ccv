@@ -38,12 +38,11 @@ func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *I
 }
 
 func TestIndexerLoad(t *testing.T) {
-	rps := int64(100)
-	testDuration := 1 * time.Minute
+	rps := int64(2500)
+	testDuration := 5 * time.Minute
 
 	p, gun := createLoadProfile(rps, testDuration)
-
-	ctx, cancel := context.WithTimeout(context.Background(), testDuration*2)
+	ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 	defer cancel()
 
 	verifyDoneCh := gun.VerifyMessagesAsync(ctx)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand/v2"
 	"net/http"
@@ -36,18 +37,18 @@ type Metrics struct {
 }
 
 func NewIndexerLoadGun() *IndexerLoadGun {
-	// Create HTTP client with connection pooling to prevent connection exhaustion
+	// Create HTTP client with larger connection pool to prevent connection exhaustion
 	transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		MaxConnsPerHost:     100,
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 200,
+		MaxConnsPerHost:     200,
 		IdleConnTimeout:     90 * time.Second,
+		DisableKeepAlives:   false, // Keep connections alive but with larger pool
 	}
 
 	// Create semaphore to limit concurrent verification requests
-	// This prevents overwhelming the API with 6000 concurrent requests
-	// Set to 20 to prevent request waves that cause EOF errors
-	maxConcurrentVerifications := 20
+	// This prevents overwhelming the API with too many concurrent requests
+	maxConcurrentVerifications := 100
 	verifySemaphore := make(chan struct{}, maxConcurrentVerifications)
 
 	gun := &IndexerLoadGun{
@@ -61,7 +62,7 @@ func NewIndexerLoadGun() *IndexerLoadGun {
 		wg:              sync.WaitGroup{},
 		verifySemaphore: verifySemaphore,
 		httpClient: &http.Client{
-			Timeout:   5 * time.Second,
+			Timeout:   10 * time.Second,
 			Transport: transport,
 		},
 	}
@@ -93,11 +94,15 @@ func (i *IndexerLoadGun) Call(gen *wasp.Generator) *wasp.Response {
 		log.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := i.httpClient.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer resp.Body.Close()
+
+	// Read and discard body for proper connection reuse
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		log.Fatal(resp.Status)
 	}
@@ -140,8 +145,6 @@ func (i *IndexerLoadGun) run(ctx context.Context) {
 		case msg, ok := <-i.sentMsgCh:
 			if !ok {
 				i.wg.Wait()
-
-				// Close the metrics channel now that all handlers are done
 				close(i.metricsCh)
 
 				// Drain the metrics channel
@@ -151,13 +154,14 @@ func (i *IndexerLoadGun) run(ctx context.Context) {
 					i.metrics = append(i.metrics, metric)
 					i.mu.Unlock()
 				}
+
 				i.doneCh <- struct{}{}
 				return
 			}
 
 			i.wg.Add(1)
 			log.Printf("Received message %s", msg.Data.MessageID.String())
-			go i.handleMessage(ctx, msg, 30*time.Second, 500*time.Millisecond)
+			//go i.handleMessage(ctx, msg, 30*time.Second, 500*time.Millisecond)
 		case metric := <-i.metricsCh:
 			log.Printf("Received metric %s", metric.MessageID.String())
 			i.mu.Lock()
@@ -224,7 +228,9 @@ func (i *IndexerLoadGun) handleMessage(ctx context.Context, msg protocol.QueryRe
 func (i *IndexerLoadGun) verifyMessage(messageID protocol.Bytes32) bool {
 	// Acquire semaphore to limit concurrent requests
 	i.verifySemaphore <- struct{}{}
-	defer func() { <-i.verifySemaphore }()
+	defer func() {
+		<-i.verifySemaphore
+	}()
 
 	// Build the URL
 	url := fmt.Sprintf("http://localhost:8102/v1/messageid/%s", messageID.String())
@@ -232,13 +238,25 @@ func (i *IndexerLoadGun) verifyMessage(messageID protocol.Bytes32) bool {
 	// Make GET request to indexer using shared HTTP client with connection pooling
 	resp, err := i.httpClient.Get(url)
 	if err != nil {
-		log.Printf("Error calling indexer API: %v", err)
+		log.Printf("ERROR: Verification failed for message %s: %v", messageID.String(), err)
 		return false
 	}
-	defer resp.Body.Close()
+
+	// Important: Must read and close body properly for connection reuse
+	// Not reading the body can cause EOF errors on subsequent requests
+	statusOK := resp.StatusCode == http.StatusOK
+
+	if !statusOK {
+		log.Printf("Message %s not found yet (status: %d)", messageID.String(), resp.StatusCode)
+	}
+
+	// Read and discard the body to allow connection reuse
+	// This is critical - closing without reading causes EOF errors
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 
 	// Return true if message exists (status 200), false otherwise
-	return resp.StatusCode == http.StatusOK
+	return statusOK
 }
 
 func (i *IndexerLoadGun) CloseSentChannel() {
