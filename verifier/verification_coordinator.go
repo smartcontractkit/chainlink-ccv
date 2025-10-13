@@ -14,11 +14,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-const (
-	// ShutdownStorageWriteTimeout is the maximum time to allow for final storage writes during shutdown.
-	ShutdownStorageWriteTimeout = 30 * time.Second
-)
-
 // sourceState manages state for a single source chain reader.
 type sourceState struct {
 	reader              *SourceReaderService
@@ -293,22 +288,17 @@ func (vc *Coordinator) run(ctx context.Context) {
 		go vc.processSourceErrors(ctx, &wg, state)
 	}
 
-	contextCancelled := false
-
 	// Main loop - process batched storage writes
 	for {
 		select {
 		case <-ctx.Done():
-			if !contextCancelled {
-				vc.lggr.Infow("Context cancelled, will drain remaining batches from batcher")
-				contextCancelled = true
-			}
-			// Don't return immediately - keep processing batches until batcher closes channel
+			vc.lggr.Infow("Context cancelled, stopping coordinator")
+			wg.Wait()
+			return
 
 		case ccvDataBatch, ok := <-vc.batchedCCVDataCh:
 			if !ok {
-				// Batcher has closed channel, all batches drained
-				vc.lggr.Infow("Batcher finished, all batches processed")
+				vc.lggr.Infow("Storage batcher channel closed")
 				wg.Wait()
 				return
 			}
@@ -320,18 +310,8 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 
 			// Write batch of CCVData to offchain storage
-			// Use timeout context for final writes after cancellation to prevent hanging
-			writeCtx := ctx
-			var cancelWrite context.CancelFunc
-			if contextCancelled {
-				writeCtx, cancelWrite = context.WithTimeout(context.Background(), ShutdownStorageWriteTimeout)
-			}
-
 			storageStart := time.Now()
-			if err := vc.storage.WriteCCVNodeData(writeCtx, ccvDataBatch.Items); err != nil {
-				if cancelWrite != nil {
-					cancelWrite()
-				}
+			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err != nil {
 				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 				vc.lggr.Errorw("Error storing CCV data batch",
 					"error", err,
@@ -371,10 +351,6 @@ func (vc *Coordinator) run(ctx context.Context) {
 				vc.lggr.Infow("CCV data batch stored successfully",
 					"batchSize", len(ccvDataBatch.Items),
 				)
-
-				if cancelWrite != nil {
-					cancelWrite()
-				}
 			}
 		}
 	}
@@ -393,9 +369,10 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 		case <-ctx.Done():
 			vc.lggr.Debugw("Source message processor stopped due to context cancellation", "chainSelector", chainSelector)
 			return
+
 		case taskBatch, ok := <-state.verificationTaskCh:
 			if !ok {
-				vc.lggr.Errorw("Message channel closed for source", "chainSelector", chainSelector)
+				vc.lggr.Debugw("Message channel closed for source", "chainSelector", chainSelector)
 				return
 			}
 
