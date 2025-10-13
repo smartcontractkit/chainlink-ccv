@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /
@@ -5,6 +6,9 @@ COPY protocol/ ./protocol/
 COPY common/ ./common/
 WORKDIR /app
 COPY verifier/go.mod verifier/go.sum ./
-RUN go mod download
+ENV GOWORK=off
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /protocol && go mod download
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /common && go mod download
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go mod download
 COPY verifier/air.toml ./
 CMD ["air", "-c", "air.toml"]
