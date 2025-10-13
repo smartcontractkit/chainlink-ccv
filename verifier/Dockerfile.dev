@@ -5,11 +5,12 @@ WORKDIR /
 COPY protocol/ ./protocol/
 COPY common/ ./common/
 COPY executor/ ./executor/
+COPY verifier/ ./verifier/
 WORKDIR /app
-COPY verifier/go.mod verifier/go.sum ./
+COPY common/go.mod common/go.sum ./
 ENV GOWORK=off
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /protocol && go mod download
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /common && go mod download
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go mod download
-COPY verifier/air.toml ./
-CMD ["air", "-c", "air.toml"]
+ENV EXECUTOR_CONFIG_PATH="/app/cmd/verifier/verifier-1.toml"
+CMD ["air", "-c", "cmd/verifier/air.toml"]

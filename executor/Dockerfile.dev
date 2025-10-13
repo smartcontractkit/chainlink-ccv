@@ -2,8 +2,7 @@
 FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /
-COPY protocol/ ./protocol/
-COPY executor/ ./executor/
+COPY . .
 WORKDIR /app
 COPY common/go.mod common/go.sum ./
 ENV GOWORK=off

@@ -1,9 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM golang:1.24.6-alpine AS builder
 WORKDIR /
-COPY protocol/ ./protocol/
-COPY common/ ./common/
-COPY executor/ ./executor/
+COPY . .
 WORKDIR /app
 COPY common/go.mod common/go.sum ./
 ENV GOWORK=off

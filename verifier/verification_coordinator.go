@@ -29,7 +29,6 @@ type Coordinator struct {
 	monitoring               common.VerifierMonitoring
 	sourceStates             map[protocol.ChainSelector]*sourceState
 	cancel                   context.CancelFunc
-	doneCh                   chan struct{}
 	ccvDataCh                chan protocol.CCVData
 	pendingTasks             []VerificationTask
 	config                   CoordinatorConfig
@@ -40,7 +39,8 @@ type Coordinator struct {
 	timestampsMu      sync.RWMutex
 	mu                sync.RWMutex
 	pendingMu         sync.RWMutex
-	verifyingWg       sync.WaitGroup
+	verifyingWg       sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
+	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and finalityCheckingLoop() (must complete after error channels closed)
 	running           bool
 
 	// Configuration
@@ -130,7 +130,6 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		// TODO: channels should have a buffer of 0 or 1, why is it 1000?
 		ccvDataCh:             make(chan protocol.CCVData, 1000),
-		doneCh:                make(chan struct{}),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		pendingTasks:          make([]VerificationTask, 0),
 		messageTimestamps:     make(map[protocol.Bytes32]time.Time),
@@ -200,8 +199,17 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.cancel = cancel
 
 	// Start processing loop and finality checking
-	go vc.run(ctx)
-	go vc.finalityCheckingLoop(ctx)
+	vc.backgroundWg.Add(1)
+	go func() {
+		defer vc.backgroundWg.Done()
+		vc.run(ctx)
+	}()
+
+	vc.backgroundWg.Add(1)
+	go func() {
+		defer vc.backgroundWg.Done()
+		vc.finalityCheckingLoop(ctx)
+	}()
 
 	vc.lggr.Infow("Coordinator started with finality checking",
 		"coordinatorID", vc.config.VerifierID,
@@ -236,8 +244,8 @@ func (vc *Coordinator) Close() error {
 		close(state.verificationErrorCh)
 	}
 
-	// 4. Wait for the main run loop to finish.
-	<-vc.doneCh
+	// 4. Wait for background goroutines (run and finalityCheckingLoop) to finish.
+	vc.backgroundWg.Wait()
 
 	vc.mu.Lock()
 	vc.running = false
@@ -250,8 +258,6 @@ func (vc *Coordinator) Close() error {
 
 // run is the main processing loop.
 func (vc *Coordinator) run(ctx context.Context) {
-	defer close(vc.doneCh)
-
 	// Start goroutines for each source state
 	var wg sync.WaitGroup
 	for _, state := range vc.sourceStates {
