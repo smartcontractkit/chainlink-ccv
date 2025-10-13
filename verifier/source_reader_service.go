@@ -7,10 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -34,7 +33,7 @@ type SourceReaderService struct {
 	sourceReader         SourceReader
 	logger               logger.Logger
 	lastProcessedBlock   *big.Int
-	verificationTaskCh   chan VerificationTask
+	verificationTaskCh   chan batcher.BatchResult[VerificationTask]
 	stopCh               chan struct{}
 	ccipMessageSentTopic string
 	wg                   sync.WaitGroup
@@ -70,7 +69,7 @@ func NewSourceReaderService(
 	s := &SourceReaderService{
 		sourceReader:         sourceReader,
 		logger:               logger,
-		verificationTaskCh:   make(chan VerificationTask, 1),
+		verificationTaskCh:   make(chan batcher.BatchResult[VerificationTask], 1),
 		stopCh:               make(chan struct{}),
 		pollInterval:         3 * time.Second, // Default poll interval
 		chainSelector:        chainSelector,
@@ -135,8 +134,8 @@ func (r *SourceReaderService) Stop() error {
 	return nil
 }
 
-// VerificationTaskChannel returns the channel where new message events are delivered.
-func (r *SourceReaderService) VerificationTaskChannel() <-chan VerificationTask {
+// VerificationTaskChannel returns the channel where new message events are delivered as batches.
+func (r *SourceReaderService) VerificationTaskChannel() <-chan batcher.BatchResult[VerificationTask] {
 	return r.verificationTaskCh
 }
 
@@ -477,34 +476,38 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, currentBlock)
 	if err != nil {
-		r.logger.Warnw("⚠️ Failed to query logs", "error", err,
+		r.logger.Errorw("⚠️ Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", currentBlock.String())
 		return
 	}
 
-	for _, task := range tasks {
-		event := task.Message
-		id, err := event.MessageID()
-		if err != nil {
-			r.logger.Errorw("❌ Failed to get message ID from event", "error", err)
-			continue
-		}
+	// Skip sending if no tasks were found
+	if len(tasks) == 0 {
+		r.logger.Debugw("🔍 No events found in range",
+			"fromBlock", fromBlock.String(),
+			"toBlock", currentBlock.String())
+		return
+	}
 
-		lggr := logger.With(r.logger,
-			"sourceChain", r.chainSelector,
-			"destChain", event.DestChainSelector,
-			"nonce", event.Nonce,
-			"messageId", common.Bytes2Hex(id[:]),
-			// "receiptsCount", len(receiptBlobs)) ???
-		)
-		// Send to verification channel (non-blocking)
-		select {
-		case r.verificationTaskCh <- task:
-			lggr.Infow("✅ Verification task sent to channel")
-		default:
-			lggr.Warnw("⚠️ Verification task channel full, dropping event")
-		}
+	// Send entire batch of tasks as BatchResult
+	batch := batcher.BatchResult[VerificationTask]{
+		Items: tasks,
+		Error: nil,
+	}
+
+	// Send to verification channel (non-blocking)
+	select {
+	case r.verificationTaskCh <- batch:
+		r.logger.Infow("✅ Verification task batch sent to channel",
+			"batchSize", len(tasks),
+			"fromBlock", fromBlock.String(),
+			"toBlock", currentBlock.String())
+	default:
+		r.logger.Warnw("⚠️ Verification task channel full, dropping batch",
+			"batchSize", len(tasks),
+			"fromBlock", fromBlock.String(),
+			"toBlock", currentBlock.String())
 	}
 
 	// Update processed block
@@ -513,17 +516,11 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	// Try to checkpoint if appropriate
 	r.updateCheckpoint(ctx)
 
-	if len(tasks) > 0 {
-		r.logger.Infow("📈 Processed block range",
-			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String(),
-			"eventsFound", len(tasks))
-		r.logger.Debugw("Event details", "logs", tasks)
-	} else {
-		r.logger.Infow("🔍 No events found in range",
-			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
-	}
+	r.logger.Infow("📈 Processed block range",
+		"fromBlock", fromBlock.String(),
+		"toBlock", currentBlock.String(),
+		"eventsFound", len(tasks))
+	r.logger.Debugw("Event details", "logs", tasks)
 }
 
 func (r *SourceReaderService) GetSourceReader() SourceReader {

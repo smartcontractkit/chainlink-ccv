@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -17,7 +18,7 @@ import (
 // DevSourceReaderSetup contains a mock source reader and its channel for development use.
 type DevSourceReaderSetup struct {
 	Reader  *verifier_mocks.MockSourceReader
-	Channel chan verifier.VerificationTask
+	Channel chan batcher.BatchResult[verifier.VerificationTask]
 }
 
 // SetupDevSourceReader creates a mock source reader with an injected channel for development
@@ -25,11 +26,11 @@ type DevSourceReaderSetup struct {
 func SetupDevSourceReader(chainSelector protocol.ChainSelector) *DevSourceReaderSetup {
 	// Create a mock that doesn't require testing.T by using a nil interface
 	mockReader := &verifier_mocks.MockSourceReader{}
-	channel := make(chan verifier.VerificationTask, 100)
+	channel := make(chan batcher.BatchResult[verifier.VerificationTask], 100)
 
 	// Set up expectations for the mock
 	mockReader.On("Start", mock.Anything).Return(nil)
-	mockReader.On("VerificationTaskChannel").Return((<-chan verifier.VerificationTask)(channel))
+	mockReader.On("VerificationTaskChannel").Return((<-chan batcher.BatchResult[verifier.VerificationTask])(channel))
 	mockReader.On("Stop").Run(func(args mock.Arguments) {
 		close(channel)
 	}).Return(nil)
@@ -59,18 +60,25 @@ func StartMockMessageGenerator(ctx context.Context, setup *DevSourceReaderSetup,
 				// Generate a mock verification task
 				task := createDevVerificationTask(messageCounter, chainSelector, verifierAddr)
 
+				// Send task as a batch (single item batch for simplicity)
+				batch := batcher.BatchResult[verifier.VerificationTask]{
+					Items: []verifier.VerificationTask{task},
+					Error: nil,
+				}
+
 				select {
-				case setup.Channel <- task:
+				case setup.Channel <- batch:
 					messageID, err := task.Message.MessageID()
 					if err != nil {
 						lggr.Errorw("Failed to compute message ID", "error", err)
 						continue
 					}
-					lggr.Infow("Generated mock verification task",
+					lggr.Infow("Generated mock verification task batch",
 						"messageID", messageID,
 						"nonce", task.Message.Nonce,
 						"sourceChain", task.Message.SourceChainSelector,
 						"destChain", task.Message.DestChainSelector,
+						"batchSize", 1,
 					)
 					messageCounter++
 				case <-ctx.Done():

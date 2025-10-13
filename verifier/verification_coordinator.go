@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -16,7 +17,7 @@ import (
 // sourceState manages state for a single source chain reader.
 type sourceState struct {
 	reader              *SourceReaderService
-	verificationTaskCh  <-chan VerificationTask
+	verificationTaskCh  <-chan batcher.BatchResult[VerificationTask]
 	verificationErrorCh chan VerificationError
 	chainSelector       protocol.ChainSelector
 }
@@ -42,6 +43,12 @@ type Coordinator struct {
 	verifyingWg       sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
 	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and finalityCheckingLoop() (must complete after error channels closed)
 	running           bool
+
+	// Storage batching
+	storageBatcher      *batcher.Batcher[protocol.CCVData]
+	batchedCCVDataCh    chan batcher.BatchResult[protocol.CCVData]
+	storageBatcherWg    sync.WaitGroup
+	storageBatcherClose func() // Function to close the batcher
 
 	// Configuration
 	checkpointManager protocol.CheckpointManager
@@ -198,6 +205,20 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	vc.cancel = cancel
 
+	// Initialize storage batcher
+	vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
+	vc.storageBatcher = batcher.NewBatcher(
+		ctx,
+		vc.config.StorageBatchSize,
+		vc.config.StorageBatchTimeout,
+		vc.batchedCCVDataCh,
+	)
+	vc.storageBatcherClose = func() {
+		if err := vc.storageBatcher.Close(); err != nil {
+			vc.lggr.Errorw("Error closing storage batcher", "error", err)
+		}
+	}
+
 	// Start processing loop and finality checking
 	vc.backgroundWg.Add(1)
 	go func() {
@@ -233,6 +254,11 @@ func (vc *Coordinator) Close() error {
 	// 2. Wait for any in-flight verification tasks to complete.
 	// These are the tasks that might write to verificationErrorCh.
 	vc.verifyingWg.Wait()
+
+	// Close the storage batcher to flush remaining items
+	if vc.storageBatcherClose != nil {
+		vc.storageBatcherClose()
+	}
 
 	// 3. Close source readers and close error channels.
 	for chainSelector, state := range vc.sourceStates {
@@ -287,16 +313,45 @@ func (vc *Coordinator) run(ctx context.Context) {
 				return
 			}
 
-			// Write CCVData to offchain storage
-			storageStart := time.Now()
-			if err := vc.storage.WriteCCVNodeData(ctx, []protocol.CCVData{ccvData}); err != nil {
-				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
-				vc.lggr.Errorw("Error storing CCV data",
+			// Add CCVData to batcher for batched storage writes
+			if err := vc.storageBatcher.Add(ccvData); err != nil {
+				vc.lggr.Errorw("Error adding CCV data to batcher",
 					"error", err,
 					"messageID", ccvData.MessageID,
 					"nonce", ccvData.Nonce,
 					"sourceChain", ccvData.SourceChainSelector,
 				)
+			}
+
+		case ccvDataBatch, ok := <-vc.batchedCCVDataCh:
+			if !ok {
+				vc.lggr.Infow("Batched CCVData channel closed, stopping processing")
+				wg.Wait()
+				return
+			}
+
+			// Handle batch error if present
+			if ccvDataBatch.Error != nil {
+				vc.lggr.Errorw("Error in CCVData batch", "error", ccvDataBatch.Error)
+				continue
+			}
+
+			// Write batch of CCVData to offchain storage
+			storageStart := time.Now()
+			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err != nil {
+				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
+				vc.lggr.Errorw("Error storing CCV data batch",
+					"error", err,
+					"batchSize", len(ccvDataBatch.Items),
+				)
+				// Log individual messageIDs in failed batch
+				for _, ccvData := range ccvDataBatch.Items {
+					vc.lggr.Errorw("Failed to store CCV data in batch",
+						"messageID", ccvData.MessageID,
+						"nonce", ccvData.Nonce,
+						"sourceChain", ccvData.SourceChainSelector,
+					)
+				}
 			} else {
 				storageDuration := time.Since(storageStart)
 
@@ -305,25 +360,26 @@ func (vc *Coordinator) run(ctx context.Context) {
 					With("verifier_id", vc.config.VerifierID).
 					RecordStorageWriteDuration(ctx, storageDuration)
 
-				// Calculate and record E2E latency
+				// Calculate and record E2E latency for each message in the batch
 				vc.timestampsMu.Lock()
-				if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
-					e2eDuration := time.Since(createdAt)
-					vc.monitoring.Metrics().
-						With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
-						RecordMessageE2ELatency(ctx, e2eDuration)
+				for _, ccvData := range ccvDataBatch.Items {
+					if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
+						e2eDuration := time.Since(createdAt)
+						vc.monitoring.Metrics().
+							With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
+							RecordMessageE2ELatency(ctx, e2eDuration)
 
-					// Clean up timestamp entry
-					delete(vc.messageTimestamps, ccvData.MessageID)
+						// Clean up timestamp entry
+						delete(vc.messageTimestamps, ccvData.MessageID)
+					}
 				}
 				vc.timestampsMu.Unlock()
 
-				vc.lggr.Infow("CCV data stored successfully",
-					"messageID", ccvData.MessageID,
-					"nonce", ccvData.Nonce,
-					"sourceChain", ccvData.SourceChainSelector,
+				vc.lggr.Infow("CCV data batch stored successfully",
+					"batchSize", len(ccvDataBatch.Items),
 				)
 			}
+
 		case <-channelSizeTicker.C:
 			// Periodic channel size sampling for monitoring
 			vc.monitoring.Metrics().
@@ -346,13 +402,29 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 		case <-ctx.Done():
 			vc.lggr.Debugw("Source message processor stopped due to context cancellation", "chainSelector", chainSelector)
 			return
-		case verificationTask, ok := <-state.verificationTaskCh:
+		case taskBatch, ok := <-state.verificationTaskCh:
 			if !ok {
 				vc.lggr.Errorw("Message channel closed for source", "chainSelector", chainSelector)
 				return
 			}
-			// Add to pending queue for finality checking
-			vc.addToPendingQueue(verificationTask, chainSelector)
+
+			// Handle batch error if present
+			if taskBatch.Error != nil {
+				vc.lggr.Errorw("Error in verification task batch",
+					"chainSelector", chainSelector,
+					"error", taskBatch.Error)
+				continue
+			}
+
+			// Process all tasks in the batch
+			vc.lggr.Debugw("Received verification task batch",
+				"chainSelector", chainSelector,
+				"batchSize", len(taskBatch.Items))
+
+			for _, verificationTask := range taskBatch.Items {
+				// Add to pending queue for finality checking
+				vc.addToPendingQueue(verificationTask, chainSelector)
+			}
 		}
 	}
 }
