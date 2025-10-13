@@ -96,6 +96,10 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 			filepath.Join(p, "../executor"),
 			"/executor",
 		))
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
+			filepath.Join(p, "../verifier"),
+			"/verifier",
+		))
 
 		// The main binary is in common.
 		req.Mounts = append(req.Mounts, testcontainers.BindMount(

@@ -1,13 +1,9 @@
 FROM golang:1.24.6-alpine AS builder
-WORKDIR /app
-COPY . .
-COPY verifier/go.mod verifier/go.sum ./
 WORKDIR /
-COPY protocol/ ./protocol/
-COPY common/ ./common/
-WORKDIR /app
+COPY . .
+WORKDIR /common
 RUN go mod download
-RUN cd verifier && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier cmd/main.go
+RUN CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier cmd/verifier/main.go
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
