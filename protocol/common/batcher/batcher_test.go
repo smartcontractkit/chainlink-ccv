@@ -100,7 +100,7 @@ func TestBatcher_ContextCancellation(t *testing.T) {
 }
 
 func TestBatcher_GracefulClose(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	outCh := make(chan BatchResult[int], 10)
 	maxSize := 100
 	maxWait := 10 * time.Second
@@ -113,7 +113,8 @@ func TestBatcher_GracefulClose(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Close should flush remaining items
+	// Cancel context to trigger flush, then wait for goroutine to finish
+	cancel()
 	err := batcher.Close()
 	require.NoError(t, err)
 
@@ -127,7 +128,7 @@ func TestBatcher_GracefulClose(t *testing.T) {
 			require.Equal(t, i, batch.Items[i])
 		}
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected batch to be flushed on Close()")
+		t.Fatal("expected batch to be flushed after context cancellation")
 	}
 }
 
@@ -158,7 +159,8 @@ func TestBatcher_InsertionOrder(t *testing.T) {
 }
 
 func TestBatcher_MultipleBatches(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	outCh := make(chan BatchResult[int], 10)
 	maxSize := 3
 	maxWait := 1 * time.Second
@@ -189,7 +191,8 @@ func TestBatcher_MultipleBatches(t *testing.T) {
 		}
 	}
 
-	// Close should flush the remaining 1 item
+	// Cancel context to flush the remaining 1 item, then wait for goroutine
+	cancel()
 	err := batcher.Close()
 	require.NoError(t, err)
 
@@ -199,7 +202,7 @@ func TestBatcher_MultipleBatches(t *testing.T) {
 		require.Len(t, batch.Items, 1)
 		require.Equal(t, 9, batch.Items[0])
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected remaining batch to be flushed on Close()")
+		t.Fatal("expected remaining batch to be flushed after context cancellation")
 	}
 }
 
@@ -225,7 +228,7 @@ func TestBatcher_EmptyClose(t *testing.T) {
 }
 
 func TestBatcher_ConcurrentAdds(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	outCh := make(chan BatchResult[int], 100)
 	maxSize := 50
 	maxWait := 100 * time.Millisecond
@@ -252,7 +255,8 @@ func TestBatcher_ConcurrentAdds(t *testing.T) {
 		<-done
 	}
 
-	// Close and collect all batches
+	// Cancel context to flush remaining items, then wait for goroutine
+	cancel()
 	_ = batcher.Close()
 
 	totalReceived := 0

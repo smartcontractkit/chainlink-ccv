@@ -45,10 +45,8 @@ type Coordinator struct {
 	running           bool
 
 	// Storage batching
-	storageBatcher      *batcher.Batcher[protocol.CCVData]
-	batchedCCVDataCh    chan batcher.BatchResult[protocol.CCVData]
-	storageBatcherWg    sync.WaitGroup
-	storageBatcherClose func() // Function to close the batcher
+	storageBatcher   *batcher.Batcher[protocol.CCVData]
+	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVData]
 
 	// Configuration
 	checkpointManager protocol.CheckpointManager
@@ -205,7 +203,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	vc.cancel = cancel
 
-	// Initialize storage batcher
+	// Initialize storage batcher (will automatically flush when ctx is cancelled)
 	vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
 	vc.storageBatcher = batcher.NewBatcher(
 		ctx,
@@ -213,11 +211,6 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		vc.config.StorageBatchTimeout,
 		vc.batchedCCVDataCh,
 	)
-	vc.storageBatcherClose = func() {
-		if err := vc.storageBatcher.Close(); err != nil {
-			vc.lggr.Errorw("Error closing storage batcher", "error", err)
-		}
-	}
 
 	// Start processing loop and finality checking
 	vc.backgroundWg.Add(1)
@@ -249,18 +242,21 @@ func (vc *Coordinator) Close() error {
 	vc.mu.Unlock()
 
 	// 1. Signal all goroutines to stop processing new work.
+	// This will also trigger the batcher to flush remaining items.
 	vc.cancel()
 
 	// 2. Wait for any in-flight verification tasks to complete.
 	// These are the tasks that might write to verificationErrorCh.
 	vc.verifyingWg.Wait()
 
-	// Close the storage batcher to flush remaining items
-	if vc.storageBatcherClose != nil {
-		vc.storageBatcherClose()
+	// 3. Wait for storage batcher goroutine to finish flushing
+	if vc.storageBatcher != nil {
+		if err := vc.storageBatcher.Close(); err != nil {
+			vc.lggr.Errorw("Error closing storage batcher", "error", err)
+		}
 	}
 
-	// 3. Close source readers and close error channels.
+	// 4. Close source readers and close error channels.
 	for chainSelector, state := range vc.sourceStates {
 		if err := state.reader.Stop(); err != nil {
 			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
@@ -270,7 +266,7 @@ func (vc *Coordinator) Close() error {
 		close(state.verificationErrorCh)
 	}
 
-	// 4. Wait for background goroutines (run and finalityCheckingLoop) to finish.
+	// 5. Wait for background goroutines (run and finalityCheckingLoop) to finish.
 	vc.backgroundWg.Wait()
 
 	vc.mu.Lock()

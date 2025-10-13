@@ -17,24 +17,22 @@ type Batcher[T any] struct {
 	buffer []T
 	timer  *time.Timer
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	ctx context.Context
+	wg  sync.WaitGroup
 }
 
 // NewBatcher creates a new Batcher instance.
+// The batcher will automatically flush when ctx is cancelled.
 // maxSize: maximum number of items before triggering a flush
 // maxWait: maximum duration to wait before flushing incomplete batch
 // outCh: channel to send flushed batches to
 func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, outCh chan<- BatchResult[T]) *Batcher[T] {
-	batcherCtx, cancel := context.WithCancel(ctx)
 	b := &Batcher[T]{
 		maxSize: maxSize,
 		maxWait: maxWait,
 		outCh:   outCh,
 		buffer:  make([]T, 0, maxSize),
-		ctx:     batcherCtx,
-		cancel:  cancel,
+		ctx:     ctx,
 	}
 
 	// Start the timer (will be reset on first Add)
@@ -131,10 +129,9 @@ func (b *Batcher[T]) flushLocked() {
 	b.buffer = make([]T, 0, b.maxSize)
 }
 
-// Close gracefully shuts down the batcher, flushing any remaining items.
-// It waits for the background goroutine to finish.
+// Close waits for the background goroutine to finish.
+// The caller should cancel the context before calling Close() to trigger final flush.
 func (b *Batcher[T]) Close() error {
-	b.cancel()
 	b.wg.Wait()
 	return nil
 }
