@@ -134,7 +134,7 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		pendingTasks:          make([]VerificationTask, 0),
 		messageTimestamps:     make(map[protocol.Bytes32]time.Time),
-		finalityCheckInterval: 3 * time.Second, // Default finality check interval
+		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
 	}
 
 	// Apply all options

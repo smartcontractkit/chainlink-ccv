@@ -71,7 +71,7 @@ func NewSourceReaderService(
 		logger:               logger,
 		verificationTaskCh:   make(chan batcher.BatchResult[VerificationTask], 1),
 		stopCh:               make(chan struct{}),
-		pollInterval:         3 * time.Second, // Default poll interval
+		pollInterval:         800 * time.Millisecond,
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
 		checkpointManager:    checkpointManager,
