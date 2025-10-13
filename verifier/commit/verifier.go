@@ -160,7 +160,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		return fmt.Errorf("message validation failed: %w", err)
 	}
 
-	cv.lggr.Debugw("Message validation passed",
+	cv.lggr.Infow("Message validation passed",
 		"messageID", messageID,
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
 	)
