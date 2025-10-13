@@ -40,8 +40,7 @@ func (t *testVerifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 	ccvDataBatcher *batcher.Batcher[protocol.CCVData],
-	verificationErrorCh chan<- verifier.VerificationError,
-) {
+) batcher.BatchResult[verifier.VerificationError] {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
 	t.mu.Unlock()
@@ -65,9 +64,12 @@ func (t *testVerifier) VerifyMessages(
 
 		if err := ccvDataBatcher.Add(ccvData); err != nil {
 			// If context is cancelled or batcher is closed, stop processing
-			return
+			return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 		}
 	}
+
+	// No errors in this test implementation
+	return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 }
 
 func (t *testVerifier) getProcessedTaskCount() int {

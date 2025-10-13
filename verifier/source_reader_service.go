@@ -449,7 +449,9 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	cancel()
 
 	if err != nil {
-		r.logger.Warnw("⚠️ Failed to get latest block", "error", err)
+		r.logger.Errorw("⚠️ Failed to get latest block", "error", err)
+		// Send batch-level error to coordinator
+		r.sendBatchError(ctx, fmt.Errorf("failed to get latest block: %w", err))
 		return
 	}
 
@@ -479,6 +481,9 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		r.logger.Errorw("⚠️ Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", currentBlock.String())
+		// Send batch-level error to coordinator
+		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to %s: %w",
+			fromBlock.String(), currentBlock.String(), err))
 		return
 	}
 
@@ -496,18 +501,16 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		Error: nil,
 	}
 
-	// Send to verification channel (non-blocking)
+	// Send to verification channel (blocking - backpressure)
 	select {
 	case r.verificationTaskCh <- batch:
 		r.logger.Infow("✅ Verification task batch sent to channel",
 			"batchSize", len(tasks),
 			"fromBlock", fromBlock.String(),
 			"toBlock", currentBlock.String())
-	default:
-		r.logger.Warnw("⚠️ Verification task channel full, dropping batch",
-			"batchSize", len(tasks),
-			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
+	case <-ctx.Done():
+		r.logger.Debugw("Context cancelled while sending batch")
+		return
 	}
 
 	// Update processed block
@@ -521,6 +524,21 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		"toBlock", currentBlock.String(),
 		"eventsFound", len(tasks))
 	r.logger.Debugw("Event details", "logs", tasks)
+}
+
+// sendBatchError sends a batch-level error to the coordinator
+func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
+	batch := batcher.BatchResult[VerificationTask]{
+		Items: nil,
+		Error: err,
+	}
+
+	select {
+	case r.verificationTaskCh <- batch:
+		r.logger.Debugw("Batch error sent to coordinator", "error", err)
+	case <-ctx.Done():
+		r.logger.Debugw("Context cancelled while sending batch error")
+	}
 }
 
 func (r *SourceReaderService) GetSourceReader() SourceReader {

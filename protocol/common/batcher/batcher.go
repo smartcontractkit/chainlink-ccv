@@ -21,6 +21,26 @@ type Batcher[T any] struct {
 	wg  sync.WaitGroup
 }
 
+// BatchResult carries a batch of items with an optional error.
+// This generic type is used to pass batches of data between processing phases.
+//
+// Error Semantics:
+//   - Batch-level errors (Error != nil): Infrastructure/system failures that prevented
+//     batch creation (e.g., RPC failures, network errors, parse errors).
+//     When Error is set, Items may be nil or partial.
+//   - Per-item errors: Individual item processing failures (e.g., validation errors)
+//     should be handled separately via dedicated error channels, not via this Error field.
+//
+// Example:
+//   - BatchResult{Items: nil, Error: "RPC timeout"} → Batch-level failure, retry entire operation
+//   - BatchResult{Items: [item1, item2], Error: nil} → Success, but item1 might fail validation later
+type BatchResult[T any] struct {
+	// Items contains the batch of elements (may be nil if Error is set)
+	Items []T
+	// Error indicates a batch-level error during batch creation/fetching
+	Error error
+}
+
 // NewBatcher creates a new Batcher instance.
 // The batcher will automatically flush when ctx is cancelled.
 // maxSize: maximum number of items before triggering a flush

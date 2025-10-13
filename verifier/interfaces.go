@@ -34,6 +34,7 @@ type SourceReader interface {
 
 // Verifier defines the interface for message verification logic.
 type Verifier interface {
-	// VerifyMessages performs verification of a batch of messages, adding results directly to the batcher
-	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData], verificationErrorCh chan<- VerificationError)
+	// VerifyMessages performs verification of a batch of messages, adding successful results to the batcher.
+	// Returns a BatchResult containing any verification errors that occurred.
+	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) batcher.BatchResult[VerificationError]
 }

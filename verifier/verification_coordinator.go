@@ -16,10 +16,9 @@ import (
 
 // sourceState manages state for a single source chain reader.
 type sourceState struct {
-	reader              *SourceReaderService
-	verificationTaskCh  <-chan batcher.BatchResult[VerificationTask]
-	verificationErrorCh chan VerificationError
-	chainSelector       protocol.ChainSelector
+	reader             *SourceReaderService
+	verificationTaskCh <-chan batcher.BatchResult[VerificationTask]
+	chainSelector      protocol.ChainSelector
 }
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
@@ -170,8 +169,6 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 				chainSelector:      chainSelector,
 				reader:             service,
 				verificationTaskCh: service.VerificationTaskChannel(),
-				// TODO: channels should have a buffer of 0 or 1, why is it 100?
-				verificationErrorCh: make(chan VerificationError, 100), // Buffered error channel
 			}
 		}
 	}
@@ -243,7 +240,6 @@ func (vc *Coordinator) Close() error {
 	vc.cancel()
 
 	// 2. Wait for any in-flight verification tasks to complete.
-	// These are the tasks that might write to verificationErrorCh.
 	vc.verifyingWg.Wait()
 
 	// 3. Wait for storage batcher goroutine to finish flushing
@@ -253,14 +249,11 @@ func (vc *Coordinator) Close() error {
 		}
 	}
 
-	// 4. Close source readers and close error channels.
+	// 4. Close source readers.
 	for chainSelector, state := range vc.sourceStates {
 		if err := state.reader.Stop(); err != nil {
 			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
 		}
-		// Now it is safe to close the error channel, as there are no more writers.
-		// This will also signal processSourceErrors to stop.
-		close(state.verificationErrorCh)
 	}
 
 	// 5. Wait for background goroutines (run and finalityCheckingLoop) to finish.
@@ -282,10 +275,6 @@ func (vc *Coordinator) run(ctx context.Context) {
 	for _, state := range vc.sourceStates {
 		wg.Add(1)
 		go vc.processSourceMessages(ctx, &wg, state)
-
-		// Start error processing goroutine for each source
-		wg.Add(1)
-		go vc.processSourceErrors(ctx, &wg, state)
 	}
 
 	// Main loop - process batched storage writes
@@ -303,9 +292,17 @@ func (vc *Coordinator) run(ctx context.Context) {
 				return
 			}
 
-			// Handle batch error if present
+			// Handle batch-level errors from batcher (should be rare)
 			if ccvDataBatch.Error != nil {
-				vc.lggr.Errorw("Error in CCVData batch", "error", ccvDataBatch.Error)
+				vc.lggr.Errorw("Batch-level error from CCVData batcher",
+					"error", ccvDataBatch.Error,
+					"errorType", "batcher_failure")
+				continue
+			}
+
+			// Skip empty batches
+			if len(ccvDataBatch.Items) == 0 {
+				vc.lggr.Debugw("Received empty CCVData batch")
 				continue
 			}
 
@@ -376,11 +373,21 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 				return
 			}
 
-			// Handle batch error if present
+			// Handle batch-level errors (RPC failures, log query errors, etc.)
 			if taskBatch.Error != nil {
-				vc.lggr.Errorw("Error in verification task batch",
+				vc.lggr.Errorw("Batch-level error from source reader - skipping cycle",
 					"chainSelector", chainSelector,
-					"error", taskBatch.Error)
+					"error", taskBatch.Error,
+					"errorType", "source_read_failure")
+				// Batch-level errors indicate infrastructure/chain issues
+				// The source reader will retry on next cycle
+				continue
+			}
+
+			// Skip empty batches
+			if len(taskBatch.Items) == 0 {
+				vc.lggr.Debugw("Received empty batch from source reader",
+					"chainSelector", chainSelector)
 				continue
 			}
 
@@ -393,51 +400,6 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 				// Add to pending queue for finality checking
 				vc.addToPendingQueue(verificationTask, chainSelector)
 			}
-		}
-	}
-}
-
-// processSourceErrors handles error processing for a single source state.
-func (vc *Coordinator) processSourceErrors(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
-	defer wg.Done()
-	chainSelector := state.chainSelector
-
-	vc.lggr.Debugw("Starting source error processor", "chainSelector", chainSelector)
-	defer vc.lggr.Debugw("Source error processor stopped", "chainSelector", chainSelector)
-
-	for {
-		select {
-		case <-ctx.Done():
-			vc.lggr.Debugw("Source error processor stopped due to context cancellation", "chainSelector", chainSelector)
-			return
-		case verificationError, ok := <-state.verificationErrorCh:
-			if !ok {
-				vc.lggr.Infow("Verification error channel closed for source", "chainSelector", chainSelector)
-				return
-			}
-
-			// Handle verification errors for this specific source
-			message := verificationError.Task.Message
-			messageID, err := message.MessageID()
-			if err != nil {
-				vc.lggr.Errorw("Failed to compute message ID for error logging", "error", err)
-				messageID = protocol.Bytes32{} // Use empty message ID as fallback
-			}
-
-			// Record verification error metric
-			vc.monitoring.Metrics().
-				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
-				IncrementMessagesVerificationFailed(ctx)
-
-			vc.lggr.Errorw("Verification error received",
-				"error", verificationError.Error,
-				"messageID", messageID,
-				"nonce", message.Nonce,
-				"sourceChain", message.SourceChainSelector,
-				"destChain", message.DestChainSelector,
-				"timestamp", verificationError.Timestamp,
-				"chainSelector", chainSelector,
-			)
 		}
 	}
 }
@@ -674,7 +636,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 		}
 	}
 
-	// Group tasks by source chain to use the correct error channel
+	// Group tasks by source chain for better logging/organization
 	tasksByChain := make(map[protocol.ChainSelector][]VerificationTask)
 	for _, task := range tasks {
 		tasksByChain[task.Message.SourceChainSelector] = append(tasksByChain[task.Message.SourceChainSelector], task)
@@ -682,7 +644,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 	// Process each chain's tasks as a batch
 	for chainSelector, chainTasks := range tasksByChain {
-		sourceState, exists := vc.sourceStates[chainSelector]
+		_, exists := vc.sourceStates[chainSelector]
 		if !exists {
 			vc.lggr.Errorw("No source state found for finalized messages",
 				"chainSelector", chainSelector,
@@ -692,10 +654,54 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 		// Process the batch of tasks for this chain
 		vc.verifyingWg.Add(1)
-		go func(tasks []VerificationTask, errorCh chan<- VerificationError) {
+		go func(tasks []VerificationTask, chain protocol.ChainSelector) {
 			defer vc.verifyingWg.Done()
-			vc.verifier.VerifyMessages(ctx, tasks, vc.storageBatcher, errorCh)
-		}(chainTasks, sourceState.verificationErrorCh)
+
+			// Call verifier and get error batch
+			errorBatch := vc.verifier.VerifyMessages(ctx, tasks, vc.storageBatcher)
+
+			// Process errors from the batch
+			vc.handleVerificationErrors(ctx, errorBatch, chain, len(tasks))
+		}(chainTasks, chainSelector)
+	}
+}
+
+// handleVerificationErrors processes and logs errors from a verification batch.
+func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch batcher.BatchResult[VerificationError], chainSelector protocol.ChainSelector, totalTasks int) {
+	if len(errorBatch.Items) > 0 {
+		vc.lggr.Infow("Verification batch completed with errors",
+			"chainSelector", chainSelector,
+			"totalTasks", totalTasks,
+			"errorCount", len(errorBatch.Items))
+
+		// Log and record metrics for each error
+		for _, verificationError := range errorBatch.Items {
+			message := verificationError.Task.Message
+			messageID, err := message.MessageID()
+			if err != nil {
+				vc.lggr.Errorw("Failed to compute message ID for error logging", "error", err)
+				messageID = protocol.Bytes32{} // Use empty message ID as fallback
+			}
+
+			// Record verification error metric
+			vc.monitoring.Metrics().
+				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
+				IncrementMessagesVerificationFailed(ctx)
+
+			vc.lggr.Errorw("Message verification failed",
+				"error", verificationError.Error,
+				"messageID", messageID,
+				"nonce", message.Nonce,
+				"sourceChain", message.SourceChainSelector,
+				"destChain", message.DestChainSelector,
+				"timestamp", verificationError.Timestamp,
+				"chainSelector", chainSelector,
+			)
+		}
+	} else {
+		vc.lggr.Debugw("Verification batch completed successfully",
+			"chainSelector", chainSelector,
+			"taskCount", totalTasks)
 	}
 }
 
