@@ -58,8 +58,9 @@ func (h *MessagesV1Handler) Handle(c *gin.Context) {
 	}
 
 	h.lggr.Debugw("/v1/messages", "number of messages returned", len(messages))
-	c.JSON(http.StatusOK, MessagesV1Response{
-		Messages: messages,
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"messages": messages,
 	})
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -24,12 +25,22 @@ import (
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 type CLDF struct {
-	AddressesMu *sync.Mutex         `toml:"-"`
-	Addresses   []string            `toml:"addresses"`
-	DataStore   datastore.DataStore `toml:"-"`
+	mu        sync.Mutex          `toml:"-"`
+	Addresses []string            `toml:"addresses"`
+	DataStore datastore.DataStore `toml:"-"`
 }
 
-func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment.Environment, error) {
+func (c *CLDF) Init() {
+	c.DataStore = datastore.NewMemoryDataStore().Seal()
+}
+
+func (c *CLDF) AddAddresses(addresses string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Addresses = append(c.Addresses, addresses)
+}
+
+func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.DataStore) ([]uint64, *deployment.Environment, error) {
 	providers := make([]cldf_chain.BlockChain, 0)
 	selectors := make([]uint64, 0)
 	for _, b := range bc {
@@ -49,12 +60,12 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 				DeployerTransactorGen: cldf_evm_provider.TransactorFromRaw(
 					getNetworkPrivateKey(),
 				),
-				RPCs: []deployment.RPC{
+				RPCs: []rpcclient.RPC{
 					{
 						Name:               "default",
 						WSURL:              rpcWSURL,
 						HTTPURL:            rpcHTTPURL,
-						PreferredURLScheme: deployment.URLSchemePreferenceHTTP,
+						PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 					},
 				},
 				ConfirmFunctor: cldf_evm_provider.ConfirmFuncGeth(1 * time.Minute),
@@ -80,7 +91,7 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input) ([]uint64, *deployment
 		GetContext:  func() context.Context { return context.Background() },
 		Logger:      lggr,
 		BlockChains: blockchains,
-		DataStore:   datastore.NewMemoryDataStore().Seal(),
+		DataStore:   dataStore,
 	}
 	return selectors, &e, nil
 }

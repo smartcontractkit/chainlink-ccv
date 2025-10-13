@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"slices"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -22,22 +23,19 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_offramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/commit_onramp"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
-	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	offramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	onramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-
-	ccvAggregatorOps "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
-	ccvProxyOps "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -45,129 +43,87 @@ import (
 )
 
 type CCIP17EVM struct {
-	Chain1337Details       chainsel.ChainDetails
-	Chain2337Details       chainsel.ChainDetails
-	Chain3337Details       chainsel.ChainDetails
-	ChainDetailsBySelector map[uint64]chainsel.ChainDetails
-	ProxyBySelector        map[uint64]*ccvProxy.CCVProxy
-	AggBySelector          map[uint64]*ccvAggregator.CCVAggregator
+	e                      *deployment.Environment
+	chainDetailsBySelector map[uint64]chainsel.ChainDetails
+	ethClients             map[uint64]*ethclient.Client
+	proxyBySelector        map[uint64]*onramp.CCVProxy
+	aggBySelector          map[uint64]*offramp.CCVAggregator
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation
-func NewCCIP17EVM(ctx context.Context, addresses []string, chainIDs []string, wsURLs []string) (*CCIP17EVM, error) {
-	srcChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[0], chainsel.FamilyEVM)
-	if err != nil {
-		return nil, err
-	}
-	dstChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[1], chainsel.FamilyEVM)
-	if err != nil {
-		return nil, err
-	}
-	thirdChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[2], chainsel.FamilyEVM)
-	if err != nil {
-		return nil, err
+func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []string, wsURLs []string) (*CCIP17EVM, error) {
+	if len(chainIDs) != len(wsURLs) {
+		return nil, fmt.Errorf("len(chainIDs) != len(wsURLs) ; %d != %d", len(chainIDs), len(wsURLs))
 	}
 
 	gas := &GasSettings{
 		FeeCapMultiplier: 2,
 		TipCapMultiplier: 2,
 	}
-	rpcSrc, _, _, err := ETHClient(ctx, wsURLs[0], gas)
-	if err != nil {
-		return nil, err
-	}
-	rpcDst, _, _, err := ETHClient(ctx, wsURLs[1], gas)
-	if err != nil {
-		return nil, err
-	}
-	rpcThird, _, _, err := ETHClient(ctx, wsURLs[2], gas)
-	if err != nil {
-		return nil, err
-	}
+	var (
+		chainDetailsBySelector = make(map[uint64]chainsel.ChainDetails)
+		ethClients             = make(map[uint64]*ethclient.Client)
+		proxyBySelector        = make(map[uint64]*onramp.CCVProxy)
+		aggBySelector          = make(map[uint64]*offramp.CCVAggregator)
+	)
+	for i := range chainIDs {
+		chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[i], chainsel.FamilyEVM)
+		if err != nil {
+			return nil, fmt.Errorf("get chain details for chain %s: %w", chainIDs[i], err)
+		}
 
-	proxySrcAddr, err := GetContractAddrForSelector(addresses, srcChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
-	if err != nil {
-		return nil, err
-	}
-	proxyDstAddr, err := GetContractAddrForSelector(addresses, dstChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
-	if err != nil {
-		return nil, err
-	}
-	proxySrc, err := ccvProxy.NewCCVProxy(proxySrcAddr, rpcSrc)
-	if err != nil {
-		return nil, err
-	}
-	proxyDst, err := ccvProxy.NewCCVProxy(proxyDstAddr, rpcDst)
-	if err != nil {
-		return nil, err
-	}
+		chainDetailsBySelector[chainDetails.ChainSelector] = chainDetails
 
-	proxyThirdAddr, err := GetContractAddrForSelector(addresses, thirdChain.ChainSelector, datastore.ContractType(ccvProxyOps.ContractType))
-	if err != nil {
-		return nil, err
-	}
-	proxyThird, err := ccvProxy.NewCCVProxy(proxyThirdAddr, rpcThird)
-	if err != nil {
-		return nil, err
-	}
+		client, _, _, err := ETHClient(ctx, wsURLs[i], gas)
+		if err != nil {
+			return nil, fmt.Errorf("create eth client for chain %s: %w", chainIDs[i], err)
+		}
+		ethClients[chainDetails.ChainSelector] = client
 
-	aggSrcAddr, err := GetContractAddrForSelector(addresses, srcChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
-	if err != nil {
-		return nil, err
-	}
-	aggDstAddr, err := GetContractAddrForSelector(addresses, dstChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
-	if err != nil {
-		return nil, err
-	}
-	aggSrc, err := ccvAggregator.NewCCVAggregator(aggSrcAddr, rpcSrc)
-	if err != nil {
-		return nil, err
-	}
-	aggDst, err := ccvAggregator.NewCCVAggregator(aggDstAddr, rpcDst)
-	if err != nil {
-		return nil, err
-	}
+		proxyAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			chainDetails.ChainSelector,
+			datastore.ContractType(onrampoperations.ContractType),
+			semver.MustParse("1.7.0"),
+			"",
+		))
+		if err != nil {
+			return nil, fmt.Errorf("get proxy address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainIDs[i], err)
+		}
+		aggAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			chainDetails.ChainSelector,
+			datastore.ContractType(offrampoperations.ContractType),
+			semver.MustParse("1.7.0"),
+			"",
+		))
+		if err != nil {
+			return nil, fmt.Errorf("get aggregator address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainIDs[i], err)
+		}
+		proxy, err := onramp.NewCCVProxy(common.HexToAddress(proxyAddressRef.Address), client)
+		if err != nil {
+			return nil, fmt.Errorf("create proxy wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainIDs[i], err)
+		}
+		aggregator, err := offramp.NewCCVAggregator(common.HexToAddress(aggAddressRef.Address), client)
+		if err != nil {
+			return nil, fmt.Errorf("create aggregator wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainIDs[i], err)
+		}
 
-	aggThirdAddr, err := GetContractAddrForSelector(addresses, thirdChain.ChainSelector, datastore.ContractType(ccvAggregatorOps.ContractType))
-	if err != nil {
-		return nil, err
-	}
-	aggThird, err := ccvAggregator.NewCCVAggregator(aggThirdAddr, rpcThird)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build the maps
-	proxyBySelector := map[uint64]*ccvProxy.CCVProxy{
-		srcChain.ChainSelector:   proxySrc,
-		dstChain.ChainSelector:   proxyDst,
-		thirdChain.ChainSelector: proxyThird,
-	}
-	aggBySelector := map[uint64]*ccvAggregator.CCVAggregator{
-		srcChain.ChainSelector:   aggSrc,
-		dstChain.ChainSelector:   aggDst,
-		thirdChain.ChainSelector: aggThird,
-	}
-	chainDetailsBySelector := map[uint64]chainsel.ChainDetails{
-		srcChain.ChainSelector:   srcChain,
-		dstChain.ChainSelector:   dstChain,
-		thirdChain.ChainSelector: thirdChain,
+		proxyBySelector[chainDetails.ChainSelector] = proxy
+		aggBySelector[chainDetails.ChainSelector] = aggregator
 	}
 
 	return &CCIP17EVM{
-		Chain1337Details:       srcChain,
-		Chain2337Details:       dstChain,
-		Chain3337Details:       thirdChain,
-		ChainDetailsBySelector: chainDetailsBySelector,
-		ProxyBySelector:        proxyBySelector,
-		AggBySelector:          aggBySelector,
+		e:                      e,
+		chainDetailsBySelector: chainDetailsBySelector,
+		ethClients:             ethClients,
+		proxyBySelector:        proxyBySelector,
+		aggBySelector:          aggBySelector,
 	}, nil
 }
 
-// fetchAllSentEventsBySelector fetch all CCIPMessageSent events from proxy contract
-func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to uint64) ([]*ccvProxy.CCVProxyCCIPMessageSent, error) {
+// fetchAllSentEventsBySelector fetch all CCIPMessageSent events from proxy contract.
+func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to uint64) ([]*onramp.CCVProxyCCIPMessageSent, error) {
 	l := zerolog.Ctx(ctx)
-	proxy, ok := m.ProxyBySelector[from]
+	proxy, ok := m.proxyBySelector[from]
 	if !ok {
 		return nil, fmt.Errorf("no proxy for selector %d", from)
 	}
@@ -177,7 +133,7 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 	}
 	defer filter.Close()
 
-	var events []*ccvProxy.CCVProxyCCIPMessageSent
+	var events []*onramp.CCVProxyCCIPMessageSent
 
 	for filter.Next() {
 		event := filter.Event
@@ -199,9 +155,9 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 }
 
 // fetchAllExecEventsBySelector fetch all ExecutionStateChanged events from aggregator contract
-func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*ccvAggregator.CCVAggregatorExecutionStateChanged, error) {
+func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*offramp.CCVAggregatorExecutionStateChanged, error) {
 	l := zerolog.Ctx(ctx)
-	agg, ok := m.AggBySelector[from]
+	agg, ok := m.aggBySelector[from]
 	if !ok {
 		return nil, fmt.Errorf("no aggregator for selector %d", from)
 	}
@@ -211,7 +167,7 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 	}
 	defer filter.Close()
 
-	var events []*ccvAggregator.CCVAggregatorExecutionStateChanged
+	var events []*offramp.CCVAggregatorExecutionStateChanged
 
 	for filter.Next() {
 		event := filter.Event
@@ -235,7 +191,7 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 }
 
 func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error) {
-	p, ok := m.ProxyBySelector[from]
+	p, ok := m.proxyBySelector[from]
 	if !ok {
 		return 0, fmt.Errorf("failed to assert proxy by selector")
 	}
@@ -249,7 +205,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	proxy, ok := m.ProxyBySelector[from]
+	proxy, ok := m.proxyBySelector[from]
 	if !ok {
 		return nil, fmt.Errorf("no proxy for selector %d", from)
 	}
@@ -266,7 +222,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64
 				l.Warn().Err(err).Msg("Failed to create filter")
 				continue
 			}
-			var eventFound *ccvProxy.CCVProxyCCIPMessageSent
+			var eventFound *onramp.CCVProxyCCIPMessageSent
 			eventCount := 0
 
 			for filter.Next() {
@@ -302,7 +258,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	agg, ok := m.AggBySelector[to]
+	agg, ok := m.aggBySelector[to]
 	if !ok {
 		return nil, fmt.Errorf("no aggregator for selector %d", to)
 	}
@@ -320,7 +276,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64
 				continue
 			}
 
-			var eventFound *ccvAggregator.CCVAggregatorExecutionStateChanged
+			var eventFound *offramp.CCVAggregatorExecutionStateChanged
 			eventCount := 0
 
 			for filter.Next() {
@@ -352,136 +308,209 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64
 	}
 }
 
-func (m *CCIP17EVM) SendArgsV2Message(ctx context.Context, e *deployment.Environment, addresses []string, src, dest uint64) error {
+func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
+	_, ok := m.e.BlockChains.EVMChains()[chainSelector]
+	if !ok {
+		return protocol.UnknownAddress{}, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.e.BlockChains.EVMChains())
+	}
+
+	// returns the same address for each chain for now - we might need to extend this in the future if we'd ever
+	// need to access any funds on the EOA itself.
+	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
+}
+
+func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) error {
 	l := zerolog.Ctx(ctx)
-	chains := e.BlockChains.EVMChains()
+	chains := m.e.BlockChains.EVMChains()
 	if chains == nil {
 		return errors.New("no EVM chains found")
 	}
 
-	srcChain := chains[src]
+	srcChain, ok := chains[src]
+	if !ok {
+		return fmt.Errorf("source chain %d not found in environment chains %v", src, chains)
+	}
 
-	bundle := operations.NewBundle(
-		func() context.Context { return context.Background() },
-		e.Logger,
-		operations.NewMemoryReporter(),
-	)
-	e.OperationsBundle = bundle
+	destFamily, err := chainsel.GetSelectorFamily(dest)
+	if err != nil {
+		return fmt.Errorf("failed to get destination family: %w", err)
+	}
 
-	routerAddr, err := GetContractAddrForSelector(addresses, srcChain.Selector, datastore.ContractType(router.ContractType))
+	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(router.ContractType), semver.MustParse("1.2.0"), ""))
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
 
-	receiver := "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c"
+	routerAddress := common.HexToAddress(routerRef.Address)
+
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		m.e.Logger,
+		operations.NewMemoryReporter(),
+	)
+
+	var tokenAmounts []router.EVMTokenAmount
+	for _, tokenAmount := range fields.TokenAmounts {
+		tokenAmounts = append(tokenAmounts, router.EVMTokenAmount{
+			Token:  common.HexToAddress(tokenAmount.TokenAddress.String()),
+			Amount: tokenAmount.Amount,
+		})
+	}
+
+	extraArgs := serializeExtraArgs(opts, destFamily)
 	ccipSendArgs := router.CCIPSendArgs{
 		DestChainSelector: dest,
 		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(common.HexToAddress(receiver).Bytes(), 32),
-			Data:         []byte{},
-			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    []byte{},
+			Receiver:     common.LeftPadBytes(common.HexToAddress(fields.Receiver.String()).Bytes(), 32),
+			Data:         fields.Data,
+			TokenAmounts: tokenAmounts,
+			FeeToken:     common.HexToAddress(fields.FeeToken.String()),
+			ExtraArgs:    extraArgs,
 		},
 	}
 
 	// Send CCIP message with value
 	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
 		ChainSelector: src,
-		Address:       routerAddr,
+		Address:       routerAddress,
 		Args:          ccipSendArgs,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to send CCIP message: %w", err)
+		return fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
-	l.Info().Bool("Executed", sendReport.Output.Executed).
+	l.Info().Bool("Executed", sendReport.Output.Executed()).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
-		Str("SrcRouter", sendReport.Output.Tx.To).
+		Str("SrcRouter", sendReport.Output.Tx.To). // TODO: how to get the message id?
 		Msg("CCIP message sent")
 	return nil
 }
 
-func (m *CCIP17EVM) SendArgsV3Message(
+func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
+	switch destFamily {
+	case chainsel.FamilyEVM:
+		switch opts.Version {
+		case 1: // EVMExtraArgsV1
+			return serializeExtraArgsV1(opts)
+		case 2: // GenericExtraArgsV2
+			return serializeExtraArgsV2(opts)
+		case 3: // EVMExtraArgsV3
+			return serializeExtraArgsV3(opts)
+		default:
+			panic(fmt.Sprintf("unsupported message extra args version: %d", opts.Version))
+		}
+	case chainsel.FamilySolana:
+		switch opts.Version {
+		case 1: // SVMExtraArgsV1
+			return serializeExtraArgsSVMV1(opts)
+		default:
+			panic(fmt.Sprintf("unsupported message extra args version for family %s: %d", destFamily, opts.Version))
+		}
+	default:
+		panic(fmt.Sprintf("unsupported destination family: %s", destFamily))
+	}
+
+}
+
+func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
+	evmExtraArgsV1Type, err := abi.NewType("tuple", "EVMExtraArgsV1", []abi.ArgumentMarshaling{
+		{Name: "gasLimit", Type: "uint256"},
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to create EVMExtraArgsV1 tuple type: %v", err))
+	}
+
+	arguments := abi.Arguments{
+		{
+			Type: evmExtraArgsV1Type,
+			Name: "extraArgs",
+		},
+	}
+
+	type EVMExtraArgsV1 struct {
+		GasLimit *big.Int
+	}
+
+	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.GasLimit))})
+	if err != nil {
+		panic(fmt.Sprintf("failed to pack extraArgs: %v", err))
+	}
+
+	selector, _ := hexutil.Decode("0x97a657c9")
+	return append(selector, packed...)
+}
+
+func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
+	genericExtraArgsV2Type, err := abi.NewType("tuple", "GenericExtraArgsV2", []abi.ArgumentMarshaling{
+		{Name: "gasLimit", Type: "uint256"},
+		{Name: "allowOutOfOrderExecution", Type: "bool"},
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to create GenericExtraArgsV2 tuple type: %v", err))
+	}
+
+	arguments := abi.Arguments{
+		{
+			Type: genericExtraArgsV2Type,
+			Name: "extraArgs",
+		},
+	}
+
+	type GenericExtraArgsV2 struct {
+		GasLimit                 *big.Int
+		AllowOutOfOrderExecution bool
+	}
+
+	packed, err := arguments.Pack(GenericExtraArgsV2{
+		GasLimit:                 big.NewInt(int64(opts.GasLimit)),
+		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to pack extraArgs: %v", err))
+	}
+
+	selector, _ := hexutil.Decode("0x181dcf10")
+	return append(selector, packed...)
+}
+
+func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
+	extraArgs, err := NewV3ExtraArgs(
+		opts.FinalityConfig,
+		opts.Executor.String(),
+		opts.ExecutorArgs,
+		opts.TokenArgs,
+		opts.MandatoryCCVs,
+		opts.OptionalCCVs,
+		opts.OptionalThreshold,
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create V3 extra args: %v", err))
+	}
+	return extraArgs
+}
+
+func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
+	// // Extra args tag for chains that use the Solana VM.
+	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
+
+	// struct SVMExtraArgsV1 {
+	//   uint32 computeUnits;
+	//   uint64 accountIsWritableBitmap;
+	//   bool allowOutOfOrderExecution;
+	//   bytes32 tokenReceiver;
+	//   // Additional accounts needed for execution of CCIP receiver. Must be empty if message.receiver is zero.
+	//   // Token transfer related accounts are specified in the token pool lookup table on SVM.
+	//   bytes32[] accounts;
+	// }
+	return nil // TODO: implement when solana ported to 1.7 tests.
+}
+
+func (m *CCIP17EVM) ExposeMetrics(
 	ctx context.Context,
-	e *deployment.Environment,
-	addresses []string, selectors []uint64,
-	src, dest uint64, finality uint16,
-	execAddr, receiverAddr string,
-	execArgs, tokenArgs []byte,
-	ccv, optCcv []protocol.CCV,
-	threshold uint8,
-) error {
-	l := zerolog.Ctx(ctx)
-	chains := e.BlockChains.EVMChains()
-	if chains == nil {
-		return errors.New("no EVM chains found")
-	}
-	if !slices.Contains(selectors, src) {
-		return fmt.Errorf("source selector %d not found in environment selectors %v", src, selectors)
-	}
-	if !slices.Contains(selectors, dest) {
-		return fmt.Errorf("destination selector %d not found in environment selectors %v", dest, selectors)
-	}
-
-	srcChain := chains[src]
-
-	bundle := operations.NewBundle(
-		func() context.Context { return context.Background() },
-		e.Logger,
-		operations.NewMemoryReporter(),
-	)
-	e.OperationsBundle = bundle
-
-	routerAddr, err := GetContractAddrForSelector(addresses, srcChain.Selector, datastore.ContractType(router.ContractType))
-	if err != nil {
-		return fmt.Errorf("failed to get router address: %w", err)
-	}
-
-	argsV3, err := NewV3ExtraArgs(finality, execAddr, execArgs, tokenArgs, ccv, optCcv, threshold)
-	if err != nil {
-		return fmt.Errorf("failed to generate GenericExtraArgsV3: %w", err)
-	}
-	ccipSendArgs := router.CCIPSendArgs{
-		DestChainSelector: dest,
-		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(common.HexToAddress(receiverAddr).Bytes(), 32),
-			Data:         []byte{},
-			TokenAmounts: []router.EVMTokenAmount{},
-			ExtraArgs:    argsV3,
-		},
-	}
-
-	// TODO: not supported right now
-	//feeReport, err := operations.ExecuteOperation(bundle, router.GetFee, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
-	//	ChainSelector: srcChain.Selector,
-	//	Address:       routerAddr,
-	//	Args:          ccipSendArgs,
-	//})
-	//if err != nil {
-	//	return fmt.Errorf("failed to get fee: %w", err)
-	//}
-	//ccipSendArgs.Value = feeReport.Output
-
-	// Send CCIP message with value
-	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
-		ChainSelector: src,
-		Address:       routerAddr,
-		Args:          ccipSendArgs,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to send CCIP message: %w", err)
-	}
-
-	l.Info().Bool("Executed", sendReport.Output.Executed).
-		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
-		Uint64("DestChainSelector", dest).
-		Str("SrcRouter", sendReport.Output.Tx.To).
-		Msg("CCIP message sent")
-
-	return nil
-}
-
-func (m *CCIP17EVM) ExposeMetrics(ctx context.Context, addresses []string, chainIDs []string, wsURLs []string) ([]string, *prometheus.Registry, error) {
+	source, dest uint64,
+	chainIDs []string,
+	wsURLs []string,
+) ([]string, *prometheus.Registry, error) {
 	msgSentTotal.Reset()
 	msgExecTotal.Reset()
 	srcDstLatency.Reset()
@@ -491,13 +520,13 @@ func (m *CCIP17EVM) ExposeMetrics(ctx context.Context, addresses []string, chain
 
 	lp := NewLokiPusher()
 	tp := NewTempoPusher()
-	c, err := NewCCIP17EVM(ctx, addresses, chainIDs, wsURLs)
+	c, err := NewCCIP17EVM(ctx, m.e, chainIDs, wsURLs)
 	if err != nil {
 		return nil, nil, err
 	}
 	err = ProcessLaneEvents(ctx, c, lp, tp, &LaneStreamConfig{
-		FromSelector:      c.Chain1337Details.ChainSelector,
-		ToSelector:        c.Chain2337Details.ChainSelector,
+		FromSelector:      source,
+		ToSelector:        dest,
 		AggregatorAddress: "localhost:50051",
 		AggregatorSince:   0,
 	})
@@ -505,8 +534,8 @@ func (m *CCIP17EVM) ExposeMetrics(ctx context.Context, addresses []string, chain
 		return nil, nil, err
 	}
 	err = ProcessLaneEvents(ctx, c, lp, tp, &LaneStreamConfig{
-		FromSelector:      c.Chain2337Details.ChainSelector,
-		ToSelector:        c.Chain1337Details.ChainSelector,
+		FromSelector:      dest,
+		ToSelector:        source,
 		AggregatorAddress: "localhost:50051",
 		AggregatorSince:   0,
 	})
@@ -552,12 +581,13 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 	), nil
 }
 
-// getCommitteeSignatureConfig returns the committee configuration for a specific chain selector
-func getCommitteeSignatureConfig(selector uint64) commit_offramp.SetSignatureConfigArgs {
+// getCommitteeSignatureConfig returns the committee configuration for a specific chain selector.
+func getCommitteeSignatureConfig(selector uint64) committee_verifier.SetSignatureConfigArgs {
 	// Default configuration with 2 signers and threshold=2
-	defaultConfig := commit_offramp.SetSignatureConfigArgs{
+	defaultConfig := committee_verifier.SetSignatureConfigArgs{
 		Threshold: 2,
 		Signers: []common.Address{
+			// TODO: why are these addresses hardcoded? where are they fetched from?
 			common.HexToAddress("0x6b3131d871c63c7fa592863e173cba2da5ffa68b"),
 			common.HexToAddress("0x099125558781da4bcdb16e457e15d997ecac68a8"),
 		},
@@ -565,7 +595,7 @@ func getCommitteeSignatureConfig(selector uint64) commit_offramp.SetSignatureCon
 
 	// Special configuration for chain 3337 (selector 4793464827907405086) - threshold=1
 	if selector == 4793464827907405086 {
-		return commit_offramp.SetSignatureConfigArgs{
+		return committee_verifier.SetSignatureConfigArgs{
 			Threshold: 1,
 			Signers: []common.Address{
 				common.HexToAddress("0x6b3131d871c63c7fa592863e173cba2da5ffa68b"),
@@ -603,29 +633,34 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		ChainSel: selector,
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
-			RMNRemote:     sequences.RMNRemoteParams{},
-			CCVAggregator: sequences.CCVAggregatorParams{},
-			CommitOnRamp: sequences.CommitOnRampParams{
+			RMNRemote: sequences.RMNRemoteParams{
+				Version: semver.MustParse("1.6.0"),
+			},
+			CCVAggregator: sequences.CCVAggregatorParams{
+				Version: semver.MustParse("1.7.0"),
+			},
+			CommitteeVerifier: sequences.CommitteeVerifierParams{
+				Version: semver.MustParse("1.7.0"),
 				// TODO: add mocked contract here
-				FeeAggregator: common.HexToAddress("0x01"),
+				FeeAggregator:       common.HexToAddress("0x01"),
+				SignatureConfigArgs: getCommitteeSignatureConfig(selector),
 			},
 			CCVProxy: sequences.CCVProxyParams{
+				Version:       semver.MustParse("1.7.0"),
 				FeeAggregator: common.HexToAddress("0x01"),
 			},
 			ExecutorOnRamp: sequences.ExecutorOnRampParams{
+				Version:       semver.MustParse("1.7.0"),
 				MaxCCVsPerMsg: 10,
 			},
 			FeeQuoter: sequences.FeeQuoterParams{
+				Version: semver.MustParse("1.7.0"),
 				// expose in TOML config
 				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-				TokenPriceStalenessThreshold:   uint32(24 * 60 * 60),
 				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
 				WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
 				USDPerLINK:                     usdPerLink,
 				USDPerWETH:                     usdPerWeth,
-			},
-			CommitOffRamp: sequences.CommitOffRampParams{
-				SignatureConfigArgs: getCommitteeSignatureConfig(selector),
 			},
 		},
 	})
@@ -661,46 +696,39 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		remoteChains[rs] = changesets.RemoteChainConfig{
 			AllowTrafficFrom: true,
 			CCIPMessageSource: datastore.AddressRef{
-				Type:    datastore.ContractType(ccv_proxy.ContractType),
+				Type:    datastore.ContractType(onrampoperations.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
 			CCIPMessageDest: datastore.AddressRef{
-				Type:    datastore.ContractType(ccv_aggregator.ContractType),
+				Type:    datastore.ContractType(offrampoperations.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
 			DefaultCCVOffRamps: []datastore.AddressRef{
-				{Type: datastore.ContractType(commit_offramp.ContractType), Version: semver.MustParse("1.7.0")},
+				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse("1.7.0")},
 			},
 			// LaneMandatedCCVOffRamps: []datastore.AddressRef{},
 			DefaultCCVOnRamps: []datastore.AddressRef{
-				{Type: datastore.ContractType(commit_onramp.ContractType), Version: semver.MustParse("1.7.0")},
+				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse("1.7.0")},
 			},
 			// LaneMandatedCCVOnRamps: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
 				Type:    datastore.ContractType(executor_onramp.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
-			CommitOnRampDestChainConfig: sequences.CommitOnRampDestChainConfig{
+			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled: false,
 			},
-			FeeQuoterDestChainConfig: fee_quoter_v2.DestChainConfig{
-				IsEnabled:                         true,
-				MaxNumberOfTokensPerMsg:           10,
-				MaxDataBytes:                      30_000,
-				MaxPerMsgGasLimit:                 3_000_000,
-				DestGasOverhead:                   300_000,
-				DefaultTokenFeeUSDCents:           25,
-				DestGasPerPayloadByteBase:         16,
-				DestGasPerPayloadByteHigh:         40,
-				DestGasPerPayloadByteThreshold:    3000,
-				DestDataAvailabilityOverheadGas:   100,
-				DestGasPerDataAvailabilityByte:    16,
-				DestDataAvailabilityMultiplierBps: 1,
-				DefaultTokenDestGasOverhead:       90_000,
-				DefaultTxGasLimit:                 200_000,
-				GasMultiplierWeiPerEth:            11e17, // Gas multiplier in wei per eth is scaled by 1e18, so 11e17 is 1.1 = 110%
-				NetworkFeeUSDCents:                10,
-				ChainFamilySelector:               [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
+			FeeQuoterDestChainConfig: fee_quoter.DestChainConfig{
+				IsEnabled:                   true,
+				MaxDataBytes:                30_000,
+				MaxPerMsgGasLimit:           3_000_000,
+				DestGasOverhead:             300_000,
+				DefaultTokenFeeUSDCents:     25,
+				DestGasPerPayloadByteBase:   16,
+				DefaultTokenDestGasOverhead: 90_000,
+				DefaultTxGasLimit:           200_000,
+				NetworkFeeUSDCents:          10,
+				ChainFamilySelector:         [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
 			},
 		}
 	}

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 )
 
 // CheckpointRecord represents a checkpoint entry in DynamoDB.
@@ -43,16 +45,16 @@ func (dto *CheckpointDTO) ToItem(record *CheckpointRecord) (map[string]types.Att
 	}
 
 	item := map[string]types.AttributeValue{
-		CheckpointFieldClientID: &types.AttributeValueMemberS{
+		ddbconstant.CheckpointFieldClientID: &types.AttributeValueMemberS{
 			Value: record.ClientID,
 		},
-		CheckpointFieldChainSelector: &types.AttributeValueMemberN{
+		ddbconstant.CheckpointFieldChainSelector: &types.AttributeValueMemberN{
 			Value: strconv.FormatUint(record.ChainSelector, 10),
 		},
-		CheckpointFieldFinalizedBlockHeight: &types.AttributeValueMemberN{
+		ddbconstant.CheckpointFieldFinalizedBlockHeight: &types.AttributeValueMemberN{
 			Value: strconv.FormatUint(record.FinalizedBlockHeight, 10),
 		},
-		CheckpointFieldLastUpdated: &types.AttributeValueMemberN{
+		ddbconstant.CheckpointFieldLastUpdated: &types.AttributeValueMemberN{
 			Value: strconv.FormatInt(record.LastUpdated, 10),
 		},
 	}
@@ -67,15 +69,15 @@ func (dto *CheckpointDTO) FromItem(item map[string]types.AttributeValue) (*Check
 	}
 
 	// Extract ClientID
-	clientIDAttr, ok := item[CheckpointFieldClientID].(*types.AttributeValueMemberS)
+	clientIDAttr, ok := item[ddbconstant.CheckpointFieldClientID].(*types.AttributeValueMemberS)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s field", CheckpointFieldClientID)
+		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.CheckpointFieldClientID)
 	}
 
 	// Extract ChainSelector
-	chainSelectorAttr, ok := item[CheckpointFieldChainSelector].(*types.AttributeValueMemberN)
+	chainSelectorAttr, ok := item[ddbconstant.CheckpointFieldChainSelector].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s field", CheckpointFieldChainSelector)
+		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.CheckpointFieldChainSelector)
 	}
 	chainSelector, err := strconv.ParseUint(chainSelectorAttr.Value, 10, 64)
 	if err != nil {
@@ -83,9 +85,9 @@ func (dto *CheckpointDTO) FromItem(item map[string]types.AttributeValue) (*Check
 	}
 
 	// Extract FinalizedBlockHeight
-	blockHeightAttr, ok := item[CheckpointFieldFinalizedBlockHeight].(*types.AttributeValueMemberN)
+	blockHeightAttr, ok := item[ddbconstant.CheckpointFieldFinalizedBlockHeight].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s field", CheckpointFieldFinalizedBlockHeight)
+		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.CheckpointFieldFinalizedBlockHeight)
 	}
 	blockHeight, err := strconv.ParseUint(blockHeightAttr.Value, 10, 64)
 	if err != nil {
@@ -93,9 +95,9 @@ func (dto *CheckpointDTO) FromItem(item map[string]types.AttributeValue) (*Check
 	}
 
 	// Extract LastUpdated
-	lastUpdatedAttr, ok := item[CheckpointFieldLastUpdated].(*types.AttributeValueMemberN)
+	lastUpdatedAttr, ok := item[ddbconstant.CheckpointFieldLastUpdated].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s field", CheckpointFieldLastUpdated)
+		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.CheckpointFieldLastUpdated)
 	}
 	lastUpdated, err := strconv.ParseInt(lastUpdatedAttr.Value, 10, 64)
 	if err != nil {

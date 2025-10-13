@@ -10,11 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var _ IndexerAPI = (*IndexerAPIReader)(nil)
+var _ IndexerAPI = &IndexerAPIReader{}
 
 type IndexerAPIReader struct {
 	httpClient *http.Client
@@ -23,6 +25,9 @@ type IndexerAPIReader struct {
 }
 
 func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReader {
+	if indexerURI == "" {
+		return nil
+	}
 	return &IndexerAPIReader{
 		lggr:       lggr,
 		indexerURI: indexerURI,
@@ -130,8 +135,8 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 	}
 
 	if !response.Success {
-		i.lggr.Errorw("Indexer returned error", "error", response.Error)
-		return nil, fmt.Errorf("indexer returned error: %s", response.Error)
+		i.lggr.Errorw("Indexer ReadVerifierResults returned error", "error", response.Error)
+		return nil, fmt.Errorf("indexer ReadVerifierResults returned error: %s", response.Error)
 	}
 
 	i.lggr.Debugw("Successfully retrieved CCV data", "dataCount", len(response.CCVData))
@@ -140,19 +145,35 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 
 func (i *IndexerAPIReader) ReadMessages(
 	ctx context.Context,
-	queryData MessagesV1Request,
+	queryData protocol.MessagesV1Request,
 ) (map[string]protocol.Message, error) {
-	var response MessagesV1Response
+	var response protocol.MessagesV1Response
 	err := i.makeRequest(ctx, "/v1/messages", queryParams(queryData), &response)
 	if err != nil {
 		return nil, err
 	}
 
 	if !response.Success {
-		i.lggr.Errorw("Indexer returned error", "error", response.Error)
-		return nil, fmt.Errorf("indexer returned error: %s", response.Error)
+		i.lggr.Errorw("Indexer ReadMessages returned error", "error", response.Error)
+		return nil, fmt.Errorf("indexer ReadMessages returned error: %s", response.Error)
 	}
 
 	i.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(response.Messages))
 	return response.Messages, nil
+}
+
+func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+	var response protocol.MessageIDV1Response
+	request := "/v1/messageid/0x" + common.Bytes2Hex(messageID[:])
+	err := i.makeRequest(ctx, request, queryParams{}, &response)
+	if err != nil {
+		return nil, err
+	}
+	if !response.Success {
+		i.lggr.Errorw("Indexer GetVerifierResults returned error", "error", response.Error)
+		return nil, fmt.Errorf("indexer GetVerifierResults returned error: %s", response.Error)
+	}
+
+	i.lggr.Debugw("Successfully retrieved VerifierResults", "messageID", messageID, "numberOfResults", len(response.VerifierResults))
+	return response.VerifierResults, nil
 }

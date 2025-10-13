@@ -11,10 +11,10 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -24,7 +24,6 @@ const (
 	DefaultIndexerImage    = "indexer:dev"
 	DefaultIndexerHTTPPort = 8102
 	DefaultIndexerDBPort   = 6432
-	DefaultIndexerSQLInit  = "init.sql"
 
 	DefaultIndexerDBImage = "postgres:16-alpine"
 )
@@ -105,7 +104,36 @@ func defaults(in *IndexerInput) {
 				},
 			},
 			Storage: config.StorageConfig{
-				Type: "memory",
+				Strategy: config.StorageStrategySink,
+				Sink: &config.SinkStorageConfig{
+					Storages: []config.StorageBackendConfig{
+						{
+							Type: "memory",
+							Memory: &config.InMemoryStorageConfig{
+								TTL:             3600,
+								MaxSize:         10000,
+								CleanupInterval: 300,
+							},
+							ReadCondition: config.ReadConditionConfig{
+								Type:                  "recent",
+								LookbackWindowSeconds: &[]int64{3600}[0],
+							},
+						},
+						{
+							Type: "postgres",
+							Postgres: &config.PostgresConfig{
+								URI:                    "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable",
+								MaxOpenConnections:     20,
+								MaxIdleConnections:     5,
+								IdleInTxSessionTimeout: 60,
+								LockTimeout:            30,
+							},
+							ReadCondition: config.ReadConditionConfig{
+								Type: "always",
+							},
+						},
+					},
+				},
 			},
 		}
 	}
@@ -131,19 +159,17 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		configPath = filepath.Join(p, "config.toml")
 	}
 
-	if _, err := os.Stat(configPath); err != nil {
-		// Encode TOML to config file
-		buff := new(bytes.Buffer)
-		encoder := toml.NewEncoder(buff)
-		encoder.Indent = ""
-		err = encoder.Encode(in.IndexerConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode config: %w", err)
-		}
-		err = os.WriteFile(configPath, buff.Bytes(), 0o644)
-		if err != nil {
-			return nil, fmt.Errorf("failed to write config: %w", err)
-		}
+	buff := new(bytes.Buffer)
+	encoder := toml.NewEncoder(buff)
+	encoder.Indent = ""
+	err = encoder.Encode(in.IndexerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode config: %w", err)
+	}
+
+	err = os.WriteFile(configPath, buff.Bytes(), 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write config: %w", err)
 	}
 
 	/* Database */
@@ -160,10 +186,18 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 			}
 		}),
 		testcontainers.WithLabels(framework.DefaultTCLabels()),
+		testcontainers.CustomizeRequestOption(func(req *testcontainers.GenericContainerRequest) error {
+			req.Networks = []string{framework.DefaultNetworkName}
+			req.NetworkAliases = map[string][]string{
+				framework.DefaultNetworkName: {DefaultIndexerDBName},
+			}
+
+			return nil
+		}),
 		postgres.WithDatabase(DefaultIndexerName),
 		postgres.WithUsername(DefaultIndexerName),
 		postgres.WithPassword(DefaultIndexerName),
-		postgres.WithInitScripts(filepath.Join(p, DefaultIndexerSQLInit)),
+		// Migrations are now handled by the application using goose
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)

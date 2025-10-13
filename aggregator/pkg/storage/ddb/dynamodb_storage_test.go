@@ -8,15 +8,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	smithyendpoints "github.com/aws/smithy-go/endpoints" //nolint
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	smithyendpoints "github.com/aws/smithy-go/endpoints" //nolint:goimports
+	"github.com/smartcontractkit/chainlink-common/pkg/logger" //nolint
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -138,7 +137,7 @@ func TestCommitVerificationRecordOperations(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring(), 10, 1)
 
 	t.Run("save and retrieve", func(t *testing.T) {
 		messageID := createTestMessageID(1)
@@ -252,7 +251,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring(), 10, 1)
 
 	t.Run("submit and query reports", func(t *testing.T) {
 		baseTime := int64(1704067200) // 2024-01-01 00:00:00 UTC in seconds
@@ -278,12 +277,12 @@ func TestAggregatedReportOperations(t *testing.T) {
 		// Query reports in time range (using seconds for API)
 		start := baseTime          // Start time in seconds
 		end := start + int64(7200) // 2 hours later in seconds
-		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID)
+		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
-		require.Len(t, reports, 3, "Should return all 3 reports within time range")
+		require.Len(t, reports.Reports, 3, "Should return all 3 reports within time range")
 
 		// Verify reports are ordered correctly
-		assertTimestampOrdering(t, reports)
+		assertTimestampOrdering(t, reports.Reports)
 	})
 
 	t.Run("idempotent submissions", func(t *testing.T) {
@@ -304,9 +303,9 @@ func TestAggregatedReportOperations(t *testing.T) {
 		// Verify only one report exists (using seconds for API)
 		start := timestamp - int64(3600) // 1 hour before in seconds
 		end := timestamp + int64(3600)   // 1 hour after in seconds
-		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID)
+		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
-		require.Len(t, reports, 1, "Should have exactly one report after duplicate submission")
+		require.Len(t, reports.Reports, 1, "Should have exactly one report after duplicate submission")
 	})
 
 	t.Run("get by message ID", func(t *testing.T) {
@@ -369,24 +368,26 @@ func TestAggregatedReportOperations(t *testing.T) {
 		// Query should return both snapshots in correct order (using seconds for API)
 		start := baseTime - int64(3600) // 1 hour before first in seconds
 		end := baseTime + int64(7200)   // 2 hours after first in seconds
-		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID)
+		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
-		require.Len(t, reports, 2, "Should return both snapshots")
-		assertTimestampOrdering(t, reports)
+		require.Len(t, reports.Reports, 2, "Should return both snapshots")
+		assertTimestampOrdering(t, reports.Reports)
 	})
 
 	t.Run("empty results and validation", func(t *testing.T) {
 		// Query empty time range (using seconds for API)
 		start := int64(1500000000) // Much earlier time in seconds
 		end := int64(1500001000)   // Still early time in seconds
-		reports, err := storage.QueryAggregatedReports(ctx, start, end, "nonexistent-committee")
+		reports, err := storage.QueryAggregatedReports(ctx, start, end, "nonexistent-committee", nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed even with no results")
-		require.Empty(t, reports, "Should return empty slice for no results")
+		require.NotNil(t, reports, "Should return non-nil result struct")
+		require.Empty(t, reports.Reports, "Should return empty slice for no results")
+		require.Nil(t, reports.NextPageToken, "Should have no next page token for empty results")
 
 		// Test invalid time range (start > end) in seconds
 		start = int64(2000000000) // Later time in seconds
 		end = int64(1000000000)   // Earlier time in seconds
-		reports, err = storage.QueryAggregatedReports(ctx, start, end, "test-committee")
+		reports, err = storage.QueryAggregatedReports(ctx, start, end, "test-committee", nil)
 		require.Error(t, err, "Should return error for invalid time range")
 		require.Nil(t, reports, "Should return nil for invalid time range")
 		require.Contains(t, err.Error(), "start time", "Error should mention start time")
@@ -400,7 +401,7 @@ func TestOrphanRecovery(t *testing.T) {
 
 	earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
+	storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring(), 10, 1)
 
 	t.Run("ListOrphanedMessageCommitteemessageIds with pending records", func(t *testing.T) {
 		// Create test verification records that are "orphaned" (not aggregated)
@@ -534,7 +535,7 @@ func TestOrphanRecovery(t *testing.T) {
 
 		earliestDateForGetMessageSince := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-		storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring())
+		storage := ddb.NewDynamoDBStorage(client, ddb.TestCommitVerificationRecordTableName, ddb.TestFinalizedFeedTableName, earliestDateForGetMessageSince, logger.TestSugared(t), monitoring.NewNoopAggregatorMonitoring(), 10, 1)
 
 		defer cleanup()
 

@@ -13,26 +13,39 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// sourceState manages state for a single source chain reader.
+type sourceState struct {
+	reader              *SourceReaderService
+	verificationTaskCh  <-chan VerificationTask
+	verificationErrorCh chan VerificationError
+	chainSelector       protocol.ChainSelector
+}
+
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
-	verifier              Verifier
-	storage               protocol.CCVNodeDataWriter
-	lggr                  logger.Logger
-	monitoring            common.VerifierMonitoring
-	sourceStates          map[protocol.ChainSelector]*sourceState
-	cancel                context.CancelFunc
-	doneCh                chan struct{}
-	ccvDataCh             chan protocol.CCVData
-	pendingTasks          []VerificationTask
-	config                CoordinatorConfig
-	finalityCheckInterval time.Duration
+	verifier                 Verifier
+	storage                  protocol.CCVNodeDataWriter
+	lggr                     logger.Logger
+	monitoring               common.VerifierMonitoring
+	sourceStates             map[protocol.ChainSelector]*sourceState
+	cancel                   context.CancelFunc
+	ccvDataCh                chan protocol.CCVData
+	pendingTasks             []VerificationTask
+	config                   CoordinatorConfig
+	finalityCheckInterval    time.Duration
+	sourceReaderPollInterval time.Duration
 	// Timestamp tracking for E2E latency measurement
 	messageTimestamps map[protocol.Bytes32]time.Time
 	timestampsMu      sync.RWMutex
 	mu                sync.RWMutex
 	pendingMu         sync.RWMutex
-	verifyingWg       sync.WaitGroup
+	verifyingWg       sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
+	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and finalityCheckingLoop() (must complete after error channels closed)
 	running           bool
+
+	// Configuration
+	checkpointManager protocol.CheckpointManager
+	sourceReaders     map[protocol.ChainSelector]SourceReader
 }
 
 // Option is the functional option type for Coordinator.
@@ -45,28 +58,29 @@ func WithVerifier(verifier Verifier) Option {
 	}
 }
 
+// WithCheckpointManager sets the checkpoint manager.
+func WithCheckpointManager(manager protocol.CheckpointManager) Option {
+	return func(vc *Coordinator) {
+		vc.checkpointManager = manager
+	}
+}
+
 // WithSourceReaders sets multiple source readers.
 func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Option {
 	return func(vc *Coordinator) {
-		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
+		if vc.sourceReaders == nil {
+			vc.sourceReaders = make(map[protocol.ChainSelector]SourceReader)
 		}
+
 		for chainSelector, reader := range sourceReaders {
-			if reader != nil {
-				vc.sourceStates[chainSelector] = newSourceState(chainSelector, reader)
-			}
+			vc.sourceReaders[chainSelector] = reader
 		}
 	}
 }
 
 // AddSourceReader adds a single source reader to the existing map.
 func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
-	return func(vc *Coordinator) {
-		if vc.sourceStates == nil {
-			vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
-		}
-		vc.sourceStates[chainSelector] = newSourceState(chainSelector, sourceReader)
-	}
+	return WithSourceReaders(map[protocol.ChainSelector]SourceReader{chainSelector: sourceReader})
 }
 
 // WithStorage sets the storage writer.
@@ -97,6 +111,13 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 	}
 }
 
+// WithSourceReaderPollInterval sets the poll interval for source reader services (useful for testing).
+func WithSourceReaderPollInterval(interval time.Duration) Option {
+	return func(vc *Coordinator) {
+		vc.sourceReaderPollInterval = interval
+	}
+}
+
 // WithMonitoring sets the monitoring implementation.
 func WithMonitoring(monitoring common.VerifierMonitoring) Option {
 	return func(vc *Coordinator) {
@@ -107,8 +128,8 @@ func WithMonitoring(monitoring common.VerifierMonitoring) Option {
 // NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
+		// TODO: channels should have a buffer of 0 or 1, why is it 1000?
 		ccvDataCh:             make(chan protocol.CCVData, 1000),
-		doneCh:                make(chan struct{}),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		pendingTasks:          make([]VerificationTask, 0),
 		messageTimestamps:     make(map[protocol.Bytes32]time.Time),
@@ -123,6 +144,34 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	// Validate required components
 	if err := vc.validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
+	}
+
+	// Initialize source states from provided source readers and configuration.
+	if vc.sourceStates == nil {
+		vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
+	}
+	for chainSelector, sourceReader := range vc.sourceReaders {
+		if sourceReader != nil {
+			if _, ok := vc.config.SourceConfigs[chainSelector]; !ok {
+				vc.lggr.Warnw("skipping source reader: no source config found for chain selector %d", chainSelector)
+				continue
+			}
+
+			// Build service options
+			var serviceOpts []SourceReaderServiceOption
+			if vc.sourceReaderPollInterval > 0 {
+				serviceOpts = append(serviceOpts, WithPollInterval(vc.sourceReaderPollInterval))
+			}
+
+			service := NewSourceReaderService(sourceReader, chainSelector, vc.checkpointManager, vc.lggr, serviceOpts...)
+			vc.sourceStates[chainSelector] = &sourceState{
+				chainSelector:      chainSelector,
+				reader:             service,
+				verificationTaskCh: service.VerificationTaskChannel(),
+				// TODO: channels should have a buffer of 0 or 1, why is it 100?
+				verificationErrorCh: make(chan VerificationError, 100), // Buffered error channel
+			}
+		}
 	}
 
 	return vc, nil
@@ -150,8 +199,17 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.cancel = cancel
 
 	// Start processing loop and finality checking
-	go vc.run(ctx)
-	go vc.finalityCheckingLoop(ctx)
+	vc.backgroundWg.Add(1)
+	go func() {
+		defer vc.backgroundWg.Done()
+		vc.run(ctx)
+	}()
+
+	vc.backgroundWg.Add(1)
+	go func() {
+		defer vc.backgroundWg.Done()
+		vc.finalityCheckingLoop(ctx)
+	}()
 
 	vc.lggr.Infow("Coordinator started with finality checking",
 		"coordinatorID", vc.config.VerifierID,
@@ -186,8 +244,8 @@ func (vc *Coordinator) Close() error {
 		close(state.verificationErrorCh)
 	}
 
-	// 4. Wait for the main run loop to finish.
-	<-vc.doneCh
+	// 4. Wait for background goroutines (run and finalityCheckingLoop) to finish.
+	vc.backgroundWg.Wait()
 
 	vc.mu.Lock()
 	vc.running = false
@@ -200,8 +258,6 @@ func (vc *Coordinator) Close() error {
 
 // run is the main processing loop.
 func (vc *Coordinator) run(ctx context.Context) {
-	defer close(vc.doneCh)
-
 	// Start goroutines for each source state
 	var wg sync.WaitGroup
 	for _, state := range vc.sourceStates {
@@ -359,14 +415,15 @@ func (vc *Coordinator) validate() error {
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
 	appendIfNil(vc.monitoring, "monitoring")
+	// checkpointManager is optional, not required
 
-	if len(vc.sourceStates) == 0 {
+	if len(vc.sourceReaders) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
 	}
 
 	// Validate that all configured sources have corresponding readers
 	for chainSelector := range vc.config.SourceConfigs {
-		if _, exists := vc.sourceStates[chainSelector]; !exists {
+		if _, exists := vc.sourceReaders[chainSelector]; !exists {
 			errs = append(errs, fmt.Errorf("source reader not found for chain selector %d", chainSelector))
 		}
 	}
@@ -497,7 +554,7 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 	// Get latest blocks and finalized blocks for all chains
 	latestBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
-		latestBlock, err := state.reader.LatestBlock(ctx)
+		latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
 		if err != nil {
 			vc.lggr.Errorw("Failed to get latest block", "error", err)
 			continue
@@ -511,7 +568,7 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 	}
 	latestFinalizedBlocks := make(map[protocol.ChainSelector]*big.Int)
 	for chainSelector, state := range vc.sourceStates {
-		latestFinalizedBlock, err := state.reader.LatestFinalizedBlock(ctx)
+		latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
 		if err != nil {
 			vc.lggr.Errorw("Failed to get latest finalized block", "error", err)
 			continue

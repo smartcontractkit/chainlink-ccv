@@ -1,0 +1,62 @@
+verifier_id = "verifier-1"
+aggregator_address = "aggregator:50051"
+aggregator_api_key = "dev-api-key-verifier-1"
+pyroscope_url = "http://pyroscope:4040"
+
+[Monitoring]
+Enabled = true
+Type = "beholder"
+[Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[ccv_proxy_addresses]
+  3379446385462418246 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+  12922642891491394802 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+  4793464827907405086 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+[committee_verifier_addresses]
+  3379446385462418246 = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
+  12922642891491394802 ="0x0B306BF915C4d645ff596e518fAf3F9669b97016"
+  4793464827907405086 = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
+
+[blockchain_infos]
+  [blockchain_infos.3379446385462418246]
+    ChainID = "1337"
+    Type = "anvil"
+    Family = "evm"
+    ContainerName = "blockchain-src"
+    [[blockchain_infos.3379446385462418246.Nodes]]
+      ExternalHTTPUrl = "http://host.docker.internal:8545"
+      InternalHTTPUrl = "http://blockchain-src:8545"
+      ExternalWSUrl = "ws://host.docker.internal:8545"
+      InternalWSUrl = "ws://blockchain-src:8545"
+  [blockchain_infos.12922642891491394802]
+    ChainID = "2337"
+    Type = "anvil"
+    Family = "evm"
+    ContainerName = "blockchain-dst"
+    OfframpRouter = ""
+
+    [[blockchain_infos.12922642891491394802.Nodes]]
+      ExternalHTTPUrl = "http://host.docker.internal:8555"
+      InternalHTTPUrl = "http://blockchain-dst:8555"
+      ExternalWSUrl = "ws://host.docker.internal:8555"
+      InternalWSUrl = "ws://blockchain-dst:8555"
+  [blockchain_infos.4793464827907405086]
+    ChainID = "3337"
+    Type = "anvil"
+    Family = "evm"
+    ContainerName = "blockchain-3rd"
+    OfframpRouter = ""
+
+    [[blockchain_infos.4793464827907405086.Nodes]]
+      ExternalHTTPUrl = "http://host.docker.internal:8565"
+      InternalHTTPUrl = "http://blockchain-3rd:8565"
+      ExternalWSUrl = "ws://host.docker.internal:8565"
+      InternalWSUrl = "ws://blockchain-3rd:8565"
