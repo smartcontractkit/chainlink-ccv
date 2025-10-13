@@ -55,6 +55,7 @@ func getSubCommands(parent string) []prompt.Suggest {
 			{Text: "gas-spikes", Description: "Default load test + slow and fast gas spikes"},
 			{Text: "reorgs", Description: "Default load test + reorgs (Requires 'up env.toml,env-geth.toml' environment"},
 			{Text: "chaos", Description: "Default load test + chaos (restarts, latency, data loss between services)"},
+			{Text: "indexer-load", Description: "Indexer Load Test (50msg/s)"},
 		}
 	case "addresses":
 		return []prompt.Suggest{

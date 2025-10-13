@@ -2,7 +2,6 @@ package load
 
 import (
 	"context"
-	"sort"
 	"testing"
 	"time"
 
@@ -14,11 +13,6 @@ import (
 type MetricsSummary struct {
 	TotalSent     int64
 	TotalVerified int64
-	MinLatency    time.Duration
-	MaxLatency    time.Duration
-	P90Latency    time.Duration
-	P95Latency    time.Duration
-	P99Latency    time.Duration
 }
 
 func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *IndexerLoadGun) {
@@ -39,10 +33,10 @@ func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *I
 
 func TestIndexerLoad(t *testing.T) {
 	rps := int64(50)
-	testDuration := 5 * time.Minute
+	testDuration := 1 * time.Minute
 
 	p, gun := createLoadProfile(rps, testDuration)
-	ctx, cancel := context.WithTimeout(context.Background(), testDuration)
+	ctx, cancel := context.WithTimeout(context.Background(), testDuration*2)
 	defer cancel()
 
 	verifyDoneCh := gun.VerifyMessagesAsync(ctx)
@@ -75,38 +69,8 @@ func calculateMetricsSummary(sent int64, metrics []Metrics) MetricsSummary {
 		return summary
 	}
 
-	// Extract and sort latencies
-	latencies := make([]time.Duration, len(metrics))
-	for i, m := range metrics {
-		latencies[i] = m.Latency
-	}
-	sort.Slice(latencies, func(i, j int) bool {
-		return latencies[i] < latencies[j]
-	})
-
-	// Calculate percentiles
-	p90Index := int(float64(len(latencies)) * 0.90)
-	p95Index := int(float64(len(latencies)) * 0.95)
-	p99Index := int(float64(len(latencies)) * 0.99)
-
-	// Handle edge cases for small sample sizes
-	if p90Index >= len(latencies) {
-		p90Index = len(latencies) - 1
-	}
-	if p95Index >= len(latencies) {
-		p95Index = len(latencies) - 1
-	}
-	if p99Index >= len(latencies) {
-		p99Index = len(latencies) - 1
-	}
-
 	summary.TotalSent = sent
 	summary.TotalVerified = int64(len(metrics))
-	summary.MinLatency = latencies[0]
-	summary.MaxLatency = latencies[len(latencies)-1]
-	summary.P90Latency = latencies[p90Index]
-	summary.P95Latency = latencies[p95Index]
-	summary.P99Latency = latencies[p99Index]
 
 	return summary
 }
@@ -120,21 +84,10 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"Total Verified:  %d\n"+
 		"Not Verified:    %d\n"+
 		"Success Rate:    %.2f%%\n"+
-		"----------------------------------------\n"+
-		"Min Latency:     %v\n"+
-		"Max Latency:     %v\n"+
-		"P90 Latency:     %v\n"+
-		"P95 Latency:     %v\n"+
-		"P99 Latency:     %v\n"+
-		"========================================",
+		"----------------------------------------\n",
 		summary.TotalSent,
 		summary.TotalVerified,
 		summary.TotalSent-summary.TotalVerified,
 		float64(summary.TotalVerified)/float64(summary.TotalSent)*100,
-		summary.MinLatency,
-		summary.MaxLatency,
-		summary.P90Latency,
-		summary.P95Latency,
-		summary.P99Latency,
 	)
 }

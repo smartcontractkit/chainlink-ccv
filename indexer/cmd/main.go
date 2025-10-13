@@ -87,7 +87,7 @@ func main() {
 	// Start the Scanner processing
 	scanner.Start(ctx)
 
-	v1 := api.NewV1API(lggr, indexerStorage, indexerMonitoring)
+	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
 	api.Serve(v1, 8100)
 }
 

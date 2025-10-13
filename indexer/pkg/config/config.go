@@ -17,6 +17,20 @@ type Config struct {
 	Discovery DiscoveryConfig `toml:"Discovery"`
 	// Storage is the configuration for the storage inside the indexer.
 	Storage StorageConfig `toml:"Storage"`
+	// API is the configuration for the API inside the indexer.
+	API APIConfig `toml:"API"`
+}
+
+// APIConfig provides all configuration for the API inside the indexer.
+type APIConfig struct {
+	// RateLimit is the configuration for the rate limiting system inside the indexer.
+	RateLimit RateLimitConfig `toml:"RateLimit"`
+}
+
+// RateLimitConfig provides all configuration for the rate limiting system inside the indexer.
+type RateLimitConfig struct {
+	// Enabled enables the rate limiting system inside the indexer.
+	Enabled bool `toml:"Enabled"`
 }
 
 // MonitoringConfig provides all configuration for the monitoring system inside the indexer.

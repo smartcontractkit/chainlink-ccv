@@ -145,14 +145,17 @@ func (i *IndexerLoadGun) run(ctx context.Context) {
 		case msg, ok := <-i.sentMsgCh:
 			if !ok {
 				i.wg.Wait()
-				close(i.metricsCh)
 
 				// Drain the metrics channel
 				for metric := range i.metricsCh {
-					log.Printf("Received metric %s", metric.MessageID.String())
 					i.mu.Lock()
 					i.metrics = append(i.metrics, metric)
-					i.mu.Unlock()
+					if len(i.metrics) == len(i.sentTimes) {
+						i.mu.Unlock()
+						break
+					} else {
+						i.mu.Unlock()
+					}
 				}
 
 				i.doneCh <- struct{}{}
@@ -160,10 +163,8 @@ func (i *IndexerLoadGun) run(ctx context.Context) {
 			}
 
 			i.wg.Add(1)
-			log.Printf("Received message %s", msg.Data.MessageID.String())
-			//go i.handleMessage(ctx, msg, 30*time.Second, 500*time.Millisecond)
+			go i.handleMessage(ctx, msg, 30*time.Second, 200*time.Millisecond)
 		case metric := <-i.metricsCh:
-			log.Printf("Received metric %s", metric.MessageID.String())
 			i.mu.Lock()
 			i.metrics = append(i.metrics, metric)
 			i.mu.Unlock()
@@ -246,8 +247,8 @@ func (i *IndexerLoadGun) verifyMessage(messageID protocol.Bytes32) bool {
 	// Not reading the body can cause EOF errors on subsequent requests
 	statusOK := resp.StatusCode == http.StatusOK
 
-	if !statusOK {
-		log.Printf("Message %s not found yet (status: %d)", messageID.String(), resp.StatusCode)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		log.Fatal("Rate Limit Exceeded, this should not happen. Cancelling test.")
 	}
 
 	// Read and discard the body to allow connection reuse
