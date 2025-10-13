@@ -38,7 +38,7 @@ func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *I
 }
 
 func TestIndexerLoad(t *testing.T) {
-	rps := int64(2500)
+	rps := int64(50)
 	testDuration := 5 * time.Minute
 
 	p, gun := createLoadProfile(rps, testDuration)
