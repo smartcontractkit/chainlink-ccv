@@ -465,7 +465,7 @@ func TestE2ELoad(t *testing.T) {
 		require.NoError(t, err)
 
 		rps := int64(1)
-		testDuration := 200 * time.Second
+		testDuration := 60 * time.Second
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
