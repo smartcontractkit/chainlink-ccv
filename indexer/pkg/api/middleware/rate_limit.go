@@ -4,10 +4,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
+
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	mgin "github.com/ulule/limiter/v3/drivers/middleware/gin"
 )
