@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -329,11 +330,12 @@ func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.Unknow
 	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
 }
 
-// erc20HasBalanceAndAllowance checks whether the given owner has at least `amount`
-// balance of `token` and whether `spender` has at least `amount` allowance.
-func (m *CCIP17EVM) erc20HasBalanceAndAllowance(
+// ensureERC20HasBalanceAndAllowance ensures that the given owner has at least `amount`
+// balance of `token` and that `spender` has at least `amount` allowance.
+func (m *CCIP17EVM) ensureERC20HasBalanceAndAllowance(
 	ctx context.Context,
 	chain evm.Chain,
+	auth *bind.TransactOpts,
 	token, owner, spender common.Address,
 	amount *big.Int,
 ) (bool, error) {
@@ -353,17 +355,40 @@ func (m *CCIP17EVM) erc20HasBalanceAndAllowance(
 		return false, fmt.Errorf("failed to get allowance: %w", err)
 	}
 	if allowance.Cmp(amount) < 0 {
-		return false, fmt.Errorf("insufficient allowance for spender %s: have %s, need %s", spender.Hex(), allowance.String(), amount.String())
+		l := zerolog.Ctx(ctx)
+		l.Info().
+			Str("Token", token.Hex()).
+			Str("Spender", spender.Hex()).
+			Str("Owner", owner.Hex()).
+			Str("Amount", amount.String()).
+			Msg("Insufficient allowance, approving")
+		tx, err := tkn.Approve(&bind.TransactOpts{
+			Context: ctx,
+			From:    auth.From,
+			Signer:  auth.Signer,
+		}, spender, amount)
+		if err != nil {
+			return false, fmt.Errorf("failed to approve spending of %s for %s: %w", amount.String(), spender.Hex(), err)
+		}
+		l.Info().Str("TxHash", tx.Hash().Hex()).Msg("Waiting for approve transaction to be mined")
+		receipt, err := bind.WaitMined(ctx, chain.Client, tx.Hash())
+		if err != nil {
+			return false, fmt.Errorf("failed to wait for approve transaction to be mined: %w", err)
+		}
+		if receipt.Status != types.ReceiptStatusSuccessful {
+			return false, fmt.Errorf("approve transaction failed: %s", receipt.TxHash.Hex())
+		}
+		l.Info().Msg("Approval successful")
 	}
 	return true, nil
 }
 
-func (m *CCIP17EVM) haveEnoughTransferTokens(ctx context.Context, chain evm.Chain, routerAddress, token common.Address, amount *big.Int) (hasEnough bool, err error) {
+func (m *CCIP17EVM) haveEnoughTransferTokens(ctx context.Context, chain evm.Chain, auth *bind.TransactOpts, routerAddress, token common.Address, amount *big.Int) (hasEnough bool, err error) {
 	// Transfer token is a vanilla ERC20; check owner's balance and router's allowance.
-	return m.erc20HasBalanceAndAllowance(ctx, chain, token, chain.DeployerKey.From, routerAddress, amount)
+	return m.ensureERC20HasBalanceAndAllowance(ctx, chain, auth, token, chain.DeployerKey.From, routerAddress, amount)
 }
 
-func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, routerAddress, feeToken common.Address, amount *big.Int) (hasEnough bool, msgValue *big.Int, err error) {
+func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, auth *bind.TransactOpts, routerAddress, feeToken common.Address, amount *big.Int) (hasEnough bool, msgValue *big.Int, err error) {
 	wrappedNativeRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(chain.Selector, datastore.ContractType(weth.ContractType), semver.MustParse(weth.Deploy.Version()), ""))
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get wrapped native address: %w", err)
@@ -385,7 +410,7 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, ro
 		// msg.Value is equal to amount in the native token case
 		return balance.Cmp(amount) >= 0, amount, nil
 	case wrappedNative, link:
-		ok, err := m.erc20HasBalanceAndAllowance(ctx, chain, feeToken, chain.DeployerKey.From, routerAddress, amount)
+		ok, err := m.ensureERC20HasBalanceAndAllowance(ctx, chain, auth, feeToken, chain.DeployerKey.From, routerAddress, amount)
 		if err != nil {
 			return false, nil, err
 		}
@@ -461,7 +486,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		return fmt.Errorf("failed to get fee: %w", err)
 	}
 
-	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
+	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
 	if err != nil {
 		return fmt.Errorf("failed to check if have enough tokens: %w", err)
 	}
@@ -470,7 +495,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	}
 
 	if len(tokenAmounts) > 0 {
-		haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
+		haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
 		if err != nil {
 			return fmt.Errorf("failed to check if have enough tokens: %w", err)
 		}
