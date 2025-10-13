@@ -147,6 +147,9 @@ func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
 	}
 
+	// Apply defaults to config if not set
+	vc.applyConfigDefaults()
+
 	// Initialize source states from provided source readers and configuration.
 	if vc.sourceStates == nil {
 		vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
@@ -400,6 +403,25 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 				// Add to pending queue for finality checking
 				vc.addToPendingQueue(verificationTask, chainSelector)
 			}
+		}
+	}
+}
+
+// applyConfigDefaults sets default values for config fields that are not set.
+func (vc *Coordinator) applyConfigDefaults() {
+	// Default storage batch size: 50 items
+	if vc.config.StorageBatchSize == 0 {
+		vc.config.StorageBatchSize = 50
+		if vc.lggr != nil {
+			vc.lggr.Debugw("Using default StorageBatchSize", "value", vc.config.StorageBatchSize)
+		}
+	}
+
+	// Default storage batch timeout: 100ms
+	if vc.config.StorageBatchTimeout == 0 {
+		vc.config.StorageBatchTimeout = 100 * time.Millisecond
+		if vc.lggr != nil {
+			vc.lggr.Debugw("Using default StorageBatchTimeout", "value", vc.config.StorageBatchTimeout)
 		}
 	}
 }

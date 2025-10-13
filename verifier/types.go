@@ -36,8 +36,8 @@ type CoordinatorConfig struct {
 	ProcessingChannelSize int                                     `json:"processing_channel_size"`
 	ProcessingTimeout     time.Duration                           `json:"processing_timeout"`
 	MaxBatchSize          int                                     `json:"max_batch_size"`
-	StorageBatchSize      int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage
-	StorageBatchTimeout   time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch
+	StorageBatchSize      int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage (default: 50)
+	StorageBatchTimeout   time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch (default: 100ms)
 }
 
 // VerificationError represents an error that occurred during message verification.
