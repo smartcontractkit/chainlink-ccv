@@ -77,6 +77,7 @@ func (b *Batcher[T]) Add(item T) error {
 // run is the background goroutine that handles time-based flushing
 func (b *Batcher[T]) run() {
 	defer b.wg.Done()
+	defer close(b.outCh) // Signal completion by closing output channel
 
 	for {
 		select {

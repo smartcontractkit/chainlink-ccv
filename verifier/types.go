@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
 // VerificationTask represents the complete CCIPMessageSent event data from the onRamp/proxy.
@@ -50,6 +51,6 @@ type VerificationError struct {
 
 // Verifier defines the interface for message verification logic.
 type Verifier interface {
-	// VerifyMessage performs the actual verification of a message asynchronously
-	VerifyMessage(ctx context.Context, task VerificationTask, ccvDataCh chan<- protocol.CCVData, verificationErrorCh chan<- VerificationError)
+	// VerifyMessages performs verification of a batch of messages, adding results directly to the batcher
+	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData], verificationErrorCh chan<- VerificationError)
 }

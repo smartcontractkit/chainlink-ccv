@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -35,35 +36,37 @@ func newTestVerifier() *testVerifier {
 	}
 }
 
-func (t *testVerifier) VerifyMessage(
+func (t *testVerifier) VerifyMessages(
 	ctx context.Context,
-	verificationTask verifier.VerificationTask,
-	ccvDataCh chan<- protocol.CCVData,
+	tasks []verifier.VerificationTask,
+	ccvDataBatcher *batcher.Batcher[protocol.CCVData],
 	verificationErrorCh chan<- verifier.VerificationError,
 ) {
 	t.mu.Lock()
-	t.processedTasks = append(t.processedTasks, verificationTask)
+	t.processedTasks = append(t.processedTasks, tasks...)
 	t.mu.Unlock()
 
-	// Create mock CCV data
-	messageID, _ := verificationTask.Message.MessageID()
-	ccvData := protocol.CCVData{
-		MessageID:             messageID,
-		Nonce:                 verificationTask.Message.Nonce,
-		SourceChainSelector:   verificationTask.Message.SourceChainSelector,
-		DestChainSelector:     verificationTask.Message.DestChainSelector,
-		SourceVerifierAddress: protocol.UnknownAddress{},
-		DestVerifierAddress:   protocol.UnknownAddress{},
-		CCVData:               []byte("mock-signature"),
-		BlobData:              []byte("mock-blob"),
-		Timestamp:             time.Now().UnixMicro(),
-		Message:               verificationTask.Message,
-		ReceiptBlobs:          verificationTask.ReceiptBlobs,
-	}
+	// Create mock CCV data for each task
+	for _, verificationTask := range tasks {
+		messageID, _ := verificationTask.Message.MessageID()
+		ccvData := protocol.CCVData{
+			MessageID:             messageID,
+			Nonce:                 verificationTask.Message.Nonce,
+			SourceChainSelector:   verificationTask.Message.SourceChainSelector,
+			DestChainSelector:     verificationTask.Message.DestChainSelector,
+			SourceVerifierAddress: protocol.UnknownAddress{},
+			DestVerifierAddress:   protocol.UnknownAddress{},
+			CCVData:               []byte("mock-signature"),
+			BlobData:              []byte("mock-blob"),
+			Timestamp:             time.Now().UnixMicro(),
+			Message:               verificationTask.Message,
+			ReceiptBlobs:          verificationTask.ReceiptBlobs,
+		}
 
-	select {
-	case ccvDataCh <- ccvData:
-	case <-ctx.Done():
+		if err := ccvDataBatcher.Add(ccvData); err != nil {
+			// If context is cancelled or batcher is closed, stop processing
+			return
+		}
 	}
 }
 

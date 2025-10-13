@@ -14,6 +14,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const (
+	// ShutdownStorageWriteTimeout is the maximum time to allow for final storage writes during shutdown.
+	ShutdownStorageWriteTimeout = 30 * time.Second
+)
+
 // sourceState manages state for a single source chain reader.
 type sourceState struct {
 	reader              *SourceReaderService
@@ -30,7 +35,6 @@ type Coordinator struct {
 	monitoring               common.VerifierMonitoring
 	sourceStates             map[protocol.ChainSelector]*sourceState
 	cancel                   context.CancelFunc
-	ccvDataCh                chan protocol.CCVData
 	pendingTasks             []VerificationTask
 	config                   CoordinatorConfig
 	finalityCheckInterval    time.Duration
@@ -133,8 +137,6 @@ func WithMonitoring(monitoring common.VerifierMonitoring) Option {
 // NewVerificationCoordinator creates a new verification coordinator.
 func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
-		// TODO: channels should have a buffer of 0 or 1, why is it 1000?
-		ccvDataCh:             make(chan protocol.CCVData, 1000),
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		pendingTasks:          make([]VerificationTask, 0),
 		messageTimestamps:     make(map[protocol.Bytes32]time.Time),
@@ -291,37 +293,22 @@ func (vc *Coordinator) run(ctx context.Context) {
 		go vc.processSourceErrors(ctx, &wg, state)
 	}
 
-	// Ticker for periodic channel size sampling
-	channelSizeTicker := time.NewTicker(10 * time.Second)
-	defer channelSizeTicker.Stop()
+	contextCancelled := false
 
-	// Main loop - focus solely on ccvDataCh processing and storage
+	// Main loop - process batched storage writes
 	for {
 		select {
 		case <-ctx.Done():
-			vc.lggr.Infow("Coordinator processing stopped due to context cancellation")
-			wg.Wait()
-			return
-		case ccvData, ok := <-vc.ccvDataCh:
-			if !ok {
-				vc.lggr.Infow("CCVData channel closed, stopping processing")
-				wg.Wait()
-				return
+			if !contextCancelled {
+				vc.lggr.Infow("Context cancelled, will drain remaining batches from batcher")
+				contextCancelled = true
 			}
-
-			// Add CCVData to batcher for batched storage writes
-			if err := vc.storageBatcher.Add(ccvData); err != nil {
-				vc.lggr.Errorw("Error adding CCV data to batcher",
-					"error", err,
-					"messageID", ccvData.MessageID,
-					"nonce", ccvData.Nonce,
-					"sourceChain", ccvData.SourceChainSelector,
-				)
-			}
+			// Don't return immediately - keep processing batches until batcher closes channel
 
 		case ccvDataBatch, ok := <-vc.batchedCCVDataCh:
 			if !ok {
-				vc.lggr.Infow("Batched CCVData channel closed, stopping processing")
+				// Batcher has closed channel, all batches drained
+				vc.lggr.Infow("Batcher finished, all batches processed")
 				wg.Wait()
 				return
 			}
@@ -333,8 +320,18 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 
 			// Write batch of CCVData to offchain storage
+			// Use timeout context for final writes after cancellation to prevent hanging
+			writeCtx := ctx
+			var cancelWrite context.CancelFunc
+			if contextCancelled {
+				writeCtx, cancelWrite = context.WithTimeout(context.Background(), ShutdownStorageWriteTimeout)
+			}
+
 			storageStart := time.Now()
-			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err != nil {
+			if err := vc.storage.WriteCCVNodeData(writeCtx, ccvDataBatch.Items); err != nil {
+				if cancelWrite != nil {
+					cancelWrite()
+				}
 				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 				vc.lggr.Errorw("Error storing CCV data batch",
 					"error", err,
@@ -374,13 +371,11 @@ func (vc *Coordinator) run(ctx context.Context) {
 				vc.lggr.Infow("CCV data batch stored successfully",
 					"batchSize", len(ccvDataBatch.Items),
 				)
-			}
 
-		case <-channelSizeTicker.C:
-			// Periodic channel size sampling for monitoring
-			vc.monitoring.Metrics().
-				With("verifier_id", vc.config.VerifierID).
-				RecordCCVDataChannelSize(ctx, int64(len(vc.ccvDataCh)))
+				if cancelWrite != nil {
+					cancelWrite()
+				}
+			}
 		}
 	}
 }
@@ -677,49 +672,54 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 			"remainingCount", len(remainingTasks),
 		)
 
-		// Process ready tasks with verifier
-		for _, task := range readyTasks {
-			vc.processReadyTask(ctx, task)
+		// Process ready tasks with verifier in batch
+		if len(readyTasks) > 0 {
+			vc.processReadyTasks(ctx, readyTasks)
 		}
 	}
 }
 
-// processReadyTask processes a task that has met its finality requirements.
-func (vc *Coordinator) processReadyTask(ctx context.Context, task VerificationTask) {
-	messageID, err := task.Message.MessageID()
-	if err != nil {
-		vc.lggr.Errorw("Failed to compute message ID for ready task", "error", err)
+// processReadyTasks processes a batch of tasks that have met their finality requirements.
+func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []VerificationTask) {
+	if len(tasks) == 0 {
 		return
 	}
 
-	// Record finality wait duration
-	if !task.QueuedAt.IsZero() && vc.monitoring != nil {
-		finalityWaitDuration := time.Since(task.QueuedAt)
-		vc.monitoring.Metrics().
-			With("source_chain", task.Message.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
-			RecordFinalityWaitDuration(ctx, finalityWaitDuration)
+	vc.lggr.Debugw("Processing batch of finalized messages", "batchSize", len(tasks))
+
+	// Record finality wait duration for each task
+	for _, task := range tasks {
+		if !task.QueuedAt.IsZero() && vc.monitoring != nil {
+			finalityWaitDuration := time.Since(task.QueuedAt)
+			vc.monitoring.Metrics().
+				With("source_chain", task.Message.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
+				RecordFinalityWaitDuration(ctx, finalityWaitDuration)
+		}
 	}
 
-	vc.lggr.Debugw("📤 Processing finalized message",
-		"messageID", messageID,
-		"blockNumber", task.BlockNumber,
-		"nonce", task.Message.Nonce,
-	)
-
-	// Find the appropriate error channel for this chain
-	sourceState, exists := vc.sourceStates[task.Message.SourceChainSelector]
-	if !exists {
-		vc.lggr.Errorw("No source state found for finalized message",
-			"chainSelector", task.Message.SourceChainSelector)
-		return
+	// Group tasks by source chain to use the correct error channel
+	tasksByChain := make(map[protocol.ChainSelector][]VerificationTask)
+	for _, task := range tasks {
+		tasksByChain[task.Message.SourceChainSelector] = append(tasksByChain[task.Message.SourceChainSelector], task)
 	}
 
-	// Process message event using the verifier asynchronously
-	vc.verifyingWg.Add(1)
-	go func() {
-		defer vc.verifyingWg.Done()
-		vc.verifier.VerifyMessage(ctx, task, vc.ccvDataCh, sourceState.verificationErrorCh)
-	}()
+	// Process each chain's tasks as a batch
+	for chainSelector, chainTasks := range tasksByChain {
+		sourceState, exists := vc.sourceStates[chainSelector]
+		if !exists {
+			vc.lggr.Errorw("No source state found for finalized messages",
+				"chainSelector", chainSelector,
+				"taskCount", len(chainTasks))
+			continue
+		}
+
+		// Process the batch of tasks for this chain
+		vc.verifyingWg.Add(1)
+		go func(tasks []VerificationTask, errorCh chan<- VerificationError) {
+			defer vc.verifyingWg.Done()
+			vc.verifier.VerifyMessages(ctx, tasks, vc.storageBatcher, errorCh)
+		}(chainTasks, sourceState.verificationErrorCh)
+	}
 }
 
 // isMessageReadyForVerification determines if a message meets its finality requirements.
