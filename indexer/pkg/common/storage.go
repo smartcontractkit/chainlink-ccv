@@ -23,4 +23,5 @@ type IndexerStorageReader interface {
 type IndexerStorageWriter interface {
 	// InsertCCVData appends a new CCVData to the storage for the given messageID
 	InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error
+	BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error
 }
