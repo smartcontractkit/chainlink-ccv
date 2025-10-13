@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
 // MessageSigner defines the interface for signing messages using the new chain-agnostic format.
@@ -29,4 +30,10 @@ type SourceReader interface {
 
 	// LatestFinalizedBlockHeight returns the latest finalized block height
 	LatestFinalizedBlockHeight(ctx context.Context) (*big.Int, error)
+}
+
+// Verifier defines the interface for message verification logic.
+type Verifier interface {
+	// VerifyMessages performs verification of a batch of messages, adding results directly to the batcher
+	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData], verificationErrorCh chan<- VerificationError)
 }
