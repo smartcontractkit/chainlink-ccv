@@ -29,25 +29,29 @@ type RestReaderConfig struct {
 }
 
 type restReader struct {
-	baseURL    string
-	since      int64
-	httpClient *http.Client
-	lggr       logger.Logger
-	mu         sync.RWMutex
+	baseURL      string
+	since        int64
+	httpClient   *http.Client
+	lggr         logger.Logger
+	mu           sync.RWMutex
+	seenMessages map[protocol.Bytes32]struct{} // Track seen message IDs for deduplication
+	maxSeenCache int                           // Maximum number of message IDs to cache
 }
 
 // NewRestReader creates a new REST-based reader with resilience policies.
-func NewRestReader(config RestReaderConfig) *ResilientReader {
+func NewRestReader(config RestReaderConfig) protocol.OffchainStorageReader {
 	httpClient := config.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: config.RequestTimeout}
 	}
 
 	underlying := &restReader{
-		baseURL:    config.BaseURL,
-		since:      config.Since,
-		httpClient: httpClient,
-		lggr:       config.Logger,
+		baseURL:      config.BaseURL,
+		since:        config.Since,
+		httpClient:   httpClient,
+		lggr:         config.Logger,
+		seenMessages: make(map[protocol.Bytes32]struct{}),
+		maxSeenCache: 10000, // Cache up to 10k message IDs
 	}
 
 	return NewResilientReader(underlying, config.Logger, DefaultResilienceConfig())
@@ -90,10 +94,13 @@ func (r *restReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse,
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Update since timestamp
-	r.updateSinceTimestamp(queryResponses)
+	// Filter out duplicate messages
+	uniqueResponses := r.deduplicateMessages(queryResponses)
 
-	return queryResponses, nil
+	// Update since timestamp
+	r.updateSinceTimestamp(uniqueResponses)
+
+	return uniqueResponses, nil
 }
 
 // buildRequestURL constructs the URL for fetching CCV data.
@@ -113,11 +120,73 @@ func (r *restReader) updateSinceTimestamp(responses []protocol.QueryResponse) {
 	defer r.mu.Unlock()
 
 	// Update since to the latest timestamp we've seen
+	latestTimestamp := int64(0)
 	for _, resp := range responses {
-		if resp.Timestamp != nil && *resp.Timestamp > r.since {
-			r.since = *resp.Timestamp + 1
+		if resp.Timestamp != nil && *resp.Timestamp > latestTimestamp {
+			latestTimestamp = *resp.Timestamp
 		}
 	}
+
+	if latestTimestamp > r.since {
+		r.since = latestTimestamp
+	}
+}
+
+// deduplicateMessages filters out messages that have already been seen.
+func (r *restReader) deduplicateMessages(responses []protocol.QueryResponse) []protocol.QueryResponse {
+	if len(responses) == 0 {
+		return responses
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Filter out duplicates
+	uniqueResponses := make([]protocol.QueryResponse, 0, len(responses))
+	duplicateCount := 0
+
+	for _, resp := range responses {
+		messageID := resp.Data.MessageID
+
+		// Check if we've seen this message before
+		if _, seen := r.seenMessages[messageID]; seen {
+			duplicateCount++
+			continue
+		}
+
+		// Add to unique responses
+		uniqueResponses = append(uniqueResponses, resp)
+
+		// Track this message ID
+		r.seenMessages[messageID] = struct{}{}
+	}
+
+	// Prevent unbounded growth of the seen cache
+	if len(r.seenMessages) > r.maxSeenCache {
+		r.lggr.Infow("Seen message cache exceeded limit, clearing oldest entries",
+			"cacheSize", len(r.seenMessages),
+			"maxSize", r.maxSeenCache,
+		)
+		// Clear half the cache (simple eviction strategy)
+		// In production, you might want a more sophisticated LRU cache
+		newCache := make(map[protocol.Bytes32]struct{}, r.maxSeenCache/2)
+		// Keep only the messages from this batch
+		for _, resp := range uniqueResponses {
+			newCache[resp.Data.MessageID] = struct{}{}
+		}
+		r.seenMessages = newCache
+	}
+
+	if duplicateCount > 0 {
+		r.lggr.Debugw("Filtered duplicate messages",
+			"total", len(responses),
+			"duplicates", duplicateCount,
+			"unique", len(uniqueResponses),
+			"cacheSize", len(r.seenMessages),
+		)
+	}
+
+	return uniqueResponses
 }
 
 // closeHTTPResponse safely closes the HTTP response body.

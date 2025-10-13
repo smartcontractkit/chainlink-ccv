@@ -10,7 +10,6 @@ import (
 	"github.com/failsafe-go/failsafe-go/bulkhead"
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 	"github.com/failsafe-go/failsafe-go/ratelimiter"
-	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"github.com/failsafe-go/failsafe-go/timeout"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -35,13 +34,6 @@ type ResilienceConfig struct {
 	CircuitBreakerDelay   time.Duration // Delay before attempting to close circuit (default: 30s)
 	CircuitBreakerTimeout time.Duration // Timeout for circuit breaker half-open state (default: 10s)
 
-	// Retry Policy configuration
-	MaxRetries        int           // Maximum number of retry attempts (default: 3)
-	InitialBackoff    time.Duration // Initial backoff duration (default: 100ms)
-	MaxBackoff        time.Duration // Maximum backoff duration (default: 10s)
-	BackoffMultiplier float64       // Backoff multiplier for exponential backoff (default: 2.0)
-	Jitter            time.Duration // Jitter to add to backoff (default: 50ms)
-
 	// Timeout configuration
 	RequestTimeout time.Duration // Timeout for individual requests (default: 30s)
 
@@ -63,14 +55,9 @@ func DefaultResilienceConfig() ResilienceConfig {
 		SuccessThreshold:           3,
 		CircuitBreakerDelay:        3 * time.Second,
 		CircuitBreakerTimeout:      1 * time.Second,
-		MaxRetries:                 3,
-		InitialBackoff:             150 * time.Millisecond,
-		MaxBackoff:                 5 * time.Second,
-		BackoffMultiplier:          2.0,
-		Jitter:                     50 * time.Millisecond,
 		RequestTimeout:             10 * time.Second,
 		MaxConcurrentRequests:      5,
-		MaxRequestsPerSecond:       10,
+		MaxRequestsPerSecond:       5,
 		AllowDisconnect:            false,
 	}
 }
@@ -82,7 +69,6 @@ type ResilientReader struct {
 	circuitBreaker circuitbreaker.CircuitBreaker[[]protocol.QueryResponse]
 	bulkhead       bulkhead.Bulkhead[[]protocol.QueryResponse]
 	rateLimiter    ratelimiter.RateLimiter[[]protocol.QueryResponse]
-	retryPolicy    retrypolicy.RetryPolicy[[]protocol.QueryResponse]
 	timeoutPolicy  timeout.Timeout[[]protocol.QueryResponse]
 	lggr           logger.Logger
 
@@ -109,15 +95,13 @@ func NewResilientReader(underlying protocol.OffchainStorageReader, lggr logger.L
 	bh := createBulkhead(config, lggr)
 	// Circuit breaks if too many errors occur, allows the downstream service to recover
 	cb := createCircuitBreaker(config, lggr)
-	// Retries if the request fails, if the request is determined to be non-retryable, the request will not be retried
-	retry := createRetryPolicy(config, lggr)
 	// Timeout the underlying request, if the request takes too long, it will be aborted
 	timeoutPolicy := createTimeoutPolicy(config, lggr)
 
 	// Build failsafe executor with all policies
 	// Order matters: outermost to innermost
-	// RateLimiter -> Bulkhead -> CircuitBreaker -> Retry -> Timeout
-	executor := failsafe.With(rl, bh, cb, retry, timeoutPolicy)
+	// RateLimiter -> Bulkhead -> CircuitBreaker -> Timeout
+	executor := failsafe.With(rl, bh, cb, timeoutPolicy)
 
 	return &ResilientReader{
 		underlying:           underlying,
@@ -125,7 +109,6 @@ func NewResilientReader(underlying protocol.OffchainStorageReader, lggr logger.L
 		circuitBreaker:       cb,
 		bulkhead:             bh,
 		rateLimiter:          rl,
-		retryPolicy:          retry,
 		timeoutPolicy:        timeoutPolicy,
 		lggr:                 lggr,
 		allowDisconnect:      config.AllowDisconnect,
@@ -246,34 +229,6 @@ func createCircuitBreaker(config ResilienceConfig, lggr logger.Logger) circuitbr
 		}).
 		WithFailureThreshold(config.FailureThreshold).
 		WithSuccessThreshold(config.SuccessThreshold).
-		Build()
-}
-
-// createRetryPolicy creates a retry policy for query responses.
-func createRetryPolicy(config ResilienceConfig, lggr logger.Logger) retrypolicy.RetryPolicy[[]protocol.QueryResponse] {
-	handleIf := func(response []protocol.QueryResponse, err error) bool {
-		// Retry on any errors
-		return err != nil
-	}
-
-	if config.RetryPolicyErrorHandler != nil {
-		handleIf = config.RetryPolicyErrorHandler
-	}
-
-	return retrypolicy.NewBuilder[[]protocol.QueryResponse]().
-		HandleIf(handleIf).
-		WithMaxRetries(config.MaxRetries).
-		WithBackoff(config.InitialBackoff, config.MaxBackoff).
-		WithJitter(config.Jitter).
-		OnRetry(func(event failsafe.ExecutionEvent[[]protocol.QueryResponse]) {
-			lggr.Debugw("Retrying request", "attempt", event.Attempts(), "error", event.LastError())
-		}).
-		OnRetriesExceeded(func(event failsafe.ExecutionEvent[[]protocol.QueryResponse]) {
-			lggr.Warnw("Max retries exceeded", "max_retries", config.MaxRetries, "error", event.LastError())
-		}).
-		OnAbort(func(event failsafe.ExecutionEvent[[]protocol.QueryResponse]) {
-			lggr.Debugw("Retry aborted due to non-retriable error", "error", event.LastError())
-		}).
 		Build()
 }
 
