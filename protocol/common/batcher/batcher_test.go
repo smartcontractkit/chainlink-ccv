@@ -9,7 +9,8 @@ import (
 )
 
 func TestBatcher_SizeBasedFlush(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	outCh := make(chan BatchResult[int], 10)
 	maxSize := 5
 	maxWait := 1 * time.Second
@@ -38,7 +39,8 @@ func TestBatcher_SizeBasedFlush(t *testing.T) {
 }
 
 func TestBatcher_TimeBasedFlush(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	outCh := make(chan BatchResult[int], 10)
 	maxSize := 100
 	maxWait := 50 * time.Millisecond
@@ -133,7 +135,8 @@ func TestBatcher_GracefulClose(t *testing.T) {
 }
 
 func TestBatcher_InsertionOrder(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 1 * time.Second
@@ -207,14 +210,15 @@ func TestBatcher_MultipleBatches(t *testing.T) {
 }
 
 func TestBatcher_EmptyClose(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 1 * time.Second
 
 	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
 
-	// Close without adding any items
+	// Close without adding any items - must cancel context first
+	cancel()
 	err := batcher.Close()
 	require.NoError(t, err)
 

@@ -63,7 +63,7 @@ func (t *testVerifier) VerifyMessages(
 		}
 
 		if err := ccvDataBatcher.Add(ccvData); err != nil {
-			// If context is cancelled or batcher is closed, stop processing
+			// If context is canceled or batcher is closed, stop processing
 			return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 		}
 	}

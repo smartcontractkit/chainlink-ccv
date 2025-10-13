@@ -200,7 +200,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	vc.cancel = cancel
 
-	// Initialize storage batcher (will automatically flush when ctx is cancelled)
+	// Initialize storage batcher (will automatically flush when ctx is canceled)
 	vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
 	vc.storageBatcher = batcher.NewBatcher(
 		ctx,
@@ -410,7 +410,7 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 // applyConfigDefaults sets default values for config fields that are not set.
 func (vc *Coordinator) applyConfigDefaults() {
 	// Default storage batch size: 50 items
-	if vc.config.StorageBatchSize == 0 {
+	if vc.config.StorageBatchSize <= 0 {
 		vc.config.StorageBatchSize = 50
 		if vc.lggr != nil {
 			vc.lggr.Debugw("Using default StorageBatchSize", "value", vc.config.StorageBatchSize)
@@ -418,7 +418,7 @@ func (vc *Coordinator) applyConfigDefaults() {
 	}
 
 	// Default storage batch timeout: 100ms
-	if vc.config.StorageBatchTimeout == 0 {
+	if vc.config.StorageBatchTimeout <= 0 {
 		vc.config.StorageBatchTimeout = 100 * time.Millisecond
 		if vc.lggr != nil {
 			vc.lggr.Debugw("Using default StorageBatchTimeout", "value", vc.config.StorageBatchTimeout)

@@ -117,7 +117,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 }
 
 // verifyMessage verifies a single message (internal helper)
-// Returns an error if verification fails, nil if successful
+// Returns an error if verification fails, nil if successful.
 func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) error {
 	start := time.Now()
 	message := verificationTask.Message

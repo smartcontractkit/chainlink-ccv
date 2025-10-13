@@ -42,10 +42,10 @@ type BatchResult[T any] struct {
 }
 
 // NewBatcher creates a new Batcher instance.
-// The batcher will automatically flush when ctx is cancelled.
+// The batcher will automatically flush when ctx is canceled.
 // maxSize: maximum number of items before triggering a flush
 // maxWait: maximum duration to wait before flushing incomplete batch
-// outCh: channel to send flushed batches to
+// outCh: channel to send flushed batches to.
 func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, outCh chan<- BatchResult[T]) *Batcher[T] {
 	b := &Batcher[T]{
 		maxSize: maxSize,
@@ -71,7 +71,7 @@ func (b *Batcher[T]) Add(item T) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Check if context is cancelled
+	// Check if context is canceled
 	select {
 	case <-b.ctx.Done():
 		return b.ctx.Err()
@@ -94,7 +94,7 @@ func (b *Batcher[T]) Add(item T) error {
 	return nil
 }
 
-// run is the background goroutine that handles time-based flushing
+// run is the background goroutine that handles time-based flushing.
 func (b *Batcher[T]) run() {
 	defer b.wg.Done()
 	defer close(b.outCh) // Signal completion by closing output channel
@@ -102,7 +102,7 @@ func (b *Batcher[T]) run() {
 	for {
 		select {
 		case <-b.ctx.Done():
-			// Context cancelled, flush remaining items and exit
+			// Context canceled, flush remaining items and exit
 			b.mu.Lock()
 			b.flushLocked()
 			b.mu.Unlock()
@@ -142,7 +142,7 @@ func (b *Batcher[T]) flushLocked() {
 	case b.outCh <- batch:
 		// Successfully sent
 	case <-b.ctx.Done():
-		// Context cancelled during send
+		// Context canceled during send
 		return
 	}
 

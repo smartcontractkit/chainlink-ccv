@@ -526,7 +526,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	r.logger.Debugw("Event details", "logs", tasks)
 }
 
-// sendBatchError sends a batch-level error to the coordinator
+// sendBatchError sends a batch-level error to the coordinator.
 func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
 	batch := batcher.BatchResult[VerificationTask]{
 		Items: nil,
