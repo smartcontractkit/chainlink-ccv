@@ -13,15 +13,20 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/erc20"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
+	router_operations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_aggregator"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/ccv_proxy"
@@ -31,8 +36,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	offramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	onramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	router_wrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -40,6 +47,10 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
+)
+
+var (
+	ccipMessageSentTopic = onramp.CCVProxyCCIPMessageSent{}.Topic()
 )
 
 type CCIP17EVM struct {
@@ -83,7 +94,7 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []str
 		proxyAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 			chainDetails.ChainSelector,
 			datastore.ContractType(onrampoperations.ContractType),
-			semver.MustParse("1.7.0"),
+			semver.MustParse(onrampoperations.Deploy.Version()),
 			"",
 		))
 		if err != nil {
@@ -92,7 +103,7 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []str
 		aggAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 			chainDetails.ChainSelector,
 			datastore.ContractType(offrampoperations.ContractType),
-			semver.MustParse("1.7.0"),
+			semver.MustParse(offrampoperations.Deploy.Version()),
 			"",
 		))
 		if err != nil {
@@ -319,6 +330,99 @@ func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.Unknow
 	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
 }
 
+// ensureERC20HasBalanceAndAllowance ensures that the given owner has at least `amount`
+// balance of `token` and that `spender` has at least `amount` allowance.
+func (m *CCIP17EVM) ensureERC20HasBalanceAndAllowance(
+	ctx context.Context,
+	chain evm.Chain,
+	auth *bind.TransactOpts,
+	token, owner, spender common.Address,
+	amount *big.Int,
+) (bool, error) {
+	tkn, err := erc20.NewERC20(token, chain.Client)
+	if err != nil {
+		return false, fmt.Errorf("failed to create erc20 wrapper: %w", err)
+	}
+	balance, err := tkn.BalanceOf(&bind.CallOpts{Context: ctx}, owner)
+	if err != nil {
+		return false, fmt.Errorf("failed to get balance: %w", err)
+	}
+	if balance.Cmp(amount) < 0 {
+		return false, fmt.Errorf("insufficient balance: have %s, need %s", balance.String(), amount.String())
+	}
+	allowance, err := tkn.Allowance(&bind.CallOpts{Context: ctx}, owner, spender)
+	if err != nil {
+		return false, fmt.Errorf("failed to get allowance: %w", err)
+	}
+	if allowance.Cmp(amount) < 0 {
+		l := zerolog.Ctx(ctx)
+		l.Info().
+			Str("Token", token.Hex()).
+			Str("Spender", spender.Hex()).
+			Str("Owner", owner.Hex()).
+			Str("Amount", amount.String()).
+			Msg("Insufficient allowance, approving")
+		tx, err := tkn.Approve(&bind.TransactOpts{
+			Context: ctx,
+			From:    auth.From,
+			Signer:  auth.Signer,
+		}, spender, amount)
+		if err != nil {
+			return false, fmt.Errorf("failed to approve spending of %s for %s: %w", amount.String(), spender.Hex(), err)
+		}
+		l.Info().Str("TxHash", tx.Hash().Hex()).Msg("Waiting for approve transaction to be mined")
+		receipt, err := bind.WaitMined(ctx, chain.Client, tx.Hash())
+		if err != nil {
+			return false, fmt.Errorf("failed to wait for approve transaction to be mined: %w", err)
+		}
+		if receipt.Status != types.ReceiptStatusSuccessful {
+			return false, fmt.Errorf("approve transaction failed: %s", receipt.TxHash.Hex())
+		}
+		l.Info().Msg("Approval successful")
+	}
+	return true, nil
+}
+
+func (m *CCIP17EVM) haveEnoughTransferTokens(ctx context.Context, chain evm.Chain, auth *bind.TransactOpts, routerAddress, token common.Address, amount *big.Int) (hasEnough bool, err error) {
+	// Transfer token is a vanilla ERC20; check owner's balance and router's allowance.
+	return m.ensureERC20HasBalanceAndAllowance(ctx, chain, auth, token, chain.DeployerKey.From, routerAddress, amount)
+}
+
+func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, auth *bind.TransactOpts, routerAddress, feeToken common.Address, amount *big.Int) (hasEnough bool, msgValue *big.Int, err error) {
+	wrappedNativeRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(chain.Selector, datastore.ContractType(weth.ContractType), semver.MustParse(weth.Deploy.Version()), ""))
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to get wrapped native address: %w", err)
+	}
+	linkRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(chain.Selector, datastore.ContractType(link.ContractType), semver.MustParse(link.Deploy.Version()), ""))
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to get link address: %w", err)
+	}
+	wrappedNative := common.HexToAddress(wrappedNativeRef.Address)
+	link := common.HexToAddress(linkRef.Address)
+	// TODO: should check if fee token is enabled somehow? Check feeQuoter contract?
+	switch feeToken {
+	case common.Address{}:
+		// if no fee token is specified, pure native token is used, so this is just a BalanceAt check.
+		balance, err := chain.Client.BalanceAt(ctx, chain.DeployerKey.From, nil)
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to get balance: %w", err)
+		}
+		// msg.Value is equal to amount in the native token case
+		return balance.Cmp(amount) >= 0, amount, nil
+	case wrappedNative, link:
+		ok, err := m.ensureERC20HasBalanceAndAllowance(ctx, chain, auth, feeToken, chain.DeployerKey.From, routerAddress, amount)
+		if err != nil {
+			return false, nil, err
+		}
+		if !ok {
+			return false, nil, nil
+		}
+		return true, big.NewInt(0), nil
+	default:
+		return false, nil, fmt.Errorf("unsupported fee token: %s", feeToken.String())
+	}
+}
+
 func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) error {
 	l := zerolog.Ctx(ctx)
 	chains := m.e.BlockChains.EVMChains()
@@ -336,12 +440,16 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		return fmt.Errorf("failed to get destination family: %w", err)
 	}
 
-	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(router.ContractType), semver.MustParse("1.2.0"), ""))
+	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(router_operations.ContractType), semver.MustParse("1.2.0"), ""))
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
 
 	routerAddress := common.HexToAddress(routerRef.Address)
+	rout, err := router_wrapper.NewRouter(routerAddress, srcChain.Client)
+	if err != nil {
+		return fmt.Errorf("create router wrapper: %w", err)
+	}
 
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
@@ -349,28 +457,67 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		operations.NewMemoryReporter(),
 	)
 
-	var tokenAmounts []router.EVMTokenAmount
+	var tokenAmounts []router_operations.EVMTokenAmount
 	for _, tokenAmount := range fields.TokenAmounts {
-		tokenAmounts = append(tokenAmounts, router.EVMTokenAmount{
+		tokenAmounts = append(tokenAmounts, router_operations.EVMTokenAmount{
 			Token:  common.HexToAddress(tokenAmount.TokenAddress.String()),
 			Amount: tokenAmount.Amount,
 		})
 	}
+	if len(tokenAmounts) > 1 {
+		return fmt.Errorf("only one token amount is supported")
+	}
 
 	extraArgs := serializeExtraArgs(opts, destFamily)
-	ccipSendArgs := router.CCIPSendArgs{
+	msg := router_wrapper.ClientEVM2AnyMessage{
+		Receiver:     common.LeftPadBytes(common.HexToAddress(fields.Receiver.String()).Bytes(), 32),
+		Data:         fields.Data,
+		TokenAmounts: tokenAmounts,
+		FeeToken:     common.HexToAddress(fields.FeeToken.String()),
+		ExtraArgs:    extraArgs,
+	}
+	fee, err := rout.GetFee(
+		&bind.CallOpts{
+			Context: ctx,
+		}, dest,
+		msg,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get fee: %w", err)
+	}
+
+	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
+	if err != nil {
+		return fmt.Errorf("failed to check if have enough tokens: %w", err)
+	}
+	if !haveEnoughFeeTokens {
+		return fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
+	}
+
+	if len(tokenAmounts) > 0 {
+		haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
+		if err != nil {
+			return fmt.Errorf("failed to check if have enough tokens: %w", err)
+		}
+		if !haveEnoughTransferTokens {
+			return fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
+		}
+	}
+
+	l.Info().
+		Str("FeeToken", fields.FeeToken.String()).
+		Str("Amount", fee.String()).
+		Str("MsgValue", msgValue.String()).
+		Msg("Have enough tokens to send message")
+
+	ccipSendArgs := router_operations.CCIPSendArgs{
+		Value:             msgValue,
 		DestChainSelector: dest,
-		EVM2AnyMessage: router.EVM2AnyMessage{
-			Receiver:     common.LeftPadBytes(common.HexToAddress(fields.Receiver.String()).Bytes(), 32),
-			Data:         fields.Data,
-			TokenAmounts: tokenAmounts,
-			FeeToken:     common.HexToAddress(fields.FeeToken.String()),
-			ExtraArgs:    extraArgs,
-		},
+		EVM2AnyMessage:    msg,
 	}
 
 	// Send CCIP message with value
-	sendReport, err := operations.ExecuteOperation(bundle, router.CCIPSend, srcChain, contract.FunctionInput[router.CCIPSendArgs]{
+	sendReport, err := operations.ExecuteOperation(bundle, router_operations.CCIPSend, srcChain, contract.FunctionInput[router_operations.CCIPSendArgs]{
 		ChainSelector: src,
 		Address:       routerAddress,
 		Args:          ccipSendArgs,
@@ -378,11 +525,33 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	if err != nil {
 		return fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
+
+	// get the receipt so that we can log the message ID.
+	receipt, err := srcChain.Client.TransactionReceipt(ctx, common.HexToHash(sendReport.Output.ExecInfo.Hash))
+	if err != nil {
+		return fmt.Errorf("failed to get transaction receipt: %w", err)
+	}
+
+	var messageID [32]byte
+	for _, log := range receipt.Logs {
+		if log.Topics[0] == ccipMessageSentTopic {
+			parsed, err := m.proxyBySelector[src].ParseCCIPMessageSent(*log)
+			if err != nil {
+				// Don't fail the entire test just because of this but do log a warning.
+				l.Warn().Err(err).Msg("Failed to parse CCIPMessageSent event")
+				continue
+			}
+			copy(messageID[:], parsed.MessageId[:])
+			break
+		}
+	}
 	l.Info().Bool("Executed", sendReport.Output.Executed()).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
-		Str("SrcRouter", sendReport.Output.Tx.To). // TODO: how to get the message id?
+		Str("SrcRouter", sendReport.Output.Tx.To).
+		Str("MessageID", hexutil.Encode(messageID[:])).
 		Msg("CCIP message sent")
+
 	return nil
 }
 
@@ -634,27 +803,27 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		Params: sequences.ContractParams{
 			// TODO: Router contract implementation is missing
 			RMNRemote: sequences.RMNRemoteParams{
-				Version: semver.MustParse("1.6.0"),
+				Version: semver.MustParse(rmn_remote.Deploy.Version()),
 			},
 			CCVAggregator: sequences.CCVAggregatorParams{
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(offrampoperations.Deploy.Version()),
 			},
 			CommitteeVerifier: sequences.CommitteeVerifierParams{
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(committee_verifier.Deploy.Version()),
 				// TODO: add mocked contract here
 				FeeAggregator:       common.HexToAddress("0x01"),
 				SignatureConfigArgs: getCommitteeSignatureConfig(selector),
 			},
 			CCVProxy: sequences.CCVProxyParams{
-				Version:       semver.MustParse("1.7.0"),
+				Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 				FeeAggregator: common.HexToAddress("0x01"),
 			},
 			ExecutorOnRamp: sequences.ExecutorOnRampParams{
-				Version:       semver.MustParse("1.7.0"),
+				Version:       semver.MustParse(executor_onramp.Deploy.Version()),
 				MaxCCVsPerMsg: 10,
 			},
 			FeeQuoter: sequences.FeeQuoterParams{
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(fee_quoter.Deploy.Version()),
 				// expose in TOML config
 				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
 				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
@@ -697,23 +866,23 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			AllowTrafficFrom: true,
 			CCIPMessageSource: datastore.AddressRef{
 				Type:    datastore.ContractType(onrampoperations.ContractType),
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(onrampoperations.Deploy.Version()),
 			},
 			CCIPMessageDest: datastore.AddressRef{
 				Type:    datastore.ContractType(offrampoperations.ContractType),
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(offrampoperations.Deploy.Version()),
 			},
 			DefaultCCVOffRamps: []datastore.AddressRef{
-				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse("1.7.0")},
+				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
 			},
 			// LaneMandatedCCVOffRamps: []datastore.AddressRef{},
 			DefaultCCVOnRamps: []datastore.AddressRef{
-				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse("1.7.0")},
+				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
 			},
 			// LaneMandatedCCVOnRamps: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
 				Type:    datastore.ContractType(executor_onramp.ContractType),
-				Version: semver.MustParse("1.7.0"),
+				Version: semver.MustParse(executor_onramp.Deploy.Version()),
 			},
 			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled: false,
