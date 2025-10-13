@@ -5,6 +5,7 @@ COPY indexer/go.mod indexer/go.sum ./
 WORKDIR /
 COPY protocol/ ./protocol/
 COPY common/ ./common/
+COPY executor/ ./executor/
 WORKDIR /app
 ENV GOWORK=off
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /protocol && go mod download

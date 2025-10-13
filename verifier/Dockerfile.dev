@@ -4,6 +4,7 @@ RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /
 COPY protocol/ ./protocol/
 COPY common/ ./common/
+COPY executor/ ./executor/
 WORKDIR /app
 COPY verifier/go.mod verifier/go.sum ./
 ENV GOWORK=off
