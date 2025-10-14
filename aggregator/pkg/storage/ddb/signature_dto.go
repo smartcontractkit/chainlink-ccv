@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -29,10 +28,9 @@ func (dto *SignatureRecordDTO) ToItem(record *model.CommitVerificationRecord) (m
 	}
 
 	signerAddressHex := common.BytesToAddress(record.IdentifierSigner.Address).Hex()
-	createdAt := time.Now().Unix()
 
 	partitionKey := BuildPartitionKey(record.MessageId, record.CommitteeID)
-	sortKey := BuildSignatureSortKey(signerAddressHex, createdAt)
+	sortKey := BuildSignatureSortKey(signerAddressHex, record.Timestamp)
 
 	item := map[string]types.AttributeValue{
 		ddbconstant.FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
@@ -42,7 +40,7 @@ func (dto *SignatureRecordDTO) ToItem(record *model.CommitVerificationRecord) (m
 		ddbconstant.SignatureFieldParticipantID: &types.AttributeValueMemberS{Value: record.IdentifierSigner.ParticipantID},
 		ddbconstant.SignatureFieldSignatureR:    &types.AttributeValueMemberB{Value: record.IdentifierSigner.SignatureR[:]},
 		ddbconstant.SignatureFieldSignatureS:    &types.AttributeValueMemberB{Value: record.IdentifierSigner.SignatureS[:]},
-		ddbconstant.FieldCreatedAt:              &types.AttributeValueMemberN{Value: strconv.FormatInt(createdAt, 10)},
+		ddbconstant.FieldCreatedAt:              &types.AttributeValueMemberN{Value: strconv.FormatInt(record.Timestamp, 10)},
 	}
 
 	return item, nil
