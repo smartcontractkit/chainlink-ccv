@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -74,18 +75,59 @@ func (cv *Verifier) ValidateMessage(message protocol.Message) error {
 	return nil
 }
 
-// VerifyMessage verifies a message using the new chain-agnostic format.
-func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataCh chan<- protocol.CCVData, verificationErrorCh chan<- verifier.VerificationError) {
+// VerifyMessages verifies a batch of messages using the new chain-agnostic format.
+// It processes tasks concurrently and adds results directly to the batcher.
+// Returns a BatchResult containing any verification errors that occurred.
+func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) batcher.BatchResult[verifier.VerificationError] {
+	if len(tasks) == 0 {
+		return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
+	}
+
+	cv.lggr.Infow("Starting batch verification", "batchSize", len(tasks))
+
+	// Collect errors from concurrent verification
+	var errors []verifier.VerificationError
+	var errorsMu sync.Mutex
+
+	// Process tasks concurrently
+	var wg sync.WaitGroup
+	for _, task := range tasks {
+		wg.Add(1)
+		go func(verificationTask verifier.VerificationTask) {
+			defer wg.Done()
+			if err := cv.verifyMessage(ctx, verificationTask, ccvDataBatcher); err != nil {
+				errorsMu.Lock()
+				errors = append(errors, verifier.VerificationError{
+					Timestamp: time.Now(),
+					Error:     err,
+					Task:      verificationTask,
+				})
+				errorsMu.Unlock()
+			}
+		}(task)
+	}
+
+	wg.Wait()
+	cv.lggr.Infow("Batch verification completed", "batchSize", len(tasks), "errorCount", len(errors))
+
+	return batcher.BatchResult[verifier.VerificationError]{
+		Items: errors,
+		Error: nil,
+	}
+}
+
+// verifyMessage verifies a single message (internal helper)
+// Returns an error if verification fails, nil if successful.
+func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) error {
 	start := time.Now()
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
 	if err != nil {
-		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to compute message ID: %w", err), verificationErrorCh, cv.lggr)
-		return
+		return fmt.Errorf("failed to compute message ID: %w", err)
 	}
 
-	cv.lggr.Debugw("Starting message verification",
+	cv.lggr.Infow("Starting message verification",
 		"messageID", messageID,
 		"nonce", message.Nonce,
 		"sourceChain", message.SourceChainSelector,
@@ -95,19 +137,16 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 	// 1. Validate that the message comes from a configured source chain
 	sourceConfig, exists := cv.config.SourceConfigs[message.SourceChainSelector]
 	if !exists {
-		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("message source chain selector %d is not configured", message.SourceChainSelector), verificationErrorCh, cv.lggr)
-		return
+		return fmt.Errorf("message source chain selector %d is not configured for message 0x%x", message.SourceChainSelector, messageID)
 	}
 
 	// 2. Validate message format and check verifier receipts
 	if err := cv.ValidateMessage(message); err != nil {
-		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("message format validation failed: %w", err), verificationErrorCh, cv.lggr)
-		return
+		return fmt.Errorf("message format validation failed for message 0x%x: %w", messageID, err)
 	}
 
 	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
-		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("message validation failed: %w", err), verificationErrorCh, cv.lggr)
-		return
+		return fmt.Errorf("message validation failed for message 0x%x with verifier address %s: %w", messageID, sourceConfig.VerifierAddress.String(), err)
 	}
 
 	cv.lggr.Infow("Message validation passed",
@@ -117,8 +156,7 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 
 	encodedSignature, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
 	if err != nil {
-		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to sign message event: %w", err), verificationErrorCh, cv.lggr)
-		return
+		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}
 
 	cv.lggr.Infow("Message signed successfully",
@@ -130,33 +168,29 @@ func (cv *Verifier) VerifyMessage(ctx context.Context, verificationTask verifier
 	// 4. Create CCV data with all required fields
 	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, []byte{}, sourceConfig.VerifierAddress)
 	if err != nil {
-		utils.SendVerificationError(ctx, verificationTask, fmt.Errorf("failed to create CCV data: %w", err), verificationErrorCh, cv.lggr)
-		return
+		return fmt.Errorf("failed to create CCV data for message 0x%x: %w", messageID, err)
 	}
 
-	// Send CCVData to channel for storage
-	select {
-	case ccvDataCh <- *ccvData:
-		// Record successful message processing
-		cv.monitoring.Metrics().
-			With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
-			IncrementMessagesProcessed(ctx)
-		cv.monitoring.Metrics().
-			With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
-			RecordMessageVerificationDuration(ctx, time.Since(start))
-
-		cv.lggr.Infow("CCV data sent to storage channel",
-			"messageID", messageID,
-			"nonce", message.Nonce,
-			"sourceChain", message.SourceChainSelector,
-			"destChain", message.DestChainSelector,
-			"timestamp", ccvData.Timestamp,
-		)
-	case <-ctx.Done():
-		cv.lggr.Debugw("Context cancelled while sending CCV data",
-			"messageID", messageID,
-			"nonce", message.Nonce,
-			"sourceChain", message.SourceChainSelector,
-		)
+	// Add CCVData directly to batcher
+	if err := ccvDataBatcher.Add(*ccvData); err != nil {
+		return fmt.Errorf("failed to add CCV data to batcher for message 0x%x (nonce: %d, source chain: %d): %w", messageID, message.Nonce, message.SourceChainSelector, err)
 	}
+
+	// Record successful message processing
+	cv.monitoring.Metrics().
+		With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
+		IncrementMessagesProcessed(ctx)
+	cv.monitoring.Metrics().
+		With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
+		RecordMessageVerificationDuration(ctx, time.Since(start))
+
+	cv.lggr.Infow("CCV data added to batcher for writing to storage",
+		"messageID", messageID,
+		"nonce", message.Nonce,
+		"sourceChain", message.SourceChainSelector,
+		"destChain", message.DestChainSelector,
+		"timestamp", ccvData.Timestamp,
+	)
+
+	return nil
 }

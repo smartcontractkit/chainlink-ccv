@@ -92,7 +92,21 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 			filepath.Join(p, "../protocol"),
 			"/protocol",
 		))
-		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
+			filepath.Join(p, "../executor"),
+			"/executor",
+		))
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
+			filepath.Join(p, "../verifier"),
+			"/verifier",
+		))
+
+		// The main binary is in common.
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
+			filepath.Join(p, "../common"),
+			AppPathInsideContainer,
+		))
+
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).

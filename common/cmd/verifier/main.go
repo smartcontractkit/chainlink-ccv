@@ -17,12 +17,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/hmac"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/reader"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -191,7 +191,7 @@ func main() {
 			continue
 		}
 
-		sourceReaders[selector], err = reader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.CcvProxyAddresses[strSelector]), ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(), selector, lggr)
+		sourceReaders[selector], err = sourcereader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.CcvProxyAddresses[strSelector]), ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(), selector, lggr)
 		if err != nil {
 			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
 			continue
