@@ -27,12 +27,6 @@ var (
 	defaultSecret = "test-secret-key"
 )
 
-// HMACAuthConfig holds the configuration for HMAC authentication in tests.
-type HMACAuthConfig struct {
-	APIKey string
-	Secret string
-}
-
 // ClientConfig holds configuration for test client behavior.
 type ClientConfig struct {
 	SkipAuth bool
@@ -259,7 +253,7 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 
 	var clientOptions []grpc.DialOption
 	if !clientConfig.SkipAuth {
-		hmacConfig := &HMACAuthConfig{
+		hmacConfig := &hmacutil.ClientConfig{
 			APIKey: clientConfig.APIKey,
 			Secret: clientConfig.Secret,
 		}
@@ -290,12 +284,8 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 	return aggregatorClient, ccvDataClient, cleanup
 }
 
-func createSimpleHMACClientInterceptor(config *HMACAuthConfig) grpc.UnaryClientInterceptor {
-	clientConfig := &hmacutil.ClientConfig{
-		APIKey: config.APIKey,
-		Secret: config.Secret,
-	}
-	return hmacutil.NewClientInterceptor(clientConfig)
+func createSimpleHMACClientInterceptor(config *hmacutil.ClientConfig) grpc.UnaryClientInterceptor {
+	return hmacutil.NewClientInterceptor(config)
 }
 
 func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
