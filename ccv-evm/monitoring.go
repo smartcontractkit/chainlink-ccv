@@ -16,9 +16,9 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"

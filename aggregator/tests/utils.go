@@ -16,7 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
-	hmacutil "github.com/smartcontractkit/chainlink-ccv/common/pkg/hmac"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
