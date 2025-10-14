@@ -52,7 +52,7 @@ func createTestAPIKeyConfig() *model.APIKeyConfig {
 			"test-api-key-2": {
 				ClientID:    "client-2",
 				Description: "Test client 2",
-			Enabled:     true,
+				Enabled:     true,
 				Secrets: map[string]string{
 					"current": "secret-current-2",
 				},
