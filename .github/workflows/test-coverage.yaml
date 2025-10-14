@@ -1,4 +1,4 @@
-name: Component Tests
+name: Test Coverage
 
 on:
   pull_request:
@@ -16,8 +16,8 @@ jobs:
         uses: actions/setup-go@v6 # v6
         with:
           cache: true
-          go-version-file: verifier/go.mod
-          cache-dependency-path: verifier/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Populate go envs
         run: |
