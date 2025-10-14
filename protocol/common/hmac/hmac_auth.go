@@ -61,7 +61,7 @@ func GenerateStringToSign(method, fullPath, bodyHash, apiKey, timestamp string) 
 // ComputeHMAC computes the HMAC-SHA256 signature and returns it as a hex-encoded string.
 func ComputeHMAC(secret, stringToSign string) string {
 	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(stringToSign))
+	_, _ = h.Write([]byte(stringToSign)) // hash.Hash.Write never returns an error
 	return hex.EncodeToString(h.Sum(nil))
 }
 
