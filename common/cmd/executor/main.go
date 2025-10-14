@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
@@ -40,7 +41,8 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
-	if executorConfig.Validate() != nil {
+	if err = executorConfig.Validate(); err != nil {
+		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 
@@ -123,8 +125,13 @@ func main() {
 	// create executor
 	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient)
 
-	// create dummy leader elector
-	le := leaderelector.RandomDelayLeader{}
+	// create hash-based leader elector
+	le := leaderelector.NewHashBasedLeaderElector(
+		executorConfig.ExecutorPool,
+		executorConfig.ExecutorID,
+		executorConfig.GetExecutionInterval(),
+		executorConfig.GetMinWaitPeriod(),
+	)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
@@ -140,7 +147,7 @@ func main() {
 	coordinator, err := executor.NewCoordinator(
 		executor.WithLogger(lggr),
 		executor.WithExecutor(ex),
-		executor.WithLeaderElector(&le),
+		executor.WithLeaderElector(le),
 		executor.WithMessageSubscriber(indexerStream),
 	)
 	if err != nil {
