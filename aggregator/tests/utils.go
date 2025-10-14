@@ -175,6 +175,24 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		APIKeys: model.APIKeyConfig{
 			Clients: make(map[string]*model.APIClient),
 		},
+		RateLimiting: model.RateLimitingConfig{
+			Enabled: true,
+			Storage: model.RateLimiterStoreConfig{
+				Type: "memory",
+			},
+			Limits: map[string]map[string]model.RateLimitConfig{
+				"default": {
+					// Generous defaults for tests - 10000 requests per minute
+					pb.CCVData_GetMessagesSince_FullMethodName:               {LimitPerMinute: 10000},
+					pb.CCVData_GetCCVDataForMessage_FullMethodName:           {LimitPerMinute: 10000},
+					pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:      {LimitPerMinute: 10000},
+					pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName: {LimitPerMinute: 10000},
+					pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:       {LimitPerMinute: 10000},
+					pb.Aggregator_WriteBlockCheckpoint_FullMethodName:        {LimitPerMinute: 10000},
+					pb.Aggregator_ReadBlockCheckpoint_FullMethodName:         {LimitPerMinute: 10000},
+				},
+			},
+		},
 	}
 
 	config.APIKeys.Clients[defaultAPIKey] = &model.APIClient{
