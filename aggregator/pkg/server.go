@@ -265,7 +265,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	anonymousAuthMiddleware := middlewares.NewAnonymousAuthMiddleware()
 
 	// Initialize rate limiting middleware
-	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(context.Background(), config.RateLimiting, l)
+	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config.APIKeys, l)
 	if err != nil {
 		l.Fatalf("Failed to initialize rate limiting middleware: %v", err)
 	}

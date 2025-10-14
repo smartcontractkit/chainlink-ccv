@@ -15,29 +15,33 @@ import (
 )
 
 // NewRateLimiterStore creates a new rate limiter store based on the configuration.
-func NewRateLimiterStore(ctx context.Context, config model.RateLimiterStoreConfig) (limiter.Store, error) {
+func NewRateLimiterStore(config model.RateLimiterStoreConfig) (limiter.Store, error) {
 	switch config.Type {
-	case "memory", "":
+	case model.RateLimiterStoreTypeMemory, "":
 		return memory.NewStore(), nil
 
-	case "redis":
-		if config.RedisAddress == "" {
-			return nil, fmt.Errorf("redis_address is required when using redis storage")
+	case model.RateLimiterStoreTypeRedis:
+		if config.Redis == nil {
+			return nil, fmt.Errorf("redis configuration is required when using redis storage")
+		}
+
+		if config.Redis.Address == "" {
+			return nil, fmt.Errorf("redis address is required when using redis storage")
 		}
 
 		redisClient := redis.NewClient(&redis.Options{
-			Addr:     config.RedisAddress,
-			Password: config.RedisPassword,
-			DB:       config.RedisDB,
+			Addr:     config.Redis.Address,
+			Password: config.Redis.Password,
+			DB:       config.Redis.DB,
 		})
 
-		if err := redisClient.Ping(ctx).Err(); err != nil {
-			return nil, fmt.Errorf("failed to connect to redis at %s: %w", config.RedisAddress, err)
+		if err := redisClient.Ping(context.Background()).Err(); err != nil {
+			return nil, fmt.Errorf("failed to connect to redis at %s: %w", config.Redis.Address, err)
 		}
 
-		keyPrefix := config.KeyPrefix
+		keyPrefix := config.Redis.KeyPrefix
 		if keyPrefix == "" {
-			keyPrefix = "ratelimit"
+			keyPrefix = model.DefaultRateLimiterRedisKeyPrefix
 		}
 
 		store, err := r.NewStoreWithOptions(redisClient, limiter.StoreOptions{
@@ -51,6 +55,6 @@ func NewRateLimiterStore(ctx context.Context, config model.RateLimiterStoreConfi
 		return store, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported storage type: %s (supported: memory, redis)", config.Type)
+		return nil, fmt.Errorf("unsupported storage type: %s (supported: %s, %s)", config.Type, model.RateLimiterStoreTypeMemory, model.RateLimiterStoreTypeRedis)
 	}
 }

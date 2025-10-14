@@ -17,23 +17,25 @@ import (
 )
 
 type RateLimitingMiddleware struct {
-	store   limiter.Store
-	limits  map[string]map[string]model.RateLimitConfig // callerID -> method -> config
-	enabled bool
-	lggr    logger.SugaredLogger
+	store     limiter.Store
+	config    model.RateLimitingConfig
+	apiConfig model.APIKeyConfig
+	enabled   bool
+	lggr      logger.SugaredLogger
 }
 
-// NewRateLimitingMiddleware creates a new rate limiting middleware with the given store and limits.
-func NewRateLimitingMiddleware(store limiter.Store, limits map[string]map[string]model.RateLimitConfig, lggr logger.SugaredLogger) *RateLimitingMiddleware {
-	if store == nil || len(limits) == 0 {
+// NewRateLimitingMiddleware creates a new rate limiting middleware with the given store and configuration.
+func NewRateLimitingMiddleware(store limiter.Store, config model.RateLimitingConfig, apiConfig model.APIKeyConfig, lggr logger.SugaredLogger) *RateLimitingMiddleware {
+	if store == nil {
 		return &RateLimitingMiddleware{enabled: false}
 	}
 
 	return &RateLimitingMiddleware{
-		store:   store,
-		limits:  limits,
-		enabled: true,
-		lggr:    lggr,
+		store:     store,
+		config:    config,
+		apiConfig: apiConfig,
+		enabled:   true,
+		lggr:      lggr,
 	}
 }
 
@@ -42,16 +44,19 @@ func (m *RateLimitingMiddleware) buildKey(callerID, method string) string {
 }
 
 func (m *RateLimitingMiddleware) getLimitConfig(callerID, method string) (model.RateLimitConfig, bool) {
-	if callerLimits, ok := m.limits[callerID]; ok {
-		if config, ok := callerLimits[method]; ok {
-			return config, true
+	// Get the API client configuration for the caller
+	var apiClient *model.APIClient
+	for _, client := range m.apiConfig.Clients {
+		if client.ClientID == callerID {
+			apiClient = client
+			break
 		}
 	}
 
-	if defaultLimits, ok := m.limits["default"]; ok {
-		if config, ok := defaultLimits[method]; ok {
-			return config, true
-		}
+	// Use the new GetEffectiveLimit method to resolve the rate limit
+	effectiveLimit := m.config.GetEffectiveLimit(callerID, method, apiClient)
+	if effectiveLimit != nil {
+		return *effectiveLimit, true
 	}
 
 	return model.RateLimitConfig{}, false
