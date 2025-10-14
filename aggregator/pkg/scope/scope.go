@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -63,6 +64,12 @@ func AugmentLogger(ctx context.Context, logger logger.SugaredLogger) logger.Suga
 	for _, key := range loggerContextKeys {
 		logger = augmentLoggerIfOk(ctx, logger, key)
 	}
+
+	identity, ok := auth.IdentityFromContext(ctx)
+	if ok {
+		logger = logger.With("caller_id", identity.CallerID)
+	}
+
 	return logger
 }
 

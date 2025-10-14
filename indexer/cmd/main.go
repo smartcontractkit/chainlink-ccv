@@ -112,7 +112,7 @@ func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.Offc
 	for _, reader := range cfg.Discovery.Static.Readers {
 		switch reader.Type {
 		case config.ReaderTypeAggregator:
-			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, "dummy-api-key", lggr, reader.Aggregator.Since)
+			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since)
 			if err != nil {
 				lggr.Fatalf("Failed to create aggregator reader: %v", err)
 			}

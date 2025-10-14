@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -148,13 +149,18 @@ func main() {
 		verifierAddresses[selector] = addr
 	}
 
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, config.AggregatorAPIKey, lggr)
+	hmacConfig := &hmac.ClientConfig{
+		APIKey: config.AggregatorAPIKey,
+		Secret: config.AggregatorSecretKey,
+	}
+
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, lggr, hmacConfig)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		os.Exit(1)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, config.AggregatorAPIKey, lggr, 0) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for checkpoint reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()
