@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func TestHashBasedLeaderElector(t *testing.T) {
@@ -145,7 +146,7 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 	}
 }
 
-// Helper function to determine executor order from timestamps
+// Helper function to determine executor order from timestamps.
 func getExecutorOrderFromTimestamps(timestamps map[string]int64) []string {
 	type executorTime struct {
 		id        string
@@ -230,7 +231,7 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
 
 			assert.Equal(t, tc.expectedIndex, elector.executorIndex,
 				"Executor index should match expected position in sorted array")
-			assert.Equal(t, tc.expectedSortedIds, elector.executorIds,
+			assert.Equal(t, tc.expectedSortedIds, elector.executorIDs,
 				"Executor IDs should be sorted")
 		})
 	}
