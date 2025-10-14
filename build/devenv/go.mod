@@ -16,11 +16,8 @@ require (
 	github.com/smartcontractkit/chain-selectors v1.0.72
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006181703-d18c115668b9
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006181703-d18c115668b9
-	github.com/smartcontractkit/chainlink-ccv/aggregator v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-ccv/ccv-evm v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251009200656-036f53dff718
-	github.com/smartcontractkit/chainlink-ccv/indexer v0.0.0-20251003135849-403255766628
-	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003202113-d3a7c6246cfc
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251006133649-4356a9882d12 // indirect
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251014154103-5714596b7627
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.54.1
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.33
@@ -36,7 +33,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.16
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.50.5
-	github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 )
 
@@ -325,7 +321,6 @@ require (
 	github.com/smartcontractkit/chainlink-aptos v0.0.0-20250915164817-46a35eda083d // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250908144012-8184001834b5 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20250908144012-8184001834b5 // indirect
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251006133649-4356a9882d12 // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.4 // indirect
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924193316-7b87b14901ab // indirect
@@ -449,14 +444,4 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
-	github.com/smartcontractkit/chainlink-ccv/aggregator => ../../aggregator
-	//github.com/smartcontractkit/chainlink-ccip => ../../../chainlink-ccip
-	github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces => ../../cciptestinterfaces
-	github.com/smartcontractkit/chainlink-ccv/common => ../../common
-	github.com/smartcontractkit/chainlink-ccv/indexer => ../../indexer
-	github.com/smartcontractkit/chainlink-ccv/protocol => ../../protocol
-
-	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
 )
-
-replace github.com/smartcontractkit/chainlink-ccv/ccv-evm => ./../../ccv-evm
