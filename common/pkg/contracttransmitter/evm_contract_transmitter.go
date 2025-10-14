@@ -12,12 +12,12 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
+	offramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/off_ramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
-	ccvagg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 )
 
 var _ executor.ContractTransmitter = &EVMContractTransmitter{}
@@ -29,7 +29,7 @@ type EVMContractTransmitter struct {
 	TransactOpts  *bind.TransactOpts
 	Client        *ethclient.Client
 	Pk            *ecdsa.PrivateKey
-	CcvAggregator ccvagg.CCVAggregator
+	OffRamp       offramp.OffRamp
 	chainSelector uint64
 	mu            sync.Mutex
 }
@@ -43,8 +43,8 @@ func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector uint64, 
 }
 
 // todo: this is a stub before we use real txm
-func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, chainSelector uint64, rpc, privatekey string, ccvAggregatorAddress common.Address) (*EVMContractTransmitter, error) {
-	// create a client for the ccv aggregator contract
+func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, chainSelector uint64, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
+	// create a client for the off ramp contract
 	client, err := ethclient.Dial(rpc)
 	if err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 	auth.Value = big.NewInt(0)
 	auth.GasLimit = uint64(300000) // in units
 
-	boundContract, err := ccvagg.NewCCVAggregator(ccvAggregatorAddress, client)
+	boundContract, err := offramp.NewOffRamp(offRampAddress, client)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 		TransactOpts:  auth,
 		Client:        client,
 		Pk:            pk,
-		CcvAggregator: *boundContract,
+		OffRamp:       *boundContract,
 	}, nil
 }
 
@@ -123,7 +123,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	}
 
 	encodedMsg, _ := report.Message.Encode()
-	tx, err := ct.CcvAggregator.Execute(opts, encodedMsg, contractCcvs, report.CCVData)
+	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData)
 	if err != nil {
 		return err
 	}

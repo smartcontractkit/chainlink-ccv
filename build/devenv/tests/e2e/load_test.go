@@ -22,7 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	offRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/off_ramp"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -215,7 +215,7 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				}
 
 				// Check execution state
-				event := execEvent.(*ccvAggregator.CCVAggregatorExecutionStateChanged)
+				event := execEvent.(*offRamp.OffRampExecutionStateChanged)
 				if event.State != uint8(2) {
 					t.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, event.State)
 					return

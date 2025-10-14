@@ -22,13 +22,14 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.72
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006181703-d18c115668b9
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006181703-d18c115668b9
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251014144158-9d46428bf29a
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251014203225-ed3d496310e6
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251014144158-9d46428bf29a
 	github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003202113-d3a7c6246cfc
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
-	github.com/smartcontractkit/chainlink-deployments-framework v0.54.1
+	github.com/smartcontractkit/chainlink-deployments-framework v0.55.1
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.33
 	go.uber.org/zap v1.27.0
@@ -43,6 +44,7 @@ require (
 	github.com/XSAM/otelsql v0.37.0 // indirect
 	github.com/aptos-labs/aptos-go-sdk v1.9.1-0.20250613185448-581cb03acb8f // indirect
 	github.com/avast/retry-go/v4 v4.6.1 // indirect
+	github.com/aws/smithy-go v1.22.5 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -168,7 +170,6 @@ require (
 	github.com/smartcontractkit/chainlink-aptos v0.0.0-20250915164817-46a35eda083d // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250908144012-8184001834b5 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20250908144012-8184001834b5 // indirect
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251006133649-4356a9882d12 // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.4 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20250924193316-7b87b14901ab // indirect
 	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20250911124514-5874cc6d62b2 // indirect

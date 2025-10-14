@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	offRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/off_ramp"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
@@ -108,9 +108,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NotNil(t, e)
 
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateFailed, e.(*offRamp.OffRampExecutionStateChanged).State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateSuccess, e.(*offRamp.OffRampExecutionStateChanged).State)
 				}
 			})
 		}
@@ -233,9 +233,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateFailed, e.(*offRamp.OffRampExecutionStateChanged).State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateSuccess, e.(*offRamp.OffRampExecutionStateChanged).State)
 				}
 			})
 		}

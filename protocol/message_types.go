@@ -147,7 +147,7 @@ type Message struct {
 	Data          ByteSlice      `json:"data"`
 	OnRampAddress UnknownAddress `json:"on_ramp_address"`
 	TokenTransfer ByteSlice      `json:"token_transfer"`
-	// This is CCVAggregator
+	// This is OffRamp
 	OffRampAddress       UnknownAddress `json:"off_ramp_address"`
 	DestBlob             ByteSlice      `json:"dest_blob"`
 	Receiver             UnknownAddress `json:"receiver"`
