@@ -1,9 +1,6 @@
 FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
-WORKDIR /
-COPY . .
 WORKDIR /app
-COPY common/go.mod common/go.sum ./
+COPY . .
 RUN go mod download
-ENV EXECUTOR_CONFIG_PATH="/app/cmd/verifier/verifier-1.toml"
 CMD ["air", "-c", "cmd/verifier/air.toml"]

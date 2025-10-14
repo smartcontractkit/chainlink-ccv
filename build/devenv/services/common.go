@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,24 +22,12 @@ func CwdSourcePath(sourcePath string) (string, error) {
 }
 
 // GoSourcePathMounts returns default Golang cache/build-cache and dev-image mounts.
-func GoSourcePathMounts(sourcePath, rootPath, containerDirTarget string) testcontainers.ContainerMounts {
-	absRootPath, err := filepath.Abs(
-		filepath.Join(rootPath, "common"),
-	)
-	if err != nil {
-		fmt.Println("error getting working directory", err)
-		return testcontainers.Mounts()
-	}
-
+func GoSourcePathMounts(sourcePath, containerDirTarget string) testcontainers.ContainerMounts {
 	mounts := make([]testcontainers.ContainerMount, 0)
 	mounts = append(mounts,
 		testcontainers.BindMount(
 			sourcePath,
 			testcontainers.ContainerMountTarget(containerDirTarget),
-		),
-		testcontainers.BindMount(
-			absRootPath,
-			"/common",
 		),
 	)
 	return mounts
