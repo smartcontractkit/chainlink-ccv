@@ -111,7 +111,7 @@ func verifierDefaults(in *VerifierInput) {
 		}
 	}
 	if in.ConfigFilePath == "" {
-		in.ConfigFilePath = "/app/cmd/verifier/verifier-1.toml"
+		in.ConfigFilePath = "/app/common/cmd/verifier/verifier-1.toml"
 	}
 }
 
