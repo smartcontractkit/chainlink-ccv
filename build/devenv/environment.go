@@ -99,34 +99,11 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Pr
 func NewEnvironment() (in *Cfg, err error) {
 	ctx := context.Background()
 	timeTrack := NewTimeTracker(Plog)
-	dxTracker := initDxTracker()
 
 	// track environment startup result and time using getDX app
 	defer func() {
-		duration := timeTrack.SinceStart().Seconds()
-		metaData := map[string]any{}
-		if err != nil {
-			metaData["result"] = "failure"
-			metaData["error"] = oneLineErrorMessage(err)
-		} else {
-			metaData["result"] = "success"
-		}
-		metaData["version"] = "1.7"
-		metaData["config_paths"] = os.Getenv(EnvVarTestConfigs)
-
-		resultErr := dxTracker.Track("ccip.startup.result", metaData)
-		if resultErr != nil {
-			fmt.Fprintf(os.Stderr, "failed to track environment startup result: %s\n", resultErr)
-		}
-
-		// send start up duration only if there was no error during startup
-		if err == nil {
-			metaData["duration_seconds"] = duration
-			timeErr := dxTracker.Track("ccip.startup.time", metaData)
-			if timeErr != nil {
-				fmt.Fprintf(os.Stderr, "failed to track environment startup time: %s\n", timeErr)
-			}
-		}
+		dxTracker := initDxTracker()
+		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
 	}()
 
 	ctx = L.WithContext(ctx)
