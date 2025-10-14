@@ -17,7 +17,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006181703-d18c115668b9
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006181703-d18c115668b9
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251006133649-4356a9882d12 // indirect
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251014154103-5714596b7627
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.54.1
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.33
@@ -444,5 +444,4 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.62.0
-	github.com/smartcontractkit/chainlink-ccv => ../../
 )
