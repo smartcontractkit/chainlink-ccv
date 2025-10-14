@@ -1,23 +1,7 @@
-# syntax=docker/dockerfile:1.7
 FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /app
-COPY indexer/go.mod indexer/go.sum ./
-WORKDIR /
-# Copy dependencies in order of stability for optimal cache efficiency
-# Protocol module - rarely changes, copied first for best cache hits
-COPY protocol/ ./protocol/
-# Common module - depends on protocol, executor, and verifier via replace directives
-COPY common/ ./common/
-# Executor module - required by common/go.mod replace directive: ../executor
-COPY executor/ ./executor/
-# Verifier module - required by common/go.mod replace directive: ../verifier
-COPY verifier/ ./verifier/
-WORKDIR /app
-ENV GOWORK=off
-# Download dependencies for each module in dependency order
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /protocol && go mod download
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build cd /common && go mod download
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go mod download
-COPY indexer/air.toml ./
+COPY . .
+RUN go mod download
+WORKDIR /app/indexer
 CMD ["air", "-c", "air.toml"]
