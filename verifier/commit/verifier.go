@@ -124,7 +124,6 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 
 	messageID, err := message.MessageID()
 	if err != nil {
-		cv.lggr.Errorw("Failed to compute message ID", "error", err)
 		return fmt.Errorf("failed to compute message ID: %w", err)
 	}
 
@@ -138,26 +137,16 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	// 1. Validate that the message comes from a configured source chain
 	sourceConfig, exists := cv.config.SourceConfigs[message.SourceChainSelector]
 	if !exists {
-		cv.lggr.Errorw("Message source chain not configured",
-			"chainSelector", message.SourceChainSelector,
-			"messageID", messageID)
-		return fmt.Errorf("message source chain selector %d is not configured", message.SourceChainSelector)
+		return fmt.Errorf("message source chain selector %d is not configured for message 0x%x", message.SourceChainSelector, messageID)
 	}
 
 	// 2. Validate message format and check verifier receipts
 	if err := cv.ValidateMessage(message); err != nil {
-		cv.lggr.Errorw("Message format validation failed",
-			"error", err,
-			"messageID", messageID)
-		return fmt.Errorf("message format validation failed: %w", err)
+		return fmt.Errorf("message format validation failed for message 0x%x: %w", messageID, err)
 	}
 
 	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
-		cv.lggr.Errorw("Message validation failed",
-			"error", err,
-			"messageID", messageID,
-			"verifierAddress", sourceConfig.VerifierAddress.String())
-		return fmt.Errorf("message validation failed: %w", err)
+		return fmt.Errorf("message validation failed for message 0x%x with verifier address %s: %w", messageID, sourceConfig.VerifierAddress.String(), err)
 	}
 
 	cv.lggr.Infow("Message validation passed",
@@ -167,10 +156,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 
 	encodedSignature, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
 	if err != nil {
-		cv.lggr.Errorw("Failed to sign message",
-			"error", err,
-			"messageID", messageID)
-		return fmt.Errorf("failed to sign message event: %w", err)
+		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}
 
 	cv.lggr.Infow("Message signed successfully",
@@ -182,21 +168,12 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	// 4. Create CCV data with all required fields
 	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, []byte{}, sourceConfig.VerifierAddress)
 	if err != nil {
-		cv.lggr.Errorw("Failed to create CCV data",
-			"error", err,
-			"messageID", messageID)
-		return fmt.Errorf("failed to create CCV data: %w", err)
+		return fmt.Errorf("failed to create CCV data for message 0x%x: %w", messageID, err)
 	}
 
 	// Add CCVData directly to batcher
 	if err := ccvDataBatcher.Add(*ccvData); err != nil {
-		cv.lggr.Errorw("Error adding CCV data to batcher",
-			"error", err,
-			"messageID", messageID,
-			"nonce", message.Nonce,
-			"sourceChain", message.SourceChainSelector,
-		)
-		return fmt.Errorf("failed to add CCV data to batcher: %w", err)
+		return fmt.Errorf("failed to add CCV data to batcher for message 0x%x (nonce: %d, source chain: %d): %w", messageID, message.Nonce, message.SourceChainSelector, err)
 	}
 
 	// Record successful message processing
