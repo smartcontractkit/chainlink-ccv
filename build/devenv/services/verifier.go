@@ -180,7 +180,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
-		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).

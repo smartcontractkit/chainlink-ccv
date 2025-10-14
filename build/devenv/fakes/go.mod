@@ -2,11 +2,9 @@ module github.com/smartcontractkit/devenv/ccip17/fakes
 
 go 1.24.6
 
-replace github.com/smartcontractkit/chainlink-ccv => ../../../
-
 require (
 	github.com/gin-gonic/gin v1.10.1
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251014154103-5714596b7627
 	github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake v0.10.1-0.20250711120409-5078050f9db4
 )
 

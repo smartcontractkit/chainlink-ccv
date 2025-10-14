@@ -79,7 +79,7 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

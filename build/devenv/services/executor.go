@@ -86,7 +86,7 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).

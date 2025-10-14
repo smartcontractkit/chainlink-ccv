@@ -1,7 +1,7 @@
 root = "."
 
 [build]
-cmd = "go build -o ./tmp/fake cmd/main.go"
+cmd = "go build -o ./tmp/fake build/devenv/fakes/cmd/main.go"
 bin = "tmp/fake"
 include_ext = ["go", "mod", "sum"]
 exclude_dir = ["tmp", "vendor", "testdata", ".git"]
