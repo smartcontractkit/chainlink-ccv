@@ -23,7 +23,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003202113-d3a7c6246cfc
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.54.1
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.36-0.20251013100933-b81e7d3a1ae9
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.11.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
