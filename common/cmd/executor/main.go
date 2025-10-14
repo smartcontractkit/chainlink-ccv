@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
@@ -42,7 +41,6 @@ func main() {
 		os.Exit(1)
 	}
 	if err = executorConfig.Validate(); err != nil {
-		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 
