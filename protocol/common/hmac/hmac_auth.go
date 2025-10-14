@@ -30,7 +30,7 @@ const (
 	HTTPMethodPost = "POST"
 
 	// DefaultTimeWindow is the default acceptable time window for request timestamps.
-	DefaultTimeWindow = time.Duration(15)
+	DefaultTimeWindow = 15 * time.Second
 )
 
 // SerializeRequestBody marshals a protobuf message to bytes.
