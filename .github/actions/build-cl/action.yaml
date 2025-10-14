@@ -49,8 +49,8 @@ runs:
     - name: Build and Load Docker Image
       uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
       with:
-        cache-from: type=gha,timeout=10m,scope=build-cl-${{ runner.arch }}
-        cache-to: type=gha,timeout=10m,mode=max,ignore-error=true,scope=build-cl-${{ runner.arch }}
+        cache-from: type=gha,timeout=10m,scope=ccv-${{ runner.os }}-${{ runner.arch }}
+        cache-to: type=gha,timeout=10m,mode=max,ignore-error=true,scope=ccv-${{ runner.os }}-${{ runner.arch }}
         context: ${{ github.workspace }}/chainlink-repo
         file: ${{ github.workspace }}/chainlink-repo/plugins/chainlink.Dockerfile
         load: true
