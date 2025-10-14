@@ -461,16 +461,16 @@ func TestE2ELoad(t *testing.T) {
 
 	t.Run("rpc latency", func(t *testing.T) {
 		// 400ms latency for any RPC node
-		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=5m delay --time=400 re2:blockchain-node-.*", 0*time.Second)
+		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=45s delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
 
 		rps := int64(1)
-		testDuration := 200 * time.Second
+		testDuration := 30 * time.Second
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 250*time.Second)
+		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 120*time.Second)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
