@@ -49,14 +49,14 @@ func NewHashBasedLeaderElector(
 }
 
 // GetReadyTimestamp implements the LeaderElector interface.
-// It returns: verifierTimestamp + (arrayIndex * executionInterval) + minWaitPeriod
+// It returns: baseTimestamp + (arrayIndex * executionInterval) + minWaitPeriod
 func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	messageID protocol.Bytes32,
-	verifierTimestamp int64,
+	baseTimestamp int64,
 ) int64 {
 	if h.executorIndex == -1 {
 		// This executor is not in the list, should not happen if config is validated
-		return verifierTimestamp + int64(h.minWaitPeriod.Seconds())
+		return baseTimestamp + int64(h.minWaitPeriod.Seconds())
 	}
 
 	// Convert first 8 bytes of hash to uint64 for consistent ordering
@@ -66,8 +66,8 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	// This creates a message-specific ordering of executors
 	executorIndex := int64(hashValue % uint64(len(h.executorIds)))
 
-	// Calculate ready timestamp: verifierTimestamp + (arrayIndex * executionInterval) + minWaitPeriod
+	// Calculate ready timestamp: baseTimestamp + (arrayIndex * executionInterval) + minWaitPeriod
 	delaySeconds := executorIndex*int64(h.executionInterval.Seconds()) + int64(h.minWaitPeriod.Seconds())
 
-	return verifierTimestamp + delaySeconds
+	return baseTimestamp + delaySeconds
 }

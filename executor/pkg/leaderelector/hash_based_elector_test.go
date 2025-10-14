@@ -18,7 +18,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 		executionInterval time.Duration
 		minWaitPeriod     time.Duration
 		messageID         protocol.Bytes32
-		verifierTimestamp int64
+		baseTimestamp     int64
 	}{
 		{
 			name:              "first executor with specific message",
@@ -27,7 +27,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			executionInterval: 30 * time.Second,
 			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
-			verifierTimestamp: 1000,
+			baseTimestamp:     1000,
 		},
 		{
 			name:              "middle executor with specific message",
@@ -36,7 +36,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			executionInterval: 30 * time.Second,
 			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
-			verifierTimestamp: 1000,
+			baseTimestamp:     1000,
 		},
 		{
 			name:              "different message ID changes order",
@@ -45,7 +45,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			executionInterval: 30 * time.Second,
 			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x04, 0x05, 0x06},
-			verifierTimestamp: 1000,
+			baseTimestamp:     1000,
 		},
 		{
 			name:              "different execution interval",
@@ -54,7 +54,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			executionInterval: 60 * time.Second,
 			minWaitPeriod:     5 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
-			verifierTimestamp: 2000,
+			baseTimestamp:     2000,
 		},
 		{
 			name:              "single executor",
@@ -63,7 +63,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			executionInterval: 45 * time.Second,
 			minWaitPeriod:     15 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
-			verifierTimestamp: 1500,
+			baseTimestamp:     1500,
 		},
 	}
 
@@ -80,21 +80,21 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			require.NotNil(t, elector)
 
 			// Get the ready timestamp
-			readyTimestamp := elector.GetReadyTimestamp(tc.messageID, tc.verifierTimestamp)
+			readyTimestamp := elector.GetReadyTimestamp(tc.messageID, tc.baseTimestamp)
 
 			// With our new hashing approach, we can't precisely predict the output in tests,
 			// but we can check the bounds and consistency
 			minExpectedDelay := int64(tc.minWaitPeriod.Seconds())
 			maxExpectedDelay := int64(tc.minWaitPeriod.Seconds()) + int64(tc.executionInterval.Seconds()*float64(len(tc.executorIds)-1))
 
-			calculatedDelay := readyTimestamp - tc.verifierTimestamp
+			calculatedDelay := readyTimestamp - tc.baseTimestamp
 			assert.GreaterOrEqual(t, calculatedDelay, minExpectedDelay,
-				"Ready timestamp should be at least verifierTimestamp + minWaitPeriod")
+				"Ready timestamp should be at least baseTimestamp + minWaitPeriod")
 			assert.LessOrEqual(t, calculatedDelay, maxExpectedDelay,
-				"Ready timestamp should not exceed verifierTimestamp + minWaitPeriod + (numExecutors-1)*executionInterval")
+				"Ready timestamp should not exceed baseTimestamp + minWaitPeriod + (numExecutors-1)*executionInterval")
 
 			// Run it again to check consistency
-			readyTimestamp2 := elector.GetReadyTimestamp(tc.messageID, tc.verifierTimestamp)
+			readyTimestamp2 := elector.GetReadyTimestamp(tc.messageID, tc.baseTimestamp)
 			assert.Equal(t, readyTimestamp, readyTimestamp2, "Results should be deterministic for the same inputs")
 		})
 	}
@@ -104,7 +104,7 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 	executorIds := []string{"executor-c", "executor-a", "executor-b"}
 	executionInterval := 30 * time.Second
 	minWaitPeriod := 10 * time.Second
-	verifierTimestamp := int64(1000)
+	baseTimestamp := int64(1000)
 
 	// Different message IDs should result in different execution orders
 	messageID1 := protocol.Bytes32{0x01, 0x02, 0x03}
@@ -119,13 +119,13 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 	// Check message1 ordering
 	msg1Times := make(map[string]int64)
 	for id, elector := range electors {
-		msg1Times[id] = elector.GetReadyTimestamp(messageID1, verifierTimestamp)
+		msg1Times[id] = elector.GetReadyTimestamp(messageID1, baseTimestamp)
 	}
 
 	// Check message2 ordering
 	msg2Times := make(map[string]int64)
 	for id, elector := range electors {
-		msg2Times[id] = elector.GetReadyTimestamp(messageID2, verifierTimestamp)
+		msg2Times[id] = elector.GetReadyTimestamp(messageID2, baseTimestamp)
 	}
 
 	// Verify different messages create different orderings
@@ -139,8 +139,8 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 
 	// Verify consistent results across multiple calls
 	for _, elector := range electors {
-		result1 := elector.GetReadyTimestamp(messageID1, verifierTimestamp)
-		result2 := elector.GetReadyTimestamp(messageID1, verifierTimestamp)
+		result1 := elector.GetReadyTimestamp(messageID1, baseTimestamp)
+		result2 := elector.GetReadyTimestamp(messageID1, baseTimestamp)
 		assert.Equal(t, result1, result2, "Same elector should return consistent results")
 	}
 }
@@ -183,16 +183,16 @@ func TestHashBasedLeaderElector_ExecutorNotInList(t *testing.T) {
 	executionInterval := 30 * time.Second
 	minWaitPeriod := 10 * time.Second
 	messageID := protocol.Bytes32{0x01, 0x02, 0x03}
-	verifierTimestamp := int64(1000)
+	baseTimestamp := int64(1000)
 
 	elector := NewHashBasedLeaderElector(executorIds, thisExecutorId, executionInterval, minWaitPeriod)
 
-	readyTimestamp := elector.GetReadyTimestamp(messageID, verifierTimestamp)
+	readyTimestamp := elector.GetReadyTimestamp(messageID, baseTimestamp)
 
 	// Should fall back to just minWaitPeriod when executor not in list
-	expectedTimestamp := verifierTimestamp + int64(minWaitPeriod.Seconds())
+	expectedTimestamp := baseTimestamp + int64(minWaitPeriod.Seconds())
 	assert.Equal(t, expectedTimestamp, readyTimestamp,
-		"When executor not in list, should return verifierTimestamp + minWaitPeriod")
+		"When executor not in list, should return baseTimestamp + minWaitPeriod")
 }
 
 func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
