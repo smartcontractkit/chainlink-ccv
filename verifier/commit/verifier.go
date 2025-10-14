@@ -83,7 +83,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 		return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 	}
 
-	cv.lggr.Debugw("Starting batch verification", "batchSize", len(tasks))
+	cv.lggr.Infow("Starting batch verification", "batchSize", len(tasks))
 
 	// Collect errors from concurrent verification
 	var errors []verifier.VerificationError
@@ -108,7 +108,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 	}
 
 	wg.Wait()
-	cv.lggr.Debugw("Batch verification completed", "batchSize", len(tasks), "errorCount", len(errors))
+	cv.lggr.Infow("Batch verification completed", "batchSize", len(tasks), "errorCount", len(errors))
 
 	return batcher.BatchResult[verifier.VerificationError]{
 		Items: errors,
@@ -127,7 +127,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		return fmt.Errorf("failed to compute message ID: %w", err)
 	}
 
-	cv.lggr.Debugw("Starting message verification",
+	cv.lggr.Infow("Starting message verification",
 		"messageID", messageID,
 		"nonce", message.Nonce,
 		"sourceChain", message.SourceChainSelector,
@@ -184,7 +184,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
 		RecordMessageVerificationDuration(ctx, time.Since(start))
 
-	cv.lggr.Debugw("CCV data added to batcher",
+	cv.lggr.Infow("CCV data added to batcher for writing to storage",
 		"messageID", messageID,
 		"nonce", message.Nonce,
 		"sourceChain", message.SourceChainSelector,
