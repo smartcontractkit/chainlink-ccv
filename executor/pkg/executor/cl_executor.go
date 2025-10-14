@@ -104,7 +104,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return err
 	}
 
-	aggregatedReport, CCVTimestamp, err := cle.orderCcvData(message, ccvData, ccvInfo)
+	aggregatedReport, ccvTimestamp, err := cle.orderCcvData(message, ccvData, ccvInfo)
 	if err != nil {
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
 	}
@@ -113,9 +113,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	if err != nil {
 		return fmt.Errorf("failed to transmit message to chain: %w", err)
 	}
-	duration := time.Since(time.Unix(CCVTimestamp, 0))
-	cle.lggr.Infof("CVVTimestamp: %d, duration: %ds", CCVTimestamp, int(duration.Seconds()))
-	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, duration)
+	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(time.Unix(ccvTimestamp, 0)))
 
 	return nil
 }
@@ -154,20 +152,20 @@ func (cle *ChainlinkExecutor) orderCcvData(message protocol.Message, ccvData []p
 	if len(orderedCcvData)-len(receiverDefinedCcvs.RequiredCcvs) < int(receiverDefinedCcvs.OptionalThreshold) {
 		return executor.AbstractAggregatedReport{}, 0, executor.ErrInsufficientVerifiers
 	}
-	var CCVTimestamp int64
+	var ccvTimestamp int64
 	if receiverDefinedCcvs.OptionalThreshold > 0 {
 		slices.Sort(optionalCCVTimestamps)
 		minSignificantOptionalCCVTimestamp := optionalCCVTimestamps[receiverDefinedCcvs.OptionalThreshold-1]
-		CCVTimestamp = max(lastRequiredCCVTimestamp, minSignificantOptionalCCVTimestamp)
+		ccvTimestamp = max(lastRequiredCCVTimestamp, minSignificantOptionalCCVTimestamp)
 	} else {
-		CCVTimestamp = lastRequiredCCVTimestamp
+		ccvTimestamp = lastRequiredCCVTimestamp
 	}
 
 	return executor.AbstractAggregatedReport{
 		Message: message,
 		CCVS:    orderedCcvOfframps,
 		CCVData: orderedCcvData,
-	}, CCVTimestamp, nil
+	}, ccvTimestamp, nil
 }
 
 func (cle *ChainlinkExecutor) Validate() error {

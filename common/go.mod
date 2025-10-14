@@ -2,11 +2,11 @@ module github.com/smartcontractkit/chainlink-ccv/common
 
 go 1.24.6
 
-replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
-
-replace github.com/smartcontractkit/chainlink-ccv/executor => ../executor
-
-replace github.com/smartcontractkit/chainlink-ccv/verifier => ../verifier
+replace (
+	github.com/smartcontractkit/chainlink-ccv/executor => ../executor
+	github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
+	github.com/smartcontractkit/chainlink-ccv/verifier => ../verifier
+)
 
 require (
 	github.com/BurntSushi/toml v1.4.0

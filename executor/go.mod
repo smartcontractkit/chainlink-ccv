@@ -2,15 +2,12 @@ module github.com/smartcontractkit/chainlink-ccv/executor
 
 go 1.24.6
 
-replace (
-	github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20250528121202-292529af39df
-	github.com/smartcontractkit/chainlink-ccv/common => ../common
-	github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
-)
+replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
+
+replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20250528121202-292529af39df
 
 require (
 	github.com/grafana/pyroscope-go v1.2.7
-	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/stretchr/testify v1.11.1

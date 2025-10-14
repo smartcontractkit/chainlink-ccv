@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/monitoring"
 )
 
 // Signer represents a participant in the commit verification process.
@@ -148,24 +146,34 @@ type OrphanRecoveryConfig struct {
 	IntervalSeconds int `toml:"intervalSeconds"`
 }
 
-// BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
+// MonitoringConfig provides monitoring configuration for aggregator.
+type MonitoringConfig struct {
+	// Enabled enables the monitoring system.
+	Enabled bool `toml:"Enabled"`
+	// Type is the type of monitoring system to use (beholder, noop).
+	Type string `toml:"Type"`
+	// Beholder is the configuration for the beholder client (Not required if type is noop).
+	Beholder BeholderConfig `toml:"Beholder"`
+}
+
+// BeholderConfig wraps OpenTelemetry configuration for the beholder client.
 type BeholderConfig struct {
 	// InsecureConnection disables TLS for the beholder client.
-	InsecureConnection bool `toml:"insecureConnection"`
+	InsecureConnection bool `toml:"InsecureConnection"`
 	// CACertFile is the path to the CA certificate file for the beholder client.
-	CACertFile string `toml:"caCertFile"`
+	CACertFile string `toml:"CACertFile"`
 	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterGRPCEndpoint string `toml:"otelExporterGRPCEndpoint"`
+	OtelExporterGRPCEndpoint string `toml:"OtelExporterGRPCEndpoint"`
 	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterHTTPEndpoint string `toml:"otelExporterHTTPEndpoint"`
+	OtelExporterHTTPEndpoint string `toml:"OtelExporterHTTPEndpoint"`
 	// LogStreamingEnabled enables log streaming to the collector.
-	LogStreamingEnabled bool `toml:"logStreamingEnabled"`
+	LogStreamingEnabled bool `toml:"LogStreamingEnabled"`
 	// MetricReaderInterval is the interval to scrape metrics (in seconds).
-	MetricReaderInterval int64 `toml:"metricReaderInterval"`
+	MetricReaderInterval int64 `toml:"MetricReaderInterval"`
 	// TraceSampleRatio is the ratio of traces to sample.
-	TraceSampleRatio float64 `toml:"traceSampleRatio"`
+	TraceSampleRatio float64 `toml:"TraceSampleRatio"`
 	// TraceBatchTimeout is the timeout for a batch of traces.
-	TraceBatchTimeout int64 `toml:"traceBatchTimeout"`
+	TraceBatchTimeout int64 `toml:"TraceBatchTimeout"`
 }
 
 // GetClientByAPIKey returns the client configuration for a given API key.
@@ -210,7 +218,7 @@ type AggregatorConfig struct {
 	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
-	Monitoring        monitoring.Config          `toml:"monitoring"`
+	Monitoring        MonitoringConfig           `toml:"monitoring"`
 	PyroscopeURL      string                     `toml:"pyroscope_url"`
 }
 

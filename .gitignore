@@ -1,5 +1,6 @@
 build/devenv/fakes/tmp/**
 **/.build
+common/tmp
 
 # Intellij IDEA project config
 .idea/*

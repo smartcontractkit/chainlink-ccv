@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -124,7 +125,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			for _, chain := range tc.drChains {
 				allDestinationReaders[chain] = tc.dr
 			}
-			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, tc.vr(), nil)
+			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, tc.vr(), monitoring.NewNoopExecutorMonitoring())
 			err := executor.Validate()
 			if tc.validateShouldError {
 				assert.Error(t, err)
@@ -152,6 +153,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 
 func TestChainlinkExecutor_orderCcvData(t *testing.T) {
 	executor := NewChainlinkExecutor(nil, nil, nil, nil, nil)
+	message := protocol.Message{}
 	ccvAddr := protocol.UnknownAddress{}
 	ccvData := []protocol.CCVData{{DestVerifierAddress: ccvAddr, CCVData: []byte("data")}}
 	ccvInfo := coordinator.CcvAddressInfo{
@@ -159,8 +161,9 @@ func TestChainlinkExecutor_orderCcvData(t *testing.T) {
 		OptionalCcvs:      []protocol.UnknownAddress{},
 		OptionalThreshold: 0,
 	}
-	addrs, data, err := executor.orderCcvData(
+	report, timestamp, err := executor.orderCcvData(message, ccvData, ccvInfo)
 	assert.NoError(t, err)
-	assert.Equal(t, 1, len(addrs))
-	assert.Equal(t, 1, len(data))
+	assert.Equal(t, 1, len(report.CCVS))
+	assert.Equal(t, 1, len(report.CCVData))
+	assert.Equal(t, int64(0), timestamp)
 }

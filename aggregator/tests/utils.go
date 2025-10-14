@@ -13,7 +13,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
@@ -87,7 +86,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 		Storage: &model.StorageConfig{
 			StorageType: model.StorageTypeDynamoDB, // Default to DynamoDB
 		},
-		Monitoring: monitoring.Config{
+		Monitoring: model.MonitoringConfig{
 			Enabled: false,
 		},
 	}

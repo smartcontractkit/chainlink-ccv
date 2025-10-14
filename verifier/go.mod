@@ -2,6 +2,11 @@ module github.com/smartcontractkit/chainlink-ccv/verifier
 
 go 1.24.6
 
+// Replace directives for local modules
+replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
+
+replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20250422175525-b7575d96bd4d
+
 require (
 	github.com/ethereum/go-ethereum v1.16.2
 	github.com/grafana/pyroscope-go v1.2.7
@@ -103,8 +108,3 @@ require (
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// Replace directives for local modules
-replace github.com/smartcontractkit/chainlink-ccv/protocol => ../protocol
-
-replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20250422175525-b7575d96bd4d

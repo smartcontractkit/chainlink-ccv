@@ -6,7 +6,6 @@ import (
 	"github.com/grafana/pyroscope-go"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
@@ -15,7 +14,7 @@ type AggregatorBeholderMonitoring struct {
 	metrics common.AggregatorMetricLabeler
 }
 
-func InitMonitoring(aggConfig *model.AggregatorConfig, config beholder.Config) (common.AggregatorMonitoring, error) {
+func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error) {
 	config.MetricViews = MetricViews()
 
 	// Create the beholder client
@@ -36,7 +35,7 @@ func InitMonitoring(aggConfig *model.AggregatorConfig, config beholder.Config) (
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "aggregator",
-		ServerAddress:   aggConfig.PyroscopeURL,
+		ServerAddress:   "http://pyroscope:4040",
 		Logger:          pyroscope.StandardLogger,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,

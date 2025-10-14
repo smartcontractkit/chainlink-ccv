@@ -572,7 +572,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 48
+            "y": 56
           },
           "id": 20,
           "options": {
@@ -617,6 +617,74 @@
       "panels": [
         {
           "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Time to aggregation since first verification",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 3
+          },
+          "id": 44,
+          "options": {
+            "displayMode": "gradient",
+            "minVizHeight": 10,
+            "minVizWidth": 0,
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "valueMode": "color"
+          },
+          "pluginVersion": "10.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "max by (le) (delta(aggregator_time_to_aggregation_seconds_bucket[$__range]))",
+              "format": "heatmap",
+              "legendFormat": "__auto",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Aggregator latency sec",
+          "type": "bargauge"
+        },
+        {
+          "datasource": {
             "type": "loki",
             "uid": "P8E80F9AEF21F6940"
           },
@@ -625,7 +693,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 49
+            "y": 11
           },
           "id": 21,
           "options": {
@@ -670,6 +738,74 @@
       "panels": [
         {
           "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Time to verification since task creation time",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 4
+          },
+          "id": 45,
+          "options": {
+            "displayMode": "gradient",
+            "minVizHeight": 10,
+            "minVizWidth": 0,
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "valueMode": "color"
+          },
+          "pluginVersion": "10.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "max by (le) (delta(verifier_message_e2e_latency_seconds_bucket[$__range])) > 0",
+              "format": "heatmap",
+              "legendFormat": "__auto",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Verifier e2e latency sec",
+          "type": "bargauge"
+        },
+        {
+          "datasource": {
             "type": "loki",
             "uid": "P8E80F9AEF21F6940"
           },
@@ -678,7 +814,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 50
+            "y": 12
           },
           "id": 22,
           "options": {
@@ -723,6 +859,74 @@
       "panels": [
         {
           "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "description": "Time to execution since aggregation time",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 5
+          },
+          "id": 46,
+          "options": {
+            "displayMode": "gradient",
+            "minVizHeight": 10,
+            "minVizWidth": 0,
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "valueMode": "color"
+          },
+          "pluginVersion": "10.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "max by (le) (delta(executor_message_execution_duration_seconds_bucket[$__range]))",
+              "format": "heatmap",
+              "legendFormat": "__auto",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Execution latency sec",
+          "type": "bargauge"
+        },
+        {
+          "datasource": {
             "type": "loki",
             "uid": "P8E80F9AEF21F6940"
           },
@@ -731,7 +935,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 63
+            "y": 13
           },
           "id": 25,
           "options": {
@@ -784,7 +988,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 31
+            "y": 39
           },
           "id": 6,
           "options": {
@@ -823,7 +1027,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 36
+            "y": 44
           },
           "id": 8,
           "options": {
@@ -928,7 +1132,7 @@
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 25
+            "y": 33
           },
           "id": 2,
           "options": {
@@ -1028,7 +1232,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 25
+            "y": 33
           },
           "id": 4,
           "options": {
@@ -1128,7 +1332,7 @@
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 32
+            "y": 40
           },
           "id": 3,
           "options": {
@@ -1228,7 +1432,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 32
+            "y": 40
           },
           "id": 5,
           "options": {
@@ -1288,7 +1492,7 @@
             "h": 4,
             "w": 24,
             "x": 0,
-            "y": 16
+            "y": 24
           },
           "id": 40,
           "options": {
@@ -1314,7 +1518,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 20
+            "y": 28
           },
           "id": 36,
           "targets": [
@@ -1344,7 +1548,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 29
+            "y": 37
           },
           "id": 37,
           "targets": [
@@ -1374,7 +1578,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 38
+            "y": 46
           },
           "id": 39,
           "targets": [
@@ -1404,7 +1608,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 47
+            "y": 55
           },
           "id": 38,
           "targets": [
@@ -1448,7 +1652,7 @@
             "h": 12,
             "w": 24,
             "x": 0,
-            "y": 31
+            "y": 39
           },
           "id": 42,
           "targets": [
@@ -1483,7 +1687,7 @@
             "h": 12,
             "w": 24,
             "x": 0,
-            "y": 43
+            "y": 51
           },
           "id": 43,
           "targets": [
@@ -1521,9 +1725,10 @@
     "list": [
       {
         "current": {
+          "isNone": true,
           "selected": false,
-          "text": "3379446385462418246",
-          "value": "3379446385462418246"
+          "text": "None",
+          "value": ""
         },
         "datasource": {
           "type": "loki",
@@ -1551,9 +1756,10 @@
       },
       {
         "current": {
+          "isNone": true,
           "selected": false,
-          "text": "12922642891491394802",
-          "value": "12922642891491394802"
+          "text": "None",
+          "value": ""
         },
         "datasource": {
           "type": "loki",
