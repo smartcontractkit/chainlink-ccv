@@ -17,7 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	hmacutil "github.com/smartcontractkit/chainlink-ccv/common/pkg/hmac"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -200,7 +200,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 		{
 			name: "expired timestamp returns Unauthenticated",
 			setupMetadata: func() metadata.MD {
-				expiredTimestamp := time.Now().Add(-10 * time.Second).UnixMilli()
+				expiredTimestamp := time.Now().Add(-20 * time.Second).UnixMilli()
 				apiKey := testAPIKey1
 				secret := "secret-current-1"
 				signature := generateTestSignature(t, secret, method, req, apiKey, expiredTimestamp)

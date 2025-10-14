@@ -97,16 +97,16 @@ func TestValidateTimestamp(t *testing.T) {
 	})
 
 	t.Run("invalid timestamp too old", func(t *testing.T) {
-		sixSecondsAgo := time.Now().Add(-6 * time.Second).UnixMilli()
+		sixSecondsAgo := time.Now().Add(-16 * time.Second).UnixMilli()
 		err := ValidateTimestamp(toString(sixSecondsAgo))
-		require.Error(t, err, "Timestamp 6 seconds ago should be invalid")
+		require.Error(t, err, "Timestamp 16 seconds ago should be invalid")
 		require.Contains(t, err.Error(), "outside acceptable window")
 	})
 
 	t.Run("invalid timestamp too far in future", func(t *testing.T) {
-		sixSecondsAhead := time.Now().Add(6 * time.Second).UnixMilli()
+		sixSecondsAhead := time.Now().Add(16 * time.Second).UnixMilli()
 		err := ValidateTimestamp(toString(sixSecondsAhead))
-		require.Error(t, err, "Timestamp 6 seconds ahead should be invalid")
+		require.Error(t, err, "Timestamp 16 seconds ahead should be invalid")
 		require.Contains(t, err.Error(), "outside acceptable window")
 	})
 

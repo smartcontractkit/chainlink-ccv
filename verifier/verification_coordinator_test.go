@@ -382,10 +382,22 @@ func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorCon
 }
 
 // waitForMessages waits for the specified number of messages to be processed.
+// Since messages are batched, we can't rely on one notification per message.
+// Instead, we poll the storage to check if the expected count has been reached.
 func waitForMessages(ts *testSetup, count int) {
-	for i := 0; i < count; i++ {
-		err := ts.storage.WaitForStore(ts.ctx)
-		require.NoError(ts.t, err)
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			require.FailNow(ts.t, "Timeout waiting for messages", "expected %d messages, got %d", count, ts.storage.GetTotalCount())
+		case <-ticker.C:
+			if ts.storage.GetTotalCount() >= count {
+				return
+			}
+		}
 	}
 }
 

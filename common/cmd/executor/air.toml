@@ -1,0 +1,8 @@
+root = ".."
+
+[build]
+cmd = "go build -o ./tmp/executor cmd/executor/main.go"
+bin = "tmp/executor"
+include_dir = ["app", "protocol", "executor", "verifier"]
+include_ext = ["go", "mod", "sum"]
+exclude_dir = ["tmp", "vendor", "testdata", ".git"]

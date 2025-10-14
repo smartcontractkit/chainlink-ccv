@@ -49,7 +49,7 @@ func ipFromForwardedFor(ctx context.Context) (string, bool) {
 		return "", false
 	}
 
-	ip := md.Get("X-Forwarded-For")
+	ip := md.Get("x-forwarded-for")
 
 	if len(ip) == 0 {
 		return "", false
@@ -64,7 +64,7 @@ func ipFromRealIP(ctx context.Context) (string, bool) {
 		return "", false
 	}
 
-	ip := md.Get("X-Real-IP")
+	ip := md.Get("x-real-ip")
 
 	if len(ip) == 0 {
 		return "", false

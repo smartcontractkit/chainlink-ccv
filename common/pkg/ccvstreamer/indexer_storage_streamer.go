@@ -8,8 +8,8 @@ import (
 
 	"golang.org/x/exp/maps"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -88,7 +88,7 @@ func (oss *IndexerStorageStreamer) Start(
 			default:
 				// Non-blocking: call ReadCCVData
 				oss.lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
-				responses, err := oss.reader.ReadMessages(ctx, storageaccess.MessagesV1Request{
+				responses, err := oss.reader.ReadMessages(ctx, protocol.MessagesV1Request{
 					Limit:                oss.queryLimit,
 					Offset:               offset,
 					Start:                oss.lastQueryTime,

@@ -28,3 +28,9 @@ test: ensure-go
 
 test-coverage: ensure-go
     go test -v -race -coverprofile=coverage.out ./...
+
+mock: ensure-mockery
+    @echo "Cleaning existing mocks..."
+    find . -path "*/executor_mocks/*.go" -delete 2>/dev/null || true
+    @echo "Generating mocks with mockery..."
+    mockery
