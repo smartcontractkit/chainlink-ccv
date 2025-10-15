@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -216,7 +215,15 @@ func TestIdempotency(t *testing.T) {
 type SignatureValidationOption func(*signatureValidationConfig)
 
 type signatureValidationConfig struct {
-	expectedSigners []*SignerFixture
+	expectedSigners         []*SignerFixture
+	exactNumberOfSignatures *int
+	expectActualCCVData     [][]byte
+}
+
+func WithExactNumberOfSignatures(n int) SignatureValidationOption {
+	return func(config *signatureValidationConfig) {
+		config.exactNumberOfSignatures = &n
+	}
 }
 
 // WithValidSignatureFrom validates that the CCV data contains a valid signature from the specified signer.
@@ -246,7 +253,7 @@ func assertCCVDataFound(
 	sourceVerifierAddress []byte,
 	destVerifierAddress []byte,
 	options ...SignatureValidationOption,
-) {
+) *pb.MessageWithCCVData {
 	// Wait a moment for the aggregation to process
 	time.Sleep(50 * time.Millisecond)
 	respCcvData, err := ccvDataClient.GetCCVDataForMessage(ctx, &pb.GetCCVDataForMessageRequest{
@@ -282,6 +289,8 @@ func assertCCVDataFound(
 	if len(options) > 0 {
 		validateSignatures(t, respCcvData.CcvData, messageId, options...)
 	}
+
+	return respCcvData
 }
 
 // validateSignatures decodes the CCV data and validates signatures from expected signers.
@@ -310,18 +319,8 @@ func validateSignatures(t *testing.T, ccvData []byte, messageId protocol.Bytes32
 		require.NotEqual(t, [32]byte{}, ss[i], "signature S[%d] should not be zero", i)
 	}
 
-	// Try to recover signer addresses using the aggregated ccvArgs
-	// Note: The signatures in aggregated reports were originally created with different ccvArgs
-	// during individual submission, so exact signature validation is complex. This validates
-	// that the signature data is well-formed and can be processed.
-	var signatureHashInput bytes.Buffer
-	signatureHashInput.Write(messageId[:])
-	signatureHash := crypto.Keccak256(signatureHashInput.Bytes())
-
-	var hash32 [32]byte
-	copy(hash32[:], signatureHash[:])
-
-	recoveredAddresses, err := protocol.RecoverSigners(hash32, rs, ss)
+	// Recover signer addresses from the aggregated signatures
+	recoveredAddresses, err := protocol.RecoverSigners(messageId, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
@@ -336,6 +335,37 @@ func validateSignatures(t *testing.T, ccvData []byte, messageId protocol.Bytes32
 	require.Equal(t, len(rs), len(recoveredAddresses), "should recover one address per signature")
 	for _, addr := range recoveredAddresses {
 		require.NotEqual(t, common.Address{}, addr, "recovered address should not be zero")
+	}
+
+	// Verify that all expected signers are present in the recovered addresses
+	for expectedAddr, participantID := range expectedAddresses {
+		found := false
+		for _, recoveredAddr := range recoveredAddresses {
+			if recoveredAddr == expectedAddr {
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "expected signer %s (participant %s) not found in recovered addresses", expectedAddr.Hex(), participantID)
+	}
+
+	if config.exactNumberOfSignatures != nil {
+		require.Equal(t, *config.exactNumberOfSignatures, len(rs), "number of signatures does not match expected")
+	}
+
+	if len(config.expectActualCCVData) > 0 {
+		for _, expectedSig := range config.expectActualCCVData {
+			found := false
+			expectedR, expectedS, err := protocol.DecodeSignatures(expectedSig)
+			require.NoError(t, err, "failed to decode expected signature")
+			for i := range rs {
+				if rs[i] == expectedR[0] && ss[i] == expectedS[0] {
+					found = true
+					break
+				}
+			}
+			require.True(t, found, "expected signature (R,S) pair not found")
+		}
 	}
 }
 
@@ -460,7 +490,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2))
+	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(2))
 
 	// Change committee to remove signer1 and add signer3
 	config["default"].QuorumConfigs["2"] = &model.QuorumConfig{
@@ -472,7 +502,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 	}
 
-	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2))
+	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(1))
 
 	// Ensure that we can still write new signatures with the updated committee
 	ccvNodeData3 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer3))
@@ -483,7 +513,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData3.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithValidSignatureFrom(signer3))
+	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData3.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithValidSignatureFrom(signer3), WithExactNumberOfSignatures(2))
 }
 
 // TestPaginationWithVariousPageSizes tests the GetMessagesSince API with pagination.
@@ -868,7 +898,7 @@ func TestParticipantDeduplication(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1 (old)")
 	require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-	newTimestamp := time.Now().UnixMicro()
+	newTimestamp := time.Now().Add(-30 * time.Minute).UnixMicro()
 	ccvNodeData1New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 		WithSignatureFrom(t, signer1),
 		WithCustomTimestamp(newTimestamp))
@@ -892,15 +922,33 @@ func TestParticipantDeduplication(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	respCcvData, err := ccvDataClient.GetCCVDataForMessage(t.Context(), &pb.GetCCVDataForMessageRequest{
-		MessageId: messageId[:],
+	aggResp1 := assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress,
+		WithExactNumberOfSignatures(2),
+		WithValidSignatureFrom(signer2),
+		WithValidSignatureFrom(signer1),
+	)
+
+	// Wait a second to ensure the aggregation timestamp is different (we use write time as aggregation time)
+	time.Sleep(1 * time.Second)
+
+	newerTimestamp := time.Now().UnixMicro()
+	ccvNodeData1Newer := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+		WithSignatureFrom(t, signer1),
+		WithCustomTimestamp(newerTimestamp))
+
+	resp4, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1Newer,
 	})
-	require.NoError(t, err, "GetCCVDataForMessage should succeed")
-	require.NotNil(t, respCcvData, "expected non-nil response")
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1 (new)")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp4.Status, "expected WriteStatus_SUCCESS")
 
-	require.NotNil(t, respCcvData.CcvData, "CCV data should not be nil")
+	aggResp2 := assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress,
+		WithExactNumberOfSignatures(2),
+		WithValidSignatureFrom(signer2),
+		WithValidSignatureFrom(signer1),
+	)
 
-	t.Logf("Aggregated report created with deduplication - only most recent verification per participant included")
+	require.Greater(t, aggResp2.Timestamp, aggResp1.Timestamp, "We should have a newer aggregation timestamp")
 }
 
 // TestWriteTimeOrdering verifies that GetMessagesSince returns reports ordered by WrittenAt.

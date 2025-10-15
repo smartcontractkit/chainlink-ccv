@@ -39,13 +39,14 @@ const (
 )
 
 const (
-	FinalizedFeedFieldMessageID            = "MessageID"
-	FinalizedFeedFieldCommitteeID          = "CommitteeID"
-	FinalizedFeedFieldCommitteeIDMessageID = "CommitteeID_MessageID"
-	FinalizedFeedFieldFinalizedAt          = "FinalizedAt"
-	FinalizedFeedFieldAggregatedReportData = "AggregatedReportData"
-	FinalizedFeedFieldTimestamp            = "Timestamp"
-	FinalizedFeedFieldWrittenAt            = "WrittenAt"
+	FinalizedFeedFieldMessageID                           = "MessageID"
+	FinalizedFeedFieldCommitteeID                         = "CommitteeID"
+	FinalizedFeedFieldCommitteeIDMessageID                = "CommitteeID_MessageID"
+	FinalizedFeedFieldFinalizedAtVerificationCountSortKey = "FinalizedAtVerificationCountSortKey"
+	FinalizedFeedFieldFinalizedAtTimestamp                = "FinalizedAtTimestamp"
+	FinalizedFeedFieldAggregatedReportData                = "AggregatedReportData"
+	FinalizedFeedFieldTimestamp                           = "Timestamp"
+	FinalizedFeedFieldWrittenAt                           = "WrittenAt"
 )
 
 const (
@@ -71,7 +72,7 @@ const (
 )
 
 const (
-	QueryReportsInTimeRange             = FinalizedFeedFieldCommitteeIDMessageID + " = :pk AND " + FinalizedFeedFieldFinalizedAt + " BETWEEN :startKey AND :endKey"
+	QueryReportsInTimeRange             = FinalizedFeedFieldCommitteeIDMessageID + " = :pk AND " + FinalizedFeedFieldFinalizedAtVerificationCountSortKey + " BETWEEN :startKey AND :endKey"
 	QueryLatestReportByCommitteeMessage = FinalizedFeedFieldCommitteeIDMessageID + " = :pk"
 	QueryReportsInDayCommitteeRange     = FinalizedFeedFieldGSIPK + " = :gsiPK AND " + FinalizedFeedFieldGSISK + " BETWEEN :startKey AND :endKey"
 	QueryOrphanedRecordsByPending       = VerificationMessageDataFieldPendingAggregation + " = :pending_key"
@@ -80,7 +81,7 @@ const (
 const (
 	ConditionPreventDuplicateRecord                  = "attribute_not_exists(" + FieldPartitionKey + ") AND attribute_not_exists(" + FieldSortKey + ")"
 	ConditionPreventDuplicateVerificationMessageData = "attribute_not_exists(" + FieldSortKey + ")"
-	ConditionPreventDuplicateFinalizedFeed           = "attribute_not_exists(" + FinalizedFeedFieldCommitteeIDMessageID + ") AND attribute_not_exists(" + FinalizedFeedFieldFinalizedAt + ")"
+	ConditionPreventDuplicateFinalizedFeed           = "attribute_not_exists(" + FinalizedFeedFieldCommitteeIDMessageID + ") AND attribute_not_exists(" + FinalizedFeedFieldFinalizedAtVerificationCountSortKey + ")"
 )
 
 const (

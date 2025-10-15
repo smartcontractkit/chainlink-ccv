@@ -18,10 +18,10 @@ const testDay = "2025-09-01"
 
 func mkRow(day, id string, tsSec int64) map[string]types.AttributeValue {
 	return map[string]types.AttributeValue{
-		ddbconstant.FinalizedFeedFieldGSIPK:                avS(day), // use day as GSIPK in tests
-		ddbconstant.FinalizedFeedFieldGSISK:                avS(id),  // id as GSISK (stable tie-break)
-		ddbconstant.FinalizedFeedFieldFinalizedAt:          avN64(tsSec),
-		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID: avS("CID#" + id),
+		ddbconstant.FinalizedFeedFieldGSIPK:                               avS(day), // use day as GSIPK in tests
+		ddbconstant.FinalizedFeedFieldGSISK:                               avS(id),  // id as GSISK (stable tie-break)
+		ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey: avN64(tsSec),
+		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID:                avS("CID#" + id),
 	}
 }
 

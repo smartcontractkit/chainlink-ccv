@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/query"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -26,7 +27,7 @@ type DynamoDBStorage struct {
 	tableName              string
 	finalizedFeedTableName string
 	minDate                time.Time
-	logger                 logger.SugaredLogger
+	lggr                   logger.SugaredLogger
 	monitoring             pkgcommon.AggregatorMonitoring
 	pageSize               int
 	shardCount             int
@@ -49,7 +50,7 @@ func NewDynamoDBStorageWithTimeProvider(client *dynamodb.Client, tableName, fina
 		tableName:              tableName,
 		finalizedFeedTableName: finalizedFeedTableName,
 		minDate:                minDate,
-		logger:                 logger,
+		lggr:                   logger,
 		monitoring:             monitoring,
 		pageSize:               pageSize,
 		shardCount:             shardCount,
@@ -61,6 +62,10 @@ func (d *DynamoDBStorage) RecordCapacity(capacity *types.ConsumedCapacity) {
 	if d.monitoring != nil && capacity != nil {
 		d.monitoring.Metrics().RecordCapacity(capacity)
 	}
+}
+
+func (d *DynamoDBStorage) logger(ctx context.Context) logger.SugaredLogger {
+	return scope.AugmentLogger(ctx, d.lggr)
 }
 
 func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error {
@@ -196,7 +201,7 @@ func (d *DynamoDBStorage) ListCommitVerificationByMessageID(ctx context.Context,
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
-		ConsistentRead:         aws.Bool(false),
+		ConsistentRead:         aws.Bool(true),
 		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
 
@@ -268,6 +273,7 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 	if err != nil {
 		var conditionalCheckFailedException *types.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckFailedException) {
+			d.logger(ctx).Infow("Duplicate report detected, skipping write", "verifications", len(report.Verifications))
 			return nil
 		}
 		return fmt.Errorf("failed to submit report to FinalizedFeed table: %w", err)
@@ -278,8 +284,7 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 	if err != nil {
 		// Log error but don't fail the entire operation since the report was already saved
 		// This is a best-effort cleanup operation
-		logger := d.logger.With("messageID", report.MessageID, "committeeID", report.CommitteeID)
-		logger.Warnf("failed to mark verification message data as aggregated: %v", err)
+		d.logger(ctx).Warnf("failed to mark verification message data as aggregated: %v", err)
 	}
 
 	return nil

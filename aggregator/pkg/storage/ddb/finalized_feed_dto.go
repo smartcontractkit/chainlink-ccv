@@ -57,7 +57,7 @@ func CommitAggregatedReportToItem(report *model.CommitAggregatedReport, shard st
 	verificationCount := len(report.Verifications)
 
 	pk := BuildFinalizedFeedPartitionKey(report.CommitteeID, report.MessageID)
-	sk := BuildFinalizedFeedSortKey(primarySortTimestamp)
+	sk := BuildFinalizedFeedSortKey(primarySortTimestamp, verificationCount)
 
 	gsiPK := BuildGSIPartitionKey(day, report.CommitteeID, ddbconstant.FinalizedFeedVersion, shard)
 	gsiSK := BuildGSISortKey(gsiSortTimestamp, verificationCount, hex.EncodeToString(report.MessageID))
@@ -66,8 +66,11 @@ func CommitAggregatedReportToItem(report *model.CommitAggregatedReport, shard st
 		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID: &types.AttributeValueMemberS{
 			Value: pk,
 		},
-		ddbconstant.FinalizedFeedFieldFinalizedAt: &types.AttributeValueMemberN{
+		ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey: &types.AttributeValueMemberS{
 			Value: sk,
+		},
+		ddbconstant.FinalizedFeedFieldFinalizedAtTimestamp: &types.AttributeValueMemberN{
+			Value: strconv.FormatInt(primarySortTimestamp, 10),
 		},
 		ddbconstant.FinalizedFeedFieldGSIPK: &types.AttributeValueMemberS{
 			Value: gsiPK,

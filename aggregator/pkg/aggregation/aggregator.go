@@ -97,9 +97,7 @@ func deduplicateVerificationsByParticipant(verifications []*model.CommitVerifica
 
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
-	lggr.Debugw("Starting aggregation check")
-	lggr = lggr.With("messageID", messageID, "committee", committeeID)
-	lggr.Infof("Checking aggregation for message ID: %x, committee: %s", messageID, committeeID)
+	lggr.Infof("Checking aggregation for message", messageID, committeeID)
 	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committeeID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
@@ -116,6 +114,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	var mostRecentTimestamp int64
 	for _, verification := range dedupedVerifications {
 		verificationTimestamp := normalizeTimestampToSeconds(verification.GetTimestamp())
+		lggr.Debugw("Processing verification", "rawTimestamp", verification.GetTimestamp(), "normalizedTimestamp", verificationTimestamp)
 		if verificationTimestamp > mostRecentTimestamp {
 			mostRecentTimestamp = verificationTimestamp
 		}
@@ -127,6 +126,8 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		Verifications: dedupedVerifications,
 		Timestamp:     mostRecentTimestamp,
 	}
+
+	lggr.Debugw("Aggregated report created", "timestamp", mostRecentTimestamp, "verificationCount", len(dedupedVerifications))
 
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
 	if err != nil {
