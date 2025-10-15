@@ -20,22 +20,8 @@ install-pre-commit:
     brew install pre-commit
     pre-commit install
 
-# Run go test on all modules.
-test-all:
-    @echo "Testing common"
-    @just ./common/test
-    @echo "Testing verifier"
-    @just ./verifier/test
-    @echo "Testing executor"
-    @just ./executor/test
-    @echo "Testing aggregator"
-    @just ./aggregator/test
-    @echo "Testing indexer"
-    @just ./indexer/test
-
 lint-all fix="":
-    @echo "Linting devenv"
-    @just ./build/devenv/lint {{fix}}
+    find . -type f -name go.mod -execdir golangci-lint run {{ if fix != "" { "--fix" } else { "" } }} \;
 
 mod-tidy-all: ensure-gomods
     gomods tidy
@@ -47,12 +33,17 @@ fmt: ensure-golangci-lint
 # Run golangci-lint
 lint fix="": ensure-golangci-lint
     golangci-lint run -c .golangci.yaml --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
+    @echo "Linting devenv"
+    @just ./build/devenv/lint {{fix}}
 
 mod-tidy: ensure-go
     go mod tidy
 
 mod-download: ensure-go
     go mod download
+
+test-all: ensure-go
+    gomods -w go test -v -race ./...
 
 test: ensure-go
     go test -v -race ./...
