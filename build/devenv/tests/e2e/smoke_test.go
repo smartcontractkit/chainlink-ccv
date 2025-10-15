@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	offRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
@@ -108,9 +108,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NotNil(t, e)
 
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*offRamp.OffRampExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*offRamp.OffRampExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
 				}
 			})
 		}
@@ -233,9 +233,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*offRamp.OffRampExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*offRamp.OffRampExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
 				}
 			})
 		}

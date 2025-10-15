@@ -21,8 +21,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	offRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
-	onRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 )
 
 const (
@@ -67,18 +67,18 @@ type LaneStreamConfig struct {
 
 // LaneStreams represents all the events for sent/exec events.
 type LaneStreams struct {
-	SentEvents    []*onRamp.OnRampCCIPMessageSent
-	ExecEvents    []*offRamp.OffRampExecutionStateChanged
+	SentEvents    []*onramp.OnRampCCIPMessageSent
+	ExecEvents    []*offramp.OffRampExecutionStateChanged
 	Verifications []protocol.QueryResponse
 }
 
 type SentEventPlusMeta struct {
-	*onRamp.OnRampCCIPMessageSent
+	*onramp.OnRampCCIPMessageSent
 	MessageIDHex string
 }
 
 type ExecEventPlusMeta struct {
-	*offRamp.OffRampExecutionStateChanged
+	*offramp.OffRampExecutionStateChanged
 	MessageIDHex string
 }
 
@@ -142,8 +142,8 @@ func ProcessLaneEvents(ctx context.Context, c *CCIP17EVM, lp *LokiPusher, tp *Te
 }
 
 func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Span {
-	idToMsgSent := make(map[protocol.Bytes32]*onRamp.OnRampCCIPMessageSent)
-	idToMsgExec := make(map[protocol.Bytes32]*offRamp.OffRampExecutionStateChanged)
+	idToMsgSent := make(map[protocol.Bytes32]*onramp.OnRampCCIPMessageSent)
+	idToMsgExec := make(map[protocol.Bytes32]*offramp.OffRampExecutionStateChanged)
 	idToReport := make(map[protocol.Bytes32]*protocol.CCVData)
 	for _, event := range streams.SentEvents {
 		idToMsgSent[event.MessageId] = event
@@ -304,7 +304,7 @@ func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggreg
 	return reader.ReadCCVData(ctx)
 }
 
-func addSentMetadata(msgs []*onRamp.OnRampCCIPMessageSent) []*SentEventPlusMeta {
+func addSentMetadata(msgs []*onramp.OnRampCCIPMessageSent) []*SentEventPlusMeta {
 	events := make([]*SentEventPlusMeta, 0)
 	for _, msg := range msgs {
 		events = append(events, &SentEventPlusMeta{
@@ -315,7 +315,7 @@ func addSentMetadata(msgs []*onRamp.OnRampCCIPMessageSent) []*SentEventPlusMeta 
 	return events
 }
 
-func addExecMetadata(msgs []*offRamp.OffRampExecutionStateChanged) []*ExecEventPlusMeta {
+func addExecMetadata(msgs []*offramp.OffRampExecutionStateChanged) []*ExecEventPlusMeta {
 	events := make([]*ExecEventPlusMeta, 0)
 	for _, msg := range msgs {
 		events = append(events, &ExecEventPlusMeta{
