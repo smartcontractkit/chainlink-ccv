@@ -1067,3 +1067,109 @@ func TestWriteTimeOrdering(t *testing.T) {
 
 	t.Log("SUCCESS: GetMessagesSince returns items ordered by write time, not verification time")
 }
+
+// TestGetMessagesSinceDeduplication verifies that GetMessagesSince deduplicates messages
+// and shows correct behavior when the same signer submits multiple verifications.
+func TestGetMessagesSinceDeduplication(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+	signer1 := NewSignerFixture(t, "node1")
+	signer2 := NewSignerFixture(t, "node2")
+
+	config := map[string]*model.Committee{
+		"default": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
+					Threshold: 2,
+					Signers: []model.Signer{
+						signer1.Signer,
+						signer2.Signer,
+					},
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+				},
+			},
+		},
+	}
+
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(
+		t,
+		WithCommitteeConfig(config),
+		WithStorageType("dynamodb"),
+	)
+	t.Cleanup(cleanup)
+	require.NoError(t, err, "failed to create server and client")
+
+	// Create a message that both signers will verify
+	message := NewProtocolMessage(t)
+	require.NoError(t, err, "failed to compute message ID")
+
+	// Step 1: Signer1 sends their verification
+	t.Log("Step 1: Signer1 sends verification")
+	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
+	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
+
+	// GetMessagesSince should return nothing (no quorum yet)
+	getResp1, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, getResp1.Results, 0, "Should return 0 reports (no quorum yet)")
+	t.Log("✓ GetMessagesSince returns 0 reports after signer1 verification")
+
+	// Step 2: Signer2 sends their verification
+	t.Log("Step 2: Signer2 sends verification")
+	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
+	resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
+
+	// GetMessagesSince should return one report (quorum reached)
+	getResp2, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, getResp2.Results, 1, "Should return 1 report (quorum reached)")
+	t.Log("✓ GetMessagesSince returns 1 report after signer2 verification (quorum reached)")
+
+	// Step 3: Signer2 sends their verification again (duplicate)
+	t.Log("Step 3: Signer2 sends same verification again")
+	resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2, // Same data as before
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData should handle duplicate")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status)
+
+	// GetMessagesSince should still return one report (deduplicated)
+	getResp3, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, getResp3.Results, 1, "Should still return 1 report (duplicate deduplicated)")
+	t.Log("✓ GetMessagesSince still returns 1 report after duplicate verification")
+
+	// Step 4: Create a second message with a more recent timestamp
+	t.Log("Step 4: Signer2 sends new verification for the same message (more recent timestamp)")
+
+	newerTimestamp := time.Now().UnixMicro()
+	ccvNodeData2New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(newerTimestamp))
+	resp4, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2New,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2 (newer timestamp)")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp4.Status)
+
+	// GetMessagesSince should still return one report, but with the newer timestamp
+	getResp4, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, getResp4.Results, 2, "Should still return 2 report")
+}
