@@ -206,15 +206,17 @@ func main() {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress: verifierAddresses[strSelector],
+			PollInterval:    1 * time.Second,
+			ChainSelector:   selector,
 		}
 	}
 
 	coordinatorConfig := verifier.CoordinatorConfig{
-		VerifierID:            config.VerifierID,
-		SourceConfigs:         sourceConfigs,
-		ProcessingChannelSize: 1000,
-		ProcessingTimeout:     30 * time.Second,
-		MaxBatchSize:          100,
+		VerifierID:          config.VerifierID,
+		SourceConfigs:       sourceConfigs,
+		ProcessingTimeout:   30 * time.Second,
+		StorageBatchSize:    50,
+		StorageBatchTimeout: 100 * time.Millisecond,
 	}
 
 	pk := os.Getenv(PK_ENV_VAR)

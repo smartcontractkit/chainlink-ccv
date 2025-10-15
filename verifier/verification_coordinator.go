@@ -14,6 +14,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const (
+	DefaultSourceReaderPollInterval = 2 * time.Second
+)
+
 // sourceState manages state for a single source chain reader.
 type sourceState struct {
 	reader             *SourceReaderService
@@ -201,7 +205,8 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			continue
 		}
 
-		if _, ok := vc.config.SourceConfigs[chainSelector]; !ok {
+		sourceCfg, ok := vc.config.SourceConfigs[chainSelector]
+		if !ok {
 			vc.lggr.Warnw("skipping source reader: no source config found for chain selector", "chainSelector", chainSelector)
 			continue
 		}
@@ -215,13 +220,18 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			serviceOpts = append(serviceOpts, WithPollInterval(vc.sourceReaderPollInterval))
 		}
 
+		var sourcePollInterval = DefaultSourceReaderPollInterval
+		if sourceCfg.PollInterval > 0 {
+			sourcePollInterval = sourceCfg.PollInterval
+		}
+
 		service := NewSourceReaderService(
 			sourceReader,
 			chainSelector,
 			vc.checkpointManager,
 			vc.lggr,
 			reorgNotificationCh,
-			serviceOpts...,
+			sourcePollInterval,
 		)
 
 		// Create source state

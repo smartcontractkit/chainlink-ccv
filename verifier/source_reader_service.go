@@ -68,6 +68,7 @@ func NewSourceReaderService(
 	checkpointManager protocol.CheckpointManager,
 	logger logger.Logger,
 	reorgNotificationCh <-chan protocol.ReorgNotification,
+	pollInterval time.Duration,
 	opts ...SourceReaderServiceOption,
 ) *SourceReaderService {
 	s := &SourceReaderService{
@@ -75,7 +76,7 @@ func NewSourceReaderService(
 		logger:               logger,
 		verificationTaskCh:   make(chan batcher.BatchResult[VerificationTask], 1),
 		stopCh:               make(chan struct{}),
-		pollInterval:         800 * time.Millisecond,
+		pollInterval:         pollInterval,
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
 		checkpointManager:    checkpointManager,
@@ -568,11 +569,4 @@ func (r *SourceReaderService) handleReorgNotification(notif protocol.ReorgNotifi
 	// Reset lastProcessedBlock to the reset block
 	// Next cycle will read from resetBlock+1
 	r.lastProcessedBlock = resetBlock
-
-	// If checkpoint manager exists, verify checkpoint was updated
-	if r.checkpointManager != nil {
-		// Checkpoint should already be updated by coordinator
-		// This is just validation logging
-		r.logger.Debugw("Source reader reset complete, will resume from checkpoint+1")
-	}
 }

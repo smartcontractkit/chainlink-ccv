@@ -15,29 +15,21 @@ type VerificationTask struct {
 	QueuedAt     time.Time                  `json:"queued_at"`    // When added to finality queue (for finality wait duration)
 }
 
-// SourceReaderConfig contains configuration for the EVM source reader.
-type SourceReaderConfig struct {
-	OnRampAddress       protocol.UnknownAddress `json:"onramp_address"`
-	ChainSelector       protocol.ChainSelector  `json:"chain_selector"`
-	PollInterval        time.Duration           `json:"poll_interval"`
-	StartBlock          uint64                  `json:"start_block,omitempty"`
-	MessagesChannelSize int                     `json:"messages_channel_size"`
-}
-
 // SourceConfig contains configuration for a single source chain.
 type SourceConfig struct {
 	VerifierAddress protocol.UnknownAddress `json:"verifier_address"`
+	OnRampAddress   protocol.UnknownAddress `json:"onramp_address"`
+	ChainSelector   protocol.ChainSelector  `json:"chain_selector"`
+	PollInterval    time.Duration           `json:"poll_interval"`
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator.
 type CoordinatorConfig struct {
-	SourceConfigs         map[protocol.ChainSelector]SourceConfig `json:"source_configs"`
-	VerifierID            string                                  `json:"verifier_id"`
-	ProcessingChannelSize int                                     `json:"processing_channel_size"`
-	ProcessingTimeout     time.Duration                           `json:"processing_timeout"`
-	MaxBatchSize          int                                     `json:"max_batch_size"`
-	StorageBatchSize      int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage (default: 50)
-	StorageBatchTimeout   time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch (default: 100ms)
+	SourceConfigs       map[protocol.ChainSelector]SourceConfig `json:"source_configs"`
+	VerifierID          string                                  `json:"verifier_id"`
+	ProcessingTimeout   time.Duration                           `json:"processing_timeout"`    // to be used for retries
+	StorageBatchSize    int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage (default: 50)
+	StorageBatchTimeout time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch (default: 100ms)
 }
 
 // VerificationError represents an error that occurred during message verification.
