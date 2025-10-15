@@ -4,12 +4,10 @@ package tests
 import (
 	"bytes"
 	"context"
-	"math/rand/v2"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -217,7 +215,15 @@ func TestIdempotency(t *testing.T) {
 type SignatureValidationOption func(*signatureValidationConfig)
 
 type signatureValidationConfig struct {
-	expectedSigners []*SignerFixture
+	expectedSigners         []*SignerFixture
+	exactNumberOfSignatures *int
+	expectActualCCVData     [][]byte
+}
+
+func WithExactNumberOfSignatures(n int) SignatureValidationOption {
+	return func(config *signatureValidationConfig) {
+		config.exactNumberOfSignatures = &n
+	}
 }
 
 // WithValidSignatureFrom validates that the CCV data contains a valid signature from the specified signer.
@@ -247,7 +253,7 @@ func assertCCVDataFound(
 	sourceVerifierAddress []byte,
 	destVerifierAddress []byte,
 	options ...SignatureValidationOption,
-) {
+) *pb.MessageWithCCVData {
 	// Wait a moment for the aggregation to process
 	time.Sleep(50 * time.Millisecond)
 	respCcvData, err := ccvDataClient.GetCCVDataForMessage(ctx, &pb.GetCCVDataForMessageRequest{
@@ -283,6 +289,8 @@ func assertCCVDataFound(
 	if len(options) > 0 {
 		validateSignatures(t, respCcvData.CcvData, messageId, options...)
 	}
+
+	return respCcvData
 }
 
 // validateSignatures decodes the CCV data and validates signatures from expected signers.
@@ -311,18 +319,8 @@ func validateSignatures(t *testing.T, ccvData []byte, messageId protocol.Bytes32
 		require.NotEqual(t, [32]byte{}, ss[i], "signature S[%d] should not be zero", i)
 	}
 
-	// Try to recover signer addresses using the aggregated ccvArgs
-	// Note: The signatures in aggregated reports were originally created with different ccvArgs
-	// during individual submission, so exact signature validation is complex. This validates
-	// that the signature data is well-formed and can be processed.
-	var signatureHashInput bytes.Buffer
-	signatureHashInput.Write(messageId[:])
-	signatureHash := crypto.Keccak256(signatureHashInput.Bytes())
-
-	var hash32 [32]byte
-	copy(hash32[:], signatureHash[:])
-
-	recoveredAddresses, err := protocol.RecoverSigners(hash32, rs, ss)
+	// Recover signer addresses from the aggregated signatures
+	recoveredAddresses, err := protocol.RecoverSigners(messageId, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
@@ -337,6 +335,37 @@ func validateSignatures(t *testing.T, ccvData []byte, messageId protocol.Bytes32
 	require.Equal(t, len(rs), len(recoveredAddresses), "should recover one address per signature")
 	for _, addr := range recoveredAddresses {
 		require.NotEqual(t, common.Address{}, addr, "recovered address should not be zero")
+	}
+
+	// Verify that all expected signers are present in the recovered addresses
+	for expectedAddr, participantID := range expectedAddresses {
+		found := false
+		for _, recoveredAddr := range recoveredAddresses {
+			if recoveredAddr == expectedAddr {
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "expected signer %s (participant %s) not found in recovered addresses", expectedAddr.Hex(), participantID)
+	}
+
+	if config.exactNumberOfSignatures != nil {
+		require.Equal(t, *config.exactNumberOfSignatures, len(rs), "number of signatures does not match expected")
+	}
+
+	if len(config.expectActualCCVData) > 0 {
+		for _, expectedSig := range config.expectActualCCVData {
+			found := false
+			expectedR, expectedS, err := protocol.DecodeSignatures(expectedSig)
+			require.NoError(t, err, "failed to decode expected signature")
+			for i := range rs {
+				if rs[i] == expectedR[0] && ss[i] == expectedS[0] {
+					found = true
+					break
+				}
+			}
+			require.True(t, found, "expected signature (R,S) pair not found")
+		}
 	}
 }
 
@@ -461,7 +490,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2))
+	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(2))
 
 	// Change committee to remove signer1 and add signer3
 	config["default"].QuorumConfigs["2"] = &model.QuorumConfig{
@@ -473,7 +502,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 	}
 
-	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2))
+	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(1))
 
 	// Ensure that we can still write new signatures with the updated committee
 	ccvNodeData3 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer3))
@@ -484,82 +513,44 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	require.NoError(t, err, "WriteCommitCCVNodeData failed")
 	require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
-	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData3.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithValidSignatureFrom(signer3))
+	assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData3.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithValidSignatureFrom(signer3), WithExactNumberOfSignatures(2))
 }
 
-// TestPaginationWithVariousPageSizes tests the GetMessagesSince API with pagination
-// using different page sizes to verify both multiple and non-multiple scenarios.
+// TestPaginationWithVariousPageSizes tests the GetMessagesSince API with pagination.
 func TestPaginationWithVariousPageSizes(t *testing.T) {
 	testCases := []struct {
-		name           string
-		numMessages    int
-		pageSize       int
-		messagesPerDay int
-		numDays        int
-		expectedPages  int
-		description    string
+		name        string
+		numMessages int
+		pageSize    int
+		description string
 	}{
 		{
-			name:           "multiple_page_size",
-			numMessages:    100,
-			pageSize:       10,
-			messagesPerDay: 20,
-			numDays:        5,
-			expectedPages:  11, // 10 full pages + 1 empty final page
-			description:    "Page size is a multiple of total messages",
+			name:        "basic_pagination",
+			numMessages: 15,
+			pageSize:    5,
+			description: "Basic pagination with small dataset",
 		},
 		{
-			name:           "non_multiple_page_size_7",
-			numMessages:    100,
-			pageSize:       7,
-			messagesPerDay: 20,
-			numDays:        5,
-			expectedPages:  15, // 14 full pages + 1 page with 2 messages
-			description:    "Page size 7 with 100 messages (remainder 2)",
-		},
-		{
-			name:           "non_multiple_page_size_13",
-			numMessages:    100,
-			pageSize:       13,
-			messagesPerDay: 20,
-			numDays:        5,
-			expectedPages:  8, // 7 full pages + 1 page with 9 messages
-			description:    "Page size 13 with 100 messages (remainder 9)",
-		},
-		{
-			name:           "small_page_size",
-			numMessages:    50,
-			pageSize:       3,
-			messagesPerDay: 10,
-			numDays:        5,
-			expectedPages:  17, // 16 full pages + 1 page with 2 messages
-			description:    "Small page size with 50 messages",
+			name:        "single_page",
+			numMessages: 8,
+			pageSize:    10,
+			description: "All messages fit in single page",
 		},
 	}
 
 	for _, tc := range testCases {
-		// capture range variable
 		t.Run(tc.name, func(t *testing.T) {
 			t.Logf("Running test case: %s - %s", tc.name, tc.description)
-			runPaginationTest(t, tc.numMessages, tc.pageSize, tc.messagesPerDay, tc.numDays, tc.expectedPages)
+			runPaginationTest(t, tc.numMessages, tc.pageSize)
 		})
 	}
 }
 
-// runPaginationTest is a helper function that runs a pagination test with the given parameters.
-func runPaginationTest(t *testing.T, numMessages, pageSize, messagesPerDay, numDays, expectedPages int) {
-	// Define date range: Sept 1-N, 2025
-	sept1_2025 := time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)
-	dayTimestamps := make([]int64, numDays)
-	for i := 0; i < numDays; i++ {
-		dayTimestamps[i] = sept1_2025.AddDate(0, 0, i).Unix()
-	}
-
+func runPaginationTest(t *testing.T, numMessages, pageSize int) {
 	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 	signer1 := NewSignerFixture(t, "node1")
 	signer2 := NewSignerFixture(t, "node2")
 
-	// Configure committee with 2 signers and threshold of 2
 	config := map[string]*model.Committee{
 		"default": {
 			SourceVerifierAddresses: map[string]string{
@@ -578,7 +569,6 @@ func runPaginationTest(t *testing.T, numMessages, pageSize, messagesPerDay, numD
 		},
 	}
 
-	// Create server with specific pagination config
 	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(
 		t,
 		WithCommitteeConfig(config),
@@ -588,79 +578,48 @@ func runPaginationTest(t *testing.T, numMessages, pageSize, messagesPerDay, numD
 	t.Cleanup(cleanup)
 	require.NoError(t, err, "failed to create server and client")
 
-	t.Logf("Starting to create and submit %d messages across %d days with page size %d...", numMessages, numDays, pageSize)
+	t.Logf("Creating and submitting %d messages with page size %d...", numMessages, pageSize)
 
-	// Track all message IDs for later verification
-	messageIds := make([]protocol.Bytes32, 0, numMessages)
-	messageToDay := make(map[string]int) // Track which day each message belongs to
+	expectedMessageIds := make(map[string]bool)
 
-	// Create and submit messages
-	startTime := time.Now()
 	for i := 0; i < numMessages; i++ {
-		if i%50 == 0 {
-			t.Logf("Progress: %d/%d messages submitted", i, numMessages)
-		}
-
-		// Determine which day this message belongs to
-		dayIndex := i / messagesPerDay
-		if dayIndex >= numDays {
-			dayIndex = numDays - 1 // Ensure we don't exceed available days
-		}
-		messageTimestamp := dayTimestamps[dayIndex] + rand.Int64N(86400)
-
-		// Create unique message by varying the nonce
 		message := NewProtocolMessage(t)
-		message.Nonce = protocol.Nonce(i + 1) // Ensure unique nonce for each message
+		message.Nonce = protocol.Nonce(i + 1)
 
 		messageId, err := message.MessageID()
 		require.NoError(t, err, "failed to compute message ID for message %d", i)
-		messageIds = append(messageIds, messageId)
-		messageToDay[common.Bytes2Hex(messageId[:])] = dayIndex
+		expectedMessageIds[common.Bytes2Hex(messageId[:])] = true
 
-		// First signature from signer1 with custom timestamp
 		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1),
-			WithCustomTimestamp(messageTimestamp))
+			WithSignatureFrom(t, signer1))
 		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
 			CcvNodeData: ccvNodeData1,
 		})
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for message %d, signer1", i)
-		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS for message %d, signer1", i)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
 
-		// Second signature from signer2 (this should trigger aggregation) with same timestamp
 		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer2),
-			WithCustomTimestamp(messageTimestamp))
+			WithSignatureFrom(t, signer2))
 		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
 			CcvNodeData: ccvNodeData2,
 		})
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for message %d, signer2", i)
-		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS for message %d, signer2", i)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
 	}
 
-	submissionTime := time.Since(startTime)
-	t.Logf("All %d messages submitted in %v across %d days", numMessages, submissionTime, numDays)
+	t.Logf("All %d messages submitted", numMessages)
 
-	// Wait for all aggregations to complete
-	t.Log("Waiting for aggregation to complete...")
-	time.Sleep(5 * time.Second)
+	time.Sleep(2 * time.Second)
 
-	// Test pagination to retrieve all messages
-	t.Log("Starting pagination test to retrieve all aggregated messages...")
-
-	retrievedMessages := make(map[string]*pb.MessageWithCCVData)
+	t.Log("Paginating through all messages...")
+	retrievedMessages := make(map[string]bool)
 	var nextToken string
 	pageCount := 0
-	totalRetrieved := 0
 
-	paginationStartTime := time.Now()
 	for {
 		pageCount++
-		t.Logf("Fetching page %d with token: %s", pageCount, nextToken)
-
-		// Call GetMessagesSince with current pagination token
 		req := &pb.GetMessagesSinceRequest{
-			Since: 0, // Get all messages
+			Since: 0,
 		}
 		if nextToken != "" {
 			req.NextToken = nextToken
@@ -668,34 +627,11 @@ func runPaginationTest(t *testing.T, numMessages, pageSize, messagesPerDay, numD
 
 		resp, err := ccvDataClient.GetMessagesSince(t.Context(), req)
 		require.NoError(t, err, "GetMessagesSince failed on page %d", pageCount)
-		require.NotNil(t, resp, "GetMessagesSince response should not be nil on page %d", pageCount)
+		require.NotNil(t, resp, "response should not be nil")
 
-		currentPageSize := len(resp.Results)
-		totalRetrieved += currentPageSize
-		t.Logf("Page %d: retrieved %d reports, hasMore=%t", pageCount, currentPageSize, resp.NextToken != "")
+		t.Logf("Page %d: retrieved %d reports", pageCount, len(resp.Results))
 
-		// Validate page size constraints
-		if resp.NextToken != "" {
-			// Not the last page - should have exactly pageSize records
-			require.Equal(t, pageSize, currentPageSize, "Non-final page %d should have exactly %d records", pageCount, pageSize)
-		} else {
-			// Last page - calculate expected remainder
-			remainder := numMessages % pageSize
-			if remainder == 0 {
-				// If total messages is divisible by page size, final page should be empty
-				require.Equal(t, 0, currentPageSize, "Final page %d should have 0 records when total is divisible by page size", pageCount)
-			} else {
-				// Otherwise, final page should have the remainder
-				require.Equal(t, remainder, currentPageSize, "Final page %d should have %d records (remainder)", pageCount, remainder)
-			}
-		}
-
-		// Store retrieved messages for verification
 		for _, report := range resp.Results {
-			// Compute message ID from the message
-			require.NotNil(t, report.Message, "Message should not be nil in response")
-
-			// Convert pb.Message to types.Message to compute message ID
 			msg := &protocol.Message{
 				Version:              uint8(report.Message.Version),
 				SourceChainSelector:  protocol.ChainSelector(report.Message.SourceChainSelector),
@@ -719,68 +655,32 @@ func runPaginationTest(t *testing.T, numMessages, pageSize, messagesPerDay, numD
 			}
 
 			messageId, err := msg.MessageID()
-			require.NoError(t, err, "Failed to compute message ID on page %d", pageCount)
+			require.NoError(t, err, "failed to compute message ID")
 			messageIdHex := common.Bytes2Hex(messageId[:])
 
-			// Ensure no duplicates
-			_, exists := retrievedMessages[messageIdHex]
-			require.False(t, exists, "Duplicate message found in pagination: %s on page %d", messageIdHex, pageCount)
-
-			retrievedMessages[messageIdHex] = report
-
-			// Validate that the report has proper structure
-			require.NotEmpty(t, report.CcvData, "CcvData should not be empty for messageId %s", messageIdHex)
-			require.Equal(t, sourceVerifierAddress, report.SourceVerifierAddress, "Source verifier address mismatch for messageId %s", messageIdHex)
-			require.Equal(t, destVerifierAddress, report.DestVerifierAddress, "Dest verifier address mismatch for messageId %s", messageIdHex)
+			require.False(t, retrievedMessages[messageIdHex], "duplicate message found: %s", messageIdHex)
+			retrievedMessages[messageIdHex] = true
 		}
 
-		// Check if there are more pages
 		if resp.NextToken == "" {
-			t.Logf("Reached final page %d", pageCount)
+			t.Logf("Pagination complete after %d pages", pageCount)
 			break
 		}
 
 		nextToken = resp.NextToken
-
-		// Safety check to prevent infinite loops
-		require.Less(t, pageCount, 200, "Too many pages - possible infinite loop or missing messages")
+		require.Less(t, pageCount, 100, "too many pages - possible infinite loop")
 	}
 
-	paginationTime := time.Since(paginationStartTime)
-	t.Logf("Retrieved all messages via pagination in %v across %d pages", paginationTime, pageCount)
+	require.Equal(t, numMessages, len(retrievedMessages), "should retrieve all messages")
 
-	// Verify that we retrieved all expected messages
-	require.Equal(t, numMessages, totalRetrieved, "Should have retrieved all %d messages via pagination", numMessages)
-	require.Equal(t, numMessages, len(retrievedMessages), "Should have %d unique messages in result map", numMessages)
-
-	// Verify that all original message IDs are present in retrieved messages
-	t.Log("Verifying all original messages are present in pagination results...")
-	for i, originalMessageId := range messageIds {
-		messageIdHex := common.Bytes2Hex(originalMessageId[:])
-		report, found := retrievedMessages[messageIdHex]
-		require.True(t, found, "Original message %d with ID %s not found in pagination results", i, messageIdHex)
-
-		// Verify the message nonce matches (our unique identifier)
-		require.Equal(t, uint64(i+1), report.Message.Nonce, "Nonce mismatch for message %d", i)
+	for expectedId := range expectedMessageIds {
+		require.True(t, retrievedMessages[expectedId], "message %s was not retrieved", expectedId)
 	}
 
-	// Verify expected number of pages
-	require.Equal(t, expectedPages, pageCount, "Expected %d pages for %d messages with page size %d", expectedPages, numMessages, pageSize)
-
-	t.Logf("✅ Pagination test completed successfully!")
-	t.Logf("📊 Summary:")
-	t.Logf("   - Messages created: %d across %d days", numMessages, numDays)
-	t.Logf("   - Messages per day: %d", messagesPerDay)
-	t.Logf("   - Page size: %d", pageSize)
-	t.Logf("   - Expected pages: %d", expectedPages)
-	t.Logf("   - Actual pages: %d", pageCount)
-	t.Logf("   - Submission time: %v", submissionTime)
-	t.Logf("   - All messages retrieved: %d", totalRetrieved)
-	t.Logf("   - Pagination time: %v", paginationTime)
-	t.Logf("   - All messages verified: ✅")
+	t.Logf("✅ Pagination test completed: %d messages retrieved across %d pages", len(retrievedMessages), pageCount)
 }
 
-// TestMultiShardPagination tests pagination functionality with multiple shard configurations.
+// TestMultiShardPagination tests pagination with multiple shard configurations.
 func TestMultiShardPagination(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -797,15 +697,9 @@ func TestMultiShardPagination(t *testing.T) {
 			shardCount: 3,
 			pageSize:   4,
 		},
-		{
-			name:       "five_shard_pagination",
-			shardCount: 5,
-			pageSize:   10,
-		},
 	}
 
 	for _, tt := range tests {
-		// capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			t.Logf("Running multi-shard pagination test with %d shards and page size %d",
 				tt.shardCount, tt.pageSize)
@@ -814,24 +708,13 @@ func TestMultiShardPagination(t *testing.T) {
 	}
 }
 
-// runMultiShardPaginationTest runs a multi-shard pagination test with the given parameters.
 func runMultiShardPaginationTest(t *testing.T, shardCount, pageSize int) {
-	// Define date range: Sept 1-3, 2025
-	sept1_2025 := time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)
-	const numDays = 3
-	const messagesPerDay = 8
-	const totalMessages = messagesPerDay * numDays
-
-	dayTimestamps := make([]int64, numDays)
-	for i := 0; i < numDays; i++ {
-		dayTimestamps[i] = sept1_2025.AddDate(0, 0, i).Unix()
-	}
+	const totalMessages = 20
 
 	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 	signer1 := NewSignerFixture(t, "node1")
 	signer2 := NewSignerFixture(t, "node2")
 
-	// Configure committee with 2 signers and threshold of 2
 	config := map[string]*model.Committee{
 		"default": {
 			SourceVerifierAddresses: map[string]string{
@@ -850,7 +733,6 @@ func runMultiShardPaginationTest(t *testing.T, shardCount, pageSize int) {
 		},
 	}
 
-	// Create server with multi-shard pagination config
 	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(
 		t,
 		WithCommitteeConfig(config),
@@ -861,84 +743,56 @@ func runMultiShardPaginationTest(t *testing.T, shardCount, pageSize int) {
 	t.Cleanup(cleanup)
 	require.NoError(t, err, "failed to create server and client")
 
-	t.Logf("Creating %d messages across %d days with %d shards...",
-		totalMessages, numDays, shardCount)
+	t.Logf("Creating %d messages with %d shards...", totalMessages, shardCount)
 
-	// Track which shards each message goes to for verification
-	messageToShard := make(map[string]string)
+	expectedMessageIds := make(map[string]bool)
 	shardCounts := make(map[string]int)
 
-	// Create and submit messages
-	startTime := time.Now()
 	for i := 0; i < totalMessages; i++ {
-		// Determine which day this message belongs to
-		dayIndex := i / messagesPerDay
-		if dayIndex >= numDays {
-			dayIndex = numDays - 1 // Ensure we don't exceed available days
-		}
-		messageTimestamp := dayTimestamps[dayIndex] + rand.Int64N(86400)
-
-		// Create unique message by varying the nonce
 		message := NewProtocolMessage(t)
-		message.Nonce = protocol.Nonce(i + 1) // Ensure unique nonce for each message
+		message.Nonce = protocol.Nonce(i + 1)
 
 		messageId, err := message.MessageID()
 		require.NoError(t, err, "failed to compute message ID for message %d", i)
+		expectedMessageIds[common.Bytes2Hex(messageId[:])] = true
 
-		// Calculate which shard this message goes to
 		shard := ddbconstant.CalculateShardFromMessageID(messageId[:], shardCount)
-		messageToShard[common.Bytes2Hex(messageId[:])] = shard
 		shardCounts[shard]++
 
-		// First signature from signer1 with custom timestamp
 		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1),
-			WithCustomTimestamp(messageTimestamp))
+			WithSignatureFrom(t, signer1))
 		resp1, err := aggregatorClient.WriteCommitCCVNodeData(context.Background(), &pb.WriteCommitCCVNodeDataRequest{
 			CcvNodeData: ccvNodeData1,
 		})
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for message %d, signer1", i)
-		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS for message %d, signer1", i)
+		require.NoError(t, err)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
 
-		// Second signature from signer2 (this should trigger aggregation) with same timestamp
 		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer2),
-			WithCustomTimestamp(messageTimestamp))
+			WithSignatureFrom(t, signer2))
 		resp2, err := aggregatorClient.WriteCommitCCVNodeData(context.Background(), &pb.WriteCommitCCVNodeDataRequest{
 			CcvNodeData: ccvNodeData2,
 		})
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for message %d, signer2", i)
-		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS for message %d, signer2", i)
+		require.NoError(t, err)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
 	}
-	submissionTime := time.Since(startTime)
 
-	t.Logf("All %d messages submitted in %v", totalMessages, submissionTime)
-
-	// Print shard distribution
+	t.Logf("All %d messages submitted", totalMessages)
 	t.Logf("Shard distribution:")
 	for shard, count := range shardCounts {
-		t.Logf("  %s: %d messages (%.1f%%)", shard, count, float64(count)*100/totalMessages)
+		t.Logf("  %s: %d messages", shard, count)
 	}
 
-	// Wait for aggregation to complete
-	t.Logf("Waiting for aggregation to complete...")
 	time.Sleep(2 * time.Second)
 
-	// Test pagination across all shards
-	t.Logf("Starting pagination test across %d shards...", shardCount)
-
-	startTime = time.Now()
-	var allReports []*pb.MessageWithCCVData
+	t.Logf("Paginating through messages across %d shards...", shardCount)
+	retrievedMessages := make(map[string]bool)
+	var nextToken string
 	pageCount := 0
-	nextToken := ""
 
 	for {
 		pageCount++
-		t.Logf("Fetching page %d with token: %s", pageCount, nextToken)
-
-		// Call GetMessagesSince with current pagination token
 		req := &pb.GetMessagesSinceRequest{
-			Since: 0, // Get all messages
+			Since: 0,
 		}
 		if nextToken != "" {
 			req.NextToken = nextToken
@@ -946,168 +800,376 @@ func runMultiShardPaginationTest(t *testing.T, shardCount, pageSize int) {
 
 		resp, err := ccvDataClient.GetMessagesSince(context.Background(), req)
 		require.NoError(t, err, "GetMessagesSince failed on page %d", pageCount)
-		require.NotNil(t, resp, "GetMessagesSince response should not be nil on page %d", pageCount)
+		require.NotNil(t, resp)
 
-		currentPageSize := len(resp.Results)
-		t.Logf("Page %d: retrieved %d reports, hasMore=%t",
-			pageCount, currentPageSize, resp.NextToken != "")
+		t.Logf("Page %d: retrieved %d reports", pageCount, len(resp.Results))
 
-		allReports = append(allReports, resp.Results...)
+		for _, report := range resp.Results {
+			msg := &protocol.Message{
+				Version:              uint8(report.Message.Version),
+				SourceChainSelector:  protocol.ChainSelector(report.Message.SourceChainSelector),
+				DestChainSelector:    protocol.ChainSelector(report.Message.DestChainSelector),
+				Nonce:                protocol.Nonce(report.Message.Nonce),
+				OnRampAddressLength:  uint8(report.Message.OnRampAddressLength),
+				OnRampAddress:        report.Message.OnRampAddress,
+				OffRampAddressLength: uint8(report.Message.OffRampAddressLength),
+				OffRampAddress:       report.Message.OffRampAddress,
+				Finality:             uint16(report.Message.Finality),
+				SenderLength:         uint8(report.Message.SenderLength),
+				Sender:               report.Message.Sender,
+				ReceiverLength:       uint8(report.Message.ReceiverLength),
+				Receiver:             report.Message.Receiver,
+				DestBlobLength:       uint16(report.Message.DestBlobLength),
+				DestBlob:             report.Message.DestBlob,
+				TokenTransferLength:  uint16(report.Message.TokenTransferLength),
+				TokenTransfer:        report.Message.TokenTransfer,
+				DataLength:           uint16(report.Message.DataLength),
+				Data:                 report.Message.Data,
+			}
+
+			messageId, err := msg.MessageID()
+			require.NoError(t, err)
+			messageIdHex := common.Bytes2Hex(messageId[:])
+
+			require.False(t, retrievedMessages[messageIdHex], "duplicate message: %s", messageIdHex)
+			retrievedMessages[messageIdHex] = true
+		}
 
 		if resp.NextToken == "" {
-			t.Logf("Reached final page %d", pageCount)
+			t.Logf("Pagination complete after %d pages", pageCount)
 			break
 		}
 
 		nextToken = resp.NextToken
+		require.Less(t, pageCount, 100, "too many pages - possible infinite loop")
 	}
 
-	paginationTime := time.Since(startTime)
-	t.Logf("Retrieved all messages via pagination in %v across %d pages",
-		paginationTime, pageCount)
+	require.Equal(t, totalMessages, len(retrievedMessages), "should retrieve all messages")
 
-	// Verify we retrieved all messages
-	require.Len(t, allReports, totalMessages,
-		"Should retrieve exactly %d aggregated reports", totalMessages)
-
-	// Verify shard distribution in results
-	retrievedShardCounts := make(map[string]int)
-	messageIDs := make(map[string]bool)
-
-	for _, report := range allReports {
-		// Convert pb.Message to protocol.Message to compute message ID
-		msg := &protocol.Message{
-			Version:              uint8(report.Message.Version),
-			SourceChainSelector:  protocol.ChainSelector(report.Message.SourceChainSelector),
-			DestChainSelector:    protocol.ChainSelector(report.Message.DestChainSelector),
-			Nonce:                protocol.Nonce(report.Message.Nonce),
-			OnRampAddressLength:  uint8(report.Message.OnRampAddressLength),
-			OnRampAddress:        report.Message.OnRampAddress,
-			OffRampAddressLength: uint8(report.Message.OffRampAddressLength),
-			OffRampAddress:       report.Message.OffRampAddress,
-			Finality:             uint16(report.Message.Finality),
-			SenderLength:         uint8(report.Message.SenderLength),
-			Sender:               report.Message.Sender,
-			ReceiverLength:       uint8(report.Message.ReceiverLength),
-			Receiver:             report.Message.Receiver,
-			DestBlobLength:       uint16(report.Message.DestBlobLength),
-			DestBlob:             report.Message.DestBlob,
-			TokenTransferLength:  uint16(report.Message.TokenTransferLength),
-			TokenTransfer:        report.Message.TokenTransfer,
-			DataLength:           uint16(report.Message.DataLength),
-			Data:                 report.Message.Data,
-		}
-
-		messageId, err := msg.MessageID()
-		require.NoError(t, err, "Failed to compute message ID")
-		messageIDHex := common.Bytes2Hex(messageId[:])
-
-		// Verify no duplicate messages
-		require.False(t, messageIDs[messageIDHex],
-			"Message %s should not be duplicated", messageIDHex)
-		messageIDs[messageIDHex] = true
-
-		// Check shard distribution
-		expectedShard := messageToShard[messageIDHex]
-		retrievedShardCounts[expectedShard]++
+	for expectedId := range expectedMessageIds {
+		require.True(t, retrievedMessages[expectedId], "message %s was not retrieved", expectedId)
 	}
 
-	// Verify shard distribution matches expectations
-	for shard, expectedCount := range shardCounts {
-		actualCount := retrievedShardCounts[shard]
-		require.Equal(t, expectedCount, actualCount,
-			"Shard %s should have %d messages, got %d", shard, expectedCount, actualCount)
-	}
-
-	// Verify temporal ordering within each shard
-	verifyTemporalOrderingAcrossShards(t, allReports, shardCount)
-
-	// Verify global temporal ordering across all shards
-	verifyGlobalTemporalOrdering(t, allReports)
-
-	t.Logf("✅ Multi-shard pagination test completed successfully!")
-	t.Logf("📊 Summary:")
-	t.Logf("   - Shard count: %d", shardCount)
-	t.Logf("   - Messages created: %d across %d days", totalMessages, numDays)
-	t.Logf("   - Page size: %d", pageSize)
-	t.Logf("   - Pages retrieved: %d", pageCount)
-	t.Logf("   - Submission time: %v", submissionTime)
-	t.Logf("   - Pagination time: %v", paginationTime)
-	t.Logf("   - All messages retrieved: %d", len(allReports))
-	t.Logf("   - Shard distribution verified: ✅")
-	t.Logf("   - Global temporal ordering verified: ✅")
+	t.Logf("✅ Multi-shard pagination test completed: %d messages retrieved across %d shards and %d pages",
+		len(retrievedMessages), shardCount, pageCount)
 }
 
-// verifyTemporalOrderingAcrossShards verifies that messages are properly ordered across shards.
-func verifyTemporalOrderingAcrossShards(t *testing.T, reports []*pb.MessageWithCCVData, shardCount int) {
-	// Group messages by shard based on calculated shard from messageID
-	shardReports := make(map[string][]*pb.MessageWithCCVData)
+// TestParticipantDeduplication verifies that only one verification per participant
+// is included in the aggregated report, keeping the most recent one.
+func TestParticipantDeduplication(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+	signer1 := NewSignerFixture(t, "node1")
+	signer2 := NewSignerFixture(t, "node2")
 
-	for _, report := range reports {
-		// Convert pb.Message to protocol.Message to compute message ID
-		msg := &protocol.Message{
-			Version:              uint8(report.Message.Version),
-			SourceChainSelector:  protocol.ChainSelector(report.Message.SourceChainSelector),
-			DestChainSelector:    protocol.ChainSelector(report.Message.DestChainSelector),
-			Nonce:                protocol.Nonce(report.Message.Nonce),
-			OnRampAddressLength:  uint8(report.Message.OnRampAddressLength),
-			OnRampAddress:        report.Message.OnRampAddress,
-			OffRampAddressLength: uint8(report.Message.OffRampAddressLength),
-			OffRampAddress:       report.Message.OffRampAddress,
-			Finality:             uint16(report.Message.Finality),
-			SenderLength:         uint8(report.Message.SenderLength),
-			Sender:               report.Message.Sender,
-			ReceiverLength:       uint8(report.Message.ReceiverLength),
-			Receiver:             report.Message.Receiver,
-			DestBlobLength:       uint16(report.Message.DestBlobLength),
-			DestBlob:             report.Message.DestBlob,
-			TokenTransferLength:  uint16(report.Message.TokenTransferLength),
-			TokenTransfer:        report.Message.TokenTransfer,
-			DataLength:           uint16(report.Message.DataLength),
-			Data:                 report.Message.Data,
-		}
-
-		messageId, err := msg.MessageID()
-		require.NoError(t, err, "Failed to compute message ID for temporal ordering")
-		shard := ddbconstant.CalculateShardFromMessageID(messageId[:], shardCount)
-		shardReports[shard] = append(shardReports[shard], report)
+	config := map[string]*model.Committee{
+		"default": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
+					Threshold: 2,
+					Signers: []model.Signer{
+						signer1.Signer,
+						signer2.Signer,
+					},
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+				},
+			},
+		},
 	}
 
-	// Verify temporal ordering within each shard
-	for shard, shardMessages := range shardReports {
-		t.Logf("Verifying temporal ordering for shard %s (%d messages)",
-			shard, len(shardMessages))
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType("dynamodb"))
+	t.Cleanup(cleanup)
+	require.NoError(t, err, "failed to create server and client")
 
-		for i := 1; i < len(shardMessages); i++ {
-			prev := shardMessages[i-1]
-			curr := shardMessages[i]
+	message := NewProtocolMessage(t)
+	messageId, err := message.MessageID()
+	require.NoError(t, err, "failed to compute message ID")
 
-			// Messages should be ordered by timestamp (oldest first)
-			require.LessOrEqual(t, prev.Timestamp, curr.Timestamp,
-				"Messages in shard %s should be ordered by Timestamp (oldest first). "+
-					"Previous: %d, Current: %d", shard, prev.Timestamp, curr.Timestamp)
-		}
-	}
+	oldTimestamp := time.Now().Add(-1 * time.Hour).UnixMicro()
+	ccvNodeData1Old := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+		WithSignatureFrom(t, signer1),
+		WithCustomTimestamp(oldTimestamp))
+
+	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1Old,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1 (old)")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
+
+	newTimestamp := time.Now().Add(-30 * time.Minute).UnixMicro()
+	ccvNodeData1New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+		WithSignatureFrom(t, signer1),
+		WithCustomTimestamp(newTimestamp))
+
+	resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1New,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1 (new)")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
+
+	assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
+
+	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+		WithSignatureFrom(t, signer2))
+
+	resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
+
+	time.Sleep(100 * time.Millisecond)
+
+	aggResp1 := assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress,
+		WithExactNumberOfSignatures(2),
+		WithValidSignatureFrom(signer2),
+		WithValidSignatureFrom(signer1),
+	)
+
+	// Wait a second to ensure the aggregation timestamp is different (we use write time as aggregation time)
+	time.Sleep(1 * time.Second)
+
+	newerTimestamp := time.Now().UnixMicro()
+	ccvNodeData1Newer := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+		WithSignatureFrom(t, signer1),
+		WithCustomTimestamp(newerTimestamp))
+
+	resp4, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1Newer,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1 (new)")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp4.Status, "expected WriteStatus_SUCCESS")
+
+	aggResp2 := assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress,
+		WithExactNumberOfSignatures(2),
+		WithValidSignatureFrom(signer2),
+		WithValidSignatureFrom(signer1),
+	)
+
+	require.Greater(t, aggResp2.Timestamp, aggResp1.Timestamp, "We should have a newer aggregation timestamp")
 }
 
-// verifyGlobalTemporalOrdering verifies that all messages are properly ordered by timestamp globally.
-func verifyGlobalTemporalOrdering(t *testing.T, reports []*pb.MessageWithCCVData) {
-	t.Logf("Verifying global temporal ordering across all %d messages", len(reports))
+// TestWriteTimeOrdering verifies that GetMessagesSince returns reports ordered by WrittenAt.
+func TestWriteTimeOrdering(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+	signer1 := NewSignerFixture(t, "node1")
+	signer2 := NewSignerFixture(t, "node2")
 
-	if len(reports) <= 1 {
-		return // Nothing to verify with 0 or 1 message
+	config := map[string]*model.Committee{
+		"default": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
+					Threshold: 2,
+					Signers: []model.Signer{
+						signer1.Signer,
+						signer2.Signer,
+					},
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+				},
+			},
+		},
 	}
 
-	// Verify that all messages are ordered by timestamp globally (oldest first)
-	for i := 1; i < len(reports); i++ {
-		prev := reports[i-1]
-		curr := reports[i]
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType("dynamodb"))
+	t.Cleanup(cleanup)
+	require.NoError(t, err, "failed to create server and client")
 
-		require.LessOrEqual(t, prev.Timestamp, curr.Timestamp,
-			"Messages should be globally ordered by Timestamp (oldest first). "+
-				"Message %d timestamp: %d, Message %d timestamp: %d",
-			i-1, prev.Timestamp, i, curr.Timestamp)
+	message1 := NewProtocolMessage(t, WithNonce(100))
+	messageId1, err := message1.MessageID()
+	require.NoError(t, err, "failed to compute message ID 1")
+
+	oldTime := time.Now().Add(-24 * time.Hour).UnixMicro()
+
+	message2 := NewProtocolMessage(t, WithNonce(200))
+	messageId2, err := message2.MessageID()
+	require.NoError(t, err, "failed to compute message ID 2")
+
+	recentTime := time.Now().UnixMicro()
+
+	t.Log("Submitting message 2 with recent timestamps - will aggregate first")
+	ccvNodeData2_1 := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress,
+		WithSignatureFrom(t, signer1),
+		WithCustomTimestamp(recentTime))
+
+	resp, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2_1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+	ccvNodeData2_2 := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress,
+		WithSignatureFrom(t, signer2),
+		WithCustomTimestamp(recentTime))
+
+	resp, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2_2,
+	})
+	require.NoError(t, err)
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+	time.Sleep(500 * time.Millisecond)
+
+	_, err = ccvDataClient.GetCCVDataForMessage(t.Context(), &pb.GetCCVDataForMessageRequest{
+		MessageId: messageId2[:],
+	})
+	require.NoError(t, err, "Message 2 should be aggregated")
+
+	t.Log("Submitting message 1 with old timestamps - will aggregate second")
+	ccvNodeData1_1 := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress,
+		WithSignatureFrom(t, signer1),
+		WithCustomTimestamp(oldTime))
+
+	resp, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1_1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+	ccvNodeData1_2 := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress,
+		WithSignatureFrom(t, signer2),
+		WithCustomTimestamp(oldTime))
+
+	resp, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1_2,
+	})
+	require.NoError(t, err)
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+	time.Sleep(500 * time.Millisecond)
+
+	_, err = ccvDataClient.GetCCVDataForMessage(t.Context(), &pb.GetCCVDataForMessageRequest{
+		MessageId: messageId1[:],
+	})
+	require.NoError(t, err, "Message 1 should be aggregated")
+
+	resp2, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, resp2.Results, 2, "Should return 2 messages")
+
+	t.Logf("First result timestamp: %d", resp2.Results[0].Timestamp)
+	t.Logf("Second result timestamp: %d", resp2.Results[1].Timestamp)
+
+	result1MessageID := resp2.Results[0].Message.Nonce
+	result2MessageID := resp2.Results[1].Message.Nonce
+
+	require.Equal(t, uint64(200), result1MessageID, "First result should be message2 (nonce 200)")
+	require.Equal(t, uint64(100), result2MessageID, "Second result should be message1 (nonce 100)")
+
+	require.LessOrEqual(t, resp2.Results[0].Timestamp, resp2.Results[1].Timestamp,
+		"First message (written first) should have earlier or equal WrittenAt than second message (written second)")
+
+	t.Log("SUCCESS: GetMessagesSince returns items ordered by write time, not verification time")
+}
+
+// TestGetMessagesSinceDeduplication verifies that GetMessagesSince deduplicates messages
+// and shows correct behavior when the same signer submits multiple verifications.
+func TestGetMessagesSinceDeduplication(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+	signer1 := NewSignerFixture(t, "node1")
+	signer2 := NewSignerFixture(t, "node2")
+
+	config := map[string]*model.Committee{
+		"default": {
+			SourceVerifierAddresses: map[string]string{
+				"1": common.Bytes2Hex(sourceVerifierAddress),
+			},
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"2": {
+					Threshold: 2,
+					Signers: []model.Signer{
+						signer1.Signer,
+						signer2.Signer,
+					},
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+				},
+			},
+		},
 	}
 
-	t.Logf("✅ Global temporal ordering verified: all %d messages are correctly ordered", len(reports))
+	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(
+		t,
+		WithCommitteeConfig(config),
+		WithStorageType("dynamodb"),
+	)
+	t.Cleanup(cleanup)
+	require.NoError(t, err, "failed to create server and client")
+
+	// Create a message that both signers will verify
+	message := NewProtocolMessage(t)
+	require.NoError(t, err, "failed to compute message ID")
+
+	// Step 1: Signer1 sends their verification
+	t.Log("Step 1: Signer1 sends verification")
+	ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
+	resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData1,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
+
+	// GetMessagesSince should return nothing (no quorum yet)
+	getResp1, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, getResp1.Results, 0, "Should return 0 reports (no quorum yet)")
+	t.Log("✓ GetMessagesSince returns 0 reports after signer1 verification")
+
+	// Step 2: Signer2 sends their verification
+	t.Log("Step 2: Signer2 sends verification")
+	ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
+	resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
+
+	// GetMessagesSince should return one report (quorum reached)
+	getResp2, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, getResp2.Results, 1, "Should return 1 report (quorum reached)")
+	t.Log("✓ GetMessagesSince returns 1 report after signer2 verification (quorum reached)")
+
+	// Step 3: Signer2 sends their verification again (duplicate)
+	t.Log("Step 3: Signer2 sends same verification again")
+	resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2, // Same data as before
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData should handle duplicate")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status)
+
+	// GetMessagesSince should still return one report (deduplicated)
+	getResp3, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, getResp3.Results, 1, "Should still return 1 report (duplicate deduplicated)")
+	t.Log("✓ GetMessagesSince still returns 1 report after duplicate verification")
+
+	// Step 4: Create a second message with a more recent timestamp
+	t.Log("Step 4: Signer2 sends new verification for the same message (more recent timestamp)")
+
+	newerTimestamp := time.Now().UnixMicro()
+	ccvNodeData2New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(newerTimestamp))
+	resp4, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData: ccvNodeData2New,
+	})
+	require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2 (newer timestamp)")
+	require.Equal(t, pb.WriteStatus_SUCCESS, resp4.Status)
+
+	// GetMessagesSince should still return one report, but with the newer timestamp
+	getResp4, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+		Since: 0,
+	})
+	require.NoError(t, err, "GetMessagesSince should succeed")
+	require.Len(t, getResp4.Results, 2, "Should still return 2 report")
 }

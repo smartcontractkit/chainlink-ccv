@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/query"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -26,10 +27,11 @@ type DynamoDBStorage struct {
 	tableName              string
 	finalizedFeedTableName string
 	minDate                time.Time
-	logger                 logger.SugaredLogger
+	lggr                   logger.SugaredLogger
 	monitoring             pkgcommon.AggregatorMonitoring
 	pageSize               int
 	shardCount             int
+	timeProvider           pkgcommon.TimeProvider
 }
 
 var (
@@ -39,15 +41,20 @@ var (
 )
 
 func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, logger logger.SugaredLogger, monitoring pkgcommon.AggregatorMonitoring, pageSize, shardCount int) *DynamoDBStorage {
+	return NewDynamoDBStorageWithTimeProvider(client, tableName, finalizedFeedTableName, minDate, logger, monitoring, pageSize, shardCount, pkgcommon.NewRealTimeProvider())
+}
+
+func NewDynamoDBStorageWithTimeProvider(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, logger logger.SugaredLogger, monitoring pkgcommon.AggregatorMonitoring, pageSize, shardCount int, timeProvider pkgcommon.TimeProvider) *DynamoDBStorage {
 	return &DynamoDBStorage{
 		client:                 client,
 		tableName:              tableName,
 		finalizedFeedTableName: finalizedFeedTableName,
 		minDate:                minDate,
-		logger:                 logger,
+		lggr:                   logger,
 		monitoring:             monitoring,
 		pageSize:               pageSize,
 		shardCount:             shardCount,
+		timeProvider:           timeProvider,
 	}
 }
 
@@ -55,6 +62,10 @@ func (d *DynamoDBStorage) RecordCapacity(capacity *types.ConsumedCapacity) {
 	if d.monitoring != nil && capacity != nil {
 		d.monitoring.Metrics().RecordCapacity(capacity)
 	}
+}
+
+func (d *DynamoDBStorage) logger(ctx context.Context) logger.SugaredLogger {
+	return scope.AugmentLogger(ctx, d.lggr)
 }
 
 func (d *DynamoDBStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error {
@@ -190,7 +201,7 @@ func (d *DynamoDBStorage) ListCommitVerificationByMessageID(ctx context.Context,
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
-		ConsistentRead:         aws.Bool(false),
+		ConsistentRead:         aws.Bool(true),
 		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	})
 
@@ -235,6 +246,10 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return fmt.Errorf("report must contain at least one verification")
 	}
 
+	// Set the write timestamp - this represents when the report is being stored
+	// This ensures GetMessagesSince returns items in storage order, not verification order
+	report.WrittenAt = d.timeProvider.Now().Unix()
+
 	// Calculate shard based on messageID and shardCount
 	shard := ddbconstant.CalculateShardFromMessageID(report.MessageID, d.shardCount)
 
@@ -258,6 +273,7 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 	if err != nil {
 		var conditionalCheckFailedException *types.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckFailedException) {
+			d.logger(ctx).Infow("Duplicate report detected, skipping write", "verifications", len(report.Verifications))
 			return nil
 		}
 		return fmt.Errorf("failed to submit report to FinalizedFeed table: %w", err)
@@ -268,8 +284,7 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 	if err != nil {
 		// Log error but don't fail the entire operation since the report was already saved
 		// This is a best-effort cleanup operation
-		logger := d.logger.With("messageID", report.MessageID, "committeeID", report.CommitteeID)
-		logger.Warnf("failed to mark verification message data as aggregated: %v", err)
+		d.logger(ctx).Warnf("failed to mark verification message data as aggregated: %v", err)
 	}
 
 	return nil
@@ -318,7 +333,7 @@ func (d *DynamoDBStorage) shardQueryIteratorForDay(
 		IndexName:                 aws.String(ddbconstant.GSIDayCommitteeIndex),
 		KeyConditionExpression:    aws.String(fmt.Sprintf("%s = :pk", ddbconstant.FinalizedFeedFieldGSIPK)),
 		ExpressionAttributeValues: map[string]types.AttributeValue{":pk": &types.AttributeValueMemberS{Value: gsiPK}, ":start": &types.AttributeValueMemberN{Value: strconv.FormatInt(start, 10)}, ":end": &types.AttributeValueMemberN{Value: strconv.FormatInt(end, 10)}},
-		FilterExpression:          aws.String(fmt.Sprintf("%s BETWEEN :start AND :end", ddbconstant.FinalizedFeedFieldFinalizedAt)),
+		FilterExpression:          aws.String(fmt.Sprintf("%s BETWEEN :start AND :end", ddbconstant.FinalizedFeedFieldWrittenAt)),
 		ScanIndexForward:          aws.Bool(true),
 		ReturnConsumedCapacity:    types.ReturnConsumedCapacityIndexes,
 	}

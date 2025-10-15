@@ -50,23 +50,27 @@ func CommitAggregatedReportToItem(report *model.CommitAggregatedReport, shard st
 		return nil, fmt.Errorf("failed to create finalized aggregated report: %w", err)
 	}
 
-	finalizedAt := ComputeFinalizedAt(report)
+	primarySortTimestamp := report.Timestamp
+	gsiSortTimestamp := report.WrittenAt
 
-	day := FormatDay(finalizedAt)
+	day := FormatDay(gsiSortTimestamp)
 	verificationCount := len(report.Verifications)
 
 	pk := BuildFinalizedFeedPartitionKey(report.CommitteeID, report.MessageID)
-	sk := BuildFinalizedFeedSortKey(finalizedAt)
+	sk := BuildFinalizedFeedSortKey(primarySortTimestamp, verificationCount)
 
 	gsiPK := BuildGSIPartitionKey(day, report.CommitteeID, ddbconstant.FinalizedFeedVersion, shard)
-	gsiSK := BuildGSISortKey(finalizedAt, verificationCount, hex.EncodeToString(report.MessageID))
+	gsiSK := BuildGSISortKey(gsiSortTimestamp, verificationCount, hex.EncodeToString(report.MessageID))
 
 	item := map[string]types.AttributeValue{
 		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID: &types.AttributeValueMemberS{
 			Value: pk,
 		},
-		ddbconstant.FinalizedFeedFieldFinalizedAt: &types.AttributeValueMemberN{
+		ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey: &types.AttributeValueMemberS{
 			Value: sk,
+		},
+		ddbconstant.FinalizedFeedFieldFinalizedAtTimestamp: &types.AttributeValueMemberN{
+			Value: strconv.FormatInt(primarySortTimestamp, 10),
 		},
 		ddbconstant.FinalizedFeedFieldGSIPK: &types.AttributeValueMemberS{
 			Value: gsiPK,
@@ -85,6 +89,9 @@ func CommitAggregatedReportToItem(report *model.CommitAggregatedReport, shard st
 		},
 		ddbconstant.FinalizedFeedFieldTimestamp: &types.AttributeValueMemberN{
 			Value: strconv.FormatInt(report.Timestamp, 10),
+		},
+		ddbconstant.FinalizedFeedFieldWrittenAt: &types.AttributeValueMemberN{
+			Value: strconv.FormatInt(report.WrittenAt, 10),
 		},
 	}
 
@@ -126,12 +133,22 @@ func CommitAggregatedReportFromItem(item map[string]types.AttributeValue) (*mode
 		return nil, fmt.Errorf("failed to parse timestamp: %w", err)
 	}
 
+	writtenAtValue, ok := item[ddbconstant.FinalizedFeedFieldWrittenAt].(*types.AttributeValueMemberN)
+	if !ok {
+		return nil, fmt.Errorf("%s attribute is missing or not a number", ddbconstant.FinalizedFeedFieldWrittenAt)
+	}
+
+	writtenAt, err := strconv.ParseInt(writtenAtValue.Value, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse writtenAt: %w", err)
+	}
+
 	finalizedReport, err := attributeMapToFinalizedReport(aggregatedReportDataValue.Value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert nested object to finalized report: %w", err)
 	}
 
-	report, err := reconstructReport(finalizedReport, messageID, committeeIDValue.Value, timestamp)
+	report, err := reconstructReport(finalizedReport, messageID, committeeIDValue.Value, timestamp, writtenAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconstruct report from finalized data: %w", err)
 	}
@@ -339,11 +356,12 @@ func attributeMapToFinalizedReport(attrMap map[string]types.AttributeValue) (*Fi
 	}, nil
 }
 
-func reconstructReport(finalizedReport *FinalizedReport, messageID []byte, committeeID string, timestamp int64) (*model.CommitAggregatedReport, error) {
+func reconstructReport(finalizedReport *FinalizedReport, messageID []byte, committeeID string, timestamp, writtenAt int64) (*model.CommitAggregatedReport, error) {
 	report := &model.CommitAggregatedReport{
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
 		Timestamp:     timestamp,
+		WrittenAt:     writtenAt,
 		Verifications: make([]*model.CommitVerificationRecord, len(finalizedReport.Verifications)),
 	}
 

@@ -32,7 +32,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.16
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.50.5
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251014193817-7c620cc475bf
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251015161011-369fc7be9674
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 )
 
