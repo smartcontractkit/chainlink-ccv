@@ -163,8 +163,13 @@ func (ec *Coordinator) run(ctx context.Context) {
 
 				id, _ := msg.MessageID()
 
+				if ec.delayedMessageHeap.Has(id) {
+					ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
+					continue
+				}
+
 				// get message delay from leader elector
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg, time.Now().Unix())
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
 
 				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamp{
 					Payload:   &msg,
