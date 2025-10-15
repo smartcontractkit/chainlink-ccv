@@ -45,6 +45,10 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		}, nil).Maybe()
 		return vr
 	}
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
 
 	testcases := []struct {
 		name                       string
@@ -109,6 +113,68 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			validateShouldError:        false,
 			validateMessageShouldError: false,
 			executeShouldError:         true,
+		},
+		{
+			name: "Should only have use up to Threshold amount of optional CCVs",
+			ct: func() *executor_mocks.MockContractTransmitter {
+				ct := executor_mocks.NewMockContractTransmitter(t)
+				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, coordinator.AbstractAggregatedReport{
+					Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1},
+					CCVS:    []protocol.UnknownAddress{address1},
+					CCVData: [][]byte{[]byte("data")},
+				}).Return(nil).Once()
+				return ct
+			},
+			ctChains: []protocol.ChainSelector{1},
+			dr: &mockDestinationReader{
+				executed:    false,
+				executedErr: nil,
+				ccvInfo: coordinator.CcvAddressInfo{
+					OptionalCcvs:      []protocol.UnknownAddress{address1, address2},
+					OptionalThreshold: 1,
+				},
+			},
+			drChains: []protocol.ChainSelector{1},
+			vr: func() *executor_mocks.MockVerifierResultReader {
+				vr := executor_mocks.NewMockVerifierResultReader(t)
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.CCVData{
+					{DestVerifierAddress: address1, CCVData: []byte("data")},
+					{DestVerifierAddress: address2, CCVData: []byte("data")},
+				}, nil).Maybe()
+				return vr
+			},
+			msg: coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
+		},
+		{
+			name: "Should support a 0 threshold for optional CCVs",
+			ct: func() *executor_mocks.MockContractTransmitter {
+				ct := executor_mocks.NewMockContractTransmitter(t)
+				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, coordinator.AbstractAggregatedReport{
+					Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1},
+					CCVS:    []protocol.UnknownAddress{},
+					CCVData: [][]byte{},
+				}).Return(nil).Once()
+				return ct
+			},
+			ctChains: []protocol.ChainSelector{1},
+			dr: &mockDestinationReader{
+				executed:    false,
+				executedErr: nil,
+				ccvInfo: coordinator.CcvAddressInfo{
+					OptionalCcvs:      []protocol.UnknownAddress{address1, address2},
+					OptionalThreshold: 0,
+				},
+			},
+			drChains: []protocol.ChainSelector{1},
+			vr: func() *executor_mocks.MockVerifierResultReader {
+				vr := executor_mocks.NewMockVerifierResultReader(t)
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.CCVData{
+					{DestVerifierAddress: address1, CCVData: []byte("data")},
+					{DestVerifierAddress: address2, CCVData: []byte("data")},
+				}, nil).Maybe()
+				return vr
+			},
+			msg: coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
 		},
 	}
 
