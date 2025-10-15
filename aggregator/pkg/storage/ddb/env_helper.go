@@ -36,7 +36,7 @@ func CreateFinalizedFeedTable(ctx context.Context, client *dynamodb.Client, tabl
 				KeyType:       types.KeyTypeHash,
 			},
 			{
-				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAt), // Sort Key
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey), // Sort Key
 				KeyType:       types.KeyTypeRange,
 			},
 		},
@@ -46,8 +46,8 @@ func CreateFinalizedFeedTable(ctx context.Context, client *dynamodb.Client, tabl
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAt), // Primary Sort Key
-				AttributeType: types.ScalarAttributeTypeN,
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey), // Primary Sort Key
+				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
 				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldGSIPK), // GSI Partition Key

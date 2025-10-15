@@ -13,7 +13,14 @@ type CommitAggregatedReport struct {
 	MessageID     MessageID
 	CommitteeID   CommitteeID
 	Verifications []*CommitVerificationRecord
-	Timestamp     int64
+	// Timestamp represents the latest verification time among all verifications.
+	// This field is used for idempotency - reports with the same verifications will have
+	// the same Timestamp, ensuring retries don't create duplicate records.
+	Timestamp int64
+	// WrittenAt represents when the aggregated report was written to storage (in Unix seconds).
+	// This field is used for ordering in the GetMessagesSince API to return reports
+	// in the order they were finalized/stored, not the order of individual verifications.
+	WrittenAt int64
 }
 
 type PaginatedAggregatedReports struct {
