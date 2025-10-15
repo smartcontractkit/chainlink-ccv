@@ -15,11 +15,14 @@ import (
 )
 
 func createTestSourceReader(t *testing.T, checkpointManager protocol.CheckpointManager) *SourceReaderService {
+	// Create a dummy reorg notification channel that will never receive anything
+	reorgNotifCh := make(chan protocol.ReorgNotification)
 	return NewSourceReaderService(
 		nil,
 		protocol.ChainSelector(1337),
 		checkpointManager,
-		logger.Test(t))
+		logger.Test(t),
+		reorgNotifCh)
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_HappyPath(t *testing.T) {

@@ -46,6 +46,9 @@ type SourceReaderService struct {
 	checkpointManager     protocol.CheckpointManager
 	lastCheckpointTime    time.Time
 	lastCheckpointedBlock *big.Int
+
+	// Reorg notification
+	reorgNotificationCh <-chan protocol.ReorgNotification
 }
 
 // SourceReaderServiceOption is a functional option for SourceReaderService.
@@ -58,12 +61,13 @@ func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
 	}
 }
 
-// NewEVMSourceReader creates a new blockchain-based source reader.
+// NewSourceReaderService creates a new blockchain-based source reader.
 func NewSourceReaderService(
 	sourceReader SourceReader,
 	chainSelector protocol.ChainSelector,
 	checkpointManager protocol.CheckpointManager,
 	logger logger.Logger,
+	reorgNotificationCh <-chan protocol.ReorgNotification,
 	opts ...SourceReaderServiceOption,
 ) *SourceReaderService {
 	s := &SourceReaderService{
@@ -75,6 +79,7 @@ func NewSourceReaderService(
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
 		checkpointManager:    checkpointManager,
+		reorgNotificationCh:  reorgNotificationCh,
 	}
 
 	// Apply options
@@ -427,6 +432,10 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 			r.logger.Infow("🛑 Close signal received, stopping event monitoring")
 			return
 
+		case reorgNotif := <-r.reorgNotificationCh:
+			// Handle reorg notification
+			r.handleReorgNotification(reorgNotif)
+
 		case <-ticker.C:
 			r.processEventCycle(ctx)
 		}
@@ -543,4 +552,27 @@ func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
 
 func (r *SourceReaderService) GetSourceReader() SourceReader {
 	return r.sourceReader
+}
+
+// handleReorgNotification handles a reorg notification from the coordinator.
+func (r *SourceReaderService) handleReorgNotification(notif protocol.ReorgNotification) {
+	// TODO: If finality violated Stop completely
+	resetBlock := new(big.Int).SetUint64(notif.ResetToBlock)
+
+	r.logger.Infow("Reorg detected - resetting source reader",
+		"chainSelector", r.chainSelector,
+		"currentBlock", r.lastProcessedBlock,
+		"resetToBlock", resetBlock,
+		"reorgType", notif.Type)
+
+	// Reset lastProcessedBlock to the reset block
+	// Next cycle will read from resetBlock+1
+	r.lastProcessedBlock = resetBlock
+
+	// If checkpoint manager exists, verify checkpoint was updated
+	if r.checkpointManager != nil {
+		// Checkpoint should already be updated by coordinator
+		// This is just validation logging
+		r.logger.Debugw("Source reader reset complete, will resume from checkpoint+1")
+	}
 }
