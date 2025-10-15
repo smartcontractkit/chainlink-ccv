@@ -15,7 +15,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.72
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251015131629-84c35bb9c419
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251015161836-2f5fb0b98278
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251015164114-2a4dde448278
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251015131629-84c35bb9c419 // indirect
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.55.1
@@ -32,7 +32,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.16
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.50.5
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251014193817-7c620cc475bf
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251015164959-04725e32935c
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 )
 
