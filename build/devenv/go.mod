@@ -14,11 +14,11 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.72
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006181703-d18c115668b9
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006181703-d18c115668b9
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251006133649-4356a9882d12 // indirect
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251015131629-84c35bb9c419
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251015200851-7d32e2a6abec
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251015131629-84c35bb9c419 // indirect
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
-	github.com/smartcontractkit/chainlink-deployments-framework v0.54.1
+	github.com/smartcontractkit/chainlink-deployments-framework v0.55.1
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.33
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
@@ -32,7 +32,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.16
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.50.5
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251015161011-369fc7be9674
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251015201019-773a306d0bb6
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 )
 

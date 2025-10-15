@@ -14,7 +14,7 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
@@ -186,12 +186,12 @@ func main() {
 			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
 			continue
 		}
-		if config.CcvProxyAddresses[strSelector] == "" {
-			lggr.Errorw("CCV proxy address is not set", "chainSelector", selector)
+		if config.OnRampAddresses[strSelector] == "" {
+			lggr.Errorw("On ramp address is not set", "chainSelector", selector)
 			continue
 		}
 
-		sourceReaders[selector], err = sourcereader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.CcvProxyAddresses[strSelector]), ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(), selector, lggr)
+		sourceReaders[selector], err = sourcereader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.OnRampAddresses[strSelector]), onramp.OnRampCCIPMessageSent{}.Topic().Hex(), selector, lggr)
 		if err != nil {
 			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
 			continue

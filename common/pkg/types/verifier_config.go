@@ -13,6 +13,6 @@ type VerifierConfig struct {
 	BlockchainInfos            map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	PyroscopeURL               string                              `toml:"pyroscope_url"`
 	CommitteeVerifierAddresses map[string]string                   `toml:"committee_verifier_addresses"`
-	CcvProxyAddresses          map[string]string                   `toml:"ccv_proxy_addresses"`
+	OnRampAddresses            map[string]string                   `toml:"on_ramp_addresses"`
 	Monitoring                 config.MonitoringConfig             `toml:"monitoring"`
 }
