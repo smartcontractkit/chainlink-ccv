@@ -51,14 +51,14 @@ func (ChainStatusFinalityViolated) isChainStatus() {}
 
 // ReorgDetector monitors a blockchain for reorgs and finality violations.
 type ReorgDetector interface {
-	// InitialStatus fetches initial chain status (stable block as single-block tail).
-	InitialStatus(ctx context.Context) (ChainStatus, error)
+	// Start fetches the initial chain tail (up to MaxTailLength blocks from finalized head),
+	// then begins monitoring for reorgs. Blocks until initial tail is ready.
+	// The first message sent on the returned channel is the initial ChainStatusGood.
+	// Subsequent messages indicate reorgs (ChainStatusReorg) or finality violations (ChainStatusFinalityViolated).
+	// Returns error if initial tail cannot be fetched.
+	// The returned channel is closed when the detector stops.
+	Start(ctx context.Context) (<-chan ChainStatus, error)
 
-	// Start begins the reorg detection loop.
-	// Sends ChainStatus updates to statusChan.
-	// Must be called after InitialStatus.
-	Start(ctx context.Context, initialStatus ChainStatus, statusChan chan<- ChainStatus) error
-
-	// Close stops the reorg detection loop.
+	// Close stops the detector and closes the status channel.
 	Close() error
 }
