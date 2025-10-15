@@ -19,13 +19,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/erc20"
-
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
-	router_operations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/adapters"
@@ -34,31 +30,31 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
-	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/offramp"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
-	router_wrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
-	tokens_core "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-
-	changesets_core "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
-
+	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/erc20"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	router_operations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/onramp"
+	router_wrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
+	tokens_core "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	changesets_core "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 )
 
-var (
-	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
-)
+var ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
 type CCIP17EVM struct {
 	e                      *deployment.Environment
@@ -68,8 +64,8 @@ type CCIP17EVM struct {
 	offRampBySelector      map[uint64]*offramp.OffRamp
 }
 
-// NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation
-func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs []string, wsURLs []string) (*CCIP17EVM, error) {
+// NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
+func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs, wsURLs []string) (*CCIP17EVM, error) {
 	if len(chainIDs) != len(wsURLs) {
 		return nil, fmt.Errorf("len(chainIDs) != len(wsURLs) ; %d != %d", len(chainIDs), len(wsURLs))
 	}
@@ -172,7 +168,7 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 	return events, nil
 }
 
-// fetchAllExecEventsBySelector fetch all ExecutionStateChanged events from off ramp contract
+// fetchAllExecEventsBySelector fetch all ExecutionStateChanged events from off ramp contract.
 func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*offramp.OffRampExecutionStateChanged, error) {
 	l := zerolog.Ctx(ctx)
 	offRamp, ok := m.offRampBySelector[from]
@@ -216,8 +212,8 @@ func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, from, to 
 	return p.GetExpectedNextSequenceNumber(&bind.CallOpts{Context: ctx}, to)
 }
 
-// WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector
-func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (any, error) {
+// WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector.
+func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error) {
 	l := zerolog.Ctx(ctx)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -267,8 +263,8 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64
 	}
 }
 
-// WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector
-func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (any, error) {
+// WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector.
+func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error) {
 	l := zerolog.Ctx(ctx)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -585,7 +581,6 @@ func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily strin
 	default:
 		panic(fmt.Sprintf("unsupported destination family: %s", destFamily))
 	}
-
 }
 
 func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
@@ -846,7 +841,8 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					USDPerWETH:                     usdPerWeth,
 				},
 			},
-		}})
+		},
+	})
 	if err != nil {
 		return nil, err
 	}

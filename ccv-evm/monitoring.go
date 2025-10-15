@@ -16,13 +16,12 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 )
 
 const (
@@ -408,7 +407,7 @@ func NewLokiPusher() *LokiPusher {
 	}
 }
 
-// Push pushes all the messages to a Loki stream
+// Push pushes all the messages to a Loki stream.
 func (lp *LokiPusher) Push(msgs []any, labels map[string]string) error {
 	if len(msgs) == 0 {
 		return nil
