@@ -221,7 +221,7 @@ func TestE2ESmoke(t *testing.T) {
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
 						FinalityConfig:    uint16(tc.finality),
-						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "executor on-ramp"),
+						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "executor"),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,
 						OptionalThreshold: tc.threshold,

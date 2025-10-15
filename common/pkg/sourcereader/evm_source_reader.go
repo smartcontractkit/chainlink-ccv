@@ -153,7 +153,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 			continue // to next message
 		}
 		// Log the event structure using the fixed bindings
-		r.lggr.Infow("📋 CCVProxy Event Structure",
+		r.lggr.Infow("📋 OnRamp Event Structure",
 			"destChainSelector", event.DestChainSelector,
 			"nonce", event.SequenceNumber,
 			"messageId", common.Bytes2Hex(event.MessageId[:]),
