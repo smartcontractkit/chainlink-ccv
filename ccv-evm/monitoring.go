@@ -21,8 +21,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	offRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/off_ramp"
-	onRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/on_ramp"
+	offRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	onRamp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 )
 
 const (

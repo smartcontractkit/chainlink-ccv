@@ -143,11 +143,10 @@ func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
 
 // Message represents the chain-agnostic CCIP message format.
 type Message struct {
-	Sender        UnknownAddress `json:"sender"`
-	Data          ByteSlice      `json:"data"`
-	OnRampAddress UnknownAddress `json:"on_ramp_address"`
-	TokenTransfer ByteSlice      `json:"token_transfer"`
-	// This is OffRamp
+	Sender               UnknownAddress `json:"sender"`
+	Data                 ByteSlice      `json:"data"`
+	OnRampAddress        UnknownAddress `json:"on_ramp_address"`
+	TokenTransfer        ByteSlice      `json:"token_transfer"`
 	OffRampAddress       UnknownAddress `json:"off_ramp_address"`
 	DestBlob             ByteSlice      `json:"dest_blob"`
 	Receiver             UnknownAddress `json:"receiver"`

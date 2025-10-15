@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 
-	offramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/off_ramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 )
 
 const (
@@ -40,16 +40,16 @@ type EvmDestinationReader struct {
 }
 
 func NewEvmDestinationReader(lggr logger.Logger, chainSelector uint64, chainClient client.Client, offrampAddress string, cacheExpiry time.Duration) *EvmDestinationReader {
-	ccvAddr := common.HexToAddress(offrampAddress)
-	ccvAgg, err := offramp.NewOffRampCaller(ccvAddr, chainClient)
+	offRampAddr := common.HexToAddress(offrampAddress)
+	offRamp, err := offramp.NewOffRampCaller(offRampAddr, chainClient)
 	if err != nil {
-		lggr.Errorw("Failed to create Off Ramp caller", "error", err, "address", ccvAddr.Hex(), "chainSelector", chainSelector)
+		lggr.Errorw("Failed to create Off Ramp caller", "error", err, "address", offRampAddr.Hex(), "chainSelector", chainSelector)
 	}
 	// Create cache with max 1000 entries and configurable expiry
 	ccvCache := expirable.NewLRU[cacheKey, executor.CcvAddressInfo](1000, nil, cacheExpiry)
 
 	return &EvmDestinationReader{
-		offRampCaller: *ccvAgg,
+		offRampCaller: *offRamp,
 		lggr:          lggr,
 		chainSelector: chainSelector,
 		client:        chainClient,

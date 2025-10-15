@@ -32,14 +32,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
-	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/off_ramp"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/on_ramp"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences/tokens"
-	offramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/off_ramp"
-	onramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/on_ramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	onramp "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	router_wrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokens_core "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
@@ -832,8 +832,8 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),
 				},
-				ExecutorOnRamp: sequences.ExecutorOnRampParams{
-					Version:       semver.MustParse(executor_onramp.Deploy.Version()),
+				Executor: sequences.ExecutorParams{
+					Version:       semver.MustParse(executor.Deploy.Version()),
 					MaxCCVsPerMsg: 10,
 				},
 				FeeQuoter: sequences.FeeQuoterParams{
@@ -923,17 +923,17 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				Type:    datastore.ContractType(offrampoperations.ContractType),
 				Version: semver.MustParse(offrampoperations.Deploy.Version()),
 			},
-			DefaultCCVOffRamps: []datastore.AddressRef{
+			DefaultInboundCCVs: []datastore.AddressRef{
 				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
 			},
-			// LaneMandatedCCVOffRamps: []datastore.AddressRef{},
-			DefaultCCVOnRamps: []datastore.AddressRef{
+			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
+			DefaultOutboundCCVs: []datastore.AddressRef{
 				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
 			},
-			// LaneMandatedCCVOnRamps: []datastore.AddressRef{},
+			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
-				Type:    datastore.ContractType(executor_onramp.ContractType),
-				Version: semver.MustParse(executor_onramp.Deploy.Version()),
+				Type:    datastore.ContractType(executor.ContractType),
+				Version: semver.MustParse(executor.Deploy.Version()),
 			},
 			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled: false,

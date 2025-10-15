@@ -22,9 +22,9 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.72
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251014144158-9d46428bf29a
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251014203225-ed3d496310e6
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251014144158-9d46428bf29a
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251015131629-84c35bb9c419
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251015161836-2f5fb0b98278
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251015131629-84c35bb9c419
 	github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccv/common v0.0.0-20251003135849-403255766628
 	github.com/smartcontractkit/chainlink-ccv/protocol v0.0.0-20251003202113-d3a7c6246cfc
