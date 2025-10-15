@@ -45,6 +45,7 @@ const (
 	FinalizedFeedFieldFinalizedAt          = "FinalizedAt"
 	FinalizedFeedFieldAggregatedReportData = "AggregatedReportData"
 	FinalizedFeedFieldTimestamp            = "Timestamp"
+	FinalizedFeedFieldWrittenAt            = "WrittenAt"
 )
 
 const (

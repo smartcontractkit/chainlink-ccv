@@ -30,6 +30,7 @@ type DynamoDBStorage struct {
 	monitoring             pkgcommon.AggregatorMonitoring
 	pageSize               int
 	shardCount             int
+	timeProvider           pkgcommon.TimeProvider
 }
 
 var (
@@ -39,6 +40,10 @@ var (
 )
 
 func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, logger logger.SugaredLogger, monitoring pkgcommon.AggregatorMonitoring, pageSize, shardCount int) *DynamoDBStorage {
+	return NewDynamoDBStorageWithTimeProvider(client, tableName, finalizedFeedTableName, minDate, logger, monitoring, pageSize, shardCount, pkgcommon.NewRealTimeProvider())
+}
+
+func NewDynamoDBStorageWithTimeProvider(client *dynamodb.Client, tableName, finalizedFeedTableName string, minDate time.Time, logger logger.SugaredLogger, monitoring pkgcommon.AggregatorMonitoring, pageSize, shardCount int, timeProvider pkgcommon.TimeProvider) *DynamoDBStorage {
 	return &DynamoDBStorage{
 		client:                 client,
 		tableName:              tableName,
@@ -48,6 +53,7 @@ func NewDynamoDBStorage(client *dynamodb.Client, tableName, finalizedFeedTableNa
 		monitoring:             monitoring,
 		pageSize:               pageSize,
 		shardCount:             shardCount,
+		timeProvider:           timeProvider,
 	}
 }
 
@@ -235,6 +241,10 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return fmt.Errorf("report must contain at least one verification")
 	}
 
+	// Set the write timestamp - this represents when the report is being stored
+	// This ensures GetMessagesSince returns items in storage order, not verification order
+	report.WrittenAt = d.timeProvider.Now().Unix()
+
 	// Calculate shard based on messageID and shardCount
 	shard := ddbconstant.CalculateShardFromMessageID(report.MessageID, d.shardCount)
 
@@ -318,7 +328,7 @@ func (d *DynamoDBStorage) shardQueryIteratorForDay(
 		IndexName:                 aws.String(ddbconstant.GSIDayCommitteeIndex),
 		KeyConditionExpression:    aws.String(fmt.Sprintf("%s = :pk", ddbconstant.FinalizedFeedFieldGSIPK)),
 		ExpressionAttributeValues: map[string]types.AttributeValue{":pk": &types.AttributeValueMemberS{Value: gsiPK}, ":start": &types.AttributeValueMemberN{Value: strconv.FormatInt(start, 10)}, ":end": &types.AttributeValueMemberN{Value: strconv.FormatInt(end, 10)}},
-		FilterExpression:          aws.String(fmt.Sprintf("%s BETWEEN :start AND :end", ddbconstant.FinalizedFeedFieldFinalizedAt)),
+		FilterExpression:          aws.String(fmt.Sprintf("%s BETWEEN :start AND :end", ddbconstant.FinalizedFeedFieldWrittenAt)),
 		ScanIndexForward:          aws.Bool(true),
 		ReturnConsumedCapacity:    types.ReturnConsumedCapacityIndexes,
 	}

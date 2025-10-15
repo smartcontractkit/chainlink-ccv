@@ -1,4 +1,3 @@
-// Package aggregation provides commit report aggregation functionality for the aggregator service.
 package aggregation
 
 import (
@@ -67,6 +66,35 @@ func normalizeTimestampToSeconds(timestamp int64) int64 {
 	return timestamp
 }
 
+func deduplicateVerificationsByParticipant(verifications []*model.CommitVerificationRecord) []*model.CommitVerificationRecord {
+	if len(verifications) <= 1 {
+		return verifications
+	}
+
+	// Map from participant address (hex string) to the verification record
+	participantMap := make(map[string]*model.CommitVerificationRecord)
+
+	for _, verification := range verifications {
+		if verification.IdentifierSigner == nil || len(verification.IdentifierSigner.Address) == 0 {
+			continue
+		}
+
+		addressKey := string(verification.IdentifierSigner.Address)
+		existing, exists := participantMap[addressKey]
+
+		if !exists || verification.GetTimestamp() > existing.GetTimestamp() {
+			participantMap[addressKey] = verification
+		}
+	}
+
+	result := make([]*model.CommitVerificationRecord, 0, len(participantMap))
+	for _, verification := range participantMap {
+		result = append(result, verification)
+	}
+
+	return result
+}
+
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
 	lggr.Debugw("Starting aggregation check")
@@ -80,8 +108,13 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	lggr.Debugw("Verifications retrieved", "count", len(verifications))
 
+	dedupedVerifications := deduplicateVerificationsByParticipant(verifications)
+	if len(dedupedVerifications) < len(verifications) {
+		lggr.Infow("Deduplicated verifications", "original", len(verifications), "deduplicated", len(dedupedVerifications))
+	}
+
 	var mostRecentTimestamp int64
-	for _, verification := range verifications {
+	for _, verification := range dedupedVerifications {
 		verificationTimestamp := normalizeTimestampToSeconds(verification.GetTimestamp())
 		if verificationTimestamp > mostRecentTimestamp {
 			mostRecentTimestamp = verificationTimestamp
@@ -91,7 +124,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
-		Verifications: verifications,
+		Verifications: dedupedVerifications,
 		Timestamp:     mostRecentTimestamp,
 	}
 
