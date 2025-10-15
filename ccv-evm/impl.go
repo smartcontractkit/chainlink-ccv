@@ -581,13 +581,39 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 	), nil
 }
 
+func getCommitteeSignatureConfigSecondaryCommittee(selector uint64) committee_verifier.SetSignatureConfigArgs {
+	defaultConfig := committee_verifier.SetSignatureConfigArgs{
+		Threshold: 2,
+		Signers: []common.Address{
+			// In order to get these addresses one has to start up the verifier service with the provided
+			// VERIFIER_SIGNER_PRIVATE_KEY environment variable and check for the log "Using signer address".
+			// TODO: ideally this is programmatic and not hardcoded.
+			common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
+			common.HexToAddress("0xe10c79cdf07842c1d512690d282bf4599e2d89b7"),
+		},
+	}
+
+	if selector == 4793464827907405086 {
+		return committee_verifier.SetSignatureConfigArgs{
+			Threshold: 1,
+			Signers: []common.Address{
+				common.HexToAddress("0x556bed6675c5d8a948d4d42bbf68c6da6c8968e3"),
+			},
+		}
+	}
+
+	return defaultConfig
+}
+
 // getCommitteeSignatureConfig returns the committee configuration for a specific chain selector.
 func getCommitteeSignatureConfig(selector uint64) committee_verifier.SetSignatureConfigArgs {
 	// Default configuration with 2 signers and threshold=2
 	defaultConfig := committee_verifier.SetSignatureConfigArgs{
 		Threshold: 2,
 		Signers: []common.Address{
-			// TODO: why are these addresses hardcoded? where are they fetched from?
+			// In order to get these addresses one has to start up the verifier service with the provided
+			// VERIFIER_SIGNER_PRIVATE_KEY environment variable and check for the log "Using signer address".
+			// TODO: ideally this is programmatic and not hardcoded.
 			common.HexToAddress("0x6b3131d871c63c7fa592863e173cba2da5ffa68b"),
 			common.HexToAddress("0x099125558781da4bcdb16e457e15d997ecac68a8"),
 		},
@@ -610,7 +636,6 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	l := zerolog.Ctx(ctx)
 	l.Info().Msg("Configuring contracts for selector")
 	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
-	runningDS := datastore.NewMemoryDataStore()
 
 	l.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
 	bundle := operations.NewBundle(
@@ -668,15 +693,98 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		return nil, err
 	}
 
-	addresses, err := out.DataStore.Addresses().Fetch()
+	feeQuoterRef, err := out.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			selector,
+			datastore.ContractType(fee_quoter.ContractType),
+			semver.MustParse(fee_quoter.Deploy.Version()),
+			"",
+		),
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get fee quoter address: %w", err)
 	}
-	_, err = json.Marshal(addresses)
+
+	// deploy one more committee verifier for the chain so we can specify multiple verifiers
+	// in messages.
+	l.Info().Msg("Deploying secondary committee verifier")
+	deployReport, err := operations.ExecuteOperation(operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	), committee_verifier.Deploy, env.BlockChains.EVMChains()[selector], contract.DeployInput[committee_verifier.ConstructorArgs]{
+		ChainSelector: selector,
+		Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+		Args: committee_verifier.ConstructorArgs{
+			DynamicConfig: committee_verifier.DynamicConfig{
+				FeeQuoter:      common.HexToAddress(feeQuoterRef.Address),
+				FeeAggregator:  common.HexToAddress("0x01"),
+				AllowlistAdmin: common.HexToAddress("0x01"),
+			},
+		},
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to deploy secondary committee verifier")
 	}
-	env.DataStore = runningDS.Seal()
+	l.Info().Str("Address", deployReport.Output.Address).Msg("Secondary committee verifier deployed")
+
+	// set signature config on the second committee verifier.
+	_, err = operations.ExecuteOperation(operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	), committee_verifier.SetSignatureConfigs, env.BlockChains.EVMChains()[selector], contract.FunctionInput[committee_verifier.SetSignatureConfigArgs]{
+		ChainSelector: selector,
+		Address:       common.HexToAddress(deployReport.Output.Address),
+		Args:          getCommitteeSignatureConfigSecondaryCommittee(selector),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to set signature config on secondary committee verifier: %w", err)
+	}
+
+	l.Info().Msg("Deploying committee verifier proxy")
+	// deploy the committee verifier proxy for the secondary committee verifier - this is the address that should be used
+	// by users when specifying this verifier.
+	deployProxyReport, err := operations.ExecuteOperation(operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	), committee_verifier.DeployProxy, env.BlockChains.EVMChains()[selector], contract.DeployInput[committee_verifier.ProxyConstructorArgs]{
+		ChainSelector: selector,
+		Version:       semver.MustParse(committee_verifier.DeployProxy.Version()),
+		Args: committee_verifier.ProxyConstructorArgs{
+			RampAddress: common.HexToAddress(deployReport.Output.Address),
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to deploy committee verifier proxy: %w", err)
+	}
+	l.Info().Str("Address", deployProxyReport.Output.Address).Msg("Committee verifier proxy deployed")
+	// add the verifier and proxy addresses to the data store.
+	// these will end up being marshaled into env-out.toml.
+	l.Info().Msg("Adding verifier and proxy addresses to data store")
+	err = out.DataStore.Addresses().Add(datastore.AddressRef{
+		ChainSelector: selector,
+		Type:          datastore.ContractType(committee_verifier.ContractType),
+		Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+		Address:       deployReport.Output.Address,
+		Qualifier:     "secondary",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add verifier address to data store: %w", err)
+	}
+	err = out.DataStore.Addresses().Add(datastore.AddressRef{
+		ChainSelector: selector,
+		Type:          datastore.ContractType(committee_verifier.ProxyType),
+		Version:       semver.MustParse(committee_verifier.DeployProxy.Version()),
+		Address:       deployProxyReport.Output.Address,
+		Qualifier:     "secondary",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add proxy address to data store: %w", err)
+	}
+
+	l.Info().Msg("Sealing data store")
 	return out.DataStore.Seal(), nil
 }
 
@@ -738,7 +846,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		RemoteChains: remoteChains,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to configure chain for lanes: %w", err)
 	}
 	return nil
 }
