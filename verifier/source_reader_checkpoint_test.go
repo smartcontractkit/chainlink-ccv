@@ -22,7 +22,8 @@ func createTestSourceReader(t *testing.T, checkpointManager protocol.CheckpointM
 		protocol.ChainSelector(1337),
 		checkpointManager,
 		logger.Test(t),
-		reorgNotifCh)
+		reorgNotifCh,
+		time.Duration(50*time.Millisecond))
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_HappyPath(t *testing.T) {

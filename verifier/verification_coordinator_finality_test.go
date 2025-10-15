@@ -264,7 +264,6 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(noopMonitoring),
 		verifier.WithFinalityCheckInterval(10*time.Millisecond),
-		verifier.WithSourceReaderPollInterval(100*time.Millisecond), // Fast polling for tests
 	)
 	require.NoError(t, err)
 

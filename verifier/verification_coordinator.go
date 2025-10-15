@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -30,25 +31,27 @@ type sourceState struct {
 	reorgNotificationCh chan protocol.ReorgNotification // Send to SourceReaderService
 	chainStatus         protocol.ChainStatus
 	chainStatusMu       sync.RWMutex
+	reorgInProgress     atomic.Bool // Set during reorg handling to prevent new tasks from being added
+
+	// Per-chain pending task queue
+	pendingTasks []VerificationTask
+	pendingMu    sync.RWMutex
 }
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
-	verifier                 Verifier
-	storage                  protocol.CCVNodeDataWriter
-	lggr                     logger.Logger
-	monitoring               common.VerifierMonitoring
-	sourceStates             map[protocol.ChainSelector]*sourceState
-	cancel                   context.CancelFunc
-	pendingTasks             []VerificationTask
-	config                   CoordinatorConfig
-	finalityCheckInterval    time.Duration
-	sourceReaderPollInterval time.Duration
+	verifier              Verifier
+	storage               protocol.CCVNodeDataWriter
+	lggr                  logger.Logger
+	monitoring            common.VerifierMonitoring
+	sourceStates          map[protocol.ChainSelector]*sourceState
+	cancel                context.CancelFunc
+	config                CoordinatorConfig
+	finalityCheckInterval time.Duration
 	// Timestamp tracking for E2E latency measurement
 	messageTimestamps map[protocol.Bytes32]time.Time
 	timestampsMu      sync.RWMutex
 	mu                sync.RWMutex
-	pendingMu         sync.RWMutex
 	verifyingWg       sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
 	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and finalityCheckingLoop() (must complete after error channels closed)
 	running           bool
@@ -126,13 +129,6 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 	}
 }
 
-// WithSourceReaderPollInterval sets the poll interval for source reader services (useful for testing).
-func WithSourceReaderPollInterval(interval time.Duration) Option {
-	return func(vc *Coordinator) {
-		vc.sourceReaderPollInterval = interval
-	}
-}
-
 // WithMonitoring sets the monitoring implementation.
 func WithMonitoring(monitoring common.VerifierMonitoring) Option {
 	return func(vc *Coordinator) {
@@ -161,7 +157,6 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		pendingTasks:          make([]VerificationTask, 0),
 		messageTimestamps:     make(map[protocol.Bytes32]time.Time),
 		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
 	}
@@ -492,6 +487,14 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 				continue
 			}
 
+			// Drop tasks if reorg is in progress for this chain
+			if state.reorgInProgress.Load() {
+				vc.lggr.Warnw("Dropping task batch due to ongoing reorg",
+					"chainSelector", chainSelector,
+					"droppedCount", len(taskBatch.Items))
+				continue
+			}
+
 			// Process all tasks in the batch
 			vc.lggr.Debugw("Received verification task batch",
 				"chainSelector", chainSelector,
@@ -499,7 +502,7 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 
 			for _, verificationTask := range taskBatch.Items {
 				// Add to pending queue for finality checking
-				vc.addToPendingQueue(verificationTask, chainSelector)
+				vc.addToPendingQueue(verificationTask, state)
 			}
 		}
 	}
@@ -585,14 +588,14 @@ func (vc *Coordinator) Name() string {
 	return fmt.Sprintf("verifier.Coordinator[%s]", vc.config.VerifierID)
 }
 
-// addToPendingQueue adds a verification task to the pending queue for finality checking.
-func (vc *Coordinator) addToPendingQueue(task VerificationTask, chainSelector protocol.ChainSelector) {
-	vc.pendingMu.Lock()
-	defer vc.pendingMu.Unlock()
+// addToPendingQueue adds a verification task to the per-chain pending queue for finality checking.
+func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceState) {
+	state.pendingMu.Lock()
+	defer state.pendingMu.Unlock()
 
 	// Set QueuedAt timestamp for finality wait duration tracking
 	task.QueuedAt = time.Now()
-	vc.pendingTasks = append(vc.pendingTasks, task)
+	state.pendingTasks = append(state.pendingTasks, task)
 
 	messageID, err := task.Message.MessageID()
 	if err != nil {
@@ -611,14 +614,14 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, chainSelector pr
 
 	vc.lggr.Infow("📋 Message added to finality queue",
 		"messageID", messageID,
-		"chainSelector", chainSelector,
+		"chainSelector", state.chainSelector,
 		"blockNumber", task.BlockNumber,
 		"nonce", task.Message.Nonce,
-		"queueSize", len(vc.pendingTasks),
+		"queueSize", len(state.pendingTasks),
 	)
 }
 
-// finalityCheckingLoop runs the finality checking loop similar to Python's _check_finalization_periodically.
+// finalityCheckingLoop runs the finality checking loop for all chains.
 func (vc *Coordinator) finalityCheckingLoop(ctx context.Context) {
 	ticker := time.NewTicker(vc.finalityCheckInterval)
 	defer ticker.Stop()
@@ -634,7 +637,10 @@ func (vc *Coordinator) finalityCheckingLoop(ctx context.Context) {
 			vc.lggr.Infow("🛑 Finality checking stopped due to context cancellation")
 			return
 		case <-ticker.C:
-			vc.processFinalityQueue(ctx)
+			// Process finality for each chain independently
+			for _, state := range vc.sourceStates {
+				vc.processFinalityQueueForChain(ctx, state)
+			}
 		case <-cleanupTicker.C:
 			vc.cleanupOldTimestamps()
 		}
@@ -657,59 +663,62 @@ func (vc *Coordinator) cleanupOldTimestamps() {
 	}
 }
 
-// processFinalityQueue processes the pending queue and verifies ready messages.
-func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
-	vc.pendingMu.Lock()
-	defer vc.pendingMu.Unlock()
-
-	if len(vc.pendingTasks) == 0 {
+// processFinalityQueueForChain processes the pending queue for a single chain.
+func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *sourceState) {
+	// Skip if reorg is in progress for this chain
+	if state.reorgInProgress.Load() {
+		vc.lggr.Debugw("Skipping finality check during reorg",
+			"chain", state.chainSelector)
 		return
 	}
 
+	state.pendingMu.Lock()
+	defer state.pendingMu.Unlock()
+
+	if len(state.pendingTasks) == 0 {
+		return
+	}
+
+	chainSelector := state.chainSelector
+
+	// Record queue size metric
 	vc.monitoring.Metrics().
-		With("verifier_id", vc.config.VerifierID).
-		RecordFinalityQueueSize(ctx, int64(len(vc.pendingTasks)))
+		With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
+		RecordFinalityQueueSize(ctx, int64(len(state.pendingTasks)))
 
 	var readyTasks []VerificationTask
 	var remainingTasks []VerificationTask
 
-	// Get latest blocks and finalized blocks for all chains
-	latestBlocks := make(map[protocol.ChainSelector]*big.Int)
-	for chainSelector, state := range vc.sourceStates {
-		latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
-		if err != nil {
-			vc.lggr.Errorw("Failed to get latest block", "error", err)
-			continue
-		}
-		latestBlocks[chainSelector] = latestBlock
-
-		// Record chain state metric
-		vc.monitoring.Metrics().
-			With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
-			RecordSourceChainLatestBlock(ctx, latestBlock.Int64())
-	}
-	latestFinalizedBlocks := make(map[protocol.ChainSelector]*big.Int)
-	for chainSelector, state := range vc.sourceStates {
-		latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
-		if err != nil {
-			vc.lggr.Errorw("Failed to get latest finalized block", "error", err)
-			continue
-		}
-		latestFinalizedBlocks[chainSelector] = latestFinalizedBlock
-
-		// Record chain state metric
-		vc.monitoring.Metrics().
-			With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
-			RecordSourceChainFinalizedBlock(ctx, latestFinalizedBlock.Int64())
+	// Get latest and finalized block heights for this chain
+	latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
+	if err != nil {
+		vc.lggr.Errorw("Failed to get latest block", "error", err, "chain", chainSelector)
+		return
 	}
 
-	for _, task := range vc.pendingTasks {
-		ready, err := vc.isMessageReadyForVerification(task, latestBlocks, latestFinalizedBlocks)
+	latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
+	if err != nil {
+		vc.lggr.Errorw("Failed to get latest finalized block", "error", err, "chain", chainSelector)
+		return
+	}
+
+	// Record chain state metrics
+	vc.monitoring.Metrics().
+		With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
+		RecordSourceChainLatestBlock(ctx, latestBlock.Int64())
+	vc.monitoring.Metrics().
+		With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
+		RecordSourceChainFinalizedBlock(ctx, latestFinalizedBlock.Int64())
+
+	// Check finality for each task
+	for _, task := range state.pendingTasks {
+		ready, err := vc.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock)
 		if err != nil {
 			messageID, _ := task.Message.MessageID()
 			vc.lggr.Warnw("Failed to check finality for message",
 				"messageID", messageID,
-				"error", err)
+				"error", err,
+				"chain", chainSelector)
 			// Keep in queue to retry later
 			remainingTasks = append(remainingTasks, task)
 			continue
@@ -722,19 +731,18 @@ func (vc *Coordinator) processFinalityQueue(ctx context.Context) {
 		}
 	}
 
-	// Update the pending queue
-	vc.pendingTasks = remainingTasks
+	// Update the pending queue for this chain
+	state.pendingTasks = remainingTasks
 
 	if len(readyTasks) > 0 {
 		vc.lggr.Infow("✅ Processing finalized messages",
+			"chain", chainSelector,
 			"readyCount", len(readyTasks),
 			"remainingCount", len(remainingTasks),
 		)
 
-		// Process ready tasks with verifier in batch
-		if len(readyTasks) > 0 {
-			vc.processReadyTasks(ctx, readyTasks)
-		}
+		// Process ready tasks with verifier
+		vc.processReadyTasks(ctx, readyTasks)
 	}
 }
 
@@ -868,6 +876,7 @@ func (vc *Coordinator) processReorgUpdates(ctx context.Context, state *sourceSta
 }
 
 // handleReorg handles a regular reorg event.
+// Sets reorgInProgress flag to prevent new tasks from being added during handling.
 func (vc *Coordinator) handleReorg(
 	ctx context.Context,
 	state *sourceState,
@@ -878,34 +887,33 @@ func (vc *Coordinator) handleReorg(
 	newTip := reorgStatus.NewTail.Tip().Number
 	depth := newTip - commonAncestor
 
-	// 1. Flush pending tasks from reorged blocks
-	vc.pendingMu.Lock()
+	// Set reorgInProgress flag to stop new tasks from being added
+	state.reorgInProgress.Store(true)
+	defer state.reorgInProgress.Store(false)
+
+	vc.lggr.Infow("Handling reorg",
+		"chain", chainSelector,
+		"depth", depth,
+		"commonAncestor", commonAncestor)
+
+	// 1. Flush pending tasks from reorged blocks (per-chain queue)
+	state.pendingMu.Lock()
 	var remaining []VerificationTask
 	flushedCount := 0
-	for _, task := range vc.pendingTasks {
-		if task.Message.SourceChainSelector == chainSelector &&
-			task.BlockNumber > commonAncestor {
+	for _, task := range state.pendingTasks {
+		if task.BlockNumber > commonAncestor {
 			flushedCount++
 			continue
 		}
 		remaining = append(remaining, task)
 	}
-	vc.pendingTasks = remaining
-	vc.pendingMu.Unlock()
+	state.pendingTasks = remaining
+	state.pendingMu.Unlock()
 
-	// 2. Reset checkpoint
-	if vc.checkpointManager != nil {
-		err := vc.checkpointManager.WriteCheckpoint(
-			ctx,
-			chainSelector,
-			big.NewInt(int64(commonAncestor)),
-		)
-		if err != nil {
-			vc.lggr.Errorw("Failed to reset checkpoint after reorg", "error", err, "chain", chainSelector)
-		}
-	}
-
-	// 3. Notify SourceReaderService to re-read
+	// 2. Send notification to SourceReaderService to reset
+	// This must be synchronous to ensure reader resets before we clear reorgInProgress flag
+	// TODO: should we introduce Pause function in reader?
+	// TODO: We should stop reader first before draining the queue
 	notification := protocol.ReorgNotification{
 		ChainSelector: chainSelector,
 		ResetToBlock:  commonAncestor,
@@ -920,8 +928,20 @@ func (vc *Coordinator) handleReorg(
 		vc.lggr.Warnw("Failed to send reorg notification to source reader (channel full)", "chain", chainSelector)
 	}
 
-	// 4. Log and metrics
-	vc.lggr.Infow("Reorg handled",
+	// 3. Reset checkpoint
+	if vc.checkpointManager != nil {
+		err := vc.checkpointManager.WriteCheckpoint(
+			ctx,
+			chainSelector,
+			big.NewInt(int64(commonAncestor)),
+		)
+		if err != nil {
+			vc.lggr.Errorw("Failed to reset checkpoint after reorg", "error", err, "chain", chainSelector)
+		}
+	}
+
+	// 4. Log completion and metrics
+	vc.lggr.Infow("Reorg handled successfully",
 		"chain", chainSelector,
 		"depth", depth,
 		"commonAncestor", commonAncestor,
@@ -947,19 +967,15 @@ func (vc *Coordinator) handleFinalityViolation(
 		"violatedHash", violationStatus.ViolatedBlock.Hash,
 		"safeRestartBlock", violationStatus.SafeRestartBlock)
 
-	// 1. Flush ALL pending tasks for this chain
-	vc.pendingMu.Lock()
-	var remaining []VerificationTask
-	flushedCount := 0
-	for _, task := range vc.pendingTasks {
-		if task.Message.SourceChainSelector == chainSelector {
-			flushedCount++
-			continue
-		}
-		remaining = append(remaining, task)
-	}
-	vc.pendingTasks = remaining
-	vc.pendingMu.Unlock()
+	// 1. Flush ALL pending tasks for this chain (per-chain queue)
+	state.pendingMu.Lock()
+	flushedCount := len(state.pendingTasks)
+	state.pendingTasks = nil // Clear entire queue
+	state.pendingMu.Unlock()
+
+	vc.lggr.Warnw("Flushed all tasks due to finality violation",
+		"chain", chainSelector,
+		"flushedCount", flushedCount)
 
 	// 2. Reset checkpoint to safe restart block
 	if vc.checkpointManager != nil {
@@ -999,22 +1015,12 @@ func (vc *Coordinator) handleFinalityViolation(
 // This implements the same logic as Python's commit_verifier.py finality checking.
 func (vc *Coordinator) isMessageReadyForVerification(
 	task VerificationTask,
-	latestBlocks map[protocol.ChainSelector]*big.Int,
-	latestFinalizedBlocks map[protocol.ChainSelector]*big.Int,
+	latestBlock *big.Int,
+	latestFinalizedBlock *big.Int,
 ) (bool, error) {
 	messageID, err := task.Message.MessageID()
 	if err != nil {
 		return false, fmt.Errorf("failed to compute message ID: %w", err)
-	}
-
-	latestBlock, ok := latestBlocks[task.Message.SourceChainSelector]
-	if !ok {
-		return false, fmt.Errorf("no latest block found for chain %d", task.Message.SourceChainSelector)
-	}
-
-	latestFinalizedBlock, ok := latestFinalizedBlocks[task.Message.SourceChainSelector]
-	if !ok {
-		return false, fmt.Errorf("no latest finalized block found for chain %d", task.Message.SourceChainSelector)
 	}
 
 	// Parse extra args to get finality configuration

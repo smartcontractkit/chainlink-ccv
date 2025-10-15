@@ -207,11 +207,9 @@ func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSel
 	}
 
 	return verifier.CoordinatorConfig{
-		VerifierID:            coordinatorID,
-		SourceConfigs:         sourceConfigs,
-		ProcessingChannelSize: defaultProcessingChannelSize,
-		ProcessingTimeout:     defaultProcessingTimeout,
-		MaxBatchSize:          defaultMaxBatchSize,
+		VerifierID:        coordinatorID,
+		SourceConfigs:     sourceConfigs,
+		ProcessingTimeout: defaultProcessingTimeout,
 	}
 }
 
