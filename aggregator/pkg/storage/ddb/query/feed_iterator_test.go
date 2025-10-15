@@ -14,14 +14,13 @@ import (
 
 const testDay = "2025-09-01"
 
-// ---------- test helpers ----------
-
 func mkRow(day, id string, tsSec int64) map[string]types.AttributeValue {
 	return map[string]types.AttributeValue{
 		ddbconstant.FinalizedFeedFieldGSIPK:                               avS(day), // use day as GSIPK in tests
 		ddbconstant.FinalizedFeedFieldGSISK:                               avS(id),  // id as GSISK (stable tie-break)
 		ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey: avN64(tsSec),
 		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID:                avS("CID#" + id),
+		ddbconstant.FinalizedFeedFieldFinalizedAtTimestamp:                avN64(tsSec), // Required for timestamp extraction
 	}
 }
 
@@ -113,6 +112,7 @@ func TestDynamoAggregatedReportFeedIterator_Paginates_NoDupes_NoLoop(t *testing.
 		require.NoError(t, di.Err())
 
 		next := di.NextPageToken()
+		t.Logf("Iteration %d: emitted=%d, next=%v", safety, emitted, next != nil)
 		if next == nil {
 			break
 		}
