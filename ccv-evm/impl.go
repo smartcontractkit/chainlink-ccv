@@ -45,12 +45,12 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	router_operations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/onramp"
-	router_wrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
-	tokens_core "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	changesets_core "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
+	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 )
 
@@ -443,13 +443,13 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		return fmt.Errorf("failed to get destination family: %w", err)
 	}
 
-	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(router_operations.ContractType), semver.MustParse("1.2.0"), ""))
+	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse("1.2.0"), ""))
 	if err != nil {
 		return fmt.Errorf("failed to get router address: %w", err)
 	}
 
 	routerAddress := common.HexToAddress(routerRef.Address)
-	rout, err := router_wrapper.NewRouter(routerAddress, srcChain.Client)
+	rout, err := routerwrapper.NewRouter(routerAddress, srcChain.Client)
 	if err != nil {
 		return fmt.Errorf("create router wrapper: %w", err)
 	}
@@ -460,9 +460,9 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		operations.NewMemoryReporter(),
 	)
 
-	var tokenAmounts []router_operations.EVMTokenAmount
+	tokenAmounts := make([]routeroperations.EVMTokenAmount, 0, len(fields.TokenAmounts))
 	for _, tokenAmount := range fields.TokenAmounts {
-		tokenAmounts = append(tokenAmounts, router_operations.EVMTokenAmount{
+		tokenAmounts = append(tokenAmounts, routeroperations.EVMTokenAmount{
 			Token:  common.HexToAddress(tokenAmount.TokenAddress.String()),
 			Amount: tokenAmount.Amount,
 		})
@@ -472,7 +472,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	}
 
 	extraArgs := serializeExtraArgs(opts, destFamily)
-	msg := router_wrapper.ClientEVM2AnyMessage{
+	msg := routerwrapper.ClientEVM2AnyMessage{
 		Receiver:     common.LeftPadBytes(common.HexToAddress(fields.Receiver.String()).Bytes(), 32),
 		Data:         fields.Data,
 		TokenAmounts: tokenAmounts,
@@ -513,14 +513,14 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		Str("MsgValue", msgValue.String()).
 		Msg("Have enough tokens to send message")
 
-	ccipSendArgs := router_operations.CCIPSendArgs{
+	ccipSendArgs := routeroperations.CCIPSendArgs{
 		Value:             msgValue,
 		DestChainSelector: dest,
 		EVM2AnyMessage:    msg,
 	}
 
 	// Send CCIP message with value
-	sendReport, err := operations.ExecuteOperation(bundle, router_operations.CCIPSend, srcChain, contract.FunctionInput[router_operations.CCIPSendArgs]{
+	sendReport, err := operations.ExecuteOperation(bundle, routeroperations.CCIPSend, srcChain, contract.FunctionInput[routeroperations.CCIPSendArgs]{
 		ChainSelector: src,
 		Address:       routerAddress,
 		Args:          ccipSendArgs,
@@ -805,8 +805,8 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		return nil, fmt.Errorf("evm chain not found for selector %d", selector)
 	}
 
-	mcmsReaderRegistry := changesets_core.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
-	out, err := changesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesets_core.WithMCMS[changesets.DeployChainContractsCfg]{
+	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
+	out, err := changesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployChainContractsCfg]{
 		Cfg: changesets.DeployChainContractsCfg{
 			ChainSel: selector,
 			Params: sequences.ContractParams{
@@ -861,7 +861,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	if !ok {
 		return nil, errors.New("failed to parse deployer balance")
 	}
-	out, err = changesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesets_core.WithMCMS[changesets.DeployBurnMintTokenAndPoolCfg]{
+	out, err = changesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployBurnMintTokenAndPoolCfg]{
 		Cfg: changesets.DeployBurnMintTokenAndPoolCfg{
 			Accounts: map[common.Address]*big.Int{
 				chain.DeployerKey.From: deployerBalance,
@@ -878,7 +878,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				TokenSymbol:        "TEST",
 				LocalTokenDecimals: 18,
 				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(router_operations.ContractType),
+					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse("1.2.0"),
 				},
 			},
@@ -949,8 +949,8 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		}
 	}
 
-	mcmsReaderRegistry := changesets_core.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
-	_, err := changesets.ConfigureChainForLanes(mcmsReaderRegistry).Apply(*e, changesets_core.WithMCMS[changesets.ConfigureChainForLanesCfg]{
+	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
+	_, err := changesets.ConfigureChainForLanes(mcmsReaderRegistry).Apply(*e, changesetscore.WithMCMS[changesets.ConfigureChainForLanesCfg]{
 		Cfg: changesets.ConfigureChainForLanesCfg{
 			ChainSel:     selector,
 			RemoteChains: remoteChains,
@@ -961,21 +961,21 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	}
 
 	// Configure TEST token for transfer
-	tokenAdapterRegistry := tokens_core.NewTokenAdapterRegistry()
+	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
 	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse("1.7.0"), &adapters.TokenAdapter{})
-	tokensRemoteChains := make(map[uint64]tokens_core.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
+	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
 	for _, rs := range remoteSelectors {
-		tokensRemoteChains[rs] = tokens_core.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
+		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
 			RemotePool: &datastore.AddressRef{
 				Type:    datastore.ContractType(burn_mint_token_pool.ContractType),
 				Version: semver.MustParse("1.7.0"),
 			},
-			InboundRateLimiterConfig: tokens_core.RateLimiterConfig{
+			InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
 				IsEnabled: false,
 				Capacity:  big.NewInt(0),
 				Rate:      big.NewInt(0),
 			},
-			OutboundRateLimiterConfig: tokens_core.RateLimiterConfig{
+			OutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
 				IsEnabled: false,
 				Capacity:  big.NewInt(0),
 				Rate:      big.NewInt(0),
@@ -994,8 +994,8 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			},
 		}
 	}
-	tokens_core.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokens_core.ConfigureTokensForTransfersConfig{
-		Tokens: []tokens_core.TokenTransferConfig{
+	_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+		Tokens: []tokenscore.TokenTransferConfig{
 			{
 				ChainSelector: selector,
 				TokenPoolRef: datastore.AddressRef{
@@ -1010,6 +1010,9 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			},
 		},
 	})
+	if err != nil {
+		return fmt.Errorf("failed to configure tokens for transfers: %w", err)
+	}
 
 	return nil
 }
