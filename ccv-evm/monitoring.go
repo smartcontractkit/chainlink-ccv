@@ -350,8 +350,8 @@ func TraceIDFromMessage(msgID [32]byte) string {
 // If key == nil or empty, falls back to plain SHA-256.
 func SpanID(msgID [32]byte, spanName string) string {
 	h := sha256.New()
-	h.Write(msgID[:])         //nolint:revive // SHA-256 doesn't return an error here
-	h.Write([]byte(spanName)) //nolint:revive // SHA-256 doesn't return an error here
+	h.Write(msgID[:])         //nolint // SHA-256 doesn't return an error here
+	h.Write([]byte(spanName)) //nolint // SHA-256 doesn't return an error here
 	sum := h.Sum(nil)
 	span := sum[len(sum)-8:] // take last 8 bytes
 
