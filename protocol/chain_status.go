@@ -15,7 +15,7 @@ type BlockHeader struct {
 // ChainTail stores an ordered slice of block headers from stable tip to latest tip.
 type ChainTail struct {
 	blocks []BlockHeader // ordered from oldest (stable) to newest (tip)
-	//TODO: Add a map for O(1) lookups (by number and hash)
+	//TODO: Add a map for O(1) lookups by number and hash over the blocks Slice
 }
 
 // NewChainTail creates a new ChainTail from a slice of block headers.
@@ -88,9 +88,11 @@ func (t *ChainTail) Len() int {
 	return len(t.blocks)
 }
 
-// ChainStatusGood indicates normal operation with a valid chain tail.
-type ChainStatusGood struct {
-	Tail ChainTail
+// Blocks returns a copy of all blocks in the tail (ordered from oldest to newest).
+func (t *ChainTail) Blocks() []BlockHeader {
+	blocks := make([]BlockHeader, len(t.blocks))
+	copy(blocks, t.blocks)
+	return blocks
 }
 
 // ChainStatusReorg indicates a regular reorg was detected.

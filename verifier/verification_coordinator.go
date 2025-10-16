@@ -231,41 +231,31 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			reorgNotificationCh: reorgNotificationCh,
 		}
 
-		// 3. Setup ReorgDetector if provided (optional)
+		// Setup ReorgDetector (if provided)
 		if detector, hasDetector := vc.reorgDetectors[chainSelector]; hasDetector {
-			// Start detector (blocks until initial tail is fetched)
-			// First message on channel will be initial ChainStatusGood
+			// Start detector (blocks until initial tail is built and subscription is established)
 			reorgStatusCh, err := detector.Start(ctx)
 			if err != nil {
-				vc.lggr.Errorw("Failed to start reorg detector",
+				vc.lggr.Fatalw("Failed to start reorg detector",
 					"chainSelector", chainSelector,
 					"error", err)
-				// Continue without reorg detection for this chain
+				// TODO: Should we make the reorg detector mandatory to the point we stop the
+				// 	reader as I'm doing here?
+				_ = service.Stop()
 			} else {
-				// Read initial status from channel (non-blocking after Start returns)
-				select {
-				case currentStatus := <-reorgStatusCh:
-					// Store reorg detection components
-					state.reorgDetector = detector
-					state.reorgStatusCh = reorgStatusCh
-					state.chainStatus = currentStatus
+				// Store reorg detection components
+				state.reorgDetector = detector
+				state.reorgStatusCh = reorgStatusCh
 
-					vc.lggr.Infow("Reorg detector started with initial status",
-						"chainSelector", chainSelector,
-						"statusType", currentStatus)
+				vc.lggr.Infow("Reorg detector started successfully",
+					"chainSelector", chainSelector)
 
-					// Spawn processReorgUpdates goroutine
-					vc.backgroundWg.Add(1)
-					go func(s *sourceState) {
-						defer vc.backgroundWg.Done()
-						vc.processReorgUpdates(ctx, s)
-					}(state)
-
-				case <-ctx.Done():
-					vc.lggr.Warnw("Context cancelled while waiting for initial reorg detector status",
-						"chainSelector", chainSelector)
-					detector.Close()
-				}
+				// Spawn processReorgUpdates goroutine
+				vc.backgroundWg.Add(1)
+				go func(s *sourceState) {
+					defer vc.backgroundWg.Done()
+					vc.processReorgUpdates(ctx, s)
+				}(state)
 			}
 		} else {
 			vc.lggr.Infow("No reorg detector provided for chain, reorg detection disabled", "chainSelector", chainSelector)
@@ -859,16 +849,18 @@ func (vc *Coordinator) processReorgUpdates(ctx context.Context, state *sourceSta
 			state.chainStatus = newStatus
 			state.chainStatusMu.Unlock()
 
-			// Handle based on type
+			// Handle based on type (only receive problem events)
 			switch status := newStatus.(type) {
-			case protocol.ChainStatusGood:
-				vc.lggr.Debugw("Chain status good", "chain", state.chainSelector)
-
 			case protocol.ChainStatusReorg:
 				vc.handleReorg(ctx, state, status)
 
 			case protocol.ChainStatusFinalityViolated:
 				vc.handleFinalityViolation(ctx, state, status)
+
+			default:
+				vc.lggr.Warnw("Received unknown chain status type",
+					"chain", state.chainSelector,
+					"statusType", fmt.Sprintf("%T", status))
 			}
 		}
 	}

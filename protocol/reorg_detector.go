@@ -39,23 +39,23 @@ type ReorgNotification struct {
 }
 
 // ChainStatus is a marker interface for different chain status types.
-// Implementations: ChainStatusGood, ChainStatusReorg, ChainStatusFinalityViolated
+// Implementations: ChainStatusReorg, ChainStatusFinalityViolated
 type ChainStatus interface {
 	isChainStatus()
 }
 
 // Implement marker interface for all ChainStatus types
-func (ChainStatusGood) isChainStatus()             {}
 func (ChainStatusReorg) isChainStatus()            {}
 func (ChainStatusFinalityViolated) isChainStatus() {}
 
 // ReorgDetector monitors a blockchain for reorgs and finality violations.
 type ReorgDetector interface {
-	// Start fetches the initial chain tail (up to MaxTailLength blocks from finalized head),
-	// then begins monitoring for reorgs. Blocks until initial tail is ready.
-	// The first message sent on the returned channel is the initial ChainStatusGood.
-	// Subsequent messages indicate reorgs (ChainStatusReorg) or finality violations (ChainStatusFinalityViolated).
-	// Returns error if initial tail cannot be fetched.
+	// Start initializes the detector by building the initial chain tail and subscribing to new blocks.
+	// Blocks until the initial tail is ready and subscription is established.
+	// The returned channel only receives messages when problems occur:
+	// - ChainStatusReorg: A regular reorg was detected
+	// - ChainStatusFinalityViolated: A finality violation was detected (critical error)
+	// Returns error if initial tail cannot be fetched or subscription fails.
 	// The returned channel is closed when the detector stops.
 	Start(ctx context.Context) (<-chan ChainStatus, error)
 
