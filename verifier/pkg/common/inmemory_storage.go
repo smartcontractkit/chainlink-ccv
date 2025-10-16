@@ -1,4 +1,4 @@
-package utils
+package common
 
 import (
 	"context"
@@ -41,11 +41,11 @@ func DefaultTimeProvider() int64 {
 // with timestamp ordering. Data is kept sorted by (CreatedAt, InsertionOrder) for efficient
 // timestamp-based queries with deterministic ordering.
 type InMemoryOffchainStorage struct {
-	lggr                 logger.Logger
-	timeProvider         TimeProvider
-	storedCh             chan struct{}
-	storage              []StorageEntry
-	destChainSelectors   []protocol.ChainSelector
+	lggr               logger.Logger
+	timeProvider       TimeProvider
+	storedCh           chan struct{}
+	storage            []StorageEntry
+	destChainSelectors []protocol.ChainSelector
 	sourceChainSelectors []protocol.ChainSelector
 	insertionCounter     int64
 	limit                uint64
