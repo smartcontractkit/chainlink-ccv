@@ -13,13 +13,13 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/ccvstreamer"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/contracttransmitter"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/destinationreader"
-	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
