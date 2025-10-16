@@ -6,32 +6,6 @@ import '../tools/lib/utils.justfile'
 default:
     just --list
 
-mock: ensure-mockery
-    @echo "Cleaning existing mocks..."
-    find . -path "*/verifier_mocks/*.go" -delete 2>/dev/null || true
-    @echo "Generating mocks with mockery..."
-    mockery
-
-# Format all go files
-fmt: ensure-golangci-lint
-    golangci-lint fmt
-
-# Run golangci-lint
-lint fix="": ensure-golangci-lint
-    golangci-lint run -c ../.golangci.yaml --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
-
-mod-tidy: ensure-go
-    go mod tidy
-
-mod-download: ensure-go
-    go mod download
-
-test: ensure-go
-    go test -v -race ./...
-
-test-coverage:
-    go test -v -race -coverprofile=coverage.out ./...
-
 build-rc:
     docker build -f Dockerfile -t verifier:rc ..
 
