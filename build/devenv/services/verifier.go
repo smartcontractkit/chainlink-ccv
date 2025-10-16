@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
+	commontypes "github.com/smartcontractkit/chainlink-ccv/integration/pkg/types"
 )
 
 const (
