@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -23,7 +24,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"

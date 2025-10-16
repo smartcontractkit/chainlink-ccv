@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 )
