@@ -333,6 +333,22 @@ func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.Unknow
 	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
 }
 
+func (c *CCIP17EVM) GetTokenBalance(ctx context.Context, chainSelector uint64, address protocol.UnknownAddress, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
+	chain, ok := c.e.BlockChains.EVMChains()[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, c.e.BlockChains.EVMChains())
+	}
+	tkn, err := erc20.NewERC20(common.HexToAddress(tokenAddress.String()), chain.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create erc20 wrapper: %w", err)
+	}
+	balance, err := tkn.BalanceOf(&bind.CallOpts{Context: ctx}, common.HexToAddress(address.String()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get balance: %w", err)
+	}
+	return balance, nil
+}
+
 // ensureERC20HasBalanceAndAllowance ensures that the given owner has at least `amount`
 // balance of `token` and that `spender` has at least `amount` allowance.
 func (m *CCIP17EVM) ensureERC20HasBalanceAndAllowance(
