@@ -48,3 +48,5 @@ test-coverage coverage_file="coverage.out":
     # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')
     go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
 
+sh:
+    cd ./build/devenv && go run ./cmd/ccv sh
