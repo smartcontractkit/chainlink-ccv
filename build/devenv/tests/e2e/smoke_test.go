@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -81,7 +83,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:         "1337->3337 msg execution mock receiver",
 				fromSelector: selectors[0],
 				toSelector:   selectors[2],
-				receiver:     getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
+				receiver:     getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "", "mock receiver"),
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
 				expectFail: false,
@@ -117,6 +119,11 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("test extra args v3 messages", func(t *testing.T) {
+		type tokenTransfer struct {
+			tokenAmount  cciptestinterfaces.TokenAmount
+			destTokenRef datastore.AddressRef
+		}
+
 		type testcase struct {
 			name            string
 			srcSelector     uint64
@@ -127,6 +134,7 @@ func TestE2ESmoke(t *testing.T) {
 			mandatoryCCVs   []protocol.CCV
 			optionalCCVs    []protocol.CCV
 			threshold       uint8
+			tokenTransfer   *tokenTransfer
 			expectFail      bool
 		}
 
@@ -139,7 +147,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "", "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -153,7 +161,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "", "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -167,7 +175,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "", "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -179,10 +187,10 @@ func TestE2ESmoke(t *testing.T) {
 				srcSelector: selectors[0],
 				dstSelector: selectors[1],
 				finality:    1,
-				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
+				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "", "mock receiver"),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "", "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -196,10 +204,10 @@ func TestE2ESmoke(t *testing.T) {
 				srcSelector: selectors[1],
 				dstSelector: selectors[0],
 				finality:    1,
-				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
+				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "", "mock receiver"),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "", "committee verifier"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -208,20 +216,56 @@ func TestE2ESmoke(t *testing.T) {
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
 				expectFail: false,
 			},
+			{
+				name:        "src_dst msg execution with EOA receiver and token transfer",
+				srcSelector: selectors[0],
+				dstSelector: selectors[1],
+				finality:    1,
+				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
+				mandatoryCCVs: []protocol.CCV{
+					{
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "", "committee verifier"),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+				tokenTransfer: &tokenTransfer{
+					tokenAmount: cciptestinterfaces.TokenAmount{
+						Amount:       big.NewInt(1000),
+						TokenAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), "TEST", "burn mint erc677"),
+					},
+					destTokenRef: datastore.AddressRef{
+						Type:      datastore.ContractType(burn_mint_erc677.ContractType),
+						Version:   semver.MustParse(burn_mint_erc677.Deploy.Version()),
+						Qualifier: "TEST",
+					},
+				},
+			},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
+				var receiverStartBalance *big.Int
+				var destTokenAddress protocol.UnknownAddress
+				var tokenAmounts []cciptestinterfaces.TokenAmount
+				if tc.tokenTransfer != nil {
+					tokenAmounts = append(tokenAmounts, tc.tokenTransfer.tokenAmount)
+					destTokenAddress = getContractAddress(t, in, tc.dstSelector, tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
+					receiverStartBalance, err = c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
+					require.NoError(t, err)
+					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", protocol.UnknownAddress(destTokenAddress).String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
+				}
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.srcSelector, tc.dstSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 				err = c.SendMessage(
 					ctx, tc.srcSelector, tc.dstSelector, cciptestinterfaces.MessageFields{
-						Receiver: tc.receiver,
-						Data:     []byte{},
+						Receiver:     tc.receiver,
+						Data:         []byte{},
+						TokenAmounts: tokenAmounts,
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
 						FinalityConfig:    uint16(tc.finality),
-						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "executor"),
+						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,
 						OptionalThreshold: tc.threshold,
@@ -237,6 +281,12 @@ func TestE2ESmoke(t *testing.T) {
 				} else {
 					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
 				}
+				if receiverStartBalance != nil {
+					receiverEndBalance, err := c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
+					require.NoError(t, err)
+					require.Equal(t, receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount), receiverEndBalance)
+					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", protocol.UnknownAddress(destTokenAddress).String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
+				}
 			})
 		}
 	})
@@ -248,9 +298,9 @@ func mustGetEOAReceiverAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector 
 	return receiver
 }
 
-func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, contractType datastore.ContractType, version, contractName string) protocol.UnknownAddress {
+func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, contractType datastore.ContractType, version, qualifier, contractName string) protocol.UnknownAddress {
 	ref, err := ccvCfg.CLDF.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(chainSelector, contractType, semver.MustParse(version), ""),
+		datastore.NewAddressRefKey(chainSelector, contractType, semver.MustParse(version), qualifier),
 	)
 	require.NoErrorf(t, err, "failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s",
 		contractName, chainSelector, contractType, version)
