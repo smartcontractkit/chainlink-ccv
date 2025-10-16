@@ -111,7 +111,7 @@ func verifierDefaults(in *VerifierInput) {
 		}
 	}
 	if in.ConfigFilePath == "" {
-		in.ConfigFilePath = "/app/cmd/verifier/verifier-1.toml"
+		in.ConfigFilePath = "/app/common/cmd/verifier/verifier-1.toml"
 	}
 }
 
@@ -180,25 +180,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
-
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../protocol"),
-			"/protocol",
-		))
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../verifier"),
-			"/verifier",
-		))
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../executor"),
-			"/executor",
-		))
-
-		// The main binary is in common.
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../common"),
-			AppPathInsideContainer,
-		))
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -29,10 +28,9 @@ func (dto *SignatureRecordDTO) ToItem(record *model.CommitVerificationRecord) (m
 	}
 
 	signerAddressHex := common.BytesToAddress(record.IdentifierSigner.Address).Hex()
-	createdAt := time.Now().Unix()
 
 	partitionKey := BuildPartitionKey(record.MessageId, record.CommitteeID)
-	sortKey := BuildSignatureSortKey(signerAddressHex, createdAt)
+	sortKey := BuildSignatureSortKey(signerAddressHex, record.Timestamp)
 
 	item := map[string]types.AttributeValue{
 		ddbconstant.FieldPartitionKey: &types.AttributeValueMemberS{Value: partitionKey},
@@ -42,7 +40,7 @@ func (dto *SignatureRecordDTO) ToItem(record *model.CommitVerificationRecord) (m
 		ddbconstant.SignatureFieldParticipantID: &types.AttributeValueMemberS{Value: record.IdentifierSigner.ParticipantID},
 		ddbconstant.SignatureFieldSignatureR:    &types.AttributeValueMemberB{Value: record.IdentifierSigner.SignatureR[:]},
 		ddbconstant.SignatureFieldSignatureS:    &types.AttributeValueMemberB{Value: record.IdentifierSigner.SignatureS[:]},
-		ddbconstant.FieldCreatedAt:              &types.AttributeValueMemberN{Value: strconv.FormatInt(createdAt, 10)},
+		ddbconstant.FieldCreatedAt:              &types.AttributeValueMemberN{Value: strconv.FormatInt(record.Timestamp, 10)},
 	}
 
 	return item, nil
@@ -78,6 +76,16 @@ func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, me
 	copy(signatureS[:], signatureSValue.Value)
 
 	signerAddress := common.HexToAddress(signerAddressValue.Value).Bytes()
+
+	createdAtValue, ok := item[ddbconstant.FieldCreatedAt].(*types.AttributeValueMemberN)
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.FieldCreatedAt)
+	}
+
+	createdAt, err := strconv.ParseInt(createdAtValue.Value, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse createdAt: %w", err)
+	}
 
 	messageWithCCVNodeData, err := dto.reconstructMessageFromVerificationMessageData(verificationMessageDataItem)
 	if err != nil {
@@ -117,7 +125,7 @@ func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, me
 		SourceVerifierAddress: messageWithCCVNodeData.GetSourceVerifierAddress(),
 		CcvData:               messageWithCCVNodeData.GetCcvData(),
 		BlobData:              messageWithCCVNodeData.GetBlobData(),
-		Timestamp:             messageWithCCVNodeData.GetTimestamp(),
+		Timestamp:             createdAt,
 		Message:               messageWithCCVNodeData.GetMessage(),
 		ReceiptBlobs:          messageWithCCVNodeData.GetReceiptBlobs(),
 	}

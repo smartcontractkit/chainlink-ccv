@@ -9,3 +9,4 @@ mise.local.toml
 
 # indexer config
 indexer/config.toml
+common/tmp/

@@ -16,9 +16,9 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
@@ -108,9 +108,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NotNil(t, e)
 
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
 				}
 			})
 		}
@@ -221,7 +221,7 @@ func TestE2ESmoke(t *testing.T) {
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
 						FinalityConfig:    uint16(tc.finality),
-						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor_onramp.ContractType), executor_onramp.Deploy.Version(), "executor on-ramp"),
+						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "executor"),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,
 						OptionalThreshold: tc.threshold,
@@ -233,9 +233,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
 				}
 			})
 		}

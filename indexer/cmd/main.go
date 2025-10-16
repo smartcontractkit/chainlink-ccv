@@ -33,7 +33,7 @@ func main() {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = false
 		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 		config.DisableStacktrace = true
 	})
 
@@ -87,7 +87,7 @@ func main() {
 	// Start the Scanner processing
 	scanner.Start(ctx)
 
-	v1 := api.NewV1API(lggr, indexerStorage, indexerMonitoring)
+	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
 	api.Serve(v1, 8100)
 }
 
@@ -112,16 +112,25 @@ func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.Offc
 	for _, reader := range cfg.Discovery.Static.Readers {
 		switch reader.Type {
 		case config.ReaderTypeAggregator:
-			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, "dummy-api-key", lggr, reader.Aggregator.Since)
+			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since)
 			if err != nil {
 				lggr.Fatalf("Failed to create aggregator reader: %v", err)
 			}
 			readerSlice = append(readerSlice, aggReader)
+		case config.ReaderTypeRest:
+			restReader := readers.NewRestReader(readers.RestReaderConfig{
+				BaseURL:        reader.Rest.BaseURL,
+				Since:          reader.Rest.Since,
+				RequestTimeout: time.Duration(reader.Rest.RequestTimeout) * time.Second,
+				Logger:         lggr,
+			})
+			readerSlice = append(readerSlice, restReader)
 		default:
 			lggr.Fatalf("Unsupported reader type: %s", reader.Type)
 		}
 	}
 
+	lggr.Infof("Created %d readers", len(readerSlice))
 	// Return the readers
 	return readerSlice
 }

@@ -16,12 +16,35 @@ type Configuration struct {
 	IndexerQueryLimit uint64                              `toml:"indexer_query_limit"`
 	PyroscopeURL      string                              `toml:"pyroscope_url"`
 	OffRampAddresses  map[string]string                   `toml:"offramp_addresses"`
+	ExecutorPool      []string                            `toml:"executor_pool"`
+	ExecutorID        string                              `toml:"executor_id"`
+	ExecutionInterval string                              `toml:"execution_interval"`
+	MinWait           string                              `toml:"min_wait"`
 }
 
 func (c *Configuration) Validate() error {
 	if len(c.BlockchainInfos) == 0 {
 		return fmt.Errorf("no destination chains configured to read from")
 	}
+	if len(c.ExecutorPool) == 0 {
+		return fmt.Errorf("executor_ids must be configured")
+	}
+	if c.ExecutorID == "" {
+		return fmt.Errorf("this_executor_id must be configured")
+	}
+
+	// Check that this executor's ID is in the list of executor IDs
+	found := false
+	for _, id := range c.ExecutorPool {
+		if id == c.ExecutorID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("this_executor_id '%s' not found in executor_ids list", c.ExecutorID)
+	}
+
 	return nil
 }
 
@@ -45,6 +68,22 @@ func (c *Configuration) GetLookbackWindow() time.Duration {
 	d, err := time.ParseDuration(c.LookbackWindow)
 	if err != nil {
 		return 1 * time.Hour
+	}
+	return d
+}
+
+func (c *Configuration) GetExecutionInterval() time.Duration {
+	d, err := time.ParseDuration(c.ExecutionInterval)
+	if err != nil {
+		return 30 * time.Second
+	}
+	return d
+}
+
+func (c *Configuration) GetMinWaitPeriod() time.Duration {
+	d, err := time.ParseDuration(c.MinWait)
+	if err != nil {
+		return 10 * time.Second
 	}
 	return d
 }
