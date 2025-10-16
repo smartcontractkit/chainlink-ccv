@@ -43,7 +43,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 	httpURL, _ := blockchainInfo.GetInternalRPCEndpoint()
 	nodeConfigs := []client.NodeConfig{
 		{
-			Name:    ptr(blockchainInfo.ContainerName),
+			Name:    ptr(blockchainInfo.UniqueChainName),
 			WSURL:   ptr(wsURL),
 			HTTPURL: ptr(httpURL),
 		},
