@@ -1,7 +1,7 @@
 root = ".."
 
 [build]
-cmd = "go build -o /tmp/executor /app/common/cmd/executor/main.go"
+cmd = "go build -o /tmp/executor /app/cmd/executor/main.go"
 bin = "/tmp/executor"
 include_dir = ["app"]
 include_ext = ["go", "mod", "sum"]

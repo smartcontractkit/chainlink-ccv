@@ -1,7 +1,7 @@
 root = ".."
 
 [build]
-cmd = "go build -o ./tmp/verifier /app/common/cmd/verifier/main.go"
+cmd = "go build -o ./tmp/verifier /app/cmd/verifier/main.go"
 bin = "tmp/verifier"
 include_dir = ["app"]
 include_ext = ["go", "mod", "sum"]
