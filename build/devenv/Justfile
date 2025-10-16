@@ -83,3 +83,57 @@ rebuild-all:
     @just cli
     @just build-docker-dev
     ccv u
+
+# Install and authenticate with GH CLI
+setup-gh:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    required="2.50.0"
+
+    # Convert semver to a zero-padded comparable number, e.g. 2.50.0 -> 002050000
+    ver() {
+      local v="${1#v}"
+      # Ensure we always have 3 fields by appending ".0.0"
+      echo "${v}.0.0" \
+        | awk -F. '{printf "%03d%03d%03d\n", ($1+0), ($2+0), ($3+0)}'
+    }
+
+    # 1) Ensure gh is installed (prefer Homebrew if available)
+    if ! command -v gh >/dev/null 2>&1; then
+      echo "GitHub CLI not found."
+      if command -v brew >/dev/null 2>&1; then
+        echo "Installing gh via Homebrew..."
+        brew install gh
+      else
+        echo "Homebrew not found. Please install gh manually (>= v${required})." >&2
+        exit 1
+      fi
+    fi
+
+    # 2) Check version
+    have_raw="$(gh --version | head -n1 | awk '{print $3}')"
+    have="${have_raw#v}"
+
+    if [[ "$(ver "$have")" -lt "$(ver "$required")" ]]; then
+      echo "Found gh v${have}, which is older than required v${required}."
+
+      # 3) If installed by Homebrew, upgrade; else error out
+      if command -v brew >/dev/null 2>&1 && brew list gh >/dev/null 2>&1; then
+        echo "gh appears to be managed by Homebrew. Upgrading..."
+        brew upgrade gh
+      else
+        echo "gh is not managed by Homebrew. Please upgrade manually to at least v${required}." >&2
+        exit 1
+      fi
+    else
+      echo "gh v${have} meets requirement (>= v${required})."
+    fi
+
+    # 4) Ensure authentication
+    if ! gh auth status >/dev/null 2>&1; then
+      echo "GitHub CLI not authenticated. Running gh auth login..."
+      gh auth login
+    else
+      echo "GitHub CLI is already authenticated."
+    fi
