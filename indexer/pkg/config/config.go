@@ -5,14 +5,12 @@ import (
 	"os"
 
 	"github.com/pelletier/go-toml/v2"
-
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/monitoring"
 )
 
 // Config provides all configuration for the indexer.
 type Config struct {
 	// Monitoring is the configuration for the monitoring system inside the indexer.
-	Monitoring monitoring.Config `toml:"Monitoring"`
+	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// Scanner is the configuration for the scanner inside the indexer.
 	Scanner ScannerConfig `toml:"Scanner"`
 	// Discovery is the configuration for the discovery system inside the indexer.
