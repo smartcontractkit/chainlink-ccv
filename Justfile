@@ -20,34 +20,31 @@ install-pre-commit:
     brew install pre-commit
     pre-commit install
 
-lint-all fix="":
-    find . -type f -name go.mod -execdir golangci-lint run {{ if fix != "" { "--fix" } else { "" } }} \;
+mock: ensure-mockery
+    @echo "Cleaning existing mocks..."
+    find . -path "*/*_mocks/*.go"
+    @echo "Generating mocks with mockery..."
+    find . -type f -name .mockery.yaml -execdir mockery \;
 
-mod-tidy-all: ensure-gomods
+tidy: ensure-go
     gomods tidy
 
 # Format all go files
 fmt: ensure-golangci-lint
-    golangci-lint fmt
+    find . -type f -name go.mod -execdir golangci-lint fmt
 
 # Run golangci-lint
 lint fix="": ensure-golangci-lint
-    golangci-lint run -c .golangci.yaml --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
-    @echo "Linting devenv"
-    @just ./build/devenv/lint {{fix}}
+    find . -type f -name go.mod -execdir golangci-lint run {{ if fix != "" { "--fix" } else { "" } }} \;
 
-mod-tidy: ensure-go
-    go mod tidy
 
 mod-download: ensure-go
     go mod download
 
-test-all: ensure-go
-    gomods -w go test -v -race ./...
-
 test: ensure-go
-    go test -v -race ./...
+    gomods -w go test -fullpath -shuffle on -v -race ./...
 
-test-coverage:
-    go test -v -race -coverprofile=coverage.out ./...
+test-coverage coverage_file="coverage.out":
+    # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')
+    go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
 

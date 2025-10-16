@@ -6,26 +6,6 @@ import '../tools/lib/utils.justfile'
 default:
     just --list
 
-# Format all go files
-fmt: ensure-golangci-lint
-    golangci-lint fmt
-
-# Run golangci-lint
-lint fix="": ensure-golangci-lint
-    golangci-lint run -c ../.golangci.yaml --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
-
-mod-tidy: ensure-go
-    go mod tidy
-
-mod-download: ensure-go
-    go mod download
-
-test: ensure-go
-    go test -v -race ./...
-
-test-coverage: ensure-go
-    go test -v -race -coverprofile=coverage.out ./...
-
 build-rc:
     docker build -f Dockerfile -t aggregator:rc ..
 
