@@ -1,5 +1,5 @@
 [cldf]
-addresses = ['[{"address": "0x22047684FA5FEbFf09951B33CC36d90b7C07Fd74", "chainSelector": 14767482510784806043, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"}]', '[{"address": "0x1f67ec754cb13f8DFF0974eecD2AA37CB3477578", "chainSelector": 3676871237479449268, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"}]']
+addresses = ['[{"address": "0x22047684FA5FEbFf09951B33CC36d90b7C07Fd74", "chainSelector": 14767482510784806043, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"},{"address": "0x3c42f9cccbf347ae845d456c5204f2b6b5bc7dbd", "chainSelector": 14767482510784806043, "labels": [], "qualifier": "", "type": "MockReceiver", "version": "1.7.0"}]', '[{"address": "0x1f67ec754cb13f8DFF0974eecD2AA37CB3477578", "chainSelector": 3676871237479449268, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"},{"address": "0x108e7e9178ae5c874ca69127222a148ae72409b6", "chainSelector": 3676871237479449268, "labels": [], "qualifier": "", "type": "MockReceiver", "version": "1.7.0"}]']
 
 [[blockchains]]
 container_name = "blockchain-src"
