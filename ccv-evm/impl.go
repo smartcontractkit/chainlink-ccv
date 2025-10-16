@@ -147,7 +147,11 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 	if err != nil {
 		return nil, fmt.Errorf("failed to create filter: %w", err)
 	}
-	defer filter.Close()
+	defer func() {
+		if err := filter.Close(); err != nil {
+			l.Warn().Err(err).Msg("Failed to close filter")
+		}
+	}()
 
 	var events []*onramp.OnRampCCIPMessageSent
 
@@ -181,7 +185,11 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 	if err != nil {
 		return nil, fmt.Errorf("failed to create filter: %w", err)
 	}
-	defer filter.Close()
+	defer func() {
+		if err := filter.Close(); err != nil {
+			l.Warn().Err(err).Msg("Failed to close filter")
+		}
+	}()
 
 	var events []*offramp.OffRampExecutionStateChanged
 
@@ -244,7 +252,9 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 			for filter.Next() {
 				eventCount++
 				if eventCount > 1 {
-					filter.Close()
+					if err := filter.Close(); err != nil {
+						l.Warn().Err(err).Msg("Failed to close filter")
+					}
 					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
 				}
 				eventFound = filter.Event
@@ -257,7 +267,9 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 			if err := filter.Error(); err != nil {
 				l.Warn().Err(err).Msg("Filter error")
 			}
-			filter.Close()
+			if err := filter.Close(); err != nil {
+				l.Warn().Err(err).Msg("Failed to close filter")
+			}
 			if eventFound != nil {
 				return eventFound, nil
 			}
@@ -298,7 +310,9 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 			for filter.Next() {
 				eventCount++
 				if eventCount > 1 {
-					filter.Close()
+					if err := filter.Close(); err != nil {
+						l.Warn().Err(err).Msg("Failed to close filter")
+					}
 					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
 				}
 
@@ -315,7 +329,9 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 				l.Warn().Err(err).Msg("Filter error")
 			}
 
-			filter.Close()
+			if err := filter.Close(); err != nil {
+				l.Warn().Err(err).Msg("Failed to close filter")
+			}
 
 			if eventFound != nil {
 				return eventFound, nil
