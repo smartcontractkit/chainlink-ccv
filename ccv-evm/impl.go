@@ -58,6 +58,7 @@ var ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
 type CCIP17EVM struct {
 	e                      *deployment.Environment
+	logger                 zerolog.Logger
 	chainDetailsBySelector map[uint64]chainsel.ChainDetails
 	ethClients             map[uint64]*ethclient.Client
 	onRampBySelector       map[uint64]*onramp.OnRamp
@@ -65,7 +66,7 @@ type CCIP17EVM struct {
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
-func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs, wsURLs []string) (*CCIP17EVM, error) {
+func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainIDs, wsURLs []string) (*CCIP17EVM, error) {
 	if len(chainIDs) != len(wsURLs) {
 		return nil, fmt.Errorf("len(chainIDs) != len(wsURLs) ; %d != %d", len(chainIDs), len(wsURLs))
 	}
@@ -127,6 +128,7 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs, wsUR
 
 	return &CCIP17EVM{
 		e:                      e,
+		logger:                 logger,
 		chainDetailsBySelector: chainDetailsBySelector,
 		ethClients:             ethClients,
 		onRampBySelector:       onRampBySelector,
@@ -136,7 +138,7 @@ func NewCCIP17EVM(ctx context.Context, e *deployment.Environment, chainIDs, wsUR
 
 // fetchAllSentEventsBySelector fetch all CCIPMessageSent events from on ramp contract.
 func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to uint64) ([]*onramp.OnRampCCIPMessageSent, error) {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	onRamp, ok := m.onRampBySelector[from]
 	if !ok {
 		return nil, fmt.Errorf("no on ramp for selector %d", from)
@@ -170,7 +172,7 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 
 // fetchAllExecEventsBySelector fetch all ExecutionStateChanged events from off ramp contract.
 func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*offramp.OffRampExecutionStateChanged, error) {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	offRamp, ok := m.offRampBySelector[from]
 	if !ok {
 		return nil, fmt.Errorf("no off ramp for selector %d", from)
@@ -214,7 +216,7 @@ func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, from, to 
 
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector.
 func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error) {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
@@ -265,7 +267,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 
 // WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector.
 func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error) {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -358,7 +360,7 @@ func (m *CCIP17EVM) ensureERC20HasBalanceAndAllowance(
 		return false, fmt.Errorf("failed to get allowance: %w", err)
 	}
 	if allowance.Cmp(amount) < 0 {
-		l := zerolog.Ctx(ctx)
+		l := m.logger
 		l.Info().
 			Str("Token", token.Hex()).
 			Str("Spender", spender.Hex()).
@@ -427,7 +429,7 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 }
 
 func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) error {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	chains := m.e.BlockChains.EVMChains()
 	if chains == nil {
 		return errors.New("no EVM chains found")
@@ -691,7 +693,7 @@ func (m *CCIP17EVM) ExposeMetrics(
 
 	lp := NewLokiPusher()
 	tp := NewTempoPusher()
-	c, err := NewCCIP17EVM(ctx, m.e, chainIDs, wsURLs)
+	c, err := NewCCIP17EVM(ctx, m.logger, m.e, chainIDs, wsURLs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -717,7 +719,7 @@ func (m *CCIP17EVM) ExposeMetrics(
 }
 
 func (m *CCIP17EVM) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input) (*blockchain.Output, error) {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	l.Info().Msg("Deploying EVM networks")
 	out, err := blockchain.NewBlockchainNetwork(bc)
 	if err != nil {
@@ -727,7 +729,7 @@ func (m *CCIP17EVM) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input
 }
 
 func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (string, error) {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	l.Info().Msg("Configuring CL nodes")
 	name := fmt.Sprintf("node-evm-%s", uuid.New().String()[0:5])
 	finality := 1
@@ -778,7 +780,7 @@ func getCommitteeSignatureConfig(selector uint64) committee_verifier.SetSignatur
 }
 
 func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64) (datastore.DataStore, error) {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	l.Info().Msg("Configuring contracts for selector")
 	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
 	runningDS := datastore.NewMemoryDataStore()
@@ -897,7 +899,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 }
 
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
@@ -1018,7 +1020,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 }
 
 func (m *CCIP17EVM) FundNodes(ctx context.Context, ns []*simple_node_set.Input, bc *blockchain.Input, linkAmount, nativeAmount *big.Int) error {
-	l := zerolog.Ctx(ctx)
+	l := m.logger
 	l.Info().Msg("Funding CL nodes with ETH and LINK")
 	nodeClients, err := clclient.New(ns[0].Out.CLNodes)
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -424,14 +425,15 @@ func TestE2ELoad(t *testing.T) {
 	b := ccv.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
 
-	ctx := context.Background()
+	ctx := ccv.Plog.WithContext(context.Background())
+	l := zerolog.Ctx(ctx)
 	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
 	for _, bc := range in.Blockchains {
 		chainIDs = append(chainIDs, bc.ChainID)
 		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 	}
 
-	impl, err := ccvEvm.NewCCIP17EVM(ctx, e, chainIDs, wsURLs)
+	impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Run("clean", func(t *testing.T) {

@@ -45,7 +45,7 @@ func TestE2ESmoke(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
 
-	c, err := ccvEvm.NewCCIP17EVM(ctx, e, chainIDs, wsURLs)
+	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
