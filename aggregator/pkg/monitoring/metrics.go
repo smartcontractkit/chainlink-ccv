@@ -1,4 +1,3 @@
-//nolint:gci,goimports
 package monitoring
 
 import (

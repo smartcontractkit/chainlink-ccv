@@ -11,12 +11,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait" //nolint
+	"github.com/testcontainers/testcontainers-go/wait"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config" //nolint:gci
-	//nolint
-	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
-	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb" //nolint
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"                                              //nolint
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants" //nolint
+	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb"             //nolint
 )
 
 const (
