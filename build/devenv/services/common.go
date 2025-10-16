@@ -23,10 +23,8 @@ func CwdSourcePath(sourcePath string) (string, error) {
 }
 
 // GoSourcePathMounts returns default Golang cache/build-cache and dev-image mounts.
-func GoSourcePathMounts(sourcePath, rootPath, containerDirTarget string) testcontainers.ContainerMounts {
-	absRootPath, err := filepath.Abs(
-		filepath.Join(rootPath, "common"),
-	)
+func GoSourcePathMounts(rootPath, containerDirTarget string) testcontainers.ContainerMounts {
+	absRootPath, err := filepath.Abs(rootPath)
 	if err != nil {
 		fmt.Println("error getting working directory", err)
 		return testcontainers.Mounts()
@@ -35,12 +33,8 @@ func GoSourcePathMounts(sourcePath, rootPath, containerDirTarget string) testcon
 	mounts := make([]testcontainers.ContainerMount, 0)
 	mounts = append(mounts,
 		testcontainers.BindMount(
-			sourcePath,
-			testcontainers.ContainerMountTarget(containerDirTarget),
-		),
-		testcontainers.BindMount(
 			absRootPath,
-			"/common",
+			testcontainers.ContainerMountTarget(containerDirTarget),
 		),
 	)
 	return mounts

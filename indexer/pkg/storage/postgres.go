@@ -258,6 +258,125 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 	return nil
 }
 
+// BatchInsertCCVData inserts multiple CCVData entries into the database efficiently using a batch insert.
+func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+	if len(ccvDataList) == 0 {
+		return nil
+	}
+
+	startInsertMetric := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	// Build batch insert query with multiple value sets
+	query := `
+		INSERT INTO indexer.verifier_results (
+			message_id,
+			source_verifier_address,
+			dest_verifier_address,
+			timestamp,
+			source_chain_selector,
+			dest_chain_selector,
+			nonce,
+			ccv_data,
+			blob_data,
+			message,
+			receipt_blobs
+		) VALUES
+	`
+
+	args := make([]any, 0, len(ccvDataList)*11)
+	valueClauses := make([]string, 0, len(ccvDataList))
+
+	for i, ccvData := range ccvDataList {
+		// Serialize message to JSON
+		messageJSON, err := json.Marshal(ccvData.Message)
+		if err != nil {
+			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+			return fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
+		}
+
+		// Serialize receipt blobs to JSON
+		receiptBlobsJSON, err := json.Marshal(ccvData.ReceiptBlobs)
+		if err != nil {
+			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+			return fmt.Errorf("failed to marshal receipt blobs to JSON at index %d: %w", i, err)
+		}
+
+		// Calculate parameter positions for this row
+		baseIdx := i * 11
+		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6,
+			baseIdx+7, baseIdx+8, baseIdx+9, baseIdx+10, baseIdx+11)
+		valueClauses = append(valueClauses, valueClause)
+
+		// Add arguments for this row
+		args = append(args,
+			ccvData.MessageID.String(),
+			ccvData.SourceVerifierAddress.String(),
+			ccvData.DestVerifierAddress.String(),
+			ccvData.Timestamp,
+			ccvData.SourceChainSelector,
+			ccvData.DestChainSelector,
+			ccvData.Nonce,
+			ccvData.CCVData,
+			ccvData.BlobData,
+			messageJSON,
+			receiptBlobsJSON,
+		)
+	}
+
+	// Complete the query with all value clauses and conflict resolution
+	for i, vc := range valueClauses {
+		if i > 0 {
+			query += ", "
+		}
+		query += vc
+	}
+	query += " ON CONFLICT (message_id, source_verifier_address, dest_verifier_address) DO NOTHING"
+
+	// Execute the batch insert
+	result, err := d.execContext(ctx, query, args...)
+	if err != nil {
+		d.lggr.Errorw("Failed to batch insert CCV data", "error", err, "count", len(ccvDataList))
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+		return fmt.Errorf("failed to batch insert CCV data: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		d.lggr.Errorw("Failed to get rows affected", "error", err)
+	} else {
+		d.lggr.Debugw("Batch insert completed", "requested", len(ccvDataList), "inserted", rowsAffected)
+	}
+
+	// Track unique messages and update metrics
+	uniqueMessages := make(map[string]bool)
+	for _, ccvData := range ccvDataList {
+		uniqueMessages[ccvData.MessageID.String()] = true
+	}
+
+	// Check which message IDs are new
+	for messageID := range uniqueMessages {
+		msgBytes32, err := protocol.NewBytes32FromString(messageID)
+		if err != nil {
+			continue
+		}
+		if err := d.trackUniqueMessage(ctx, msgBytes32); err != nil {
+			d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", messageID)
+		}
+	}
+
+	// Increment the verification records counter by the number of rows actually inserted
+	for i := int64(0); i < rowsAffected; i++ {
+		d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
+	}
+
+	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+	return nil
+}
+
 // trackUniqueMessage checks if this is the first time we're seeing this message ID
 // and increments the unique messages counter if so.
 func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID protocol.Bytes32) error {

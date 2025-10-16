@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strconv"
 
 	"github.com/docker/docker/api/types/container"
@@ -87,26 +86,7 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		req.Mounts = testcontainers.Mounts()
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../protocol"),
-			"/protocol",
-		))
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../executor"),
-			"/executor",
-		))
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../verifier"),
-			"/verifier",
-		))
-
-		// The main binary is in common.
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			filepath.Join(p, "../common"),
-			AppPathInsideContainer,
-		))
-
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).

@@ -14,11 +14,12 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/common/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -148,13 +149,18 @@ func main() {
 		verifierAddresses[selector] = addr
 	}
 
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, config.AggregatorAPIKey, lggr)
+	hmacConfig := &hmac.ClientConfig{
+		APIKey: config.AggregatorAPIKey,
+		Secret: config.AggregatorSecretKey,
+	}
+
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, lggr, hmacConfig)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		os.Exit(1)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, config.AggregatorAPIKey, lggr, 0) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for checkpoint reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()
@@ -180,12 +186,12 @@ func main() {
 			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
 			continue
 		}
-		if config.CcvProxyAddresses[strSelector] == "" {
-			lggr.Errorw("CCV proxy address is not set", "chainSelector", selector)
+		if config.OnRampAddresses[strSelector] == "" {
+			lggr.Errorw("On ramp address is not set", "chainSelector", selector)
 			continue
 		}
 
-		sourceReaders[selector], err = sourcereader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.CcvProxyAddresses[strSelector]), ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(), selector, lggr)
+		sourceReaders[selector], err = sourcereader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.OnRampAddresses[strSelector]), onramp.OnRampCCIPMessageSent{}.Topic().Hex(), selector, lggr)
 		if err != nil {
 			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
 			continue

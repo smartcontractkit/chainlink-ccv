@@ -9,12 +9,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-
-	ccvagg "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 )
 
 const (
@@ -32,28 +31,28 @@ type cacheKey struct {
 	receiverAddress     string
 }
 type EvmDestinationReader struct {
-	aggregatorCaller ccvagg.CCVAggregatorCaller
-	lggr             logger.Logger
-	client           bind.ContractCaller
-	chainSelector    uint64
-	ccvCache         *expirable.LRU[cacheKey, executor.CcvAddressInfo]
+	offRampCaller offramp.OffRampCaller
+	lggr          logger.Logger
+	client        bind.ContractCaller
+	chainSelector uint64
+	ccvCache      *expirable.LRU[cacheKey, executor.CcvAddressInfo]
 }
 
 func NewEvmDestinationReader(lggr logger.Logger, chainSelector uint64, chainClient client.Client, offrampAddress string, cacheExpiry time.Duration) *EvmDestinationReader {
-	ccvAddr := common.HexToAddress(offrampAddress)
-	ccvAgg, err := ccvagg.NewCCVAggregatorCaller(ccvAddr, chainClient)
+	offRampAddr := common.HexToAddress(offrampAddress)
+	offRamp, err := offramp.NewOffRampCaller(offRampAddr, chainClient)
 	if err != nil {
-		lggr.Errorw("Failed to create CCV Aggregator caller", "error", err, "address", ccvAddr.Hex(), "chainSelector", chainSelector)
+		lggr.Errorw("Failed to create Off Ramp caller", "error", err, "address", offRampAddr.Hex(), "chainSelector", chainSelector)
 	}
 	// Create cache with max 1000 entries and configurable expiry
 	ccvCache := expirable.NewLRU[cacheKey, executor.CcvAddressInfo](1000, nil, cacheExpiry)
 
 	return &EvmDestinationReader{
-		aggregatorCaller: *ccvAgg,
-		lggr:             lggr,
-		chainSelector:    chainSelector,
-		client:           chainClient,
-		ccvCache:         ccvCache,
+		offRampCaller: *offRamp,
+		lggr:          lggr,
+		chainSelector: chainSelector,
+		client:        chainClient,
+		ccvCache:      ccvCache,
 	}
 }
 
@@ -75,7 +74,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	if err != nil {
 		return executor.CcvAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
 	}
-	chainCCVInfo, err := dr.aggregatorCaller.GetCCVsForMessage(nil, encodedMsg)
+	chainCCVInfo, err := dr.offRampCaller.GetCCVsForMessage(nil, encodedMsg)
 	if err != nil {
 		return executor.CcvAddressInfo{}, fmt.Errorf("failed to call GetCCVSForMessage: %w", err)
 	}
@@ -113,7 +112,7 @@ func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message p
 	_ = ctx
 
 	rcv := common.BytesToAddress(message.Receiver)
-	execState, err := dr.aggregatorCaller.GetExecutionState(
+	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
 			Context: ctx,
 			// TODO: Add FTF to this check

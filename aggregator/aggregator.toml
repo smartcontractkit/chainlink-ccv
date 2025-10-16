@@ -14,6 +14,65 @@ pyroscope_url = "http://pyroscope:4040"
     finalizedFeedTableName = "aggregated_reports"
     checkpointTableName = "checkpoint_records"
 
+[apiKeys]
+  [apiKeys.clients.dev-api-key-verifier-1]
+    clientId = "verifier-1"
+    description = "Development verifier 1"
+    enabled = true
+    groups = ["verifiers"]
+    [apiKeys.clients.dev-api-key-verifier-1.secrets]
+      primary = "dev-secret-verifier-1"
+
+  [apiKeys.clients.dev-api-key-verifier-2]
+    clientId = "verifier-2"
+    description = "Development verifier 2"
+    enabled = true
+    groups = ["verifiers"]
+    [apiKeys.clients.dev-api-key-verifier-2.secrets]
+      primary = "dev-secret-verifier-2"
+
+  [apiKeys.clients.dev-api-key-monitoring]
+    clientId = "monitoring"
+    description = "Monitoring and infrastructure client for read-only access"
+    enabled = true
+    groups = ["monitoring"]
+    [apiKeys.clients.dev-api-key-monitoring.secrets]
+      primary = "dev-secret-monitoring"
+
+[checkpoints]
+  maxCheckpointsPerRequest = 100
+
+[orphanRecovery]
+  enabled = false
+  intervalSeconds = 300
+
+# Rate Limiting Configuration
+[rateLimiting]
+  enabled = true
+  
+  # Storage backend: "memory" (single instance) or "redis" (distributed)
+  [rateLimiting.storage]
+    type = "redis"
+    
+    [rateLimiting.storage.redis]
+      address = "aggregator-redis:6379"
+      password = ""
+      db = 0
+      key_prefix = "ratelimit"
+  
+  # Default rate limits (applied to all callers unless overridden)
+  [rateLimiting.defaultLimits]
+    "/chainlink_ccv.v1.CCVData/GetMessagesSince" = { limit_per_minute = 90 }
+  
+  # Group-based rate limits (more restrictive than defaults for specific groups)
+  [rateLimiting.groupLimits.verifiers]
+    "/chainlink_ccv.v1.Aggregator/BatchWriteCommitCCVNodeData" = { limit_per_minute = 6000 }
+    "/chainlink_ccv.v1.Aggregator/WriteBlockCheckpoint" = { limit_per_minute = 5 }
+    "/chainlink_ccv.v1.Aggregator/ReadBlockCheckpoint" = { limit_per_minute = 5 }
+  
+  [rateLimiting.groupLimits.monitoring]
+    "/chainlink_ccv.v1.CCVData/GetMessagesSince" = { limit_per_minute = 200 }
+
 [committees]
   [committees.default]
     [committees.default.quorumConfigs]

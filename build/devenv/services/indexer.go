@@ -14,7 +14,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -74,10 +73,10 @@ func defaults(in *IndexerInput) {
 	}
 	if in.IndexerConfig == nil {
 		in.IndexerConfig = &config.Config{
-			Monitoring: monitoring.Config{
+			Monitoring: config.MonitoringConfig{
 				Enabled: true,
 				Type:    "beholder",
-				Beholder: monitoring.BeholderConfig{
+				Beholder: config.BeholderConfig{
 					InsecureConnection:       true,
 					OtelExporterHTTPEndpoint: "otel-collector:4318",
 					LogStreamingEnabled:      true,
@@ -99,6 +98,14 @@ func defaults(in *IndexerInput) {
 							Aggregator: config.AggregatorReaderConfig{
 								Address: "aggregator:50051",
 								Since:   0,
+							},
+						},
+						{
+							Type: "rest",
+							Rest: config.RestReaderConfig{
+								BaseURL:        "http://fake:9111",
+								Since:          0,
+								RequestTimeout: 5,
 							},
 						},
 					},
@@ -227,7 +234,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
-		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).

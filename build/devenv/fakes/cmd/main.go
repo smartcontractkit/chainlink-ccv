@@ -1,23 +1,31 @@
 package main
 
 import (
-	"github.com/gin-gonic/gin"
+	"log"
+
+	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/offchainstorage"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 )
 
 func main() {
+	// Initialize the fake data provider
 	_, err := fake.NewFakeDataProvider(&fake.Input{Port: fake.DefaultFakeServicePort})
-	err = fake.Func("POST", "/my_fake_api", func(ctx *gin.Context) {
-		// TODO: add CCV specific mocks
-		ctx.JSON(200, gin.H{
-			"data": map[string]any{
-				"result": "something",
-			},
-		})
-	})
 	if err != nil {
 		panic(err)
 	}
+
+	// Create and configure the offchain storage API
+	api := offchainstorage.NewOffChainStorageAPI()
+
+	// Register the API endpoints
+	err = api.Register()
+	if err != nil {
+		panic(err)
+	}
+
+	log.Printf("Fake offchain storage API running on port %d", fake.DefaultFakeServicePort)
+
+	// Keep the server running
 	select {}
 }

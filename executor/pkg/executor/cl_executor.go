@@ -119,8 +119,8 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 }
 
 func (cle *ChainlinkExecutor) orderCcvData(message protocol.Message, ccvData []protocol.CCVData, receiverDefinedCcvs executor.CcvAddressInfo) (executor.AbstractAggregatedReport, int64, error) {
-	orderedCcvData := make([][]byte, 0)
-	orderedCcvOfframps := make([]protocol.UnknownAddress, 0)
+	orderedCcvData := make([][]byte, 0, len(ccvData))
+	orderedCcvOfframps := make([]protocol.UnknownAddress, 0, len(ccvData))
 
 	mappedCcvData := make(map[string]protocol.CCVData)
 	for _, datum := range ccvData {
@@ -138,18 +138,23 @@ func (cle *ChainlinkExecutor) orderCcvData(message protocol.Message, ccvData []p
 		lastRequiredCCVTimestamp = max(lastRequiredCCVTimestamp, mappedCcvData[strAddr].Timestamp)
 	}
 
+	optionalCount := 0
 	optionalCCVTimestamps := make([]int64, 0, len(receiverDefinedCcvs.OptionalCcvs))
 	for _, ccvAddress := range receiverDefinedCcvs.OptionalCcvs {
+		if optionalCount >= int(receiverDefinedCcvs.OptionalThreshold) {
+			break
+		}
 		if data, ok := mappedCcvData[ccvAddress.String()]; ok {
 			orderedCcvData = append(orderedCcvData, data.CCVData)
 			orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
 			optionalCCVTimestamps = append(optionalCCVTimestamps, data.Timestamp)
+			optionalCount = optionalCount + 1
 		}
 	}
 
 	// check if we have enough optional CCVs. If any required CCVs were missing
 	// we would have already returned error above
-	if len(orderedCcvData)-len(receiverDefinedCcvs.RequiredCcvs) < int(receiverDefinedCcvs.OptionalThreshold) {
+	if optionalCount < int(receiverDefinedCcvs.OptionalThreshold) {
 		return executor.AbstractAggregatedReport{}, 0, executor.ErrInsufficientVerifiers
 	}
 	var ccvTimestamp int64

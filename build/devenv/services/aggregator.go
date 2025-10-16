@@ -15,8 +15,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -29,18 +29,23 @@ const (
 	DefaultAggregatorDynamoDBName  = "aggregator-dynamodb"
 	DefaultAggregatorDynamoDBImage = "amazon/dynamodb-local:2.2.1"
 	DefaultAggregatorDynamoDBPort  = 8000
+
+	// Redis constants.
+	DefaultAggregatorRedisName  = "aggregator-redis"
+	DefaultAggregatorRedisImage = "redis:7-alpine"
+	DefaultAggregatorRedisPort  = 6379
 )
 
 type AggregatorInput struct {
-	Image            string                `toml:"image"`
-	Port             int                   `toml:"port"`
-	SourceCodePath   string                `toml:"source_code_path"`
-	RootPath         string                `toml:"root_path"`
-	ContainerName    string                `toml:"container_name"`
-	UseCache         bool                  `toml:"use_cache"`
-	Out              *AggregatorOutput     `toml:"-"`
-	AggregatorConfig *AggregatorConfig     `toml:"aggregator_config"`
-	DynamoDBTables   *DynamoDBTablesConfig `toml:"dynamodb_tables"`
+	Image            string                  `toml:"image"`
+	Port             int                     `toml:"port"`
+	SourceCodePath   string                  `toml:"source_code_path"`
+	RootPath         string                  `toml:"root_path"`
+	ContainerName    string                  `toml:"container_name"`
+	UseCache         bool                    `toml:"use_cache"`
+	Out              *AggregatorOutput       `toml:"-"`
+	AggregatorConfig *model.AggregatorConfig `toml:"aggregator_config"`
+	DynamoDBTables   *DynamoDBTablesConfig   `toml:"dynamodb_tables"`
 }
 
 type DynamoDBTablesConfig struct {
@@ -88,15 +93,6 @@ type StorageConfig struct {
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
 	Address string `toml:"address"`
-}
-
-// AggregatorConfig is the root configuration for the aggregator.
-type AggregatorConfig struct {
-	Server     ServerConfig          `toml:"server"`
-	Storage    StorageConfig         `toml:"storage"`
-	StubMode   bool                  `toml:"stubQuorumValidation"`
-	Committees map[string]*Committee `toml:"committees"`
-	Monitoring monitoring.Config     `toml:"monitoring"`
 }
 
 func aggregatorDefaults(in *AggregatorInput) {
@@ -166,6 +162,34 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	// Allow some time for DynamoDB Local to initialize
 	time.Sleep(5 * time.Second)
 
+	// Create Redis container for rate limiting
+	redisReq := testcontainers.ContainerRequest{
+		Image:        DefaultAggregatorRedisImage,
+		Name:         DefaultAggregatorRedisName,
+		ExposedPorts: []string{"6379/tcp"},
+		Networks:     []string{framework.DefaultNetworkName},
+		NetworkAliases: map[string][]string{
+			framework.DefaultNetworkName: {DefaultAggregatorRedisName},
+		},
+		Labels: framework.DefaultTCLabels(),
+		HostConfigModifier: func(h *container.HostConfig) {
+			h.PortBindings = nat.PortMap{
+				"6379/tcp": []nat.PortBinding{
+					{HostPort: strconv.Itoa(DefaultAggregatorRedisPort)},
+				},
+			}
+		},
+		WaitingFor: wait.ForLog("Ready to accept connections"),
+	}
+
+	_, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: redisReq,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis container: %w", err)
+	}
+
 	// Get the connection string for localhost access (for table creation)
 	host, err := dynamoContainer.Host(ctx)
 	if err != nil {
@@ -211,7 +235,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
-		req.Mounts = append(req.Mounts, GoSourcePathMounts(p, in.RootPath, AppPathInsideContainer)...)
+		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
 			Str("Service", in.ContainerName).

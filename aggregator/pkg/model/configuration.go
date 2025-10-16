@@ -120,17 +120,17 @@ type ServerConfig struct {
 
 // APIClient represents a configured client for API access.
 type APIClient struct {
-	ClientID    string `toml:"clientId"`
-	Description string `toml:"description,omitempty"`
-	Enabled     bool   `toml:"enabled"`
+	ClientID    string            `toml:"clientId"`
+	Description string            `toml:"description,omitempty"`
+	Enabled     bool              `toml:"enabled"`
+	Secrets     map[string]string `toml:"secrets,omitempty"`
+	Groups      []string          `toml:"groups,omitempty"`
 }
 
 // APIKeyConfig represents the configuration for API key management.
 type APIKeyConfig struct {
 	// Clients maps API keys to client configurations
 	Clients map[string]*APIClient `toml:"clients"`
-	// MaxAPIKeyLength limits the length of API keys
-	MaxAPIKeyLength int `toml:"maxApiKeyLength"`
 }
 
 // CheckpointConfig represents the configuration for the checkpoint API.
@@ -144,6 +144,121 @@ type OrphanRecoveryConfig struct {
 	Enabled bool `toml:"enabled"`
 	// IntervalSeconds controls how often orphan recovery runs (in seconds)
 	IntervalSeconds int `toml:"intervalSeconds"`
+}
+
+// RateLimitConfig defines the rate limit for a specific method.
+type RateLimitConfig struct {
+	// LimitPerMinute is the number of requests allowed per minute
+	LimitPerMinute int `toml:"limit_per_minute"`
+}
+
+// RateLimiterStoreType defines the supported storage types for rate limiting.
+type RateLimiterStoreType string
+
+const (
+	RateLimiterStoreTypeMemory RateLimiterStoreType = "memory"
+	RateLimiterStoreTypeRedis  RateLimiterStoreType = "redis"
+)
+
+const (
+	DefaultRateLimiterRedisKeyPrefix = "ratelimit"
+)
+
+// IsValid returns true if the RateLimiterStoreType is a valid enum value.
+func (t RateLimiterStoreType) IsValid() bool {
+	switch t {
+	case RateLimiterStoreTypeMemory, RateLimiterStoreTypeRedis:
+		return true
+	default:
+		return false
+	}
+}
+
+// RateLimiterRedisConfig defines Redis-specific configuration for rate limiting.
+type RateLimiterRedisConfig struct {
+	Address  string `toml:"address"`
+	Password string `toml:"password"`
+	DB       int    `toml:"db"`
+	// Prefix for Redis keys (default: "ratelimit")
+	KeyPrefix string `toml:"key_prefix"`
+}
+
+// RateLimiterMemoryConfig defines memory-specific configuration for rate limiting.
+// Currently empty but can be extended in the future.
+type RateLimiterMemoryConfig struct {
+	// Future memory-specific configurations can go here
+}
+
+// RateLimiterStoreConfig defines the configuration for rate limiter storage.
+type RateLimiterStoreConfig struct {
+	// Type of storage: "memory" or "redis"
+	Type RateLimiterStoreType `toml:"type"`
+
+	// Redis configuration (only used when Type is "redis")
+	Redis *RateLimiterRedisConfig `toml:"redis,omitempty"`
+}
+
+// RateLimitingConfig is the top-level configuration for rate limiting.
+type RateLimitingConfig struct {
+	// Enabled controls whether rate limiting is active
+	Enabled bool `toml:"enabled"`
+
+	// Storage configuration
+	Storage RateLimiterStoreConfig `toml:"storage"`
+
+	// Limits defines per-caller, per-method rate limits
+	// Map structure: callerID -> method -> RateLimitConfig
+	Limits map[string]map[string]RateLimitConfig `toml:"limits"`
+
+	// GroupLimits defines per-group, per-method rate limits
+	// Map structure: groupName -> method -> RateLimitConfig
+	GroupLimits map[string]map[string]RateLimitConfig `toml:"groupLimits"`
+
+	// DefaultLimits defines fallback rate limits when no specific caller or group limits exist
+	// Map structure: method -> RateLimitConfig
+	DefaultLimits map[string]RateLimitConfig `toml:"defaultLimits"`
+}
+
+// GetEffectiveLimit resolves the effective rate limit for a given caller and method.
+// Priority order: 1) Specific caller limit, 2) Group limits (most restrictive), 3) Default limit.
+func (c *RateLimitingConfig) GetEffectiveLimit(callerID, method string, apiClient *APIClient) *RateLimitConfig {
+	// 1. Check specific caller limit (highest priority)
+	if callerLimits, exists := c.Limits[callerID]; exists {
+		if limit, exists := callerLimits[method]; exists {
+			return &limit
+		}
+	}
+
+	// 2. Check group limits (most restrictive wins if multiple groups)
+	if mostRestrictive := c.getMostRestrictiveGroupLimit(apiClient, method); mostRestrictive != nil {
+		return mostRestrictive
+	}
+
+	// 3. Fall back to default limit
+	if limit, exists := c.DefaultLimits[method]; exists {
+		return &limit
+	}
+
+	return nil // No limit configured
+}
+
+// getMostRestrictiveGroupLimit finds the most restrictive rate limit from all groups the API client belongs to.
+func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(apiClient *APIClient, method string) *RateLimitConfig {
+	if apiClient == nil {
+		return nil
+	}
+
+	var mostRestrictive *RateLimitConfig
+	for _, group := range apiClient.Groups {
+		if groupLimits, exists := c.GroupLimits[group]; exists {
+			if limit, exists := groupLimits[method]; exists {
+				if mostRestrictive == nil || limit.LimitPerMinute < mostRestrictive.LimitPerMinute {
+					mostRestrictive = &limit
+				}
+			}
+		}
+	}
+	return mostRestrictive
 }
 
 // MonitoringConfig provides monitoring configuration for aggregator.
@@ -191,10 +306,6 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 		return errors.New("api key cannot be empty")
 	}
 
-	if len(apiKey) > c.MaxAPIKeyLength {
-		return fmt.Errorf("api key too long (max %d characters)", c.MaxAPIKeyLength)
-	}
-
 	client, exists := c.GetClientByAPIKey(apiKey)
 	if !exists {
 		return errors.New("invalid or disabled api key")
@@ -216,10 +327,14 @@ type AggregatorConfig struct {
 	APIKeys           APIKeyConfig               `toml:"apiKeys"`
 	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
 	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
+	RateLimiting      RateLimitingConfig         `toml:"rateLimiting"`
 	DisableValidation bool                       `toml:"disableValidation"`
 	StubMode          bool                       `toml:"stubQuorumValidation"`
 	Monitoring        MonitoringConfig           `toml:"monitoring"`
 	PyroscopeURL      string                     `toml:"pyroscope_url"`
+	// MaxAnonymousGetMessageSinceRange limits how far back in time an anonymous user can request data.
+	// Defaults to infinity (no limit) if not set.
+	MaxAnonymousGetMessageSinceRange int64 `toml:"maxAnonymousGetMessageSinceRange"`
 }
 
 // SetDefaults sets default values for the configuration.
@@ -241,9 +356,6 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Storage.DynamoDB.ShardCount == 0 {
 		c.Storage.DynamoDB.ShardCount = 1
 	}
-	if c.APIKeys.MaxAPIKeyLength == 0 {
-		c.APIKeys.MaxAPIKeyLength = 1000
-	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
 	}
@@ -259,23 +371,26 @@ func (c *AggregatorConfig) SetDefaults() {
 
 // ValidateAPIKeyConfig validates the API key configuration.
 func (c *AggregatorConfig) ValidateAPIKeyConfig() error {
-	if c.APIKeys.MaxAPIKeyLength <= 0 {
-		return errors.New("apiKeys.maxApiKeyLength must be greater than 0")
-	}
-
 	// Validate each API key configuration
 	for apiKey, client := range c.APIKeys.Clients {
 		if strings.TrimSpace(apiKey) == "" {
 			return errors.New("api key cannot be empty")
-		}
-		if len(apiKey) > c.APIKeys.MaxAPIKeyLength {
-			return fmt.Errorf("api key '%s' exceeds maximum length of %d", apiKey, c.APIKeys.MaxAPIKeyLength)
 		}
 		if client == nil {
 			return fmt.Errorf("client configuration for api key '%s' cannot be nil", apiKey)
 		}
 		if strings.TrimSpace(client.ClientID) == "" {
 			return fmt.Errorf("client id for api key '%s' cannot be empty", apiKey)
+		}
+
+		// Validate group references
+		for _, group := range client.Groups {
+			if strings.TrimSpace(group) == "" {
+				return fmt.Errorf("empty group name for client '%s'", client.ClientID)
+			}
+			if _, exists := c.RateLimiting.GroupLimits[group]; !exists {
+				return fmt.Errorf("client '%s' references undefined group '%s'", client.ClientID, group)
+			}
 		}
 	}
 

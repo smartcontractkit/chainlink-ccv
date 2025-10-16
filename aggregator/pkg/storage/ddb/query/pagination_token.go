@@ -22,10 +22,10 @@ func (t *SinglePartitionPaginationToken) ToExclusiveStartKey() map[string]types.
 		return nil
 	}
 	return map[string]types.AttributeValue{
-		ddbconstant.FinalizedFeedFieldGSIPK:                &types.AttributeValueMemberS{Value: t.DayCommitteePartition},
-		ddbconstant.FinalizedFeedFieldGSISK:                &types.AttributeValueMemberS{Value: t.TimeSeqMessage},
-		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID: &types.AttributeValueMemberS{Value: t.CommitteeIDMessageID},
-		ddbconstant.FinalizedFeedFieldFinalizedAt:          &types.AttributeValueMemberN{Value: t.FinalizedAt},
+		ddbconstant.FinalizedFeedFieldGSIPK:                               &types.AttributeValueMemberS{Value: t.DayCommitteePartition},
+		ddbconstant.FinalizedFeedFieldGSISK:                               &types.AttributeValueMemberS{Value: t.TimeSeqMessage},
+		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID:                &types.AttributeValueMemberS{Value: t.CommitteeIDMessageID},
+		ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey: &types.AttributeValueMemberS{Value: t.FinalizedAt},
 	}
 }
 

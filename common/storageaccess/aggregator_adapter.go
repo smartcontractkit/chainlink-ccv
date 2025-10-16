@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"time"
+	"sync"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -21,7 +21,6 @@ type AggregatorWriter struct {
 	client pb.AggregatorClient
 	conn   *grpc.ClientConn
 	lggr   logger.Logger
-	apiKey string
 }
 
 func mapReceiptBlob(receiptBlob protocol.ReceiptWithBlob) (*pb.ReceiptBlob, error) {
@@ -124,11 +123,7 @@ func (a *AggregatorWriter) Close() error {
 
 // WriteCheckpoint writes a checkpoint to the aggregator.
 func (a *AggregatorWriter) WriteCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector, blockHeight *big.Int) error {
-	// Add API key to metadata
-	md := metadata.New(map[string]string{
-		"api-key": a.apiKey,
-	})
-	ctx = metadata.NewOutgoingContext(ctx, md)
+	// HMAC authentication is automatically handled by the client interceptor
 
 	// Convert checkpoint to protobuf format
 	req := &pb.WriteBlockCheckpointRequest{
@@ -158,9 +153,20 @@ func (a *AggregatorWriter) WriteCheckpoint(ctx context.Context, chainSelector pr
 }
 
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
-func NewAggregatorWriter(address, apiKey string, lggr logger.Logger) (*AggregatorWriter, error) {
-	// Create a gRPC connection to the aggregator server
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig) (*AggregatorWriter, error) {
+	dialOptions := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	if hmacConfig != nil {
+		dialOptions = append(dialOptions, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
+	}
+
+	// Create a gRPC connection to the aggregator server with HMAC authentication
+	conn, err := grpc.NewClient(
+		address,
+		dialOptions...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -169,32 +175,46 @@ func NewAggregatorWriter(address, apiKey string, lggr logger.Logger) (*Aggregato
 		client: pb.NewAggregatorClient(conn),
 		conn:   conn,
 		lggr:   lggr,
-		apiKey: apiKey,
 	}, nil
 }
 
 type AggregatorReader struct {
-	client pb.CCVDataClient
-	lggr   logger.Logger
-	conn   *grpc.ClientConn
-	token  string
-	since  int64
-	apiKey string
+	client       pb.CCVDataClient
+	lggr         logger.Logger
+	conn         *grpc.ClientConn
+	token        string
+	since        int64
+	mu           sync.RWMutex
+	seenMessages map[protocol.Bytes32]struct{} // Track seen message IDs for deduplication
+	maxSeenCache int                           // Maximum number of message IDs to cache
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
-func NewAggregatorReader(address, apiKey string, lggr logger.Logger, since int64) (*AggregatorReader, error) {
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig) (*AggregatorReader, error) {
+	dialOptions := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	if hmacConfig != nil {
+		dialOptions = append(dialOptions, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
+	}
+
+	// Create a gRPC connection to the aggregator server with HMAC authentication
+	conn, err := grpc.NewClient(
+		address,
+		dialOptions...,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AggregatorReader{
-		client: pb.NewCCVDataClient(conn),
-		conn:   conn,
-		lggr:   lggr,
-		since:  since,
-		apiKey: apiKey,
+		client:       pb.NewCCVDataClient(conn),
+		conn:         conn,
+		lggr:         lggr,
+		since:        since,
+		seenMessages: make(map[protocol.Bytes32]struct{}),
+		maxSeenCache: 1000, // Cache up to 1k message IDs
 	}, nil
 }
 
@@ -208,12 +228,6 @@ func (a *AggregatorReader) Close() error {
 
 // ReadCheckpoint reads a checkpoint from the aggregator.
 func (a *AggregatorReader) ReadCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
-	// Add API key to metadata
-	md := metadata.New(map[string]string{
-		"api-key": a.apiKey,
-	})
-	ctx = metadata.NewOutgoingContext(ctx, md)
-
 	// Create read request
 	req := &pb.ReadBlockCheckpointRequest{}
 
@@ -340,21 +354,76 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 
 	// Update token for next call.
 	a.since = a.getNextTimestamp(results)
+
+	// Filter out duplicate messages
+	uniqueResponses := a.deduplicateMessages(results)
+
 	a.token = resp.NextToken
 
-	return results, nil
+	return uniqueResponses, nil
 }
 
 func (a *AggregatorReader) getNextTimestamp(results []protocol.QueryResponse) int64 {
 	if len(results) > 0 {
 		// Get the timestamp of the last message
-		lastTimestamp := results[len(results)-1].Data.Timestamp
-
-		// Always add 1 second to ensure we don't get the same data again
-		// This handles the case where multiple messages have the same timestamp
-		return lastTimestamp + 1
+		return results[len(results)-1].Data.Timestamp
 	}
 
-	// If no data, we're safe to return current time in seconds
-	return time.Now().Unix()
+	// If no data, we're safe to return the since timestamp
+	return a.since
+}
+
+// deduplicateMessages filters out messages that have already been seen.
+func (a *AggregatorReader) deduplicateMessages(responses []protocol.QueryResponse) []protocol.QueryResponse {
+	if len(responses) == 0 {
+		return responses
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Filter out duplicates
+	uniqueResponses := make([]protocol.QueryResponse, 0, len(responses))
+	duplicateCount := 0
+
+	for _, resp := range responses {
+		messageID := resp.Data.MessageID
+
+		// Check if we've seen this message before
+		if _, seen := a.seenMessages[messageID]; seen {
+			duplicateCount++
+			continue
+		}
+
+		// Add to unique responses
+		uniqueResponses = append(uniqueResponses, resp)
+
+		// Track this message ID
+		a.seenMessages[messageID] = struct{}{}
+	}
+
+	// Prevent unbounded growth of the seen cache
+	if len(a.seenMessages) > a.maxSeenCache {
+		a.lggr.Infow("Seen message cache exceeded limit, clearing oldest entries",
+			"cacheSize", len(a.seenMessages),
+			"maxSize", a.maxSeenCache,
+		)
+
+		// Clear the cache and keep only the messages from this batch
+		a.seenMessages = make(map[protocol.Bytes32]struct{}, a.maxSeenCache)
+		for _, resp := range uniqueResponses {
+			a.seenMessages[resp.Data.MessageID] = struct{}{}
+		}
+	}
+
+	if duplicateCount > 0 {
+		a.lggr.Debugw("Filtered duplicate messages",
+			"total", len(responses),
+			"duplicates", duplicateCount,
+			"unique", len(uniqueResponses),
+			"cacheSize", len(a.seenMessages),
+		)
+	}
+
+	return uniqueResponses
 }

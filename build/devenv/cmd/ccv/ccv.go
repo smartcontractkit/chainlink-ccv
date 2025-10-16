@@ -336,6 +336,8 @@ var testCmd = &cobra.Command{
 			testPattern = "TestE2ELoad/reorg"
 		case "chaos":
 			testPattern = "TestE2ELoad/chaos"
+		case "indexer-load":
+			testPattern = "TestIndexerLoad"
 		default:
 			return fmt.Errorf("test suite %s is unknown, choose between smoke or load", args[0])
 		}
@@ -344,9 +346,17 @@ var testCmd = &cobra.Command{
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
 		defer os.Chdir(originalDir)
-		if err := os.Chdir("tests/e2e"); err != nil {
-			return fmt.Errorf("failed to change to tests/e2e directory: %w", err)
+
+		if isServiceLoadTest(testPattern) {
+			if err := os.Chdir("tests/services/load"); err != nil {
+				return fmt.Errorf("failed to change to tests/services/load directory: %w", err)
+			}
+		} else {
+			if err := os.Chdir("tests/e2e"); err != nil {
+				return fmt.Errorf("failed to change to tests/e2e directory: %w", err)
+			}
 		}
+
 		testCmd := exec.Command("go", "test", "-v", "-run", testPattern)
 		testCmd.Stdout = os.Stdout
 		testCmd.Stderr = os.Stderr
@@ -431,12 +441,13 @@ var monitorContractsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		impl := &ccvEvm.CCIP17EVM{}
 		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
 		for _, bc := range in.Blockchains {
 			chainIDs = append(chainIDs, bc.ChainID)
 			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 		}
+		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		impl, err := ccvEvm.NewCCIP17EVM(ctx, e, chainIDs, wsURLs)
 		_, reg, err := impl.ExposeMetrics(ctx, source, dest, chainIDs, wsURLs)
 		if err != nil {
 			return fmt.Errorf("failed to expose metrics: %w", err)
@@ -549,7 +560,7 @@ var sendCmd = &cobra.Command{
 			}, cciptestinterfaces.MessageOptions{
 				Version:        3,
 				FinalityConfig: uint16(finality),
-				Executor:       protocol.UnknownAddress(common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE").Bytes()), // executor address
+				Executor:       protocol.UnknownAddress(common.HexToAddress("0x68B1D87F95878fE05B998F19b66F4baba5De1aed").Bytes()), // executor address
 				ExecutorArgs:   nil,
 				TokenArgs:      nil,
 				MandatoryCCVs: []protocol.CCV{
@@ -636,4 +647,8 @@ func main() {
 		ccv.Plog.Err(err).Send()
 		os.Exit(1)
 	}
+}
+
+func isServiceLoadTest(testPattern string) bool {
+	return testPattern == "TestIndexerLoad"
 }
