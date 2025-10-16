@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -179,11 +180,14 @@ func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.Cl
 }
 
 type AggregatorReader struct {
-	client pb.CCVDataClient
-	lggr   logger.Logger
-	conn   *grpc.ClientConn
-	token  string
-	since  int64
+	client       pb.CCVDataClient
+	lggr         logger.Logger
+	conn         *grpc.ClientConn
+	token        string
+	since        int64
+	mu           sync.RWMutex
+	seenMessages map[protocol.Bytes32]struct{} // Track seen message IDs for deduplication
+	maxSeenCache int                           // Maximum number of message IDs to cache
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
@@ -206,10 +210,12 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacCo
 	}
 
 	return &AggregatorReader{
-		client: pb.NewCCVDataClient(conn),
-		conn:   conn,
-		lggr:   lggr,
-		since:  since,
+		client:       pb.NewCCVDataClient(conn),
+		conn:         conn,
+		lggr:         lggr,
+		since:        since,
+		seenMessages: make(map[protocol.Bytes32]struct{}),
+		maxSeenCache: 1000, // Cache up to 1k message IDs
 	}, nil
 }
 
@@ -349,21 +355,76 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 
 	// Update token for next call.
 	a.since = a.getNextTimestamp(results)
+
+	// Filter out duplicate messages
+	uniqueResponses := a.deduplicateMessages(results)
+
 	a.token = resp.NextToken
 
-	return results, nil
+	return uniqueResponses, nil
 }
 
 func (a *AggregatorReader) getNextTimestamp(results []protocol.QueryResponse) int64 {
 	if len(results) > 0 {
 		// Get the timestamp of the last message
-		lastTimestamp := results[len(results)-1].Data.Timestamp
-
-		// Always add 1 second to ensure we don't get the same data again
-		// This handles the case where multiple messages have the same timestamp
-		return lastTimestamp + 1
+		return results[len(results)-1].Data.Timestamp
 	}
 
 	// If no data, we're safe to return current time in seconds
 	return time.Now().Unix()
+}
+
+// deduplicateMessages filters out messages that have already been seen.
+func (a *AggregatorReader) deduplicateMessages(responses []protocol.QueryResponse) []protocol.QueryResponse {
+	if len(responses) == 0 {
+		return responses
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Filter out duplicates
+	uniqueResponses := make([]protocol.QueryResponse, 0, len(responses))
+	duplicateCount := 0
+
+	for _, resp := range responses {
+		messageID := resp.Data.MessageID
+
+		// Check if we've seen this message before
+		if _, seen := a.seenMessages[messageID]; seen {
+			duplicateCount++
+			continue
+		}
+
+		// Add to unique responses
+		uniqueResponses = append(uniqueResponses, resp)
+
+		// Track this message ID
+		a.seenMessages[messageID] = struct{}{}
+	}
+
+	// Prevent unbounded growth of the seen cache
+	if len(a.seenMessages) > a.maxSeenCache {
+		a.lggr.Infow("Seen message cache exceeded limit, clearing oldest entries",
+			"cacheSize", len(a.seenMessages),
+			"maxSize", a.maxSeenCache,
+		)
+
+		// Clear the cache and keep only the messages from this batch
+		a.seenMessages = make(map[protocol.Bytes32]struct{}, a.maxSeenCache)
+		for _, resp := range uniqueResponses {
+			a.seenMessages[resp.Data.MessageID] = struct{}{}
+		}
+	}
+
+	if duplicateCount > 0 {
+		a.lggr.Debugw("Filtered duplicate messages",
+			"total", len(responses),
+			"duplicates", duplicateCount,
+			"unique", len(uniqueResponses),
+			"cacheSize", len(a.seenMessages),
+		)
+	}
+
+	return uniqueResponses
 }
