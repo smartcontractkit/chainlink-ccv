@@ -538,6 +538,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	}
 
 	var messageID [32]byte
+	var seqNo uint64
 	for _, log := range receipt.Logs {
 		if log.Topics[0] == ccipMessageSentTopic {
 			parsed, err := m.onRampBySelector[src].ParseCCIPMessageSent(*log)
@@ -547,6 +548,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 				continue
 			}
 			copy(messageID[:], parsed.MessageId[:])
+			seqNo = parsed.SequenceNumber
 			break
 		}
 	}
@@ -555,6 +557,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
 		Str("MessageID", hexutil.Encode(messageID[:])).
+		Uint64("SeqNo", seqNo).
 		Msg("CCIP message sent")
 
 	return nil
