@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/big"
 	"sync"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -370,8 +369,8 @@ func (a *AggregatorReader) getNextTimestamp(results []protocol.QueryResponse) in
 		return results[len(results)-1].Data.Timestamp
 	}
 
-	// If no data, we're safe to return current time in seconds
-	return time.Now().Unix()
+	// If no data, we're safe to return the since timestamp
+	return a.since
 }
 
 // deduplicateMessages filters out messages that have already been seen.
