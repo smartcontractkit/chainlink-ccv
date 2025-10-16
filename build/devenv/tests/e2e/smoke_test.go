@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	// See Internal.sol for the full enum values
+	// See Internal.sol for the full enum values.
 	MessageExecutionStateSuccess uint8 = 2
 	MessageExecutionStateFailed  uint8 = 3
 )
@@ -118,16 +118,15 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("test extra args v3 messages", func(t *testing.T) {
 		type testcase struct {
-			name            string
-			srcSelector     uint64
-			dstSelector     uint64
-			finality        uint16
-			verifierAddress []byte
-			receiver        protocol.UnknownAddress
-			mandatoryCCVs   []protocol.CCV
-			optionalCCVs    []protocol.CCV
-			threshold       uint8
-			expectFail      bool
+			name          string
+			srcSelector   uint64
+			dstSelector   uint64
+			finality      uint16
+			receiver      protocol.UnknownAddress
+			mandatoryCCVs []protocol.CCV
+			optionalCCVs  []protocol.CCV
+			threshold     uint8
+			expectFail    bool
 		}
 
 		tcs := []testcase{
@@ -220,7 +219,7 @@ func TestE2ESmoke(t *testing.T) {
 						Data:     []byte{},
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
-						FinalityConfig:    uint16(tc.finality),
+						FinalityConfig:    tc.finality,
 						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "executor"),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,
