@@ -2,37 +2,9 @@ set fallback
 
 import '../tools/lib/utils.justfile'
 
-coverage_file := env_var_or_default('COVERAGE_FILE', 'verifier_coverage.out')
-
 # Default: show available recipes
 default:
     just --list
-
-# Format all go files
-fmt: ensure-golangci-lint
-    golangci-lint fmt
-
-# Run golangci-lint
-lint fix="": ensure-golangci-lint
-    golangci-lint run -c ../.golangci.yaml --output.text.path stdout {{ if fix != "" { "--fix" } else { "" } }}
-
-mock: ensure-mockery
-    @echo "Cleaning existing mocks..."
-    find . -path "*/executor_mocks/*.go" -delete 2>/dev/null || true
-    @echo "Generating mocks with mockery..."
-    mockery
-
-mod-tidy: ensure-go
-    go mod tidy
-
-mod-download: ensure-go
-    go mod download
-
-test: ensure-go
-    go test -v -race -fullpath -shuffle on -v ./...
-
-test-coverage:
-    go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
 
 build-rc:
     docker build -f Dockerfile -t executor:rc ..
