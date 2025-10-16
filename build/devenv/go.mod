@@ -2,6 +2,8 @@ module github.com/smartcontractkit/chainlink-ccv/devenv
 
 go 1.24.6
 
+replace github.com/smartcontractkit/chainlink-ccv => ../..
+
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/Masterminds/semver/v3 v3.4.0
