@@ -351,10 +351,10 @@ func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.Unknow
 	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
 }
 
-func (c *CCIP17EVM) GetTokenBalance(ctx context.Context, chainSelector uint64, address protocol.UnknownAddress, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
-	chain, ok := c.e.BlockChains.EVMChains()[chainSelector]
+func (m *CCIP17EVM) GetTokenBalance(ctx context.Context, chainSelector uint64, address protocol.UnknownAddress, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
+	chain, ok := m.e.BlockChains.EVMChains()[chainSelector]
 	if !ok {
-		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, c.e.BlockChains.EVMChains())
+		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.e.BlockChains.EVMChains())
 	}
 	tkn, err := erc20.NewERC20(common.HexToAddress(tokenAddress.String()), chain.Client)
 	if err != nil {
