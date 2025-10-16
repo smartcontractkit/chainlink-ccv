@@ -154,15 +154,15 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 		idToReport[event.Data.MessageID] = &event.Data
 	}
 	spans := make([]Span, 0, len(idToMsgSent))
-	for msgId, msgSent := range idToMsgSent {
-		msgSig, okSig := idToReport[msgId]
-		msgExec, okExec := idToMsgExec[msgId]
-		traceId := TraceIDFromMessage(msgId)
-		rootSpan := SpanID(msgId, "msg_sent")
+	for msgID, msgSent := range idToMsgSent {
+		msgSig, okSig := idToReport[msgID]
+		msgExec, okExec := idToMsgExec[msgID]
+		traceID := TraceIDFromMessage(msgID)
+		rootSpan := SpanID(msgID, "msg_sent")
 		if okExec {
 			spans = append(spans, Span{
-				TraceId:           traceId,
-				SpanId:            rootSpan,
+				TraceID:           traceID,
+				SpanID:            rootSpan,
 				Name:              "msg_exec",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
 				EndTimeUnixNano:   msgExec.Raw.BlockTimestamp * 1_000_000_000,
@@ -183,7 +183,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 					{
 						Key: "messageId",
 						Value: map[string]any{
-							"stringValue": msgId.String(),
+							"stringValue": msgID.String(),
 						},
 					},
 				},
@@ -191,8 +191,8 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 		} else {
 			// open span
 			spans = append(spans, Span{
-				TraceId:           traceId,
-				SpanId:            rootSpan,
+				TraceID:           traceID,
+				SpanID:            rootSpan,
 				Name:              "msg_exec",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
 				EndTimeUnixNano:   msgSent.Raw.BlockTimestamp * 1_000_000_000,
@@ -213,7 +213,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 					{
 						Key: "messageId",
 						Value: map[string]any{
-							"stringValue": msgId.String(),
+							"stringValue": msgID.String(),
 						},
 					},
 				},
@@ -221,12 +221,12 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 		}
 		if okSig {
 			spans = append(spans, Span{
-				TraceId:           traceId,
-				ParentSpanId:      rootSpan,
-				SpanId:            SpanID(msgId, "msg_sig"),
+				TraceID:           traceID,
+				ParentSpanID:      rootSpan,
+				SpanID:            SpanID(msgID, "msg_sig"),
 				Name:              "msg_sig",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
-				EndTimeUnixNano:   uint64(msgSig.Timestamp) * 1_000_000_000,
+				EndTimeUnixNano:   uint64(msgSig.Timestamp) * 1_000_000_000, //nolint:gosec // conversion from int to uint64 is safe here
 				Kind:              2,
 				Attributes: []Attribute{
 					{
@@ -244,7 +244,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 					{
 						Key: "messageId",
 						Value: map[string]any{
-							"stringValue": msgId.String(),
+							"stringValue": msgID.String(),
 						},
 					},
 				},
@@ -350,8 +350,8 @@ func TraceIDFromMessage(msgID [32]byte) string {
 // If key == nil or empty, falls back to plain SHA-256.
 func SpanID(msgID [32]byte, spanName string) string {
 	h := sha256.New()
-	h.Write(msgID[:])
-	h.Write([]byte(spanName))
+	h.Write(msgID[:])         //nolint:revive // SHA-256 doesn't return an error here
+	h.Write([]byte(spanName)) //nolint:revive // SHA-256 doesn't return an error here
 	sum := h.Sum(nil)
 	span := sum[len(sum)-8:] // take last 8 bytes
 
@@ -469,9 +469,9 @@ type Scope struct {
 }
 
 type Span struct {
-	TraceId           string      `json:"traceId"`
-	ParentSpanId      string      `json:"parentSpanId,omitempty"`
-	SpanId            string      `json:"spanId"`
+	TraceID           string      `json:"traceId"`
+	ParentSpanID      string      `json:"parentSpanId,omitempty"`
+	SpanID            string      `json:"spanId"`
 	Name              string      `json:"name"`
 	StartTimeUnixNano uint64      `json:"startTimeUnixNano"`
 	EndTimeUnixNano   uint64      `json:"endTimeUnixNano"`
