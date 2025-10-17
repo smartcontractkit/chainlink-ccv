@@ -2,8 +2,10 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -19,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -52,26 +55,44 @@ type GasTestCase struct {
 // MessageMetrics tracks timing information for a single message.
 type MessageMetrics struct {
 	SeqNo           uint64
+	MessageID       string
 	SentTime        time.Time
 	ExecutedTime    time.Time
 	LatencyDuration time.Duration
 }
 
+// MessageTotals holds count totals for message processing.
+type MessageTotals struct {
+	Sent     int
+	Indexed  int
+	Received int
+	// Maps for tracking specific messages
+	SentMessages     map[uint64]string // seqNo -> messageID
+	IndexedMessages  map[uint64]string // seqNo -> messageID
+	ReceivedMessages map[uint64]string // seqNo -> messageID
+}
+
 // MetricsSummary holds aggregate metrics for all messages.
 type MetricsSummary struct {
 	TotalSent     int
-	TotalVerified int
+	TotalIndexed  int
+	TotalReceived int
 	MinLatency    time.Duration
 	MaxLatency    time.Duration
 	P90Latency    time.Duration
 	P95Latency    time.Duration
 	P99Latency    time.Duration
+	// Maps for detailed reporting
+	SentMessages     map[uint64]string
+	IndexedMessages  map[uint64]string
+	ReceivedMessages map[uint64]string
 }
 
 // SentMessage represents a message that was sent and needs verification.
 type SentMessage struct {
-	SeqNo    uint64
-	SentTime time.Time
+	SeqNo     uint64
+	MessageID [32]byte
+	SentTime  time.Time
 }
 
 type EVMTXGun struct {
@@ -83,6 +104,7 @@ type EVMTXGun struct {
 	dest       evm.Chain
 	sentSeqNos []uint64
 	sentTimes  map[uint64]time.Time
+	msgIDs     map[uint64][32]byte
 	seqNosMu   sync.Mutex
 	sentMsgCh  chan SentMessage // Channel for real-time message notifications
 	closeOnce  sync.Once        // Ensure channel is closed only once
@@ -105,6 +127,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		dest:       d,
 		sentSeqNos: make([]uint64, 0),
 		sentTimes:  make(map[uint64]time.Time),
+		msgIDs:     make(map[uint64][32]byte),
 		sentMsgCh:  make(chan SentMessage, 1000), // Buffered channel to avoid blocking
 	}
 }
@@ -131,20 +154,15 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	// Get sequence number before sending and record timestamp
 	c, ok := m.impl.(*ccvEvm.CCIP17EVM)
+	var seqNo uint64
 	if ok {
-		seqNo, err := c.GetExpectedNextSequenceNumber(ctx, srcChain.ChainSelector, dstChain.ChainSelector)
+		seqNo, err = c.GetExpectedNextSequenceNumber(ctx, srcChain.ChainSelector, dstChain.ChainSelector)
 		if err == nil {
 			sentTime := time.Now()
 			m.seqNosMu.Lock()
 			m.sentSeqNos = append(m.sentSeqNos, seqNo)
 			m.sentTimes[seqNo] = sentTime
 			m.seqNosMu.Unlock()
-
-			// Push to channel for async verification
-			m.sentMsgCh <- SentMessage{
-				SeqNo:    seqNo,
-				SentTime: sentTime,
-			}
 		}
 	}
 
@@ -184,20 +202,89 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
 	}
+
+	// After sending, resolve MessageID via the on-chain Sent event and push enriched message into channel
+	if ok {
+		go func(localSeq uint64, sentAt time.Time) {
+			// Wait up to 2 minutes for the Sent event
+			evtAny, waitErr := c.WaitOneSentEventBySeqNo(ctx, srcChain.ChainSelector, dstChain.ChainSelector, localSeq, 2*time.Minute)
+			if waitErr != nil || evtAny == nil {
+				return
+			}
+			// Type assert to fixed binding event and extract MessageId
+			evt, ok2 := evtAny.(*onramp.OnRampCCIPMessageSent)
+			if !ok2 || evt == nil {
+				return
+			}
+			m.seqNosMu.Lock()
+			m.msgIDs[localSeq] = evt.MessageId
+			m.seqNosMu.Unlock()
+			m.sentMsgCh <- SentMessage{SeqNo: localSeq, MessageID: evt.MessageId, SentTime: sentAt}
+		}(seqNo, m.sentTimes[seqNo])
+	}
 	return &wasp.Response{Data: "ok"}
 }
 
-// verifyMessagesAsync starts async verification of messages as they are sent via channel
-// Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts
+// waitForMessageInIndexer polls the indexer API until the message appears or context timeout.
+// Returns the number of verifications found and an error if timeout/failure occurs.
+func waitForMessageInIndexer(ctx context.Context, httpClient *http.Client, indexerBaseURL string, messageID [32]byte) (int, error) {
+	msgIDHex := common.BytesToHash(messageID[:]).Hex()
+
+	type messageIDResp struct {
+		Success         bool   `json:"success"`
+		VerifierResults []any  `json:"verifierResults"`
+		MessageID       string `json:"messageID"`
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("indexer check timeout for message %s: %w", msgIDHex, ctx.Err())
+		case <-ticker.C:
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+				fmt.Sprintf("%s/v1/messageid/%s", indexerBaseURL, msgIDHex), nil)
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				continue
+			}
+
+			var parsed messageIDResp
+			err = func() error {
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return fmt.Errorf("non-200 status: %d", resp.StatusCode)
+				}
+				return json.NewDecoder(resp.Body).Decode(&parsed)
+			}()
+
+			if err == nil && parsed.Success && len(parsed.VerifierResults) > 0 {
+				return len(parsed.VerifierResults), nil
+			}
+		}
+	}
+}
+
+// assertMessagesAsync starts async verification of messages as they are sent via channel.
+// Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts.
 // The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent.
-func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) func() ([]MessageMetrics, int, int) {
+func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
 
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
 	metricsChan := make(chan MessageMetrics, 100)
 	var wg sync.WaitGroup
-	var totalSent, totalVerified int
+	var totalSent, totalReceived, totalIndexed int
 	var countMu sync.Mutex
+
+	// Track specific messages for detailed reporting
+	sentMessages := make(map[uint64]string)
+	indexedMessages := make(map[uint64]string)
+	receivedMessages := make(map[uint64]string)
 
 	// Create a context with timeout for verification
 	verifyCtx, cancelVerify := context.WithTimeout(ctx, timeout)
@@ -209,8 +296,10 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 		// Read from channel until it's closed
 		for sentMsg := range gun.sentMsgCh {
+			msgIDHex := common.BytesToHash(sentMsg.MessageID[:]).Hex()
 			countMu.Lock()
 			totalSent++
+			sentMessages[sentMsg.SeqNo] = msgIDHex
 			countMu.Unlock()
 
 			// Launch a goroutine for each message to verify it
@@ -218,7 +307,24 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 			go func(msg SentMessage) {
 				defer wg.Done()
 
-				// Wait for the execution event with context
+				// Step 1: Check if message reached indexer (with timeout)
+				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout*90/100)
+				defer indexerCancel()
+
+				verifierCount, err := waitForMessageInIndexer(indexerCheckCtx, httpClient, indexerBaseURL, msg.MessageID)
+				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
+				if err != nil {
+					t.Logf("Message %d (ID: %s) did not reach indexer: %v", msg.SeqNo, msgIDHex, err)
+					return
+				}
+
+				countMu.Lock()
+				totalIndexed++
+				indexedMessages[msg.SeqNo] = msgIDHex
+				countMu.Unlock()
+				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, verifierCount)
+
+				// Step 2: Wait for the execution event with context
 				execEvent, err := impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, timeout)
 
 				if verifyCtx.Err() != nil {
@@ -251,12 +357,14 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				t.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
 
 				countMu.Lock()
-				totalVerified++
+				totalReceived++
+				receivedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
 
 				// Send metrics
 				metricsChan <- MessageMetrics{
 					SeqNo:           msg.SeqNo,
+					MessageID:       msgIDHex,
 					SentTime:        msg.SentTime,
 					ExecutedTime:    executedTime,
 					LatencyDuration: latency,
@@ -264,8 +372,8 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 			}(sentMsg)
 		}
 
-		// Channel is closed, wait for all verification goroutines to complete or timeout
-		t.Logf("All messages received, waiting for verification to complete")
+		// Channel is closed, wait for all assertions goroutines to complete or timeout
+		t.Logf("All messages sent, waiting for assertion to complete")
 
 		// Wait for either all goroutines to finish or context timeout
 		done := make(chan struct{})
@@ -283,30 +391,40 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 	}()
 
 	// Return function that collects metrics and counts
-	return func() ([]MessageMetrics, int, int) {
+	return func() ([]MessageMetrics, MessageTotals) {
 		metrics := make([]MessageMetrics, 0, 100)
 		for metric := range metricsChan {
 			metrics = append(metrics, metric)
 		}
 
 		countMu.Lock()
-		sent := totalSent
-		verified := totalVerified
+		totals := MessageTotals{
+			Sent:             totalSent,
+			Received:         totalReceived,
+			Indexed:          totalIndexed,
+			SentMessages:     sentMessages,
+			IndexedMessages:  indexedMessages,
+			ReceivedMessages: receivedMessages,
+		}
 		countMu.Unlock()
 
-		notVerified := sent - verified
-		t.Logf("Verification complete - Sent: %d, Verified: %d, Not Verified: %d",
-			sent, verified, notVerified)
+		notVerified := totals.Sent - totals.Received
+		t.Logf("Verification complete - Sent: %d, Indexed: %d, Received: %d, Not Received: %d",
+			totals.Sent, totals.Indexed, totals.Received, notVerified)
 
-		return metrics, sent, verified
+		return metrics, totals
 	}
 }
 
 // calculateMetricsSummary computes aggregate statistics from message metrics.
-func calculateMetricsSummary(metrics []MessageMetrics, totalSent, totalVerified int) MetricsSummary {
+func calculateMetricsSummary(metrics []MessageMetrics, totals MessageTotals) MetricsSummary {
 	summary := MetricsSummary{
-		TotalSent:     totalSent,
-		TotalVerified: totalVerified,
+		TotalSent:        totals.Sent,
+		TotalReceived:    totals.Received,
+		TotalIndexed:     totals.Indexed,
+		SentMessages:     totals.SentMessages,
+		IndexedMessages:  totals.IndexedMessages,
+		ReceivedMessages: totals.ReceivedMessages,
 	}
 
 	if len(metrics) == 0 {
@@ -349,10 +467,9 @@ func calculateMetricsSummary(metrics []MessageMetrics, totalSent, totalVerified 
 
 // printMetricsSummary outputs message timing metrics in a readable format.
 func printMetricsSummary(t *testing.T, summary MetricsSummary) {
-	notVerified := summary.TotalSent - summary.TotalVerified
 	successRate := 0.0
 	if summary.TotalSent > 0 {
-		successRate = float64(summary.TotalVerified) / float64(summary.TotalSent) * 100
+		successRate = float64(summary.TotalReceived) / float64(summary.TotalSent) * 100
 	}
 
 	t.Logf("\n"+
@@ -360,8 +477,8 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"         Message Timing Metrics        \n"+
 		"========================================\n"+
 		"Total Sent:      %d\n"+
-		"Total Verified:  %d\n"+
-		"Not Verified:    %d\n"+
+		"Indexed:     %d\n"+
+		"Received:  %d\n"+
 		"Success Rate:    %.2f%%\n"+
 		"----------------------------------------\n"+
 		"Min Latency:     %v\n"+
@@ -371,8 +488,8 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"P99 Latency:     %v\n"+
 		"========================================",
 		summary.TotalSent,
-		summary.TotalVerified,
-		notVerified,
+		summary.TotalIndexed,
+		summary.TotalReceived,
 		successRate,
 		summary.MinLatency,
 		summary.MaxLatency,
@@ -380,6 +497,53 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		summary.P95Latency,
 		summary.P99Latency,
 	)
+
+	// Find messages that were sent but not indexed
+	notIndexed := make(map[uint64]string)
+	for seqNo, msgID := range summary.SentMessages {
+		if _, indexed := summary.IndexedMessages[seqNo]; !indexed {
+			notIndexed[seqNo] = msgID
+		}
+	}
+
+	// Find messages that were indexed but not received
+	indexedNotReceived := make(map[uint64]string)
+	for seqNo, msgID := range summary.IndexedMessages {
+		if _, received := summary.ReceivedMessages[seqNo]; !received {
+			indexedNotReceived[seqNo] = msgID
+		}
+	}
+
+	// Print detailed failure information
+	if len(notIndexed) > 0 {
+		t.Logf("\n========================================")
+		t.Logf("Messages NOT Indexed (%d):", len(notIndexed))
+		t.Logf("========================================")
+		// Sort by seqNo for consistent output
+		seqNos := make([]uint64, 0, len(notIndexed))
+		for seqNo := range notIndexed {
+			seqNos = append(seqNos, seqNo)
+		}
+		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
+		for _, seqNo := range seqNos {
+			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, notIndexed[seqNo])
+		}
+	}
+
+	if len(indexedNotReceived) > 0 {
+		t.Logf("\n========================================")
+		t.Logf("Messages Indexed but NOT Received (%d):", len(indexedNotReceived))
+		t.Logf("========================================")
+		// Sort by seqNo for consistent output
+		seqNos := make([]uint64, 0, len(indexedNotReceived))
+		for seqNo := range indexedNotReceived {
+			seqNos = append(seqNos, seqNo)
+		}
+		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
+		for _, seqNo := range seqNos {
+			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, indexedNotReceived[seqNo])
+		}
+	}
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
@@ -466,7 +630,8 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 5*time.Minute)
+		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 5*time.Minute)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -475,26 +640,26 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-
 		// assert any metrics you need
 		checkCPUMem(t, in, time.Now())
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
 		// 400ms latency for any RPC node
-		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=45s delay --time=400 re2:blockchain-node-.*", 0*time.Second)
+		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=150s delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
 
 		rps := int64(1)
-		testDuration := 30 * time.Second
+		testDuration := 120 * time.Second
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 120*time.Second)
+		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 220*time.Second)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -503,8 +668,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
 	})
 
@@ -516,7 +681,8 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 10*time.Minute)
+		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -573,8 +739,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
 	})
 
@@ -585,7 +751,8 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 10*time.Minute)
+		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -652,8 +819,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
 	})
 
@@ -748,7 +915,8 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, 10*time.Minute)
+		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -768,8 +936,8 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
 	})
 }

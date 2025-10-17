@@ -45,7 +45,8 @@ func WithRequestID(ctx context.Context) context.Context {
 }
 
 func WithMessageID(ctx context.Context, id []byte) context.Context {
-	return context.WithValue(ctx, messageIDKey, hex.EncodeToString(id))
+	msgID := "0x" + hex.EncodeToString(id)
+	return context.WithValue(ctx, messageIDKey, msgID)
 }
 
 func WithAddress(ctx context.Context, address []byte) context.Context {

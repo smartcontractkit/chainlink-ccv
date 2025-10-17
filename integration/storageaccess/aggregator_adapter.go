@@ -366,7 +366,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 func (a *AggregatorReader) getNextTimestamp(results []protocol.QueryResponse) int64 {
 	if len(results) > 0 {
 		// Get the timestamp of the last message
-		return results[len(results)-1].Data.Timestamp
+		return results[len(results)-1].Data.Timestamp - 1
 	}
 
 	// If no data, we're safe to return the since timestamp
