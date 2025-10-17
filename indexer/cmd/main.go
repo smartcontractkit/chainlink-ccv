@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
-	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
@@ -17,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
