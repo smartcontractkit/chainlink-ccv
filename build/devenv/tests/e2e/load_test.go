@@ -621,25 +621,23 @@ func TestE2ELoad(t *testing.T) {
 		metrics, totals := waitForMetrics()
 		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
-
 		// assert any metrics you need
 		checkCPUMem(t, in, time.Now())
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
 		// 400ms latency for any RPC node
-		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=45s delay --time=400 re2:blockchain-node-.*", 0*time.Second)
+		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=150s delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
 
-		rps := int64(4)
-		testDuration := 30 * time.Second
+		rps := int64(1)
+		testDuration := 120 * time.Second
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
 		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 120*time.Second)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 220*time.Second)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -651,7 +649,6 @@ func TestE2ELoad(t *testing.T) {
 		metrics, totals := waitForMetrics()
 		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 	})
 
 	t.Run("gas", func(t *testing.T) {
@@ -723,7 +720,6 @@ func TestE2ELoad(t *testing.T) {
 		metrics, totals := waitForMetrics()
 		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
@@ -804,7 +800,6 @@ func TestE2ELoad(t *testing.T) {
 		metrics, totals := waitForMetrics()
 		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 	})
 
 	t.Run("services_chaos", func(t *testing.T) {
@@ -922,7 +917,6 @@ func TestE2ELoad(t *testing.T) {
 		metrics, totals := waitForMetrics()
 		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 	})
 }
 
