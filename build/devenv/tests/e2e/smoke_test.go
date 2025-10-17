@@ -27,6 +27,9 @@ const (
 	// See Internal.sol for the full enum values.
 	MessageExecutionStateSuccess uint8 = 2
 	MessageExecutionStateFailed  uint8 = 3
+
+	defaultSentTimeout = 10 * time.Second
+	defaultExecTimeout = 40 * time.Second
 )
 
 func TestE2ESmoke(t *testing.T) {
@@ -101,9 +104,9 @@ func TestE2ESmoke(t *testing.T) {
 					OutOfOrderExecution: true,
 				})
 				require.NoError(t, err)
-				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, 1*time.Minute)
+				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
-				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, 5*time.Minute)
+				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 
@@ -138,7 +141,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -152,7 +155,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -166,7 +169,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -181,7 +184,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -198,7 +201,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), "committee verifier"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -226,9 +229,9 @@ func TestE2ESmoke(t *testing.T) {
 						OptionalThreshold: tc.threshold,
 					})
 				require.NoError(t, err)
-				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, 1*time.Minute)
+				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
-				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, 1*time.Minute)
+				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				if tc.expectFail {
