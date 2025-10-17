@@ -84,7 +84,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:         "1337->3337 msg execution mock receiver",
 				fromSelector: selectors[0],
 				toSelector:   selectors[2],
-				receiver:     getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
+				receiver:     getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
 				expectFail: false,
@@ -141,7 +141,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -155,7 +155,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
+						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -169,7 +169,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -181,10 +181,10 @@ func TestE2ESmoke(t *testing.T) {
 				srcSelector: selectors[0],
 				dstSelector: selectors[1],
 				finality:    1,
-				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
+				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
+						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -198,10 +198,10 @@ func TestE2ESmoke(t *testing.T) {
 				srcSelector: selectors[1],
 				dstSelector: selectors[0],
 				finality:    1,
-				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), "mock receiver"),
+				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
 				mandatoryCCVs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), "committee verifier proxy"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -223,7 +223,7 @@ func TestE2ESmoke(t *testing.T) {
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
 						FinalityConfig:    tc.finality,
-						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "executor"),
+						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,
 						OptionalThreshold: tc.threshold,
@@ -250,9 +250,9 @@ func mustGetEOAReceiverAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector 
 	return receiver
 }
 
-func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, contractType datastore.ContractType, version, contractName string) protocol.UnknownAddress {
+func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, contractType datastore.ContractType, version, qualifier, contractName string) protocol.UnknownAddress {
 	ref, err := ccvCfg.CLDF.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(chainSelector, contractType, semver.MustParse(version), ""),
+		datastore.NewAddressRefKey(chainSelector, contractType, semver.MustParse(version), qualifier),
 	)
 	require.NoErrorf(t, err, "failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s",
 		contractName, chainSelector, contractType, version)

@@ -166,11 +166,21 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		}
 	}
 
-	mockReceiverRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.ChainSelector, datastore.ContractType(mock_receiver.ContractType), semver.MustParse(mock_receiver.Deploy.Version()), ""))
+	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			srcChain.ChainSelector,
+			datastore.ContractType(mock_receiver.ContractType),
+			semver.MustParse(mock_receiver.Deploy.Version()),
+			ccvEvm.DefaultReceiverQualifier))
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("could not find mock receiver address in datastore: %w", err).Error(), Failed: true}
 	}
-	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.ChainSelector, datastore.ContractType(committee_verifier.ProxyType), semver.MustParse(committee_verifier.Deploy.Version()), ""))
+	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			srcChain.ChainSelector,
+			datastore.ContractType(committee_verifier.ProxyType),
+			semver.MustParse(committee_verifier.Deploy.Version()),
+			ccvEvm.DefaultCommitteeVerifierQualifier))
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err).Error(), Failed: true}
 	}
