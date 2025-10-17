@@ -50,15 +50,25 @@ type GasTestCase struct {
 // MessageMetrics tracks timing information for a single message
 type MessageMetrics struct {
 	SeqNo           uint64
+	MessageID       string
 	SentTime        time.Time
 	ExecutedTime    time.Time
 	LatencyDuration time.Duration
 }
 
+// MessageTotals holds count totals for message processing
+type MessageTotals struct {
+	Sent int
+	// TODO: Add Verified/Aggregated/Executed
+	Indexed  int
+	Received int
+}
+
 // MetricsSummary holds aggregate metrics for all messages
 type MetricsSummary struct {
 	TotalSent     int
-	TotalVerified int
+	TotalIndexed  int
+	TotalReceived int
 	MinLatency    time.Duration
 	MaxLatency    time.Duration
 	P90Latency    time.Duration
@@ -230,7 +240,7 @@ func waitForMessageInIndexer(ctx context.Context, httpClient *http.Client, index
 // assertMessagesAsync starts async verification of messages as they are sent via channel
 // Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts
 // The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent
-func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, int, int, int) {
+func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
 
@@ -238,7 +248,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 	metricsChan := make(chan MessageMetrics, 100)
 	var wg sync.WaitGroup
-	var totalSent, totalVerified, totalIndexed int
+	var totalSent, totalReceived, totalIndexed int
 	var countMu sync.Mutex
 
 	// Create a context with timeout for verification
@@ -309,12 +319,13 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				t.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
 
 				countMu.Lock()
-				totalVerified++
+				totalReceived++
 				countMu.Unlock()
 
 				// Send metrics
 				metricsChan <- MessageMetrics{
 					SeqNo:           msg.SeqNo,
+					MessageID:       common.BytesToHash(msg.MessageID[:]).Hex(),
 					SentTime:        msg.SentTime,
 					ExecutedTime:    executedTime,
 					LatencyDuration: latency,
@@ -341,31 +352,34 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 	}()
 
 	// Return function that collects metrics and counts
-	return func() ([]MessageMetrics, int, int, int) {
+	return func() ([]MessageMetrics, MessageTotals) {
 		metrics := make([]MessageMetrics, 0, 100)
 		for metric := range metricsChan {
 			metrics = append(metrics, metric)
 		}
 
 		countMu.Lock()
-		sent := totalSent
-		verified := totalVerified
-		indexed := totalIndexed
+		totals := MessageTotals{
+			Sent:     totalSent,
+			Received: totalReceived,
+			Indexed:  totalIndexed,
+		}
 		countMu.Unlock()
 
-		notVerified := sent - verified
-		t.Logf("Verification complete - Sent: %d, Indexed: %d, Verified: %d, Not Verified: %d",
-			sent, indexed, verified, notVerified)
+		notVerified := totals.Sent - totals.Received
+		t.Logf("Verification complete - Sent: %d, Indexed: %d, Received: %d, Not Received: %d",
+			totals.Sent, totals.Indexed, totals.Received, notVerified)
 
-		return metrics, sent, verified, indexed
+		return metrics, totals
 	}
 }
 
 // calculateMetricsSummary computes aggregate statistics from message metrics
-func calculateMetricsSummary(metrics []MessageMetrics, totalSent, totalVerified int) MetricsSummary {
+func calculateMetricsSummary(metrics []MessageMetrics, totals MessageTotals) MetricsSummary {
 	summary := MetricsSummary{
-		TotalSent:     totalSent,
-		TotalVerified: totalVerified,
+		TotalSent:     totals.Sent,
+		TotalReceived: totals.Received,
+		TotalIndexed:  totals.Indexed,
 	}
 
 	if len(metrics) == 0 {
@@ -408,10 +422,9 @@ func calculateMetricsSummary(metrics []MessageMetrics, totalSent, totalVerified 
 
 // printMetricsSummary outputs message timing metrics in a readable format
 func printMetricsSummary(t *testing.T, summary MetricsSummary) {
-	notVerified := summary.TotalSent - summary.TotalVerified
 	successRate := 0.0
 	if summary.TotalSent > 0 {
-		successRate = float64(summary.TotalVerified) / float64(summary.TotalSent) * 100
+		successRate = float64(summary.TotalReceived) / float64(summary.TotalSent) * 100
 	}
 
 	t.Logf("\n"+
@@ -419,8 +432,8 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"         Message Timing Metrics        \n"+
 		"========================================\n"+
 		"Total Sent:      %d\n"+
-		"Total Verified:  %d\n"+
-		"Not Verified:    %d\n"+
+		"Indexed:     %d\n"+
+		"Received:  %d\n"+
 		"Success Rate:    %.2f%%\n"+
 		"----------------------------------------\n"+
 		"Min Latency:     %v\n"+
@@ -430,8 +443,8 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"P99 Latency:     %v\n"+
 		"========================================",
 		summary.TotalSent,
-		summary.TotalVerified,
-		notVerified,
+		summary.TotalIndexed,
+		summary.TotalReceived,
 		successRate,
 		summary.MinLatency,
 		summary.MaxLatency,
@@ -534,10 +547,10 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified, totalIndexed := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totalIndexed, totalSent)
+		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 
 		// assert any metrics you need
 		checkCPUMem(t, in, time.Now())
@@ -548,7 +561,7 @@ func TestE2ELoad(t *testing.T) {
 		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=45s delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
 
-		rps := int64(1)
+		rps := int64(4)
 		testDuration := 30 * time.Second
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
@@ -564,10 +577,10 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified, totalIndexed := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totalIndexed, totalSent)
+		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 	})
 
 	t.Run("gas", func(t *testing.T) {
@@ -636,10 +649,10 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified, totalIndexed := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totalIndexed, totalSent)
+		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
@@ -717,10 +730,10 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified, totalIndexed := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totalIndexed, totalSent)
+		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 	})
 
 	t.Run("services_chaos", func(t *testing.T) {
@@ -835,10 +848,10 @@ func TestE2ELoad(t *testing.T) {
 		gun.CloseSentChannel()
 
 		// Wait for all messages to be verified and collect metrics
-		metrics, totalSent, totalVerified, totalIndexed := waitForMetrics()
-		summary := calculateMetricsSummary(metrics, totalSent, totalVerified)
+		metrics, totals := waitForMetrics()
+		summary := calculateMetricsSummary(metrics, totals)
 		printMetricsSummary(t, summary)
-		t.Logf("Indexer reachability - %d/%d messages reached indexer", totalIndexed, totalSent)
+		t.Logf("Indexer reachability - %d/%d messages reached indexer", totals.Indexed, totals.Sent)
 	})
 }
 
