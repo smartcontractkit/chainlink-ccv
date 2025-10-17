@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
@@ -112,7 +113,7 @@ func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.Offc
 	for _, reader := range cfg.Discovery.Static.Readers {
 		switch reader.Type {
 		case config.ReaderTypeAggregator:
-			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since)
+			aggReader, err := storageaccess.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since, nil)
 			if err != nil {
 				lggr.Fatalf("Failed to create aggregator reader: %v", err)
 			}
