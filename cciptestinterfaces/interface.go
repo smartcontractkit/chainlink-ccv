@@ -102,7 +102,7 @@ type Chains interface {
 	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain
 	WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error)
 	// GetTokenBalance gets the balance of an account for a token on a chain
-	GetTokenBalance(ctx context.Context, chainSelector uint64, address protocol.UnknownAddress, tokenAddress protocol.UnknownAddress) (*big.Int, error)
+	GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
 }
 
 // OnChainConfigurable defines methods that allows devenv to
