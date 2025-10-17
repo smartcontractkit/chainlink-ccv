@@ -571,6 +571,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 
 	var messageID [32]byte
 	var seqNo uint64
+	var receipts []onramp.OnRampReceipt
 	for _, log := range receipt.Logs {
 		if log.Topics[0] == ccipMessageSentTopic {
 			parsed, err := m.onRampBySelector[src].ParseCCIPMessageSent(*log)
@@ -581,6 +582,8 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			}
 			copy(messageID[:], parsed.MessageId[:])
 			seqNo = parsed.SequenceNumber
+			receipts = append(receipts, parsed.VerifierReceipts...)
+			receipts = append(receipts, parsed.ExecutorReceipt)
 			break
 		}
 	}
@@ -589,6 +592,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
 		Str("MessageID", hexutil.Encode(messageID[:])).
+		Any("Receipts", receipts).
 		Uint64("SeqNo", seqNo).
 		Msg("CCIP message sent")
 
@@ -957,11 +961,11 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				Version: semver.MustParse(offrampoperations.Deploy.Version()),
 			},
 			DefaultInboundCCVs: []datastore.AddressRef{
-				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
+				{Type: datastore.ContractType(committee_verifier.ProxyType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
 			},
 			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
 			DefaultOutboundCCVs: []datastore.AddressRef{
-				{Type: datastore.ContractType(committee_verifier.ContractType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
+				{Type: datastore.ContractType(committee_verifier.ProxyType), Version: semver.MustParse(committee_verifier.Deploy.Version())},
 			},
 			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
@@ -1019,13 +1023,13 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			},
 			OutboundCCVs: []datastore.AddressRef{
 				{
-					Type:    datastore.ContractType(committee_verifier.ContractType),
+					Type:    datastore.ContractType(committee_verifier.ProxyType),
 					Version: semver.MustParse("1.7.0"),
 				},
 			},
 			InboundCCVs: []datastore.AddressRef{
 				{
-					Type:    datastore.ContractType(committee_verifier.ContractType),
+					Type:    datastore.ContractType(committee_verifier.ProxyType),
 					Version: semver.MustParse("1.7.0"),
 				},
 			},

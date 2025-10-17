@@ -26,8 +26,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-
-	commontypes "github.com/smartcontractkit/chainlink-ccv/integration/pkg/types"
 )
 
 const (
@@ -35,8 +33,8 @@ const (
 	CONFIG_PATH = "VERIFIER_CONFIG_PATH"
 )
 
-func loadConfiguration(filepath string) (*commontypes.VerifierConfig, error) {
-	var config commontypes.VerifierConfig
+func loadConfiguration(filepath string) (*verifier.Config, error) {
+	var config verifier.Config
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}
