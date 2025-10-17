@@ -10,21 +10,21 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 const (
-	// See Internal.sol for the full enum values
+	// See Internal.sol for the full enum values.
 	MessageExecutionStateSuccess uint8 = 2
 	MessageExecutionStateFailed  uint8 = 3
 )
@@ -118,16 +118,15 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("test extra args v3 messages", func(t *testing.T) {
 		type testcase struct {
-			name            string
-			srcSelector     uint64
-			dstSelector     uint64
-			finality        uint16
-			verifierAddress []byte
-			receiver        protocol.UnknownAddress
-			mandatoryCCVs   []protocol.CCV
-			optionalCCVs    []protocol.CCV
-			threshold       uint8
-			expectFail      bool
+			name          string
+			srcSelector   uint64
+			dstSelector   uint64
+			finality      uint16
+			receiver      protocol.UnknownAddress
+			mandatoryCCVs []protocol.CCV
+			optionalCCVs  []protocol.CCV
+			threshold     uint8
+			expectFail    bool
 		}
 
 		tcs := []testcase{
@@ -220,7 +219,7 @@ func TestE2ESmoke(t *testing.T) {
 						Data:     []byte{},
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
-						FinalityConfig:    uint16(tc.finality),
+						FinalityConfig:    tc.finality,
 						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "executor"),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,

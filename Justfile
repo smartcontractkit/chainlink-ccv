@@ -31,7 +31,7 @@ tidy: ensure-go
 
 # Format all go files
 fmt: ensure-golangci-lint
-    find . -type f -name go.mod -execdir golangci-lint fmt
+    find . -type f -name go.mod -execdir golangci-lint fmt \;
 
 # Run golangci-lint
 lint fix="": ensure-golangci-lint
