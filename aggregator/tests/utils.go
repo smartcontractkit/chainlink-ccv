@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
@@ -106,7 +109,7 @@ func WithoutClientAuth() ConfigOption {
 
 // CreateServerAndClient creates a test server and client for functional testing.
 // Uses DynamoDB storage by default, but can be overridden with options.
-func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.CCVDataClient, func(), error) {
+func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.VerifierResultAPIClient, func(), error) {
 	// Create server
 	listener, serverCleanup, err := CreateServerOnly(t, options...)
 	if err != nil {
@@ -183,13 +186,13 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			Limits: map[string]map[string]model.RateLimitConfig{
 				"default": {
 					// Generous defaults for tests - 10000 requests per minute
-					pb.CCVData_GetMessagesSince_FullMethodName:               {LimitPerMinute: 10000},
-					pb.CCVData_GetCCVDataForMessage_FullMethodName:           {LimitPerMinute: 10000},
-					pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:      {LimitPerMinute: 10000},
-					pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName: {LimitPerMinute: 10000},
-					pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:       {LimitPerMinute: 10000},
-					pb.Aggregator_WriteBlockCheckpoint_FullMethodName:        {LimitPerMinute: 10000},
-					pb.Aggregator_ReadBlockCheckpoint_FullMethodName:         {LimitPerMinute: 10000},
+					pb.VerifierResultAPI_GetMessagesSince_FullMethodName:            {LimitPerMinute: 10000},
+					pb.VerifierResultAPI_GetVerifierResultForMessage_FullMethodName: {LimitPerMinute: 10000},
+					pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:             {LimitPerMinute: 10000},
+					pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName:        {LimitPerMinute: 10000},
+					pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:              {LimitPerMinute: 10000},
+					pb.Aggregator_WriteBlockCheckpoint_FullMethodName:               {LimitPerMinute: 10000},
+					pb.Aggregator_ReadBlockCheckpoint_FullMethodName:                {LimitPerMinute: 10000},
 				},
 			},
 		},
@@ -228,6 +231,13 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	case model.StorageTypeMemory:
 		// No setup needed for memory storage
 		cleanupStorage = func() {}
+	case model.StorageTypePostgreSQL:
+		storageConfig, cleanup, err := setupPostgresStorage(t, config.Storage)
+		if err != nil {
+			return nil, nil, err
+		}
+		config.Storage = storageConfig
+		cleanupStorage = cleanup
 	default:
 		return nil, nil, fmt.Errorf("unsupported storage type: %s", config.Storage.StorageType)
 	}
@@ -246,7 +256,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 }
 
 // CreateAuthenticatedClient creates a gRPC client with optional HMAC authentication.
-func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (pb.AggregatorClient, pb.CCVDataClient, func()) {
+func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (pb.AggregatorClient, pb.VerifierResultAPIClient, func()) {
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
 		APIKey:   defaultAPIKey,
@@ -324,7 +334,44 @@ func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*m
 	return existingConfig, cleanup, nil
 }
 
-func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.CCVDataClient, *grpc.ClientConn, error) {
+func setupPostgresStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
+	// Start PostgreSQL testcontainer
+	postgresContainer, err := postgres.Run(t.Context(),
+		"postgres:15-alpine",
+		postgres.WithDatabase("test_db"),
+		postgres.WithUsername("test_user"),
+		postgres.WithPassword("test_password"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(30*time.Second)),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Get connection string from container
+	connectionString, err := postgresContainer.ConnectionString(t.Context(), "sslmode=disable")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	storageConfig := &model.StorageConfig{
+		StorageType:   "postgres",
+		ConnectionURL: connectionString,
+		PageSize:      existingConfig.PageSize,
+	}
+
+	cleanup := func() {
+		if err := postgresContainer.Terminate(context.Background()); err != nil {
+			t.Errorf("failed to terminate postgres container: %v", err)
+		}
+	}
+
+	return storageConfig, cleanup, nil
+}
+
+func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.VerifierResultAPIClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return ccvDataBuf.Dial()
 	}
@@ -344,7 +391,7 @@ func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts
 		return nil, nil, err
 	}
 
-	client := pb.NewCCVDataClient(ccvDataConn)
+	client := pb.NewVerifierResultAPIClient(ccvDataConn)
 	return client, ccvDataConn, nil
 }
 

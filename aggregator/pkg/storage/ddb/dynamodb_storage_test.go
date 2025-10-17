@@ -92,7 +92,7 @@ func createTestAggregatedReport(messageID model.MessageID, committeeID string, t
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
 		Verifications: verifications,
-		Timestamp:     timestamp,
+		Sequence:      timestamp,
 	}
 }
 
@@ -119,7 +119,7 @@ func assertVerificationRecordEquals(t *testing.T, expected, actual *model.Commit
 func assertAggregatedReportEquals(t *testing.T, expected, actual *model.CommitAggregatedReport) {
 	require.Equal(t, expected.MessageID, actual.MessageID, "MessageID should match")
 	require.Equal(t, expected.CommitteeID, actual.CommitteeID, "CommitteeID should match")
-	require.Equal(t, expected.Timestamp, actual.Timestamp, "Timestamp should match")
+	require.Equal(t, expected.Sequence, actual.Sequence, "Sequence should match")
 	require.Len(t, actual.Verifications, len(expected.Verifications), "Verification count should match")
 }
 
@@ -130,11 +130,11 @@ func assertTimestampOrdering(t *testing.T, reports []*model.CommitAggregatedRepo
 		// Use WrittenAt for ordering verification (fall back to Timestamp if not set for backward compatibility)
 		timestamp1 := reports[i].WrittenAt
 		if timestamp1 == 0 {
-			timestamp1 = reports[i].Timestamp
+			timestamp1 = reports[i].Sequence
 		}
 		timestamp2 := reports[i+1].WrittenAt
 		if timestamp2 == 0 {
-			timestamp2 = reports[i+1].Timestamp
+			timestamp2 = reports[i+1].Sequence
 		}
 		require.LessOrEqual(t, timestamp1, timestamp2,
 			"Report at index %d should have WrittenAt <= report at index %d", i, i+1)
@@ -277,6 +277,9 @@ func TestAggregatedReportOperations(t *testing.T) {
 			messageID := createTestMessageID(byte(100 + i))
 			verification := createTestVerificationRecord(messageID, fmt.Sprintf("signer-%d", i), committeeID)
 
+			// Set unique timestamp for each verification to ensure proper ordering
+			verification.Timestamp = baseTime.UnixMicro() + int64(i*3600*1000000)
+
 			// Save verification record first (required for SubmitReport)
 			err := storage.SaveCommitVerification(ctx, verification)
 			require.NoError(t, err, "SaveCommitVerification should succeed for record %d", i)
@@ -295,7 +298,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 		// Query reports in time range (using WrittenAt timestamps)
 		start := baseTime.Unix()                  // Start time
 		end := baseTime.Add(3 * time.Hour).Unix() // 3 hours later to include all reports
-		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
+		reports, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
 		require.Len(t, reports.Reports, 3, "Should return all 3 reports within time range")
 
@@ -326,7 +329,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 		// Verify only one report exists
 		start := baseTime.Add(-1 * time.Hour).Unix() // 1 hour before
 		end := baseTime.Add(1 * time.Hour).Unix()    // 1 hour after
-		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
+		reports, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
 		require.Len(t, reports.Reports, 1, "Should have exactly one report after duplicate submission")
 	})
@@ -377,6 +380,9 @@ func TestAggregatedReportOperations(t *testing.T) {
 		for i := 0; i < 2; i++ {
 			verification := createTestVerificationRecord(messageID, fmt.Sprintf("signer-snapshot-%d", i), committeeID)
 
+			// Override the timestamp to make each verification unique for sort key purposes
+			verification.Timestamp = baseTime.UnixMicro() + int64(i*3600*1000000)
+
 			// Save verification record
 			err := storage.SaveCommitVerification(ctx, verification)
 			require.NoError(t, err, "SaveCommitVerification should succeed for snapshot %d", i)
@@ -397,13 +403,14 @@ func TestAggregatedReportOperations(t *testing.T) {
 		require.NoError(t, err, "GetCCVData should succeed")
 		require.NotNil(t, foundReport, "Should find the report")
 
-		expectedLatestTimestamp := baseTime.Unix() + int64(1*3600)
-		require.Equal(t, expectedLatestTimestamp, foundReport.Timestamp, "Should return the latest report by timestamp")
+		expectedLatestWrittenAt := baseTime.Add(1 * time.Hour).Unix()
+		require.Equal(t, expectedLatestWrittenAt, foundReport.Sequence, "Should return the latest report by WrittenAt (Sequence now stores WrittenAt)")
+		require.Equal(t, expectedLatestWrittenAt, foundReport.WrittenAt, "WrittenAt should match the mock time when report was written")
 
 		// Query should return both snapshots in correct order by WrittenAt
 		start := baseTime.Add(-1 * time.Hour).Unix() // 1 hour before first
 		end := baseTime.Add(2 * time.Hour).Unix()    // 2 hours after first
-		reports, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
+		reports, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
 		require.Len(t, reports.Reports, 2, "Should return both snapshots")
 		assertTimestampOrdering(t, reports.Reports)
@@ -418,7 +425,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 		// Query empty time range (much earlier than baseTime)
 		start := baseTime.Add(-100 * time.Hour).Unix() // Much earlier time
 		end := baseTime.Add(-99 * time.Hour).Unix()    // Still early time
-		reports, err := storage.QueryAggregatedReports(ctx, start, end, "nonexistent-committee", nil)
+		reports, err := storage.QueryAggregatedReportsRange(ctx, start, end, "nonexistent-committee", nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed even with no results")
 		require.NotNil(t, reports, "Should return non-nil result struct")
 		require.Empty(t, reports.Reports, "Should return empty slice for no results")
@@ -427,7 +434,7 @@ func TestAggregatedReportOperations(t *testing.T) {
 		// Test invalid time range (start > end)
 		start = baseTime.Add(10 * time.Hour).Unix() // Later time
 		end = baseTime.Unix()                       // Earlier time
-		reports, err = storage.QueryAggregatedReports(ctx, start, end, "test-committee", nil)
+		reports, err = storage.QueryAggregatedReportsRange(ctx, start, end, "test-committee", nil)
 		require.Error(t, err, "Should return error for invalid time range")
 		require.Nil(t, reports, "Should return nil for invalid time range")
 		require.Contains(t, err.Error(), "start time", "Error should mention start time")
@@ -523,7 +530,7 @@ func TestOrphanRecovery(t *testing.T) {
 		report := &model.CommitAggregatedReport{
 			MessageID:     messageID,
 			CommitteeID:   committee,
-			Timestamp:     time.Now().Unix(),
+			Sequence:      time.Now().Unix(),
 			Verifications: []*model.CommitVerificationRecord{record},
 		}
 
@@ -679,6 +686,9 @@ func TestPaginationWithMockedTime(t *testing.T) {
 				messageID := createTestMessageID(byte(i))
 				verification := createTestVerificationRecord(messageID, fmt.Sprintf("signer-%d", i), committeeID)
 
+				// Set unique timestamp for each verification to ensure proper ordering
+				verification.Timestamp = baseTime.UnixMicro() + int64(i*1000000)
+
 				// Save verification record
 				err := storage.SaveCommitVerification(ctx, verification)
 				require.NoError(t, err, "SaveCommitVerification should succeed for message %d", i)
@@ -704,7 +714,7 @@ func TestPaginationWithMockedTime(t *testing.T) {
 
 			for {
 				pageCount++
-				result, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nextToken)
+				result, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nextToken)
 				require.NoError(t, err, "QueryAggregatedReports should succeed for page %d", pageCount)
 				require.NotNil(t, result, "Result should not be nil")
 
@@ -777,6 +787,9 @@ func TestPaginationMultiDayScenarios(t *testing.T) {
 				messageID := createTestMessageID(byte(messageIndex))
 				verification := createTestVerificationRecord(messageID, fmt.Sprintf("signer-%d", messageIndex), committeeID)
 
+				// Set unique timestamp for each verification to ensure proper ordering
+				verification.Timestamp = baseTime.UnixMicro() + int64(messageIndex*3600*1000000)
+
 				err := storage.SaveCommitVerification(ctx, verification)
 				require.NoError(t, err, "SaveCommitVerification should succeed")
 
@@ -798,13 +811,13 @@ func TestPaginationMultiDayScenarios(t *testing.T) {
 		start := baseTime.Add(-1 * time.Hour).Unix()
 		end := baseTime.Add(time.Duration(numDays+1) * 24 * time.Hour).Unix()
 
-		result, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
+		result, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nil)
 		require.NoError(t, err, "QueryAggregatedReports should succeed")
 
 		// Should get all messages
 		allReports := result.Reports
 		for result.NextPageToken != nil {
-			result, err = storage.QueryAggregatedReports(ctx, start, end, committeeID, result.NextPageToken)
+			result, err = storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, result.NextPageToken)
 			require.NoError(t, err, "QueryAggregatedReports should succeed")
 			allReports = append(allReports, result.Reports...)
 		}
@@ -839,6 +852,9 @@ func TestPaginationMultiDayScenarios(t *testing.T) {
 				messageID := createTestMessageID(byte(day*10 + msg + 100))
 				verification := createTestVerificationRecord(messageID, fmt.Sprintf("signer-%d-%d", day, msg), committeeID)
 
+				// Set unique timestamp for each verification to ensure proper ordering
+				verification.Timestamp = baseTime.UnixMicro() + int64((day*10+msg)*3600*1000000)
+
 				err := storage.SaveCommitVerification(ctx, verification)
 				require.NoError(t, err)
 
@@ -855,12 +871,12 @@ func TestPaginationMultiDayScenarios(t *testing.T) {
 		day1Start := baseTime.Add(24 * time.Hour).Unix()
 		day1End := baseTime.Add(47 * time.Hour).Add(59 * time.Minute).Unix() // Just before day 2
 
-		result, err := storage.QueryAggregatedReports(ctx, day1Start, day1End, committeeID, nil)
+		result, err := storage.QueryAggregatedReportsRange(ctx, day1Start, day1End, committeeID, nil)
 		require.NoError(t, err)
 
 		allReports := result.Reports
 		for result.NextPageToken != nil {
-			result, err = storage.QueryAggregatedReports(ctx, day1Start, day1End, committeeID, result.NextPageToken)
+			result, err = storage.QueryAggregatedReportsRange(ctx, day1Start, day1End, committeeID, result.NextPageToken)
 			require.NoError(t, err)
 			allReports = append(allReports, result.Reports...)
 		}
@@ -872,7 +888,7 @@ func TestPaginationMultiDayScenarios(t *testing.T) {
 		for _, report := range allReports {
 			timestamp := report.WrittenAt
 			if timestamp == 0 {
-				timestamp = report.Timestamp
+				timestamp = report.Sequence
 			}
 			require.GreaterOrEqual(t, timestamp, day1Start, "Message should be after day 1 start")
 			require.LessOrEqual(t, timestamp, day1End, "Message should be before day 1 end")
@@ -920,6 +936,9 @@ func TestPaginationMultiShard(t *testing.T) {
 				messageID := createTestMessageID(byte(i + 50*shardCount))
 				verification := createTestVerificationRecord(messageID, fmt.Sprintf("signer-%d", i), committeeID)
 
+				// Set unique timestamp for each verification to ensure proper ordering
+				verification.Timestamp = baseTime.UnixMicro() + int64(i*1000000)
+
 				err := storage.SaveCommitVerification(ctx, verification)
 				require.NoError(t, err)
 
@@ -938,12 +957,12 @@ func TestPaginationMultiShard(t *testing.T) {
 			start := baseTime.Add(-1 * time.Hour).Unix()
 			end := baseTime.Add(time.Duration(numMessages) * time.Second).Add(1 * time.Hour).Unix()
 
-			result, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
+			result, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nil)
 			require.NoError(t, err)
 
 			allReports := result.Reports
 			for result.NextPageToken != nil {
-				result, err = storage.QueryAggregatedReports(ctx, start, end, committeeID, result.NextPageToken)
+				result, err = storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, result.NextPageToken)
 				require.NoError(t, err)
 				allReports = append(allReports, result.Reports...)
 			}
@@ -992,6 +1011,9 @@ func TestPaginationEdgeCases(t *testing.T) {
 			messageID := createTestMessageID(byte(i + 150))
 			verification := createTestVerificationRecord(messageID, fmt.Sprintf("signer-%d", i), committeeID)
 
+			// Set unique timestamp for each verification to avoid sort key collisions
+			verification.Timestamp = baseTime.UnixMicro() + int64(i*1000000)
+
 			err := storage.SaveCommitVerification(ctx, verification)
 			require.NoError(t, err)
 
@@ -1008,12 +1030,12 @@ func TestPaginationEdgeCases(t *testing.T) {
 		start := baseTime.Add(-1 * time.Hour).Unix()
 		end := baseTime.Add(1 * time.Hour).Unix()
 
-		result, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
+		result, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nil)
 		require.NoError(t, err)
 
 		allReports := result.Reports
 		for result.NextPageToken != nil {
-			result, err = storage.QueryAggregatedReports(ctx, start, end, committeeID, result.NextPageToken)
+			result, err = storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, result.NextPageToken)
 			require.NoError(t, err)
 			allReports = append(allReports, result.Reports...)
 		}
@@ -1051,7 +1073,7 @@ func TestPaginationEdgeCases(t *testing.T) {
 		start := baseTime.Unix()
 		end := baseTime.Add(1 * time.Hour).Unix()
 
-		result, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
+		result, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nil)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Empty(t, result.Reports, "Should have no reports")
@@ -1089,6 +1111,9 @@ func TestPaginationEdgeCases(t *testing.T) {
 			messageID := createTestMessageID(byte(i + 200))
 			verification := createTestVerificationRecord(messageID, fmt.Sprintf("signer-boundary-%d", i), committeeID)
 
+			// Set unique timestamp for each verification to ensure proper ordering
+			verification.Timestamp = baseTime.UnixMicro() + int64(i*1800*1000000)
+
 			err := storage.SaveCommitVerification(ctx, verification)
 			require.NoError(t, err)
 
@@ -1103,12 +1128,12 @@ func TestPaginationEdgeCases(t *testing.T) {
 		start := baseTime.Unix()
 		end := baseTime.Add(60 * time.Minute).Unix()
 
-		result, err := storage.QueryAggregatedReports(ctx, start, end, committeeID, nil)
+		result, err := storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, nil)
 		require.NoError(t, err)
 
 		allReports := result.Reports
 		for result.NextPageToken != nil {
-			result, err = storage.QueryAggregatedReports(ctx, start, end, committeeID, result.NextPageToken)
+			result, err = storage.QueryAggregatedReportsRange(ctx, start, end, committeeID, result.NextPageToken)
 			require.NoError(t, err)
 			allReports = append(allReports, result.Reports...)
 		}

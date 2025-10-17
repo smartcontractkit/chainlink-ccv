@@ -2,22 +2,30 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/jmoiron/sqlx"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/memory"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	_ "modernc.org/sqlite" // SQLite driver
+	_ "github.com/lib/pq" // PostgreSQL driver
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+)
+
+const (
+	postgresDriver      = "postgres"
+	defaultMaxOpenConns = 25
 )
 
 var earliestDateForGetMessageSince = time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)
@@ -46,6 +54,8 @@ func (f *Factory) CreateStorage(config *model.StorageConfig, monitoring common.A
 	switch config.StorageType {
 	case model.StorageTypeMemory:
 		return memory.NewInMemoryStorage(), nil
+	case model.StorageTypePostgreSQL:
+		return f.createPostgreSQLStorage(config)
 	case model.StorageTypeDynamoDB:
 		return f.createDynamoDBStorage(config, monitoring)
 	default:
@@ -57,11 +67,62 @@ func (f *Factory) CreateCheckpointStorage(config *model.StorageConfig, monitorin
 	switch config.StorageType {
 	case model.StorageTypeMemory:
 		return memory.NewCheckpointStorage(), nil
+	case model.StorageTypePostgreSQL:
+		if config.ConnectionURL == "" {
+			return nil, fmt.Errorf("PostgreSQL connection URL is required")
+		}
+
+		db, err := sql.Open(postgresDriver, config.ConnectionURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open PostgreSQL database: %w", err)
+		}
+		db.SetMaxOpenConns(defaultMaxOpenConns)
+
+		if err := db.Ping(); err != nil {
+			return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
+		}
+
+		// Create sqlx wrapper for sqlutil.DataSource compatibility
+		sqlxDB := sqlx.NewDb(db, postgresDriver)
+		// Run PostgreSQL migrations
+		err = postgres.RunMigrations(sqlxDB, postgresDriver)
+		if err != nil {
+			return nil, fmt.Errorf("failed to run PostgreSQL migrations: %w", err)
+		}
+		return postgres.NewDatabaseCheckpointStorage(sqlxDB), nil
 	case model.StorageTypeDynamoDB:
 		return f.createDynamoDBCheckpointStorage(config, monitoring)
 	default:
 		return nil, fmt.Errorf("unsupported checkpoint storage type: %s", config.StorageType)
 	}
+}
+
+// createPostgreSQLStorage creates a PostgreSQL-backed storage instance.
+func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVerificationStorage, error) {
+	if config.ConnectionURL == "" {
+		return nil, fmt.Errorf("PostgreSQL connection URL is required")
+	}
+
+	db, err := sql.Open(postgresDriver, config.ConnectionURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open PostgreSQL database: %w", err)
+	}
+	db.SetMaxOpenConns(defaultMaxOpenConns)
+
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
+	}
+
+	// Create sqlx wrapper for sqlutil.DataSource compatibility
+	sqlxDB := sqlx.NewDb(db, postgresDriver)
+
+	// Run PostgreSQL migrations
+	err = postgres.RunMigrations(sqlxDB, postgresDriver)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run PostgreSQL migrations: %w", err)
+	}
+
+	return postgres.NewDatabaseStorage(sqlxDB, config.PageSize, f.logger), nil
 }
 
 // createDynamoDBStorage creates a DynamoDB-backed storage instance.

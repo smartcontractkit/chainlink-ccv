@@ -3,6 +3,7 @@ package model
 
 import (
 	"encoding/hex"
+	"math"
 	"time"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -13,10 +14,7 @@ type CommitAggregatedReport struct {
 	MessageID     MessageID
 	CommitteeID   CommitteeID
 	Verifications []*CommitVerificationRecord
-	// Timestamp represents the latest verification time among all verifications.
-	// This field is used for idempotency - reports with the same verifications will have
-	// the same Timestamp, ensuring retries don't create duplicate records.
-	Timestamp int64
+	Sequence      int64
 	// WrittenAt represents when the aggregated report was written to storage (in Unix seconds).
 	// This field is used for ordering in the GetMessagesSince API to return reports
 	// in the order they were finalized/stored, not the order of individual verifications.
@@ -26,6 +24,29 @@ type CommitAggregatedReport struct {
 type PaginatedAggregatedReports struct {
 	Reports       []*CommitAggregatedReport
 	NextPageToken *string
+}
+
+func normalizeTimestampToSeconds(timestamp int64) int64 {
+	if timestamp <= 0 {
+		return timestamp
+	}
+	digits := int(math.Log10(float64(timestamp))) + 1
+	if digits > 10 {
+		divisor := int64(math.Pow10(digits - 10))
+		return timestamp / divisor
+	}
+	return timestamp
+}
+
+func (c *CommitAggregatedReport) GetMostRecentVerificationTimestamp() int64 {
+	var mostRecent int64
+	for _, v := range c.Verifications {
+		vTimestampSeconds := normalizeTimestampToSeconds(v.GetTimestamp())
+		if vTimestampSeconds > mostRecent {
+			mostRecent = vTimestampSeconds
+		}
+	}
+	return mostRecent
 }
 
 func GetAggregatedReportID(messageID MessageID, committeeID CommitteeID) string {

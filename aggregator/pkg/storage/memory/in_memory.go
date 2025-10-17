@@ -63,13 +63,13 @@ func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAg
 	return nil
 }
 
-func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
+func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, end int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
 			timestamp := report.WrittenAt
 			if timestamp == 0 {
-				timestamp = report.Timestamp
+				timestamp = report.Sequence
 			}
 			if timestamp >= start && timestamp <= end && report.CommitteeID == committeeID {
 				results = append(results, report)
@@ -78,6 +78,11 @@ func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end i
 		return true
 	})
 	return &model.PaginatedAggregatedReports{Reports: results}, nil
+}
+
+func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, start int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
+	end := s.timeProvider.Now().Unix()
+	return s.QueryAggregatedReportsRange(ctx, start, end, committeeID, token)
 }
 
 func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {

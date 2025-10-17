@@ -39,7 +39,7 @@ func compareStringCaseInsensitive(a, b string) bool {
 	return bytes.EqualFold([]byte(a), []byte(b))
 }
 
-func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*pb.MessageWithCCVData, error) {
+func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*pb.VerifierResult, error) {
 	participantSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
@@ -90,11 +90,12 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}
 
-	return &pb.MessageWithCCVData{
+	return &pb.VerifierResult{
 		Message:               report.GetMessage(),
 		SourceVerifierAddress: report.GetSourceVerifierAddress(),
 		DestVerifierAddress:   quorumConfig.GetDestVerifierAddressBytes(),
 		CcvData:               encodedSignatures,
 		Timestamp:             report.WrittenAt,
+		Sequence:              report.Sequence,
 	}, nil
 }
