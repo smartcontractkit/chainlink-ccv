@@ -15,11 +15,11 @@ type Node struct {
 
 // BlockchainInfo represents blockchain connection information.
 type BlockchainInfo struct {
-	ChainID       string  `json:"chain_id"`
-	Type          string  `json:"type"`
-	Family        string  `json:"family"`
-	ContainerName string  `json:"container_name"`
-	Nodes         []*Node `json:"nodes"`
+	ChainID         string  `json:"chain_id"`
+	Type            string  `json:"type"`
+	Family          string  `json:"family"`
+	UniqueChainName string  `json:"unique_chain_name"`
+	Nodes           []*Node `json:"nodes"`
 }
 
 // BlockchainHelper provides utilities for working with blockchain information.
@@ -109,8 +109,8 @@ func (bh *BlockchainHelper) GetBlockchainInfo(chainSelector ChainSelector) (stri
 		rpcURL = "N/A"
 	}
 
-	return fmt.Sprintf("Chain ID: %s, Type: %s, Family: %s, Container: %s, Nodes: %d, RPC: %s",
-		info.ChainID, info.Type, info.Family, info.ContainerName, nodeCount, rpcURL), nil
+	return fmt.Sprintf("Chain ID: %s, Type: %s, Family: %s, ChainName: %s, Nodes: %d, RPC: %s",
+		info.ChainID, info.Type, info.Family, info.UniqueChainName, nodeCount, rpcURL), nil
 }
 
 // GetWebSocketEndpoint returns the WebSocket endpoint for a blockchain by chain selector

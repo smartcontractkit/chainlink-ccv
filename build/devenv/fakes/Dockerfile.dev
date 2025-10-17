@@ -1,7 +1,13 @@
+# syntax=docker/dockerfile:1.7
 FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /app
+
 COPY . .
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
+    go mod download
+
 WORKDIR /app/build/devenv/fakes
+RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
+    go mod download
 CMD ["air", "-c", "air.toml"]

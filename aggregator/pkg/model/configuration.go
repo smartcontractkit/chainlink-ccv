@@ -261,34 +261,34 @@ func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(apiClient *APIClient, 
 	return mostRestrictive
 }
 
-// BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
-type BeholderConfig struct {
-	// InsecureConnection disables TLS for the beholder client.
-	InsecureConnection bool `toml:"insecureConnection"`
-	// CACertFile is the path to the CA certificate file for the beholder client.
-	CACertFile string `toml:"caCertFile"`
-	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterGRPCEndpoint string `toml:"otelExporterGRPCEndpoint"`
-	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterHTTPEndpoint string `toml:"otelExporterHTTPEndpoint"`
-	// LogStreamingEnabled enables log streaming to the collector.
-	LogStreamingEnabled bool `toml:"logStreamingEnabled"`
-	// MetricReaderInterval is the interval to scrape metrics (in seconds).
-	MetricReaderInterval int64 `toml:"metricReaderInterval"`
-	// TraceSampleRatio is the ratio of traces to sample.
-	TraceSampleRatio float64 `toml:"traceSampleRatio"`
-	// TraceBatchTimeout is the timeout for a batch of traces.
-	TraceBatchTimeout int64 `toml:"traceBatchTimeout"`
-}
-
-// MonitoringConfig provides all configuration for the monitoring system inside the aggregator.
+// MonitoringConfig provides monitoring configuration for aggregator.
 type MonitoringConfig struct {
 	// Enabled enables the monitoring system.
-	Enabled bool `toml:"enabled"`
+	Enabled bool `toml:"Enabled"`
 	// Type is the type of monitoring system to use (beholder, noop).
-	Type string `toml:"type"`
+	Type string `toml:"Type"`
 	// Beholder is the configuration for the beholder client (Not required if type is noop).
-	Beholder BeholderConfig `toml:"beholder"`
+	Beholder BeholderConfig `toml:"Beholder"`
+}
+
+// BeholderConfig wraps OpenTelemetry configuration for the beholder client.
+type BeholderConfig struct {
+	// InsecureConnection disables TLS for the beholder client.
+	InsecureConnection bool `toml:"InsecureConnection"`
+	// CACertFile is the path to the CA certificate file for the beholder client.
+	CACertFile string `toml:"CACertFile"`
+	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
+	OtelExporterGRPCEndpoint string `toml:"OtelExporterGRPCEndpoint"`
+	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
+	OtelExporterHTTPEndpoint string `toml:"OtelExporterHTTPEndpoint"`
+	// LogStreamingEnabled enables log streaming to the collector.
+	LogStreamingEnabled bool `toml:"LogStreamingEnabled"`
+	// MetricReaderInterval is the interval to scrape metrics (in seconds).
+	MetricReaderInterval int64 `toml:"MetricReaderInterval"`
+	// TraceSampleRatio is the ratio of traces to sample.
+	TraceSampleRatio float64 `toml:"TraceSampleRatio"`
+	// TraceBatchTimeout is the timeout for a batch of traces.
+	TraceBatchTimeout int64 `toml:"TraceBatchTimeout"`
 }
 
 // GetClientByAPIKey returns the client configuration for a given API key.

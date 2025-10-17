@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -20,6 +21,7 @@ type Coordinator struct {
 	messageSubscriber   MessageSubscriber
 	leaderElector       LeaderElector
 	lggr                logger.Logger
+	monitoring          common.ExecutorMonitoring
 	ccvDataCh           chan MessageWithCCVData
 	executableMessageCh chan MessageWithCCVData
 	doneCh              chan struct{}
@@ -46,6 +48,12 @@ func WithExecutor(executor Executor) Option {
 func WithMessageSubscriber(sub MessageSubscriber) Option {
 	return func(ec *Coordinator) {
 		ec.messageSubscriber = sub
+	}
+}
+
+func WithMonitoring(monitoring common.ExecutorMonitoring) Option {
+	return func(ec *Coordinator) {
+		ec.monitoring = monitoring
 	}
 }
 
@@ -163,8 +171,13 @@ func (ec *Coordinator) run(ctx context.Context) {
 
 				id, _ := msg.MessageID()
 
+				if ec.delayedMessageHeap.Has(id) {
+					ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
+					continue
+				}
+
 				// get message delay from leader elector
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg, time.Now().Unix())
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
 
 				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamp{
 					Payload:   &msg,
@@ -189,7 +202,10 @@ func (ec *Coordinator) run(ctx context.Context) {
 						return
 					} else if err != nil {
 						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
+						ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
+						return
 					}
+					ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
 				}()
 			}
 		}

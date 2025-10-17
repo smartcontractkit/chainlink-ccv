@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 )
@@ -21,21 +22,21 @@ func NewOffChainStorageAPI() *OffChainStorageAPI {
 	}
 }
 
-// AddMessage adds a message to the fake storage
+// AddMessage adds a message to the fake storage.
 func (o *OffChainStorageAPI) AddMessage(response protocol.QueryResponse) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.messages = append(o.messages, response)
 }
 
-// AddMessages adds multiple messages to the fake storage
+// AddMessages adds multiple messages to the fake storage.
 func (o *OffChainStorageAPI) AddMessages(responses []protocol.QueryResponse) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.messages = append(o.messages, responses...)
 }
 
-// Register registers the API endpoints with the fake service
+// Register registers the API endpoints with the fake service.
 func (o *OffChainStorageAPI) Register() error {
 	err := fake.Func("GET", "/messages", func(ctx *gin.Context) {
 		sinceStr := ctx.Query("since")

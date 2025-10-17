@@ -27,19 +27,19 @@ func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimes
 func TestMessageHeap_PeekTime(t *testing.T) {
 	tests := []struct {
 		name     string
-		heap     MessageHeap
+		messages []*MessageWithTimestamp
 		expected int64
 	}{
 		{
 			name: "single element heap",
-			heap: MessageHeap{
+			messages: []*MessageWithTimestamp{
 				createMessageWithTimestamp(100, 1),
 			},
 			expected: 100,
 		},
 		{
 			name: "multi-element heap - should return earliest",
-			heap: MessageHeap{
+			messages: []*MessageWithTimestamp{
 				createMessageWithTimestamp(300, 3),
 				createMessageWithTimestamp(100, 1),
 				createMessageWithTimestamp(200, 2),
@@ -51,9 +51,13 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Initialize heap to maintain heap property
-			heap.Init(&tt.heap)
+			var mh MessageHeap
+			heap.Init(&mh)
+			for _, msg := range tt.messages {
+				heap.Push(&mh, msg)
+			}
 
-			if got := tt.heap.PeekTime(); got != tt.expected {
+			if got := mh.PeekTime(); got != tt.expected {
 				t.Errorf("MessageHeap.PeekTime() = %v, want %v", got, tt.expected)
 			}
 		})
@@ -63,7 +67,7 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 func TestMessageHeap_PopAllReady(t *testing.T) {
 	tests := []struct {
 		name           string
-		heap           MessageHeap
+		messages       []*MessageWithTimestamp
 		expectedNonces []uint64
 		timestamp      int64
 		expectedCount  int
@@ -71,7 +75,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 	}{
 		{
 			name:           "empty heap",
-			heap:           MessageHeap{},
+			messages:       []*MessageWithTimestamp{},
 			timestamp:      100,
 			expectedCount:  0,
 			expectedNonces: []uint64{},
@@ -79,7 +83,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "no messages ready",
-			heap: MessageHeap{
+			messages: []*MessageWithTimestamp{
 				createMessageWithTimestamp(300, 2),
 				createMessageWithTimestamp(200, 1),
 			},
@@ -90,7 +94,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "some messages ready",
-			heap: MessageHeap{
+			messages: []*MessageWithTimestamp{
 				createMessageWithTimestamp(300, 4),
 				createMessageWithTimestamp(200, 3),
 				createMessageWithTimestamp(50, 1),
@@ -103,7 +107,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "all messages ready",
-			heap: MessageHeap{
+			messages: []*MessageWithTimestamp{
 				createMessageWithTimestamp(150, 3),
 				createMessageWithTimestamp(50, 1),
 				createMessageWithTimestamp(100, 2),
@@ -118,16 +122,20 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Initialize heap to maintain heap property
-			heap.Init(&tt.heap)
+			var mh MessageHeap
+			heap.Init(&mh)
+			for _, msg := range tt.messages {
+				heap.Push(&mh, msg)
+			}
 
-			result := tt.heap.PopAllReady(tt.timestamp)
+			result := mh.PopAllReady(tt.timestamp)
 
 			if len(result) != tt.expectedCount {
 				t.Errorf("PopAllReady() returned %v messages, want %v", len(result), tt.expectedCount)
 			}
 
-			if tt.heap.Len() != tt.remainingCount {
-				t.Errorf("After PopAllReady(), heap has %v messages, want %v", tt.heap.Len(), tt.remainingCount)
+			if mh.Len() != tt.remainingCount {
+				t.Errorf("After PopAllReady(), heap has %v messages, want %v", mh.Len(), tt.remainingCount)
 			}
 
 			// Check that returned messages have expected nonces

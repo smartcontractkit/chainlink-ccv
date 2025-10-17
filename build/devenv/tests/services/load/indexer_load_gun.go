@@ -172,7 +172,7 @@ func (i *IndexerLoadGun) run(ctx context.Context) {
 	}
 }
 
-func (i *IndexerLoadGun) handleMessage(ctx context.Context, msg protocol.QueryResponse, messageTimeout time.Duration, retryInterval time.Duration) {
+func (i *IndexerLoadGun) handleMessage(ctx context.Context, msg protocol.QueryResponse, messageTimeout, retryInterval time.Duration) {
 	defer i.wg.Done()
 
 	messageID := msg.Data.MessageID

@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -441,12 +442,15 @@ var monitorContractsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		impl := &ccvEvm.CCIP17EVM{}
 		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
 		for _, bc := range in.Blockchains {
 			chainIDs = append(chainIDs, bc.ChainID)
 			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 		}
+		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		ctx = ccv.Plog.WithContext(ctx)
+		l := zerolog.Ctx(ctx)
+		impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 		_, reg, err := impl.ExposeMetrics(ctx, source, dest, chainIDs, wsURLs)
 		if err != nil {
 			return fmt.Errorf("failed to expose metrics: %w", err)
@@ -540,7 +544,9 @@ var sendCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
-		impl, err := ccvEvm.NewCCIP17EVM(ctx, e, chainIDs, wsURLs)
+		ctx = ccv.Plog.WithContext(ctx)
+		l := zerolog.Ctx(ctx)
+		impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 		if err != nil {
 			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
 		}
@@ -559,7 +565,7 @@ var sendCmd = &cobra.Command{
 			}, cciptestinterfaces.MessageOptions{
 				Version:        3,
 				FinalityConfig: uint16(finality),
-				Executor:       protocol.UnknownAddress(common.HexToAddress("0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE").Bytes()), // executor address
+				Executor:       protocol.UnknownAddress(common.HexToAddress("0x68B1D87F95878fE05B998F19b66F4baba5De1aed").Bytes()), // executor address
 				ExecutorArgs:   nil,
 				TokenArgs:      nil,
 				MandatoryCCVs: []protocol.CCV{

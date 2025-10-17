@@ -6,17 +6,16 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config" //nolint:gci
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb" //nolint
-	"github.com/testcontainers/testcontainers-go/wait"                               //nolint
+	"github.com/testcontainers/testcontainers-go/wait"
 
-	//nolint
-	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"                                              //nolint
+	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants" //nolint
+	dynamodbcontainer "github.com/testcontainers/testcontainers-go/modules/dynamodb"             //nolint
 )
 
 const (
@@ -36,7 +35,7 @@ func CreateFinalizedFeedTable(ctx context.Context, client *dynamodb.Client, tabl
 				KeyType:       types.KeyTypeHash,
 			},
 			{
-				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAt), // Sort Key
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey), // Sort Key
 				KeyType:       types.KeyTypeRange,
 			},
 		},
@@ -46,8 +45,8 @@ func CreateFinalizedFeedTable(ctx context.Context, client *dynamodb.Client, tabl
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAt), // Primary Sort Key
-				AttributeType: types.ScalarAttributeTypeN,
+				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey), // Primary Sort Key
+				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
 				AttributeName: aws.String(ddbconstant.FinalizedFeedFieldGSIPK), // GSI Partition Key

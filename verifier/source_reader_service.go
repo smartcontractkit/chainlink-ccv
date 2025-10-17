@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -73,7 +73,7 @@ func NewSourceReaderService(
 		stopCh:               make(chan struct{}),
 		pollInterval:         800 * time.Millisecond,
 		chainSelector:        chainSelector,
-		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
+		ccipMessageSentTopic: onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 		checkpointManager:    checkpointManager,
 	}
 

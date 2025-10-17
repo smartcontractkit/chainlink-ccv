@@ -51,6 +51,13 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 
 type ProtocolMessageOption = func(*protocol.Message) *protocol.Message
 
+func WithNonce(nonce uint64) ProtocolMessageOption {
+	return func(m *protocol.Message) *protocol.Message {
+		m.Nonce = protocol.Nonce(nonce)
+		return m
+	}
+}
+
 func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protocol.Message {
 	msg := &protocol.Message{
 		Version:              1,

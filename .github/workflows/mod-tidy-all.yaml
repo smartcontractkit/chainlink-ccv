@@ -50,7 +50,7 @@ jobs:
         run: just install-go-tools
 
       - name: Run repo-wide go mod tidy
-        run: just mod-tidy-all
+        run: just tidy
 
       - name: Verify go.mod and go.sum across all modules
         run: |
@@ -60,8 +60,8 @@ jobs:
             exit 0
           fi
           if ! git diff --exit-code -- $files; then
-            echo "❌ Some go.mod or go.sum files changed after running 'just mod-tidy-all'."
-            echo "Please run 'just mod-tidy-all' locally and commit the results."
+            echo "❌ Some go.mod or go.sum files changed after running 'just tidy'."
+            echo "Please run 'just tidy' locally and commit the results."
             git diff -- $files | cat
             exit 1
           fi

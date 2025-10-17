@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
-	commontypes "github.com/smartcontractkit/chainlink-ccv/common/pkg/types"
+	commontypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 const (
@@ -37,11 +37,11 @@ func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*pr
 	infos := make(map[string]*protocol.BlockchainInfo)
 	for _, output := range outputs {
 		info := &protocol.BlockchainInfo{
-			ChainID:       output.ChainID,
-			Type:          output.Type,
-			Family:        output.Family,
-			ContainerName: output.ContainerName,
-			Nodes:         make([]*protocol.Node, 0, len(output.Nodes)),
+			ChainID:         output.ChainID,
+			Type:            output.Type,
+			Family:          output.Family,
+			UniqueChainName: output.ContainerName,
+			Nodes:           make([]*protocol.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
@@ -69,19 +69,19 @@ type VerifierDBInput struct {
 }
 
 type VerifierInput struct {
-	DB                *VerifierDBInput           `toml:"db"`
-	Out               *VerifierOutput            `toml:"out"`
-	Image             string                     `toml:"image"`
-	SourceCodePath    string                     `toml:"source_code_path"`
-	RootPath          string                     `toml:"root_path"`
-	ContainerName     string                     `toml:"container_name"`
-	VerifierConfig    commontypes.VerifierConfig `toml:"verifier_config"`
-	Port              int                        `toml:"port"`
-	UseCache          bool                       `toml:"use_cache"`
-	ConfigFilePath    string                     `toml:"config_file_path"`
-	BlockchainOutputs []*blockchain.Output       `toml:"-"`
-	AggregatorAddress string                     `toml:"aggregator_address"`
-	SigningKey        string                     `toml:"signing_key"`
+	DB                *VerifierDBInput     `toml:"db"`
+	Out               *VerifierOutput      `toml:"out"`
+	Image             string               `toml:"image"`
+	SourceCodePath    string               `toml:"source_code_path"`
+	RootPath          string               `toml:"root_path"`
+	ContainerName     string               `toml:"container_name"`
+	VerifierConfig    commontypes.Config   `toml:"verifier_config"`
+	Port              int                  `toml:"port"`
+	UseCache          bool                 `toml:"use_cache"`
+	ConfigFilePath    string               `toml:"config_file_path"`
+	BlockchainOutputs []*blockchain.Output `toml:"-"`
+	AggregatorAddress string               `toml:"aggregator_address"`
+	SigningKey        string               `toml:"signing_key"`
 }
 
 type VerifierOutput struct {
@@ -111,7 +111,7 @@ func verifierDefaults(in *VerifierInput) {
 		}
 	}
 	if in.ConfigFilePath == "" {
-		in.ConfigFilePath = "/app/common/cmd/verifier/verifier-1.toml"
+		in.ConfigFilePath = "/app/cmd/verifier/verifier-1.toml"
 	}
 }
 

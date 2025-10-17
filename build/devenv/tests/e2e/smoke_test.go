@@ -10,21 +10,21 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor_onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
 
 const (
-	// See Internal.sol for the full enum values
+	// See Internal.sol for the full enum values.
 	MessageExecutionStateSuccess uint8 = 2
 	MessageExecutionStateFailed  uint8 = 3
 )
@@ -45,7 +45,7 @@ func TestE2ESmoke(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
 
-	c, err := ccvEvm.NewCCIP17EVM(ctx, e, chainIDs, wsURLs)
+	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -108,9 +108,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NotNil(t, e)
 
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
 				}
 			})
 		}
@@ -118,16 +118,15 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("test extra args v3 messages", func(t *testing.T) {
 		type testcase struct {
-			name            string
-			srcSelector     uint64
-			dstSelector     uint64
-			finality        uint16
-			verifierAddress []byte
-			receiver        protocol.UnknownAddress
-			mandatoryCCVs   []protocol.CCV
-			optionalCCVs    []protocol.CCV
-			threshold       uint8
-			expectFail      bool
+			name          string
+			srcSelector   uint64
+			dstSelector   uint64
+			finality      uint16
+			receiver      protocol.UnknownAddress
+			mandatoryCCVs []protocol.CCV
+			optionalCCVs  []protocol.CCV
+			threshold     uint8
+			expectFail    bool
 		}
 
 		tcs := []testcase{
@@ -220,8 +219,8 @@ func TestE2ESmoke(t *testing.T) {
 						Data:     []byte{},
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
-						FinalityConfig:    uint16(tc.finality),
-						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor_onramp.ContractType), executor_onramp.Deploy.Version(), "executor on-ramp"),
+						FinalityConfig:    tc.finality,
+						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "executor"),
 						MandatoryCCVs:     tc.mandatoryCCVs,
 						OptionalCCVs:      tc.optionalCCVs,
 						OptionalThreshold: tc.threshold,
@@ -233,9 +232,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*ccvAggregator.CCVAggregatorExecutionStateChanged).State)
+					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
 				}
 			})
 		}

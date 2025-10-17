@@ -16,13 +16,12 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/zap"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
-	ccvProxy "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
 )
 
 const (
@@ -67,18 +66,18 @@ type LaneStreamConfig struct {
 
 // LaneStreams represents all the events for sent/exec events.
 type LaneStreams struct {
-	SentEvents    []*ccvProxy.CCVProxyCCIPMessageSent
-	ExecEvents    []*ccvAggregator.CCVAggregatorExecutionStateChanged
+	SentEvents    []*onramp.OnRampCCIPMessageSent
+	ExecEvents    []*offramp.OffRampExecutionStateChanged
 	Verifications []protocol.QueryResponse
 }
 
 type SentEventPlusMeta struct {
-	*ccvProxy.CCVProxyCCIPMessageSent
+	*onramp.OnRampCCIPMessageSent
 	MessageIDHex string
 }
 
 type ExecEventPlusMeta struct {
-	*ccvAggregator.CCVAggregatorExecutionStateChanged
+	*offramp.OffRampExecutionStateChanged
 	MessageIDHex string
 }
 
@@ -142,8 +141,8 @@ func ProcessLaneEvents(ctx context.Context, c *CCIP17EVM, lp *LokiPusher, tp *Te
 }
 
 func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Span {
-	idToMsgSent := make(map[protocol.Bytes32]*ccvProxy.CCVProxyCCIPMessageSent)
-	idToMsgExec := make(map[protocol.Bytes32]*ccvAggregator.CCVAggregatorExecutionStateChanged)
+	idToMsgSent := make(map[protocol.Bytes32]*onramp.OnRampCCIPMessageSent)
+	idToMsgExec := make(map[protocol.Bytes32]*offramp.OffRampExecutionStateChanged)
 	idToReport := make(map[protocol.Bytes32]*protocol.CCVData)
 	for _, event := range streams.SentEvents {
 		idToMsgSent[event.MessageId] = event
@@ -155,15 +154,15 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 		idToReport[event.Data.MessageID] = &event.Data
 	}
 	spans := make([]Span, 0, len(idToMsgSent))
-	for msgId, msgSent := range idToMsgSent {
-		msgSig, okSig := idToReport[msgId]
-		msgExec, okExec := idToMsgExec[msgId]
-		traceId := TraceIDFromMessage(msgId)
-		rootSpan := SpanID(msgId, "msg_sent")
+	for msgID, msgSent := range idToMsgSent {
+		msgSig, okSig := idToReport[msgID]
+		msgExec, okExec := idToMsgExec[msgID]
+		traceID := TraceIDFromMessage(msgID)
+		rootSpan := SpanID(msgID, "msg_sent")
 		if okExec {
 			spans = append(spans, Span{
-				TraceId:           traceId,
-				SpanId:            rootSpan,
+				TraceID:           traceID,
+				SpanID:            rootSpan,
 				Name:              "msg_exec",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
 				EndTimeUnixNano:   msgExec.Raw.BlockTimestamp * 1_000_000_000,
@@ -184,7 +183,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 					{
 						Key: "messageId",
 						Value: map[string]any{
-							"stringValue": msgId.String(),
+							"stringValue": msgID.String(),
 						},
 					},
 				},
@@ -192,8 +191,8 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 		} else {
 			// open span
 			spans = append(spans, Span{
-				TraceId:           traceId,
-				SpanId:            rootSpan,
+				TraceID:           traceID,
+				SpanID:            rootSpan,
 				Name:              "msg_exec",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
 				EndTimeUnixNano:   msgSent.Raw.BlockTimestamp * 1_000_000_000,
@@ -214,7 +213,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 					{
 						Key: "messageId",
 						Value: map[string]any{
-							"stringValue": msgId.String(),
+							"stringValue": msgID.String(),
 						},
 					},
 				},
@@ -222,12 +221,12 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 		}
 		if okSig {
 			spans = append(spans, Span{
-				TraceId:           traceId,
-				ParentSpanId:      rootSpan,
-				SpanId:            SpanID(msgId, "msg_sig"),
+				TraceID:           traceID,
+				ParentSpanID:      rootSpan,
+				SpanID:            SpanID(msgID, "msg_sig"),
 				Name:              "msg_sig",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
-				EndTimeUnixNano:   uint64(msgSig.Timestamp) * 1_000_000_000,
+				EndTimeUnixNano:   uint64(msgSig.Timestamp) * 1_000_000_000, //nolint:gosec // conversion from int to uint64 is safe here
 				Kind:              2,
 				Attributes: []Attribute{
 					{
@@ -245,7 +244,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 					{
 						Key: "messageId",
 						Value: map[string]any{
-							"stringValue": msgId.String(),
+							"stringValue": msgID.String(),
 						},
 					},
 				},
@@ -304,23 +303,23 @@ func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggreg
 	return reader.ReadCCVData(ctx)
 }
 
-func addSentMetadata(msgs []*ccvProxy.CCVProxyCCIPMessageSent) []*SentEventPlusMeta {
+func addSentMetadata(msgs []*onramp.OnRampCCIPMessageSent) []*SentEventPlusMeta {
 	events := make([]*SentEventPlusMeta, 0)
 	for _, msg := range msgs {
 		events = append(events, &SentEventPlusMeta{
-			CCVProxyCCIPMessageSent: msg,
-			MessageIDHex:            hexutil.Encode(msg.MessageId[:]),
+			OnRampCCIPMessageSent: msg,
+			MessageIDHex:          hexutil.Encode(msg.MessageId[:]),
 		})
 	}
 	return events
 }
 
-func addExecMetadata(msgs []*ccvAggregator.CCVAggregatorExecutionStateChanged) []*ExecEventPlusMeta {
+func addExecMetadata(msgs []*offramp.OffRampExecutionStateChanged) []*ExecEventPlusMeta {
 	events := make([]*ExecEventPlusMeta, 0)
 	for _, msg := range msgs {
 		events = append(events, &ExecEventPlusMeta{
-			CCVAggregatorExecutionStateChanged: msg,
-			MessageIDHex:                       hexutil.Encode(msg.MessageId[:]),
+			OffRampExecutionStateChanged: msg,
+			MessageIDHex:                 hexutil.Encode(msg.MessageId[:]),
 		})
 	}
 	return events
@@ -351,8 +350,8 @@ func TraceIDFromMessage(msgID [32]byte) string {
 // If key == nil or empty, falls back to plain SHA-256.
 func SpanID(msgID [32]byte, spanName string) string {
 	h := sha256.New()
-	h.Write(msgID[:])
-	h.Write([]byte(spanName))
+	h.Write(msgID[:])         //nolint // SHA-256 doesn't return an error here
+	h.Write([]byte(spanName)) //nolint // SHA-256 doesn't return an error here
 	sum := h.Sum(nil)
 	span := sum[len(sum)-8:] // take last 8 bytes
 
@@ -408,7 +407,7 @@ func NewLokiPusher() *LokiPusher {
 	}
 }
 
-// Push pushes all the messages to a Loki stream
+// Push pushes all the messages to a Loki stream.
 func (lp *LokiPusher) Push(msgs []any, labels map[string]string) error {
 	if len(msgs) == 0 {
 		return nil
@@ -470,9 +469,9 @@ type Scope struct {
 }
 
 type Span struct {
-	TraceId           string      `json:"traceId"`
-	ParentSpanId      string      `json:"parentSpanId,omitempty"`
-	SpanId            string      `json:"spanId"`
+	TraceID           string      `json:"traceId"`
+	ParentSpanID      string      `json:"parentSpanId,omitempty"`
+	SpanID            string      `json:"spanId"`
 	Name              string      `json:"name"`
 	StartTimeUnixNano uint64      `json:"startTimeUnixNano"`
 	EndTimeUnixNano   uint64      `json:"endTimeUnixNano"`

@@ -1,7 +1,14 @@
+# syntax=docker/dockerfile:1.7
 FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /app
+
+# Copy module files first to maximize cache reuse
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
+    go mod download
+
+# Then copy the rest of the source
 COPY . .
-RUN go mod download
-WORKDIR /app/common/cmd/verifier
+WORKDIR /app/cmd/verifier
 CMD ["air", "-c", "air.toml"]

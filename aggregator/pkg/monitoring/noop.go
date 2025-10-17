@@ -2,6 +2,7 @@ package monitoring
 
 import (
 	"context"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
@@ -40,7 +41,7 @@ func (c *NoopAggregatorMetricLabeler) IncrementCompletedAggregations(ctx context
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) RecordAPIRequestDuration(ctx context.Context, durationMs int64) {
+func (c *NoopAggregatorMetricLabeler) RecordAPIRequestDuration(ctx context.Context, duration time.Duration) {
 	// No-op
 }
 
@@ -60,7 +61,7 @@ func (c *NoopAggregatorMetricLabeler) DecrementPendingAggregationsChannelBuffer(
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, latencyMs int64) {
+func (c *NoopAggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
 	// No-op
 }
 
@@ -68,7 +69,7 @@ func (c *NoopAggregatorMetricLabeler) IncrementStorageError(ctx context.Context)
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, durationMs int64) {
+func (c *NoopAggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, duration time.Duration) {
 	// No-op
 }
 

@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -22,7 +24,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	ccvAggregator "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_aggregator"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -44,7 +45,7 @@ type GasTestCase struct {
 	waitBetweenTests time.Duration
 }
 
-// MessageMetrics tracks timing information for a single message
+// MessageMetrics tracks timing information for a single message.
 type MessageMetrics struct {
 	SeqNo           uint64
 	SentTime        time.Time
@@ -52,7 +53,7 @@ type MessageMetrics struct {
 	LatencyDuration time.Duration
 }
 
-// MetricsSummary holds aggregate metrics for all messages
+// MetricsSummary holds aggregate metrics for all messages.
 type MetricsSummary struct {
 	TotalSent     int
 	TotalVerified int
@@ -63,7 +64,7 @@ type MetricsSummary struct {
 	P99Latency    time.Duration
 }
 
-// SentMessage represents a message that was sent and needs verification
+// SentMessage represents a message that was sent and needs verification.
 type SentMessage struct {
 	SeqNo    uint64
 	SentTime time.Time
@@ -83,7 +84,7 @@ type EVMTXGun struct {
 	closeOnce  sync.Once        // Ensure channel is closed only once
 }
 
-// CloseSentChannel closes the sent messages channel to signal no more messages will be sent
+// CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
 func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
 		close(m.sentMsgCh)
@@ -166,7 +167,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 // verifyMessagesAsync starts async verification of messages as they are sent via channel
 // Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts
-// The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent
+// The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent.
 func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, timeout time.Duration) func() ([]MessageMetrics, int, int) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
@@ -199,7 +200,7 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				execEvent, err := impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, timeout)
 
 				if verifyCtx.Err() != nil {
-					// Context cancelled or timed out
+					// Context canceled or timed out
 					t.Logf("Message %d verification timed out", msg.SeqNo)
 					return
 				}
@@ -215,7 +216,7 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				}
 
 				// Check execution state
-				event := execEvent.(*ccvAggregator.CCVAggregatorExecutionStateChanged)
+				event := execEvent.(*offramp.OffRampExecutionStateChanged)
 				if event.State != uint8(2) {
 					t.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, event.State)
 					return
@@ -279,7 +280,7 @@ func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 	}
 }
 
-// calculateMetricsSummary computes aggregate statistics from message metrics
+// calculateMetricsSummary computes aggregate statistics from message metrics.
 func calculateMetricsSummary(metrics []MessageMetrics, totalSent, totalVerified int) MetricsSummary {
 	summary := MetricsSummary{
 		TotalSent:     totalSent,
@@ -324,7 +325,7 @@ func calculateMetricsSummary(metrics []MessageMetrics, totalSent, totalVerified 
 	return summary
 }
 
-// printMetricsSummary outputs message timing metrics in a readable format
+// printMetricsSummary outputs message timing metrics in a readable format.
 func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 	notVerified := summary.TotalSent - summary.TotalVerified
 	successRate := 0.0
@@ -424,14 +425,15 @@ func TestE2ELoad(t *testing.T) {
 	b := ccv.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
 
-	ctx := context.Background()
+	ctx := ccv.Plog.WithContext(context.Background())
+	l := zerolog.Ctx(ctx)
 	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
 	for _, bc := range in.Blockchains {
 		chainIDs = append(chainIDs, bc.ChainID)
 		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 	}
 
-	impl, err := ccvEvm.NewCCIP17EVM(ctx, e, chainIDs, wsURLs)
+	impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Run("clean", func(t *testing.T) {
