@@ -285,7 +285,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				defer wg.Done()
 
 				// Step 1: Check if message reached indexer (with timeout)
-				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout)
+				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout*90/100)
 				defer indexerCancel()
 
 				verifierCount, err := waitForMessageInIndexer(indexerCheckCtx, httpClient, indexerBaseURL, msg.MessageID)
@@ -349,8 +349,8 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 			}(sentMsg)
 		}
 
-		// Channel is closed, wait for all verification goroutines to complete or timeout
-		t.Logf("All messages received, waiting for verification to complete")
+		// Channel is closed, wait for all assertions goroutines to complete or timeout
+		t.Logf("All messages sent, waiting for assertion to complete")
 
 		// Wait for either all goroutines to finish or context timeout
 		done := make(chan struct{})
