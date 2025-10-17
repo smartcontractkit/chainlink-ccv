@@ -249,6 +249,7 @@ func (d *DynamoDBStorage) SubmitReport(ctx context.Context, report *model.Commit
 	// Set the write timestamp - this represents when the report is being stored
 	// This ensures GetMessagesSince returns items in storage order, not verification order
 	report.WrittenAt = d.timeProvider.Now().Unix()
+	report.Sequence = report.WrittenAt
 
 	// Calculate shard based on messageID and shardCount
 	shard := ddbconstant.CalculateShardFromMessageID(report.MessageID, d.shardCount)
@@ -348,6 +349,16 @@ func (d *DynamoDBStorage) shardQueryIteratorForDay(
 
 func (d *DynamoDBStorage) QueryAggregatedReports(
 	ctx context.Context,
+	start int64,
+	committeeID string,
+	paginationToken *string,
+) (*model.PaginatedAggregatedReports, error) {
+	end := time.Now().Unix()
+	return d.QueryAggregatedReportsRange(ctx, start, end, committeeID, paginationToken)
+}
+
+func (d *DynamoDBStorage) QueryAggregatedReportsRange(
+	ctx context.Context,
 	start, end int64,
 	committeeID string,
 	paginationToken *string,
@@ -420,7 +431,7 @@ func (d *DynamoDBStorage) GetCCVData(ctx context.Context, messageID model.Messag
 			},
 		},
 		ScanIndexForward:       aws.Bool(false),
-		Limit:                  aws.Int32(1),
+		Limit:                  aws.Int32(10),
 		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 

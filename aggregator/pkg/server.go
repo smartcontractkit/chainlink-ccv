@@ -39,7 +39,7 @@ import (
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
 	pb.UnimplementedAggregatorServer
-	pb.UnimplementedCCVDataServer
+	pb.UnimplementedVerifierResultAPIServer
 
 	l                                  logger.Logger
 	config                             *model.AggregatorConfig
@@ -75,7 +75,7 @@ func (s *Server) ReadCommitCCVNodeData(ctx context.Context, req *pb.ReadCommitCC
 	return s.readCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-func (s *Server) GetCCVDataForMessage(ctx context.Context, req *pb.GetCCVDataForMessageRequest) (*pb.MessageWithCCVData, error) {
+func (s *Server) GetVerifierResultForMessage(ctx context.Context, req *pb.GetVerifierResultForMessageRequest) (*pb.VerifierResult, error) {
 	return s.getCCVDataForMessageHandler.Handle(ctx, req)
 }
 
@@ -264,8 +264,14 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(&config.APIKeys, l)
 	anonymousAuthMiddleware := middlewares.NewAnonymousAuthMiddleware()
 
+	// Initialize rate limiting middleware
+	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config.APIKeys, l)
+	if err != nil {
+		l.Fatalf("Failed to initialize rate limiting middleware: %v", err)
+	}
+
 	isCCVDataService := func(ctx context.Context, callMeta interceptors.CallMeta) bool {
-		return callMeta.Service == pb.CCVData_ServiceDesc.ServiceName
+		return callMeta.Service == pb.VerifierResultAPI_ServiceDesc.ServiceName
 	}
 
 	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1000) // Pre-increment the buffer size metric
@@ -290,6 +296,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 			// Require authentication for all requests (ensures identity is set)
 			middlewares.RequireAuthInterceptor,
+
+			rateLimitingMiddleware.Intercept,
 		),
 	)
 
@@ -314,7 +322,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		mu:                                 sync.Mutex{},
 	}
 
-	pb.RegisterCCVDataServer(grpcServer, server)
+	pb.RegisterVerifierResultAPIServer(grpcServer, server)
 	pb.RegisterAggregatorServer(grpcServer, server)
 	reflection.Register(grpcServer)
 

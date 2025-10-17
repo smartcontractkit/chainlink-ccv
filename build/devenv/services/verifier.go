@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -176,6 +178,9 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 				},
 			}
 		},
+		WaitingFor: wait.ForLog("Using real blockchain information from environment").
+			WithStartupTimeout(120 * time.Second).
+			WithPollInterval(3 * time.Second),
 	}
 
 	if in.SourceCodePath != "" {
@@ -187,13 +192,36 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
 	}
 
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to start container: %w", err)
+	const maxAttempts = 3
+	var c testcontainers.Container
+	var lastErr error
+
+	// We need this retry loop because sometimes air will fail to start the server
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		c, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+		if err == nil {
+			break
+		}
+
+		lastErr = err
+		framework.L.Warn().Err(err).Int("attempt", attempt).Msg("Container failed to start, retrying...")
+
+		if c != nil {
+			_ = c.Terminate(ctx)
+		}
+
+		if attempt < maxAttempts {
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+		}
 	}
+
+	if lastErr != nil {
+		return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
+	}
+
 	host, err := c.Host(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
