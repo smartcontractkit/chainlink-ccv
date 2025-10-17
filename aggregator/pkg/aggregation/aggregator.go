@@ -143,7 +143,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
 		lggr.Infow("Report submitted successfully", "verifications", len(verifications), "timeToAggregation", timeToAggregation)
 		c.metrics(ctx).IncrementCompletedAggregations(ctx)
-		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation.Milliseconds())
+		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation)
 	} else {
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}

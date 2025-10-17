@@ -45,3 +45,16 @@ min_wait="3s"
             InternalHTTPUrl = "http://blockchain-3rd:8565"
             ExternalWSUrl = "ws://host.docker.internal:8565"
             InternalWSUrl = "ws://blockchain-3rd:8565"
+
+[Monitoring]
+Enabled = true
+Type = "beholder"
+[Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
