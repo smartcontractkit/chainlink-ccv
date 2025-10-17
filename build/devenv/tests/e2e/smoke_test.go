@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -120,6 +122,11 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("test extra args v3 messages", func(t *testing.T) {
+		type tokenTransfer struct {
+			tokenAmount  cciptestinterfaces.TokenAmount
+			destTokenRef datastore.AddressRef
+		}
+
 		type testcase struct {
 			name          string
 			srcSelector   uint64
@@ -130,6 +137,7 @@ func TestE2ESmoke(t *testing.T) {
 			optionalCCVs  []protocol.CCV
 			threshold     uint8
 			expectFail    bool
+			tokenTransfer *tokenTransfer
 		}
 
 		tcs := []testcase{
@@ -210,16 +218,52 @@ func TestE2ESmoke(t *testing.T) {
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
 				expectFail: false,
 			},
+			{
+				name:        "src_dst msg execution with EOA receiver and token transfer",
+				srcSelector: selectors[0],
+				dstSelector: selectors[1],
+				finality:    1,
+				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
+				mandatoryCCVs: []protocol.CCV{
+					{
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+				tokenTransfer: &tokenTransfer{
+					tokenAmount: cciptestinterfaces.TokenAmount{
+						Amount:       big.NewInt(1000),
+						TokenAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), "TEST", "burn mint erc677"),
+					},
+					destTokenRef: datastore.AddressRef{
+						Type:      datastore.ContractType(burn_mint_erc677.ContractType),
+						Version:   semver.MustParse(burn_mint_erc677.Deploy.Version()),
+						Qualifier: "TEST",
+					},
+				},
+			},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
+				var receiverStartBalance *big.Int
+				var destTokenAddress protocol.UnknownAddress
+				var tokenAmounts []cciptestinterfaces.TokenAmount
+				if tc.tokenTransfer != nil {
+					tokenAmounts = append(tokenAmounts, tc.tokenTransfer.tokenAmount)
+					destTokenAddress = getContractAddress(t, in, tc.dstSelector, tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
+					receiverStartBalance, err = c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
+					require.NoError(t, err)
+					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
+				}
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.srcSelector, tc.dstSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 				err = c.SendMessage(
 					ctx, tc.srcSelector, tc.dstSelector, cciptestinterfaces.MessageFields{
-						Receiver: tc.receiver,
-						Data:     []byte{},
+						Receiver:     tc.receiver,
+						Data:         []byte{},
+						TokenAmounts: tokenAmounts,
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
 						FinalityConfig:    tc.finality,
@@ -238,6 +282,12 @@ func TestE2ESmoke(t *testing.T) {
 					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
 				} else {
 					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
+				}
+				if receiverStartBalance != nil {
+					receiverEndBalance, err := c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
+					require.NoError(t, err)
+					require.Equal(t, receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount), receiverEndBalance)
+					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
 				}
 			})
 		}
