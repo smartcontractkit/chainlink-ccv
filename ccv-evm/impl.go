@@ -30,6 +30,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
@@ -52,6 +53,14 @@ import (
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+)
+
+const (
+	// These qualifiers are used to distinguish between multiple deployments of the committee verifier proxy and mock receiver
+	// on the same chain.
+	// In the smoke test deployments these are the qualifiers that are used by default.
+	DefaultCommitteeVerifierQualifier = "default"
+	DefaultReceiverQualifier          = "default"
 )
 
 var ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
@@ -858,11 +867,14 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				OffRamp: sequences.OffRampParams{
 					Version: semver.MustParse(offrampoperations.Deploy.Version()),
 				},
-				CommitteeVerifier: sequences.CommitteeVerifierParams{
-					Version: semver.MustParse(committee_verifier.Deploy.Version()),
-					// TODO: add mocked contract here
-					FeeAggregator:       common.HexToAddress("0x01"),
-					SignatureConfigArgs: getCommitteeSignatureConfig(selector),
+				CommitteeVerifier: []sequences.CommitteeVerifierParams{
+					{
+						Version: semver.MustParse(committee_verifier.Deploy.Version()),
+						// TODO: add mocked contract here
+						FeeAggregator:       common.HexToAddress("0x01"),
+						SignatureConfigArgs: getCommitteeSignatureConfig(selector),
+						Qualifier:           DefaultCommitteeVerifierQualifier,
+					},
 				},
 				OnRamp: sequences.OnRampParams{
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
@@ -880,6 +892,20 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
 					USDPerLINK:                     usdPerLink,
 					USDPerWETH:                     usdPerWeth,
+				},
+				MockReceivers: []sequences.MockReceiverParams{
+					{
+						Version: semver.MustParse(mock_receiver.Deploy.Version()),
+						RequiredVerifiers: []datastore.AddressRef{
+							{
+								Type:          datastore.ContractType(committee_verifier.ProxyType),
+								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+								ChainSelector: selector,
+								Qualifier:     DefaultCommitteeVerifierQualifier,
+							},
+						},
+						Qualifier: DefaultReceiverQualifier,
+					},
 				},
 			},
 		},
