@@ -227,10 +227,10 @@ func waitForMessageInIndexer(ctx context.Context, httpClient *http.Client, index
 	}
 }
 
-// verifyMessagesAsync starts async verification of messages as they are sent via channel
+// assertMessagesAsync starts async verification of messages as they are sent via channel
 // Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts
 // The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent
-func verifyMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, int, int, int) {
+func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, int, int, int) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
 
@@ -525,7 +525,7 @@ func TestE2ELoad(t *testing.T) {
 
 		// Start async verification before running the profile
 		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, indexerURL, 5*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 5*time.Minute)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -555,7 +555,7 @@ func TestE2ELoad(t *testing.T) {
 
 		// Start async verification before running the profile
 		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, indexerURL, 120*time.Second)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 120*time.Second)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -579,7 +579,7 @@ func TestE2ELoad(t *testing.T) {
 
 		// Start async verification before running the profile
 		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -650,7 +650,7 @@ func TestE2ELoad(t *testing.T) {
 
 		// Start async verification before running the profile
 		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -815,7 +815,7 @@ func TestE2ELoad(t *testing.T) {
 
 		// Start async verification before running the profile
 		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := verifyMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
