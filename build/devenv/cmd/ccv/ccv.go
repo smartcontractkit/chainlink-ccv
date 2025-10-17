@@ -560,7 +560,12 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
 		}
 
-		mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(datastore.NewAddressRefKey(src, datastore.ContractType(mock_receiver.ContractType), semver.MustParse(mock_receiver.Deploy.Version()), ""))
+		mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
+			datastore.NewAddressRefKey(
+				src,
+				datastore.ContractType(mock_receiver.ContractType),
+				semver.MustParse(mock_receiver.Deploy.Version()),
+				ccvEvm.DefaultReceiverQualifier))
 		if err != nil {
 			return fmt.Errorf("failed to get mock receiver address: %w", err)
 		}
@@ -572,11 +577,21 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to parse finality config: %w", err)
 			}
 
-			committeeVerifierProxyRef, err := in.CLDF.DataStore.Addresses().Get(datastore.NewAddressRefKey(src, datastore.ContractType(committee_verifier.ProxyType), semver.MustParse(committee_verifier.Deploy.Version()), ""))
+			committeeVerifierProxyRef, err := in.CLDF.DataStore.Addresses().Get(
+				datastore.NewAddressRefKey(
+					src,
+					datastore.ContractType(committee_verifier.ProxyType),
+					semver.MustParse(committee_verifier.Deploy.Version()),
+					ccvEvm.DefaultCommitteeVerifierQualifier))
 			if err != nil {
 				return fmt.Errorf("failed to get committee verifier proxy address: %w", err)
 			}
-			executorRef, err := in.CLDF.DataStore.Addresses().Get(datastore.NewAddressRefKey(src, datastore.ContractType(executor_operations.ContractType), semver.MustParse(executor_operations.Deploy.Version()), ""))
+			executorRef, err := in.CLDF.DataStore.Addresses().Get(
+				datastore.NewAddressRefKey(
+					src,
+					datastore.ContractType(executor_operations.ContractType),
+					semver.MustParse(executor_operations.Deploy.Version()),
+					""))
 			if err != nil {
 				return fmt.Errorf("failed to get executor address: %w", err)
 			}
