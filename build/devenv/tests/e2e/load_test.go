@@ -58,10 +58,13 @@ type MessageMetrics struct {
 
 // MessageTotals holds count totals for message processing
 type MessageTotals struct {
-	Sent int
-	// TODO: Add Verified/Aggregated/Executed
+	Sent     int
 	Indexed  int
 	Received int
+	// Maps for tracking specific messages
+	SentMessages     map[uint64]string // seqNo -> messageID
+	IndexedMessages  map[uint64]string // seqNo -> messageID
+	ReceivedMessages map[uint64]string // seqNo -> messageID
 }
 
 // MetricsSummary holds aggregate metrics for all messages
@@ -74,6 +77,10 @@ type MetricsSummary struct {
 	P90Latency    time.Duration
 	P95Latency    time.Duration
 	P99Latency    time.Duration
+	// Maps for detailed reporting
+	SentMessages     map[uint64]string
+	IndexedMessages  map[uint64]string
+	ReceivedMessages map[uint64]string
 }
 
 // SentMessage represents a message that was sent and needs verification
@@ -251,6 +258,11 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 	var totalSent, totalReceived, totalIndexed int
 	var countMu sync.Mutex
 
+	// Track specific messages for detailed reporting
+	sentMessages := make(map[uint64]string)
+	indexedMessages := make(map[uint64]string)
+	receivedMessages := make(map[uint64]string)
+
 	// Create a context with timeout for verification
 	verifyCtx, cancelVerify := context.WithTimeout(ctx, timeout)
 
@@ -261,8 +273,10 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 		// Read from channel until it's closed
 		for sentMsg := range gun.sentMsgCh {
+			msgIDHex := common.BytesToHash(sentMsg.MessageID[:]).Hex()
 			countMu.Lock()
 			totalSent++
+			sentMessages[sentMsg.SeqNo] = msgIDHex
 			countMu.Unlock()
 
 			// Launch a goroutine for each message to verify it
@@ -271,18 +285,19 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				defer wg.Done()
 
 				// Step 1: Check if message reached indexer (with timeout)
-				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, 30*time.Second)
+				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout)
 				defer indexerCancel()
 
 				verifierCount, err := waitForMessageInIndexer(indexerCheckCtx, httpClient, indexerBaseURL, msg.MessageID)
+				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 				if err != nil {
-					msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 					t.Logf("Message %d (ID: %s) did not reach indexer: %v", msg.SeqNo, msgIDHex, err)
 					return
 				}
 
 				countMu.Lock()
 				totalIndexed++
+				indexedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
 				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, verifierCount)
 
@@ -320,12 +335,13 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 				countMu.Lock()
 				totalReceived++
+				receivedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
 
 				// Send metrics
 				metricsChan <- MessageMetrics{
 					SeqNo:           msg.SeqNo,
-					MessageID:       common.BytesToHash(msg.MessageID[:]).Hex(),
+					MessageID:       msgIDHex,
 					SentTime:        msg.SentTime,
 					ExecutedTime:    executedTime,
 					LatencyDuration: latency,
@@ -360,9 +376,12 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 		countMu.Lock()
 		totals := MessageTotals{
-			Sent:     totalSent,
-			Received: totalReceived,
-			Indexed:  totalIndexed,
+			Sent:             totalSent,
+			Received:         totalReceived,
+			Indexed:          totalIndexed,
+			SentMessages:     sentMessages,
+			IndexedMessages:  indexedMessages,
+			ReceivedMessages: receivedMessages,
 		}
 		countMu.Unlock()
 
@@ -377,9 +396,12 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 // calculateMetricsSummary computes aggregate statistics from message metrics
 func calculateMetricsSummary(metrics []MessageMetrics, totals MessageTotals) MetricsSummary {
 	summary := MetricsSummary{
-		TotalSent:     totals.Sent,
-		TotalReceived: totals.Received,
-		TotalIndexed:  totals.Indexed,
+		TotalSent:        totals.Sent,
+		TotalReceived:    totals.Received,
+		TotalIndexed:     totals.Indexed,
+		SentMessages:     totals.SentMessages,
+		IndexedMessages:  totals.IndexedMessages,
+		ReceivedMessages: totals.ReceivedMessages,
 	}
 
 	if len(metrics) == 0 {
@@ -452,6 +474,53 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		summary.P95Latency,
 		summary.P99Latency,
 	)
+
+	// Find messages that were sent but not indexed
+	notIndexed := make(map[uint64]string)
+	for seqNo, msgID := range summary.SentMessages {
+		if _, indexed := summary.IndexedMessages[seqNo]; !indexed {
+			notIndexed[seqNo] = msgID
+		}
+	}
+
+	// Find messages that were indexed but not received
+	indexedNotReceived := make(map[uint64]string)
+	for seqNo, msgID := range summary.IndexedMessages {
+		if _, received := summary.ReceivedMessages[seqNo]; !received {
+			indexedNotReceived[seqNo] = msgID
+		}
+	}
+
+	// Print detailed failure information
+	if len(notIndexed) > 0 {
+		t.Logf("\n========================================")
+		t.Logf("Messages NOT Indexed (%d):", len(notIndexed))
+		t.Logf("========================================")
+		// Sort by seqNo for consistent output
+		seqNos := make([]uint64, 0, len(notIndexed))
+		for seqNo := range notIndexed {
+			seqNos = append(seqNos, seqNo)
+		}
+		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
+		for _, seqNo := range seqNos {
+			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, notIndexed[seqNo])
+		}
+	}
+
+	if len(indexedNotReceived) > 0 {
+		t.Logf("\n========================================")
+		t.Logf("Messages Indexed but NOT Received (%d):", len(indexedNotReceived))
+		t.Logf("========================================")
+		// Sort by seqNo for consistent output
+		seqNos := make([]uint64, 0, len(indexedNotReceived))
+		for seqNo := range indexedNotReceived {
+			seqNos = append(seqNos, seqNo)
+		}
+		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
+		for _, seqNo := range seqNos {
+			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, indexedNotReceived[seqNo])
+		}
+	}
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
