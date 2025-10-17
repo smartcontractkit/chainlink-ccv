@@ -13,14 +13,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
@@ -162,15 +166,23 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		}
 	}
 
+	mockReceiverRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.ChainSelector, datastore.ContractType(mock_receiver.ContractType), semver.MustParse(mock_receiver.Deploy.Version()), ""))
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("could not find mock receiver address in datastore: %w", err).Error(), Failed: true}
+	}
+	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.ChainSelector, datastore.ContractType(committee_verifier.ProxyType), semver.MustParse(committee_verifier.Deploy.Version()), ""))
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err).Error(), Failed: true}
+	}
 	err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
-		Receiver: protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443c").Bytes()),
+		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 		Data:     []byte{},
 	}, cciptestinterfaces.MessageOptions{
 		Version:        3,
 		FinalityConfig: uint16(1),
 		MandatoryCCVs: []protocol.CCV{
 			{
-				CCVAddress: common.HexToAddress("0x0B306BF915C4d645ff596e518fAf3F9669b97016").Bytes(),
+				CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
 				Args:       []byte{},
 				ArgsLen:    0,
 			},
@@ -178,7 +190,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		OptionalThreshold: 0,
 	})
 	if err != nil {
-		return &wasp.Response{Error: err.Error(), Failed: true}
+		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
 	}
 
 	// After sending, resolve MessageID via the on-chain Sent event and push enriched message into channel
