@@ -17,6 +17,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -25,8 +27,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -48,7 +48,7 @@ type GasTestCase struct {
 	waitBetweenTests time.Duration
 }
 
-// MessageMetrics tracks timing information for a single message
+// MessageMetrics tracks timing information for a single message.
 type MessageMetrics struct {
 	SeqNo           uint64
 	MessageID       string
@@ -57,7 +57,7 @@ type MessageMetrics struct {
 	LatencyDuration time.Duration
 }
 
-// MessageTotals holds count totals for message processing
+// MessageTotals holds count totals for message processing.
 type MessageTotals struct {
 	Sent     int
 	Indexed  int
@@ -68,7 +68,7 @@ type MessageTotals struct {
 	ReceivedMessages map[uint64]string // seqNo -> messageID
 }
 
-// MetricsSummary holds aggregate metrics for all messages
+// MetricsSummary holds aggregate metrics for all messages.
 type MetricsSummary struct {
 	TotalSent     int
 	TotalIndexed  int
@@ -84,7 +84,7 @@ type MetricsSummary struct {
 	ReceivedMessages map[uint64]string
 }
 
-// SentMessage represents a message that was sent and needs verification
+// SentMessage represents a message that was sent and needs verification.
 type SentMessage struct {
 	SeqNo     uint64
 	MessageID [32]byte
@@ -106,7 +106,7 @@ type EVMTXGun struct {
 	closeOnce  sync.Once        // Ensure channel is closed only once
 }
 
-// CloseSentChannel closes the sent messages channel to signal no more messages will be sent
+// CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
 func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
 		close(m.sentMsgCh)
@@ -203,15 +203,15 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	return &wasp.Response{Data: "ok"}
 }
 
-// waitForMessageInIndexer polls the indexer API until the message appears or context timeout
-// Returns the number of verifications found and an error if timeout/failure occurs
+// waitForMessageInIndexer polls the indexer API until the message appears or context timeout.
+// Returns the number of verifications found and an error if timeout/failure occurs.
 func waitForMessageInIndexer(ctx context.Context, httpClient *http.Client, indexerBaseURL string, messageID [32]byte) (int, error) {
 	msgIDHex := common.BytesToHash(messageID[:]).Hex()
 
 	type messageIDResp struct {
-		Success         bool          `json:"success"`
-		VerifierResults []interface{} `json:"verifierResults"`
-		MessageID       string        `json:"messageID"`
+		Success         bool   `json:"success"`
+		VerifierResults []any  `json:"verifierResults"`
+		MessageID       string `json:"messageID"`
 	}
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -245,9 +245,9 @@ func waitForMessageInIndexer(ctx context.Context, httpClient *http.Client, index
 	}
 }
 
-// assertMessagesAsync starts async verification of messages as they are sent via channel
-// Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts
-// The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent
+// assertMessagesAsync starts async verification of messages as they are sent via channel.
+// Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts.
+// The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent.
 func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
@@ -306,7 +306,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				execEvent, err := impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, timeout)
 
 				if verifyCtx.Err() != nil {
-					// Context cancelled or timed out
+					// Context canceled or timed out
 					t.Logf("Message %d verification timed out", msg.SeqNo)
 					return
 				}
@@ -394,7 +394,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 	}
 }
 
-// calculateMetricsSummary computes aggregate statistics from message metrics
+// calculateMetricsSummary computes aggregate statistics from message metrics.
 func calculateMetricsSummary(metrics []MessageMetrics, totals MessageTotals) MetricsSummary {
 	summary := MetricsSummary{
 		TotalSent:        totals.Sent,
@@ -443,7 +443,7 @@ func calculateMetricsSummary(metrics []MessageMetrics, totals MessageTotals) Met
 	return summary
 }
 
-// printMetricsSummary outputs message timing metrics in a readable format
+// printMetricsSummary outputs message timing metrics in a readable format.
 func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 	successRate := 0.0
 	if summary.TotalSent > 0 {
