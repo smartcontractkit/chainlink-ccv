@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/internal/mocks"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/ccvstreamer"
+	"github.com/smartcontractkit/chainlink-ccv/integration/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 

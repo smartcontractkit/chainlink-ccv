@@ -41,30 +41,30 @@ jobs:
       - name: Install go-tools
         run: just install-go-tools
 
-      - name: Run lint
-        run: just lint
-
       - name: Run tests
-        run: COVERAGE_FILE=coverage.out just test-coverage
-
-      - name: Generate coverage report
-        if: github.event_name == 'pull_request'
         run: |
+          just test-coverage coverage.out
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
           echo "coverage=$total" >> $GITHUB_ENV
 
-      # TODO: enable after available on base branch
-      #- name: Coverage on target branch
-      #  if: github.event_name == 'pull_request'
-      #  run: |
-      #    git fetch origin ${{ github.base_ref }}
-      #    git branch -a
-      #    git checkout ${{ github.base_ref }}
-      #    # TODO: switch to just once available in the base branch.
-      #    # COVERAGE_FILE=coverage_target.out just test-coverage
-      #    go test -shuffle on -v -coverprofile=coverage_target.out ./...
-      #    total=$(go tool cover -func=coverage_target.out | grep total | awk '{print $3}')
-      #    echo "coverage_target=$total" >> $GITHUB_ENV
+      - name: Coverage on target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          cp ./tools/bin/cov_compare.sh ${{ runner.temp }}
+          git fetch origin ${{ github.base_ref }}
+          git branch -a
+          git checkout ${{ github.base_ref }}
+          # TODO: enable after available on base branch.
+          # just test-coverage coverage_file=coverage_target.out
+          go test -shuffle on -v -coverprofile=coverage_target.out ./...
+          total=$(go tool cover -func=coverage_target.out | grep total | awk '{print $3}')
+          echo "coverage_target=$total" >> $GITHUB_ENV
+          cp ${{ runner.temp }}/cov_compare.sh cov_compare.sh
+          {
+            echo 'coverage_report<<COVERAGE_REPORT_DELIM'
+            ./cov_compare.sh --no-header coverage_target.out coverage.out
+            echo 'COVERAGE_REPORT_DELIM'
+          } >> "$GITHUB_ENV"
 
       - name: Remove previous coverage comments
         uses: actions/github-script@v6
@@ -78,7 +78,7 @@ jobs:
               repo,
               issue_number
             });
-            const coverageCommentPrefix = "| Metric |";
+            const coverageCommentPrefix = "Code coverage report:";
             for (const comment of comments.data) {
               if (comment.body.startsWith(coverageCommentPrefix)) {
                 await github.rest.issues.deleteComment({
@@ -97,9 +97,10 @@ jobs:
           script: |
             const coverage = process.env.coverage;
             const coverage_target = process.env.coverage_target;
+            const coverage_report = process.env.coverage_report;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `| Metric | \`${{ github.head_ref }}\` | \`${{ github.base_ref }}\` |\n|--|--|--|\n| **Coverage** | ${coverage} | ${coverage_target} |`
+              body: `Code coverage report:\n| Package | \`${{ github.base_ref }}\` | \`${{ github.head_ref }}\` |\n ${coverage_report}`
             });

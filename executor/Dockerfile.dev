@@ -10,5 +10,5 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 
 # Then copy the rest of the source
 COPY . .
-WORKDIR /app/common/cmd/executor
+WORKDIR /app/cmd/executor
 CMD ["air", "-c", "air.toml"]

@@ -3,11 +3,14 @@ package executor
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -20,6 +23,7 @@ type ChainlinkExecutor struct {
 	contractTransmitters  map[protocol.ChainSelector]executor.ContractTransmitter
 	destinationReaders    map[protocol.ChainSelector]executor.DestinationReader
 	verifierResultsReader executor.VerifierResultReader
+	monitoring            common.ExecutorMonitoring
 }
 
 func NewChainlinkExecutor(
@@ -27,12 +31,14 @@ func NewChainlinkExecutor(
 	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter,
 	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
 	verifierResultReader executor.VerifierResultReader,
+	monitoring common.ExecutorMonitoring,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
 		lggr:                  lggr,
 		contractTransmitters:  contractTransmitters,
 		destinationReaders:    destinationReaders,
 		verifierResultsReader: verifierResultReader,
+		monitoring:            monitoring,
 	}
 }
 
@@ -98,49 +104,50 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return err
 	}
 
-	orderedCcvOfframps, orderedCcvData, err := cle.orderCcvData(ccvData, ccvInfo)
+	aggregatedReport, ccvTimestamp, err := cle.orderCcvData(message, ccvData, ccvInfo)
 	if err != nil {
 		return fmt.Errorf("failed to order CCV Offramp data: %w", err)
 	}
 
-	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, executor.AbstractAggregatedReport{
-		Message: message,
-		CCVS:    orderedCcvOfframps,
-		CCVData: orderedCcvData,
-	})
+	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
 	if err != nil {
 		return fmt.Errorf("failed to transmit message to chain: %w", err)
 	}
+	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(time.Unix(ccvTimestamp, 0)))
 
 	return nil
 }
 
-func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverDefinedCcvs executor.CcvAddressInfo) ([]protocol.UnknownAddress, [][]byte, error) {
+func (cle *ChainlinkExecutor) orderCcvData(message protocol.Message, ccvData []protocol.CCVData, receiverDefinedCcvs executor.CcvAddressInfo) (executor.AbstractAggregatedReport, int64, error) {
 	orderedCcvData := make([][]byte, 0, len(ccvData))
 	orderedCcvOfframps := make([]protocol.UnknownAddress, 0, len(ccvData))
 
-	mappedCcvData := make(map[string][]byte)
+	mappedCcvData := make(map[string]protocol.CCVData)
 	for _, datum := range ccvData {
-		mappedCcvData[strings.ToLower(datum.DestVerifierAddress.String())] = datum.CCVData
+		mappedCcvData[strings.ToLower(datum.DestVerifierAddress.String())] = datum
 	}
 
+	var lastRequiredCCVTimestamp int64
 	for _, ccvAddress := range receiverDefinedCcvs.RequiredCcvs {
 		strAddr := strings.ToLower(string(ccvAddress))
 		if _, ok := mappedCcvData[strAddr]; !ok {
-			return nil, nil, executor.ErrInsufficientVerifiers
+			return executor.AbstractAggregatedReport{}, 0, executor.ErrInsufficientVerifiers
 		}
-		orderedCcvData = append(orderedCcvData, mappedCcvData[strAddr])
+		orderedCcvData = append(orderedCcvData, mappedCcvData[strAddr].CCVData)
 		orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
+		lastRequiredCCVTimestamp = max(lastRequiredCCVTimestamp, mappedCcvData[strAddr].Timestamp)
 	}
 
 	optionalCount := 0
+	optionalCCVTimestamps := make([]int64, 0, len(receiverDefinedCcvs.OptionalCcvs))
 	for _, ccvAddress := range receiverDefinedCcvs.OptionalCcvs {
 		if optionalCount >= int(receiverDefinedCcvs.OptionalThreshold) {
 			break
 		}
 		if data, ok := mappedCcvData[ccvAddress.String()]; ok {
-			orderedCcvData = append(orderedCcvData, data)
+			orderedCcvData = append(orderedCcvData, data.CCVData)
 			orderedCcvOfframps = append(orderedCcvOfframps, ccvAddress)
+			optionalCCVTimestamps = append(optionalCCVTimestamps, data.Timestamp)
 			optionalCount = optionalCount + 1
 		}
 	}
@@ -148,9 +155,22 @@ func (cle *ChainlinkExecutor) orderCcvData(ccvData []protocol.CCVData, receiverD
 	// check if we have enough optional CCVs. If any required CCVs were missing
 	// we would have already returned error above
 	if optionalCount < int(receiverDefinedCcvs.OptionalThreshold) {
-		return nil, nil, executor.ErrInsufficientVerifiers
+		return executor.AbstractAggregatedReport{}, 0, executor.ErrInsufficientVerifiers
 	}
-	return orderedCcvOfframps, orderedCcvData, nil
+	var ccvTimestamp int64
+	if receiverDefinedCcvs.OptionalThreshold > 0 {
+		slices.Sort(optionalCCVTimestamps)
+		minSignificantOptionalCCVTimestamp := optionalCCVTimestamps[receiverDefinedCcvs.OptionalThreshold-1]
+		ccvTimestamp = max(lastRequiredCCVTimestamp, minSignificantOptionalCCVTimestamp)
+	} else {
+		ccvTimestamp = lastRequiredCCVTimestamp
+	}
+
+	return executor.AbstractAggregatedReport{
+		Message: message,
+		CCVS:    orderedCcvOfframps,
+		CCVData: orderedCcvData,
+	}, ccvTimestamp, nil
 }
 
 func (cle *ChainlinkExecutor) Validate() error {
