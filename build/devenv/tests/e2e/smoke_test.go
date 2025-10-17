@@ -254,7 +254,7 @@ func TestE2ESmoke(t *testing.T) {
 					destTokenAddress = getContractAddress(t, in, tc.dstSelector, tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
 					receiverStartBalance, err = c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
 					require.NoError(t, err)
-					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", protocol.UnknownAddress(destTokenAddress).String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
+					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
 				}
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.srcSelector, tc.dstSelector)
 				require.NoError(t, err)
@@ -287,7 +287,7 @@ func TestE2ESmoke(t *testing.T) {
 					receiverEndBalance, err := c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
 					require.NoError(t, err)
 					require.Equal(t, receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount), receiverEndBalance)
-					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", protocol.UnknownAddress(destTokenAddress).String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
+					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
 				}
 			})
 		}
