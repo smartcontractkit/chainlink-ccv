@@ -60,6 +60,12 @@ build-docker-rc:
 cli:
     pushd cmd/ccv > /dev/null && go install -ldflags="-X main.Version=1.0.0" . && popd > /dev/null
 
+fresh-deploy:
+    @just cli
+    @just build-docker-dev
+    ccv down
+    ccv up
+
 # Rebuild all
 rebuild-all:
     ccv d

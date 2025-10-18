@@ -99,22 +99,13 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
                 {
                     "components": [
                         {
-                            "name": "requiredCCV",
+                            "name": "ccvs", 
                             "type": "tuple[]",
                             "components": [
                                 {"name": "ccvAddress", "type": "address"},
                                 {"name": "args", "type": "bytes"}
                             ]
                         },
-                        {
-                            "name": "optionalCCV", 
-                            "type": "tuple[]",
-                            "components": [
-                                {"name": "ccvAddress", "type": "address"},
-                                {"name": "args", "type": "bytes"}
-                            ]
-                        },
-                        {"name": "optionalThreshold", "type": "uint8"},
                         {"name": "finalityConfig", "type": "uint16"},
                         {"name": "executor", "type": "address"},
                         {"name": "executorArgs", "type": "bytes"},
@@ -136,28 +127,13 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
 	}
 
 	// Convert CCV slices to match Solidity CCV struct exactly
-	requiredCCV := make([]struct {
+	ccvs := make([]struct {
 		CcvAddress common.Address
 		Args       []byte
 	}, len(requiredCCVs))
 
 	for i, ccv := range requiredCCVs {
-		requiredCCV[i] = struct {
-			CcvAddress common.Address
-			Args       []byte
-		}{
-			CcvAddress: common.BytesToAddress(ccv.CCVAddress),
-			Args:       ccv.Args,
-		}
-	}
-
-	optionalCCV := make([]struct {
-		CcvAddress common.Address
-		Args       []byte
-	}, len(optionalCCVs))
-
-	for i, ccv := range optionalCCVs {
-		optionalCCV[i] = struct {
+		ccvs[i] = struct {
 			CcvAddress common.Address
 			Args       []byte
 		}{
@@ -168,27 +144,20 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
 
 	// Struct matching exactly the Solidity EVMExtraArgsV3 order and types
 	extraArgs := struct {
-		RequiredCCV []struct {
+		Ccvs []struct {
 			CcvAddress common.Address
 			Args       []byte
 		}
-		OptionalCCV []struct {
-			CcvAddress common.Address
-			Args       []byte
-		}
-		OptionalThreshold uint8
-		FinalityConfig    uint16
-		Executor          common.Address
-		ExecutorArgs      []byte
-		TokenArgs         []byte
+		FinalityConfig uint16
+		Executor       common.Address
+		ExecutorArgs   []byte
+		TokenArgs      []byte
 	}{
-		RequiredCCV:       requiredCCV,
-		OptionalCCV:       optionalCCV,
-		OptionalThreshold: optionalThreshold,
-		FinalityConfig:    finalityConfig,
-		Executor:          common.HexToAddress(execAddr),
-		ExecutorArgs:      execArgs,
-		TokenArgs:         tokenArgs,
+		Ccvs:           ccvs,
+		FinalityConfig: finalityConfig,
+		Executor:       common.HexToAddress(execAddr),
+		ExecutorArgs:   execArgs,
+		TokenArgs:      tokenArgs,
 	}
 
 	encoded, err := parsedABI.Methods["encodeEVMExtraArgsV3"].Inputs.Pack(extraArgs)

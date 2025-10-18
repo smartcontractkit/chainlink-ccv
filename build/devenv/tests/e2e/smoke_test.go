@@ -113,9 +113,17 @@ func TestE2ESmoke(t *testing.T) {
 				require.NotNil(t, e)
 
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
+					require.Equalf(t,
+						MessageExecutionStateFailed,
+						e.(*offramp.OffRampExecutionStateChanged).State,
+						"unexpected state, return data: %x",
+						e.(*offramp.OffRampExecutionStateChanged).ReturnData)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
+					require.Equalf(t,
+						MessageExecutionStateSuccess,
+						e.(*offramp.OffRampExecutionStateChanged).State,
+						"unexpected state, return data: %x",
+						e.(*offramp.OffRampExecutionStateChanged).ReturnData)
 				}
 			})
 		}
