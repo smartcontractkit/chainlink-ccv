@@ -827,7 +827,7 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 	if !ok {
 		panic(fmt.Sprintf("couldn't find verifier indexes for qualifier: %s", qualifier))
 	}
-	var signerAddresses []common.Address
+	signerAddresses := make([]common.Address, 0, len(indexes))
 	for _, index := range indexes {
 		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(index)
 		privateKey := make([]byte, 32)
@@ -839,7 +839,7 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 		signerAddresses = append(signerAddresses, common.HexToAddress(signer.GetSignerAddress().String()))
 	}
 	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(len(indexes)),
+		Threshold: uint8(len(indexes)), //nolint:gosec
 		Signers:   signerAddresses,
 	}
 }

@@ -258,9 +258,7 @@ func MergeAddresses(addrs []string, sel uint64, refs []datastore.AddressRef) ([]
 			break
 		}
 	}
-	for _, r := range refs {
-		addresses = append(addresses, r)
-	}
+	addresses = append(addresses, refs...)
 	addrBytes, err := json.Marshal(addresses)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal addresses: %w", err)
