@@ -227,7 +227,7 @@ func NewEnvironment() (*Cfg, error) {
 
 	for i, ver := range in.Verifier {
 		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/verifier-%d.toml", i+1)
-		ver.SigningKey = fmt.Sprintf("dev-private-key%d-12345678901234567890", i)
+		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(i)
 		_, err = services.NewVerifier(ver)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)

@@ -190,14 +190,13 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	}, cciptestinterfaces.MessageOptions{
 		Version:        3,
 		FinalityConfig: uint16(1),
-		MandatoryCCVs: []protocol.CCV{
+		CCVs: []protocol.CCV{
 			{
 				CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
 				Args:       []byte{},
 				ArgsLen:    0,
 			},
 		},
-		OptionalThreshold: 0,
 	})
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}

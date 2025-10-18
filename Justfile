@@ -48,3 +48,13 @@ test-coverage coverage_file="coverage.out":
     # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')
     go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
 
+bump-chainlink-ccip sha:
+    @echo "Bumping chainlink-ccip dependencies in root..."
+    go get github.com/smartcontractkit/chainlink-ccip@{{sha}}
+    go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}}
+    go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}}
+
+    @echo "Bumping chainlink-ccip dependencies in build/devenv..."
+    (cd build/devenv && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}})
+
+    @just tidy

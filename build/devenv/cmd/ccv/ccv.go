@@ -604,7 +604,7 @@ var sendCmd = &cobra.Command{
 				Executor:       protocol.UnknownAddress(common.HexToAddress(executorRef.Address).Bytes()), // executor address
 				ExecutorArgs:   nil,
 				TokenArgs:      nil,
-				MandatoryCCVs: []protocol.CCV{
+				CCVs: []protocol.CCV{
 					{
 						CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
 						Args:       []byte{},

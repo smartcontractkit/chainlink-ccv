@@ -1,4 +1,4 @@
-package ccv
+package cciptestinterfaces
 
 import (
 	"context"
@@ -73,12 +73,8 @@ type MessageOptions struct {
 	GasLimit uint32
 	// OutOfOrderExecution is whether to execute the message out of order
 	OutOfOrderExecution bool
-	// MandatoryCCVs are the mandatory CCVs for the message
-	MandatoryCCVs []protocol.CCV
-	// OptionalCCVs are the optional CCVs for the message
-	OptionalCCVs []protocol.CCV
-	// OptionalThreshold is the threshold for the optional CCVs
-	OptionalThreshold uint8
+	// CCVs are the CCVs for the message
+	CCVs []protocol.CCV
 	// FinalityConfig is the finality config for the message
 	FinalityConfig uint16
 	// Executor is the executor address
