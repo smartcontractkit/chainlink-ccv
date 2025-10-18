@@ -141,9 +141,7 @@ func TestE2ESmoke(t *testing.T) {
 			dstSelector   uint64
 			finality      uint16
 			receiver      protocol.UnknownAddress
-			mandatoryCCVs []protocol.CCV
-			optionalCCVs  []protocol.CCV
-			threshold     uint8
+			ccvs          []protocol.CCV
 			expectFail    bool
 			tokenTransfer *tokenTransfer
 		}
@@ -155,7 +153,7 @@ func TestE2ESmoke(t *testing.T) {
 				dstSelector: selectors[1],
 				finality:    1,
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
-				mandatoryCCVs: []protocol.CCV{
+				ccvs: []protocol.CCV{
 					{
 						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
@@ -169,7 +167,7 @@ func TestE2ESmoke(t *testing.T) {
 				dstSelector: selectors[0],
 				finality:    1,
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
-				mandatoryCCVs: []protocol.CCV{
+				ccvs: []protocol.CCV{
 					{
 						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
@@ -183,7 +181,7 @@ func TestE2ESmoke(t *testing.T) {
 				dstSelector: selectors[2],
 				finality:    1,
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
-				mandatoryCCVs: []protocol.CCV{
+				ccvs: []protocol.CCV{
 					{
 						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
@@ -198,7 +196,7 @@ func TestE2ESmoke(t *testing.T) {
 				dstSelector: selectors[1],
 				finality:    1,
 				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
-				mandatoryCCVs: []protocol.CCV{
+				ccvs: []protocol.CCV{
 					{
 						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
@@ -215,7 +213,7 @@ func TestE2ESmoke(t *testing.T) {
 				dstSelector: selectors[0],
 				finality:    1,
 				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
-				mandatoryCCVs: []protocol.CCV{
+				ccvs: []protocol.CCV{
 					{
 						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
@@ -232,7 +230,7 @@ func TestE2ESmoke(t *testing.T) {
 				dstSelector: selectors[1],
 				finality:    1,
 				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
-				mandatoryCCVs: []protocol.CCV{
+				ccvs: []protocol.CCV{
 					{
 						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
@@ -273,12 +271,10 @@ func TestE2ESmoke(t *testing.T) {
 						Data:         []byte{},
 						TokenAmounts: tokenAmounts,
 					}, cciptestinterfaces.MessageOptions{
-						Version:           3,
-						FinalityConfig:    tc.finality,
-						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
-						MandatoryCCVs:     tc.mandatoryCCVs,
-						OptionalCCVs:      tc.optionalCCVs,
-						OptionalThreshold: tc.threshold,
+						Version:        3,
+						FinalityConfig: tc.finality,
+						Executor:       getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
+						CCVs:           tc.ccvs,
 					})
 				require.NoError(t, err)
 				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)

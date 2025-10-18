@@ -88,7 +88,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 }
 
 // NewV3ExtraArgs encodes v3 extra args params.
-func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, requiredCCVs, optionalCCVs []protocol.CCV, optionalThreshold uint8) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
 	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
     [
@@ -127,13 +127,13 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
 	}
 
 	// Convert CCV slices to match Solidity CCV struct exactly
-	ccvs := make([]struct {
+	ccvStructs := make([]struct {
 		CcvAddress common.Address
 		Args       []byte
-	}, len(requiredCCVs))
+	}, len(ccvs))
 
-	for i, ccv := range requiredCCVs {
-		ccvs[i] = struct {
+	for i, ccv := range ccvs {
+		ccvStructs[i] = struct {
 			CcvAddress common.Address
 			Args       []byte
 		}{
@@ -153,7 +153,7 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
 		ExecutorArgs   []byte
 		TokenArgs      []byte
 	}{
-		Ccvs:           ccvs,
+		Ccvs:           ccvStructs,
 		FinalityConfig: finalityConfig,
 		Executor:       common.HexToAddress(execAddr),
 		ExecutorArgs:   execArgs,

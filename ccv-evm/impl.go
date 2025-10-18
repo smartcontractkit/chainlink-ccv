@@ -719,9 +719,7 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 		opts.Executor.String(),
 		opts.ExecutorArgs,
 		opts.TokenArgs,
-		opts.MandatoryCCVs,
-		opts.OptionalCCVs,
-		opts.OptionalThreshold,
+		opts.CCVs,
 	)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create V3 extra args: %v", err))
