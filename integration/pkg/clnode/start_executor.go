@@ -51,6 +51,8 @@ func StartCCVExecutor(
 		transmitters,
 		destReaders,
 		// TODO: verifierResultsReader
+		nil,
+		// TODO: monitoring
 		nil)
 
 	// TODO: in memory storage reader??
