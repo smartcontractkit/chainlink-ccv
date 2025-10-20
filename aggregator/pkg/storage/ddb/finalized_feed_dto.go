@@ -50,7 +50,7 @@ func CommitAggregatedReportToItem(report *model.CommitAggregatedReport, shard st
 		return nil, fmt.Errorf("failed to create finalized aggregated report: %w", err)
 	}
 
-	primarySortTimestamp := report.Timestamp
+	primarySortTimestamp := report.GetMostRecentVerificationTimestamp()
 	gsiSortTimestamp := report.WrittenAt
 
 	day := FormatDay(gsiSortTimestamp)
@@ -88,7 +88,7 @@ func CommitAggregatedReportToItem(report *model.CommitAggregatedReport, shard st
 			Value: finalizedReportToAttributeMap(aggregatedReportObject),
 		},
 		ddbconstant.FinalizedFeedFieldTimestamp: &types.AttributeValueMemberN{
-			Value: strconv.FormatInt(report.Timestamp, 10),
+			Value: strconv.FormatInt(report.GetMostRecentVerificationTimestamp(), 10),
 		},
 		ddbconstant.FinalizedFeedFieldWrittenAt: &types.AttributeValueMemberN{
 			Value: strconv.FormatInt(report.WrittenAt, 10),
@@ -360,7 +360,7 @@ func reconstructReport(finalizedReport *FinalizedReport, messageID []byte, commi
 	report := &model.CommitAggregatedReport{
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
-		Timestamp:     timestamp,
+		Sequence:      writtenAt,
 		WrittenAt:     writtenAt,
 		Verifications: make([]*model.CommitVerificationRecord, len(finalizedReport.Verifications)),
 	}
