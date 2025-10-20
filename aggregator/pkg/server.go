@@ -153,7 +153,7 @@ func (s *Server) Start(lis net.Listener) error {
 		}, func(error) {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
-			s.httpHealthServer.Stop(shutdownCtx)
+			_ = s.httpHealthServer.Stop(shutdownCtx)
 		})
 	}
 
@@ -319,7 +319,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	recoverer := NewOrphanRecoverer(store, agg, config, l)
 
-	healthManager := health.NewHealthManager()
+	healthManager := health.NewManager()
 	healthManager.Register(store)
 	healthManager.Register(checkpointStorage)
 	healthManager.Register(rateLimitingMiddleware)

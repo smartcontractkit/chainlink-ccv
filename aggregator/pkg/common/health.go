@@ -20,6 +20,8 @@ type ComponentHealth struct {
 	Timestamp time.Time    `json:"timestamp"`
 }
 
+// HealthChecker defines the interface for components that can report their health status.
 type HealthChecker interface {
+	// HealthCheck returns the current health status of the component.
 	HealthCheck(ctx context.Context) *ComponentHealth
 }

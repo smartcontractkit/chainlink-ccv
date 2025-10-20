@@ -11,12 +11,12 @@ import (
 )
 
 type HTTPHealthServer struct {
-	manager *HealthManager
+	manager *Manager
 	logger  logger.SugaredLogger
 	server  *http.Server
 }
 
-func NewHTTPHealthServer(manager *HealthManager, port string, logger logger.SugaredLogger) *HTTPHealthServer {
+func NewHTTPHealthServer(manager *Manager, port string, logger logger.SugaredLogger) *HTTPHealthServer {
 	mux := http.NewServeMux()
 
 	h := &HTTPHealthServer{
@@ -42,13 +42,15 @@ func (h *HTTPHealthServer) handleLiveness(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(liveness)
+	if err := json.NewEncoder(w).Encode(liveness); err != nil {
+		h.logger.Errorw("Failed to encode liveness response", "error", err)
+	}
 }
 
 func (h *HTTPHealthServer) handleReadiness(w http.ResponseWriter, r *http.Request) {
 	status, components := h.manager.CheckReadiness(r.Context())
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":     string(status),
 		"components": components,
 		"timestamp":  time.Now(),
@@ -67,7 +69,9 @@ func (h *HTTPHealthServer) handleReadiness(w http.ResponseWriter, r *http.Reques
 		h.logger.Errorw("Service unhealthy", "components", components)
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Errorw("Failed to encode readiness response", "error", err)
+	}
 }
 
 func (h *HTTPHealthServer) Start() error {

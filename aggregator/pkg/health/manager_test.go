@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
 type mockHealthyComponent struct {
@@ -40,7 +41,7 @@ type nonHealthCheckableComponent struct {
 }
 
 func TestManager_RegisterHealthCheckable(t *testing.T) {
-	manager := NewHealthManager()
+	manager := NewManager()
 
 	healthy := &mockHealthyComponent{name: "test"}
 	manager.Register(healthy)
@@ -49,7 +50,7 @@ func TestManager_RegisterHealthCheckable(t *testing.T) {
 }
 
 func TestManager_RegisterNonHealthCheckable(t *testing.T) {
-	manager := NewHealthManager()
+	manager := NewManager()
 
 	nonHealthy := &nonHealthCheckableComponent{name: "test"}
 	manager.Register(nonHealthy)
@@ -58,7 +59,7 @@ func TestManager_RegisterNonHealthCheckable(t *testing.T) {
 }
 
 func TestManager_CheckLiveness(t *testing.T) {
-	manager := NewHealthManager()
+	manager := NewManager()
 
 	result := manager.CheckLiveness(context.Background())
 
@@ -67,7 +68,7 @@ func TestManager_CheckLiveness(t *testing.T) {
 }
 
 func TestManager_CheckReadiness_AllHealthy(t *testing.T) {
-	manager := NewHealthManager()
+	manager := NewManager()
 	manager.Register(&mockHealthyComponent{name: "comp1"})
 	manager.Register(&mockHealthyComponent{name: "comp2"})
 
@@ -78,7 +79,7 @@ func TestManager_CheckReadiness_AllHealthy(t *testing.T) {
 }
 
 func TestManager_CheckReadiness_CriticalUnhealthy(t *testing.T) {
-	manager := NewHealthManager()
+	manager := NewManager()
 	manager.Register(&mockHealthyComponent{name: "comp1"})
 	manager.Register(&mockUnhealthyComponent{name: "comp2"})
 
@@ -89,7 +90,7 @@ func TestManager_CheckReadiness_CriticalUnhealthy(t *testing.T) {
 }
 
 func TestManager_CheckReadiness_MixedWithNonHealthCheckable(t *testing.T) {
-	manager := NewHealthManager()
+	manager := NewManager()
 	manager.Register(&mockHealthyComponent{name: "comp1"})
 	manager.Register(&nonHealthCheckableComponent{name: "ignored"})
 	manager.Register(&mockHealthyComponent{name: "comp2"})

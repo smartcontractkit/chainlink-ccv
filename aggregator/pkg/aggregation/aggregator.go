@@ -25,7 +25,7 @@ type CommitReportAggregator struct {
 	quorum        QuorumValidator
 	l             logger.SugaredLogger
 	monitoring    common.AggregatorMonitoring
-	ctx           context.Context
+	done          chan struct{}
 }
 
 type aggregationRequest struct {
@@ -41,7 +41,7 @@ func (c *CommitReportAggregator) HealthCheck(ctx context.Context) *common.Compon
 	}
 
 	select {
-	case <-c.ctx.Done():
+	case <-c.done:
 		result.Status = common.HealthStatusUnhealthy
 		result.Message = "aggregation worker stopped"
 		return result
@@ -167,8 +167,9 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 // StartBackground begins processing aggregation requests in the background.
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
-	c.ctx = ctx
+	c.done = make(chan struct{})
 	go func() {
+		defer close(c.done)
 		for {
 			select {
 			case request := <-c.messageIDChan:
