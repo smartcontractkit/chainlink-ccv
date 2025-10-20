@@ -71,15 +71,11 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 		if header.Number < 0 {
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 		}
-		timestamp := header.Timestamp.Unix()
-		if timestamp < 0 {
-			return nil, fmt.Errorf("block timestamp cannot be negative: %d", timestamp)
-		}
 		headers[blockNumber] = protocol.BlockHeader{
 			Number:     uint64(header.Number),
 			Hash:       protocol.Bytes32(header.Hash),
 			ParentHash: protocol.Bytes32(header.ParentHash),
-			Timestamp:  uint64(timestamp),
+			Timestamp:  header.Timestamp,
 		}
 	}
 	return headers, nil
@@ -99,16 +95,11 @@ func (r *EVMSourceReader) SubscribeNewHeads(ctx context.Context) (<-chan *protoc
 				r.lggr.Errorw("Received block with negative number", "number", head.Number)
 				continue
 			}
-			timestamp := head.Timestamp.Unix()
-			if timestamp < 0 {
-				r.lggr.Errorw("Received block with negative timestamp", "timestamp", timestamp)
-				continue
-			}
 			headers <- &protocol.BlockHeader{
 				Number:     uint64(head.Number),
 				Hash:       protocol.Bytes32(head.Hash),
 				ParentHash: protocol.Bytes32(head.ParentHash),
-				Timestamp:  uint64(timestamp),
+				Timestamp:  head.Timestamp,
 			}
 		}
 	}()

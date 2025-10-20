@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -9,24 +10,25 @@ import (
 
 func TestBlockHeader(t *testing.T) {
 	t.Run("creates valid block header", func(t *testing.T) {
+		ts := time.Unix(1234567890, 0)
 		header := BlockHeader{
 			Number:     100,
 			Hash:       Bytes32{0x01},
 			ParentHash: Bytes32{0x00},
-			Timestamp:  1234567890,
+			Timestamp:  ts,
 		}
 
 		assert.Equal(t, uint64(100), header.Number)
 		assert.Equal(t, Bytes32{0x01}, header.Hash)
 		assert.Equal(t, Bytes32{0x00}, header.ParentHash)
-		assert.Equal(t, uint64(1234567890), header.Timestamp)
+		assert.Equal(t, ts, header.Timestamp)
 	})
 }
 
 func TestNewChainTail(t *testing.T) {
 	t.Run("creates valid chain tail with single block", func(t *testing.T) {
 		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
+			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
 		}
 
 		tail, err := NewChainTail(blocks)
@@ -37,9 +39,9 @@ func TestNewChainTail(t *testing.T) {
 
 	t.Run("creates valid chain tail with contiguous blocks", func(t *testing.T) {
 		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
-			{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: 1001},
-			{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: 1002},
+			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
+			{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)},
+			{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: time.Unix(1002, 0)},
 		}
 
 		tail, err := NewChainTail(blocks)
@@ -57,8 +59,8 @@ func TestNewChainTail(t *testing.T) {
 
 	t.Run("rejects non-contiguous blocks", func(t *testing.T) {
 		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
-			{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0xFF}, Timestamp: 1001}, // Wrong parent hash
+			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
+			{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0xFF}, Timestamp: time.Unix(1001, 0)}, // Wrong parent hash
 		}
 
 		tail, err := NewChainTail(blocks)
@@ -69,8 +71,8 @@ func TestNewChainTail(t *testing.T) {
 
 	t.Run("rejects duplicate block numbers", func(t *testing.T) {
 		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
-			{Number: 100, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: 1001}, // Duplicate number
+			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
+			{Number: 100, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)}, // Duplicate number
 		}
 
 		tail, err := NewChainTail(blocks)
@@ -83,9 +85,9 @@ func TestNewChainTail(t *testing.T) {
 func TestChainTail_StableTip(t *testing.T) {
 	t.Run("returns first block", func(t *testing.T) {
 		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
-			{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: 1001},
-			{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: 1002},
+			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
+			{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)},
+			{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: time.Unix(1002, 0)},
 		}
 
 		tail, err := NewChainTail(blocks)
@@ -106,9 +108,9 @@ func TestChainTail_StableTip(t *testing.T) {
 func TestChainTail_Tip(t *testing.T) {
 	t.Run("returns last block", func(t *testing.T) {
 		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
-			{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: 1001},
-			{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: 1002},
+			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
+			{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)},
+			{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: time.Unix(1002, 0)},
 		}
 
 		tail, err := NewChainTail(blocks)
@@ -128,35 +130,35 @@ func TestChainTail_Tip(t *testing.T) {
 
 func TestChainTail_Contains(t *testing.T) {
 	blocks := []BlockHeader{
-		{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
-		{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: 1001},
-		{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: 1002},
+		{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
+		{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)},
+		{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: time.Unix(1002, 0)},
 	}
 
 	tail, err := NewChainTail(blocks)
 	require.NoError(t, err)
 
 	t.Run("finds existing block", func(t *testing.T) {
-		block := BlockHeader{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: 1001}
+		block := BlockHeader{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)}
 		assert.True(t, tail.Contains(block))
 	})
 
 	t.Run("does not find block with wrong hash", func(t *testing.T) {
-		block := BlockHeader{Number: 101, Hash: Bytes32{0xFF}, ParentHash: Bytes32{0x01}, Timestamp: 1001}
+		block := BlockHeader{Number: 101, Hash: Bytes32{0xFF}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)}
 		assert.False(t, tail.Contains(block))
 	})
 
 	t.Run("does not find block with wrong number", func(t *testing.T) {
-		block := BlockHeader{Number: 999, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: 1001}
+		block := BlockHeader{Number: 999, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)}
 		assert.False(t, tail.Contains(block))
 	})
 }
 
 func TestChainTail_BlockByNumber(t *testing.T) {
 	blocks := []BlockHeader{
-		{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
-		{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: 1001},
-		{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: 1002},
+		{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
+		{Number: 101, Hash: Bytes32{0x02}, ParentHash: Bytes32{0x01}, Timestamp: time.Unix(1001, 0)},
+		{Number: 102, Hash: Bytes32{0x03}, ParentHash: Bytes32{0x02}, Timestamp: time.Unix(1002, 0)},
 	}
 
 	tail, err := NewChainTail(blocks)
@@ -178,7 +180,7 @@ func TestChainTail_BlockByNumber(t *testing.T) {
 func TestChainStatusTypes(t *testing.T) {
 	t.Run("ChainStatusReorg", func(t *testing.T) {
 		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
+			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
 		}
 		tail, err := NewChainTail(blocks)
 		require.NoError(t, err)
@@ -195,12 +197,12 @@ func TestChainStatusTypes(t *testing.T) {
 
 	t.Run("ChainStatusFinalityViolated", func(t *testing.T) {
 		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
+			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: time.Unix(1000, 0)},
 		}
 		tail, err := NewChainTail(blocks)
 		require.NoError(t, err)
 
-		violatedBlock := BlockHeader{Number: 50, Hash: Bytes32{0xFF}, ParentHash: Bytes32{0xFE}, Timestamp: 500}
+		violatedBlock := BlockHeader{Number: 50, Hash: Bytes32{0xFF}, ParentHash: Bytes32{0xFE}, Timestamp: time.Unix(500, 0)}
 		status := ChainStatusFinalityViolated{
 			ViolatedBlock:    violatedBlock,
 			NewTail:          *tail,

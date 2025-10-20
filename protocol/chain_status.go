@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"time"
 )
 
 // BlockHeader represents blockchain block header metadata.
@@ -9,7 +10,7 @@ type BlockHeader struct {
 	Number     uint64
 	Hash       Bytes32
 	ParentHash Bytes32
-	Timestamp  uint64
+	Timestamp  time.Time
 }
 
 // ChainTail stores an ordered slice of block headers from stable tip to latest tip.
