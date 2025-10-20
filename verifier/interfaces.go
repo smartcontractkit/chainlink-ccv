@@ -39,7 +39,7 @@ type SourceReader interface {
 	// SubscribeNewHeads subscribes to new block headers.
 	// Returns a channel that receives new headers as they arrive.
 	// Implementation may poll internally and push to channel for chains without native subscriptions.
-	// The returned channel is closed when subscription ends or context is cancelled.
+	// The returned channel is closed when subscription ends or context is canceled.
 	// Returns error if subscription cannot be established.
 	SubscribeNewHeads(ctx context.Context) (<-chan *protocol.BlockHeader, error)
 

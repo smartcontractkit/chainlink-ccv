@@ -205,7 +205,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			continue
 		}
 
-		var sourcePollInterval = DefaultSourceReaderPollInterval
+		sourcePollInterval := DefaultSourceReaderPollInterval
 		if sourceCfg.PollInterval > 0 {
 			sourcePollInterval = sourceCfg.PollInterval
 		}

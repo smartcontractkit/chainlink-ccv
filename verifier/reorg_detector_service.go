@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -45,7 +44,7 @@ type ReorgDetectorConfig struct {
 // Integration:
 // - Created per source chain in Coordinator.Start()
 // - Runs alongside SourceReaderService for each chain
-// - Uses same SourceReader instance to share RPC connections
+// - Uses same SourceReader instance to share RPC connections.
 type ReorgDetectorService struct {
 	sourceReader SourceReader
 	config       ReorgDetectorConfig
@@ -70,7 +69,7 @@ type ReorgDetectorService struct {
 //
 // Returns:
 // - *ReorgDetectorService ready to be started
-// - error if configuration is invalid
+// - error if configuration is invalid.
 func NewReorgDetectorService(
 	sourceReader SourceReader,
 	config ReorgDetectorConfig,
@@ -122,11 +121,11 @@ func (r *ReorgDetectorService) getTailLength() int {
 //
 // Returns:
 // - <-chan protocol.ChainStatus: Receive-only channel for status updates
-// - error: If initial tail cannot be fetched, subscription fails, or context is cancelled
+// - error: If initial tail cannot be fetched, subscription fails, or context is canceled
 //
 // Thread-safety:
 // - Safe to call once per instance
-// - Subsequent calls will return an error
+// - Subsequent calls will return an error.
 func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
 	if r.cancel != nil {
 		return nil, fmt.Errorf("reorg detector already started")
@@ -172,7 +171,7 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 // Error handling:
 // - Transient RPC errors during backfill: Log warning, continue
 // - Subscription channel close: Attempt resubscription with backfill
-// - Context cancellation: Clean shutdown
+// - Context cancellation: Clean shutdown.
 func (r *ReorgDetectorService) monitorSubscription(ctx context.Context, headsCh <-chan protocol.BlockHeader) {
 }
 
@@ -185,7 +184,7 @@ func (r *ReorgDetectorService) monitorSubscription(ctx context.Context, headsCh 
 //
 // Thread-safety:
 // - Safe to call multiple times (subsequent calls are no-ops)
-// - Blocks until monitoring goroutine exits
+// - Blocks until monitoring goroutine exits.
 func (r *ReorgDetectorService) Close() error {
 	r.lggr.Infow("Closing reorg detector service", "chainSelector", r.config.ChainSelector)
 

@@ -39,12 +39,12 @@ type ReorgNotification struct {
 }
 
 // ChainStatus is a marker interface for different chain status types.
-// Implementations: ChainStatusReorg, ChainStatusFinalityViolated
+// Implementations: ChainStatusReorg, ChainStatusFinalityViolated.
 type ChainStatus interface {
 	isChainStatus()
 }
 
-// Implement marker interface for all ChainStatus types
+// Implement marker interface for all ChainStatus types.
 func (ChainStatusReorg) isChainStatus()            {}
 func (ChainStatusFinalityViolated) isChainStatus() {}
 

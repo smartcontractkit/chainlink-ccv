@@ -15,7 +15,7 @@ type BlockHeader struct {
 // ChainTail stores an ordered slice of block headers from stable tip to latest tip.
 type ChainTail struct {
 	blocks []BlockHeader // ordered from oldest (stable) to newest (tip)
-	//TODO: Add a map for O(1) lookups by number and hash over the blocks Slice
+	// TODO: Add a map for O(1) lookups by number and hash over the blocks Slice
 }
 
 // NewChainTail creates a new ChainTail from a slice of block headers.
