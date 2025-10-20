@@ -35,14 +35,6 @@ func BuildGSISortKey(finalizedAt int64, verificationCount int, messageIDHex stri
 	return fmt.Sprintf("%010d%s%05d%s%s", finalizedAt, ddbconstant.KeySeparator, verificationCount, ddbconstant.KeySeparator, messageIDHex)
 }
 
-func ComputeFinalizedAt(report *model.CommitAggregatedReport) int64 {
-	if len(report.Verifications) == 0 {
-		return time.Now().Unix()
-	}
-
-	return report.Timestamp
-}
-
-func FormatDay(timestampSeconds int64) string {
-	return time.Unix(timestampSeconds, 0).UTC().Format("2006-01-02")
+func FormatDay(sequence int64) string {
+	return time.Unix(sequence, 0).UTC().Format("2006-01-02")
 }
