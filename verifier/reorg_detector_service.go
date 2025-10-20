@@ -53,11 +53,11 @@ type ReorgDetectorService struct {
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
 
-	// Tail tracking
-	chainTail       *protocol.ChainTail
-	tailMu          sync.RWMutex
-	lastSeenBlock   uint64
-	lastSeenBlockMu sync.RWMutex
+	// Uncomment when implementing tail tracking
+	// chainTail       *protocol.ChainTail
+	// tailMu          sync.RWMutex
+	// lastSeenBlock   uint64
+	// lastSeenBlockMu sync.RWMutex
 }
 
 // NewReorgDetectorService creates a new reorg detector service.
@@ -97,13 +97,6 @@ func NewReorgDetectorService(
 		lggr:         lggr,
 		statusCh:     make(chan protocol.ChainStatus, 1),
 	}, nil
-}
-
-// getTailLength returns the number of blocks to track in the chain tail.
-// This is automatically calculated as 2 * FinalityDepth to provide sufficient
-// buffer for reorg detection before finality violations occur.
-func (r *ReorgDetectorService) getTailLength() int {
-	return int(r.config.FinalityDepth * 2)
 }
 
 // Start initializes the reorg detector and begins monitoring.

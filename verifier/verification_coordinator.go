@@ -883,7 +883,7 @@ func (vc *Coordinator) handleReorg(
 
 	// 1. Flush pending tasks from reorged blocks (per-chain queue)
 	state.pendingMu.Lock()
-	var remaining []VerificationTask
+	remaining := make([]VerificationTask, 0, len(state.pendingTasks))
 	flushedCount := 0
 	for _, task := range state.pendingTasks {
 		if task.BlockNumber > commonAncestor {
