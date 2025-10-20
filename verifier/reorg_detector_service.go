@@ -19,7 +19,6 @@ type ReorgDetectorConfig struct {
 	// Blocks deeper than this are assumed safe from reorgs.
 	// The chain tail is automatically sized to 2 * FinalityDepth to provide
 	// sufficient buffer for reorg detection before finality violations.
-	// This is chain-specific (e.g., 64 for Ethereum, 128 for Polygon).
 	// Default: 64 blocks
 	FinalityDepth uint64
 }
@@ -129,11 +128,29 @@ func (r *ReorgDetectorService) getTailLength() int {
 // - Safe to call once per instance
 // - Subsequent calls will return an error
 func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
+	if r.cancel != nil {
+		return nil, fmt.Errorf("reorg detector already started")
+	}
+
 	r.lggr.Infow("Starting reorg detector service",
 		"chainSelector", r.config.ChainSelector,
 		"finalityDepth", r.config.FinalityDepth)
+
+	ctx, cancel := context.WithCancel(ctx)
+	r.cancel = cancel
+
 	// TODO: Implement initialization logic
-	r.monitorSubscription(ctx, nil)
+	// - Fetch latest finalized block
+	// - Build initial chain tail
+	// - Subscribe to new block headers
+
+	// Start monitoring goroutine
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		r.monitorSubscription(ctx, nil)
+	}()
+
 	return r.statusCh, nil
 }
 

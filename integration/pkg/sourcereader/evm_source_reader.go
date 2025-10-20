@@ -60,6 +60,7 @@ func NewEVMSourceReader(chainClient client.Client, contractAddress common.Addres
 	}, nil
 }
 
+// GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766
 func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
 	headers := make(map[*big.Int]protocol.BlockHeader)
 	for _, blockNumber := range blockNumbers {
@@ -78,6 +79,7 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 
 }
 
+// SubscribeNewHeads TODO: Update internal latestBlock and latestFinalizedBlock on new head subscription?
 func (r *EVMSourceReader) SubscribeNewHeads(ctx context.Context) (<-chan *protocol.BlockHeader, error) {
 	heads, _, err := r.chainClient.SubscribeToHeads(ctx)
 	if err != nil {
