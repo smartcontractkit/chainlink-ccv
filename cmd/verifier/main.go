@@ -212,7 +212,6 @@ func main() {
 	coordinatorConfig := verifier.CoordinatorConfig{
 		VerifierID:          config.VerifierID,
 		SourceConfigs:       sourceConfigs,
-		ProcessingTimeout:   30 * time.Second,
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 	}

@@ -27,13 +27,10 @@ import (
 
 // Test constants.
 const (
-	defaultProcessingChannelSize = 10
-	defaultProcessingTimeout     = time.Second
-	defaultMaxBatchSize          = 100
-	defaultDestChain             = protocol.ChainSelector(100)
-	sourceChain1                 = protocol.ChainSelector(42)
-	sourceChain2                 = protocol.ChainSelector(84)
-	unconfiguredChain            = protocol.ChainSelector(999)
+	defaultDestChain  = protocol.ChainSelector(100)
+	sourceChain1      = protocol.ChainSelector(42)
+	sourceChain2      = protocol.ChainSelector(84)
+	unconfiguredChain = protocol.ChainSelector(999)
 )
 
 // testSetup contains common test dependencies.
@@ -207,9 +204,8 @@ func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSel
 	}
 
 	return verifier.CoordinatorConfig{
-		VerifierID:        coordinatorID,
-		SourceConfigs:     sourceConfigs,
-		ProcessingTimeout: defaultProcessingTimeout,
+		VerifierID:    coordinatorID,
+		SourceConfigs: sourceConfigs,
 	}
 }
 

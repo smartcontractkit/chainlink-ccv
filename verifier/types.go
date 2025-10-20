@@ -27,7 +27,6 @@ type SourceConfig struct {
 type CoordinatorConfig struct {
 	SourceConfigs       map[protocol.ChainSelector]SourceConfig `json:"source_configs"`
 	VerifierID          string                                  `json:"verifier_id"`
-	ProcessingTimeout   time.Duration                           `json:"processing_timeout"`    // to be used for retries
 	StorageBatchSize    int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage (default: 50)
 	StorageBatchTimeout time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch (default: 100ms)
 }
