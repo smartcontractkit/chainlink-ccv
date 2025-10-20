@@ -236,7 +236,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			// Start detector (blocks until initial tail is built and subscription is established)
 			reorgStatusCh, err := detector.Start(ctx)
 			if err != nil {
-				vc.lggr.Fatalw("Failed to start reorg detector",
+				vc.lggr.Errorw("Failed to start reorg detector",
 					"chainSelector", chainSelector,
 					"error", err)
 				// TODO: Should we make the reorg detector mandatory to the point we stop the
@@ -981,6 +981,7 @@ func (vc *Coordinator) handleFinalityViolation(
 		}
 	}
 
+	//TODO: We should stop the reader completely in case of finality violation
 	// 3. Notify SourceReaderService
 	notification := protocol.ReorgNotification{
 		ChainSelector: chainSelector,

@@ -41,17 +41,12 @@ type SourceReader interface {
 	// Implementation may poll internally and push to channel for chains without native subscriptions.
 	// The returned channel is closed when subscription ends or context is cancelled.
 	// Returns error if subscription cannot be established.
-	SubscribeNewHeads(ctx context.Context) (<-chan protocol.BlockHeader, error)
+	SubscribeNewHeads(ctx context.Context) (<-chan *protocol.BlockHeader, error)
 
-	// GetBlockHash returns the block hash at the given block number.
-	// Required for reorg detection and tail building.
-	// Returns error if block doesn't exist or RPC call fails.
-	GetBlockHash(ctx context.Context, blockNumber *big.Int) (protocol.Bytes32, error)
-
-	// GetBlockHeader returns the full block header (number, hash, parent hash, timestamp).
+	// GetBlocksHeaders returns the full block header (number, hash, parent hash, timestamp).
 	// This is more efficient than separate calls when building the chain tail.
 	// Returns error if block doesn't exist or RPC call fails.
-	GetBlockHeader(ctx context.Context, blockNumber *big.Int) (*protocol.BlockHeader, error)
+	GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[*big.Int]protocol.BlockHeader, error)
 }
 
 // Verifier defines the interface for message verification logic.
