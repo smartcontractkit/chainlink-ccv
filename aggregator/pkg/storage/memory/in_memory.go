@@ -6,8 +6,8 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
@@ -15,6 +15,7 @@ import (
 type InMemoryStorage struct {
 	records           *sync.Map
 	aggregatedReports *sync.Map
+	timeProvider      common.TimeProvider
 }
 
 // SaveCommitVerification persists a commit verification record.
@@ -57,7 +58,7 @@ func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, m
 
 func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
 	id := report.GetID()
-	report.Timestamp = time.Now().Unix()
+	report.WrittenAt = s.timeProvider.Now().Unix()
 	s.aggregatedReports.Store(id, report)
 	return nil
 }
@@ -66,7 +67,11 @@ func (s *InMemoryStorage) QueryAggregatedReports(_ context.Context, start, end i
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
-			if report.Timestamp >= start && report.Timestamp <= end && report.CommitteeID == committeeID {
+			timestamp := report.WrittenAt
+			if timestamp == 0 {
+				timestamp = report.Timestamp
+			}
+			if timestamp >= start && timestamp <= end && report.CommitteeID == committeeID {
 				results = append(results, report)
 			}
 		}
@@ -115,8 +120,13 @@ func (s *InMemoryStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 
 // NewInMemoryStorage creates a new instance of InMemoryStorage.
 func NewInMemoryStorage() *InMemoryStorage {
+	return NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
+}
+
+func NewInMemoryStorageWithTimeProvider(timeProvider common.TimeProvider) *InMemoryStorage {
 	return &InMemoryStorage{
 		records:           new(sync.Map),
 		aggregatedReports: new(sync.Map),
+		timeProvider:      timeProvider,
 	}
 }

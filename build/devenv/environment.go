@@ -9,17 +9,15 @@ import (
 	"os"
 	"strings"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
-	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
-
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
+	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
 const (
@@ -60,14 +58,14 @@ const (
 )
 
 type Cfg struct {
-	CLDF               CLDF                      `toml:"cldf" validate:"required"`
-	Fake               *services.FakeInput       `toml:"fake"        validate:"required"`
-	Verifier           []*services.VerifierInput `toml:"verifier"    validate:"required"`
-	Executor           *services.ExecutorInput   `toml:"executor"    validate:"required"`
-	Indexer            *services.IndexerInput    `toml:"indexer"     validate:"required"`
-	Aggregator         *services.AggregatorInput `toml:"aggregator"  validate:"required"`
-	Blockchains        []*blockchain.Input       `toml:"blockchains" validate:"required"`
-	NodeSets           []*ns.Input               `toml:"nodesets"    validate:"required"`
+	CLDF               CLDF                      `toml:"cldf"                  validate:"required"`
+	Fake               *services.FakeInput       `toml:"fake"                  validate:"required"`
+	Verifier           []*services.VerifierInput `toml:"verifier"              validate:"required"`
+	Executor           *services.ExecutorInput   `toml:"executor"              validate:"required"`
+	Indexer            *services.IndexerInput    `toml:"indexer"               validate:"required"`
+	Aggregator         *services.AggregatorInput `toml:"aggregator"            validate:"required"`
+	Blockchains        []*blockchain.Input       `toml:"blockchains"           validate:"required"`
+	NodeSets           []*ns.Input               `toml:"nodesets"              validate:"required"`
 	CLNodesFundingETH  float64                   `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                   `toml:"cl_nodes_funding_link"`
 }
@@ -228,8 +226,8 @@ func NewEnvironment() (*Cfg, error) {
 	}
 
 	for i, ver := range in.Verifier {
-		ver.ConfigFilePath = fmt.Sprintf("/app/common/cmd/verifier/verifier-%d.toml", i+1)
-		ver.SigningKey = fmt.Sprintf("dev-private-key%d-12345678901234567890", i)
+		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/verifier-%d.toml", i+1)
+		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(i)
 		_, err = services.NewVerifier(ver)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)

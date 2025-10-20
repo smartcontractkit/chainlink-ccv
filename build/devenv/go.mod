@@ -2,6 +2,8 @@ module github.com/smartcontractkit/chainlink-ccv/devenv
 
 go 1.24.6
 
+replace github.com/smartcontractkit/chainlink-ccv => ../..
+
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/Masterminds/semver/v3 v3.4.0
@@ -14,12 +16,11 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.72
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251006181703-d18c115668b9
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251006181703-d18c115668b9
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251006133649-4356a9882d12 // indirect
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-20251014154103-5714596b7627
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251017174358-1a48fa8a246b
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251017174358-1a48fa8a246b
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251017174358-1a48fa8a246b // indirect
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
-	github.com/smartcontractkit/chainlink-deployments-framework v0.54.1
+	github.com/smartcontractkit/chainlink-deployments-framework v0.55.1
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.33
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
@@ -33,6 +34,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.16
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.50.5
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 )
 

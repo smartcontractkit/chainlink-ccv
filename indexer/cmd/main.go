@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -112,7 +113,7 @@ func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.Offc
 	for _, reader := range cfg.Discovery.Static.Readers {
 		switch reader.Type {
 		case config.ReaderTypeAggregator:
-			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since)
+			aggReader, err := storageaccess.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since, nil)
 			if err != nil {
 				lggr.Fatalf("Failed to create aggregator reader: %v", err)
 			}

@@ -3,7 +3,6 @@ package ddb
 import (
 	"encoding/hex"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -24,8 +23,8 @@ func BuildFinalizedFeedPartitionKey(committeeID string, messageID model.MessageI
 	return fmt.Sprintf("%s%s%s", committeeID, ddbconstant.KeySeparator, hex.EncodeToString(messageID))
 }
 
-func BuildFinalizedFeedSortKey(finalizedAt int64) string {
-	return strconv.FormatInt(finalizedAt, 10)
+func BuildFinalizedFeedSortKey(finalizedAt int64, verificationCount int) string {
+	return fmt.Sprintf("%d%s%d", finalizedAt, ddbconstant.KeySeparator, verificationCount)
 }
 
 func BuildGSIPartitionKey(day, committeeID string, version int, shard string) string {

@@ -77,6 +77,16 @@ func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, me
 
 	signerAddress := common.HexToAddress(signerAddressValue.Value).Bytes()
 
+	createdAtValue, ok := item[ddbconstant.FieldCreatedAt].(*types.AttributeValueMemberN)
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid %s", ddbconstant.FieldCreatedAt)
+	}
+
+	createdAt, err := strconv.ParseInt(createdAtValue.Value, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse createdAt: %w", err)
+	}
+
 	messageWithCCVNodeData, err := dto.reconstructMessageFromVerificationMessageData(verificationMessageDataItem)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconstruct message from verification message data: %w", err)
@@ -115,7 +125,7 @@ func (dto *SignatureRecordDTO) FromItem(item map[string]types.AttributeValue, me
 		SourceVerifierAddress: messageWithCCVNodeData.GetSourceVerifierAddress(),
 		CcvData:               messageWithCCVNodeData.GetCcvData(),
 		BlobData:              messageWithCCVNodeData.GetBlobData(),
-		Timestamp:             messageWithCCVNodeData.GetTimestamp(),
+		Timestamp:             createdAt,
 		Message:               messageWithCCVNodeData.GetMessage(),
 		ReceiptBlobs:          messageWithCCVNodeData.GetReceiptBlobs(),
 	}

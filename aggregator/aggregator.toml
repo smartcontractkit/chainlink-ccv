@@ -77,7 +77,7 @@ pyroscope_url = "http://pyroscope:4040"
   [committees.default]
     [committees.default.quorumConfigs]
       [committees.default.quorumConfigs.12922642891491394802]
-        committeeVerifierAddress = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
+        committeeVerifierAddress = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
         threshold = 2
 
         [[committees.default.quorumConfigs.12922642891491394802.signers]]
@@ -88,7 +88,7 @@ pyroscope_url = "http://pyroscope:4040"
           participantID = "participant2"
           addresses = ["0x099125558781da4bcdb16e457e15d997ecac68a8"]
       [committees.default.quorumConfigs.3379446385462418246]
-        committeeVerifierAddress = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
+        committeeVerifierAddress = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
         threshold = 2
 
         [[committees.default.quorumConfigs.3379446385462418246.signers]]
@@ -99,16 +99,20 @@ pyroscope_url = "http://pyroscope:4040"
           participantID = "participant2"
           addresses = ["0x099125558781da4bcdb16e457e15d997ecac68a8"]
       [committees.default.quorumConfigs.4793464827907405086]
-        committeeVerifierAddress = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
-        threshold = 1
+        committeeVerifierAddress = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
+        threshold = 2
 
         [[committees.default.quorumConfigs.4793464827907405086.signers]]
           participantID = "participant1"
           addresses = ["0x6b3131d871c63c7fa592863e173cba2da5ffa68b"]
+        
+        [[committees.default.quorumConfigs.4793464827907405086.signers]]
+          participantID = "participant2"
+          addresses = ["0x099125558781da4bcdb16e457e15d997ecac68a8"]
     [committees.default.sourceVerifierAddresses]
-      12922642891491394802 = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
-      3379446385462418246 = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
-      4793464827907405086 = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
+      12922642891491394802 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
+      3379446385462418246 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
+      4793464827907405086 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
 
 [Monitoring]
 Enabled = true

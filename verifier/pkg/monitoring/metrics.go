@@ -17,16 +17,16 @@ import (
 // VerifierMetrics provides all metrics for the verifier.
 type VerifierMetrics struct {
 	// E2E Latency - North Star Metric
-	messageE2ELatencyMilliseconds metric.Int64Histogram
+	messageE2ELatencySeconds metric.Float64Histogram
 
 	// Message Processing Counters
 	messagesProcessedCounter   metric.Int64Counter
 	messagesVerificationFailed metric.Int64Counter
 
 	// Fine-Grained Latency Breakdown
-	finalityWaitDurationMilliseconds        metric.Int64Histogram
-	messageVerificationDurationMilliseconds metric.Int64Histogram
-	storageWriteDurationMilliseconds        metric.Int64Histogram
+	finalityWaitDurationSeconds        metric.Float64Histogram
+	messageVerificationDurationSeconds metric.Float64Histogram
+	storageWriteDurationSeconds        metric.Float64Histogram
 
 	// Queue Health
 	finalityQueueSizeGauge  metric.Int64Gauge
@@ -46,10 +46,10 @@ func InitMetrics() (*VerifierMetrics, error) {
 	var err error
 
 	// E2E Latency
-	vm.messageE2ELatencyMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"verifier_message_e2e_latency_milliseconds",
+	vm.messageE2ELatencySeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_message_e2e_latency_seconds",
 		metric.WithDescription("Full message lifecycle latency from source read to storage write"),
-		metric.WithUnit("milliseconds"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register message e2e latency histogram: %w", err)
@@ -73,28 +73,28 @@ func InitMetrics() (*VerifierMetrics, error) {
 	}
 
 	// Fine-Grained Latency Breakdown
-	vm.finalityWaitDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"verifier_finality_wait_duration_milliseconds",
+	vm.finalityWaitDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_finality_wait_duration_seconds",
 		metric.WithDescription("Time a message spent waiting in the finality queue"),
-		metric.WithUnit("milliseconds"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register finality wait duration histogram: %w", err)
 	}
 
-	vm.messageVerificationDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"verifier_message_verification_duration_milliseconds",
+	vm.messageVerificationDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_message_verification_duration_seconds",
 		metric.WithDescription("Duration of the full VerifyMessage operation"),
-		metric.WithUnit("milliseconds"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register message verification duration histogram: %w", err)
 	}
 
-	vm.storageWriteDurationMilliseconds, err = beholder.GetMeter().Int64Histogram(
-		"verifier_storage_write_duration_milliseconds",
+	vm.storageWriteDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_storage_write_duration_seconds",
 		metric.WithDescription("Duration of writing to offchain storage"),
-		metric.WithUnit("milliseconds"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register storage write duration histogram: %w", err)
@@ -151,29 +151,29 @@ func MetricViews() []sdkmetric.View {
 	return []sdkmetric.View{
 		// E2E Latency - wider range for full message lifecycle (reading -> finality -> verification -> storage write)
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "verifier_message_e2e_latency_milliseconds"},
+			sdkmetric.Instrument{Name: "verifier_message_e2e_latency_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 100, 500, 1000, 2000, 5000, 10000, 20000, 30000, 60000, 90000, 120000, 180000, 240000, 300000, 360000, 420000, 480000, 540000, 600000, 900000, 1200000, 1800000, 2400000, 3000000, 3600000, 4200000, 4800000, 5400000, 6000000},
+				Boundaries: []float64{0.1, 0.5, 1, 2, 5, 10, 20, 30, 60, 90, 120, 180, 240, 300, 360, 420, 480, 540, 600, 900, 1200, 1800, 2400, 3000, 3600, 4200, 4800, 5400, 6000},
 			}},
 		),
 		// Finality Wait
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "verifier_finality_wait_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "verifier_finality_wait_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 1000, 5000, 10000, 20000, 30000, 60000, 90000, 120000, 180000, 240000, 300000, 360000, 420000, 480000, 540000, 600000, 900000, 1200000, 1800000, 2400000, 3000000, 3600000, 4200000, 4800000, 5400000, 6000000},
+				Boundaries: []float64{1, 5, 10, 20, 30, 60, 90, 120, 180, 240, 300, 360, 420, 480, 540, 600, 900, 1200, 1800, 2400, 3000, 3600, 4200, 4800, 5400, 6000},
 			}},
 		),
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "verifier_message_verification_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "verifier_message_verification_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000},
+				Boundaries: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000},
 			}},
 		),
 		// Storage Write
 		sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "verifier_storage_write_duration_milliseconds"},
+			sdkmetric.Instrument{Name: "verifier_storage_write_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000},
+				Boundaries: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000},
 			}},
 		),
 	}
@@ -201,7 +201,7 @@ func (v *VerifierMetricLabeler) With(keyValues ...string) common.VerifierMetricL
 
 func (v *VerifierMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.messageE2ELatencyMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	v.vm.messageE2ELatencySeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {
@@ -216,17 +216,17 @@ func (v *VerifierMetricLabeler) IncrementMessagesVerificationFailed(ctx context.
 
 func (v *VerifierMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.finalityWaitDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	v.vm.finalityWaitDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.messageVerificationDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	v.vm.messageVerificationDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.storageWriteDurationMilliseconds.Record(ctx, duration.Milliseconds(), metric.WithAttributes(otelLabels...))
+	v.vm.storageWriteDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64) {

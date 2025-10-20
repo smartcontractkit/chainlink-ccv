@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -174,11 +174,11 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 		}
 
 		// Parse the event data using the ABI
-		event := &ccv_proxy.CCVProxyCCIPMessageSent{}
+		event := &onramp.OnRampCCIPMessageSent{}
 		event.DestChainSelector = destChainSelector
 		event.MessageId = messageID
 		event.SequenceNumber = nonce
-		abi, err := ccv_proxy.CCVProxyMetaData.GetAbi()
+		abi, err := onramp.OnRampMetaData.GetAbi()
 		if err != nil {
 			r.lggr.Errorw("❌ Failed to get ABI", "error", err)
 			continue // to next message
@@ -189,7 +189,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 			continue // to next message
 		}
 		// Log the event structure using the fixed bindings
-		r.lggr.Infow("📋 CCVProxy Event Structure",
+		r.lggr.Infow("📋 OnRamp Event Structure",
 			"destChainSelector", event.DestChainSelector,
 			"nonce", event.SequenceNumber,
 			"messageId", common.Bytes2Hex(event.MessageId[:]),

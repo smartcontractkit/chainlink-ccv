@@ -10,15 +10,15 @@ import (
 	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 )
 
-// Timestamp: FinalizedAt is Unix seconds (N).
+// Timestamp: FinalizedAtTimestamp is a numeric timestamp.
 func tsFromFinalizedAt(item map[string]types.AttributeValue) (time.Time, error) {
-	n, ok := item[ddbconstant.FinalizedFeedFieldFinalizedAt].(*types.AttributeValueMemberN)
+	n, ok := item[ddbconstant.FinalizedFeedFieldFinalizedAtTimestamp].(*types.AttributeValueMemberN)
 	if !ok {
-		return time.Time{}, fmt.Errorf("missing or non-numeric %s", ddbconstant.FinalizedFeedFieldFinalizedAt)
+		return time.Time{}, fmt.Errorf("missing or non-numeric %s", ddbconstant.FinalizedFeedFieldFinalizedAtTimestamp)
 	}
 	sec, err := strconv.ParseInt(n.Value, 10, 64)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("parse %s: %w", ddbconstant.FinalizedFeedFieldFinalizedAt, err)
+		return time.Time{}, fmt.Errorf("parse %s: %w", ddbconstant.FinalizedFeedFieldFinalizedAtTimestamp, err)
 	}
 	return time.Unix(sec, 0).UTC(), nil
 }
@@ -43,10 +43,10 @@ func itemToKey(item map[string]types.AttributeValue) (map[string]types.Attribute
 		return nil, fmt.Errorf("missing %s", ddbconstant.FinalizedFeedFieldGSISK)
 	}
 	return map[string]types.AttributeValue{
-		ddbconstant.FinalizedFeedFieldGSIPK:                pk,
-		ddbconstant.FinalizedFeedFieldGSISK:                sk,
-		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID: item[ddbconstant.FinalizedFeedFieldCommitteeIDMessageID],
-		ddbconstant.FinalizedFeedFieldFinalizedAt:          item[ddbconstant.FinalizedFeedFieldFinalizedAt],
+		ddbconstant.FinalizedFeedFieldGSIPK:                               pk,
+		ddbconstant.FinalizedFeedFieldGSISK:                               sk,
+		ddbconstant.FinalizedFeedFieldCommitteeIDMessageID:                item[ddbconstant.FinalizedFeedFieldCommitteeIDMessageID],
+		ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey: item[ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey],
 	}, nil
 }
 
@@ -63,7 +63,7 @@ func keyToToken(key map[string]types.AttributeValue) SinglePartitionPaginationTo
 	if v, ok := key[ddbconstant.FinalizedFeedFieldGSIPK].(*types.AttributeValueMemberS); ok {
 		tok.DayCommitteePartition = v.Value
 	}
-	if v, ok := key[ddbconstant.FinalizedFeedFieldFinalizedAt].(*types.AttributeValueMemberN); ok {
+	if v, ok := key[ddbconstant.FinalizedFeedFieldFinalizedAtVerificationCountSortKey].(*types.AttributeValueMemberS); ok {
 		tok.FinalizedAt = v.Value
 	}
 	if v, ok := key[ddbconstant.FinalizedFeedFieldGSISK].(*types.AttributeValueMemberS); ok {

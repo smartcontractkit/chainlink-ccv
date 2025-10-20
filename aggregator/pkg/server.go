@@ -198,7 +198,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
 		// Setup OTEL Monitoring (via beholder)
-		m, err := monitoring.InitMonitoring(config, beholder.Config{
+		m, err := monitoring.InitMonitoring(beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,
 			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
@@ -264,12 +264,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(&config.APIKeys, l)
 	anonymousAuthMiddleware := middlewares.NewAnonymousAuthMiddleware()
 
-	// Initialize rate limiting middleware
-	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config.APIKeys, l)
-	if err != nil {
-		l.Fatalf("Failed to initialize rate limiting middleware: %v", err)
-	}
-
 	isCCVDataService := func(ctx context.Context, callMeta interceptors.CallMeta) bool {
 		return callMeta.Service == pb.CCVData_ServiceDesc.ServiceName
 	}
@@ -296,9 +290,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 			// Require authentication for all requests (ensures identity is set)
 			middlewares.RequireAuthInterceptor,
-
-			// Rate limiting (last in chain, after authentication)
-			rateLimitingMiddleware.Intercept,
 		),
 	)
 

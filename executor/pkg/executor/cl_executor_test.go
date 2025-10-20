@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -45,6 +46,10 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		}, nil).Maybe()
 		return vr
 	}
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
 
 	testcases := []struct {
 		name                       string
@@ -110,6 +115,68 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			validateMessageShouldError: false,
 			executeShouldError:         true,
 		},
+		{
+			name: "Should only have use up to Threshold amount of optional CCVs",
+			ct: func() *executor_mocks.MockContractTransmitter {
+				ct := executor_mocks.NewMockContractTransmitter(t)
+				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, coordinator.AbstractAggregatedReport{
+					Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1},
+					CCVS:    []protocol.UnknownAddress{address1},
+					CCVData: [][]byte{[]byte("data")},
+				}).Return(nil).Once()
+				return ct
+			},
+			ctChains: []protocol.ChainSelector{1},
+			dr: &mockDestinationReader{
+				executed:    false,
+				executedErr: nil,
+				ccvInfo: coordinator.CcvAddressInfo{
+					OptionalCcvs:      []protocol.UnknownAddress{address1, address2},
+					OptionalThreshold: 1,
+				},
+			},
+			drChains: []protocol.ChainSelector{1},
+			vr: func() *executor_mocks.MockVerifierResultReader {
+				vr := executor_mocks.NewMockVerifierResultReader(t)
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.CCVData{
+					{DestVerifierAddress: address1, CCVData: []byte("data")},
+					{DestVerifierAddress: address2, CCVData: []byte("data")},
+				}, nil).Maybe()
+				return vr
+			},
+			msg: coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
+		},
+		{
+			name: "Should support a 0 threshold for optional CCVs",
+			ct: func() *executor_mocks.MockContractTransmitter {
+				ct := executor_mocks.NewMockContractTransmitter(t)
+				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, coordinator.AbstractAggregatedReport{
+					Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1},
+					CCVS:    []protocol.UnknownAddress{},
+					CCVData: [][]byte{},
+				}).Return(nil).Once()
+				return ct
+			},
+			ctChains: []protocol.ChainSelector{1},
+			dr: &mockDestinationReader{
+				executed:    false,
+				executedErr: nil,
+				ccvInfo: coordinator.CcvAddressInfo{
+					OptionalCcvs:      []protocol.UnknownAddress{address1, address2},
+					OptionalThreshold: 0,
+				},
+			},
+			drChains: []protocol.ChainSelector{1},
+			vr: func() *executor_mocks.MockVerifierResultReader {
+				vr := executor_mocks.NewMockVerifierResultReader(t)
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.CCVData{
+					{DestVerifierAddress: address1, CCVData: []byte("data")},
+					{DestVerifierAddress: address2, CCVData: []byte("data")},
+				}, nil).Maybe()
+				return vr
+			},
+			msg: coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, Nonce: 1}},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -124,7 +191,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			for _, chain := range tc.drChains {
 				allDestinationReaders[chain] = tc.dr
 			}
-			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, tc.vr())
+			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, tc.vr(), monitoring.NewNoopExecutorMonitoring())
 			err := executor.Validate()
 			if tc.validateShouldError {
 				assert.Error(t, err)
@@ -151,7 +218,8 @@ func Test_ChainlinkExecutor(t *testing.T) {
 }
 
 func TestChainlinkExecutor_orderCcvData(t *testing.T) {
-	executor := NewChainlinkExecutor(nil, nil, nil, nil)
+	executor := NewChainlinkExecutor(nil, nil, nil, nil, nil)
+	message := protocol.Message{}
 	ccvAddr := protocol.UnknownAddress{}
 	ccvData := []protocol.CCVData{{DestVerifierAddress: ccvAddr, CCVData: []byte("data")}}
 	ccvInfo := coordinator.CcvAddressInfo{
@@ -159,8 +227,9 @@ func TestChainlinkExecutor_orderCcvData(t *testing.T) {
 		OptionalCcvs:      []protocol.UnknownAddress{},
 		OptionalThreshold: 0,
 	}
-	addrs, data, err := executor.orderCcvData(ccvData, ccvInfo)
+	report, timestamp, err := executor.orderCcvData(message, ccvData, ccvInfo)
 	assert.NoError(t, err)
-	assert.Equal(t, 1, len(addrs))
-	assert.Equal(t, 1, len(data))
+	assert.Equal(t, 1, len(report.CCVS))
+	assert.Equal(t, 1, len(report.CCVData))
+	assert.Equal(t, int64(0), timestamp)
 }

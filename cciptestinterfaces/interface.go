@@ -1,4 +1,4 @@
-package ccv
+package cciptestinterfaces
 
 import (
 	"context"
@@ -33,6 +33,7 @@ type CCIP17ProductConfiguration interface {
 
 // Observable pushes Loki streams and exposes Prometheus metrics and returns queries to assert SLAs.
 type Observable interface {
+	// ExposeMetrics exposes Prometheus metrics for the given source and destination chain IDs.
 	ExposeMetrics(ctx context.Context, source, dest uint64, chainIDs, wsURLs []string) ([]string, *prometheus.Registry, error)
 }
 
@@ -72,12 +73,8 @@ type MessageOptions struct {
 	GasLimit uint32
 	// OutOfOrderExecution is whether to execute the message out of order
 	OutOfOrderExecution bool
-	// MandatoryCCVs are the mandatory CCVs for the message
-	MandatoryCCVs []protocol.CCV
-	// OptionalCCVs are the optional CCVs for the message
-	OptionalCCVs []protocol.CCV
-	// OptionalThreshold is the threshold for the optional CCVs
-	OptionalThreshold uint8
+	// CCVs are the CCVs for the message
+	CCVs []protocol.CCV
 	// FinalityConfig is the finality config for the message
 	FinalityConfig uint16
 	// Executor is the executor address
@@ -97,9 +94,11 @@ type Chains interface {
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
 	GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain
-	WaitOneSentEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (any, error)
+	WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error)
 	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain
-	WaitOneExecEventBySeqNo(ctx context.Context, from, to uint64, seq uint64, timeout time.Duration) (any, error)
+	WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error)
+	// GetTokenBalance gets the balance of an account for a token on a chain
+	GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
 }
 
 // OnChainConfigurable defines methods that allows devenv to

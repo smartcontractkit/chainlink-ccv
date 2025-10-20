@@ -15,6 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -36,15 +37,15 @@ const (
 )
 
 type AggregatorInput struct {
-	Image            string                `toml:"image"`
-	Port             int                   `toml:"port"`
-	SourceCodePath   string                `toml:"source_code_path"`
-	RootPath         string                `toml:"root_path"`
-	ContainerName    string                `toml:"container_name"`
-	UseCache         bool                  `toml:"use_cache"`
-	Out              *AggregatorOutput     `toml:"-"`
-	AggregatorConfig *AggregatorConfig     `toml:"aggregator_config"`
-	DynamoDBTables   *DynamoDBTablesConfig `toml:"dynamodb_tables"`
+	Image            string                  `toml:"image"`
+	Port             int                     `toml:"port"`
+	SourceCodePath   string                  `toml:"source_code_path"`
+	RootPath         string                  `toml:"root_path"`
+	ContainerName    string                  `toml:"container_name"`
+	UseCache         bool                    `toml:"use_cache"`
+	Out              *AggregatorOutput       `toml:"-"`
+	AggregatorConfig *model.AggregatorConfig `toml:"aggregator_config"`
+	DynamoDBTables   *DynamoDBTablesConfig   `toml:"dynamodb_tables"`
 }
 
 type DynamoDBTablesConfig struct {
@@ -92,45 +93,6 @@ type StorageConfig struct {
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
 	Address string `toml:"address"`
-}
-
-// BeholderConfig wraps the beholder configuration to expose a minimal config for the aggregator.
-type BeholderConfig struct {
-	// InsecureConnection disables TLS for the beholder client.
-	InsecureConnection bool `toml:"insecureConnection"`
-	// CACertFile is the path to the CA certificate file for the beholder client.
-	CACertFile string `toml:"caCertFile"`
-	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterGRPCEndpoint string `toml:"otelExporterGRPCEndpoint"`
-	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterHTTPEndpoint string `toml:"otelExporterHTTPEndpoint"`
-	// LogStreamingEnabled enables log streaming to the collector.
-	LogStreamingEnabled bool `toml:"logStreamingEnabled"`
-	// MetricReaderInterval is the interval to scrape metrics (in seconds).
-	MetricReaderInterval int64 `toml:"metricReaderInterval"`
-	// TraceSampleRatio is the ratio of traces to sample.
-	TraceSampleRatio float64 `toml:"traceSampleRatio"`
-	// TraceBatchTimeout is the timeout for a batch of traces.
-	TraceBatchTimeout int64 `toml:"traceBatchTimeout"`
-}
-
-// MonitoringConfig provides all configuration for the monitoring system inside the aggregator.
-type MonitoringConfig struct {
-	// Enabled enables the monitoring system.
-	Enabled bool `toml:"enabled"`
-	// Type is the type of monitoring system to use (beholder, noop).
-	Type string `toml:"type"`
-	// Beholder is the configuration for the beholder client (Not required if type is noop).
-	Beholder BeholderConfig `toml:"beholder"`
-}
-
-// AggregatorConfig is the root configuration for the aggregator.
-type AggregatorConfig struct {
-	Server     ServerConfig          `toml:"server"`
-	Storage    StorageConfig         `toml:"storage"`
-	StubMode   bool                  `toml:"stubQuorumValidation"`
-	Committees map[string]*Committee `toml:"committees"`
-	Monitoring MonitoringConfig      `toml:"monitoring"`
 }
 
 func aggregatorDefaults(in *AggregatorInput) {
