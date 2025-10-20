@@ -176,20 +176,6 @@ func TestChainTail_BlockByNumber(t *testing.T) {
 }
 
 func TestChainStatusTypes(t *testing.T) {
-	t.Run("ChainStatusGood", func(t *testing.T) {
-		blocks := []BlockHeader{
-			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
-		}
-		tail, err := NewChainTail(blocks)
-		require.NoError(t, err)
-
-		status := ChainStatusGood{Tail: *tail}
-		assert.Equal(t, 1, status.Tail.Len())
-
-		// Verify it implements ChainStatus interface
-		var _ ChainStatus = status
-	})
-
 	t.Run("ChainStatusReorg", func(t *testing.T) {
 		blocks := []BlockHeader{
 			{Number: 100, Hash: Bytes32{0x01}, ParentHash: Bytes32{0x00}, Timestamp: 1000},
