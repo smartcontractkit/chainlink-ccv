@@ -11,7 +11,7 @@ replace (
 )
 
 require (
-	github.com/BurntSushi/toml v1.4.0
+	github.com/BurntSushi/toml v1.5.0
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/aws/aws-sdk-go-v2 v1.39.2
 	github.com/aws/aws-sdk-go-v2/config v1.31.12
@@ -20,18 +20,18 @@ require (
 	github.com/aws/smithy-go v1.23.0
 	github.com/ethereum/go-ethereum v1.16.2
 	github.com/failsafe-go/failsafe-go v0.9.0
-	github.com/gin-gonic/gin v1.10.0
+	github.com/gin-gonic/gin v1.10.1
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
-	github.com/grafana/pyroscope-go v1.1.2
+	github.com/grafana/pyroscope-go v1.2.7
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/oklog/run v1.2.0
 	github.com/pelletier/go-toml/v2 v2.2.4
-	github.com/pressly/goose/v3 v3.21.1
+	github.com/pressly/goose/v3 v3.26.0
 	github.com/prometheus/client_golang v1.23.0
-	github.com/rs/zerolog v1.33.0
+	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.72
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251020065051-c0de184e9cce
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251020065051-c0de184e9cce
@@ -54,7 +54,7 @@ require (
 	golang.org/x/sync v0.16.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.9
-	modernc.org/sqlite v1.37.1 // indirect
+	modernc.org/sqlite v1.39.0 // indirect
 )
 
 require (
@@ -269,7 +269,6 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/supranational/blst v0.3.14 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
-	github.com/theodesp/go-heaps v0.0.0-20190520121037-88e35354fe0a // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
