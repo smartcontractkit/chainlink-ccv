@@ -2,10 +2,8 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/big"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -224,56 +222,12 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	return &wasp.Response{Data: "ok"}
 }
 
-// waitForMessageInIndexer polls the indexer API until the message appears or context timeout.
-// Returns the number of verifications found and an error if timeout/failure occurs.
-func waitForMessageInIndexer(ctx context.Context, httpClient *http.Client, indexerBaseURL string, messageID [32]byte) (int, error) {
-	msgIDHex := common.BytesToHash(messageID[:]).Hex()
-
-	type messageIDResp struct {
-		Success         bool   `json:"success"`
-		VerifierResults []any  `json:"verifierResults"`
-		MessageID       string `json:"messageID"`
-	}
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return 0, fmt.Errorf("indexer check timeout for message %s: %w", msgIDHex, ctx.Err())
-		case <-ticker.C:
-			req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-				fmt.Sprintf("%s/v1/messageid/%s", indexerBaseURL, msgIDHex), nil)
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				continue
-			}
-
-			var parsed messageIDResp
-			err = func() error {
-				defer resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					return fmt.Errorf("non-200 status: %d", resp.StatusCode)
-				}
-				return json.NewDecoder(resp.Body).Decode(&parsed)
-			}()
-
-			if err == nil && parsed.Success && len(parsed.VerifierResults) > 0 {
-				return len(parsed.VerifierResults), nil
-			}
-		}
-	}
-}
-
 // assertMessagesAsync starts async verification of messages as they are sent via channel.
 // Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts.
 // The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent.
-func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
+func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerClient *ccv.IndexerClient, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
-
-	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	metricsChan := make(chan MessageMetrics, 100)
 	var wg sync.WaitGroup
@@ -310,7 +264,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout*90/100)
 				defer indexerCancel()
 
-				verifierCount, err := waitForMessageInIndexer(indexerCheckCtx, httpClient, indexerBaseURL, msg.MessageID)
+				verifications, err := indexerClient.WaitForVerificationsForMessageID(indexerCheckCtx, msg.MessageID, 1*time.Second, timeout)
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 				if err != nil {
 					t.Logf("Message %d (ID: %s) did not reach indexer: %v", msg.SeqNo, msgIDHex, err)
@@ -321,7 +275,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				totalIndexed++
 				indexedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
-				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, verifierCount)
+				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, len(verifications.VerifierResults))
 
 				// Step 2: Wait for the execution event with context
 				execEvent, err := impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, timeout)
@@ -621,6 +575,12 @@ func TestE2ELoad(t *testing.T) {
 	impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
+	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+	indexerClient := ccv.NewIndexerClient(
+		zerolog.Ctx(ctx).With().Str("indexer_url", indexerURL).Logger(),
+		indexerURL)
+	require.NotNil(t, indexerClient)
+
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
 		rps := int64(5)
@@ -629,8 +589,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 5*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 5*time.Minute)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -657,8 +616,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 220*time.Second)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 220*time.Second)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -680,8 +638,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -750,8 +707,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -914,8 +870,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
 		// Start async verification before running the profile
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)

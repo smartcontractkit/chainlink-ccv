@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -58,29 +59,39 @@ func TestE2ESmoke(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	// TODO: figure out how to get this URL dynamically from the env-out.toml instead of hardcoding like this.
+	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+	indexerClient := ccv.NewIndexerClient(
+		zerolog.Ctx(ctx).With().Str("indexer_url", indexerURL).Logger(),
+		indexerURL)
+	require.NotNil(t, indexerClient)
+
 	t.Run("test extra args v2 messages", func(t *testing.T) {
 		type testcase struct {
-			name         string
-			fromSelector uint64
-			toSelector   uint64
-			receiver     protocol.UnknownAddress
-			expectFail   bool
+			name                     string
+			fromSelector             uint64
+			toSelector               uint64
+			receiver                 protocol.UnknownAddress
+			expectFail               bool
+			numExpectedVerifications int
 		}
 
 		tcs := []testcase{
 			{
-				name:         "src->dst msg execution eoa receiver",
-				fromSelector: selectors[0],
-				toSelector:   selectors[1],
-				receiver:     mustGetEOAReceiverAddress(t, c, selectors[1]),
-				expectFail:   false,
+				name:                     "src->dst msg execution eoa receiver",
+				fromSelector:             selectors[0],
+				toSelector:               selectors[1],
+				receiver:                 mustGetEOAReceiverAddress(t, c, selectors[1]),
+				expectFail:               false,
+				numExpectedVerifications: 1,
 			},
 			{
-				name:         "dst->src msg execution eoa receiver",
-				fromSelector: selectors[1],
-				toSelector:   selectors[0],
-				receiver:     mustGetEOAReceiverAddress(t, c, selectors[0]),
-				expectFail:   false,
+				name:                     "dst->src msg execution eoa receiver",
+				fromSelector:             selectors[1],
+				toSelector:               selectors[0],
+				receiver:                 mustGetEOAReceiverAddress(t, c, selectors[0]),
+				expectFail:               false,
+				numExpectedVerifications: 1,
 			},
 			{
 				name:         "1337->3337 msg execution mock receiver",
@@ -89,7 +100,8 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:     getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
-				expectFail: false,
+				expectFail:               false,
+				numExpectedVerifications: 1,
 			},
 		}
 		for _, tc := range tcs {
@@ -106,8 +118,18 @@ func TestE2ESmoke(t *testing.T) {
 					OutOfOrderExecution: true,
 				})
 				require.NoError(t, err)
-				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
+				// TODO: maybe this method should just return a message ID for now,
+				// its currently being used in an EVM-specific way.
+				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
+				// check that the message was picked up by the indexer
+				verifications, err := indexerClient.WaitForVerificationsForMessageID(
+					ctx,
+					sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId,
+					1*time.Second,
+					defaultSentTimeout)
+				require.NoError(t, err)
+				require.Len(t, verifications.VerifierResults, tc.numExpectedVerifications)
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
@@ -136,14 +158,15 @@ func TestE2ESmoke(t *testing.T) {
 		}
 
 		type testcase struct {
-			name          string
-			srcSelector   uint64
-			dstSelector   uint64
-			finality      uint16
-			receiver      protocol.UnknownAddress
-			ccvs          []protocol.CCV
-			expectFail    bool
-			tokenTransfer *tokenTransfer
+			name                     string
+			srcSelector              uint64
+			dstSelector              uint64
+			finality                 uint16
+			receiver                 protocol.UnknownAddress
+			ccvs                     []protocol.CCV
+			expectFail               bool
+			tokenTransfer            *tokenTransfer
+			numExpectedVerifications int
 		}
 
 		tcs := []testcase{
@@ -160,6 +183,7 @@ func TestE2ESmoke(t *testing.T) {
 						ArgsLen:    0,
 					},
 				},
+				numExpectedVerifications: 1,
 			},
 			{
 				name:        "dst_src msg execution with EOA receiver",
@@ -174,6 +198,7 @@ func TestE2ESmoke(t *testing.T) {
 						ArgsLen:    0,
 					},
 				},
+				numExpectedVerifications: 1,
 			},
 			{
 				name:        "1337->3337 msg execution with EOA receiver",
@@ -188,6 +213,7 @@ func TestE2ESmoke(t *testing.T) {
 						ArgsLen:    0,
 					},
 				},
+				numExpectedVerifications: 1,
 			},
 
 			{
@@ -205,7 +231,8 @@ func TestE2ESmoke(t *testing.T) {
 				},
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
-				expectFail: false,
+				expectFail:               false,
+				numExpectedVerifications: 1,
 			},
 			{
 				name:        "dst_src msg execution with mock receiver",
@@ -222,7 +249,8 @@ func TestE2ESmoke(t *testing.T) {
 				},
 				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
 				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
-				expectFail: false,
+				expectFail:               false,
+				numExpectedVerifications: 1,
 			},
 			{
 				name:        "src_dst msg execution with EOA receiver and token transfer",
@@ -248,6 +276,7 @@ func TestE2ESmoke(t *testing.T) {
 						Qualifier: "TEST",
 					},
 				},
+				numExpectedVerifications: 1,
 			},
 		}
 		for _, tc := range tcs {
@@ -277,8 +306,16 @@ func TestE2ESmoke(t *testing.T) {
 						CCVs:           tc.ccvs,
 					})
 				require.NoError(t, err)
-				_, err = c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)
+				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
+				// check that the message was picked up by the indexer
+				verifications, err := indexerClient.WaitForVerificationsForMessageID(
+					ctx,
+					sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId,
+					1*time.Second,
+					defaultSentTimeout)
+				require.NoError(t, err)
+				require.Len(t, verifications.VerifierResults, tc.numExpectedVerifications)
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
