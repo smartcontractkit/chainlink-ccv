@@ -183,17 +183,15 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			Storage: model.RateLimiterStoreConfig{
 				Type: "memory",
 			},
-			Limits: map[string]map[string]model.RateLimitConfig{
-				"default": {
-					// Generous defaults for tests - 10000 requests per minute
-					pb.VerifierResultAPI_GetMessagesSince_FullMethodName:            {LimitPerMinute: 10000},
-					pb.VerifierResultAPI_GetVerifierResultForMessage_FullMethodName: {LimitPerMinute: 10000},
-					pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:             {LimitPerMinute: 10000},
-					pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName:        {LimitPerMinute: 10000},
-					pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:              {LimitPerMinute: 10000},
-					pb.Aggregator_WriteBlockCheckpoint_FullMethodName:               {LimitPerMinute: 10000},
-					pb.Aggregator_ReadBlockCheckpoint_FullMethodName:                {LimitPerMinute: 10000},
-				},
+			DefaultLimits: map[string]model.RateLimitConfig{
+				// Generous defaults for tests - 10000 requests per minute
+				pb.VerifierResultAPI_GetMessagesSince_FullMethodName:            {LimitPerMinute: 10000},
+				pb.VerifierResultAPI_GetVerifierResultForMessage_FullMethodName: {LimitPerMinute: 10000},
+				pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:             {LimitPerMinute: 10000},
+				pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName:        {LimitPerMinute: 10000},
+				pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:              {LimitPerMinute: 10000},
+				pb.Aggregator_WriteBlockCheckpoint_FullMethodName:               {LimitPerMinute: 10000},
+				pb.Aggregator_ReadBlockCheckpoint_FullMethodName:                {LimitPerMinute: 10000},
 			},
 		},
 	}
