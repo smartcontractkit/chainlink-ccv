@@ -8,18 +8,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
-type Manager struct {
+type HealthManager struct {
 	components []common.HealthChecker
 	mu         sync.RWMutex
 }
 
-func NewManager() *Manager {
-	return &Manager{
+func NewHealthManager() *HealthManager {
+	return &HealthManager{
 		components: make([]common.HealthChecker, 0),
 	}
 }
 
-func (m *Manager) Register(component any) {
+func (m *HealthManager) Register(component any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -28,7 +28,7 @@ func (m *Manager) Register(component any) {
 	}
 }
 
-func (m *Manager) CheckLiveness(ctx context.Context) *common.ComponentHealth {
+func (m *HealthManager) CheckLiveness(ctx context.Context) *common.ComponentHealth {
 	return &common.ComponentHealth{
 		Name:      "liveness",
 		Status:    common.HealthStatusHealthy,
@@ -37,7 +37,7 @@ func (m *Manager) CheckLiveness(ctx context.Context) *common.ComponentHealth {
 	}
 }
 
-func (m *Manager) CheckReadiness(ctx context.Context) (common.HealthStatus, []*common.ComponentHealth) {
+func (m *HealthManager) CheckReadiness(ctx context.Context) (common.HealthStatus, []*common.ComponentHealth) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

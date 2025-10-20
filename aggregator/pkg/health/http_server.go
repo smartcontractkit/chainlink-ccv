@@ -11,12 +11,12 @@ import (
 )
 
 type HTTPHealthServer struct {
-	manager *Manager
+	manager *HealthManager
 	logger  logger.SugaredLogger
 	server  *http.Server
 }
 
-func NewHTTPHealthServer(manager *Manager, port string, logger logger.SugaredLogger) *HTTPHealthServer {
+func NewHTTPHealthServer(manager *HealthManager, port string, logger logger.SugaredLogger) *HTTPHealthServer {
 	mux := http.NewServeMux()
 
 	h := &HTTPHealthServer{

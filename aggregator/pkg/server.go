@@ -57,7 +57,6 @@ type Server struct {
 	checkpointStorage                  common.CheckpointStorageInterface
 	grpcServer                         *grpc.Server
 	batchWriteCommitCCVNodeDataHandler *handlers.BatchWriteCommitCCVNodeDataHandler
-	healthManager                      *health.Manager
 	httpHealthServer                   *health.HTTPHealthServer
 	runGroup                           *run.Group
 	stopChan                           chan struct{}
@@ -320,7 +319,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	recoverer := NewOrphanRecoverer(store, agg, config, l)
 
-	healthManager := health.NewManager()
+	healthManager := health.NewHealthManager()
 	healthManager.Register(store)
 	healthManager.Register(checkpointStorage)
 	healthManager.Register(rateLimitingMiddleware)
@@ -348,7 +347,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		readBlockCheckpointHandler:         readBlockCheckpointHandler,
 		batchWriteCommitCCVNodeDataHandler: batchWriteCommitCCVNodeDataHandler,
 		checkpointStorage:                  checkpointStorage,
-		healthManager:                      healthManager,
 		httpHealthServer:                   httpHealthServer,
 		grpcServer:                         grpcServer,
 		recoverer:                          recoverer,

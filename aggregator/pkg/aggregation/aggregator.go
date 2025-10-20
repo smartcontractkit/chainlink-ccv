@@ -29,6 +29,7 @@ type CommitReportAggregator struct {
 }
 
 type aggregationRequest struct {
+	// CommitteeID is the ID of the committee for the aggregation request.
 	CommitteeID model.CommitteeID
 	MessageID   model.MessageID
 }
