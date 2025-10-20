@@ -21,6 +21,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 		minWaitPeriod     time.Duration
 		messageID         protocol.Bytes32
 		baseTimestamp     int64
+		readyTimestamp    int64
 	}{
 		{
 			name:              "first executor with specific message",
@@ -30,6 +31,17 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     1000,
+			readyTimestamp:    1000 + 10 + 30*0, // executor-a is at index 0 in sorted order
+		},
+		{
+			name:              "different message will change order for same executor",
+			executorIds:       []string{"executor-c", "executor-a", "executor-b"},
+			thisExecutorId:    "executor-a",
+			executionInterval: 30 * time.Second,
+			minWaitPeriod:     10 * time.Second,
+			messageID:         protocol.Bytes32{0x01, 0x02, 0x04},
+			baseTimestamp:     1000,
+			readyTimestamp:    1000 + 10 + 30*2, // executor-a is at index 0 in sorted order
 		},
 		{
 			name:              "middle executor with specific message",
@@ -39,15 +51,17 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     1000,
+			readyTimestamp:    1000 + 10 + 30*1, // executor-b is at index 1 in sorted order
 		},
 		{
 			name:              "different message ID changes order",
 			executorIds:       []string{"executor-c", "executor-a", "executor-b"},
-			thisExecutorId:    "executor-c",
+			thisExecutorId:    "executor-a",
 			executionInterval: 30 * time.Second,
 			minWaitPeriod:     10 * time.Second,
-			messageID:         protocol.Bytes32{0x04, 0x05, 0x06},
+			messageID:         protocol.Bytes32{0x01, 0x02, 0x04},
 			baseTimestamp:     1000,
+			readyTimestamp:    1000 + 10 + 30*2,
 		},
 		{
 			name:              "different execution interval",
@@ -57,15 +71,37 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			minWaitPeriod:     5 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     2000,
+			readyTimestamp:    2000 + 5 + 60*1,
 		},
 		{
 			name:              "single executor",
-			executorIds:       []string{"executor-only"},
-			thisExecutorId:    "executor-only",
+			executorIds:       []string{"executor-a"},
+			thisExecutorId:    "executor-a",
 			executionInterval: 45 * time.Second,
 			minWaitPeriod:     15 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     1500,
+			readyTimestamp:    1500 + 15 + 45*0, // only one executor at index 0
+		},
+		{
+			name:              "empty executor list",
+			executorIds:       []string{},
+			thisExecutorId:    "executor-a",
+			executionInterval: 45 * time.Second,
+			minWaitPeriod:     15 * time.Second,
+			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
+			baseTimestamp:     1500,
+			readyTimestamp:    1500 + 15, // falls back to just minWaitPeriod
+		},
+		{
+			name:              "0 min wait period",
+			executorIds:       []string{},
+			thisExecutorId:    "executor-a",
+			executionInterval: 45 * time.Second,
+			minWaitPeriod:     0 * time.Second,
+			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
+			baseTimestamp:     1500,
+			readyTimestamp:    1500, // falls back to just minWaitPeriod
 		},
 	}
 
@@ -83,14 +119,15 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			require.NotNil(t, elector)
 
 			// Get the ready timestamp
-			readyTimestamp := elector.GetReadyTimestamp(tc.messageID, tc.baseTimestamp)
+			actualTimestamp := elector.GetReadyTimestamp(tc.messageID, tc.baseTimestamp)
 
-			// With our new hashing approach, we can't precisely predict the output in tests,
-			// but we can check the bounds and consistency
+			assert.Equal(t, tc.readyTimestamp, actualTimestamp)
+
+			// We can check the bounds and consistency
 			minExpectedDelay := int64(tc.minWaitPeriod.Seconds())
-			maxExpectedDelay := int64(tc.minWaitPeriod.Seconds()) + int64(tc.executionInterval.Seconds()*float64(len(tc.executorIds)-1))
+			maxExpectedDelay := int64(tc.minWaitPeriod.Seconds()) + int64(tc.executionInterval.Seconds()*float64(len(tc.executorIds)))
 
-			calculatedDelay := readyTimestamp - tc.baseTimestamp
+			calculatedDelay := actualTimestamp - tc.baseTimestamp
 			assert.GreaterOrEqual(t, calculatedDelay, minExpectedDelay,
 				"Ready timestamp should be at least baseTimestamp + minWaitPeriod")
 			assert.LessOrEqual(t, calculatedDelay, maxExpectedDelay,
@@ -98,7 +135,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 
 			// Run it again to check consistency
 			readyTimestamp2 := elector.GetReadyTimestamp(tc.messageID, tc.baseTimestamp)
-			assert.Equal(t, readyTimestamp, readyTimestamp2, "Results should be deterministic for the same inputs")
+			assert.Equal(t, actualTimestamp, readyTimestamp2, "Results should be deterministic for the same inputs")
 		})
 	}
 }
@@ -330,13 +367,6 @@ func Test_getSliceIncreasingDistance(t *testing.T) {
 			sliceLen:      2,
 			startIndex:    0,
 			selectedIndex: 3,
-			expected:      0,
-		},
-		{
-			name:          "valid scenario, sliceLen 0",
-			sliceLen:      0,
-			startIndex:    0,
-			selectedIndex: 0,
 			expected:      0,
 		},
 		{

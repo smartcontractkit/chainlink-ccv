@@ -80,19 +80,14 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 }
 
 func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
-	if sliceLen == 0 {
-		return 0
-	}
-	if sliceLen < 0 {
-		return 0
-	}
-	if startIndex < 0 || startIndex >= sliceLen {
-		return 0
-	}
-	if selectedIndex < 0 || selectedIndex >= sliceLen {
+	// invalid inputs, return 0
+	if sliceLen <= 0 ||
+		startIndex < 0 || startIndex >= sliceLen ||
+		selectedIndex < 0 || selectedIndex >= sliceLen {
 		return 0
 	}
 
+	// calculate distance in a circular manner
 	if selectedIndex == startIndex {
 		return 0
 	} else if selectedIndex < startIndex {
