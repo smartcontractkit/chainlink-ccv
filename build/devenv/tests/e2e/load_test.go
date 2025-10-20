@@ -264,7 +264,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout*90/100)
 				defer indexerCancel()
 
-				verifications, err := indexerClient.WaitForVerificationsForMessageID(indexerCheckCtx, msg.MessageID, 1*time.Second, timeout)
+				verifications, err := indexerClient.WaitForVerificationsForMessageID(indexerCheckCtx, msg.MessageID, 2*time.Second, timeout)
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 				if err != nil {
 					t.Logf("Message %d (ID: %s) did not reach indexer: %v", msg.SeqNo, msgIDHex, err)
