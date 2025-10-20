@@ -264,7 +264,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout*90/100)
 				defer indexerCancel()
 
-				verifications, err := indexerClient.WaitForVerificationsForMessageID(indexerCheckCtx, msg.MessageID, 2*time.Second, timeout)
+				indexedVerifications, err := indexerClient.WaitForVerificationsForMessageID(indexerCheckCtx, msg.MessageID, 2*time.Second, timeout)
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 				if err != nil {
 					t.Logf("Message %d (ID: %s) did not reach indexer: %v", msg.SeqNo, msgIDHex, err)
@@ -275,7 +275,7 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				totalIndexed++
 				indexedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
-				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, len(verifications.VerifierResults))
+				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, len(indexedVerifications.VerifierResults))
 
 				// Step 2: Wait for the execution event with context
 				execEvent, err := impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, timeout)
