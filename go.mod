@@ -54,7 +54,7 @@ require (
 	golang.org/x/sync v0.16.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.9
-	modernc.org/sqlite v1.39.0 // indirect
+	modernc.org/sqlite v1.37.1 // indirect
 )
 
 require (
