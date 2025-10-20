@@ -169,26 +169,52 @@ func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
 // This method uses an optimistic locking pattern via resetVersion to coordinate
 // with in-flight processEventCycle() calls. The sequence is:
 //  1. Acquire write lock
-//  2. Increment resetVersion (signals to cycles: "your read is now stale")
-//  3. Update lastProcessedBlock to the reset value
-//  4. Release lock
+//  2. Write checkpoint if resetBlock < lastCheckpointedBlock (finality violation scenario)
+//  3. Increment resetVersion (signals to cycles: "your read is now stale")
+//  4. Update lastProcessedBlock to the reset value
+//  5. Release lock
 //
-// Any processEventCycle() that captured the old version before step 2 will see
+// Any processEventCycle() that captured the old version before step 3 will see
 // the version mismatch and skip its lastProcessedBlock update, preserving the reset.
 //
 // The coordinator's reorgInProgress flag prevents new tasks from being queued
 // into the coordinator's pending queue during the reset window.
+//
+// Checkpoint handling:
+// For regular reorgs (non-finalized range), the common ancestor is always >= checkpoint,
+// so no checkpoint write is needed - periodic checkpointing will naturally advance.
+// For finality violations, the reset block falls below the last checkpoint, so we must
+// immediately persist the new checkpoint to ensure safe restart.
 func (r *SourceReaderService) ResetToBlock(ctx context.Context, block uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	resetBlock := new(big.Int).SetUint64(block)
 
+	// Check if we need to write checkpoint (resetBlock < lastCheckpointedBlock)
+	// This only happens during finality violations where we reset below finalized range
+	needsCheckpointWrite := r.lastCheckpointedBlock != nil && resetBlock.Cmp(r.lastCheckpointedBlock) < 0
+
 	r.logger.Infow("Resetting source reader to block",
 		"chainSelector", r.chainSelector,
 		"fromBlock", r.lastProcessedBlock,
 		"toBlock", resetBlock,
+		"lastCheckpoint", r.lastCheckpointedBlock,
+		"needsCheckpointWrite", needsCheckpointWrite,
 		"resetVersion", r.resetVersion.Load()+1)
+
+	// Write checkpoint FIRST if needed (before updating in-memory state)
+	// This ensures restart safety for finality violations
+	if needsCheckpointWrite && r.checkpointManager != nil {
+		if err := r.checkpointManager.WriteCheckpoint(ctx, r.chainSelector, resetBlock); err != nil {
+			return fmt.Errorf("failed to persist reset checkpoint: %w", err)
+		}
+		r.logger.Infow("Reset checkpoint persisted successfully",
+			"chainSelector", r.chainSelector,
+			"checkpointBlock", resetBlock.String())
+		r.lastCheckpointedBlock = new(big.Int).Set(resetBlock)
+		r.lastCheckpointTime = time.Now()
+	}
 
 	// Increment version to signal in-flight cycles that their read is stale
 	r.resetVersion.Add(1)
@@ -391,6 +417,10 @@ func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context, last
 
 // updateCheckpoint writes a checkpoint if conditions are met.
 // Takes lastProcessedBlock as parameter to avoid races with concurrent updates.
+//
+// Thread-safety:
+// Uses optimistic locking via resetVersion to prevent overwriting a reset checkpoint.
+// If a reset occurs between checkpoint calculation and write, the stale write is skipped.
 func (r *SourceReaderService) updateCheckpoint(ctx context.Context, lastProcessed *big.Int) {
 	// Skip if no checkpoint manager
 	if r.checkpointManager == nil {
@@ -402,7 +432,11 @@ func (r *SourceReaderService) updateCheckpoint(ctx context.Context, lastProcesse
 		return
 	}
 
+	// Capture version before starting checkpoint calculation
+	versionBeforeCalc := r.resetVersion.Load()
+
 	// Calculate safe checkpoint block (finalized - buffer)
+	// This may take time due to RPC calls
 	checkpointBlock, err := r.calculateCheckpointBlock(ctx, lastProcessed)
 	if err != nil {
 		r.logger.Warnw("Failed to calculate checkpoint block", "error", err)
@@ -412,6 +446,20 @@ func (r *SourceReaderService) updateCheckpoint(ctx context.Context, lastProcesse
 	if checkpointBlock == nil {
 		// Too early to checkpoint (still in buffer zone from genesis)
 		r.logger.Debugw("Skipping checkpoint - too early")
+		return
+	}
+
+	// Acquire lock to check for staleness and perform write atomically
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Check if a reset occurred during our calculation
+	currentVersion := r.resetVersion.Load()
+	if currentVersion != versionBeforeCalc {
+		r.logger.Debugw("Skipping stale checkpoint write due to concurrent reset",
+			"calculatedCheckpoint", checkpointBlock.String(),
+			"versionBeforeCalc", versionBeforeCalc,
+			"currentVersion", currentVersion)
 		return
 	}
 

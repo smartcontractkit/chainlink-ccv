@@ -896,6 +896,9 @@ func (vc *Coordinator) handleReorg(
 	state.pendingMu.Unlock()
 
 	// 2. Reset SourceReaderService synchronously
+	// Note: For regular reorgs, the common ancestor is always >= last checkpoint,
+	// so ResetToBlock will update in-memory position without writing checkpoint.
+	// Periodic checkpointing will naturally advance from this point.
 	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -904,26 +907,13 @@ func (vc *Coordinator) handleReorg(
 			"error", err,
 			"chain", chainSelector,
 			"resetBlock", commonAncestor)
-		// Continue with checkpoint reset anyway
+		// Log error but continue - source reader will retry on next cycle
 	} else {
 		vc.lggr.Infow("Source reader reset successfully",
 			"chain", chainSelector,
 			"resetBlock", commonAncestor)
 	}
 
-	// 3. Reset checkpoint
-	if vc.checkpointManager != nil {
-		err := vc.checkpointManager.WriteCheckpoint(
-			ctx,
-			chainSelector,
-			big.NewInt(int64(commonAncestor)),
-		)
-		if err != nil {
-			vc.lggr.Errorw("Failed to reset checkpoint after reorg", "error", err, "chain", chainSelector)
-		}
-	}
-
-	// 4. Log completion and metrics
 	vc.lggr.Infow("Reorg handled successfully",
 		"chain", chainSelector,
 		"depth", depth,
@@ -960,17 +950,22 @@ func (vc *Coordinator) handleFinalityViolation(
 		"chain", chainSelector,
 		"flushedCount", flushedCount)
 
-	// 2. Reset checkpoint to safe restart block
-	if vc.checkpointManager != nil {
-		err := vc.checkpointManager.WriteCheckpoint(
-			ctx,
-			chainSelector,
-			big.NewInt(int64(violationStatus.SafeRestartBlock)),
-		)
-		if err != nil {
-			vc.lggr.Errorw("Failed to reset checkpoint after finality violation",
-				"error", err, "chain", chainSelector)
-		}
+	// 2. Reset SourceReaderService to safe restart block
+	// Note: For finality violations, SafeRestartBlock < last checkpoint,
+	// so ResetToBlock will automatically persist the checkpoint to ensure safe restart.
+	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := state.reader.ResetToBlock(resetCtx, violationStatus.SafeRestartBlock); err != nil {
+		vc.lggr.Errorw("Failed to reset source reader after finality violation",
+			"error", err,
+			"chain", chainSelector,
+			"resetBlock", violationStatus.SafeRestartBlock)
+		// Critical error - continue with stop anyway
+	} else {
+		vc.lggr.Infow("Source reader reset successfully with checkpoint persisted",
+			"chain", chainSelector,
+			"resetBlock", violationStatus.SafeRestartBlock)
 	}
 
 	// 3. Stop SourceReaderService completely for finality violations
