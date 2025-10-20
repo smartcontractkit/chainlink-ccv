@@ -10,9 +10,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	vcommon "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
+
+	vcommon "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 )
 
 // StartCCVComitteeVerifier starts the Committee Verifier with evm chains.
