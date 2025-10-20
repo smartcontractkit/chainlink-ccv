@@ -69,7 +69,9 @@ jobs:
         id: smoke_test
         working-directory: build/devenv/tests/e2e
         run: |
-          go test -v -timeout 15m -count=1 -run 'TestE2ESmoke' -json | tee test-results.json
+          go install github.com/mfridman/tparse@latest
+          set -o pipefail
+          go test -v -timeout 15m -count=1 -run 'TestE2ESmoke' -json | tee test-results.json | tparse
         continue-on-error: true
 
       - name: Create test summary
@@ -77,9 +79,9 @@ jobs:
         working-directory: build/devenv/tests/e2e
         run: |
           echo "### E2E Smoke Test Results" > test-summary.md
-          echo "| Test Case | Status |" >> test-summary.md
-          echo "|-----------|--------|" >> test-summary.md
-          cat test-results.json | jq -r '. | select(.Test != null and (.Action=="pass" or .Action=="fail")) | "| `\(.Test)` | `\(.Action)` |"' >> test-summary.md
+          echo "| Test Case | Status | Duration |" >> test-summary.md
+          echo "|-----------|--------|----------|" >> test-summary.md
+          cat test-results.json | jq -r '. | select(.Test != null and (.Action=="pass" or .Action=="fail")) | "| `\(.Test)` | `\(.Action)` | `\(.Elapsed)s` |"' >> test-summary.md
           echo "" >> test-summary.md
           echo "Full logs are available in the workflow artifacts." >> test-summary.md
 
@@ -128,3 +130,9 @@ jobs:
           name: container-logs-smoke
           path: build/devenv/tests/e2e/logs
           retention-days: 1
+
+      - name: Check test results
+        if: always() && steps.smoke_test.outcome == 'failure'
+        run: |
+          echo "Smoke tests failed."
+          exit 1
