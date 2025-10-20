@@ -13,8 +13,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 /*
@@ -153,4 +157,77 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 	}
 
 	return response, nil
+}
+
+type AggregatorClient struct {
+	logger     zerolog.Logger
+	addr       string
+	grpcClient pb.VerifierResultAPIClient
+	conn       *grpc.ClientConn
+}
+
+func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient, error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
+	}
+
+	return &AggregatorClient{
+		logger:     logger,
+		addr:       addr,
+		grpcClient: pb.NewVerifierResultAPIClient(conn),
+		conn:       conn,
+	}, nil
+}
+
+func (a *AggregatorClient) Close() error {
+	if a.conn != nil {
+		return a.conn.Close()
+	}
+	return nil
+}
+
+func (a *AggregatorClient) WaitForVerifierResultForMessage(
+	ctx context.Context,
+	messageID [32]byte,
+	tickInterval time.Duration,
+	timeout time.Duration,
+) (*pb.VerifierResult, error) {
+	msgIDHex := common.BytesToHash(messageID[:]).Hex()
+	ticker := time.NewTicker(tickInterval)
+	defer ticker.Stop()
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, timeout)
+	defer timeoutCancel()
+
+	for {
+		select {
+		case <-timeoutCtx.Done():
+			return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
+		case <-ticker.C:
+			result, err := a.GetVerifierResultForMessage(ctx, messageID)
+			if err != nil {
+				a.logger.Error().Err(err).Msgf("failed to get verifier result for messageID: %s, retrying", msgIDHex)
+				continue
+			}
+			if result != nil && len(result.CcvData) > 0 {
+				a.logger.Info().
+					Str("messageID", msgIDHex).
+					Int("ccvDataLen", len(result.CcvData)).
+					Msg("found verifier result for messageID in aggregator")
+				return result, nil
+			}
+			a.logger.Error().Msgf("no verifier result found for messageID: %s, retrying", msgIDHex)
+		}
+	}
+}
+
+func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, messageID [32]byte) (*pb.VerifierResult, error) {
+	resp, err := a.grpcClient.GetVerifierResultForMessage(ctx, &pb.GetVerifierResultForMessageRequest{
+		MessageId: messageID[:],
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get verifier result: %w", err)
+	}
+
+	return resp, nil
 }
