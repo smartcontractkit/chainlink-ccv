@@ -123,13 +123,13 @@ func TestE2ESmoke(t *testing.T) {
 				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
 				// check that the message was picked up by the indexer
-				verifications, err := indexerClient.WaitForVerificationsForMessageID(
+				indexedVerifications, err := indexerClient.WaitForVerificationsForMessageID(
 					ctx,
 					sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId,
 					1*time.Second,
 					defaultSentTimeout)
 				require.NoError(t, err)
-				require.Len(t, verifications.VerifierResults, tc.numExpectedVerifications)
+				require.Len(t, indexedVerifications.VerifierResults, tc.numExpectedVerifications)
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
