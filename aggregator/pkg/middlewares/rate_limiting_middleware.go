@@ -108,7 +108,7 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 
 	limitConfig, hasLimit := m.getLimitConfig(identity.CallerID, info.FullMethod)
 	if !hasLimit {
-		return handler(ctx, req)
+		limitConfig = model.RateLimitConfig{LimitPerMinute: 0}
 	}
 
 	rate := limiter.Rate{
