@@ -171,7 +171,9 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 	if !ok {
 		return nil, fmt.Errorf("no on ramp for selector %d", from)
 	}
-	filter, err := onRamp.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, nil, nil)
+	filter, err := onRamp.FilterCCIPMessageSent(&bind.FilterOpts{
+		Context: ctx,
+	}, []uint64{to}, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create filter: %w", err)
 	}
@@ -209,7 +211,9 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 	if !ok {
 		return nil, fmt.Errorf("no off ramp for selector %d", from)
 	}
-	filter, err := offRamp.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{to}, nil, nil)
+	filter, err := offRamp.FilterExecutionStateChanged(&bind.FilterOpts{
+		Context: ctx,
+	}, []uint64{to}, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create filter: %w", err)
 	}

@@ -2,10 +2,8 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/big"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -17,8 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -36,7 +32,6 @@ import (
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	f "github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -231,98 +226,9 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	return &wasp.Response{Data: "ok"}
 }
 
-// waitForMessageInAggregator polls the aggregator gRPC API until the message appears or context timeout.
-// Returns the verifier result and an error if timeout/failure occurs.
-func waitForMessageInAggregator(ctx context.Context, client pb.VerifierResultAPIClient, messageID [32]byte) (*pb.VerifierResult, error) {
-	msgIDHex := common.BytesToHash(messageID[:]).Hex()
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("aggregator check timeout for message %s: %w", msgIDHex, ctx.Err())
-		case <-ticker.C:
-			resp, err := client.GetVerifierResultForMessage(ctx, &pb.GetVerifierResultForMessageRequest{
-				MessageId: messageID[:],
-			})
-			if err != nil {
-				continue
-			}
-
-			if resp != nil && len(resp.CcvData) > 0 {
-				return resp, nil
-			}
-		}
-	}
-}
-
-// waitForMessageInIndexer polls the indexer API until the message appears or context timeout.
-// Returns the number of verifications found and an error if timeout/failure occurs.
-func waitForMessageInIndexer(ctx context.Context, httpClient *http.Client, indexerBaseURL string, messageID [32]byte) (int, error) {
-	msgIDHex := common.BytesToHash(messageID[:]).Hex()
-
-	type messageIDResp struct {
-		Success         bool   `json:"success"`
-		VerifierResults []any  `json:"verifierResults"`
-		MessageID       string `json:"messageID"`
-	}
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return 0, fmt.Errorf("indexer check timeout for message %s: %w", msgIDHex, ctx.Err())
-		case <-ticker.C:
-			req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-				fmt.Sprintf("%s/v1/messageid/%s", indexerBaseURL, msgIDHex), nil)
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				continue
-			}
-
-			var parsed messageIDResp
-			err = func() error {
-				defer resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					return fmt.Errorf("non-200 status: %d", resp.StatusCode)
-				}
-				return json.NewDecoder(resp.Body).Decode(&parsed)
-			}()
-
-			if err == nil && parsed.Success && len(parsed.VerifierResults) > 0 {
-				return len(parsed.VerifierResults), nil
-			}
-		}
-	}
-}
-
-func createAggregatorClient(t *testing.T, aggregatorAddr string) (pb.VerifierResultAPIClient, func()) {
-	aggregatorConn, err := grpc.NewClient(
-		aggregatorAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		t.Fatalf("Failed to connect to aggregator: %v", err)
-	}
-	return pb.NewVerifierResultAPIClient(aggregatorConn), func() {
-		aggregatorConn.Close()
-	}
-}
-
-// assertMessagesAsync starts async verification of messages as they are sent via channel.
-// Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts.
-// The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent.
-func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, aggregatorAddr, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
+func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
-
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-
-	aggregatorClient, aggregatorClientCleanup := createAggregatorClient(t, aggregatorAddr)
 
 	metricsChan := make(chan MessageMetrics, 100)
 	var wg sync.WaitGroup
@@ -358,11 +264,10 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 
-				// Step 1: Check if message reached aggregator (with timeout)
 				aggregatorCheckCtx, aggregatorCancel := context.WithTimeout(verifyCtx, timeout*85/100)
 				defer aggregatorCancel()
 
-				verifierResult, err := waitForMessageInAggregator(aggregatorCheckCtx, aggregatorClient, msg.MessageID)
+				verifierResult, err := aggregatorClient.WaitForVerifierResultForMessage(aggregatorCheckCtx, msg.MessageID, 2*time.Second, timeout)
 				if err != nil {
 					t.Logf("Message %d (ID: %s) did not reach aggregator: %v", msg.SeqNo, msgIDHex, err)
 					return
@@ -372,13 +277,12 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				totalAggregated++
 				aggregatedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
-				t.Logf("Message %d reached aggregator with sequence %d", msg.SeqNo, verifierResult.Sequence)
+				t.Logf("Message %d reached aggregator with %d ccv data entries", msg.SeqNo, len(verifierResult.CcvData))
 
-				// Step 2: Check if message reached indexer (with timeout)
 				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout*90/100)
 				defer indexerCancel()
 
-				verifierCount, err := waitForMessageInIndexer(indexerCheckCtx, httpClient, indexerBaseURL, msg.MessageID)
+				indexedVerifications, err := indexerClient.WaitForVerificationsForMessageID(indexerCheckCtx, msg.MessageID, 2*time.Second, timeout)
 				if err != nil {
 					t.Logf("Message %d (ID: %s) did not reach indexer: %v", msg.SeqNo, msgIDHex, err)
 					return
@@ -388,9 +292,8 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 				totalIndexed++
 				indexedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
-				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, verifierCount)
+				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, len(indexedVerifications.VerifierResults))
 
-				// Step 3: Wait for the execution event with context
 				execEvent, err := impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, timeout)
 
 				if verifyCtx.Err() != nil {
@@ -458,8 +361,6 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 	// Return function that collects metrics and counts
 	return func() ([]MessageMetrics, MessageTotals) {
-		defer aggregatorClientCleanup()
-
 		metrics := make([]MessageMetrics, 0, 100)
 		for metric := range metricsChan {
 			metrics = append(metrics, metric)
@@ -580,14 +481,6 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		}
 	}
 
-	// Find messages that were aggregated but not indexed
-	aggregatedNotIndexed := make(map[uint64]string)
-	for seqNo, msgID := range summary.AggregatedMessages {
-		if _, indexed := summary.IndexedMessages[seqNo]; !indexed {
-			aggregatedNotIndexed[seqNo] = msgID
-		}
-	}
-
 	// Find messages that were sent but not indexed
 	notIndexed := make(map[uint64]string)
 	for seqNo, msgID := range summary.SentMessages {
@@ -616,20 +509,6 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
 		for _, seqNo := range seqNos {
 			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, notAggregated[seqNo])
-		}
-	}
-
-	if len(aggregatedNotIndexed) > 0 {
-		t.Logf("\n========================================")
-		t.Logf("Messages Aggregated but NOT Indexed (%d):", len(aggregatedNotIndexed))
-		t.Logf("========================================")
-		seqNos := make([]uint64, 0, len(aggregatedNotIndexed))
-		for seqNo := range aggregatedNotIndexed {
-			seqNos = append(seqNos, seqNo)
-		}
-		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
-		for _, seqNo := range seqNos {
-			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, aggregatedNotIndexed[seqNo])
 		}
 	}
 
@@ -740,6 +619,22 @@ func TestE2ELoad(t *testing.T) {
 	impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
+	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+	indexerClient := ccv.NewIndexerClient(
+		zerolog.Ctx(ctx).With().Str("indexer_url", indexerURL).Logger(),
+		indexerURL)
+	require.NotNil(t, indexerClient)
+
+	aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
+	aggregatorClient, err := ccv.NewAggregatorClient(
+		zerolog.Ctx(ctx).With().Str("aggregator_addr", aggregatorAddr).Logger(),
+		aggregatorAddr)
+	require.NoError(t, err)
+	require.NotNil(t, aggregatorClient)
+	t.Cleanup(func() {
+		aggregatorClient.Close()
+	})
+
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
 		rps := int64(5)
@@ -747,10 +642,7 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorAddr, indexerURL, 5*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorClient, indexerClient, 5*time.Minute)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -776,10 +668,7 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorAddr, indexerURL, 220*time.Second)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorClient, indexerClient, 220*time.Second)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -800,10 +689,7 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorAddr, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorClient, indexerClient, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -871,10 +757,7 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorAddr, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorClient, indexerClient, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -1036,10 +919,7 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
-		indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorAddr, indexerURL, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, aggregatorClient, indexerClient, 10*time.Minute)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
