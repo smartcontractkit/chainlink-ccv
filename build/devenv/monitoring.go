@@ -13,11 +13,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 /*
-Loki labels
+Loki labels.
 */
 const (
 	LokiCCIPMessageSentLabel       = "on-chain-sent"
