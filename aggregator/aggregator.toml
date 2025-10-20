@@ -4,6 +4,9 @@ pyroscope_url = "http://pyroscope:4040"
 [server]
   address = ":50051"
 
+[healthCheck]
+  enabled = true
+
 [storage]
   type = "postgres"
   connectionURL = "postgres://aggregator:aggregator@aggregator-db:5432/aggregator?sslmode=disable"

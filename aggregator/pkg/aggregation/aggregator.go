@@ -25,12 +25,47 @@ type CommitReportAggregator struct {
 	quorum        QuorumValidator
 	l             logger.SugaredLogger
 	monitoring    common.AggregatorMonitoring
+	done          chan struct{}
 }
 
 type aggregationRequest struct {
 	// CommitteeID is the ID of the committee for the aggregation request.
 	CommitteeID model.CommitteeID
 	MessageID   model.MessageID
+}
+
+func (c *CommitReportAggregator) HealthCheck(ctx context.Context) *common.ComponentHealth {
+	result := &common.ComponentHealth{
+		Name:      "aggregation_service",
+		Timestamp: time.Now(),
+	}
+
+	select {
+	case <-c.done:
+		result.Status = common.HealthStatusUnhealthy
+		result.Message = "aggregation worker stopped"
+		return result
+	default:
+	}
+
+	pending := len(c.messageIDChan)
+	capacity := cap(c.messageIDChan)
+
+	if pending >= capacity {
+		result.Status = common.HealthStatusDegraded
+		result.Message = "aggregation queue full"
+		return result
+	}
+
+	if float64(pending)/float64(capacity) > 0.8 {
+		result.Status = common.HealthStatusDegraded
+		result.Message = "aggregation queue high"
+		return result
+	}
+
+	result.Status = common.HealthStatusHealthy
+	result.Message = "aggregation queue healthy"
+	return result
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
@@ -132,7 +167,9 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 // StartBackground begins processing aggregation requests in the background.
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
+	c.done = make(chan struct{})
 	go func() {
+		defer close(c.done)
 		for {
 			select {
 			case request := <-c.messageIDChan:
