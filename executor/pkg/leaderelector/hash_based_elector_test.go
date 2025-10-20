@@ -350,8 +350,7 @@ func Test_getSliceIncreasingDistance(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			lggr := logger.Test(t)
-			result := getSliceIncreasingDistance(lggr, tc.sliceLen, tc.startIndex, tc.selectedIndex)
+			result := getSliceIncreasingDistance(tc.sliceLen, tc.startIndex, tc.selectedIndex)
 			assert.Equal(t, tc.expected, result,
 				"Distance from startIndex %d to selectedIndex %d in slice of length %d should be %d",
 				tc.startIndex, tc.selectedIndex, tc.sliceLen, tc.expected)

@@ -70,7 +70,7 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	// This creates a message-specific ordering of executors
 	startIndex := int(hashValue % uint64(len(h.executorIDs))) //nolint:gosec // G115: modulo will result in positive
 
-	delayMultiplier := getSliceIncreasingDistance(h.lggr, len(h.executorIDs), startIndex, h.executorIndex)
+	delayMultiplier := getSliceIncreasingDistance(len(h.executorIDs), startIndex, h.executorIndex)
 
 	// Calculate ready timestamp: baseTimestamp + (arrayIndex * executionInterval) + minWaitPeriod
 	delaySeconds := delayMultiplier*int64(h.executionInterval.Seconds()) + int64(h.minWaitPeriod.Seconds())
@@ -79,20 +79,17 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	return baseTimestamp + delaySeconds
 }
 
-func getSliceIncreasingDistance(lggr logger.Logger, sliceLen, startIndex, selectedIndex int) int64 {
+func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
 	if sliceLen == 0 {
 		return 0
 	}
 	if sliceLen < 0 {
-		lggr.Errorw("getSliceIncreasingDistance called with non-positive sliceLen", "sliceLen", sliceLen)
 		return 0
 	}
 	if startIndex < 0 || startIndex >= sliceLen {
-		lggr.Errorw("getSliceIncreasingDistance called with invalid startIndex", "startIndex", startIndex)
 		return 0
 	}
 	if selectedIndex < 0 || selectedIndex >= sliceLen {
-		lggr.Errorw("getSliceIncreasingDistance called with invalid selectedIndex", "selectedIndex", selectedIndex)
 		return 0
 	}
 
