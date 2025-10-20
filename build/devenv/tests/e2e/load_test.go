@@ -247,7 +247,6 @@ func waitForMessageInAggregator(ctx context.Context, client pb.VerifierResultAPI
 			resp, err := client.GetVerifierResultForMessage(ctx, &pb.GetVerifierResultForMessageRequest{
 				MessageId: messageID[:],
 			})
-
 			if err != nil {
 				continue
 			}
@@ -317,7 +316,7 @@ func createAggregatorClient(t *testing.T, aggregatorAddr string) (pb.VerifierRes
 // assertMessagesAsync starts async verification of messages as they are sent via channel.
 // Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts.
 // The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent.
-func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, aggregatorAddr string, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
+func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, aggregatorAddr, indexerBaseURL string, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
 
