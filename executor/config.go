@@ -20,7 +20,7 @@ type Configuration struct {
 	ExecutorID         string                              `toml:"executor_id"`
 	ExecutionInterval  string                              `toml:"execution_interval"`
 	MinWait            string                              `toml:"min_wait"`
-	Monitoring        MonitoringConfig                    `toml:"Monitoring"`
+	Monitoring         MonitoringConfig                    `toml:"Monitoring"`
 	CcvInfoCacheExpiry string                              `toml:"ccv_info_cache_expiry"`
 }
 
@@ -150,6 +150,8 @@ func (b *BeholderConfig) Validate() error {
 	}
 
 	return nil
+}
+
 func (c *Configuration) GetCCVInfoCacheExpiry() time.Duration {
 	d, err := time.ParseDuration(c.CcvInfoCacheExpiry)
 	if err != nil {
