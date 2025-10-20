@@ -59,23 +59,19 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 // If not all supplementary information is available (ie not enough verifierResults) it will return an error and the message will not be attempted.
 func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message protocol.Message) error {
 	destinationChain := message.DestChainSelector
+	executable, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
+		ctx,
+		message,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to check IsMessageExecutable: %w", err)
+	}
+	if !executable {
+		cle.lggr.Infof("message %d already executed on chain %d, skipping...", message.Nonce, destinationChain)
+		return executor.ErrMsgAlreadyExecuted
+	}
 
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		messageExecuted, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
-			ctx,
-			message,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to check IsMessageExecuted: %w", err)
-		}
-		if messageExecuted {
-			cle.lggr.Infof("message %d already executed on chain %d, skipping...", message.Nonce, destinationChain)
-			return executor.ErrMsgAlreadyExecuted
-		}
-		return nil
-	})
-
 	ccvData := make([]protocol.CCVData, 0)
 	g.Go(func() error {
 		id, _ := message.MessageID()

@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // HashBasedLeaderElector implements deterministic leader election based on message ID hash
 // and executor position in a sorted list of executor IDs.
 type HashBasedLeaderElector struct {
+	lggr              logger.Logger
 	executorIDs       []string
 	thisExecutorID    string
 	executionInterval time.Duration
@@ -20,6 +22,7 @@ type HashBasedLeaderElector struct {
 
 // NewHashBasedLeaderElector creates a new hash-based leader elector.
 func NewHashBasedLeaderElector(
+	lggr logger.Logger,
 	executorIDs []string,
 	thisExecutorID string,
 	executionInterval time.Duration,
@@ -40,6 +43,7 @@ func NewHashBasedLeaderElector(
 	}
 
 	return &HashBasedLeaderElector{
+		lggr:              lggr,
 		executorIDs:       sortedExecutorIDs,
 		thisExecutorID:    thisExecutorID,
 		executionInterval: executionInterval,
@@ -64,10 +68,39 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 
 	// Calculate position in execution order for this message
 	// This creates a message-specific ordering of executors
-	executorIndex := int64(hashValue % uint64(len(h.executorIDs))) //nolint:gosec // G115: modulo will result in positive
+	startIndex := int(hashValue % uint64(len(h.executorIDs))) //nolint:gosec // G115: modulo will result in positive
+
+	delayMultiplier := getSliceIncreasingDistance(h.lggr, len(h.executorIDs), startIndex, h.executorIndex)
 
 	// Calculate ready timestamp: baseTimestamp + (arrayIndex * executionInterval) + minWaitPeriod
-	delaySeconds := executorIndex*int64(h.executionInterval.Seconds()) + int64(h.minWaitPeriod.Seconds())
+	delaySeconds := delayMultiplier*int64(h.executionInterval.Seconds()) + int64(h.minWaitPeriod.Seconds())
 
+	h.lggr.Debugf("using delay of minWait(%d) + indexDistance(%d) * executionMultipler(%s) = %d seconds", h.minWaitPeriod, delayMultiplier, h.executionInterval, delaySeconds)
 	return baseTimestamp + delaySeconds
+}
+
+func getSliceIncreasingDistance(lggr logger.Logger, sliceLen, startIndex, selectedIndex int) int64 {
+	if sliceLen == 0 {
+		return 0
+	}
+	if sliceLen < 0 {
+		lggr.Errorw("getSliceIncreasingDistance called with non-positive sliceLen", "sliceLen", sliceLen)
+		return 0
+	}
+	if startIndex < 0 || startIndex >= sliceLen {
+		lggr.Errorw("getSliceIncreasingDistance called with invalid startIndex", "startIndex", startIndex)
+		return 0
+	}
+	if selectedIndex < 0 || selectedIndex >= sliceLen {
+		lggr.Errorw("getSliceIncreasingDistance called with invalid selectedIndex", "selectedIndex", selectedIndex)
+		return 0
+	}
+
+	if selectedIndex == startIndex {
+		return 0
+	} else if selectedIndex < startIndex {
+		// if selectedIndex is lower, we cycle
+		return int64(sliceLen - startIndex + selectedIndex)
+	}
+	return int64(selectedIndex - startIndex)
 }

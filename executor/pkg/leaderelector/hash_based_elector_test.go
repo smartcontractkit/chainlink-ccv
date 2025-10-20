@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestHashBasedLeaderElector(t *testing.T) {
@@ -72,6 +73,7 @@ func TestHashBasedLeaderElector(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create the leader elector
 			elector := NewHashBasedLeaderElector(
+				logger.Test(t),
 				tc.executorIds,
 				tc.thisExecutorId,
 				tc.executionInterval,
@@ -114,7 +116,7 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 	// Test that all executors agree on the relative ordering for each message
 	electors := make(map[string]*HashBasedLeaderElector)
 	for _, id := range executorIds {
-		electors[id] = NewHashBasedLeaderElector(executorIds, id, executionInterval, minWaitPeriod)
+		electors[id] = NewHashBasedLeaderElector(logger.Test(t), executorIds, id, executionInterval, minWaitPeriod)
 	}
 
 	// Check message1 ordering
@@ -186,7 +188,7 @@ func TestHashBasedLeaderElector_ExecutorNotInList(t *testing.T) {
 	messageID := protocol.Bytes32{0x01, 0x02, 0x03}
 	baseTimestamp := int64(1000)
 
-	elector := NewHashBasedLeaderElector(executorIds, thisExecutorId, executionInterval, minWaitPeriod)
+	elector := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval, minWaitPeriod)
 
 	readyTimestamp := elector.GetReadyTimestamp(messageID, baseTimestamp)
 
@@ -223,6 +225,7 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			elector := NewHashBasedLeaderElector(
+				logger.Test(t),
 				tc.executorIds,
 				tc.thisExecutorId,
 				30*time.Second,
@@ -233,6 +236,125 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
 				"Executor index should match expected position in sorted array")
 			assert.Equal(t, tc.expectedSortedIds, elector.executorIDs,
 				"Executor IDs should be sorted")
+		})
+	}
+}
+
+func Test_getSliceIncreasingDistance(t *testing.T) {
+	testCases := []struct {
+		name          string
+		sliceLen      int
+		startIndex    int
+		selectedIndex int
+		expected      int64
+	}{
+		{
+			name:          "same index returns zero distance",
+			sliceLen:      5,
+			startIndex:    2,
+			selectedIndex: 2,
+			expected:      0,
+		},
+		{
+			name:          "selected index before start - wraps around",
+			sliceLen:      5,
+			startIndex:    3,
+			selectedIndex: 1,
+			expected:      3, // 5 - 3 + 1 = 3 (wrap around: 3->4->0->1)
+		},
+		{
+			name:          "selected index after start",
+			sliceLen:      5,
+			startIndex:    1,
+			selectedIndex: 3,
+			expected:      2, // distance from 1 to 3 is 2
+		},
+		{
+			name:          "wrap around from end to beginning",
+			sliceLen:      4,
+			startIndex:    3,
+			selectedIndex: 0,
+			expected:      1, // 4 - 3 + 0 = 1 (wrap: 3->0)
+		},
+		{
+			name:          "wrap around with larger distance",
+			sliceLen:      10,
+			startIndex:    8,
+			selectedIndex: 2,
+			expected:      4, // 10 - 8 + 2 = 4 (wrap: 8->9->0->1->2)
+		},
+		{
+			name:          "first to last in array",
+			sliceLen:      5,
+			startIndex:    0,
+			selectedIndex: 4,
+			expected:      4, // 4 - 0 = 4
+		},
+		{
+			name:          "last to first wraps",
+			sliceLen:      5,
+			startIndex:    4,
+			selectedIndex: 0,
+			expected:      1, // 5 - 4 + 0 = 1
+		},
+		{
+			name:          "single element array",
+			sliceLen:      1,
+			startIndex:    0,
+			selectedIndex: 0,
+			expected:      0,
+		},
+		{
+			name:          "two element array - forward",
+			sliceLen:      2,
+			startIndex:    0,
+			selectedIndex: 1,
+			expected:      1,
+		},
+		{
+			name:          "two element array - wrap",
+			sliceLen:      2,
+			startIndex:    1,
+			selectedIndex: 0,
+			expected:      1, // 2 - 1 + 0 = 1
+		},
+		{
+			name:          "error scenario, invalid startIndex",
+			sliceLen:      2,
+			startIndex:    3,
+			selectedIndex: 0,
+			expected:      0,
+		},
+		{
+			name:          "error scenario, invalid selectedIndex",
+			sliceLen:      2,
+			startIndex:    0,
+			selectedIndex: 3,
+			expected:      0,
+		},
+		{
+			name:          "valid scenario, sliceLen 0",
+			sliceLen:      0,
+			startIndex:    0,
+			selectedIndex: 0,
+			expected:      0,
+		},
+		{
+			name:          "valid scenario, sliceLen 0",
+			sliceLen:      0,
+			startIndex:    0,
+			selectedIndex: 0,
+			expected:      0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			lggr := logger.Test(t)
+			result := getSliceIncreasingDistance(lggr, tc.sliceLen, tc.startIndex, tc.selectedIndex)
+			assert.Equal(t, tc.expected, result,
+				"Distance from startIndex %d to selectedIndex %d in slice of length %d should be %d",
+				tc.startIndex, tc.selectedIndex, tc.sliceLen, tc.expected)
 		})
 	}
 }
