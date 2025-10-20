@@ -26,12 +26,11 @@ type sourceState struct {
 	chainSelector      protocol.ChainSelector
 
 	// Reorg detection (per-source)
-	reorgDetector       protocol.ReorgDetector
-	reorgStatusCh       <-chan protocol.ChainStatus     // Receive-only, from detector.Start()
-	reorgNotificationCh chan protocol.ReorgNotification // Send to SourceReaderService
-	chainStatus         protocol.ChainStatus
-	chainStatusMu       sync.RWMutex
-	reorgInProgress     atomic.Bool // Set during reorg handling to prevent new tasks from being added
+	reorgDetector   protocol.ReorgDetector
+	reorgStatusCh   <-chan protocol.ChainStatus // Receive-only, from detector.Start()
+	chainStatus     protocol.ChainStatus
+	chainStatusMu   sync.RWMutex
+	reorgInProgress atomic.Bool // Set during reorg handling to prevent new tasks from being added
 
 	// Per-chain pending task queue
 	pendingTasks []VerificationTask
@@ -206,9 +205,6 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			continue
 		}
 
-		// 1. Create reorg notification channel (for SourceReaderService)
-		reorgNotificationCh := make(chan protocol.ReorgNotification, 1)
-
 		var sourcePollInterval = DefaultSourceReaderPollInterval
 		if sourceCfg.PollInterval > 0 {
 			sourcePollInterval = sourceCfg.PollInterval
@@ -219,16 +215,14 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			chainSelector,
 			vc.checkpointManager,
 			vc.lggr,
-			reorgNotificationCh,
 			sourcePollInterval,
 		)
 
 		// Create source state
 		state := &sourceState{
-			reader:              service,
-			chainSelector:       chainSelector,
-			verificationTaskCh:  service.VerificationTaskChannel(),
-			reorgNotificationCh: reorgNotificationCh,
+			reader:             service,
+			chainSelector:      chainSelector,
+			verificationTaskCh: service.VerificationTaskChannel(),
 		}
 
 		// Setup ReorgDetector (if provided)
@@ -901,22 +895,20 @@ func (vc *Coordinator) handleReorg(
 	state.pendingTasks = remaining
 	state.pendingMu.Unlock()
 
-	// 2. Send notification to SourceReaderService to reset
-	// This must be synchronous to ensure reader resets before we clear reorgInProgress flag
-	// TODO: should we introduce Pause function in reader?
-	// TODO: We should stop reader first before draining the queue
-	notification := protocol.ReorgNotification{
-		ChainSelector: chainSelector,
-		ResetToBlock:  commonAncestor,
-		Type:          protocol.ReorgTypeRegular,
-	}
-	select {
-	case state.reorgNotificationCh <- notification:
-		vc.lggr.Infow("Notified source reader of reorg", "chain", chainSelector)
-	case <-ctx.Done():
-		return
-	default:
-		vc.lggr.Warnw("Failed to send reorg notification to source reader (channel full)", "chain", chainSelector)
+	// 2. Reset SourceReaderService synchronously
+	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := state.reader.ResetToBlock(resetCtx, commonAncestor); err != nil {
+		vc.lggr.Errorw("Failed to reset source reader after reorg",
+			"error", err,
+			"chain", chainSelector,
+			"resetBlock", commonAncestor)
+		// Continue with checkpoint reset anyway
+	} else {
+		vc.lggr.Infow("Source reader reset successfully",
+			"chain", chainSelector,
+			"resetBlock", commonAncestor)
 	}
 
 	// 3. Reset checkpoint
@@ -981,21 +973,14 @@ func (vc *Coordinator) handleFinalityViolation(
 		}
 	}
 
-	//TODO: We should stop the reader completely in case of finality violation
-	// 3. Notify SourceReaderService
-	notification := protocol.ReorgNotification{
-		ChainSelector: chainSelector,
-		ResetToBlock:  violationStatus.SafeRestartBlock,
-		Type:          protocol.ReorgTypeFinalityViolation,
+	// 3. Stop SourceReaderService completely for finality violations
+	if err := state.reader.Stop(); err != nil {
+		// TODO: Logging only might not be enough in this case.
+		vc.lggr.Errorw("Failed to stop source reader after finality violation",
+			"error", err,
+			"chain", chainSelector)
 	}
-	select {
-	case state.reorgNotificationCh <- notification:
-		vc.lggr.Infow("Notified source reader of finality violation", "chain", chainSelector)
-	case <-ctx.Done():
-		return
-	default:
-		vc.lggr.Errorw("Failed to send finality violation notification", "chain", chainSelector)
-	}
+	// TODO: Use Pause() instead of Stop() when implemented (separate PR)
 
 	// 4. Record metrics
 	// TODO: These methods need to be added to the monitoring interface

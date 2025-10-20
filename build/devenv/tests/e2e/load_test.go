@@ -461,7 +461,7 @@ func TestE2ELoad(t *testing.T) {
 
 	t.Run("rpc latency", func(t *testing.T) {
 		// 400ms latency for any RPC node
-		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=45s delay --time=200 re2:blockchain-node-.*", 0*time.Second)
+		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=45s delay --time=400 re2:blockchain-node-.*", 0*time.Second)
 		require.NoError(t, err)
 
 		rps := int64(1)

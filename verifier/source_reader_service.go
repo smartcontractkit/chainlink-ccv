@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/ccv_proxy"
@@ -42,13 +43,19 @@ type SourceReaderService struct {
 	mu                   sync.RWMutex
 	isRunning            bool
 
+	// Reset coordination using optimistic locking pattern.
+	// This version counter is incremented each time ResetToBlock() is called.
+	// The processEventCycle() captures the version at the start of its cycle,
+	// and checks it again before updating lastProcessedBlock. If the version
+	// changed (indicating a reset occurred during the cycle's RPC calls),
+	// the cycle skips its update to avoid overwriting the reset value.
+	// This allows us to protect lastProcessedBlock without holding locks across I/O.
+	resetVersion atomic.Uint64
+
 	// Checkpoint management
 	checkpointManager     protocol.CheckpointManager
 	lastCheckpointTime    time.Time
 	lastCheckpointedBlock *big.Int
-
-	// Reorg notification
-	reorgNotificationCh <-chan protocol.ReorgNotification
 }
 
 // SourceReaderServiceOption is a functional option for SourceReaderService.
@@ -67,7 +74,6 @@ func NewSourceReaderService(
 	chainSelector protocol.ChainSelector,
 	checkpointManager protocol.CheckpointManager,
 	logger logger.Logger,
-	reorgNotificationCh <-chan protocol.ReorgNotification,
 	pollInterval time.Duration,
 	opts ...SourceReaderServiceOption,
 ) *SourceReaderService {
@@ -80,7 +86,6 @@ func NewSourceReaderService(
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: ccv_proxy.CCVProxyCCIPMessageSent{}.Topic().Hex(),
 		checkpointManager:    checkpointManager,
-		reorgNotificationCh:  reorgNotificationCh,
 	}
 
 	// Apply options
@@ -156,6 +161,42 @@ func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
 
 	// Test basic connectivity
 	return r.testConnectivity(ctx)
+}
+
+// ResetToBlock synchronously resets the reader to the specified block.
+//
+// Thread-safety:
+// This method uses an optimistic locking pattern via resetVersion to coordinate
+// with in-flight processEventCycle() calls. The sequence is:
+//  1. Acquire write lock
+//  2. Increment resetVersion (signals to cycles: "your read is now stale")
+//  3. Update lastProcessedBlock to the reset value
+//  4. Release lock
+//
+// Any processEventCycle() that captured the old version before step 2 will see
+// the version mismatch and skip its lastProcessedBlock update, preserving the reset.
+//
+// The coordinator's reorgInProgress flag prevents new tasks from being queued
+// into the coordinator's pending queue during the reset window.
+func (r *SourceReaderService) ResetToBlock(ctx context.Context, block uint64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	resetBlock := new(big.Int).SetUint64(block)
+
+	r.logger.Infow("Resetting source reader to block",
+		"chainSelector", r.chainSelector,
+		"fromBlock", r.lastProcessedBlock,
+		"toBlock", resetBlock,
+		"resetVersion", r.resetVersion.Load()+1)
+
+	// Increment version to signal in-flight cycles that their read is stale
+	r.resetVersion.Add(1)
+
+	// Update to reset value
+	r.lastProcessedBlock = resetBlock
+
+	return nil
 }
 
 // testConnectivity tests if we can connect to the blockchain client.
@@ -319,7 +360,8 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 }
 
 // calculateCheckpointBlock determines the safe checkpoint block (finalized - buffer).
-func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context) (*big.Int, error) {
+// Takes lastProcessedBlock as parameter to avoid races with concurrent updates.
+func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context, lastProcessed *big.Int) (*big.Int, error) {
 	finalized, err := r.sourceReader.LatestFinalizedBlockHeight(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
@@ -336,11 +378,11 @@ func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context) (*bi
 	}
 
 	// Safety: don't checkpoint beyond what we've read
-	if r.lastProcessedBlock != nil && checkpointBlock.Cmp(r.lastProcessedBlock) > 0 {
-		checkpointBlock = new(big.Int).Set(r.lastProcessedBlock)
+	if lastProcessed != nil && checkpointBlock.Cmp(lastProcessed) > 0 {
+		checkpointBlock = new(big.Int).Set(lastProcessed)
 		r.logger.Debugw("Capping checkpoint at last processed block",
 			"finalized", finalized.String(),
-			"lastProcessed", r.lastProcessedBlock.String(),
+			"lastProcessed", lastProcessed.String(),
 			"checkpoint", checkpointBlock.String())
 	}
 
@@ -348,7 +390,8 @@ func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context) (*bi
 }
 
 // updateCheckpoint writes a checkpoint if conditions are met.
-func (r *SourceReaderService) updateCheckpoint(ctx context.Context) {
+// Takes lastProcessedBlock as parameter to avoid races with concurrent updates.
+func (r *SourceReaderService) updateCheckpoint(ctx context.Context, lastProcessed *big.Int) {
 	// Skip if no checkpoint manager
 	if r.checkpointManager == nil {
 		return
@@ -360,7 +403,7 @@ func (r *SourceReaderService) updateCheckpoint(ctx context.Context) {
 	}
 
 	// Calculate safe checkpoint block (finalized - buffer)
-	checkpointBlock, err := r.calculateCheckpointBlock(ctx)
+	checkpointBlock, err := r.calculateCheckpointBlock(ctx, lastProcessed)
 	if err != nil {
 		r.logger.Warnw("Failed to calculate checkpoint block", "error", err)
 		return
@@ -391,7 +434,7 @@ func (r *SourceReaderService) updateCheckpoint(ctx context.Context) {
 	} else {
 		r.logger.Infow("Checkpoint updated",
 			"checkpointBlock", checkpointBlock.String(),
-			"currentProcessed", r.lastProcessedBlock.String())
+			"currentProcessed", lastProcessed.String())
 		r.lastCheckpointTime = time.Now()
 		r.lastCheckpointedBlock = new(big.Int).Set(checkpointBlock)
 	}
@@ -433,10 +476,6 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 			r.logger.Infow("🛑 Close signal received, stopping event monitoring")
 			return
 
-		case reorgNotif := <-r.reorgNotificationCh:
-			// Handle reorg notification
-			r.handleReorgNotification(reorgNotif)
-
 		case <-ticker.C:
 			r.processEventCycle(ctx)
 		}
@@ -444,16 +483,22 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 }
 
 // processEventCycle processes a single cycle of event monitoring.
+//
+// Thread-safety:
+// This method uses an optimistic locking pattern to coordinate with ResetToBlock().
+// At the start, it captures both the resetVersion and lastProcessedBlock under a read lock.
+// After performing potentially long-running RPC calls, it checks the version again before
+// updating lastProcessedBlock. If a reset occurred during the RPC calls (version changed),
+// this cycle skips its update to preserve the reset value.
 func (r *SourceReaderService) processEventCycle(ctx context.Context) {
-	// Check client connectivity
-	/*
-		if r.sourceReader == nil || len(r.chainClient.NodeStates()) == 0 {
-			r.logger.Errorw("🔍 No nodes available, skipping cycle")
-			return
-		}
-	*/
+	// Capture resetVersion and lastProcessedBlock atomically under read lock.
+	// This establishes a "snapshot" that we'll validate before updating state later.
+	r.mu.RLock()
+	startVersion := r.resetVersion.Load()
+	fromBlock := new(big.Int).Add(r.lastProcessedBlock, big.NewInt(1))
+	r.mu.RUnlock()
 
-	// Get current block
+	// Get current block (potentially slow RPC call - no locks held)
 	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	currentBlock, err := r.sourceReader.LatestBlockHeight(blockCtx)
 	cancel()
@@ -463,16 +508,6 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		// Send batch-level error to coordinator
 		r.sendBatchError(ctx, fmt.Errorf("failed to get latest block: %w", err))
 		return
-	}
-
-	// Set query range
-	var fromBlock *big.Int
-	if r.lastProcessedBlock != nil {
-		fromBlock = new(big.Int).Add(r.lastProcessedBlock, big.NewInt(1))
-	} else {
-		// This should not happen since we initialize lastProcessedBlock in eventMonitoringLoop
-		r.logger.Errorw("lastProcessedBlock is nil in processEventCycle - this should not happen")
-		fromBlock = big.NewInt(1)
 	}
 
 	// Only query if there are new blocks
@@ -523,11 +558,29 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		return
 	}
 
-	// Update processed block
-	r.lastProcessedBlock = new(big.Int).Set(currentBlock)
+	// Update processed block - but only if no reset occurred during our RPC calls.
+	// We use optimistic locking: check if resetVersion changed since we captured it.
+	// If it changed, a reset happened during this cycle's work, so we skip the update
+	// to preserve the reset value.
+	r.mu.Lock()
+	currentVersion := r.resetVersion.Load()
+	if currentVersion == startVersion {
+		// No reset occurred - safe to update
+		r.lastProcessedBlock = new(big.Int).Set(currentBlock)
+	} else {
+		// Reset occurred during this cycle - skip update to preserve reset value
+		r.logger.Infow("Skipping lastProcessedBlock update due to concurrent reset",
+			"cycleStartVersion", startVersion,
+			"currentVersion", currentVersion,
+			"wouldHaveSet", currentBlock.String(),
+			"preserving", r.lastProcessedBlock.String())
+	}
+	r.mu.Unlock()
 
-	// Try to checkpoint if appropriate
-	r.updateCheckpoint(ctx)
+	// Try to checkpoint if appropriate (only if we updated)
+	if currentVersion == startVersion {
+		r.updateCheckpoint(ctx, currentBlock)
+	}
 
 	r.logger.Infow("📈 Processed block range",
 		"fromBlock", fromBlock.String(),
@@ -553,20 +606,4 @@ func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
 
 func (r *SourceReaderService) GetSourceReader() SourceReader {
 	return r.sourceReader
-}
-
-// handleReorgNotification handles a reorg notification from the coordinator.
-func (r *SourceReaderService) handleReorgNotification(notif protocol.ReorgNotification) {
-	// TODO: If finality violated Stop completely
-	resetBlock := new(big.Int).SetUint64(notif.ResetToBlock)
-
-	r.logger.Infow("Reorg detected - resetting source reader",
-		"chainSelector", r.chainSelector,
-		"currentBlock", r.lastProcessedBlock,
-		"resetToBlock", resetBlock,
-		"reorgType", notif.Type)
-
-	// Reset lastProcessedBlock to the reset block
-	// Next cycle will read from resetBlock+1
-	r.lastProcessedBlock = resetBlock
 }

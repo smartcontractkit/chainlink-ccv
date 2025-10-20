@@ -15,14 +15,11 @@ import (
 )
 
 func createTestSourceReader(t *testing.T, checkpointManager protocol.CheckpointManager) *SourceReaderService {
-	// Create a dummy reorg notification channel that will never receive anything
-	reorgNotifCh := make(chan protocol.ReorgNotification)
 	return NewSourceReaderService(
 		nil,
 		protocol.ChainSelector(1337),
 		checkpointManager,
 		logger.Test(t),
-		reorgNotifCh,
 		time.Duration(50*time.Millisecond))
 }
 
@@ -183,7 +180,7 @@ func TestEVMSourceReader_UpdateCheckpoint_TooFrequent(t *testing.T) {
 	reader.lastCheckpointTime = time.Now() // Recent checkpoint
 
 	// Should not call checkpoint manager
-	reader.updateCheckpoint(ctx)
+	reader.updateCheckpoint(ctx, big.NewInt(2000))
 
 	// Verify no calls were made
 	mockCheckpointManager.AssertNotCalled(t, "WriteCheckpoint")

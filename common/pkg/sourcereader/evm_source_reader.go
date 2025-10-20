@@ -133,7 +133,6 @@ func (r *EVMSourceReader) BlockTime(ctx context.Context, block *big.Int) (uint64
 	return hdr.Time, nil
 }
 
-// VerificationTaskChannel returns the channel where new message events are delivered.
 func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]verifiertypes.VerificationTask, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
