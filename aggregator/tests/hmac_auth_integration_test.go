@@ -67,10 +67,10 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	// Test CCVData service APIs
-	t.Run("GetCCVDataForMessage supports an anonymous authentication", func(t *testing.T) {
-		req := &pb.GetCCVDataForMessageRequest{}
+	t.Run("GetVerifierResultForMessage supports an anonymous authentication", func(t *testing.T) {
+		req := &pb.GetVerifierResultForMessageRequest{}
 
-		_, err := ccvDataClient.GetCCVDataForMessage(ctx, req)
+		_, err := ccvDataClient.GetVerifierResultForMessage(ctx, req)
 		st, ok := status.FromError(err)
 		require.True(t, ok, "error should be a gRPC status error")
 		require.Equal(t, codes.NotFound, st.Code(), "should return NotFound error")

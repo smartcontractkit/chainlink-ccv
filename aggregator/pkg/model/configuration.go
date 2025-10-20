@@ -92,8 +92,9 @@ func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {
 type StorageType string
 
 const (
-	StorageTypeMemory   StorageType = "memory"
-	StorageTypeDynamoDB StorageType = "dynamodb"
+	StorageTypeMemory     StorageType = "memory"
+	StorageTypePostgreSQL StorageType = "postgres"
+	StorageTypeDynamoDB   StorageType = "dynamodb"
 )
 
 type DynamoDBConfig struct {
