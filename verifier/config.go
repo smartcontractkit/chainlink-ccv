@@ -1,10 +1,24 @@
-package config
+package verifier
 
 import (
 	"fmt"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// MonitoringConfig provides monitoring configuration for CCV services (verifier, executor, indexer, aggregator).
+type Config struct {
+	VerifierID                 string                              `toml:"verifier_id"`
+	AggregatorAddress          string                              `toml:"aggregator_address"`
+	AggregatorAPIKey           string                              `toml:"aggregator_api_key"`
+	AggregatorSecretKey        string                              `toml:"aggregator_secret_key"`
+	BlockchainInfos            map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	PyroscopeURL               string                              `toml:"pyroscope_url"`
+	CommitteeVerifierAddresses map[string]string                   `toml:"committee_verifier_addresses"`
+	OnRampAddresses            map[string]string                   `toml:"on_ramp_addresses"`
+	Monitoring                 MonitoringConfig                    `toml:"monitoring"`
+}
+
+// MonitoringConfig provides monitoring configuration for executor.
 type MonitoringConfig struct {
 	// Enabled enables the monitoring system.
 	Enabled bool `toml:"Enabled"`

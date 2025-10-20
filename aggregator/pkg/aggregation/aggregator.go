@@ -2,7 +2,6 @@ package aggregation
 
 import (
 	"context"
-	"math"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
@@ -54,18 +53,6 @@ func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorM
 	return scope.AugmentMetrics(ctx, c.monitoring.Metrics())
 }
 
-func normalizeTimestampToSeconds(timestamp int64) int64 {
-	if timestamp <= 0 {
-		return timestamp
-	}
-	digits := int(math.Log10(float64(timestamp))) + 1
-	if digits > 10 {
-		divisor := int64(math.Pow10(digits - 10))
-		return timestamp / divisor
-	}
-	return timestamp
-}
-
 func deduplicateVerificationsByParticipant(verifications []*model.CommitVerificationRecord) []*model.CommitVerificationRecord {
 	if len(verifications) <= 1 {
 		return verifications
@@ -111,21 +98,13 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		lggr.Infow("Deduplicated verifications", "original", len(verifications), "deduplicated", len(dedupedVerifications))
 	}
 
-	var mostRecentTimestamp int64
-	for _, verification := range dedupedVerifications {
-		verificationTimestamp := normalizeTimestampToSeconds(verification.GetTimestamp())
-		lggr.Debugw("Processing verification", "rawTimestamp", verification.GetTimestamp(), "normalizedTimestamp", verificationTimestamp)
-		if verificationTimestamp > mostRecentTimestamp {
-			mostRecentTimestamp = verificationTimestamp
-		}
-	}
-
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:     messageID,
 		CommitteeID:   committeeID,
 		Verifications: dedupedVerifications,
-		Timestamp:     mostRecentTimestamp,
 	}
+
+	mostRecentTimestamp := aggregatedReport.GetMostRecentVerificationTimestamp()
 
 	lggr.Debugw("Aggregated report created", "timestamp", mostRecentTimestamp, "verificationCount", len(dedupedVerifications))
 
@@ -143,7 +122,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
 		lggr.Infow("Report submitted successfully", "verifications", len(verifications), "timeToAggregation", timeToAggregation)
 		c.metrics(ctx).IncrementCompletedAggregations(ctx)
-		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation.Milliseconds())
+		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation)
 	} else {
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}

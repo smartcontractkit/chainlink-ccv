@@ -1,7 +1,7 @@
 name: End-to-end CCV Test
 
 on:
-  push:
+  pull_request:
 
 defaults:
   run:
@@ -16,10 +16,16 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    runs-on: ubuntu24.04-16cores-64GB
+      pull-requests: write
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     steps:
+      - name: Enable S3 Cache for Self-Hosted Runners
+        # these env vars are set (and exposed) when it is a self-hosted runner with extras=s3-cache
+        if: ${{ env.RUNS_ON_INSTANCE_ID != '' && env.ACTIONS_CACHE_URL != '' }}
+        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
       - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -59,10 +65,64 @@ jobs:
           cd cmd/ccv && go install . && cd -
           ccv u env.toml
 
-      - name: Test Smoke ArgsV3 EOA Receiver Tests
+      - name: Run smoke tests
+        id: smoke_test
         working-directory: build/devenv/tests/e2e
         run: |
-          go test -v -timeout 15m -count=1 -run 'TestE2ESmoke'
+          go install github.com/mfridman/tparse@latest
+          set -o pipefail
+          go test -v -timeout 15m -count=1 -run 'TestE2ESmoke' -json | tee test-results.json | tparse
+        continue-on-error: true
+
+      - name: Create test summary
+        if: always()
+        working-directory: build/devenv/tests/e2e
+        run: |
+          echo "### E2E Smoke Test Results" > test-summary.md
+          echo "| Test Case | Status | Duration |" >> test-summary.md
+          echo "|-----------|--------|----------|" >> test-summary.md
+          cat test-results.json | jq -r '. | select(.Test != null and (.Action=="pass" or .Action=="fail")) | "| `\(.Test)` | `\(.Action)` | `\(.Elapsed)s` |"' >> test-summary.md
+          echo "" >> test-summary.md
+          echo "Full logs are available in the workflow artifacts." >> test-summary.md
+
+      - name: Remove previous smoke test comments
+        uses: actions/github-script@v6
+        if: always() && github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo, number: issue_number } = context.issue;
+            const comments = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number
+            });
+            const commentPrefix = "### E2E Smoke Test Results";
+            for (const comment of comments.data) {
+              if (comment.body.startsWith(commentPrefix)) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: comment.id
+                });
+              }
+            }
+
+      - name: Post test summary comment
+        uses: actions/github-script@v6
+        if: always() && github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('build/devenv/tests/e2e/test-summary.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,3 +130,9 @@ jobs:
           name: container-logs-smoke
           path: build/devenv/tests/e2e/logs
           retention-days: 1
+
+      - name: Check test results
+        if: always() && steps.smoke_test.outcome == 'failure'
+        run: |
+          echo "Smoke tests failed."
+          exit 1

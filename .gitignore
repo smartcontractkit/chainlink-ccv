@@ -9,4 +9,6 @@ mise.local.toml
 
 # indexer config
 indexer/config.toml
-common/tmp/
+
+# Ignore all tmp directories
+**/tmp/

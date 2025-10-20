@@ -3,12 +3,11 @@ FROM golang:1.24.6-alpine
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /app
 
-# Copy module files first to maximize cache reuse
-COPY go.mod go.sum ./
+COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     go mod download
 
-# Then copy the rest of the source
-COPY . .
 WORKDIR /app/build/devenv/fakes
+RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
+    go mod download
 CMD ["air", "-c", "air.toml"]

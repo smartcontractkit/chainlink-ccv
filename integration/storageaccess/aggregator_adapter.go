@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -179,7 +178,7 @@ func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.Cl
 }
 
 type AggregatorReader struct {
-	client pb.CCVDataClient
+	client pb.VerifierResultAPIClient
 	lggr   logger.Logger
 	conn   *grpc.ClientConn
 	token  string
@@ -206,7 +205,7 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacCo
 	}
 
 	return &AggregatorReader{
-		client: pb.NewCCVDataClient(conn),
+		client: pb.NewVerifierResultAPIClient(conn),
 		conn:   conn,
 		lggr:   lggr,
 		since:  since,
@@ -308,8 +307,8 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	resp, err := a.client.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
-		Since:     a.since,
-		NextToken: a.token,
+		SinceSequence: a.since,
+		NextToken:     a.token,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error calling GetMessagesSince: %w", err)
@@ -318,6 +317,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", a.since, "token", a.token, "nextToken", resp.NextToken)
 	// Convert the response to []types.QueryResponse
 	results := make([]protocol.QueryResponse, 0, len(resp.Results))
+	tempSince := a.since
 	for i, result := range resp.Results {
 		msg, err := mapMessage(result.Message)
 		if err != nil {
@@ -328,6 +328,11 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 		messageID, err := msg.MessageID()
 		if err != nil {
 			return nil, fmt.Errorf("error computing message ID at index %d: %w", i, err)
+		}
+
+		sequence := result.Sequence
+		if sequence >= tempSince {
+			tempSince = sequence + 1
 		}
 
 		results = append(results, protocol.QueryResponse{
@@ -347,23 +352,8 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 		})
 	}
 
-	// Update token for next call.
-	a.since = a.getNextTimestamp(results)
+	a.since = tempSince
 	a.token = resp.NextToken
 
 	return results, nil
-}
-
-func (a *AggregatorReader) getNextTimestamp(results []protocol.QueryResponse) int64 {
-	if len(results) > 0 {
-		// Get the timestamp of the last message
-		lastTimestamp := results[len(results)-1].Data.Timestamp
-
-		// Always add 1 second to ensure we don't get the same data again
-		// This handles the case where multiple messages have the same timestamp
-		return lastTimestamp + 1
-	}
-
-	// If no data, we're safe to return current time in seconds
-	return time.Now().Unix()
 }

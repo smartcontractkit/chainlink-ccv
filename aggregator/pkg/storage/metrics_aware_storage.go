@@ -60,9 +60,9 @@ func (s *MetricsAwareStorage) ListCommitVerificationByMessageID(ctx context.Cont
 	})
 }
 
-func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start, end int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
+func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
 	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() (*model.PaginatedAggregatedReports, error) {
-		return s.inner.QueryAggregatedReports(ctx, start, end, committeeID, token)
+		return s.inner.QueryAggregatedReports(ctx, start, committeeID, token)
 	})
 }
 
@@ -88,8 +88,7 @@ func (s *MetricsAwareStorage) ListOrphanedMessageIDs(ctx context.Context, commit
 	go func() {
 		now := time.Now()
 		defer func() {
-			latency := time.Since(now).Milliseconds()
-			metrics.RecordStorageLatency(ctx, latency)
+			metrics.RecordStorageLatency(ctx, time.Since(now))
 		}()
 
 		for {
@@ -158,8 +157,7 @@ func (s *MetricsAwareCheckpointStorage) GetAllClients(ctx context.Context) ([]st
 func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricLabeler, fn func() (T, error)) (T, error) {
 	now := time.Now()
 	defer func() {
-		latency := time.Since(now).Milliseconds()
-		metrics.RecordStorageLatency(ctx, latency)
+		metrics.RecordStorageLatency(ctx, time.Since(now))
 	}()
 
 	res, err := fn()

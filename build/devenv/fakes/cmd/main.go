@@ -3,8 +3,9 @@ package main
 import (
 	"log"
 
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/offchainstorage"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 )
 
 func main() {
