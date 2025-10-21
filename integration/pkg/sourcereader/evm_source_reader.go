@@ -160,10 +160,9 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 			"ReceiptsCount", len(event.Receipts),
 			"verifierBlobsCount", len(event.VerifierBlobs))
 
-		if len(event.Receipts) < 2 {
-			// TODO: double check semantics of receipts.
-			// There should be at least 2 receipts, one for executor and one for the token transfer.
-			r.lggr.Errorw("❌ Not enough verifier receipts found", "count", len(event.Receipts))
+		if len(event.Receipts) < 1 {
+			// The executor receipt is at Receipts[len-1], so we need at least one receipt
+			r.lggr.Errorw("❌ Executor receipt is missing.", "count", len(event.Receipts))
 			continue // to next message
 		}
 
