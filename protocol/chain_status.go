@@ -28,20 +28,21 @@ func NewChainTail(blocks []BlockHeader) (*ChainTail, error) {
 	}
 
 	// Check for contiguous parent hashes
-	for i := 1; i < len(blocks); i++ {
+	firstBlockNumber := blocks[0].Number
+	blocksLen := uint64(len(blocks))
+
+	for i := uint64(1); i < blocksLen; i++ {
+		// Check declared hashes match
 		if blocks[i].ParentHash != blocks[i-1].Hash {
-			return nil, fmt.Errorf("non-contiguous blocks at index %d: block %d parent hash %s does not match previous block %d hash %s",
+			return nil, fmt.Errorf("invalid block detected at index %d: block %d parent hash %s does not match previous block %d hash %s",
 				i, blocks[i].Number, blocks[i].ParentHash, blocks[i-1].Number, blocks[i-1].Hash)
 		}
-	}
 
-	// Check for duplicate block numbers
-	seen := make(map[uint64]bool)
-	for i, block := range blocks {
-		if seen[block.Number] {
-			return nil, fmt.Errorf("duplicate block number %d at index %d", block.Number, i)
+		// Check that all blocks are present and in order, this also ensure no duplicate blocks.
+		if blocks[i].Number != firstBlockNumber+i {
+			return nil, fmt.Errorf("non-contiguous blocks at index %d: block %d should be %d",
+				i, blocks[i].Number, firstBlockNumber+i)
 		}
-		seen[block.Number] = true
 	}
 
 	return &ChainTail{blocks: blocks}, nil

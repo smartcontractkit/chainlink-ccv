@@ -16,8 +16,7 @@ type ReorgDetectorConfig struct {
 
 	// FinalityDepth is the number of blocks before considering a block "final".
 	// Blocks deeper than this are assumed safe from reorgs.
-	// The chain tail is automatically sized to 2 * FinalityDepth to provide
-	// sufficient buffer for reorg detection before finality violations.
+	// The chain tail is sized to FinalityDepth
 	// Default: 64 blocks
 	FinalityDepth uint64
 }
@@ -32,9 +31,9 @@ type ReorgDetectorConfig struct {
 // - Sends notifications via channel only when reorgs or finality violations are detected
 //
 // Tail Sizing:
-// - Tail length = 2 * FinalityDepth (automatic, not configurable)
+// - Tail length = FinalityDepth
 // - This provides sufficient buffer to catch reorgs before they become finality violations
-// - Example: FinalityDepth=64 → tail tracks 128 blocks
+// - Example: FinalityDepth=64 → tail tracks 64 blocks
 //
 // Lifecycle:
 // - Start() initializes the tail and subscribes (blocks until ready)
@@ -88,6 +87,7 @@ func NewReorgDetectorService(
 
 	// Set defaults
 	if config.FinalityDepth == 0 {
+		lggr.Infow("FinalityDepth not set, defaulting to 64 blocks", "chainSelector", config.ChainSelector)
 		config.FinalityDepth = 64
 	}
 
