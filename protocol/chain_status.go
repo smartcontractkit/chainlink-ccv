@@ -27,21 +27,22 @@ func NewChainTail(blocks []BlockHeader) (*ChainTail, error) {
 		return nil, fmt.Errorf("chain tail cannot be empty")
 	}
 
-	// Check for contiguous parent hashes
+	// Check for contiguous parent hashes and block numbers
 	firstBlockNumber := blocks[0].Number
 	blocksLen := uint64(len(blocks))
 
 	for i := uint64(1); i < blocksLen; i++ {
-		// Check declared hashes match
-		if blocks[i].ParentHash != blocks[i-1].Hash {
-			return nil, fmt.Errorf("invalid block detected at index %d: block %d parent hash %s does not match previous block %d hash %s",
-				i, blocks[i].Number, blocks[i].ParentHash, blocks[i-1].Number, blocks[i-1].Hash)
+		// Check that all blocks are present and in order (also catches duplicates)
+		expectedNumber := firstBlockNumber + i
+		if blocks[i].Number != expectedNumber {
+			return nil, fmt.Errorf("non-contiguous blocks at index %d: block %d should be %d",
+				i, blocks[i].Number, expectedNumber)
 		}
 
-		// Check that all blocks are present and in order, this also ensure no duplicate blocks.
-		if blocks[i].Number != firstBlockNumber+i {
-			return nil, fmt.Errorf("non-contiguous blocks at index %d: block %d should be %d",
-				i, blocks[i].Number, firstBlockNumber+i)
+		// Check declared parent hashes match
+		if blocks[i].ParentHash != blocks[i-1].Hash {
+			return nil, fmt.Errorf("non-contiguous blocks at index %d: block %d parent hash %s does not match previous block %d hash %s",
+				i, blocks[i].Number, blocks[i].ParentHash, blocks[i-1].Number, blocks[i-1].Hash)
 		}
 	}
 

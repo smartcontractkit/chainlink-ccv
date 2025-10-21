@@ -78,7 +78,7 @@ func TestNewChainTail(t *testing.T) {
 		tail, err := NewChainTail(blocks)
 		assert.Error(t, err)
 		assert.Nil(t, tail)
-		assert.Contains(t, err.Error(), "duplicate block number")
+		assert.Contains(t, err.Error(), "non-contiguous")
 	})
 }
 
