@@ -134,17 +134,10 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
 
-				testCtx := TestingContext{
-					T:                t,
-					Ctx:              ctx,
-					Impl:             c,
-					AggregatorClient: aggregatorClient,
-					IndexerClient:    indexerClient,
-					Timeout:          defaultSentTimeout,
-				}
-				result, err := VerifyMessage(testCtx, messageID, VerifyMessageOptions{
+				testCtx := NewTestingContext(t, ctx, c, aggregatorClient, indexerClient)
+				result, err := testCtx.VerifyMessage(messageID, VerifyMessageOptions{
 					TickInterval: 1 * time.Second,
-					Timeout:      defaultSentTimeout,
+					Timeout:      defaultExecTimeout,
 				})
 				require.NoError(t, err)
 				require.NotNil(t, result.AggregatedResult)
@@ -330,17 +323,10 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
 
-				testCtx := TestingContext{
-					T:                t,
-					Ctx:              ctx,
-					Impl:             c,
-					AggregatorClient: aggregatorClient,
-					IndexerClient:    indexerClient,
-					Timeout:          defaultSentTimeout,
-				}
-				result, err := VerifyMessage(testCtx, messageID, VerifyMessageOptions{
+				testCtx := NewTestingContext(t, t.Context(), c, aggregatorClient, indexerClient)
+				result, err := testCtx.VerifyMessage(messageID, VerifyMessageOptions{
 					TickInterval: 1 * time.Second,
-					Timeout:      defaultSentTimeout,
+					Timeout:      defaultExecTimeout,
 				})
 				require.NoError(t, err)
 				require.NotNil(t, result.AggregatedResult)
