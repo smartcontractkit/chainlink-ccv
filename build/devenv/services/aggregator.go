@@ -204,6 +204,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	envVars := make(map[string]string)
 
 	if in.Env != nil {
+		// Use explicit configuration from env.toml
 		if in.Env.StorageConnectionURL == "" {
 			return nil, fmt.Errorf("AGGREGATOR_STORAGE_CONNECTION_URL is required in env config")
 		}
@@ -221,6 +222,14 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 
 		envVars["AGGREGATOR_REDIS_PASSWORD"] = in.Env.RedisPassword
 		envVars["AGGREGATOR_REDIS_DB"] = in.Env.RedisDB
+	} else {
+		// Inject default environment variables for testing
+		envVars["AGGREGATOR_STORAGE_CONNECTION_URL"] = DefaultAggregatorDBConnectionString
+		envVars["AGGREGATOR_REDIS_ADDRESS"] = fmt.Sprintf("%s:%d", DefaultAggregatorRedisName, DefaultAggregatorRedisPort)
+		envVars["AGGREGATOR_REDIS_PASSWORD"] = ""
+		envVars["AGGREGATOR_REDIS_DB"] = "0"
+		// Minimal API keys for testing
+		envVars["AGGREGATOR_API_KEYS_JSON"] = `{"clients":{"test-key":{"clientId":"test","enabled":true,"groups":[],"secrets":{"primary":"test-secret"}}}}`
 	}
 
 	/* Service */

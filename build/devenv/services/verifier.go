@@ -164,6 +164,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	envVars["VERIFIER_CONFIG_PATH"] = in.ConfigFilePath
 
 	if in.Env != nil {
+		// Use explicit configuration from env.toml
 		if in.Env.AggregatorAPIKey == "" {
 			return nil, fmt.Errorf("VERIFIER_AGGREGATOR_API_KEY is required in env config")
 		}
@@ -173,6 +174,10 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			return nil, fmt.Errorf("VERIFIER_AGGREGATOR_SECRET_KEY is required in env config")
 		}
 		envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = in.Env.AggregatorSecretKey
+	} else {
+		// Inject default HMAC credentials for testing
+		envVars["VERIFIER_AGGREGATOR_API_KEY"] = "test-api-key"
+		envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = "test-secret-key"
 	}
 
 	if in.SigningKey != "" {
