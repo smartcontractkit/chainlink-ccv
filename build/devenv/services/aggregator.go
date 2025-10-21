@@ -201,15 +201,19 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
-		ExposedPorts: []string{"50051/tcp"},
+		ExposedPorts: []string{"50051/tcp", "8080/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
 				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
 				"50051/tcp": []nat.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
 				},
+				"8080/tcp": []nat.PortBinding{
+					{HostPort: "8080"},
+				},
 			}
 		},
+		WaitingFor: wait.ForHTTP("/health/live").WithPort("8080/tcp"),
 	}
 
 	if in.SourceCodePath != "" {

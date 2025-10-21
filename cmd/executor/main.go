@@ -116,10 +116,17 @@ func main() {
 		}
 
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
-		dr := destinationreader.NewEvmDestinationReader(lggr, selector, chainClient, executorConfig.OffRampAddresses[strSel], 5*time.Minute)
+		dr := destinationreader.NewEvmDestinationReader(
+			lggr,
+			selector,
+			chainClient,
+			executorConfig.OffRampAddresses[strSel],
+			executorConfig.GetCCVInfoCacheExpiry(),
+		)
+
 		pk := os.Getenv(PK_ENV_VAR)
 		if pk == "" {
-			lggr.Errorf("Environment variable %S is not set", PK_ENV_VAR)
+			lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
 			os.Exit(1)
 		}
 
@@ -148,6 +155,7 @@ func main() {
 
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(
+		lggr,
 		executorConfig.ExecutorPool,
 		executorConfig.ExecutorID,
 		executorConfig.GetExecutionInterval(),

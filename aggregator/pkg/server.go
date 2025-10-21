@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -25,6 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
@@ -55,6 +57,7 @@ type Server struct {
 	checkpointStorage                  common.CheckpointStorageInterface
 	grpcServer                         *grpc.Server
 	batchWriteCommitCCVNodeDataHandler *handlers.BatchWriteCommitCCVNodeDataHandler
+	httpHealthServer                   *health.HTTPHealthServer
 	runGroup                           *run.Group
 	stopChan                           chan struct{}
 	mu                                 sync.Mutex
@@ -140,6 +143,19 @@ func (s *Server) Start(lis net.Listener) error {
 	}, func(error) {
 		cancel()
 	})
+
+	if s.httpHealthServer != nil {
+		g.Add(func() error {
+			if err := s.httpHealthServer.Start(); err != nil && err != http.ErrServerClosed {
+				return err
+			}
+			return nil
+		}, func(error) {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			_ = s.httpHealthServer.Stop(shutdownCtx)
+		})
+	}
 
 	s.runGroup = g
 	s.started = true
@@ -303,6 +319,21 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	recoverer := NewOrphanRecoverer(store, agg, config, l)
 
+	healthManager := health.NewManager()
+	healthManager.Register(store)
+	healthManager.Register(checkpointStorage)
+	healthManager.Register(rateLimitingMiddleware)
+	healthManager.Register(agg)
+
+	var httpHealthServer *health.HTTPHealthServer
+	if config.HealthCheck.Enabled {
+		httpHealthServer = health.NewHTTPHealthServer(
+			healthManager,
+			config.HealthCheck.Port,
+			l,
+		)
+	}
+
 	server := &Server{
 		l:                                  l,
 		config:                             config,
@@ -316,6 +347,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		readBlockCheckpointHandler:         readBlockCheckpointHandler,
 		batchWriteCommitCCVNodeDataHandler: batchWriteCommitCCVNodeDataHandler,
 		checkpointStorage:                  checkpointStorage,
+		httpHealthServer:                   httpHealthServer,
 		grpcServer:                         grpcServer,
 		recoverer:                          recoverer,
 		started:                            false,

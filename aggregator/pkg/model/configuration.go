@@ -147,6 +147,11 @@ type OrphanRecoveryConfig struct {
 	IntervalSeconds int `toml:"intervalSeconds"`
 }
 
+type HealthCheckConfig struct {
+	Enabled bool   `toml:"enabled"`
+	Port    string `toml:"port"`
+}
+
 // RateLimitConfig defines the rate limit for a specific method.
 type RateLimitConfig struct {
 	// LimitPerMinute is the number of requests allowed per minute
@@ -322,20 +327,19 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
-	Committees        map[CommitteeID]*Committee `toml:"committees"`
-	Server            ServerConfig               `toml:"server"`
-	Storage           *StorageConfig             `toml:"storage"`
-	APIKeys           APIKeyConfig               `toml:"apiKeys"`
-	Checkpoints       CheckpointConfig           `toml:"checkpoints"`
-	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
-	RateLimiting      RateLimitingConfig         `toml:"rateLimiting"`
-	DisableValidation bool                       `toml:"disableValidation"`
-	StubMode          bool                       `toml:"stubQuorumValidation"`
-	Monitoring        MonitoringConfig           `toml:"monitoring"`
-	PyroscopeURL      string                     `toml:"pyroscope_url"`
-	// MaxAnonymousGetMessageSinceRange limits how far back in time an anonymous user can request data.
-	// Defaults to infinity (no limit) if not set.
-	MaxAnonymousGetMessageSinceRange int64 `toml:"maxAnonymousGetMessageSinceRange"`
+	Committees                       map[CommitteeID]*Committee `toml:"committees"`
+	Server                           ServerConfig               `toml:"server"`
+	Storage                          *StorageConfig             `toml:"storage"`
+	APIKeys                          APIKeyConfig               `toml:"apiKeys"`
+	Checkpoints                      CheckpointConfig           `toml:"checkpoints"`
+	OrphanRecovery                   OrphanRecoveryConfig       `toml:"orphanRecovery"`
+	RateLimiting                     RateLimitingConfig         `toml:"rateLimiting"`
+	HealthCheck                      HealthCheckConfig          `toml:"healthCheck"`
+	DisableValidation                bool                       `toml:"disableValidation"`
+	StubMode                         bool                       `toml:"stubQuorumValidation"`
+	Monitoring                       MonitoringConfig           `toml:"monitoring"`
+	PyroscopeURL                     string                     `toml:"pyroscope_url"`
+	MaxAnonymousGetMessageSinceRange int64                      `toml:"maxAnonymousGetMessageSinceRange"`
 }
 
 // SetDefaults sets default values for the configuration.
@@ -367,6 +371,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	// Default orphan recovery enabled unless explicitly disabled
 	if !c.OrphanRecovery.Enabled && c.OrphanRecovery.IntervalSeconds > 0 {
 		c.OrphanRecovery.Enabled = true
+	}
+	// Health check defaults
+	if c.HealthCheck.Port == "" {
+		c.HealthCheck.Port = "8080"
 	}
 }
 
