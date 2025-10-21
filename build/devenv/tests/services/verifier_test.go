@@ -9,7 +9,15 @@ import (
 )
 
 func TestServiceVerifier(t *testing.T) {
-	out, err := services.NewVerifier(&services.VerifierInput{SourceCodePath: "../../../verifier", RootPath: "../../../../"})
+	out, err := services.NewVerifier(&services.VerifierInput{
+		SourceCodePath: "../../../verifier",
+		RootPath:       "../../../../",
+		SigningKey:     "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+		Env: &services.VerifierEnvConfig{
+			AggregatorAPIKey:    "test-api-key",
+			AggregatorSecretKey: "test-secret-key",
+		},
+	})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
 		_ = out

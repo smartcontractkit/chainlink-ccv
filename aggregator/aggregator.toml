@@ -9,32 +9,6 @@ pyroscope_url = "http://pyroscope:4040"
 
 [storage]
   type = "postgres"
-  connectionURL = "postgres://aggregator:aggregator@aggregator-db:5432/aggregator?sslmode=disable"
-
-[apiKeys]
-  [apiKeys.clients.dev-api-key-verifier-1]
-    clientId = "verifier-1"
-    description = "Development verifier 1"
-    enabled = true
-    groups = ["verifiers"]
-    [apiKeys.clients.dev-api-key-verifier-1.secrets]
-      primary = "dev-secret-verifier-1"
-
-  [apiKeys.clients.dev-api-key-verifier-2]
-    clientId = "verifier-2"
-    description = "Development verifier 2"
-    enabled = true
-    groups = ["verifiers"]
-    [apiKeys.clients.dev-api-key-verifier-2.secrets]
-      primary = "dev-secret-verifier-2"
-
-  [apiKeys.clients.dev-api-key-monitoring]
-    clientId = "monitoring"
-    description = "Monitoring and infrastructure client for read-only access"
-    enabled = true
-    groups = ["monitoring"]
-    [apiKeys.clients.dev-api-key-monitoring.secrets]
-      primary = "dev-secret-monitoring"
 
 [checkpoints]
   maxCheckpointsPerRequest = 100
@@ -52,9 +26,6 @@ pyroscope_url = "http://pyroscope:4040"
     type = "redis"
     
     [rateLimiting.storage.redis]
-      address = "aggregator-redis:6379"
-      password = ""
-      db = 0
       key_prefix = "ratelimit"
   
   # Default rate limits (applied to all callers unless overridden)

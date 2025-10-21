@@ -41,15 +41,24 @@ type AggregatorDBInput struct {
 	Image string `toml:"image"`
 }
 
+type AggregatorEnvConfig struct {
+	StorageConnectionURL string `toml:"storage_connection_url"`
+	RedisAddress         string `toml:"redis_address"`
+	RedisPassword        string `toml:"redis_password"`
+	RedisDB              string `toml:"redis_db"`
+	APIKeysJSON          string `toml:"api_keys_json"`
+}
+
 type AggregatorInput struct {
-	Image          string            `toml:"image"`
-	Port           int               `toml:"port"`
-	SourceCodePath string            `toml:"source_code_path"`
-	RootPath       string            `toml:"root_path"`
-	DB             *DBInput          `toml:"db"`
-	ContainerName  string            `toml:"container_name"`
-	UseCache       bool              `toml:"use_cache"`
-	Out            *AggregatorOutput `toml:"-"`
+	Image          string               `toml:"image"`
+	Port           int                  `toml:"port"`
+	SourceCodePath string               `toml:"source_code_path"`
+	RootPath       string               `toml:"root_path"`
+	DB             *DBInput             `toml:"db"`
+	ContainerName  string               `toml:"container_name"`
+	UseCache       bool                 `toml:"use_cache"`
+	Out            *AggregatorOutput    `toml:"-"`
+	Env            *AggregatorEnvConfig `toml:"env"`
 }
 
 type DynamoDBTablesConfig struct {
@@ -191,6 +200,29 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return nil, fmt.Errorf("failed to create Redis container: %w", err)
 	}
 
+	// Build environment variables from config
+	envVars := make(map[string]string)
+
+	if in.Env != nil {
+		if in.Env.StorageConnectionURL == "" {
+			return nil, fmt.Errorf("AGGREGATOR_STORAGE_CONNECTION_URL is required in env config")
+		}
+		envVars["AGGREGATOR_STORAGE_CONNECTION_URL"] = in.Env.StorageConnectionURL
+
+		if in.Env.APIKeysJSON == "" {
+			return nil, fmt.Errorf("AGGREGATOR_API_KEYS_JSON is required in env config")
+		}
+		envVars["AGGREGATOR_API_KEYS_JSON"] = in.Env.APIKeysJSON
+
+		if in.Env.RedisAddress == "" {
+			return nil, fmt.Errorf("AGGREGATOR_REDIS_ADDRESS is required in env config")
+		}
+		envVars["AGGREGATOR_REDIS_ADDRESS"] = in.Env.RedisAddress
+
+		envVars["AGGREGATOR_REDIS_PASSWORD"] = in.Env.RedisPassword
+		envVars["AGGREGATOR_REDIS_DB"] = in.Env.RedisDB
+	}
+
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -200,6 +232,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		NetworkAliases: map[string][]string{
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
+		Env: envVars,
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
 		ExposedPorts: []string{"50051/tcp", "8080/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {

@@ -70,6 +70,11 @@ type VerifierDBInput struct {
 	Port  int    `toml:"port"`
 }
 
+type VerifierEnvConfig struct {
+	AggregatorAPIKey    string `toml:"aggregator_api_key"`
+	AggregatorSecretKey string `toml:"aggregator_secret_key"`
+}
+
 type VerifierInput struct {
 	DB                *VerifierDBInput     `toml:"db"`
 	Out               *VerifierOutput      `toml:"out"`
@@ -84,6 +89,7 @@ type VerifierInput struct {
 	BlockchainOutputs []*blockchain.Output `toml:"-"`
 	AggregatorAddress string               `toml:"aggregator_address"`
 	SigningKey        string               `toml:"signing_key"`
+	Env               *VerifierEnvConfig   `toml:"env"`
 }
 
 type VerifierOutput struct {
@@ -154,6 +160,25 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
+	envVars := make(map[string]string)
+	envVars["VERIFIER_CONFIG_PATH"] = in.ConfigFilePath
+
+	if in.Env != nil {
+		if in.Env.AggregatorAPIKey == "" {
+			return nil, fmt.Errorf("VERIFIER_AGGREGATOR_API_KEY is required in env config")
+		}
+		envVars["VERIFIER_AGGREGATOR_API_KEY"] = in.Env.AggregatorAPIKey
+
+		if in.Env.AggregatorSecretKey == "" {
+			return nil, fmt.Errorf("VERIFIER_AGGREGATOR_SECRET_KEY is required in env config")
+		}
+		envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = in.Env.AggregatorSecretKey
+	}
+
+	if in.SigningKey != "" {
+		envVars["VERIFIER_SIGNER_PRIVATE_KEY"] = in.SigningKey
+	}
+
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -163,10 +188,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		NetworkAliases: map[string][]string{
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
-		Env: map[string]string{
-			"VERIFIER_CONFIG_PATH":        in.ConfigFilePath,
-			"VERIFIER_SIGNER_PRIVATE_KEY": in.SigningKey,
-		},
+		Env: envVars,
 		// ExposedPorts
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
 		ExposedPorts: []string{"8100/tcp"},
