@@ -1,4 +1,4 @@
-name: End-to-end CCV Test
+name: CCV Clean Load Test
 
 on:
   pull_request:
@@ -69,9 +69,8 @@ jobs:
         id: load_test
         working-directory: build/devenv/tests/e2e
         run: |
-          go install github.com/mfridman/tparse@latest
           set -o pipefail
-          go test -v -timeout 15m -count=1 -run 'TestE2ELoad/clean' -json | tee test-results.json | tparse
+          go test -v -timeout 15m -count=1 -run 'TestE2ELoad/clean'
         continue-on-error: true
 
       - name: Upload Logs
