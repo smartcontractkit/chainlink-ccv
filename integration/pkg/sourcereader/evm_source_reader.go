@@ -96,7 +96,7 @@ func (r *EVMSourceReader) BlockTime(ctx context.Context, block *big.Int) (uint64
 	return hdr.Time, nil
 }
 
-// VerificationTaskChannel returns the channel where new message events are delivered.
+// VerificationTasks returns the channel where new message events are delivered.
 func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]verifiertypes.VerificationTask, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
@@ -157,11 +157,18 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 			"destChainSelector", event.DestChainSelector,
 			"nonce", event.SequenceNumber,
 			"messageId", common.Bytes2Hex(event.MessageId[:]),
-			"verifierReceiptCount", len(event.VerifierReceipts),
-			"receiptBlobCount", len(event.ReceiptBlobs))
+			"ReceiptsCount", len(event.Receipts),
+			"verifierBlobsCount", len(event.VerifierBlobs))
+
+		if len(event.Receipts) < 2 {
+			// TODO: double check semantics of receipts.
+			// There should be at least 2 receipts, one for executor and one for the token transfer.
+			r.lggr.Errorw("❌ Not enough verifier receipts found", "count", len(event.Receipts))
+			continue // to next message
+		}
 
 		// Log verifier receipts
-		for i, vr := range event.VerifierReceipts {
+		for i, vr := range event.Receipts {
 			r.lggr.Infow("🧾 Verifier Receipt",
 				"index", i,
 				"issuer", vr.Issuer.Hex(),
@@ -172,12 +179,13 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 		}
 
 		// Log executor receipt
+		executorReceipt := event.Receipts[len(event.Receipts)-1]
 		r.lggr.Infow("📋 Executor Receipt",
-			"issuer", event.ExecutorReceipt.Issuer.Hex(),
-			"destGasLimit", event.ExecutorReceipt.DestGasLimit,
-			"destBytesOverhead", event.ExecutorReceipt.DestBytesOverhead,
-			"feeTokenAmount", event.ExecutorReceipt.FeeTokenAmount.String(),
-			"extraArgs", common.Bytes2Hex(event.ExecutorReceipt.ExtraArgs))
+			"issuer", executorReceipt.Issuer.Hex(),
+			"destGasLimit", executorReceipt.DestGasLimit,
+			"destBytesOverhead", executorReceipt.DestBytesOverhead,
+			"feeTokenAmount", executorReceipt.FeeTokenAmount.String(),
+			"extraArgs", common.Bytes2Hex(executorReceipt.ExtraArgs))
 
 		r.lggr.Infow("📋 Decoding encoded message",
 			"encodedMessageLength", len(event.EncodedMessage),
@@ -191,17 +199,17 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 			"message", decodedMsg)
 
 		// Create receipt blobs from verifier receipts and receipt blobs
-		receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.VerifierReceipts)+1)
+		receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.Receipts)+1)
 
-		if len(event.VerifierReceipts) == 0 {
+		if len(event.Receipts) == 0 {
 			r.lggr.Errorw("❌ No verifier receipts found")
 			continue // to next message
 		}
 		// Process verifier receipts
-		for i, vr := range event.VerifierReceipts {
+		for i, vr := range event.Receipts {
 			var blob []byte
-			if i < len(event.ReceiptBlobs) && len(event.ReceiptBlobs[i]) > 0 {
-				blob = event.ReceiptBlobs[i]
+			if i < len(event.VerifierBlobs) && len(event.VerifierBlobs[i]) > 0 {
+				blob = event.VerifierBlobs[i]
 			} else {
 				r.lggr.Infow("⚠️ Empty or missing receipt blob",
 					"verifierIndex", i,
@@ -224,23 +232,19 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 				"blobLength", len(blob))
 		}
 
-		if event.ExecutorReceipt.Issuer == (common.Address{}) {
-			r.lggr.Errorw("❌ Empty or missing executor receipt")
-			continue // to next message
-		}
 		// Add executor receipt if available
-		issuerAddr, _ := protocol.NewUnknownAddressFromHex(event.ExecutorReceipt.Issuer.Hex())
-		executorReceipt := protocol.ReceiptWithBlob{
+		issuerAddr, _ := protocol.NewUnknownAddressFromHex(executorReceipt.Issuer.Hex())
+		executorReceiptBlob := protocol.ReceiptWithBlob{
 			Issuer:            issuerAddr,
-			DestGasLimit:      event.ExecutorReceipt.DestGasLimit,
-			DestBytesOverhead: event.ExecutorReceipt.DestBytesOverhead,
+			DestGasLimit:      executorReceipt.DestGasLimit,
+			DestBytesOverhead: executorReceipt.DestBytesOverhead,
 			Blob:              []byte{},
-			ExtraArgs:         event.ExecutorReceipt.ExtraArgs,
+			ExtraArgs:         executorReceipt.ExtraArgs,
 		}
-		receiptBlobs = append(receiptBlobs, executorReceipt)
+		receiptBlobs = append(receiptBlobs, executorReceiptBlob)
 
 		r.lggr.Infow("📋 Processed executor receipt",
-			"issuer", event.ExecutorReceipt.Issuer.Hex())
+			"issuer", executorReceipt.Issuer.Hex())
 
 		// Create verification task
 		results = append(results, verifiertypes.VerificationTask{
