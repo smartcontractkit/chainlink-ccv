@@ -241,7 +241,7 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 					return
 				}
 
-				tc.T.Logf("Message %d verified - aggregator: %d entries, indexer: %d verifications",
+				tc.T.Logf("Message %d verified - aggregator entries, indexer: %d verifications",
 					msg.SeqNo,
 					len(result.IndexedVerifications.VerifierResults))
 
