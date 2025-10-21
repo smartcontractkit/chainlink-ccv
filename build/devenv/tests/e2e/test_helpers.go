@@ -10,10 +10,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
+
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 

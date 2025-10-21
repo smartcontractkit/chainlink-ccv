@@ -7,18 +7,17 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 )
 
 type LogAsserter struct {
 	lokiURL      string
 	logger       zerolog.Logger
-	timeout      time.Duration
 	pollInterval time.Duration
 
 	stream       *LogStream
 	logCache     sync.Map
-	streamCtx    context.Context
 	streamCancel context.CancelFunc
 	streamWg     sync.WaitGroup
 }
@@ -37,9 +36,10 @@ func New(lokiURL string, logger zerolog.Logger) *LogAsserter {
 }
 
 func (la *LogAsserter) StartStreaming(ctx context.Context, stages []LogStage) error {
-	la.streamCtx, la.streamCancel = context.WithCancel(ctx)
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	la.streamCancel = streamCancel
 
-	stream, err := StartLogStream(la.streamCtx, la.lokiURL, stages, la.logger)
+	stream, err := StartLogStream(streamCtx, la.lokiURL, stages, la.logger)
 	if err != nil {
 		return fmt.Errorf("failed to start log stream: %w", err)
 	}
@@ -93,7 +93,7 @@ func (la *LogAsserter) processStreamedLogs() {
 			)
 			msgLogs.mu.Unlock()
 
-		case <-la.streamCtx.Done():
+		case <-la.stream.ctx.Done():
 			return
 		}
 	}

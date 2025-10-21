@@ -14,7 +14,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// LogStream represents an active WebSocket connection to Loki's tail API
+// LogStream represents an active WebSocket connection to Loki's tail API.
 type LogStream struct {
 	conn   *websocket.Conn
 	Logs   chan StreamedLog
@@ -26,7 +26,7 @@ type LogStream struct {
 	errMu  sync.RWMutex
 }
 
-// StreamedLog represents a log entry received from Loki's streaming API
+// StreamedLog represents a log entry received from Loki's streaming API.
 type StreamedLog struct {
 	Timestamp time.Time
 	MessageID [32]byte
@@ -35,7 +35,7 @@ type StreamedLog struct {
 	RawLog    string
 }
 
-// lokiStreamResponse represents the JSON structure from Loki's tail API
+// lokiStreamResponse represents the JSON structure from Loki's tail API.
 type lokiStreamResponse struct {
 	Streams []struct {
 		Stream map[string]string `json:"stream"`
@@ -87,7 +87,7 @@ func StartLogStream(ctx context.Context, wsURL string, stages []LogStage, logger
 	return stream, nil
 }
 
-// buildStreamQuery creates a LogQL query for streaming multiple log stages
+// buildStreamQuery creates a LogQL query for streaming multiple log stages.
 func buildStreamQuery(stages []LogStage) string {
 	// Collect unique services/containers
 	servicesMap := make(map[string]bool)
@@ -140,7 +140,7 @@ func (l *LogAsserter) StartLogStream(ctx context.Context, stages []LogStage) (*L
 	return StartLogStream(ctx, l.lokiURL, stages, l.logger)
 }
 
-// readLoop continuously reads messages from the WebSocket connection
+// readLoop continuously reads messages from the WebSocket connection.
 func (s *LogStream) readLoop() {
 	defer s.wg.Done()
 	defer close(s.Logs)
@@ -217,7 +217,7 @@ func (s *LogStream) readLoop() {
 	}
 }
 
-// identifyStage determines which log stage a log line matches
+// identifyStage determines which log stage a log line matches.
 func (s *LogStream) identifyStage(logLine string) string {
 	// Check if log line matches known patterns from log_stages.go
 	if strings.Contains(logLine, "processing message with ID") {
@@ -238,32 +238,43 @@ func parseTimestamp(timestampNs string) (time.Time, error) {
 	return time.Unix(0, ns), nil
 }
 
-// extractMessageID extracts a message ID from a log line or JSON label
+// extractMessageID extracts a message ID from a log line or JSON label.
 func extractMessageID(logLine string) ([32]byte, bool) {
 	lastBrace := strings.LastIndex(logLine, "{")
-	if lastBrace != -1 {
-		jsonPart := logLine[lastBrace:]
-		var labels map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonPart), &labels); err == nil {
-			// Check for messageID in various case formats
-			for _, key := range []string{"messageID"} {
-				if val, ok := labels[key]; ok {
-					if strVal, ok := val.(string); ok {
-						// Remove 0x prefix if present
-						strVal = strings.TrimPrefix(strVal, "0x")
-						if len(strVal) >= 64 {
-							hash := common.HexToHash(strVal)
-							return hash, true
-						}
-					}
-				}
-			}
-		}
+	if lastBrace == -1 {
+		return [32]byte{}, false
 	}
+
+	jsonPart := logLine[lastBrace:]
+	var labels map[string]any
+	if err := json.Unmarshal([]byte(jsonPart), &labels); err != nil {
+		return [32]byte{}, false
+	}
+
+	for _, key := range []string{"messageID"} {
+		val, ok := labels[key]
+		if !ok {
+			continue
+		}
+
+		strVal, ok := val.(string)
+		if !ok {
+			continue
+		}
+
+		strVal = strings.TrimPrefix(strVal, "0x")
+		if len(strVal) < 64 {
+			continue
+		}
+
+		hash := common.HexToHash(strVal)
+		return hash, true
+	}
+
 	return [32]byte{}, false
 }
 
-// Stop closes the WebSocket connection and waits for the read loop to finish
+// Stop closes the WebSocket connection and waits for the read loop to finish.
 func (s *LogStream) Stop() error {
 	s.cancel()
 
@@ -280,7 +291,7 @@ func (s *LogStream) Stop() error {
 	return s.getError()
 }
 
-// setError stores an error that occurred during streaming
+// setError stores an error that occurred during streaming.
 func (s *LogStream) setError(err error) {
 	s.errMu.Lock()
 	defer s.errMu.Unlock()
@@ -289,7 +300,7 @@ func (s *LogStream) setError(err error) {
 	}
 }
 
-// getError retrieves any error that occurred during streaming
+// getError retrieves any error that occurred during streaming.
 func (s *LogStream) getError() error {
 	s.errMu.RLock()
 	defer s.errMu.RUnlock()
