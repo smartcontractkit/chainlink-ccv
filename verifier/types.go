@@ -18,7 +18,6 @@ type VerificationTask struct {
 // SourceConfig contains configuration for a single source chain.
 type SourceConfig struct {
 	VerifierAddress protocol.UnknownAddress `json:"verifier_address"`
-	OnRampAddress   protocol.UnknownAddress `json:"onramp_address"`
 	ChainSelector   protocol.ChainSelector  `json:"chain_selector"`
 	PollInterval    time.Duration           `json:"poll_interval"`
 }
