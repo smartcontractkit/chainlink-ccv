@@ -208,9 +208,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 				"50051/tcp": []nat.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
 				},
-				"8080/tcp": []nat.PortBinding{
-					{HostPort: "8080"},
-				},
 			}
 		},
 		WaitingFor: wait.ForHTTP("/health/live").WithPort("8080/tcp"),
