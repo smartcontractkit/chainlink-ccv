@@ -12,3 +12,6 @@
     [nodesets.node_specs.node]
       docker_ctx = "../../../chainlink"
       docker_file = "plugins/chainlink.Dockerfile"
+
+      [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
