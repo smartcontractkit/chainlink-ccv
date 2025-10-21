@@ -223,6 +223,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 				DestBytesOverhead: vr.DestBytesOverhead,
 				Blob:              blob,
 				ExtraArgs:         vr.ExtraArgs,
+				FeeTokenAmount:    vr.FeeTokenAmount,
 			}
 			receiptBlobs = append(receiptBlobs, receiptBlob)
 
@@ -240,6 +241,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 			DestBytesOverhead: executorReceipt.DestBytesOverhead,
 			Blob:              []byte{},
 			ExtraArgs:         executorReceipt.ExtraArgs,
+			FeeTokenAmount:    executorReceipt.FeeTokenAmount,
 		}
 		receiptBlobs = append(receiptBlobs, executorReceiptBlob)
 
