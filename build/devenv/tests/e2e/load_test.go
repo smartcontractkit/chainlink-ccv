@@ -61,29 +61,33 @@ type MessageMetrics struct {
 
 // MessageTotals holds count totals for message processing.
 type MessageTotals struct {
-	Sent     int
-	Indexed  int
-	Received int
+	Sent       int
+	Aggregated int
+	Indexed    int
+	Received   int
 	// Maps for tracking specific messages
-	SentMessages     map[uint64]string // seqNo -> messageID
-	IndexedMessages  map[uint64]string // seqNo -> messageID
-	ReceivedMessages map[uint64]string // seqNo -> messageID
+	SentMessages       map[uint64]string // seqNo -> messageID
+	AggregatedMessages map[uint64]string // seqNo -> messageID
+	IndexedMessages    map[uint64]string // seqNo -> messageID
+	ReceivedMessages   map[uint64]string // seqNo -> messageID
 }
 
 // MetricsSummary holds aggregate metrics for all messages.
 type MetricsSummary struct {
-	TotalSent     int
-	TotalIndexed  int
-	TotalReceived int
-	MinLatency    time.Duration
-	MaxLatency    time.Duration
-	P90Latency    time.Duration
-	P95Latency    time.Duration
-	P99Latency    time.Duration
+	TotalSent       int
+	TotalAggregated int
+	TotalIndexed    int
+	TotalReceived   int
+	MinLatency      time.Duration
+	MaxLatency      time.Duration
+	P90Latency      time.Duration
+	P95Latency      time.Duration
+	P99Latency      time.Duration
 	// Maps for detailed reporting
-	SentMessages     map[uint64]string
-	IndexedMessages  map[uint64]string
-	ReceivedMessages map[uint64]string
+	SentMessages       map[uint64]string
+	AggregatedMessages map[uint64]string
+	IndexedMessages    map[uint64]string
+	ReceivedMessages   map[uint64]string
 }
 
 // SentMessage represents a message that was sent and needs verification.
@@ -222,32 +226,28 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	return &wasp.Response{Data: "ok"}
 }
 
-// assertMessagesAsync starts async verification of messages as they are sent via channel.
-// Returns a function that blocks until all messages are verified (or timeout) and returns metrics and counts.
-// The gun.sentMsgCh channel must be closed (via gun.CloseSentChannel()) when all messages have been sent.
-func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl *ccvEvm.CCIP17EVM, indexerClient *ccv.IndexerClient, timeout time.Duration) func() ([]MessageMetrics, MessageTotals) {
+func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]MessageMetrics, MessageTotals) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
 
 	metricsChan := make(chan MessageMetrics, 100)
 	var wg sync.WaitGroup
-	var totalSent, totalReceived, totalIndexed int
+	var totalSent, totalAggregated, totalIndexed, totalReceived int
 	var countMu sync.Mutex
 
 	// Track specific messages for detailed reporting
 	sentMessages := make(map[uint64]string)
+	aggregatedMessages := make(map[uint64]string)
 	indexedMessages := make(map[uint64]string)
 	receivedMessages := make(map[uint64]string)
 
 	// Create a context with timeout for verification
-	verifyCtx, cancelVerify := context.WithTimeout(ctx, timeout)
+	verifyCtx, cancelVerify := context.WithTimeout(tc.Ctx, tc.Timeout)
 
-	// Start verification goroutine that reads from the sent messages channel
 	go func() {
 		defer close(metricsChan)
 		defer cancelVerify()
 
-		// Read from channel until it's closed
 		for sentMsg := range gun.sentMsgCh {
 			msgIDHex := common.BytesToHash(sentMsg.MessageID[:]).Hex()
 			countMu.Lock()
@@ -260,61 +260,61 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 			go func(msg SentMessage) {
 				defer wg.Done()
 
-				// Step 1: Check if message reached indexer (with timeout)
-				indexerCheckCtx, indexerCancel := context.WithTimeout(verifyCtx, timeout*90/100)
-				defer indexerCancel()
-
-				indexedVerifications, err := indexerClient.WaitForVerificationsForMessageID(indexerCheckCtx, msg.MessageID, 2*time.Second, timeout)
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
+
+				result, err := VerifyMessage(tc, msg.MessageID, VerifyMessageOptions{
+					TickInterval: 2 * time.Second,
+					Timeout:      tc.Timeout,
+				})
 				if err != nil {
-					t.Logf("Message %d (ID: %s) did not reach indexer: %v", msg.SeqNo, msgIDHex, err)
+					tc.T.Logf("Message %d (ID: %s) verification failed: %v", msg.SeqNo, msgIDHex, err)
 					return
 				}
 
 				countMu.Lock()
+				totalAggregated++
+				aggregatedMessages[msg.SeqNo] = msgIDHex
 				totalIndexed++
 				indexedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
-				t.Logf("Message %d reached indexer with %d verifications", msg.SeqNo, len(indexedVerifications.VerifierResults))
 
-				// Step 2: Wait for the execution event with context
-				execEvent, err := impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, timeout)
+				tc.T.Logf("Message %d verified - result present in aggregator and indexer: %d verifications",
+					msg.SeqNo,
+					len(result.IndexedVerifications.VerifierResults))
+
+				execEvent, err := tc.Impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, tc.Timeout)
 
 				if verifyCtx.Err() != nil {
-					// Context canceled or timed out
-					t.Logf("Message %d verification timed out", msg.SeqNo)
+					tc.T.Logf("Message %d verification timed out", msg.SeqNo)
 					return
 				}
 
 				if err != nil {
-					t.Logf("Failed to get execution event for sequence number %d: %v", msg.SeqNo, err)
+					tc.T.Logf("Failed to get execution event for sequence number %d: %v", msg.SeqNo, err)
 					return
 				}
 
 				if execEvent == nil {
-					t.Logf("Execution event is nil for sequence number %d", msg.SeqNo)
+					tc.T.Logf("Execution event is nil for sequence number %d", msg.SeqNo)
 					return
 				}
 
-				// Check execution state
 				event := execEvent.(*offramp.OffRampExecutionStateChanged)
 				if event.State != uint8(2) {
-					t.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, event.State)
+					tc.T.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, event.State)
 					return
 				}
 
-				// Calculate latency
 				executedTime := time.Now()
 				latency := executedTime.Sub(msg.SentTime)
 
-				t.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
+				tc.T.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
 
 				countMu.Lock()
 				totalReceived++
 				receivedMessages[msg.SeqNo] = msgIDHex
 				countMu.Unlock()
 
-				// Send metrics
 				metricsChan <- MessageMetrics{
 					SeqNo:           msg.SeqNo,
 					MessageID:       msgIDHex,
@@ -325,10 +325,8 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 			}(sentMsg)
 		}
 
-		// Channel is closed, wait for all assertions goroutines to complete or timeout
-		t.Logf("All messages sent, waiting for assertion to complete")
+		tc.T.Logf("All messages sent, waiting for assertion to complete")
 
-		// Wait for either all goroutines to finish or context timeout
 		done := make(chan struct{})
 		go func() {
 			wg.Wait()
@@ -337,13 +335,12 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 		select {
 		case <-done:
-			t.Logf("All verification goroutines completed")
+			tc.T.Logf("All verification goroutines completed")
 		case <-verifyCtx.Done():
-			t.Logf("Verification timeout reached, some goroutines may still be running")
+			tc.T.Logf("Verification timeout reached, some goroutines may still be running")
 		}
 	}()
 
-	// Return function that collects metrics and counts
 	return func() ([]MessageMetrics, MessageTotals) {
 		metrics := make([]MessageMetrics, 0, 100)
 		for metric := range metricsChan {
@@ -352,18 +349,20 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 
 		countMu.Lock()
 		totals := MessageTotals{
-			Sent:             totalSent,
-			Received:         totalReceived,
-			Indexed:          totalIndexed,
-			SentMessages:     sentMessages,
-			IndexedMessages:  indexedMessages,
-			ReceivedMessages: receivedMessages,
+			Sent:               totalSent,
+			Aggregated:         totalAggregated,
+			Indexed:            totalIndexed,
+			Received:           totalReceived,
+			SentMessages:       sentMessages,
+			AggregatedMessages: aggregatedMessages,
+			IndexedMessages:    indexedMessages,
+			ReceivedMessages:   receivedMessages,
 		}
 		countMu.Unlock()
 
 		notVerified := totals.Sent - totals.Received
-		t.Logf("Verification complete - Sent: %d, Indexed: %d, Received: %d, Not Received: %d",
-			totals.Sent, totals.Indexed, totals.Received, notVerified)
+		tc.T.Logf("Verification complete - Sent: %d, Aggregated: %d, Indexed: %d, Received: %d, Not Received: %d",
+			totals.Sent, totals.Aggregated, totals.Indexed, totals.Received, notVerified)
 
 		return metrics, totals
 	}
@@ -372,12 +371,14 @@ func assertMessagesAsync(t *testing.T, ctx context.Context, gun *EVMTXGun, impl 
 // calculateMetricsSummary computes aggregate statistics from message metrics.
 func calculateMetricsSummary(metrics []MessageMetrics, totals MessageTotals) MetricsSummary {
 	summary := MetricsSummary{
-		TotalSent:        totals.Sent,
-		TotalReceived:    totals.Received,
-		TotalIndexed:     totals.Indexed,
-		SentMessages:     totals.SentMessages,
-		IndexedMessages:  totals.IndexedMessages,
-		ReceivedMessages: totals.ReceivedMessages,
+		TotalSent:          totals.Sent,
+		TotalAggregated:    totals.Aggregated,
+		TotalIndexed:       totals.Indexed,
+		TotalReceived:      totals.Received,
+		SentMessages:       totals.SentMessages,
+		AggregatedMessages: totals.AggregatedMessages,
+		IndexedMessages:    totals.IndexedMessages,
+		ReceivedMessages:   totals.ReceivedMessages,
 	}
 
 	if len(metrics) == 0 {
@@ -430,8 +431,9 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"         Message Timing Metrics        \n"+
 		"========================================\n"+
 		"Total Sent:      %d\n"+
-		"Indexed:     %d\n"+
-		"Received:  %d\n"+
+		"Aggregated:      %d\n"+
+		"Indexed:         %d\n"+
+		"Received:        %d\n"+
 		"Success Rate:    %.2f%%\n"+
 		"----------------------------------------\n"+
 		"Min Latency:     %v\n"+
@@ -441,6 +443,7 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"P99 Latency:     %v\n"+
 		"========================================",
 		summary.TotalSent,
+		summary.TotalAggregated,
 		summary.TotalIndexed,
 		summary.TotalReceived,
 		successRate,
@@ -450,6 +453,14 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 		summary.P95Latency,
 		summary.P99Latency,
 	)
+
+	// Find messages that were sent but not aggregated
+	notAggregated := make(map[uint64]string)
+	for seqNo, msgID := range summary.SentMessages {
+		if _, aggregated := summary.AggregatedMessages[seqNo]; !aggregated {
+			notAggregated[seqNo] = msgID
+		}
+	}
 
 	// Find messages that were sent but not indexed
 	notIndexed := make(map[uint64]string)
@@ -468,6 +479,20 @@ func printMetricsSummary(t *testing.T, summary MetricsSummary) {
 	}
 
 	// Print detailed failure information
+	if len(notAggregated) > 0 {
+		t.Logf("\n========================================")
+		t.Logf("Messages NOT Aggregated (%d):", len(notAggregated))
+		t.Logf("========================================")
+		seqNos := make([]uint64, 0, len(notAggregated))
+		for seqNo := range notAggregated {
+			seqNos = append(seqNos, seqNo)
+		}
+		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
+		for _, seqNo := range seqNos {
+			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, notAggregated[seqNo])
+		}
+	}
+
 	if len(notIndexed) > 0 {
 		t.Logf("\n========================================")
 		t.Logf("Messages NOT Indexed (%d):", len(notIndexed))
@@ -576,8 +601,19 @@ func TestE2ELoad(t *testing.T) {
 	require.NoError(t, err)
 
 	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+	aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
+
+	aggregatorClient, err := ccv.NewAggregatorClient(
+		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+		aggregatorAddr)
+	require.NoError(t, err)
+	require.NotNil(t, aggregatorClient)
+	t.Cleanup(func() {
+		aggregatorClient.Close()
+	})
+
 	indexerClient := ccv.NewIndexerClient(
-		zerolog.Ctx(ctx).With().Str("indexer_url", indexerURL).Logger(),
+		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
 		indexerURL)
 	require.NotNil(t, indexerClient)
 
@@ -588,8 +624,14 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 5*time.Minute)
+		waitForMetrics := assertMessagesAsync(TestingContext{
+			T:                t,
+			Ctx:              ctx,
+			Impl:             impl,
+			AggregatorClient: aggregatorClient,
+			IndexerClient:    indexerClient,
+			Timeout:          5 * time.Minute,
+		}, gun)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -615,8 +657,14 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 220*time.Second)
+		waitForMetrics := assertMessagesAsync(TestingContext{
+			T:                t,
+			Ctx:              ctx,
+			Impl:             impl,
+			AggregatorClient: aggregatorClient,
+			IndexerClient:    indexerClient,
+			Timeout:          220 * time.Second,
+		}, gun)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -631,14 +679,19 @@ func TestE2ELoad(t *testing.T) {
 	})
 
 	t.Run("gas", func(t *testing.T) {
-		// test slow and fast gas spikes on both chains
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(TestingContext{
+			T:                t,
+			Ctx:              ctx,
+			Impl:             impl,
+			AggregatorClient: aggregatorClient,
+			IndexerClient:    indexerClient,
+			Timeout:          10 * time.Minute,
+		}, gun)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -706,8 +759,14 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(TestingContext{
+			T:                t,
+			Ctx:              ctx,
+			Impl:             impl,
+			AggregatorClient: aggregatorClient,
+			IndexerClient:    indexerClient,
+			Timeout:          10 * time.Minute,
+		}, gun)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -869,8 +928,14 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		// Start async verification before running the profile
-		waitForMetrics := assertMessagesAsync(t, ctx, gun, impl, indexerClient, 10*time.Minute)
+		waitForMetrics := assertMessagesAsync(TestingContext{
+			T:                t,
+			Ctx:              ctx,
+			Impl:             impl,
+			AggregatorClient: aggregatorClient,
+			IndexerClient:    indexerClient,
+			Timeout:          10 * time.Minute,
+		}, gun)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)

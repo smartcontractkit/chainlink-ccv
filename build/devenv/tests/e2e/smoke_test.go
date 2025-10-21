@@ -59,10 +59,20 @@ func TestE2ESmoke(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	// TODO: figure out how to get this URL dynamically from the env-out.toml instead of hardcoding like this.
 	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+	aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
+
+	aggregatorClient, err := ccv.NewAggregatorClient(
+		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+		aggregatorAddr)
+	require.NoError(t, err)
+	require.NotNil(t, aggregatorClient)
+	t.Cleanup(func() {
+		aggregatorClient.Close()
+	})
+
 	indexerClient := ccv.NewIndexerClient(
-		zerolog.Ctx(ctx).With().Str("indexer_url", indexerURL).Logger(),
+		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
 		indexerURL)
 	require.NotNil(t, indexerClient)
 
@@ -122,14 +132,24 @@ func TestE2ESmoke(t *testing.T) {
 				// its currently being used in an EVM-specific way.
 				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
-				// check that the message was picked up by the indexer
-				indexedVerifications, err := indexerClient.WaitForVerificationsForMessageID(
-					ctx,
-					sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId,
-					1*time.Second,
-					defaultSentTimeout)
+				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
+
+				testCtx := TestingContext{
+					T:                t,
+					Ctx:              ctx,
+					Impl:             c,
+					AggregatorClient: aggregatorClient,
+					IndexerClient:    indexerClient,
+					Timeout:          defaultSentTimeout,
+				}
+				result, err := VerifyMessage(testCtx, messageID, VerifyMessageOptions{
+					TickInterval: 1 * time.Second,
+					Timeout:      defaultSentTimeout,
+				})
 				require.NoError(t, err)
-				require.Len(t, indexedVerifications.VerifierResults, tc.numExpectedVerifications)
+				require.NotNil(t, result.AggregatedResult)
+				require.Len(t, result.IndexedVerifications.VerifierResults, tc.numExpectedVerifications)
+
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
@@ -308,14 +328,24 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
-				// check that the message was picked up by the indexer
-				indexedVerifications, err := indexerClient.WaitForVerificationsForMessageID(
-					ctx,
-					sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId,
-					1*time.Second,
-					defaultSentTimeout)
+				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
+
+				testCtx := TestingContext{
+					T:                t,
+					Ctx:              ctx,
+					Impl:             c,
+					AggregatorClient: aggregatorClient,
+					IndexerClient:    indexerClient,
+					Timeout:          defaultSentTimeout,
+				}
+				result, err := VerifyMessage(testCtx, messageID, VerifyMessageOptions{
+					TickInterval: 1 * time.Second,
+					Timeout:      defaultSentTimeout,
+				})
 				require.NoError(t, err)
-				require.Len(t, indexedVerifications.VerifierResults, tc.numExpectedVerifications)
+				require.NotNil(t, result.AggregatedResult)
+				require.Len(t, result.IndexedVerifications.VerifierResults, tc.numExpectedVerifications)
+
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
