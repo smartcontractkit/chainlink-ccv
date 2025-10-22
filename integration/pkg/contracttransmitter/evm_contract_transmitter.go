@@ -16,8 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
-
-	chainselectors "github.com/smartcontractkit/chain-selectors"
 )
 
 var _ executor.ContractTransmitter = &EVMContractTransmitter{}
@@ -55,12 +53,7 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 		return nil, err
 	}
 
-	id, err := chainselectors.GetChainIDFromSelector(chainSelector)
-	if err != nil {
-		return nil, err
-	}
-	chainIDInt := big.NewInt(0)
-	chainIDInt.SetString(id, 10)
+	chainIDInt := big.NewInt(1337)
 
 	auth := bind.NewKeyedTransactor(pk, chainIDInt)
 	auth.Value = big.NewInt(0)
@@ -121,6 +114,8 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	if err != nil {
 		return err
 	}
+
+	fmt.Printf("Offramp address %v", ct.OffRamp.Address())
 
 	encodedMsg, _ := report.Message.Encode()
 	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData)

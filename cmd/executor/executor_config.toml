@@ -11,41 +11,41 @@ min_wait="3s"
 ccv_info_cache_expiry="5m"
 
 [offramp_addresses]
-    3379446385462418246 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
-    12922642891491394802 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
-    4793464827907405086 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
+    100 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
+    101 = "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf"
+    102 = "0x36b58F5C1969B7b6591D752ea6F5486D069010AB"
 
 [blockchain_infos]
-    [blockchain_infos.3379446385462418246]
+    [blockchain_infos.100]
         ChainID = "1337"
         Type = "anvil"
         Family = "evm"
-        UniqueChainName = "blockchain-src"
-        [[blockchain_infos.3379446385462418246.Nodes]]
+        UniqueChainName = "blockchain-shared"
+        [[blockchain_infos.100.Nodes]]
             ExternalHTTPUrl = "http://host.docker.internal:8545"
-            InternalHTTPUrl = "http://blockchain-src:8545"
+            InternalHTTPUrl = "http://blockchain-shared:8545"
             ExternalWSUrl = "ws://host.docker.internal:8545"
-            InternalWSUrl = "ws://blockchain-src:8545"
-    [blockchain_infos.12922642891491394802]
-        ChainID = "2337"
+            InternalWSUrl = "ws://blockchain-shared:8545"
+    [blockchain_infos.101]
+        ChainID = "1337"
         Type = "anvil"
         Family = "evm"
-        UniqueChainName = "blockchain-dst"
-        [[blockchain_infos.12922642891491394802.Nodes]]
-            ExternalHTTPUrl = "http://host.docker.internal:8555"
-            InternalHTTPUrl = "http://blockchain-dst:8555"
-            ExternalWSUrl = "ws://host.docker.internal:8555"
-            InternalWSUrl = "ws://blockchain-dst:8555"
-    [blockchain_infos.4793464827907405086]
-        ChainID = "3337"
+        UniqueChainName = "blockchain-shared"
+        [[blockchain_infos.101.Nodes]]
+            ExternalHTTPUrl = "http://host.docker.internal:8545"
+            InternalHTTPUrl = "http://blockchain-shared:8545"
+            ExternalWSUrl = "ws://host.docker.internal:8545"
+            InternalWSUrl = "ws://blockchain-shared:8545"
+    [blockchain_infos.102]
+        ChainID = "1337"
         Type = "anvil"
         Family = "evm"
-        UniqueChainName = "blockchain-3rd"
-        [[blockchain_infos.4793464827907405086.Nodes]]
-            ExternalHTTPUrl = "http://host.docker.internal:8565"
-            InternalHTTPUrl = "http://blockchain-3rd:8565"
-            ExternalWSUrl = "ws://host.docker.internal:8565"
-            InternalWSUrl = "ws://blockchain-3rd:8565"
+        UniqueChainName = "blockchain-shared"
+        [[blockchain_infos.102.Nodes]]
+            ExternalHTTPUrl = "http://host.docker.internal:8545"
+            InternalHTTPUrl = "http://blockchain-shared:8545"
+            ExternalWSUrl = "ws://host.docker.internal:8545"
+            InternalWSUrl = "ws://blockchain-shared:8545"
 
 [Monitoring]
 Enabled = true

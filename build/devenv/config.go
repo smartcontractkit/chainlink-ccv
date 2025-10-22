@@ -38,6 +38,20 @@ const (
 
 var L = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
 
+// VirtualSelector represents a virtual chain selector that maps to a physical blockchain.
+type VirtualSelector struct {
+	Selector  uint64 `toml:"selector"`
+	Name      string `toml:"name"`
+	Qualifier string `toml:"qualifier"`
+}
+
+// PhysicalChainMapping maps virtual selectors to their physical chain ID.
+var PhysicalChainMapping = map[uint64]string{
+	100: "1337", // Virtual chain A -> physical chain 1337
+	101: "1337", // Virtual chain B -> physical chain 1337
+	102: "1337", // Virtual chain C -> physical chain 1337
+}
+
 // Load loads TOML configurations from a list of paths, i.e. env.toml,overrides.toml
 // and unmarshalls the files from left to right overriding keys.
 func Load[T any](paths []string) (*T, error) {
@@ -101,7 +115,7 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 	}
 
 	// Load addresses into the datastore so that tests can query them appropriately.
-	if c, ok := any(config).(*Cfg); ok {
+	if c, ok := any(config).(*Cfg); ok { //nolint:nestif
 		if len(c.CLDF.Addresses) > 0 {
 			ds := datastore.NewMemoryDataStore()
 			for _, addrRefJSON := range c.CLDF.Addresses {

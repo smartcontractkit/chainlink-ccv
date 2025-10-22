@@ -641,7 +641,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
 
 	// Blockscout, on-chain debug
-	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8555", "EVM RPC node URL (default to dst chain on 8555")
+	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8545", "EVM RPC node URL (default to dst chain on 8545")
 	bsCmd.PersistentFlags().StringP("chain-id", "c", "2337", "RPC's Chain ID")
 	bsCmd.AddCommand(bsUpCmd)
 	bsCmd.AddCommand(bsDownCmd)

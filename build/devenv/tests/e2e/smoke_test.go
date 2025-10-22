@@ -41,17 +41,31 @@ func TestE2ESmoke(t *testing.T) {
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	// Extract virtual selectors
+	virtualSelectors := make([]uint64, len(in.VirtualSelectors))
+	for i, vs := range in.VirtualSelectors {
+		virtualSelectors[i] = vs.Selector
 	}
 
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	// Create CLDF environment with all virtual selectors mapped to single blockchain
+	selectors, e, err := ccv.NewCLDFOperationsEnvironmentWithVirtualSelectors(
+		in.Blockchains[0],
+		virtualSelectors,
+		in.CLDF.DataStore,
+	)
 	require.NoError(t, err)
 	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
 
-	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+	// For virtual selectors, all point to the same physical blockchain
+	chainIDs := make([]string, len(virtualSelectors))
+	wsURLs := make([]string, len(virtualSelectors))
+	for i := range virtualSelectors {
+		chainIDs[i] = in.Blockchains[0].ChainID
+		wsURLs[i] = in.Blockchains[0].Out.Nodes[0].ExternalWSUrl
+	}
+
+	// Use the new constructor that accepts explicit selectors
+	c, err := ccvEvm.NewCCIP17EVMWithVirtualSelectors(ctx, *l, e, virtualSelectors, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

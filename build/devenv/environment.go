@@ -14,7 +14,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
@@ -65,17 +64,21 @@ type Cfg struct {
 	Indexer            *services.IndexerInput    `toml:"indexer"               validate:"required"`
 	Aggregator         *services.AggregatorInput `toml:"aggregator"            validate:"required"`
 	Blockchains        []*blockchain.Input       `toml:"blockchains"           validate:"required"`
+	VirtualSelectors   []*VirtualSelector        `toml:"virtual_selectors"`
 	NodeSets           []*ns.Input               `toml:"nodesets"              validate:"required"`
 	CLNodesFundingETH  float64                   `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                   `toml:"cl_nodes_funding_link"`
 }
 
 func checkKeys(in *Cfg) error {
-	if getNetworkPrivateKey() != DefaultAnvilKey && in.Blockchains[0].ChainID == "1337" && in.Blockchains[1].ChainID == "2337" {
-		return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
-	}
-	if getNetworkPrivateKey() == DefaultAnvilKey && in.Blockchains[0].ChainID != "1337" && in.Blockchains[1].ChainID != "2337" {
-		return errors.New("you are trying to run on real networks but is not using the Anvil private key, export your private key 'export PRIVATE_KEY=...'")
+	// Updated validation for single blockchain with virtual selectors
+	if len(in.Blockchains) > 0 {
+		if getNetworkPrivateKey() != DefaultAnvilKey && in.Blockchains[0].ChainID == "1337" {
+			return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
+		}
+		if getNetworkPrivateKey() == DefaultAnvilKey && in.Blockchains[0].ChainID != "1337" {
+			return errors.New("you are trying to run on real networks but is not using the Anvil private key, export your private key 'export PRIVATE_KEY=...'")
+		}
 	}
 	return nil
 }
@@ -114,19 +117,14 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
-	for _, bc := range in.Blockchains {
-		impl, err := NewProductConfigurationFromNetwork(bc.Type)
-		if err != nil {
-			return nil, err
-		}
-		impls = append(impls, impl)
+	// Deploy single blockchain for all virtual chains
+	impl, err := NewProductConfigurationFromNetwork(in.Blockchains[0].Type)
+	if err != nil {
+		return nil, err
 	}
-	for i, impl := range impls {
-		_, err := impl.DeployLocalNetwork(ctx, in.Blockchains[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
-		}
+	_, err = impl.DeployLocalNetwork(ctx, in.Blockchains[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to deploy local network: %w", err)
 	}
 
 	_, err = services.NewIndexer(in.Indexer)
@@ -143,13 +141,12 @@ func NewEnvironment() (*Cfg, error) {
 
 	clChainConfigs := make([]string, 0)
 	clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
-	for i, impl := range impls {
-		clChainConfig, err := impl.ConfigureNodes(ctx, in.Blockchains[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
-		}
-		clChainConfigs = append(clChainConfigs, clChainConfig)
+	clChainConfig, err := impl.ConfigureNodes(ctx, in.Blockchains[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure nodes: %w", err)
 	}
+	clChainConfigs = append(clChainConfigs, clChainConfig)
+
 	allConfigs := strings.Join(clChainConfigs, "\n")
 	for _, nodeSpec := range in.NodeSets[0].NodeSpecs {
 		nodeSpec.Node.TestConfigOverrides = allConfigs
@@ -162,28 +159,37 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
 	}
 
-	// the CLDF datastore is not initialized at this point because contracts are not deployed yet.
-	// it will get populated in the loop below.
 	in.CLDF.Init()
-	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-	if err != nil {
-		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
-	}
-	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
+	// Extract virtual selectors
+	virtualSelectors := make([]uint64, len(in.VirtualSelectors))
+	for i, vs := range in.VirtualSelectors {
+		virtualSelectors[i] = vs.Selector
+	}
+
+	// Create CLDF environment with all virtual selectors mapped to single blockchain
+	selectors, e, err := NewCLDFOperationsEnvironmentWithVirtualSelectors(
+		in.Blockchains[0],
+		virtualSelectors,
+		in.CLDF.DataStore,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating CLDF operations environment with virtual selectors: %w", err)
+	}
+	Plog.Info().Any("VirtualSelectors", virtualSelectors).Msg("Deploying for virtual chain selectors")
+
+	// Fund nodes once (shared across all virtual chains)
+	if err := impl.FundNodes(ctx, in.NodeSets, in.Blockchains[0], big.NewInt(1), big.NewInt(5)); err != nil {
+		return nil, err
+	}
+
+	// Deploy contracts for each virtual selector to the same physical chain
 	ds := datastore.NewMemoryDataStore()
-	for i, impl := range impls {
-		if err := impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
-			return nil, err
-		}
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
+	for _, selector := range selectors {
+		L.Info().Uint64("VirtualSelector", selector).Msg("Deploying contracts for virtual selector")
+		dsi, err := impl.DeployContractsForSelector(ctx, e, selector)
 		if err != nil {
-			return nil, err
-		}
-		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deployed chain selector")
-		dsi, err := impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector)
-		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to deploy for selector %d: %w", selector, err)
 		}
 		addresses, err := dsi.Addresses().Fetch()
 		if err != nil {
@@ -200,18 +206,19 @@ func NewEnvironment() (*Cfg, error) {
 	}
 	e.DataStore = ds.Seal()
 
-	for i, impl := range impls {
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
-		if err != nil {
-			return nil, err
-		}
+	// Connect all virtual selectors to each other
+	for i, fromSelector := range selectors {
 		selsToConnect := make([]uint64, 0)
-		for _, sel := range selectors {
-			if sel != networkInfo.ChainSelector {
-				selsToConnect = append(selsToConnect, sel)
+		for j, toSelector := range selectors {
+			if i != j {
+				selsToConnect = append(selsToConnect, toSelector)
 			}
 		}
-		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect)
+		L.Info().
+			Uint64("FromSelector", fromSelector).
+			Any("ToSelectors", selsToConnect).
+			Msg("Connecting virtual selectors")
+		err = impl.ConnectContractsWithSelectors(ctx, e, fromSelector, selsToConnect)
 		if err != nil {
 			return nil, err
 		}
