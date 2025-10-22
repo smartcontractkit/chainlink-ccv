@@ -210,7 +210,7 @@ var deployCommitVerifierCmd = &cobra.Command{
 			addresses = append(addresses, common.HexToAddress(addr))
 		}
 
-		selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		selectors, e, _, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.VirtualSelectors, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
@@ -278,7 +278,7 @@ var deployReceiverCmd = &cobra.Command{
 			OptionalThreshold: uint8(optionalThreshold),
 		}
 
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		_, e, _, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.VirtualSelectors, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
@@ -456,22 +456,28 @@ var monitorContractsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
-		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-		for _, bc := range in.Blockchains {
-			chainIDs = append(chainIDs, bc.ChainID)
-			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-		}
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		selectors, e, physicalChainMap, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.VirtualSelectors, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("failed to create CLDF operations environment: %w", err)
 		}
 		ctx = ccv.Plog.WithContext(ctx)
 		l := zerolog.Ctx(ctx)
-		impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+
+		evmPhysicalChainMap := make(map[uint64]*ccvEvm.PhysicalChainInfo)
+		for selector, info := range physicalChainMap {
+			evmPhysicalChainMap[selector] = &ccvEvm.PhysicalChainInfo{
+				ChainID:       info.ChainID,
+				WSURL:         info.WSURL,
+				HTTPURL:       info.HTTPURL,
+				ContainerName: info.ContainerName,
+			}
+		}
+
+		impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, selectors, evmPhysicalChainMap)
 		if err != nil {
 			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
 		}
-		_, reg, err := impl.ExposeMetrics(ctx, source, dest, chainIDs, wsURLs)
+		_, reg, err := impl.ExposeMetrics(ctx, source, dest)
 		if err != nil {
 			return fmt.Errorf("failed to expose metrics: %w", err)
 		}
@@ -554,19 +560,24 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse destination chain selector: %w", err)
 		}
 
-		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-		for _, bc := range in.Blockchains {
-			chainIDs = append(chainIDs, bc.ChainID)
-			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-		}
-
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		selectors, e, physicalChainMap, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.VirtualSelectors, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
 		ctx = ccv.Plog.WithContext(ctx)
 		l := zerolog.Ctx(ctx)
-		impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+
+		evmPhysicalChainMap := make(map[uint64]*ccvEvm.PhysicalChainInfo)
+		for selector, info := range physicalChainMap {
+			evmPhysicalChainMap[selector] = &ccvEvm.PhysicalChainInfo{
+				ChainID:       info.ChainID,
+				WSURL:         info.WSURL,
+				HTTPURL:       info.HTTPURL,
+				ContainerName: info.ContainerName,
+			}
+		}
+
+		impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, selectors, evmPhysicalChainMap)
 		if err != nil {
 			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
 		}

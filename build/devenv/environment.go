@@ -70,6 +70,28 @@ type Cfg struct {
 	CLNodesFundingLink float64                   `toml:"cl_nodes_funding_link"`
 }
 
+func (c *Cfg) ValidateVirtualSelectors() error {
+	if len(c.VirtualSelectors) == 0 {
+		return fmt.Errorf("no virtual selectors configured")
+	}
+
+	bcMap := make(map[string]bool)
+	for _, bc := range c.Blockchains {
+		bcMap[bc.ContainerName] = true
+	}
+
+	for _, vs := range c.VirtualSelectors {
+		if vs.PhysicalChain == "" {
+			return fmt.Errorf("virtual selector %d missing physical_chain", uint64(vs.Selector))
+		}
+		if !bcMap[vs.PhysicalChain] {
+			return fmt.Errorf("virtual selector %d references unknown physical_chain: %s",
+				uint64(vs.Selector), vs.PhysicalChain)
+		}
+	}
+	return nil
+}
+
 func checkKeys(in *Cfg) error {
 	// Updated validation for single blockchain with virtual selectors
 	if len(in.Blockchains) > 0 {
@@ -112,19 +134,25 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, err
 	}
 
+	if err := in.ValidateVirtualSelectors(); err != nil {
+		return nil, fmt.Errorf("invalid virtual selectors: %w", err)
+	}
+
 	_, err = services.NewFake(in.Fake)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	// Deploy single blockchain for all virtual chains
 	impl, err := NewProductConfigurationFromNetwork(in.Blockchains[0].Type)
 	if err != nil {
 		return nil, err
 	}
-	_, err = impl.DeployLocalNetwork(ctx, in.Blockchains[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to deploy local network: %w", err)
+
+	for _, bc := range in.Blockchains {
+		_, err = impl.DeployLocalNetwork(ctx, bc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to deploy local network %s: %w", bc.ContainerName, err)
+		}
 	}
 
 	_, err = services.NewIndexer(in.Indexer)
@@ -141,11 +169,14 @@ func NewEnvironment() (*Cfg, error) {
 
 	clChainConfigs := make([]string, 0)
 	clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
-	clChainConfig, err := impl.ConfigureNodes(ctx, in.Blockchains[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure nodes: %w", err)
+
+	for _, bc := range in.Blockchains {
+		clChainConfig, err := impl.ConfigureNodes(ctx, bc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to configure nodes for %s: %w", bc.ContainerName, err)
+		}
+		clChainConfigs = append(clChainConfigs, clChainConfig)
 	}
-	clChainConfigs = append(clChainConfigs, clChainConfig)
 
 	allConfigs := strings.Join(clChainConfigs, "\n")
 	for _, nodeSpec := range in.NodeSets[0].NodeSpecs {
@@ -161,26 +192,30 @@ func NewEnvironment() (*Cfg, error) {
 
 	in.CLDF.Init()
 
-	// Extract virtual selectors
-	virtualSelectors := make([]uint64, len(in.VirtualSelectors))
-	for i, vs := range in.VirtualSelectors {
-		virtualSelectors[i] = vs.Selector
-	}
-
-	// Create CLDF environment with all virtual selectors mapped to single blockchain
-	selectors, e, err := NewCLDFOperationsEnvironmentWithVirtualSelectors(
-		in.Blockchains[0],
-		virtualSelectors,
+	selectors, e, _, err := NewCLDFOperationsEnvironment(
+		in.Blockchains,
+		in.VirtualSelectors,
 		in.CLDF.DataStore,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("creating CLDF operations environment with virtual selectors: %w", err)
+		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
-	Plog.Info().Any("VirtualSelectors", virtualSelectors).Msg("Deploying for virtual chain selectors")
+	Plog.Info().Int("VirtualSelectors", len(in.VirtualSelectors)).Msg("Deploying for virtual chain selectors")
 
-	// Fund nodes once (shared across all virtual chains)
-	if err := impl.FundNodes(ctx, in.NodeSets, in.Blockchains[0], big.NewInt(1), big.NewInt(5)); err != nil {
-		return nil, err
+	blockchainsByName := make(map[string]*blockchain.Input)
+	for i := range in.Blockchains {
+		blockchainsByName[in.Blockchains[i].ContainerName] = in.Blockchains[i]
+	}
+
+	fundedChains := make(map[string]bool)
+	for _, vs := range in.VirtualSelectors {
+		if !fundedChains[vs.PhysicalChain] {
+			bc := blockchainsByName[vs.PhysicalChain]
+			if err := impl.FundNodes(ctx, in.NodeSets, bc, big.NewInt(1), big.NewInt(5)); err != nil {
+				return nil, fmt.Errorf("failed to fund nodes for %s: %w", vs.PhysicalChain, err)
+			}
+			fundedChains[vs.PhysicalChain] = true
+		}
 	}
 
 	// Deploy contracts for each virtual selector to the same physical chain

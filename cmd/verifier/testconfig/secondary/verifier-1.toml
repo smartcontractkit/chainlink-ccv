@@ -16,41 +16,41 @@ TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
 [on_ramp_addresses]
-  100 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
-  101 = "0x9d4454B023096f34B160D6B654540c56A1F81688"
-  102 = "0x8198f5d8F8CfFE8f9C413d98a0A55aEB8ab9FbB7"
+  3379446385462418246 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+  12922642891491394802 = "0x9d4454B023096f34B160D6B654540c56A1F81688"
+  4793464827907405086 = "0x8198f5d8F8CfFE8f9C413d98a0A55aEB8ab9FbB7"
 [committee_verifier_addresses]
-  100 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
-  101 = "0x5f3f1dBD7B74C6B46e8c44f98792A1dAf8d69154"
-  102 = "0xBEc49fA140aCaA83533fB00A2BB19bDdd0290f25"
+  3379446385462418246 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+  12922642891491394802 = "0x5f3f1dBD7B74C6B46e8c44f98792A1dAf8d69154"
+  4793464827907405086 = "0xBEc49fA140aCaA83533fB00A2BB19bDdd0290f25"
 
 [blockchain_infos]
-  [blockchain_infos.100]
+  [blockchain_infos.3379446385462418246]
     ChainID = "1337"
     Type = "anvil"
     Family = "evm"
     UniqueChainName = "blockchain-shared"
-    [[blockchain_infos.100.Nodes]]
+    [[blockchain_infos.3379446385462418246.Nodes]]
       ExternalHTTPUrl = "http://host.docker.internal:8545"
       InternalHTTPUrl = "http://blockchain-shared:8545"
       ExternalWSUrl = "ws://host.docker.internal:8545"
       InternalWSUrl = "ws://blockchain-shared:8545"
-  [blockchain_infos.101]
+  [blockchain_infos.12922642891491394802]
     ChainID = "1337"
     Type = "anvil"
     Family = "evm"
     UniqueChainName = "blockchain-shared"
-    [[blockchain_infos.101.Nodes]]
+    [[blockchain_infos.12922642891491394802.Nodes]]
       ExternalHTTPUrl = "http://host.docker.internal:8545"
       InternalHTTPUrl = "http://blockchain-shared:8545"
       ExternalWSUrl = "ws://host.docker.internal:8545"
       InternalWSUrl = "ws://blockchain-shared:8545"
-  [blockchain_infos.102]
+  [blockchain_infos.4793464827907405086]
     ChainID = "1337"
     Type = "anvil"
     Family = "evm"
     UniqueChainName = "blockchain-shared"
-    [[blockchain_infos.102.Nodes]]
+    [[blockchain_infos.4793464827907405086.Nodes]]
       ExternalHTTPUrl = "http://host.docker.internal:8545"
       InternalHTTPUrl = "http://blockchain-shared:8545"
       ExternalWSUrl = "ws://host.docker.internal:8545"

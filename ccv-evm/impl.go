@@ -56,6 +56,15 @@ import (
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 )
 
+// PhysicalChainInfo contains the physical blockchain details that a virtual selector maps to.
+// This is intentionally duplicated from build/devenv to avoid import cycles.
+type PhysicalChainInfo struct {
+	ChainID       string
+	WSURL         string
+	HTTPURL       string
+	ContainerName string
+}
+
 const (
 	// These qualifiers are used to distinguish between multiple deployments of the committee verifier proxy and mock receiver
 	// on the same chain.
@@ -91,14 +100,12 @@ type CCIP17EVM struct {
 	ethClients             map[uint64]*ethclient.Client
 	onRampBySelector       map[uint64]*onramp.OnRamp
 	offRampBySelector      map[uint64]*offramp.OffRamp
+	physicalChainMap       map[uint64]*PhysicalChainInfo
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
-func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainIDs, wsURLs []string) (*CCIP17EVM, error) {
-	if len(chainIDs) != len(wsURLs) {
-		return nil, fmt.Errorf("len(chainIDs) != len(wsURLs) ; %d != %d", len(chainIDs), len(wsURLs))
-	}
-
+// physicalChainMap provides the mapping from virtual selectors to physical chain information.
+func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, selectors []uint64, physicalChainMap map[uint64]*PhysicalChainInfo) (*CCIP17EVM, error) {
 	gas := &GasSettings{
 		FeeCapMultiplier: 2,
 		TipCapMultiplier: 2,
@@ -109,93 +116,22 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		onRampBySelector       = make(map[uint64]*onramp.OnRamp)
 		offRampBySelector      = make(map[uint64]*offramp.OffRamp)
 	)
-	for i := range chainIDs {
-		chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[i], chainsel.FamilyEVM)
-		if err != nil {
-			return nil, fmt.Errorf("get chain details for chain %s: %w", chainIDs[i], err)
+
+	for _, selector := range selectors {
+		physicalInfo, ok := physicalChainMap[selector]
+		if !ok {
+			return nil, fmt.Errorf("no physical chain info for selector %d", selector)
 		}
 
-		chainDetailsBySelector[chainDetails.ChainSelector] = chainDetails
-
-		client, _, _, err := ETHClient(ctx, wsURLs[i], gas)
-		if err != nil {
-			return nil, fmt.Errorf("create eth client for chain %s: %w", chainIDs[i], err)
-		}
-		ethClients[chainDetails.ChainSelector] = client
-
-		onRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-			chainDetails.ChainSelector,
-			datastore.ContractType(onrampoperations.ContractType),
-			semver.MustParse(onrampoperations.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return nil, fmt.Errorf("get on ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainIDs[i], err)
-		}
-		offRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-			chainDetails.ChainSelector,
-			datastore.ContractType(offrampoperations.ContractType),
-			semver.MustParse(offrampoperations.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return nil, fmt.Errorf("get off ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainIDs[i], err)
-		}
-		onRamp, err := onramp.NewOnRamp(common.HexToAddress(onRampAddressRef.Address), client)
-		if err != nil {
-			return nil, fmt.Errorf("create on ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainIDs[i], err)
-		}
-		offRamp, err := offramp.NewOffRamp(common.HexToAddress(offRampAddressRef.Address), client)
-		if err != nil {
-			return nil, fmt.Errorf("create off ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainIDs[i], err)
-		}
-
-		onRampBySelector[chainDetails.ChainSelector] = onRamp
-		offRampBySelector[chainDetails.ChainSelector] = offRamp
-	}
-
-	return &CCIP17EVM{
-		e:                      e,
-		logger:                 logger,
-		chainDetailsBySelector: chainDetailsBySelector,
-		ethClients:             ethClients,
-		onRampBySelector:       onRampBySelector,
-		offRampBySelector:      offRampBySelector,
-	}, nil
-}
-
-// NewCCIP17EVMWithVirtualSelectors creates new smart-contracts wrappers using explicit selectors instead of deriving them from chainIDs.
-// This is useful for virtual selector architectures where multiple selectors map to the same physical chain.
-func NewCCIP17EVMWithVirtualSelectors(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, selectors []uint64, chainIDs, wsURLs []string) (*CCIP17EVM, error) {
-	if len(selectors) != len(chainIDs) || len(selectors) != len(wsURLs) {
-		return nil, fmt.Errorf("len(selectors) != len(chainIDs) != len(wsURLs) ; %d != %d != %d", len(selectors), len(chainIDs), len(wsURLs))
-	}
-
-	gas := &GasSettings{
-		FeeCapMultiplier: 2,
-		TipCapMultiplier: 2,
-	}
-	var (
-		chainDetailsBySelector = make(map[uint64]chainsel.ChainDetails)
-		ethClients             = make(map[uint64]*ethclient.Client)
-		onRampBySelector       = make(map[uint64]*onramp.OnRamp)
-		offRampBySelector      = make(map[uint64]*offramp.OffRamp)
-	)
-	for i := range selectors {
-		selector := selectors[i]
-		chainID := chainIDs[i]
-		wsURL := wsURLs[i]
-
-		// For virtual selectors, we create a minimal ChainDetails since we don't use chainsel lookup
 		chainDetails := chainsel.ChainDetails{
 			ChainSelector: selector,
-			ChainName:     fmt.Sprintf("virtual-chain-%d", selector),
+			ChainName:     fmt.Sprintf("chain-%d", selector),
 		}
 		chainDetailsBySelector[selector] = chainDetails
 
-		client, _, _, err := ETHClient(ctx, wsURL, gas)
+		client, _, _, err := ETHClient(ctx, physicalInfo.WSURL, gas)
 		if err != nil {
-			return nil, fmt.Errorf("create eth client for chain %s (selector %d): %w", chainID, selector, err)
+			return nil, fmt.Errorf("create eth client for selector %d: %w", selector, err)
 		}
 		ethClients[selector] = client
 
@@ -206,7 +142,7 @@ func NewCCIP17EVMWithVirtualSelectors(ctx context.Context, logger zerolog.Logger
 			"",
 		))
 		if err != nil {
-			return nil, fmt.Errorf("get on ramp address for selector %d (chain id %s) from datastore: %w", selector, chainID, err)
+			return nil, fmt.Errorf("get on ramp address for selector %d from datastore: %w", selector, err)
 		}
 		offRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 			selector,
@@ -215,15 +151,15 @@ func NewCCIP17EVMWithVirtualSelectors(ctx context.Context, logger zerolog.Logger
 			"",
 		))
 		if err != nil {
-			return nil, fmt.Errorf("get off ramp address for selector %d (chain id %s) from datastore: %w", selector, chainID, err)
+			return nil, fmt.Errorf("get off ramp address for selector %d from datastore: %w", selector, err)
 		}
 		onRamp, err := onramp.NewOnRamp(common.HexToAddress(onRampAddressRef.Address), client)
 		if err != nil {
-			return nil, fmt.Errorf("create on ramp wrapper for selector %d (chain id %s): %w", selector, chainID, err)
+			return nil, fmt.Errorf("create on ramp wrapper for selector %d: %w", selector, err)
 		}
 		offRamp, err := offramp.NewOffRamp(common.HexToAddress(offRampAddressRef.Address), client)
 		if err != nil {
-			return nil, fmt.Errorf("create off ramp wrapper for selector %d (chain id %s): %w", selector, chainID, err)
+			return nil, fmt.Errorf("create off ramp wrapper for selector %d: %w", selector, err)
 		}
 
 		onRampBySelector[selector] = onRamp
@@ -237,6 +173,7 @@ func NewCCIP17EVMWithVirtualSelectors(ctx context.Context, logger zerolog.Logger
 		ethClients:             ethClients,
 		onRampBySelector:       onRampBySelector,
 		offRampBySelector:      offRampBySelector,
+		physicalChainMap:       physicalChainMap,
 	}, nil
 }
 
@@ -582,12 +519,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 
 	destFamily, err := chainsel.GetSelectorFamily(dest)
 	if err != nil {
-		// For virtual selectors that don't exist in chainsel, check if dest exists in our environment
-		if _, ok := chains[dest]; !ok {
-			return fmt.Errorf("failed to get destination family: %w", err)
-		}
-		// Virtual selector - assume EVM since it maps to an EVM chain
-		destFamily = chainsel.FamilyEVM
+		return fmt.Errorf("failed to get destination family: %w", err)
 	}
 
 	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse("1.2.0"), ""))
@@ -831,8 +763,6 @@ func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
 func (m *CCIP17EVM) ExposeMetrics(
 	ctx context.Context,
 	source, dest uint64,
-	chainIDs []string,
-	wsURLs []string,
 ) ([]string, *prometheus.Registry, error) {
 	msgSentTotal.Reset()
 	msgExecTotal.Reset()
@@ -843,7 +773,7 @@ func (m *CCIP17EVM) ExposeMetrics(
 
 	lp := NewLokiPusher()
 	tp := NewTempoPusher()
-	c, err := NewCCIP17EVM(ctx, m.logger, m.e, chainIDs, wsURLs)
+	c, err := NewCCIP17EVM(ctx, m.logger, m.e, []uint64{source, dest}, m.physicalChainMap)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1279,7 +1209,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			},
 		}
 	}
-	_, _ = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+	_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
 		Tokens: []tokenscore.TokenTransferConfig{
 			{
 				ChainSelector: selector,
@@ -1295,9 +1225,9 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			},
 		},
 	})
-	// if err != nil {
-	// 	fmt.Errorf("failed to configure tokens for transfers: %w", err)
-	// }
+	if err != nil {
+		return fmt.Errorf("failed to configure tokens for transfers: %w", err)
+	}
 
 	return nil
 }

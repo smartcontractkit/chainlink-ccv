@@ -53,7 +53,11 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 		return nil, err
 	}
 
-	chainIDInt := big.NewInt(1337)
+	// Get chain ID from the RPC itself as chainselector can be virtual chain
+	chainIDInt, err := client.ChainID(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	auth := bind.NewKeyedTransactor(pk, chainIDInt)
 	auth.Value = big.NewInt(0)
@@ -114,8 +118,6 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	if err != nil {
 		return err
 	}
-
-	fmt.Printf("Offramp address %v", ct.OffRamp.Address())
 
 	encodedMsg, _ := report.Message.Encode()
 	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData)

@@ -11,37 +11,37 @@ min_wait="3s"
 ccv_info_cache_expiry="5m"
 
 [offramp_addresses]
-    100 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
-    101 = "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf"
-    102 = "0x36b58F5C1969B7b6591D752ea6F5486D069010AB"
+    3379446385462418246 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
+    12922642891491394802 = "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf"
+    4793464827907405086 = "0x36b58F5C1969B7b6591D752ea6F5486D069010AB"
 
 [blockchain_infos]
-    [blockchain_infos.100]
+    [blockchain_infos.3379446385462418246]
         ChainID = "1337"
         Type = "anvil"
         Family = "evm"
         UniqueChainName = "blockchain-shared"
-        [[blockchain_infos.100.Nodes]]
+        [[blockchain_infos.3379446385462418246.Nodes]]
             ExternalHTTPUrl = "http://host.docker.internal:8545"
             InternalHTTPUrl = "http://blockchain-shared:8545"
             ExternalWSUrl = "ws://host.docker.internal:8545"
             InternalWSUrl = "ws://blockchain-shared:8545"
-    [blockchain_infos.101]
+    [blockchain_infos.12922642891491394802]
         ChainID = "1337"
         Type = "anvil"
         Family = "evm"
         UniqueChainName = "blockchain-shared"
-        [[blockchain_infos.101.Nodes]]
+        [[blockchain_infos.12922642891491394802.Nodes]]
             ExternalHTTPUrl = "http://host.docker.internal:8545"
             InternalHTTPUrl = "http://blockchain-shared:8545"
             ExternalWSUrl = "ws://host.docker.internal:8545"
             InternalWSUrl = "ws://blockchain-shared:8545"
-    [blockchain_infos.102]
+    [blockchain_infos.4793464827907405086]
         ChainID = "1337"
         Type = "anvil"
         Family = "evm"
         UniqueChainName = "blockchain-shared"
-        [[blockchain_infos.102.Nodes]]
+        [[blockchain_infos.4793464827907405086.Nodes]]
             ExternalHTTPUrl = "http://host.docker.internal:8545"
             InternalHTTPUrl = "http://blockchain-shared:8545"
             ExternalWSUrl = "ws://host.docker.internal:8545"

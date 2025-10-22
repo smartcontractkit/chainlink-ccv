@@ -45,132 +45,132 @@ pyroscope_url = "http://pyroscope:4040"
 [committees]
   [committees.default]
     [committees.default.quorumConfigs]
-      [committees.default.quorumConfigs.100]
+      [committees.default.quorumConfigs.3379446385462418246]
         committeeVerifierAddress = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
         threshold = 2
 
-        [[committees.default.quorumConfigs.100.signers]]
+        [[committees.default.quorumConfigs.3379446385462418246.signers]]
           participantID = "default-participant1"
           addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
 
-        [[committees.default.quorumConfigs.100.signers]]
+        [[committees.default.quorumConfigs.3379446385462418246.signers]]
           participantID = "default-participant2"
           addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
 
-      [committees.default.quorumConfigs.101]
+      [committees.default.quorumConfigs.12922642891491394802]
         committeeVerifierAddress = "0x809d550fca64d94Bd9F66E60752A544199cfAC3D"
         threshold = 2
 
-        [[committees.default.quorumConfigs.101.signers]]
+        [[committees.default.quorumConfigs.12922642891491394802.signers]]
           participantID = "default-participant1"
           addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
 
-        [[committees.default.quorumConfigs.101.signers]]
+        [[committees.default.quorumConfigs.12922642891491394802.signers]]
           participantID = "default-participant2"
           addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
 
-      [committees.default.quorumConfigs.102]
+      [committees.default.quorumConfigs.4793464827907405086]
         committeeVerifierAddress = "0xf4B146FbA71F41E0592668ffbF264F1D186b2Ca8"
         threshold = 2
 
-        [[committees.default.quorumConfigs.102.signers]]
+        [[committees.default.quorumConfigs.4793464827907405086.signers]]
           participantID = "default-participant1"
           addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
         
-        [[committees.default.quorumConfigs.102.signers]]
+        [[committees.default.quorumConfigs.4793464827907405086.signers]]
           participantID = "default-participant2"
           addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
 
     [committees.default.sourceVerifierAddresses]
-      100 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
-      101 = "0x809d550fca64d94Bd9F66E60752A544199cfAC3D"
-      102 = "0xf4B146FbA71F41E0592668ffbF264F1D186b2Ca8"
+      3379446385462418246 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
+      12922642891491394802 = "0x809d550fca64d94Bd9F66E60752A544199cfAC3D"
+      4793464827907405086 = "0xf4B146FbA71F41E0592668ffbF264F1D186b2Ca8"
 
   [committees.secondary]
     [committees.secondary.quorumConfigs]
-      [committees.secondary.quorumConfigs.100]
+      [committees.secondary.quorumConfigs.3379446385462418246]
         committeeVerifierAddress = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
         threshold = 2
 
-        [[committees.secondary.quorumConfigs.100.signers]]
+        [[committees.secondary.quorumConfigs.3379446385462418246.signers]]
           participantID = "secondary-participant1"
-          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+          addresses = ["0x947a3f54dc6a01a0d12f0cb48479346482790740508666f2c7afe61a"]
 
-        [[committees.secondary.quorumConfigs.100.signers]]
+        [[committees.secondary.quorumConfigs.3379446385462418246.signers]]
           participantID = "secondary-participant2"
           addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
 
-      [committees.secondary.quorumConfigs.101]
+      [committees.secondary.quorumConfigs.12922642891491394802]
         committeeVerifierAddress = "0x5f3f1dBD7B74C6B46e8c44f98792A1dAf8d69154"
         threshold = 2
 
-        [[committees.secondary.quorumConfigs.101.signers]]
+        [[committees.secondary.quorumConfigs.12922642891491394802.signers]]
           participantID = "secondary-participant1"
-          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+          addresses = ["0x947a3f54dc6a01a0d12f0cb48479346482790740508666f2c7afe61a"]
 
-        [[committees.secondary.quorumConfigs.101.signers]]
+        [[committees.secondary.quorumConfigs.12922642891491394802.signers]]
           participantID = "secondary-participant2"
           addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
 
-      [committees.secondary.quorumConfigs.102]
+      [committees.secondary.quorumConfigs.4793464827907405086]
         committeeVerifierAddress = "0xBEc49fA140aCaA83533fB00A2BB19bDdd0290f25"
         threshold = 2
 
-        [[committees.secondary.quorumConfigs.102.signers]]
+        [[committees.secondary.quorumConfigs.4793464827907405086.signers]]
           participantID = "secondary-participant1"
-          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+          addresses = ["0x947a3f54dc6a01a0d12f0cb48479346482790740508666f2c7afe61a"]
         
-        [[committees.secondary.quorumConfigs.102.signers]]
+        [[committees.secondary.quorumConfigs.4793464827907405086.signers]]
           participantID = "secondary-participant2"
           addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
 
     [committees.secondary.sourceVerifierAddresses]
-      100 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
-      101 = "0x5f3f1dBD7B74C6B46e8c44f98792A1dAf8d69154"
-      102 = "0xBEc49fA140aCaA83533fB00A2BB19bDdd0290f25"
+      3379446385462418246 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+      12922642891491394802 = "0x5f3f1dBD7B74C6B46e8c44f98792A1dAf8d69154"
+      4793464827907405086 = "0xBEc49fA140aCaA83533fB00A2BB19bDdd0290f25"
 
   [committees.tertiary]
     [committees.tertiary.quorumConfigs]
-      [committees.tertiary.quorumConfigs.100]
+      [committees.tertiary.quorumConfigs.3379446385462418246]
         committeeVerifierAddress = "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44"
         threshold = 2
 
-        [[committees.tertiary.quorumConfigs.100.signers]]
+        [[committees.tertiary.quorumConfigs.3379446385462418246.signers]]
           participantID = "tertiary-participant1"
           addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
 
-        [[committees.tertiary.quorumConfigs.100.signers]]
+        [[committees.tertiary.quorumConfigs.3379446385462418246.signers]]
           participantID = "tertiary-participant2"
           addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
 
-      [committees.tertiary.quorumConfigs.101]
+      [committees.tertiary.quorumConfigs.12922642891491394802]
         committeeVerifierAddress = "0x82e01223d51Eb87e16A03E24687EDF0F294da6f1"
         threshold = 2
 
-        [[committees.tertiary.quorumConfigs.101.signers]]
+        [[committees.tertiary.quorumConfigs.12922642891491394802.signers]]
           participantID = "tertiary-participant1"
           addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
 
-        [[committees.tertiary.quorumConfigs.101.signers]]
+        [[committees.tertiary.quorumConfigs.12922642891491394802.signers]]
           participantID = "tertiary-participant2"
           addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
 
-      [committees.tertiary.quorumConfigs.102]
+      [committees.tertiary.quorumConfigs.4793464827907405086]
         committeeVerifierAddress = "0xfbC22278A96299D91d41C453234d97b4F5Eb9B2d"
         threshold = 2
 
-        [[committees.tertiary.quorumConfigs.102.signers]]
+        [[committees.tertiary.quorumConfigs.4793464827907405086.signers]]
           participantID = "tertiary-participant1"
           addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
         
-        [[committees.tertiary.quorumConfigs.102.signers]]
+        [[committees.tertiary.quorumConfigs.4793464827907405086.signers]]
           participantID = "tertiary-participant2"
           addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
 
     [committees.tertiary.sourceVerifierAddresses]
-      100 = "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44"
-      101 = "0x82e01223d51Eb87e16A03E24687EDF0F294da6f1"
-      102 = "0xfbC22278A96299D91d41C453234d97b4F5Eb9B2d"
+      3379446385462418246 = "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44"
+      12922642891491394802 = "0x82e01223d51Eb87e16A03E24687EDF0F294da6f1"
+      4793464827907405086 = "0xfbC22278A96299D91d41C453234d97b4F5Eb9B2d"
 
 [Monitoring]
 Enabled = true

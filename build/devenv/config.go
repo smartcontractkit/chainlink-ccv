@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
@@ -38,18 +39,34 @@ const (
 
 var L = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
 
-// VirtualSelector represents a virtual chain selector that maps to a physical blockchain.
-type VirtualSelector struct {
-	Selector  uint64 `toml:"selector"`
-	Name      string `toml:"name"`
-	Qualifier string `toml:"qualifier"`
+type Selector uint64
+
+func (s *Selector) UnmarshalText(text []byte) error {
+	val, err := strconv.ParseUint(string(text), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid selector value %q: %w", string(text), err)
+	}
+	*s = Selector(val)
+	return nil
 }
 
-// PhysicalChainMapping maps virtual selectors to their physical chain ID.
-var PhysicalChainMapping = map[uint64]string{
-	100: "1337", // Virtual chain A -> physical chain 1337
-	101: "1337", // Virtual chain B -> physical chain 1337
-	102: "1337", // Virtual chain C -> physical chain 1337
+func (s Selector) MarshalText() ([]byte, error) {
+	return []byte(strconv.FormatUint(uint64(s), 10)), nil
+}
+
+type VirtualSelector struct {
+	Selector      Selector `toml:"selector"`
+	Name          string   `toml:"name"`
+	Qualifier     string   `toml:"qualifier"`
+	PhysicalChain string   `toml:"physical_chain"`
+}
+
+// PhysicalChainInfo contains the physical blockchain details that a virtual selector maps to.
+type PhysicalChainInfo struct {
+	ChainID       string
+	WSURL         string
+	HTTPURL       string
+	ContainerName string
 }
 
 // Load loads TOML configurations from a list of paths, i.e. env.toml,overrides.toml
