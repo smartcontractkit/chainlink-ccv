@@ -87,7 +87,7 @@ func (oss *IndexerStorageStreamer) Start(
 				return
 			default:
 				// Non-blocking: call ReadCCVData
-				oss.lggr.Debugw("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
+				oss.lggr.Infow("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
 				responses, err := oss.reader.ReadMessages(ctx, protocol.MessagesV1Request{
 					Limit:                oss.queryLimit,
 					Offset:               offset,

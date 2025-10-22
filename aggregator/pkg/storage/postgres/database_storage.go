@@ -105,6 +105,28 @@ func NewDatabaseStorage(ds sqlutil.DataSource, pageSize int, lggr logger.Sugared
 	}
 }
 
+func (d *DatabaseStorage) HealthCheck(ctx context.Context) *pkgcommon.ComponentHealth {
+	result := &pkgcommon.ComponentHealth{
+		Name:      "postgres_storage",
+		Timestamp: time.Now(),
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var count int
+	err := d.ds.GetContext(ctx, &count, "SELECT 1")
+	if err != nil {
+		result.Status = pkgcommon.HealthStatusUnhealthy
+		result.Message = fmt.Sprintf("query failed: %v", err)
+		return result
+	}
+
+	result.Status = pkgcommon.HealthStatusHealthy
+	result.Message = "connected and responsive"
+	return result
+}
+
 func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error {
 	if record == nil {
 		return fmt.Errorf("commit verification record cannot be nil")

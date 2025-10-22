@@ -4,6 +4,9 @@ pyroscope_url = "http://pyroscope:4040"
 [server]
   address = ":50051"
 
+[healthCheck]
+  enabled = true
+
 [storage]
   type = "postgres"
   connectionURL = "postgres://aggregator:aggregator@aggregator-db:5432/aggregator?sslmode=disable"
@@ -56,7 +59,8 @@ pyroscope_url = "http://pyroscope:4040"
   
   # Default rate limits (applied to all callers unless overridden)
   [rateLimiting.defaultLimits]
-    "/chainlink_ccv.v1.CCVData/GetMessagesSince" = { limit_per_minute = 1200 }
+    "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 1200 }
+    "/chainlink_ccv.v1.VerifierResultAPI/GetVerifierResultForMessage" = { limit_per_minute = 6000 }
   
   # Group-based rate limits (more restrictive than defaults for specific groups)
   [rateLimiting.groupLimits.verifiers]
@@ -65,7 +69,7 @@ pyroscope_url = "http://pyroscope:4040"
     "/chainlink_ccv.v1.Aggregator/ReadBlockCheckpoint" = { limit_per_minute = 5 }
   
   [rateLimiting.groupLimits.monitoring]
-    "/chainlink_ccv.v1.CCVData/GetMessagesSince" = { limit_per_minute = 200 }
+    "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 200 }
 
 [committees]
   [committees.default]

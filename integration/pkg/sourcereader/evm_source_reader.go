@@ -60,6 +60,52 @@ func NewEVMSourceReader(chainClient client.Client, contractAddress common.Addres
 	}, nil
 }
 
+// GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
+func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+	headers := make(map[*big.Int]protocol.BlockHeader)
+	for _, blockNumber := range blockNumbers {
+		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
+		if err != nil {
+			return nil, err
+		}
+		if header.Number < 0 {
+			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
+		}
+		headers[blockNumber] = protocol.BlockHeader{
+			Number:     uint64(header.Number),
+			Hash:       protocol.Bytes32(header.Hash),
+			ParentHash: protocol.Bytes32(header.ParentHash),
+			Timestamp:  header.Timestamp,
+		}
+	}
+	return headers, nil
+}
+
+// SubscribeNewHeads TODO: Update internal latestBlock and latestFinalizedBlock on new head subscription?
+func (r *EVMSourceReader) SubscribeNewHeads(ctx context.Context) (<-chan *protocol.BlockHeader, error) {
+	heads, _, err := r.chainClient.SubscribeToHeads(ctx)
+	if err != nil {
+		return nil, err
+	}
+	headers := make(chan *protocol.BlockHeader)
+	go func() {
+		for head := range heads {
+			// Skip blocks with negative numbers or timestamps (should not happen in practice)
+			if head.Number < 0 {
+				r.lggr.Errorw("Received block with negative number", "number", head.Number)
+				continue
+			}
+			headers <- &protocol.BlockHeader{
+				Number:     uint64(head.Number),
+				Hash:       protocol.Bytes32(head.Hash),
+				ParentHash: protocol.Bytes32(head.ParentHash),
+				Timestamp:  head.Timestamp,
+			}
+		}
+	}()
+	return headers, nil
+}
+
 // LatestBlockHeight returns the latest block height from the chain client.
 func (r *EVMSourceReader) LatestBlockHeight(ctx context.Context) (*big.Int, error) {
 	if r.chainClient == nil {
@@ -96,7 +142,6 @@ func (r *EVMSourceReader) BlockTime(ctx context.Context, block *big.Int) (uint64
 	return hdr.Time, nil
 }
 
-// VerificationTaskChannel returns the channel where new message events are delivered.
 func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]verifiertypes.VerificationTask, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,

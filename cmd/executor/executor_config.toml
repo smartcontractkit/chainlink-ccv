@@ -4,10 +4,11 @@ source_backoff_duration="15s"
 startup_lookback_window="1h"
 indexer_query_limit=20
 pyroscope_url="http://pyroscope:4040"
-executor_pool=["cl_node_executor_a", "cl_node_executor_b"]
+executor_pool=["cl_node_executor_a"]
 executor_id="cl_node_executor_a"
 execution_interval="15s"
 min_wait="3s"
+ccv_info_cache_expiry="5m"
 
 [offramp_addresses]
     3379446385462418246 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
