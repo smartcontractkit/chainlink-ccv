@@ -17,7 +17,7 @@ func BenchmarkHashing(b *testing.B) {
 func BenchmarkHashinbBaseline(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		h := sha3.NewLegacyKeccak256()
-		h.Write(data) //nolint:revive // keccak256 never returns an error
+		h.Write(data)
 		var out [32]byte
 		copy(out[:], h.Sum(nil))
 		hasherPool.Put(h)
