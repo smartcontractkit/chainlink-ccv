@@ -84,6 +84,11 @@ type VerifierInput struct {
 	BlockchainOutputs []*blockchain.Output `toml:"-"`
 	AggregatorAddress string               `toml:"aggregator_address"`
 	SigningKey        string               `toml:"signing_key"`
+	// CommitteeName is used to distinguish between different committee verifiers
+	// run in the test suite.
+	CommitteeName string `toml:"committee_name"`
+	// NodeIndex is used to determine the node index for the verifier in the committee
+	NodeIndex int `toml:"node_index"`
 }
 
 type VerifierOutput struct {
