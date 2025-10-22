@@ -78,6 +78,7 @@ func (oss *IndexerStorageStreamer) Start(
 			oss.running = false
 			oss.mu.Unlock()
 		}()
+		newtime := time.Now().Unix()
 		offset := uint64(0)
 		for {
 			select {
@@ -86,11 +87,12 @@ func (oss *IndexerStorageStreamer) Start(
 				return
 			default:
 				// Non-blocking: call ReadCCVData
-				oss.lggr.Infow("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime)
+				oss.lggr.Infow("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
 				responses, err := oss.reader.ReadMessages(ctx, protocol.MessagesV1Request{
 					Limit:                oss.queryLimit,
 					Offset:               offset,
 					Start:                oss.lastQueryTime,
+					End:                  newtime,
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
 				})
@@ -142,9 +144,12 @@ func (oss *IndexerStorageStreamer) Start(
 				// Update query window if we completed a full result set
 				if shouldUpdateQueryWindow {
 					oss.querymu.Lock()
-					oss.lastQueryTime = time.Now().Unix()
+					oss.lastQueryTime = newtime
 					oss.querymu.Unlock()
 				}
+
+				// Update time for next iteration
+				newtime = time.Now().Unix()
 			}
 		}
 	}()
