@@ -84,6 +84,11 @@ type VerifierInput struct {
 	BlockchainOutputs []*blockchain.Output `toml:"-"`
 	AggregatorAddress string               `toml:"aggregator_address"`
 	SigningKey        string               `toml:"signing_key"`
+	// CommitteeName is used to distinguish between different committee verifiers
+	// run in the test suite.
+	CommitteeName string `toml:"committee_name"`
+	// NodeIndex is used to determine the node index for the verifier in the committee
+	NodeIndex int `toml:"node_index"`
 }
 
 type VerifierOutput struct {
@@ -113,7 +118,7 @@ func verifierDefaults(in *VerifierInput) {
 		}
 	}
 	if in.ConfigFilePath == "" {
-		in.ConfigFilePath = "/app/cmd/verifier/verifier-1.toml"
+		in.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", in.CommitteeName, in.NodeIndex+1)
 	}
 }
 

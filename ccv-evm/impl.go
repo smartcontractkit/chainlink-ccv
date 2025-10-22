@@ -77,10 +77,10 @@ var (
 
 	// this is a hacky way to be able to programmatically generate the individual verifier
 	// signing addresses for each qualifier.
-	qualifierToVerifierIndexes = map[string][]int{
-		DefaultCommitteeVerifierQualifier:   {0, 1},
-		SecondaryCommitteeVerifierQualifier: {2, 3},
-		TertiaryCommitteeVerifierQualifier:  {4, 5},
+	nodesPerCommittee = map[string]int{
+		DefaultCommitteeVerifierQualifier:   2,
+		SecondaryCommitteeVerifierQualifier: 2,
+		TertiaryCommitteeVerifierQualifier:  2,
 	}
 )
 
@@ -827,23 +827,25 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 // The signer addresses are programmatically generated in an identical to fashion to what is done in
 // NewEnvironment to avoid hardcoding hard-to-determine addresses in the code.
 func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatureConfigArgs {
-	indexes, ok := qualifierToVerifierIndexes[qualifier]
+	numNodes, ok := nodesPerCommittee[qualifier]
 	if !ok {
 		panic(fmt.Sprintf("couldn't find verifier indexes for qualifier: %s", qualifier))
 	}
-	signerAddresses := make([]common.Address, 0, len(indexes))
-	for _, index := range indexes {
-		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(index)
-		privateKey := make([]byte, 32)
-		copy(privateKey, privKeyString)
-		signer, err := commit.NewECDSAMessageSigner(privateKey)
+	signerAddresses := make([]common.Address, 0, numNodes)
+	for i := range numNodes {
+		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(qualifier, i)
+		privateKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyString)
+		if err != nil {
+			panic(fmt.Sprintf("failed to read private key: %v", err))
+		}
+		signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("failed to create ECDSA message signer: %v", err))
 		}
 		signerAddresses = append(signerAddresses, common.HexToAddress(signer.GetSignerAddress().String()))
 	}
 	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(len(indexes)), //nolint:gosec
+		Threshold: uint8(numNodes), //nolint:gosec
 		Signers:   signerAddresses,
 	}
 }

@@ -1,7 +1,7 @@
-verifier_id = "verifier-1"
+verifier_id = "secondary-verifier-1"
 aggregator_address = "aggregator:50051"
-aggregator_api_key = "dev-api-key-verifier-1"
-aggregator_secret_key = "dev-secret-verifier-1"
+aggregator_api_key = "dev-api-key-secondary-verifier-1"
+aggregator_secret_key = "dev-secret-secondary-verifier-1"
 pyroscope_url = "http://pyroscope:4040"
 
 [Monitoring]
@@ -22,9 +22,9 @@ TraceBatchTimeout = 10
   12922642891491394802 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
   4793464827907405086 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
 [committee_verifier_addresses]
-  3379446385462418246 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
-  12922642891491394802 ="0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
-  4793464827907405086 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
+  3379446385462418246 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+  12922642891491394802 ="0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+  4793464827907405086 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
 
 [blockchain_infos]
   [blockchain_infos.3379446385462418246]
