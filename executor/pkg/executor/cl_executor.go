@@ -43,6 +43,8 @@ func NewChainlinkExecutor(
 }
 
 func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message protocol.Message) error {
+	// TODO: parse extraargs and confirm the executor address matches the one from config
+
 	destinationChain := message.DestChainSelector
 	_, ok := cle.destinationReaders[destinationChain]
 	if !ok {

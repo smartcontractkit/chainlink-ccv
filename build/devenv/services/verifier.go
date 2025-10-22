@@ -182,7 +182,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = "test-secret-key"
 	}
 
-	if in.SigningKey != "" {
+	if in.SigningKey == "" {
 		envVars["VERIFIER_SIGNER_PRIVATE_KEY"] = in.SigningKey
 	}
 
