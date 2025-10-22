@@ -18,6 +18,11 @@ type MessageSigner interface {
 }
 
 // SourceReader defines the interface for reading CCIP messages from source chains.
+// This interface abstracts both polling and subscription-based access to blockchain data.
+//
+// Implementations should handle chain-specific details:
+//
+// Thread-safety: All methods must be safe for concurrent calls.
 type SourceReader interface {
 	// VerificationTasks returns tasks in the given block range
 	VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]VerificationTask, error)
@@ -30,6 +35,18 @@ type SourceReader interface {
 
 	// LatestFinalizedBlockHeight returns the latest finalized block height
 	LatestFinalizedBlockHeight(ctx context.Context) (*big.Int, error)
+
+	// SubscribeNewHeads subscribes to new block headers.
+	// Returns a channel that receives new headers as they arrive.
+	// Implementation may poll internally and push to channel for chains without native subscriptions.
+	// The returned channel is closed when subscription ends or context is canceled.
+	// Returns error if subscription cannot be established.
+	SubscribeNewHeads(ctx context.Context) (<-chan *protocol.BlockHeader, error)
+
+	// GetBlocksHeaders returns the full block header (number, hash, parent hash, timestamp).
+	// This is more efficient than separate calls when building the chain tail.
+	// Returns error if block doesn't exist or RPC call fails.
+	GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[*big.Int]protocol.BlockHeader, error)
 }
 
 // Verifier defines the interface for message verification logic.

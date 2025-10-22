@@ -8,6 +8,8 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
+
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
@@ -77,6 +79,65 @@ func (_c *MockSourceReader_BlockTime_Call) Return(_a0 uint64, _a1 error) *MockSo
 }
 
 func (_c *MockSourceReader_BlockTime_Call) RunAndReturn(run func(context.Context, *big.Int) (uint64, error)) *MockSourceReader_BlockTime_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetBlocksHeaders provides a mock function with given fields: ctx, blockNumber
+func (_m *MockSourceReader) GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+	ret := _m.Called(ctx, blockNumber)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBlocksHeaders")
+	}
+
+	var r0 map[*big.Int]protocol.BlockHeader
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []*big.Int) (map[*big.Int]protocol.BlockHeader, error)); ok {
+		return rf(ctx, blockNumber)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []*big.Int) map[*big.Int]protocol.BlockHeader); ok {
+		r0 = rf(ctx, blockNumber)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[*big.Int]protocol.BlockHeader)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []*big.Int) error); ok {
+		r1 = rf(ctx, blockNumber)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSourceReader_GetBlocksHeaders_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBlocksHeaders'
+type MockSourceReader_GetBlocksHeaders_Call struct {
+	*mock.Call
+}
+
+// GetBlocksHeaders is a helper method to define mock.On call
+//   - ctx context.Context
+//   - blockNumber []*big.Int
+func (_e *MockSourceReader_Expecter) GetBlocksHeaders(ctx interface{}, blockNumber interface{}) *MockSourceReader_GetBlocksHeaders_Call {
+	return &MockSourceReader_GetBlocksHeaders_Call{Call: _e.mock.On("GetBlocksHeaders", ctx, blockNumber)}
+}
+
+func (_c *MockSourceReader_GetBlocksHeaders_Call) Run(run func(ctx context.Context, blockNumber []*big.Int)) *MockSourceReader_GetBlocksHeaders_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]*big.Int))
+	})
+	return _c
+}
+
+func (_c *MockSourceReader_GetBlocksHeaders_Call) Return(_a0 map[*big.Int]protocol.BlockHeader, _a1 error) *MockSourceReader_GetBlocksHeaders_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSourceReader_GetBlocksHeaders_Call) RunAndReturn(run func(context.Context, []*big.Int) (map[*big.Int]protocol.BlockHeader, error)) *MockSourceReader_GetBlocksHeaders_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -193,6 +254,64 @@ func (_c *MockSourceReader_LatestFinalizedBlockHeight_Call) Return(_a0 *big.Int,
 }
 
 func (_c *MockSourceReader_LatestFinalizedBlockHeight_Call) RunAndReturn(run func(context.Context) (*big.Int, error)) *MockSourceReader_LatestFinalizedBlockHeight_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SubscribeNewHeads provides a mock function with given fields: ctx
+func (_m *MockSourceReader) SubscribeNewHeads(ctx context.Context) (<-chan *protocol.BlockHeader, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SubscribeNewHeads")
+	}
+
+	var r0 <-chan *protocol.BlockHeader
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (<-chan *protocol.BlockHeader, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) <-chan *protocol.BlockHeader); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(<-chan *protocol.BlockHeader)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSourceReader_SubscribeNewHeads_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SubscribeNewHeads'
+type MockSourceReader_SubscribeNewHeads_Call struct {
+	*mock.Call
+}
+
+// SubscribeNewHeads is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockSourceReader_Expecter) SubscribeNewHeads(ctx interface{}) *MockSourceReader_SubscribeNewHeads_Call {
+	return &MockSourceReader_SubscribeNewHeads_Call{Call: _e.mock.On("SubscribeNewHeads", ctx)}
+}
+
+func (_c *MockSourceReader_SubscribeNewHeads_Call) Run(run func(ctx context.Context)) *MockSourceReader_SubscribeNewHeads_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockSourceReader_SubscribeNewHeads_Call) Return(_a0 <-chan *protocol.BlockHeader, _a1 error) *MockSourceReader_SubscribeNewHeads_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSourceReader_SubscribeNewHeads_Call) RunAndReturn(run func(context.Context) (<-chan *protocol.BlockHeader, error)) *MockSourceReader_SubscribeNewHeads_Call {
 	_c.Call.Return(run)
 	return _c
 }

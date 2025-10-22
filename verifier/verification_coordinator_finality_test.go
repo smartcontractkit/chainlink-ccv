@@ -248,7 +248,10 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	config := verifier.CoordinatorConfig{
 		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
-			1337: {VerifierAddress: protocol.UnknownAddress([]byte("verifier-1337"))},
+			1337: {
+				VerifierAddress: protocol.UnknownAddress([]byte("verifier-1337")),
+				PollInterval:    50 * time.Millisecond, // Fast polling for tests
+			},
 		},
 		VerifierID: verifierID,
 	}
@@ -264,7 +267,6 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(noopMonitoring),
 		verifier.WithFinalityCheckInterval(10*time.Millisecond),
-		verifier.WithSourceReaderPollInterval(100*time.Millisecond), // Fast polling for tests
 	)
 	require.NoError(t, err)
 
