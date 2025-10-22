@@ -190,13 +190,17 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 	metricsChan := make(chan metrics.MessageMetrics, 100)
 	var wg sync.WaitGroup
-	var totalSent, totalAggregated, totalIndexed, totalReceived int
+	var totalSent, totalReachedVerifier, totalVerified, totalAggregated, totalIndexed, totalReachedExecutor, totalSentToChainInExecutor, totalReceived int
 	var countMu sync.Mutex
 
 	// Track specific messages for detailed reporting
 	sentMessages := make(map[uint64]string)
+	reachedVerifierMessages := make(map[uint64]string)
+	verifiedMessages := make(map[uint64]string)
 	aggregatedMessages := make(map[uint64]string)
 	indexedMessages := make(map[uint64]string)
+	reachedExecutorMessages := make(map[uint64]string)
+	sentToChainInExecutorMessages := make(map[uint64]string)
 	receivedMessages := make(map[uint64]string)
 
 	// Create a context with timeout for verification
@@ -220,12 +224,20 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 
-				result, err := tc.VerifyMessage(msg.MessageID, VerifyMessageOptions{
+				result, err := tc.AssertMessage(msg.MessageID, AssertMessageOptions{
 					TickInterval: 2 * time.Second,
 					Timeout:      1 * time.Minute,
 				})
 
 				countMu.Lock()
+				if result.VerifierReached {
+					totalReachedVerifier++
+					reachedVerifierMessages[msg.SeqNo] = msgIDHex
+				}
+				if result.VerifierSigned {
+					totalVerified++
+					verifiedMessages[msg.SeqNo] = msgIDHex
+				}
 				if result.AggregatorFound {
 					totalAggregated++
 					aggregatedMessages[msg.SeqNo] = msgIDHex
@@ -233,6 +245,14 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 				if result.IndexerFound {
 					totalIndexed++
 					indexedMessages[msg.SeqNo] = msgIDHex
+				}
+				if result.ExecutorLogFound {
+					totalReachedExecutor++
+					reachedExecutorMessages[msg.SeqNo] = msgIDHex
+				}
+				if result.SentToChainFound {
+					totalSentToChainInExecutor++
+					sentToChainInExecutorMessages[msg.SeqNo] = msgIDHex
 				}
 				countMu.Unlock()
 
@@ -312,20 +332,28 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 		countMu.Lock()
 		totals := metrics.MessageTotals{
-			Sent:               totalSent,
-			Aggregated:         totalAggregated,
-			Indexed:            totalIndexed,
-			Received:           totalReceived,
-			SentMessages:       sentMessages,
-			AggregatedMessages: aggregatedMessages,
-			IndexedMessages:    indexedMessages,
-			ReceivedMessages:   receivedMessages,
+			Sent:                          totalSent,
+			ReachedVerifier:               totalReachedVerifier,
+			Verified:                      totalVerified,
+			Aggregated:                    totalAggregated,
+			Indexed:                       totalIndexed,
+			ReachedExecutor:               totalReachedExecutor,
+			SentToChainInExecutor:         totalSentToChainInExecutor,
+			Received:                      totalReceived,
+			SentMessages:                  sentMessages,
+			ReachedVerifierMessages:       reachedVerifierMessages,
+			VerifiedMessages:              verifiedMessages,
+			AggregatedMessages:            aggregatedMessages,
+			IndexedMessages:               indexedMessages,
+			ReachedExecutorMessages:       reachedExecutorMessages,
+			SentToChainInExecutorMessages: sentToChainInExecutorMessages,
+			ReceivedMessages:              receivedMessages,
 		}
 		countMu.Unlock()
 
 		notVerified := totals.Sent - totals.Received
-		tc.T.Logf("Verification complete - Sent: %d, Aggregated: %d, Indexed: %d, Received: %d, Not Received: %d",
-			totals.Sent, totals.Aggregated, totals.Indexed, totals.Received, notVerified)
+		tc.T.Logf("Verification complete - Sent: %d, ReachedVerifier: %d, Verified: %d, Aggregated: %d, Indexed: %d, ReachedExecutor: %d, SentToChain: %d, Received: %d, Not Received: %d",
+			totals.Sent, totals.ReachedVerifier, totals.Verified, totals.Aggregated, totals.Indexed, totals.ReachedExecutor, totals.SentToChainInExecutor, totals.Received, notVerified)
 
 		return datum, totals
 	}

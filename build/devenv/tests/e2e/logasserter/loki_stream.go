@@ -98,15 +98,10 @@ func buildStreamQuery(stages []LogStage) string {
 	// Build container matcher
 	services := make([]string, 0, len(servicesMap))
 	for service := range servicesMap {
-		services = append(services, service)
+		services = append(services, fmt.Sprintf("%s.*", service))
 	}
 
-	var containerMatcher string
-	if len(services) == 1 {
-		containerMatcher = fmt.Sprintf(`{container="%s"}`, services[0])
-	} else {
-		containerMatcher = fmt.Sprintf(`{container=~"%s"}`, strings.Join(services, "|"))
-	}
+	containerMatcher := fmt.Sprintf(`{container=~"%s"}`, strings.Join(services, "|"))
 
 	// Collect unique log patterns
 	patternsMap := make(map[string]bool)
@@ -220,11 +215,17 @@ func (s *LogStream) readLoop() {
 // identifyStage determines which log stage a log line matches.
 func (s *LogStream) identifyStage(logLine string) string {
 	// Check if log line matches known patterns from log_stages.go
-	if strings.Contains(logLine, "processing message with ID") {
-		return "ProcessingInExecutor"
+	if strings.Contains(logLine, ProcessingInExecutor().LogPattern) {
+		return ProcessingInExecutor().Name
 	}
-	if strings.Contains(logLine, "Message signed successfully") {
-		return "MessageSigned"
+	if strings.Contains(logLine, MessageReachedVerifier().LogPattern) {
+		return MessageReachedVerifier().Name
+	}
+	if strings.Contains(logLine, MessageSigned().LogPattern) {
+		return MessageSigned().Name
+	}
+	if strings.Contains(logLine, SentToChainInExecutor().LogPattern) {
+		return SentToChainInExecutor().Name
 	}
 
 	return ""

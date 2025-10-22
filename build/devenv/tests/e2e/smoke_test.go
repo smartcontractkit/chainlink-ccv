@@ -135,7 +135,7 @@ func TestE2ESmoke(t *testing.T) {
 				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
 
 				testCtx := NewTestingContext(t, ctx, c, aggregatorClient, indexerClient)
-				result, err := testCtx.VerifyMessage(messageID, VerifyMessageOptions{
+				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 					TickInterval: 1 * time.Second,
 					Timeout:      defaultExecTimeout,
 				})
@@ -324,7 +324,7 @@ func TestE2ESmoke(t *testing.T) {
 				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
 
 				testCtx := NewTestingContext(t, t.Context(), c, aggregatorClient, indexerClient)
-				result, err := testCtx.VerifyMessage(messageID, VerifyMessageOptions{
+				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 					TickInterval: 1 * time.Second,
 					Timeout:      defaultExecTimeout,
 				})

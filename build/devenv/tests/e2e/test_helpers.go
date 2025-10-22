@@ -38,8 +38,10 @@ func NewTestingContext(t *testing.T, ctx context.Context, impl *ccvEvm.CCIP17EVM
 	logger := zerolog.Ctx(ctx).With().Str("component", "log-asserter").Logger()
 	logAssert := logasserter.New(lokiURL, logger)
 	err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
+		logasserter.MessageReachedVerifier(),
 		logasserter.MessageSigned(),
 		logasserter.ProcessingInExecutor(),
+		logasserter.SentToChainInExecutor(),
 	})
 
 	tc := TestingContext{
@@ -68,25 +70,49 @@ func (tc *TestingContext) enrichMetrics(metrics []metrics.MessageMetrics) {
 	tc.LogAsserter.EnrichMetrics(metrics)
 }
 
-type VerificationResult struct {
+type AssertionResult struct {
 	AggregatorFound      bool
+	VerifierReached      bool
+	VerifierSigned       bool
 	IndexerFound         bool
 	ExecutorLogFound     bool
+	SentToChainFound     bool
 	AggregatedResult     *pb.VerifierResult
 	IndexedVerifications ccv.GetVerificationsForMessageIDResponse
 }
 
-type VerifyMessageOptions struct {
+type AssertMessageOptions struct {
 	TickInterval time.Duration
 	Timeout      time.Duration
 }
 
-func (tc *TestingContext) VerifyMessage(messageID [32]byte, opts VerifyMessageOptions) (VerificationResult, error) {
+func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOptions) (AssertionResult, error) {
 	ctx, cancel := context.WithTimeout(tc.Ctx, opts.Timeout)
 	defer cancel()
 
-	result := VerificationResult{}
+	result := AssertionResult{}
 
+	_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageReachedVerifier())
+	if err != nil {
+		return result, fmt.Errorf("verifier reached log assertion failed: %w", err)
+	}
+
+	tc.logger.Info().
+		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+		Msg("found message reached verifier in logs")
+
+	result.VerifierReached = true
+
+	_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageSigned())
+	if err != nil {
+		return result, fmt.Errorf("verifier signed log assertion failed: %w", err)
+	}
+
+	tc.logger.Info().
+		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+		Msg("found verifier signature in logs")
+
+	result.VerifierSigned = true
 	aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
 		ctx,
 		messageID,
@@ -119,6 +145,17 @@ func (tc *TestingContext) VerifyMessage(messageID [32]byte, opts VerifyMessageOp
 		Msg("found verifications for messageID in executor logs")
 
 	result.ExecutorLogFound = true
+
+	_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.SentToChainInExecutor())
+	if err != nil {
+		return result, fmt.Errorf("executor sent to chain log assertion failed: %w", err)
+	}
+
+	tc.logger.Info().
+		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+		Msg("found sent to chain log for messageID in executor logs")
+
+	result.SentToChainFound = true
 
 	return result, nil
 }
