@@ -35,6 +35,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
@@ -53,7 +54,6 @@ import (
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 )
 
 // PhysicalChainInfo contains the physical blockchain details that a virtual selector maps to.
@@ -79,6 +79,8 @@ const (
 	TertiaryReceiverQualifier          = "tertiary"
 
 	QuaternaryReceiverQualifier = "quaternary"
+
+	CommitteeVerifierGasForVerification = 500_000
 )
 
 var (
@@ -627,8 +629,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			}
 			copy(messageID[:], parsed.MessageId[:])
 			seqNo = parsed.SequenceNumber
-			receipts = append(receipts, parsed.VerifierReceipts...)
-			receipts = append(receipts, parsed.ExecutorReceipt)
+			receipts = append(receipts, parsed.Receipts...)
 			break
 		}
 	}
@@ -1125,7 +1126,8 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				Version: semver.MustParse(executor.Deploy.Version()),
 			},
 			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
-				AllowlistEnabled: false,
+				AllowlistEnabled:   false,
+				GasForVerification: CommitteeVerifierGasForVerification,
 			},
 			FeeQuoterDestChainConfig: fee_quoter.DestChainConfig{
 				IsEnabled:                   true,
