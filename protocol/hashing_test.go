@@ -6,7 +6,7 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-var data = []byte("The quick brown fox jumps over the lazy dog")
+var data = []byte("The quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dog")
 
 func BenchmarkHashing(b *testing.B) {
 	for i := 0; i < b.N; i++ {
