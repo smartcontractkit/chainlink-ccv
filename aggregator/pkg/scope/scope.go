@@ -14,12 +14,12 @@ import (
 type contextKey string
 
 const (
-	messageIDKey     contextKey = "message-id"
+	messageIDKey     contextKey = "messageID"
 	addressKey       contextKey = "address"
-	participantIDKey contextKey = "participant-id"
-	requestIDKey     contextKey = "request-id"
-	committeeIDKey   contextKey = "committee-id"
-	apiName          contextKey = "api-name"
+	participantIDKey contextKey = "participantID"
+	requestIDKey     contextKey = "requestID"
+	committeeIDKey   contextKey = "committeeID"
+	apiName          contextKey = "apiName"
 )
 
 var loggerContextKeys = []contextKey{

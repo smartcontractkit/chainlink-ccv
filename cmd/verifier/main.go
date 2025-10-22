@@ -104,6 +104,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
+	if apiKey == "" {
+		lggr.Errorw("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
+		os.Exit(1)
+	}
+	config.AggregatorAPIKey = apiKey
+	lggr.Infow("Loaded VERIFIER_AGGREGATOR_API_KEY from environment")
+
+	secretKey := os.Getenv("VERIFIER_AGGREGATOR_SECRET_KEY")
+	if secretKey == "" {
+		lggr.Errorw("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
+		os.Exit(1)
+	}
+	config.AggregatorSecretKey = secretKey
+	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
+
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "verifier",
 		ServerAddress:   config.PyroscopeURL,
@@ -204,15 +220,16 @@ func main() {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress: verifierAddresses[strSelector],
+			PollInterval:    1 * time.Second,
+			ChainSelector:   selector,
 		}
 	}
 
 	coordinatorConfig := verifier.CoordinatorConfig{
-		VerifierID:            config.VerifierID,
-		SourceConfigs:         sourceConfigs,
-		ProcessingChannelSize: 1000,
-		ProcessingTimeout:     30 * time.Second,
-		MaxBatchSize:          100,
+		VerifierID:          config.VerifierID,
+		SourceConfigs:       sourceConfigs,
+		StorageBatchSize:    50,
+		StorageBatchTimeout: 100 * time.Millisecond,
 	}
 
 	pk := os.Getenv(PK_ENV_VAR)
@@ -220,9 +237,11 @@ func main() {
 		lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
 		os.Exit(1)
 	}
-	// Create message signer (mock for development)
-	privateKey := make([]byte, 32)
-	copy(privateKey, pk) // Mock key
+	privateKey, err := commit.ReadPrivateKeyFromString(pk)
+	if err != nil {
+		lggr.Errorw("Failed to read private key from environment variable", "error", err)
+		os.Exit(1)
+	}
 	signer, err := commit.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
