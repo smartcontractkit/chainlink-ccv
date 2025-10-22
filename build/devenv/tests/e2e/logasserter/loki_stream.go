@@ -98,7 +98,7 @@ func buildStreamQuery(stages []LogStage) string {
 	// Build container matcher
 	services := make([]string, 0, len(servicesMap))
 	for service := range servicesMap {
-		services = append(services, fmt.Sprintf("%s.*", service))
+		services = append(services, fmt.Sprintf(".*%s.*", service))
 	}
 
 	containerMatcher := fmt.Sprintf(`{container=~"%s"}`, strings.Join(services, "|"))
