@@ -70,6 +70,8 @@ const (
 	TertiaryReceiverQualifier          = "tertiary"
 
 	QuaternaryReceiverQualifier = "quaternary"
+
+	CommitteeVerifierGasForVerification = 500_000
 )
 
 var (
@@ -1113,7 +1115,8 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				Version: semver.MustParse(executor.Deploy.Version()),
 			},
 			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
-				AllowlistEnabled: false,
+				AllowlistEnabled:   false,
+				GasForVerification: CommitteeVerifierGasForVerification,
 			},
 			FeeQuoterDestChainConfig: fee_quoter.DestChainConfig{
 				IsEnabled:                   true,
