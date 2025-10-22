@@ -104,12 +104,10 @@ func TestE2ESmoke(t *testing.T) {
 				numExpectedVerifications: 1,
 			},
 			{
-				name:         "1337->3337 msg execution mock receiver",
-				fromSelector: selectors[0],
-				toSelector:   selectors[2],
-				receiver:     getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
-				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
+				name:                     "1337->3337 msg execution mock receiver",
+				fromSelector:             selectors[0],
+				toSelector:               selectors[2],
+				receiver:                 getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
@@ -119,7 +117,7 @@ func TestE2ESmoke(t *testing.T) {
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = c.SendMessage(ctx, tc.fromSelector, tc.toSelector, cciptestinterfaces.MessageFields{
+				_, err = c.SendMessage(ctx, tc.fromSelector, tc.toSelector, cciptestinterfaces.MessageFields{
 					Receiver: tc.receiver,
 					Data:     []byte{},
 				}, cciptestinterfaces.MessageOptions{
@@ -184,6 +182,21 @@ func TestE2ESmoke(t *testing.T) {
 
 		tcs := []testcase{
 			{
+				name:        "src_dest msg execution with EOA receiver and secondary committee verifier",
+				srcSelector: selectors[0],
+				dstSelector: selectors[1],
+				finality:    1,
+				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
+				ccvs: []protocol.CCV{
+					{
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.SecondaryCommitteeVerifierQualifier, "committee verifier proxy"),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+				numExpectedVerifications: 1,
+			},
+			{
 				name:        "src_dst msg execution with EOA receiver",
 				srcSelector: selectors[0],
 				dstSelector: selectors[1],
@@ -242,8 +255,6 @@ func TestE2ESmoke(t *testing.T) {
 						ArgsLen:    0,
 					},
 				},
-				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
@@ -260,8 +271,6 @@ func TestE2ESmoke(t *testing.T) {
 						ArgsLen:    0,
 					},
 				},
-				// This is expected to fail until on-chain fixes NOT_ENOUGH_GAS_FOR_CALL_SIG error on aggregator
-				// 	https://smartcontract-it.atlassian.net/browse/CCIP-7351
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
@@ -307,7 +316,7 @@ func TestE2ESmoke(t *testing.T) {
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.srcSelector, tc.dstSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				err = c.SendMessage(
+				sendMessageResult, err := c.SendMessage(
 					ctx, tc.srcSelector, tc.dstSelector, cciptestinterfaces.MessageFields{
 						Receiver:     tc.receiver,
 						Data:         []byte{},
@@ -319,6 +328,7 @@ func TestE2ESmoke(t *testing.T) {
 						CCVs:           tc.ccvs,
 					})
 				require.NoError(t, err)
+				t.Logf("receipt issuers: %+v", sendMessageResult.ReceiptIssuers)
 				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
 				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId

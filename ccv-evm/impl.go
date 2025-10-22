@@ -494,32 +494,32 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 	}
 }
 
-func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) error {
+func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.SendMessageResult, error) {
 	l := m.logger
 	chains := m.e.BlockChains.EVMChains()
 	if chains == nil {
-		return errors.New("no EVM chains found")
+		return cciptestinterfaces.SendMessageResult{}, errors.New("no EVM chains found")
 	}
 
 	srcChain, ok := chains[src]
 	if !ok {
-		return fmt.Errorf("source chain %d not found in environment chains %v", src, chains)
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("source chain %d not found in environment chains %v", src, chains)
 	}
 
 	destFamily, err := chainsel.GetSelectorFamily(dest)
 	if err != nil {
-		return fmt.Errorf("failed to get destination family: %w", err)
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to get destination family: %w", err)
 	}
 
 	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse("1.2.0"), ""))
 	if err != nil {
-		return fmt.Errorf("failed to get router address: %w", err)
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to get router address: %w", err)
 	}
 
 	routerAddress := common.HexToAddress(routerRef.Address)
 	rout, err := routerwrapper.NewRouter(routerAddress, srcChain.Client)
 	if err != nil {
-		return fmt.Errorf("create router wrapper: %w", err)
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("create router wrapper: %w", err)
 	}
 
 	bundle := operations.NewBundle(
@@ -536,7 +536,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		})
 	}
 	if len(tokenAmounts) > 1 {
-		return fmt.Errorf("only one token amount is supported")
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("only one token amount is supported")
 	}
 
 	extraArgs := serializeExtraArgs(opts, destFamily)
@@ -554,24 +554,24 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		msg,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to get fee: %w", err)
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to get fee: %w", err)
 	}
 
 	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
 	if err != nil {
-		return fmt.Errorf("failed to check if have enough tokens: %w", err)
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to check if have enough tokens: %w", err)
 	}
 	if !haveEnoughFeeTokens {
-		return fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
 	}
 
 	if len(tokenAmounts) > 0 {
 		haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
 		if err != nil {
-			return fmt.Errorf("failed to check if have enough tokens: %w", err)
+			return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to check if have enough tokens: %w", err)
 		}
 		if !haveEnoughTransferTokens {
-			return fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
+			return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
 		}
 	}
 
@@ -594,13 +594,13 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		Args:          ccipSendArgs,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
 
 	// get the receipt so that we can log the message ID.
 	receipt, err := srcChain.Client.TransactionReceipt(ctx, common.HexToHash(sendReport.Output.ExecInfo.Hash))
 	if err != nil {
-		return fmt.Errorf("failed to get transaction receipt: %w", err)
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 
 	var messageID [32]byte
@@ -620,16 +620,34 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			break
 		}
 	}
+	dcc, err := m.onRampBySelector[src].GetDestChainConfig(&bind.CallOpts{
+		Context: ctx,
+	}, dest)
+	if err != nil {
+		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to get dest chain config: %w", err)
+	}
 	l.Info().Bool("Executed", sendReport.Output.Executed()).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
 		Str("MessageID", hexutil.Encode(messageID[:])).
+		Any("DefaultCCVs", dcc.DefaultCCVs).
+		Any("LaneMandatedCCVs", dcc.LaneMandatedCCVs).
+		Any("DefaultExecutor", dcc.DefaultExecutor).
+		Any("OffRamp", dcc.OffRamp).
 		Any("Receipts", receipts).
 		Uint64("SeqNo", seqNo).
 		Msg("CCIP message sent")
 
-	return nil
+	var result = cciptestinterfaces.SendMessageResult{
+		MessageID:      messageID,
+		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(receipts)),
+	}
+
+	for _, receipt := range receipts {
+		result.ReceiptIssuers = append(result.ReceiptIssuers, protocol.UnknownAddress(receipt.Issuer.Bytes()))
+	}
+	return result, nil
 }
 
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {

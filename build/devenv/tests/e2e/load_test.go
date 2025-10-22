@@ -144,7 +144,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err).Error(), Failed: true}
 	}
-	err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
+	_, err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
 		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 		Data:     []byte{},
 	}, cciptestinterfaces.MessageOptions{

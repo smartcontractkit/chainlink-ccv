@@ -13,6 +13,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -606,7 +607,7 @@ var sendCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to get executor address: %w", err)
 			}
-			return impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
+			result, err := impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
@@ -623,9 +624,15 @@ var sendCmd = &cobra.Command{
 					},
 				},
 			})
+			if err != nil {
+				return fmt.Errorf("failed to send message: %w", err)
+			}
+			ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
+			ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
+			return nil
 		} else {
 			// V2 format - use the dedicated V2 function
-			return impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
+			result, err := impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
@@ -633,6 +640,12 @@ var sendCmd = &cobra.Command{
 				GasLimit:            200_000,
 				OutOfOrderExecution: true,
 			})
+			if err != nil {
+				return fmt.Errorf("failed to send message: %w", err)
+			}
+			ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
+			ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
+			return nil
 		}
 	},
 }
