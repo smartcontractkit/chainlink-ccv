@@ -104,6 +104,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
+	if apiKey == "" {
+		lggr.Errorw("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
+		os.Exit(1)
+	}
+	config.AggregatorAPIKey = apiKey
+	lggr.Infow("Loaded VERIFIER_AGGREGATOR_API_KEY from environment")
+
+	secretKey := os.Getenv("VERIFIER_AGGREGATOR_SECRET_KEY")
+	if secretKey == "" {
+		lggr.Errorw("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
+		os.Exit(1)
+	}
+	config.AggregatorSecretKey = secretKey
+	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
+
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "verifier",
 		ServerAddress:   config.PyroscopeURL,
