@@ -225,9 +225,9 @@ func NewEnvironment() (*Cfg, error) {
 		return nil, fmt.Errorf("failed to create executor service: %w", err)
 	}
 
-	for i, ver := range in.Verifier {
-		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/verifier-%d.toml", i+1)
-		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(i)
+	for _, ver := range in.Verifier {
+		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
+		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
 		_, err = services.NewVerifier(ver)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)

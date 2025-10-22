@@ -237,9 +237,11 @@ func main() {
 		lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
 		os.Exit(1)
 	}
-	// Create message signer (mock for development)
-	privateKey := make([]byte, 32)
-	copy(privateKey, pk) // Mock key
+	privateKey, err := commit.ReadPrivateKeyFromString(pk)
+	if err != nil {
+		lggr.Errorw("Failed to read private key from environment variable", "error", err)
+		os.Exit(1)
+	}
 	signer, err := commit.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)

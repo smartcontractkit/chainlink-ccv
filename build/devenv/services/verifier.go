@@ -90,6 +90,8 @@ type VerifierInput struct {
 	AggregatorAddress string               `toml:"aggregator_address"`
 	SigningKey        string               `toml:"signing_key"`
 	Env               *VerifierEnvConfig   `toml:"env"`
+	CommitteeName     string               `toml:"committee_name"`
+	NodeIndex         int                  `toml:"node_index"`
 }
 
 type VerifierOutput struct {
@@ -119,7 +121,7 @@ func verifierDefaults(in *VerifierInput) {
 		}
 	}
 	if in.ConfigFilePath == "" {
-		in.ConfigFilePath = "/app/cmd/verifier/verifier-1.toml"
+		in.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", in.CommitteeName, in.NodeIndex+1)
 	}
 }
 

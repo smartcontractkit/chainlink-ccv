@@ -3,7 +3,9 @@ package commit
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/crypto"
 
@@ -86,4 +88,18 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask veri
 // GetSignerAddress returns the address of the signer.
 func (ecdsa *ECDSASigner) GetSignerAddress() protocol.UnknownAddress {
 	return ecdsa.address
+}
+
+// ReadPrivateKeyFromString reads a private key from a string and returns the bytes.
+// It expects a hex string which could have the "0x" prefix.
+func ReadPrivateKeyFromString(privateKey string) ([]byte, error) {
+	privateKey = strings.TrimPrefix(privateKey, "0x")
+	privateKeyBytes, err := hex.DecodeString(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode private key: %w", err)
+	}
+	if len(privateKeyBytes) != 32 {
+		return nil, fmt.Errorf("private key must be 32 bytes, got: %d", len(privateKeyBytes))
+	}
+	return privateKeyBytes, nil
 }
