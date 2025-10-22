@@ -42,6 +42,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := config.LoadFromEnvironment(); err != nil {
+		lggr.Errorw("Failed to load configuration from environment", "error", err)
+		os.Exit(1)
+	}
+	lggr.Infow("Successfully loaded configuration from environment variables")
+
 	server := aggregator.NewServer(sugaredLggr, config)
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

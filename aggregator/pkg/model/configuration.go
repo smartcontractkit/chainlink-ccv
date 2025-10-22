@@ -2,9 +2,12 @@ package model
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -109,7 +112,7 @@ type DynamoDBConfig struct {
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
 	StorageType   StorageType     `toml:"type"`
-	ConnectionURL string          `toml:"connectionURL,omitempty"`
+	ConnectionURL string          `toml:"-"`
 	DynamoDB      *DynamoDBConfig `toml:"dynamoDB,omitempty"`
 	PageSize      int             `toml:"pageSize"`
 }
@@ -182,9 +185,9 @@ func (t RateLimiterStoreType) IsValid() bool {
 
 // RateLimiterRedisConfig defines Redis-specific configuration for rate limiting.
 type RateLimiterRedisConfig struct {
-	Address  string `toml:"address"`
-	Password string `toml:"password"`
-	DB       int    `toml:"db"`
+	Address  string `toml:"-"`
+	Password string `toml:"-"`
+	DB       int    `toml:"-"`
 	// Prefix for Redis keys (default: "ratelimit")
 	KeyPrefix string `toml:"key_prefix"`
 }
@@ -330,7 +333,7 @@ type AggregatorConfig struct {
 	Committees                       map[CommitteeID]*Committee `toml:"committees"`
 	Server                           ServerConfig               `toml:"server"`
 	Storage                          *StorageConfig             `toml:"storage"`
-	APIKeys                          APIKeyConfig               `toml:"apiKeys"`
+	APIKeys                          APIKeyConfig               `toml:"-"`
 	Checkpoints                      CheckpointConfig           `toml:"checkpoints"`
 	OrphanRecovery                   OrphanRecoveryConfig       `toml:"orphanRecovery"`
 	RateLimiting                     RateLimitingConfig         `toml:"rateLimiting"`
@@ -477,5 +480,58 @@ func (c *AggregatorConfig) Validate() error {
 	// - QuorumConfig chain selectors are valid
 	// - Server address format is correct
 	// - Offramp address cannot be shared across same chain on different committees
+	return nil
+}
+
+func (c *AggregatorConfig) LoadFromEnvironment() error {
+	if c.Storage.StorageType == StorageTypePostgreSQL {
+		storageURL := os.Getenv("AGGREGATOR_STORAGE_CONNECTION_URL")
+		if storageURL == "" {
+			return errors.New("AGGREGATOR_STORAGE_CONNECTION_URL environment variable is required")
+		}
+		c.Storage.ConnectionURL = storageURL
+	}
+
+	apiKeysJSON := os.Getenv("AGGREGATOR_API_KEYS_JSON")
+	if apiKeysJSON == "" {
+		return errors.New("AGGREGATOR_API_KEYS_JSON environment variable is required")
+	}
+
+	var apiKeyConfig APIKeyConfig
+	if err := json.Unmarshal([]byte(apiKeysJSON), &apiKeyConfig); err != nil {
+		return fmt.Errorf("failed to parse AGGREGATOR_API_KEYS_JSON: %w", err)
+	}
+	c.APIKeys = apiKeyConfig
+
+	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis {
+		if err := c.loadRateLimiterRedisConfigFromEnvironment(); err != nil {
+			return fmt.Errorf("failed to load rate limiter redis config from environment: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (c *AggregatorConfig) loadRateLimiterRedisConfigFromEnvironment() error {
+	redisAddress := os.Getenv("AGGREGATOR_REDIS_ADDRESS")
+	if redisAddress == "" {
+		return errors.New("AGGREGATOR_REDIS_ADDRESS environment variable is required")
+	}
+	if c.RateLimiting.Storage.Redis == nil {
+		c.RateLimiting.Storage.Redis = &RateLimiterRedisConfig{}
+	}
+	c.RateLimiting.Storage.Redis.Address = redisAddress
+
+	redisPassword := os.Getenv("AGGREGATOR_REDIS_PASSWORD")
+	c.RateLimiting.Storage.Redis.Password = redisPassword
+
+	redisDBStr := os.Getenv("AGGREGATOR_REDIS_DB")
+	if redisDBStr != "" {
+		redisDB, err := strconv.Atoi(redisDBStr)
+		if err != nil {
+			return fmt.Errorf("invalid AGGREGATOR_REDIS_DB value: %w", err)
+		}
+		c.RateLimiting.Storage.Redis.DB = redisDB
+	}
 	return nil
 }
