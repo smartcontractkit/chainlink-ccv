@@ -236,8 +236,8 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 				DestChainSelector:  destSel,
 				GasForVerification: 1, // TODO: set proper gas limit
 				// TODO: Missing fields?
-				//FeeUSDCents        uint16
-				//PayloadSizeBytes   uint32
+				// FeeUSDCents        uint16
+				// PayloadSizeBytes   uint32
 			})
 		}
 
