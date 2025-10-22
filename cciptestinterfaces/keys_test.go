@@ -3,8 +3,9 @@ package cciptestinterfaces
 import (
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
 func TestXXXNewVerifierPrivateKey(t *testing.T) {
