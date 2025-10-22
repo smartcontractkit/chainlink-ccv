@@ -58,3 +58,6 @@ bump-chainlink-ccip sha:
     (cd build/devenv && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}})
 
     @just tidy
+
+sh:
+    cd ./build/devenv && go run ./cmd/ccv sh
