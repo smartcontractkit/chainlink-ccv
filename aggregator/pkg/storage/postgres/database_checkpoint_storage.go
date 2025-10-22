@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -26,6 +27,28 @@ func NewDatabaseCheckpointStorage(ds sqlutil.DataSource) *DatabaseCheckpointStor
 		ds:         ds,
 		driverName: ds.DriverName(),
 	}
+}
+
+func (d *DatabaseCheckpointStorage) HealthCheck(ctx context.Context) *common.ComponentHealth {
+	result := &common.ComponentHealth{
+		Name:      "postgres_checkpoint_storage",
+		Timestamp: time.Now(),
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var count int
+	err := d.ds.GetContext(ctx, &count, "SELECT 1")
+	if err != nil {
+		result.Status = common.HealthStatusUnhealthy
+		result.Message = fmt.Sprintf("query failed: %v", err)
+		return result
+	}
+
+	result.Status = common.HealthStatusHealthy
+	result.Message = "connected and responsive"
+	return result
 }
 
 // validateStoreCheckpointsInput validates the input parameters for StoreCheckpoints.

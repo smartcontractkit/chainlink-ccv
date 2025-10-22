@@ -19,7 +19,9 @@ func createTestSourceReader(t *testing.T, checkpointManager protocol.CheckpointM
 		nil,
 		protocol.ChainSelector(1337),
 		checkpointManager,
-		logger.Test(t))
+		logger.Test(t),
+		50*time.Millisecond,
+	)
 }
 
 func TestEVMSourceReader_ReadCheckpointWithRetries_HappyPath(t *testing.T) {
@@ -179,7 +181,7 @@ func TestEVMSourceReader_UpdateCheckpoint_TooFrequent(t *testing.T) {
 	reader.lastCheckpointTime = time.Now() // Recent checkpoint
 
 	// Should not call checkpoint manager
-	reader.updateCheckpoint(ctx)
+	reader.updateCheckpoint(ctx, big.NewInt(2000))
 
 	// Verify no calls were made
 	mockCheckpointManager.AssertNotCalled(t, "WriteCheckpoint")
@@ -193,4 +195,129 @@ func TestEVMSourceReader_ConstructorWithCheckpointManager(t *testing.T) {
 	require.NotNil(t, reader)
 	require.Equal(t, mockCheckpointManager, reader.checkpointManager)
 	require.Equal(t, protocol.ChainSelector(1337), reader.chainSelector)
+}
+
+// TestSourceReaderService_ResetToBlock_WithCheckpointWrite tests reset when resetBlock < lastCheckpointedBlock (finality violation).
+func TestSourceReaderService_ResetToBlock_WithCheckpointWrite(t *testing.T) {
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
+	reader := createTestSourceReader(t, mockCheckpointManager)
+
+	ctx := context.Background()
+
+	// Setup: source reader has processed up to block 2000, checkpointed at 1980
+	reader.lastProcessedBlock = big.NewInt(2000)
+	reader.lastCheckpointedBlock = big.NewInt(1980)
+
+	// Reset to block 500 (finality violation scenario)
+	resetBlock := uint64(500)
+
+	// Expect checkpoint write since 500 < 1980
+	mockCheckpointManager.EXPECT().
+		WriteCheckpoint(ctx, protocol.ChainSelector(1337), big.NewInt(int64(resetBlock))).
+		Return(nil).
+		Once()
+
+	err := reader.ResetToBlock(ctx, resetBlock)
+
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(int64(resetBlock)), reader.lastProcessedBlock)
+	require.Equal(t, big.NewInt(int64(resetBlock)), reader.lastCheckpointedBlock)
+	mockCheckpointManager.AssertExpectations(t)
+}
+
+// TestSourceReaderService_ResetToBlock_WithoutCheckpointWrite tests reset when resetBlock >= lastCheckpointedBlock (regular reorg).
+func TestSourceReaderService_ResetToBlock_WithoutCheckpointWrite(t *testing.T) {
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
+	reader := createTestSourceReader(t, mockCheckpointManager)
+
+	ctx := context.Background()
+
+	// Setup: source reader has processed up to block 2000, checkpointed at 1980
+	reader.lastProcessedBlock = big.NewInt(2000)
+	reader.lastCheckpointedBlock = big.NewInt(1980)
+
+	// Reset to block 1990 (regular reorg scenario - common ancestor above checkpoint)
+	resetBlock := uint64(1990)
+
+	// Should NOT write checkpoint since 1990 > 1980
+	// Periodic checkpointing will handle it naturally
+
+	err := reader.ResetToBlock(ctx, resetBlock)
+
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(int64(resetBlock)), reader.lastProcessedBlock)
+	// lastCheckpointedBlock should remain unchanged
+	require.Equal(t, big.NewInt(1980), reader.lastCheckpointedBlock)
+	mockCheckpointManager.AssertNotCalled(t, "WriteCheckpoint")
+}
+
+// TestSourceReaderService_ResetToBlock_CheckpointWriteError tests error handling during checkpoint write.
+func TestSourceReaderService_ResetToBlock_CheckpointWriteError(t *testing.T) {
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
+	reader := createTestSourceReader(t, mockCheckpointManager)
+
+	ctx := context.Background()
+
+	// Setup: source reader has processed up to block 2000, checkpointed at 1980
+	reader.lastProcessedBlock = big.NewInt(2000)
+	reader.lastCheckpointedBlock = big.NewInt(1980)
+
+	// Reset to block 500 (finality violation scenario)
+	resetBlock := uint64(500)
+
+	// Checkpoint write fails
+	checkpointErr := errors.New("checkpoint write failed")
+	mockCheckpointManager.EXPECT().
+		WriteCheckpoint(ctx, protocol.ChainSelector(1337), big.NewInt(int64(resetBlock))).
+		Return(checkpointErr).
+		Once()
+
+	err := reader.ResetToBlock(ctx, resetBlock)
+
+	// Should return error and NOT update lastProcessedBlock
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to persist reset checkpoint")
+	require.Equal(t, big.NewInt(2000), reader.lastProcessedBlock) // Unchanged
+	mockCheckpointManager.AssertExpectations(t)
+}
+
+// TestSourceReaderService_ResetToBlock_NoCheckpointManager tests reset when no checkpoint manager is configured.
+func TestSourceReaderService_ResetToBlock_NoCheckpointManager(t *testing.T) {
+	reader := createTestSourceReader(t, nil) // No checkpoint manager
+
+	ctx := context.Background()
+
+	// Setup: source reader has processed up to block 2000
+	reader.lastProcessedBlock = big.NewInt(2000)
+	reader.lastCheckpointedBlock = big.NewInt(1980)
+
+	// Reset to block 500
+	resetBlock := uint64(500)
+
+	err := reader.ResetToBlock(ctx, resetBlock)
+
+	// Should succeed without checkpoint write
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(int64(resetBlock)), reader.lastProcessedBlock)
+}
+
+// TestSourceReaderService_ResetToBlock_IncrementsVersion tests that resetVersion is incremented.
+func TestSourceReaderService_ResetToBlock_IncrementsVersion(t *testing.T) {
+	mockCheckpointManager := mocks.NewMockCheckpointManager(t)
+	reader := createTestSourceReader(t, mockCheckpointManager)
+
+	ctx := context.Background()
+
+	// Setup
+	reader.lastProcessedBlock = big.NewInt(2000)
+	reader.lastCheckpointedBlock = big.NewInt(1980)
+
+	initialVersion := reader.resetVersion.Load()
+
+	// Reset to block 1990 (no checkpoint write needed)
+	err := reader.ResetToBlock(ctx, 1990)
+
+	require.NoError(t, err)
+	// Verify version was incremented
+	require.Equal(t, initialVersion+1, reader.resetVersion.Load())
 }

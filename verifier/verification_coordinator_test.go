@@ -19,21 +19,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // Test constants.
 const (
-	defaultProcessingChannelSize = 10
-	defaultProcessingTimeout     = time.Second
-	defaultMaxBatchSize          = 100
-	defaultDestChain             = protocol.ChainSelector(100)
-	sourceChain1                 = protocol.ChainSelector(42)
-	sourceChain2                 = protocol.ChainSelector(84)
-	unconfiguredChain            = protocol.ChainSelector(999)
+	defaultDestChain  = protocol.ChainSelector(100)
+	sourceChain1      = protocol.ChainSelector(42)
+	sourceChain2      = protocol.ChainSelector(84)
+	unconfiguredChain = protocol.ChainSelector(999)
 )
 
 // testSetup contains common test dependencies.
@@ -42,7 +39,7 @@ type testSetup struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	logger  logger.Logger
-	storage *utils.InMemoryOffchainStorage
+	storage *common.InMemoryOffchainStorage
 	signer  verifier.MessageSigner
 }
 
@@ -95,7 +92,7 @@ func (msrs *mockSourceReaderSetup) ExpectVerificationTask(maybeVerificationTask 
 func newTestSetup(t *testing.T) *testSetup {
 	ctx, cancel := context.WithCancel(context.Background())
 	lggr := logger.Test(t)
-	storage := utils.NewInMemoryOffchainStorage(lggr)
+	storage := common.NewInMemoryOffchainStorage(lggr)
 	signer := createTestSigner(t)
 
 	return &testSetup{
@@ -207,11 +204,8 @@ func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSel
 	}
 
 	return verifier.CoordinatorConfig{
-		VerifierID:            coordinatorID,
-		SourceConfigs:         sourceConfigs,
-		ProcessingChannelSize: defaultProcessingChannelSize,
-		ProcessingTimeout:     defaultProcessingTimeout,
-		MaxBatchSize:          defaultMaxBatchSize,
+		VerifierID:    coordinatorID,
+		SourceConfigs: sourceConfigs,
 	}
 }
 
