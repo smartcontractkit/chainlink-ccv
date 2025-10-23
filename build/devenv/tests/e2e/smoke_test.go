@@ -255,7 +255,7 @@ func TestE2ESmoke(t *testing.T) {
 				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
 				ccvs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ContractType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -265,8 +265,10 @@ func TestE2ESmoke(t *testing.T) {
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
-			{
-				name:        "src_dst msg execution with EOA receiver and token transfer",
+		}
+		for _, combo := range ccvEvm.AllTokenCombinations() {
+			tcs = append(tcs, testcase{
+				name:        fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer (%s)", combo.LocalPoolAddressRef().Qualifier),
 				srcSelector: selectors[0],
 				dstSelector: selectors[1],
 				finality:    1,
@@ -281,17 +283,18 @@ func TestE2ESmoke(t *testing.T) {
 				tokenTransfer: &tokenTransfer{
 					tokenAmount: cciptestinterfaces.TokenAmount{
 						Amount:       big.NewInt(1000),
-						TokenAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), "TEST", "burn mint erc677"),
+						TokenAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), combo.LocalPoolAddressRef().Qualifier, "burn mint erc677"),
 					},
 					destTokenRef: datastore.AddressRef{
 						Type:      datastore.ContractType(burn_mint_erc677.ContractType),
 						Version:   semver.MustParse(burn_mint_erc677.Deploy.Version()),
-						Qualifier: "TEST",
+						Qualifier: combo.RemotePoolAddressRef().Qualifier,
 					},
 				},
 				numExpectedVerifications: 1,
-			},
+			})
 		}
+
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				var receiverStartBalance *big.Int

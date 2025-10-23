@@ -86,6 +86,62 @@ var (
 	}
 )
 
+// TokenCombination represents a combination of token pools on a local and remote chain.
+type TokenCombination struct {
+	localPoolType     string
+	localPoolVersion  string
+	remotePoolType    string
+	remotePoolVersion string
+}
+
+// LocalAddressRef returns the address ref for the local token pool that can be used to query the datastore.
+func (s TokenCombination) LocalPoolAddressRef() datastore.AddressRef {
+	return datastore.AddressRef{
+		Type:      datastore.ContractType(s.localPoolType),
+		Version:   semver.MustParse(s.localPoolVersion),
+		Qualifier: fmt.Sprintf("TEST (%s %s to %s %s)", s.localPoolType, s.localPoolVersion, s.remotePoolType, s.remotePoolVersion),
+	}
+}
+
+// RemoteAddressRef returns the address ref for the remote token pool that can be used to query the datastore.
+func (s TokenCombination) RemotePoolAddressRef() datastore.AddressRef {
+	return datastore.AddressRef{
+		Type:      datastore.ContractType(s.remotePoolType),
+		Version:   semver.MustParse(s.remotePoolVersion),
+		Qualifier: fmt.Sprintf("TEST (%s %s to %s %s)", s.remotePoolType, s.remotePoolVersion, s.localPoolType, s.localPoolVersion),
+	}
+}
+
+// allTokenCombinations returns all possible token combinations.
+func AllTokenCombinations() []TokenCombination {
+	return []TokenCombination{
+		{ // 1.6.1 burn -> 1.6.1 mint
+			localPoolType:     string(burn_mint_token_pool.ContractType),
+			localPoolVersion:  "1.6.1",
+			remotePoolType:    string(burn_mint_token_pool.ContractType),
+			remotePoolVersion: "1.6.1",
+		},
+		{ // 1.7.0 burn -> 1.7.0 mint
+			localPoolType:     string(burn_mint_token_pool.ContractType),
+			localPoolVersion:  "1.7.0",
+			remotePoolType:    string(burn_mint_token_pool.ContractType),
+			remotePoolVersion: "1.7.0",
+		},
+		{ // 1.6.1 burn -> 1.7.0 mint
+			localPoolType:     string(burn_mint_token_pool.ContractType),
+			localPoolVersion:  "1.6.1",
+			remotePoolType:    string(burn_mint_token_pool.ContractType),
+			remotePoolVersion: "1.7.0",
+		},
+		{ // 1.7.0 burn -> 1.6.1 mint
+			localPoolType:     string(burn_mint_token_pool.ContractType),
+			localPoolVersion:  "1.7.0",
+			remotePoolType:    string(burn_mint_token_pool.ContractType),
+			remotePoolVersion: "1.6.1",
+		},
+	}
+}
+
 type CCIP17EVM struct {
 	e                      *deployment.Environment
 	logger                 zerolog.Logger
@@ -1025,7 +1081,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	}
 	env.DataStore = runningDS.Seal()
 
-	// Deploy token & token pool, minting funds to the chain's deployer key.
+	// Deploy token & token pools, minting funds to the chain's deployer key.
 	maxSupply, ok := big.NewInt(0).SetString("100000000000000000000000000000", 10) // 100 billion tokens
 	if !ok {
 		return nil, errors.New("failed to parse max supply")
@@ -1034,39 +1090,42 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	if !ok {
 		return nil, errors.New("failed to parse deployer balance")
 	}
-	out, err = changesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployBurnMintTokenAndPoolCfg]{
-		Cfg: changesets.DeployBurnMintTokenAndPoolCfg{
-			Accounts: map[common.Address]*big.Int{
-				chain.DeployerKey.From: deployerBalance,
-			},
-			TokenInfo: tokens.TokenInfo{
-				Name:      "Test Token",
-				Decimals:  18,
-				MaxSupply: maxSupply,
-			},
-			DeployTokenPoolCfg: changesets.DeployTokenPoolCfg{
-				ChainSel:           selector,
-				TokenPoolType:      datastore.ContractType(burn_mint_token_pool.ContractType),
-				TokenPoolVersion:   semver.MustParse("1.7.0"),
-				TokenSymbol:        "TEST",
-				LocalTokenDecimals: 18,
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse("1.2.0"),
+
+	for _, combo := range AllTokenCombinations() {
+		out, err = changesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployBurnMintTokenAndPoolCfg]{
+			Cfg: changesets.DeployBurnMintTokenAndPoolCfg{
+				Accounts: map[common.Address]*big.Int{
+					chain.DeployerKey.From: deployerBalance,
+				},
+				TokenInfo: tokens.TokenInfo{
+					Name:      "Test Token",
+					Decimals:  18,
+					MaxSupply: maxSupply,
+				},
+				DeployTokenPoolCfg: changesets.DeployTokenPoolCfg{
+					ChainSel:           selector,
+					TokenPoolType:      combo.LocalPoolAddressRef().Type,
+					TokenPoolVersion:   combo.LocalPoolAddressRef().Version,
+					TokenSymbol:        combo.LocalPoolAddressRef().Qualifier,
+					LocalTokenDecimals: 18,
+					Router: datastore.AddressRef{
+						Type:    datastore.ContractType(routeroperations.ContractType),
+						Version: semver.MustParse("1.2.0"),
+					},
 				},
 			},
-		},
-	})
-	if err != nil {
-		return nil, err
+		})
+		if err != nil {
+			return nil, err
+		}
+		err = runningDS.Merge(out.DataStore.Seal())
+		if err != nil {
+			return nil, err
+		}
 	}
-	err = runningDS.Merge(out.DataStore.Seal())
-	if err != nil {
-		return nil, err
-	}
-	env.DataStore = runningDS.Seal()
 
-	return runningDS.Seal(), nil
+	env.DataStore = runningDS.Seal()
+	return env.DataStore, nil
 }
 
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
@@ -1164,60 +1223,62 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		return err
 	}
 
-	// Configure TEST token for transfer
+	// Configure TEST tokens for transfer
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
 	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse("1.7.0"), &adapters.TokenAdapter{})
-	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
-	for _, rs := range remoteSelectors {
-		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-			RemotePool: &datastore.AddressRef{
-				Type:    datastore.ContractType(burn_mint_token_pool.ContractType),
-				Version: semver.MustParse("1.7.0"),
-			},
-			InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
-				IsEnabled: false,
-				Capacity:  big.NewInt(0),
-				Rate:      big.NewInt(0),
-			},
-			OutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
-				IsEnabled: false,
-				Capacity:  big.NewInt(0),
-				Rate:      big.NewInt(0),
-			},
-			OutboundCCVs: []datastore.AddressRef{
-				{
-					Type:      datastore.ContractType(committee_verifier.ProxyType),
-					Version:   semver.MustParse("1.7.0"),
-					Qualifier: DefaultCommitteeVerifierQualifier,
+	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse("1.6.1"), &adapters.TokenAdapter{})
+
+	for _, combo := range AllTokenCombinations() {
+		tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
+		for _, rs := range remoteSelectors {
+			remoteRef := combo.RemotePoolAddressRef()
+			rc := tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
+				RemotePool: &remoteRef,
+				InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+					IsEnabled: false,
+					Capacity:  big.NewInt(0),
+					Rate:      big.NewInt(0),
 				},
-			},
-			InboundCCVs: []datastore.AddressRef{
-				{
-					Type:      datastore.ContractType(committee_verifier.ProxyType),
-					Version:   semver.MustParse("1.7.0"),
-					Qualifier: DefaultCommitteeVerifierQualifier,
+				OutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+					IsEnabled: false,
+					Capacity:  big.NewInt(0),
+					Rate:      big.NewInt(0),
 				},
-			},
+			}
+			if combo.LocalPoolAddressRef().Version.Equal(semver.MustParse("1.7.0")) {
+				rc.OutboundCCVs = []datastore.AddressRef{
+					{
+						Type:      datastore.ContractType(committee_verifier.ProxyType),
+						Version:   semver.MustParse("1.7.0"),
+						Qualifier: DefaultCommitteeVerifierQualifier,
+					},
+				}
+				rc.InboundCCVs = []datastore.AddressRef{
+					{
+						Type:      datastore.ContractType(committee_verifier.ProxyType),
+						Version:   semver.MustParse("1.7.0"),
+						Qualifier: DefaultCommitteeVerifierQualifier,
+					},
+				}
+			}
+			tokensRemoteChains[rs] = rc
 		}
-	}
-	_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-		Tokens: []tokenscore.TokenTransferConfig{
-			{
-				ChainSelector: selector,
-				TokenPoolRef: datastore.AddressRef{
-					Type:    datastore.ContractType(burn_mint_token_pool.ContractType),
-					Version: semver.MustParse("1.7.0"),
+		_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+			Tokens: []tokenscore.TokenTransferConfig{
+				{
+					ChainSelector: selector,
+					TokenPoolRef:  combo.LocalPoolAddressRef(),
+					RegistryRef: datastore.AddressRef{
+						Type:    datastore.ContractType(token_admin_registry.ContractType),
+						Version: semver.MustParse("1.5.0"),
+					},
+					RemoteChains: tokensRemoteChains,
 				},
-				RegistryRef: datastore.AddressRef{
-					Type:    datastore.ContractType(token_admin_registry.ContractType),
-					Version: semver.MustParse("1.5.0"),
-				},
-				RemoteChains: tokensRemoteChains,
 			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to configure tokens for transfers: %w", err)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to configure tokens for transfers: %w", err)
+		}
 	}
 
 	return nil
