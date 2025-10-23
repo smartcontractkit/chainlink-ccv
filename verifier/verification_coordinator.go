@@ -595,7 +595,7 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	vc.messageTimestamps[messageID] = task.CreatedAt
 	vc.timestampsMu.Unlock()
 
-	vc.lggr.Infow("📋 Message added to finality queue",
+	vc.lggr.Infow("Message added to finality queue",
 		"messageID", messageID,
 		"chainSelector", state.chainSelector,
 		"blockNumber", task.BlockNumber,

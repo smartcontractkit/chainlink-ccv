@@ -9,7 +9,12 @@ import (
 )
 
 func TestServiceVerifier(t *testing.T) {
-	out, err := services.NewVerifier(&services.VerifierInput{SourceCodePath: "../../../verifier", RootPath: "../../../../"})
+	out, err := services.NewVerifier(&services.VerifierInput{
+		SourceCodePath: "../../../verifier",
+		RootPath:       "../../../../",
+		CommitteeName:  "default",
+		NodeIndex:      0,
+	})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
 		_ = out

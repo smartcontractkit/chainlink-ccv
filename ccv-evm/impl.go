@@ -35,6 +35,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
@@ -53,7 +54,6 @@ import (
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 )
 
 const (
@@ -70,6 +70,8 @@ const (
 	TertiaryReceiverQualifier          = "tertiary"
 
 	QuaternaryReceiverQualifier = "quaternary"
+
+	CommitteeVerifierGasForVerification = 500_000
 )
 
 var (
@@ -77,10 +79,10 @@ var (
 
 	// this is a hacky way to be able to programmatically generate the individual verifier
 	// signing addresses for each qualifier.
-	qualifierToVerifierIndexes = map[string][]int{
-		DefaultCommitteeVerifierQualifier:   {0, 1},
-		SecondaryCommitteeVerifierQualifier: {2, 3},
-		TertiaryCommitteeVerifierQualifier:  {4, 5},
+	nodesPerCommittee = map[string]int{
+		DefaultCommitteeVerifierQualifier:   2,
+		SecondaryCommitteeVerifierQualifier: 2,
+		TertiaryCommitteeVerifierQualifier:  2,
 	}
 )
 
@@ -614,8 +616,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			}
 			copy(messageID[:], parsed.MessageId[:])
 			seqNo = parsed.SequenceNumber
-			receipts = append(receipts, parsed.VerifierReceipts...)
-			receipts = append(receipts, parsed.ExecutorReceipt)
+			receipts = append(receipts, parsed.Receipts...)
 			break
 		}
 	}
@@ -827,23 +828,25 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 // The signer addresses are programmatically generated in an identical to fashion to what is done in
 // NewEnvironment to avoid hardcoding hard-to-determine addresses in the code.
 func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatureConfigArgs {
-	indexes, ok := qualifierToVerifierIndexes[qualifier]
+	numNodes, ok := nodesPerCommittee[qualifier]
 	if !ok {
 		panic(fmt.Sprintf("couldn't find verifier indexes for qualifier: %s", qualifier))
 	}
-	signerAddresses := make([]common.Address, 0, len(indexes))
-	for _, index := range indexes {
-		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(index)
-		privateKey := make([]byte, 32)
-		copy(privateKey, privKeyString)
-		signer, err := commit.NewECDSAMessageSigner(privateKey)
+	signerAddresses := make([]common.Address, 0, numNodes)
+	for i := range numNodes {
+		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(qualifier, i)
+		privateKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyString)
+		if err != nil {
+			panic(fmt.Sprintf("failed to read private key: %v", err))
+		}
+		signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("failed to create ECDSA message signer: %v", err))
 		}
 		signerAddresses = append(signerAddresses, common.HexToAddress(signer.GetSignerAddress().String()))
 	}
 	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(len(indexes)), //nolint:gosec
+		Threshold: uint8(numNodes), //nolint:gosec
 		Signers:   signerAddresses,
 	}
 }
@@ -1112,7 +1115,8 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				Version: semver.MustParse(executor.Deploy.Version()),
 			},
 			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
-				AllowlistEnabled: false,
+				AllowlistEnabled:   false,
+				GasForVerification: CommitteeVerifierGasForVerification,
 			},
 			FeeQuoterDestChainConfig: fee_quoter.DestChainConfig{
 				IsEnabled:                   true,
