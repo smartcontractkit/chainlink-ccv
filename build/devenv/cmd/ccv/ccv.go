@@ -338,9 +338,9 @@ var testCmd = &cobra.Command{
 		case "smoke":
 			testPattern = "TestE2ESmoke"
 		case "smoke-v2":
-			testPattern = "TestE2ESmoke/test_argsv2_messages"
+			testPattern = "TestE2ESmoke/test_extra_args_v2_messages"
 		case "smoke-v3":
-			testPattern = "TestE2ESmoke/test_argsv3_messages"
+			testPattern = "TestE2ESmoke/test_extra_args_v3_messages"
 		case "load":
 			testPattern = "TestE2ELoad/clean"
 		case "rpc-latency":
