@@ -606,6 +606,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	var messageID [32]byte
 	var seqNo uint64
 	var receipts []onramp.OnRampReceipt
+	var verifierBlobs [][]byte
 	for _, log := range receipt.Logs {
 		if log.Topics[0] == ccipMessageSentTopic {
 			parsed, err := m.onRampBySelector[src].ParseCCIPMessageSent(*log)
@@ -617,6 +618,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			copy(messageID[:], parsed.MessageId[:])
 			seqNo = parsed.SequenceNumber
 			receipts = append(receipts, parsed.Receipts...)
+			verifierBlobs = append(verifierBlobs, parsed.VerifierBlobs...)
 			break
 		}
 	}
@@ -626,7 +628,21 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	if err != nil {
 		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to get dest chain config: %w", err)
 	}
-	l.Info().Bool("Executed", sendReport.Output.Executed()).
+
+	var result = cciptestinterfaces.SendMessageResult{
+		MessageID:      messageID,
+		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(receipts)),
+		VerifierBlobs:  make([][]byte, 0, len(verifierBlobs)),
+	}
+	for _, receipt := range receipts {
+		result.ReceiptIssuers = append(result.ReceiptIssuers, protocol.UnknownAddress(receipt.Issuer.Bytes()))
+	}
+	for _, blob := range verifierBlobs {
+		result.VerifierBlobs = append(result.VerifierBlobs, blob)
+	}
+
+	l.Info().
+		Bool("Executed", sendReport.Output.Executed()).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
@@ -634,19 +650,13 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		Any("DefaultCCVs", dcc.DefaultCCVs).
 		Any("LaneMandatedCCVs", dcc.LaneMandatedCCVs).
 		Any("DefaultExecutor", dcc.DefaultExecutor).
-		Any("OffRamp", dcc.OffRamp).
-		Any("Receipts", receipts).
+		Any("OffRamp", hexutil.Encode(dcc.OffRamp)).
+		Int("NumReceipts", len(receipts)).
+		Int("NumVerifierBlobs", len(verifierBlobs)).
+		Any("ReceiptIssuers", result.ReceiptIssuers).
 		Uint64("SeqNo", seqNo).
 		Msg("CCIP message sent")
 
-	var result = cciptestinterfaces.SendMessageResult{
-		MessageID:      messageID,
-		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(receipts)),
-	}
-
-	for _, receipt := range receipts {
-		result.ReceiptIssuers = append(result.ReceiptIssuers, protocol.UnknownAddress(receipt.Issuer.Bytes()))
-	}
 	return result, nil
 }
 
