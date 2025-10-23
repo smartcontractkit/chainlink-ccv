@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +12,7 @@ import (
 )
 
 const historyFileName = "shell_history"
+const activeFileName = "active_config"
 
 func init() {
 	// Ensure the config directory exists
@@ -36,54 +36,15 @@ func configDir() string {
 	}
 }
 
-func historyFilePath() string {
-	return filepath.Join(configDir(), "ccv", historyFileName)
-}
-
-func getHistory() []string {
-	file, err := os.Open(historyFilePath())
-	if err != nil {
-		return []string{}
-	}
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			fmt.Printf("Error closing history file: %v\n", err)
-		}
-	}(file)
-
-	var history []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		history = append(history, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Printf("Error reading history file: %v\n", err)
-	}
-	return history
-}
-
-func saveHistory(cmd string) {
-	historyFile, err := os.OpenFile(historyFilePath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Printf("Error opening history file: %v\n", err)
-		return
-	}
-
-	if _, err = historyFile.WriteString(cmd + "\n"); err != nil {
-		fmt.Printf("Error writing to history file: %v\n", err)
-	}
-
-	if err = historyFile.Close(); err != nil {
-		fmt.Printf("Error closing history file: %v\n", err)
-	}
-}
-
 func getCommands() []prompt.Suggest {
+	activeConfig := getActiveConfig()
+	if activeConfig == "" {
+		activeConfig = "default"
+	}
+
 	return []prompt.Suggest{
 		{Text: "", Description: "Choose command, press <space> for more options after selecting command"},
-		{Text: "up", Description: "Spin up the development environment"},
+		{Text: "up", Description: "Spin up the development environment [active config: " + activeConfig + "]"},
 		{Text: "down", Description: "Tear down the development environment"},
 		{Text: "restart", Description: "Restart the development environment"},
 		{Text: "test", Description: "Perform smoke or load/chaos testing"},
@@ -184,6 +145,22 @@ func executor(in string) {
 	if in == "exit" {
 		fmt.Println("Goodbye!")
 		os.Exit(0)
+	}
+
+	if strings.HasPrefix(in, "up ") {
+		saveActiveConfig(in[3:])
+	} else if strings.HasPrefix(in, "u ") {
+		saveActiveConfig(in[2:])
+	}
+
+	switch in {
+	// append active config to "up" and "restart" commands with no arguments
+	case "up", "u":
+		in = fmt.Sprintf("%s %s", in, activeConfigPath())
+	case "restart", "r":
+		// skip debug flag if present
+		noDebugConfig := strings.ReplaceAll(activeConfigPath(), "--debug", "")
+		in = fmt.Sprintf("%s %s", in, noDebugConfig)
 	}
 
 	// don't save "exit" or empty lines to history
