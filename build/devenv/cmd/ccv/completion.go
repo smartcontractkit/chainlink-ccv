@@ -1,13 +1,84 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
 )
+
+const historyFileName = "shell_history"
+
+func init() {
+	// Ensure the config directory exists
+	configPath := filepath.Join(configDir(), "ccv")
+	if err := os.MkdirAll(configPath, os.ModePerm); err != nil {
+		fmt.Printf("Error creating config directory: %v\n", err)
+	}
+}
+
+func configDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		return os.Getenv("APPDATA")
+	case "darwin":
+		return fmt.Sprintf("%s/Library/Preferences", os.Getenv("HOME"))
+	default: // Unix/Linux
+		if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
+			return configHome
+		}
+		return fmt.Sprintf("%s/.config", os.Getenv("HOME"))
+	}
+}
+
+func historyFilePath() string {
+	return filepath.Join(configDir(), "ccv", historyFileName)
+}
+
+func getHistory() []string {
+	file, err := os.Open(historyFilePath())
+	if err != nil {
+		return []string{}
+	}
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Printf("Error closing history file: %v\n", err)
+		}
+	}(file)
+
+	var history []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		history = append(history, scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("Error reading history file: %v\n", err)
+	}
+	return history
+}
+
+func saveHistory(cmd string) {
+	historyFile, err := os.OpenFile(historyFilePath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("Error opening history file: %v\n", err)
+		return
+	}
+
+	if _, err = historyFile.WriteString(cmd + "\n"); err != nil {
+		fmt.Printf("Error writing to history file: %v\n", err)
+	}
+
+	if err = historyFile.Close(); err != nil {
+		fmt.Printf("Error closing history file: %v\n", err)
+	}
+}
 
 func getCommands() []prompt.Suggest {
 	return []prompt.Suggest{
@@ -114,6 +185,10 @@ func executor(in string) {
 		fmt.Println("Goodbye!")
 		os.Exit(0)
 	}
+
+	// don't save "exit" or empty lines to history
+	saveHistory(in)
+
 	args := strings.Fields(in)
 	os.Args = append([]string{"ccv"}, args...)
 	if err := rootCmd.Execute(); err != nil {
@@ -186,6 +261,7 @@ func StartShell() {
 				os.Exit(0)
 			},
 		}),
+		prompt.OptionHistory(getHistory()),
 	)
 	p.Run()
 }
