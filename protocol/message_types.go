@@ -363,6 +363,7 @@ type ReceiptWithBlob struct {
 	ExtraArgs         ByteSlice      `json:"extra_args"`
 	DestGasLimit      uint64         `json:"dest_gas_limit"`
 	DestBytesOverhead uint32         `json:"dest_bytes_overhead"`
+	FeeTokenAmount    *big.Int       `json:"fee_token_amount"`
 }
 
 // CCV represents a Cross-Chain Verifier configuration.

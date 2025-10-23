@@ -99,17 +99,14 @@ func (i *IndexerClient) WaitForVerificationsForMessageID(
 	ctx context.Context,
 	messageID [32]byte,
 	tickInterval time.Duration,
-	timeout time.Duration,
 ) (GetVerificationsForMessageIDResponse, error) {
 	msgIDHex := common.BytesToHash(messageID[:]).Hex()
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
-	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, timeout)
-	defer timeoutCancel()
 
 	for {
 		select {
-		case <-timeoutCtx.Done():
+		case <-ctx.Done():
 			return GetVerificationsForMessageIDResponse{}, fmt.Errorf("context cancelled: %w", ctx.Err())
 		case <-ticker.C:
 			response, err := i.GetVerificationsForMessageID(ctx, messageID)
@@ -191,17 +188,14 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 	ctx context.Context,
 	messageID [32]byte,
 	tickInterval time.Duration,
-	timeout time.Duration,
 ) (*pb.VerifierResult, error) {
 	msgIDHex := common.BytesToHash(messageID[:]).Hex()
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
-	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, timeout)
-	defer timeoutCancel()
 
 	for {
 		select {
-		case <-timeoutCtx.Done():
+		case <-ctx.Done():
 			return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
 		case <-ticker.C:
 			result, err := a.GetVerifierResultForMessage(ctx, messageID)

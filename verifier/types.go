@@ -8,6 +8,7 @@ import (
 
 // VerificationTask represents the complete CCIPMessageSent event data from the onRamp/proxy.
 type VerificationTask struct {
+	// TODO: Rename ReceiptBlobs to VerifierBlobs to match with onchain code.
 	ReceiptBlobs []protocol.ReceiptWithBlob `json:"receipt_blobs"`
 	Message      protocol.Message           `json:"message"`
 	BlockNumber  uint64                     `json:"block_number"` // Block number when the message was included

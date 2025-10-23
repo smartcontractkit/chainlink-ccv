@@ -231,9 +231,13 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 				continue
 			}
 			destConfigArgs = append(destConfigArgs, committee_verifier.DestChainConfigArgs{
-				AllowlistEnabled:  false,
-				Router:            MustGetContractAddressForSelector(addresses, sel, router.ContractType),
-				DestChainSelector: destSel,
+				AllowlistEnabled:   false,
+				Router:             MustGetContractAddressForSelector(addresses, sel, router.ContractType),
+				DestChainSelector:  destSel,
+				GasForVerification: 1, // TODO: set proper gas limit
+				// TODO: Missing fields?
+				// FeeUSDCents        uint16
+				// PayloadSizeBytes   uint32
 			})
 		}
 
