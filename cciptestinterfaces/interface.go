@@ -85,9 +85,11 @@ type MessageOptions struct {
 	TokenArgs []byte
 }
 
+// SendMessageResult is a chain-agnostic representation of the output of a ccipSend operation.
 type SendMessageResult struct {
 	MessageID      [32]byte
 	ReceiptIssuers []protocol.UnknownAddress
+	VerifierBlobs  [][]byte
 }
 
 // Chains provides methods to interact with a set of chains that have CCIP deployed.
