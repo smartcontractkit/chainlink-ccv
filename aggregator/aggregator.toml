@@ -46,7 +46,7 @@ pyroscope_url = "http://pyroscope:4040"
   [committees.default]
     [committees.default.quorumConfigs]
       [committees.default.quorumConfigs.3379446385462418246]
-        committeeVerifierAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+        committeeVerifierAddress = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
         threshold = 2
 
         [[committees.default.quorumConfigs.3379446385462418246.signers]]
