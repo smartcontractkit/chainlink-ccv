@@ -16,4 +16,5 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /bin/aggregator /bin/
+COPY --from=builder /app/indexer/migrations ./migrations
 CMD ["/bin/aggregator"]
