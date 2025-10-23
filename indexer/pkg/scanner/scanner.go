@@ -131,6 +131,8 @@ func (s *Scanner) run(ctx context.Context) {
 			wg.Add(1)
 			go s.handleReader(ctx, reader, &wg)
 		case ccvData := <-s.ccvDataCh:
+			// For now, we'll just update the timestamp to be the timestamp of ingestion
+			ccvData.Timestamp = time.Now().Unix()
 			// Record channel size after consuming data
 			s.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(s.ccvDataCh)))
 			if err := s.storageWriter.InsertCCVData(ctx, ccvData); err != nil {
