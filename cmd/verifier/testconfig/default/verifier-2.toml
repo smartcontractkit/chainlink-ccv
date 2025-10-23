@@ -46,12 +46,12 @@ TraceBatchTimeout = 10
       ExternalWSUrl = "ws://host.docker.internal:8545"
       InternalWSUrl = "ws://blockchain-shared:8545"
   [blockchain_infos.4793464827907405086]
-    ChainID = "1337"
+    ChainID = "2337"
     Type = "anvil"
     Family = "evm"
-    UniqueChainName = "blockchain-shared"
+    UniqueChainName = "blockchain-shared-2"
     [[blockchain_infos.4793464827907405086.Nodes]]
-      ExternalHTTPUrl = "http://host.docker.internal:8545"
-      InternalHTTPUrl = "http://blockchain-shared:8545"
-      ExternalWSUrl = "ws://host.docker.internal:8545"
-      InternalWSUrl = "ws://blockchain-shared:8545"
+      ExternalHTTPUrl = "http://host.docker.internal:8555"
+      InternalHTTPUrl = "http://blockchain-shared-2:8555"
+      ExternalWSUrl = "ws://host.docker.internal:8555"
+      InternalWSUrl = "ws://blockchain-shared-2:8555"

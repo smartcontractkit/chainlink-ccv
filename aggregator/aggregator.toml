@@ -46,7 +46,7 @@ pyroscope_url = "http://pyroscope:4040"
   [committees.default]
     [committees.default.quorumConfigs]
       [committees.default.quorumConfigs.3379446385462418246]
-        committeeVerifierAddress = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
+        committeeVerifierAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"
         threshold = 2
 
         [[committees.default.quorumConfigs.3379446385462418246.signers]]
@@ -70,7 +70,7 @@ pyroscope_url = "http://pyroscope:4040"
           addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
 
       [committees.default.quorumConfigs.4793464827907405086]
-        committeeVerifierAddress = "0xf4B146FbA71F41E0592668ffbF264F1D186b2Ca8"
+        committeeVerifierAddress = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
         threshold = 2
 
         [[committees.default.quorumConfigs.4793464827907405086.signers]]
@@ -84,7 +84,7 @@ pyroscope_url = "http://pyroscope:4040"
     [committees.default.sourceVerifierAddresses]
       3379446385462418246 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
       12922642891491394802 = "0x809d550fca64d94Bd9F66E60752A544199cfAC3D"
-      4793464827907405086 = "0xf4B146FbA71F41E0592668ffbF264F1D186b2Ca8"
+      4793464827907405086 = "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
 
   [committees.secondary]
     [committees.secondary.quorumConfigs]
