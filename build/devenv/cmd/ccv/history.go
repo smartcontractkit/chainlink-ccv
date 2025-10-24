@@ -36,7 +36,7 @@ func getHistory() []string {
 }
 
 func saveHistory(cmd string) {
-	historyFile, err := os.OpenFile(historyFilePath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	historyFile, err := os.OpenFile(historyFilePath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		fmt.Printf("Error opening history file: %v\n", err)
 		return

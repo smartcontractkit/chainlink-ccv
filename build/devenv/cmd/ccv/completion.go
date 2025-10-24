@@ -11,8 +11,10 @@ import (
 	"github.com/c-bata/go-prompt"
 )
 
-const historyFileName = "shell_history"
-const activeFileName = "active_config"
+const (
+	historyFileName = "shell_history"
+	activeFileName  = "active_config"
+)
 
 func init() {
 	// Ensure the config directory exists

@@ -19,7 +19,7 @@ func getActiveConfig() string {
 }
 
 func saveActiveConfig(activeConfig string) {
-	err := os.WriteFile(activeConfigPath(), []byte(activeConfig), 0644)
+	err := os.WriteFile(activeConfigPath(), []byte(activeConfig), 0o644)
 	if err != nil {
 		fmt.Printf("Error writing active config file: %v\n", err)
 	}
