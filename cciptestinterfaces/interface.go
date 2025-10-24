@@ -33,8 +33,8 @@ type CCIP17ProductConfiguration interface {
 
 // Observable pushes Loki streams and exposes Prometheus metrics and returns queries to assert SLAs.
 type Observable interface {
-	// ExposeMetrics exposes Prometheus metrics for the given source and destination chain IDs.
-	ExposeMetrics(ctx context.Context, source, dest uint64, chainIDs, wsURLs []string) ([]string, *prometheus.Registry, error)
+	// ExposeMetrics exposes Prometheus metrics for the given source and destination selectors.
+	ExposeMetrics(ctx context.Context, source, dest uint64) ([]string, *prometheus.Registry, error)
 }
 
 // TokenAmount represents a token amount being sent in a CCIP message.
