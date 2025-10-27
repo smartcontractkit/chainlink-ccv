@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.24 AS builder
+FROM golang:1.25.3 AS builder
 
 ENV GOPRIVATE=github.com/smartcontractkit/*
 
