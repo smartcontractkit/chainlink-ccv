@@ -123,24 +123,12 @@ func StartCCVComitteeVerifier(
 		return fmt.Errorf("failed to create message signer: %w", err)
 	}
 
-	// CommitVerifier
-	cv, err := verifier.NewCommitVerifier(
-		coordinatorConfig,
-		signer,
-		logger.With(lggr, "component", "CommitVerifier"),
-		nil,
-	)
-	if err != nil {
-		lggr.Errorw("Failed to create commit verifier.", "error", err)
-		return fmt.Errorf("failed to create commit verifier: %w", err)
-	}
-
 	verifierCoordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithLogger(logger.With(lggr, "component", "VerifierCoordinator")),
-		verifier.WithVerifier(cv),
 		verifier.WithSourceReaders(sourceReaders),
 		verifier.WithCheckpointManager(checkpointManager),
 		verifier.WithStorage(aggregatorWriter),
+		verifier.WithSigner(signer),
 		verifier.WithConfig(coordinatorConfig),
 	)
 	if err != nil {
