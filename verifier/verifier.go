@@ -1,4 +1,4 @@
-package commit
+package verifier
 
 import (
 	"context"
@@ -9,23 +9,21 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Verifier provides a basic verifier implementation using the new message format.
-type Verifier struct {
-	signer     verifier.MessageSigner
+// CommitVerifier provides a basic verifier implementation using the new message format.
+type CommitVerifier struct {
+	signer     MessageSigner
 	lggr       logger.Logger
-	monitoring common.VerifierMonitoring
+	monitoring VerifierMonitoring
 	// TODO: Use a separate config
-	config verifier.CoordinatorConfig
+	config CoordinatorConfig
 }
 
 // NewCommitVerifier creates a new commit verifier.
-func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring common.VerifierMonitoring) (verifier.Verifier, error) {
-	cv := &Verifier{
+func NewCommitVerifier(config CoordinatorConfig, signer MessageSigner, lggr logger.Logger, monitoring VerifierMonitoring) (Verifier, error) {
+	cv := &CommitVerifier{
 		config:     config,
 		signer:     signer,
 		lggr:       lggr,
@@ -39,7 +37,7 @@ func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.Messag
 	return cv, nil
 }
 
-func (cv *Verifier) validate() error {
+func (cv *CommitVerifier) validate() error {
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {
 		if field == nil {
@@ -59,7 +57,7 @@ func (cv *Verifier) validate() error {
 }
 
 // ValidateMessage validates the new message format.
-func (cv *Verifier) ValidateMessage(message protocol.Message) error {
+func (cv *CommitVerifier) ValidateMessage(message protocol.Message) error {
 	if message.Version != protocol.MessageVersion {
 		return fmt.Errorf("unsupported message version: %d", message.Version)
 	}
@@ -78,26 +76,26 @@ func (cv *Verifier) ValidateMessage(message protocol.Message) error {
 // VerifyMessages verifies a batch of messages using the new chain-agnostic format.
 // It processes tasks concurrently and adds results directly to the batcher.
 // Returns a BatchResult containing any verification errors that occurred.
-func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) batcher.BatchResult[verifier.VerificationError] {
+func (cv *CommitVerifier) VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) batcher.BatchResult[VerificationError] {
 	if len(tasks) == 0 {
-		return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
+		return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
 	}
 
 	cv.lggr.Infow("Starting batch verification", "batchSize", len(tasks))
 
 	// Collect errors from concurrent verification
-	var errors []verifier.VerificationError
+	var errors []VerificationError
 	var errorsMu sync.Mutex
 
 	// Process tasks concurrently
 	var wg sync.WaitGroup
 	for _, task := range tasks {
 		wg.Add(1)
-		go func(verificationTask verifier.VerificationTask) {
+		go func(verificationTask VerificationTask) {
 			defer wg.Done()
 			if err := cv.verifyMessage(ctx, verificationTask, ccvDataBatcher); err != nil {
 				errorsMu.Lock()
-				errors = append(errors, verifier.VerificationError{
+				errors = append(errors, VerificationError{
 					Timestamp: time.Now(),
 					Error:     err,
 					Task:      verificationTask,
@@ -110,7 +108,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 	wg.Wait()
 	cv.lggr.Infow("Batch verification completed", "batchSize", len(tasks), "errorCount", len(errors))
 
-	return batcher.BatchResult[verifier.VerificationError]{
+	return batcher.BatchResult[VerificationError]{
 		Items: errors,
 		Error: nil,
 	}
@@ -118,7 +116,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 
 // verifyMessage verifies a single message (internal helper)
 // Returns an error if verification fails, nil if successful.
-func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) error {
+func (cv *CommitVerifier) verifyMessage(ctx context.Context, verificationTask VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) error {
 	start := time.Now()
 	message := verificationTask.Message
 

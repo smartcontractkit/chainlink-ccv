@@ -11,7 +11,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -42,7 +41,8 @@ type Coordinator struct {
 	verifier              Verifier
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
-	monitoring            common.VerifierMonitoring
+	monitoring            VerifierMonitoring
+	signer                MessageSigner
 	sourceStates          map[protocol.ChainSelector]*sourceState
 	cancel                context.CancelFunc
 	config                CoordinatorConfig
@@ -68,8 +68,10 @@ type Coordinator struct {
 // Option is the functional option type for Coordinator.
 type Option func(*Coordinator)
 
-// WithVerifier sets the verifier implementation.
-func WithVerifier(verifier Verifier) Option {
+// TestOptionWithVerifier sets the verifier implementation for testing purposes. Normal
+// services initialize this object internally.
+// TODO: can tests be done without this?
+func TestOptionWithVerifier(verifier Verifier) Option {
 	return func(vc *Coordinator) {
 		vc.verifier = verifier
 	}
@@ -129,9 +131,16 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 }
 
 // WithMonitoring sets the monitoring implementation.
-func WithMonitoring(monitoring common.VerifierMonitoring) Option {
+func WithMonitoring(monitoring VerifierMonitoring) Option {
 	return func(vc *Coordinator) {
 		vc.monitoring = monitoring
+	}
+}
+
+// WithSigner sets the message signer.
+func WithSigner(signer MessageSigner) Option {
+	return func(vc *Coordinator) {
+		vc.signer = signer
 	}
 }
 
@@ -192,6 +201,19 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	vc.cancel = cancel
+
+	if vc.verifier == nil {
+		verifier, err := NewCommitVerifier(
+			vc.config,
+			vc.signer,
+			logger.With(vc.lggr, "component", "CommitVerifier"),
+			vc.monitoring,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create commit verifier: %w", err)
+		}
+		vc.verifier = verifier
+	}
 
 	// Initialize source states with reorg detection
 	for chainSelector, sourceReader := range vc.sourceReaders {
@@ -519,7 +541,10 @@ func (vc *Coordinator) validate() error {
 		}
 	}
 
-	appendIfNil(vc.verifier, "verifier")
+	// this only happens during testing.
+	if vc.verifier == nil {
+		appendIfNil(vc.signer, "signer")
+	}
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
 	appendIfNil(vc.monitoring, "monitoring")

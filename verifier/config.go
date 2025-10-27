@@ -1,15 +1,18 @@
 package verifier
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type Config struct {
-	VerifierID                 string                              `toml:"verifier_id"`
-	AggregatorAddress          string                              `toml:"aggregator_address"`
-	AggregatorAPIKey           string                              `toml:"aggregator_api_key"`
+	VerifierID        string `toml:"verifier_id"`
+	AggregatorAddress string `toml:"aggregator_address"`
+	// TODO: Move to secrets config
+	AggregatorAPIKey string `toml:"aggregator_api_key"`
+	// TODO: Move to secrets config
 	AggregatorSecretKey        string                              `toml:"aggregator_secret_key"`
 	BlockchainInfos            map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	PyroscopeURL               string                              `toml:"pyroscope_url"`
@@ -46,6 +49,23 @@ type BeholderConfig struct {
 	TraceSampleRatio float64 `toml:"TraceSampleRatio"`
 	// TraceBatchTimeout is the timeout for a batch of traces.
 	TraceBatchTimeout int64 `toml:"TraceBatchTimeout"`
+}
+
+func (c *Config) Validate() error {
+	if len(c.BlockchainInfos) != len(c.OnRampAddresses) ||
+		len(c.BlockchainInfos) != len(c.CommitteeVerifierAddresses) {
+		return errors.New("invalid verifier configuration, mismatched lengths of blockchain infos and addresses.")
+	}
+
+	for k, _ := range c.BlockchainInfos {
+		if _, ok := c.OnRampAddresses[k]; !ok {
+			return fmt.Errorf("invalid CCV configuration, missing onramp address for chain: %s", k)
+		}
+		if _, ok := c.CommitteeVerifierAddresses[k]; !ok {
+			return fmt.Errorf("invalid CCV configuration, missing verifier address for chain: %s", k)
+		}
+	}
+	return nil
 }
 
 // Validate performs validation on the monitoring configuration.

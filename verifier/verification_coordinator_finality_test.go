@@ -258,7 +258,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
 	coordinator, err := verifier.NewVerificationCoordinator(
-		verifier.WithVerifier(mockVerifier),
+		verifier.TestOptionWithVerifier(mockVerifier),
 		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
 			1337: mockSourceReader,
 		}),

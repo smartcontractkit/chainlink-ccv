@@ -1,4 +1,4 @@
-package commit
+package verifier
 
 import (
 	"testing"
@@ -7,13 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 // TestValidateMessageErrors tests message validation error conditions.
 func TestValidateMessageErrors(t *testing.T) {
 	tests := []struct {
-		task      *verifier.VerificationTask
+		task      *VerificationTask
 		name      string
 		expectErr string
 		verifier  protocol.UnknownAddress
@@ -26,7 +25,7 @@ func TestValidateMessageErrors(t *testing.T) {
 		},
 		{
 			name: "unsupported_version",
-			task: &verifier.VerificationTask{
+			task: &VerificationTask{
 				Message: protocol.Message{
 					Version: 99, // Unsupported version
 				},
@@ -36,7 +35,7 @@ func TestValidateMessageErrors(t *testing.T) {
 		},
 		{
 			name: "verifier_not_found",
-			task: &verifier.VerificationTask{
+			task: &VerificationTask{
 				Message: protocol.Message{
 					Version: protocol.MessageVersion,
 				},
@@ -93,7 +92,7 @@ func TestValidateMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create verification task with matching verifier address
-	task := &verifier.VerificationTask{
+	task := &VerificationTask{
 		Message: *message,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{
 			{

@@ -37,7 +37,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -835,11 +835,11 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 	signerAddresses := make([]common.Address, 0, numNodes)
 	for i := range numNodes {
 		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(qualifier, i)
-		privateKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyString)
+		privateKeyBytes, err := verifier.ReadPrivateKeyFromString(privKeyString)
 		if err != nil {
 			panic(fmt.Sprintf("failed to read private key: %v", err))
 		}
-		signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+		signer, err := verifier.NewECDSAMessageSigner(privateKeyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("failed to create ECDSA message signer: %v", err))
 		}

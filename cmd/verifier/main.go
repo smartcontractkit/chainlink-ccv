@@ -21,7 +21,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -237,12 +236,12 @@ func main() {
 		lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
 		os.Exit(1)
 	}
-	privateKey, err := commit.ReadPrivateKeyFromString(pk)
+	privateKey, err := verifier.ReadPrivateKeyFromString(pk)
 	if err != nil {
 		lggr.Errorw("Failed to read private key from environment variable", "error", err)
 		os.Exit(1)
 	}
-	signer, err := commit.NewECDSAMessageSigner(privateKey)
+	signer, err := verifier.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		os.Exit(1)
@@ -264,8 +263,9 @@ func main() {
 		lggr.Fatalf("Failed to initialize verifier monitoring: %v", err)
 	}
 
+	// TODO: create this inside NewVerificationCoordinator?
 	// Create commit verifier
-	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
+	commitVerifier, err := verifier.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		os.Exit(1)
@@ -273,12 +273,12 @@ func main() {
 
 	// Create verification coordinator
 	coordinator, err := verifier.NewVerificationCoordinator(
+		verifier.WithLogger(lggr),
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
 		verifier.WithCheckpointManager(checkpointManager),
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
-		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(verifierMonitoring),
 	)
 	if err != nil {

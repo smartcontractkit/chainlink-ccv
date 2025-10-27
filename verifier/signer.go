@@ -1,4 +1,4 @@
-package commit
+package verifier
 
 import (
 	"context"
@@ -10,14 +10,21 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {
 	privateKey *ecdsa.PrivateKey
 	address    protocol.UnknownAddress
+}
+
+// NewECDSAMessageSignerFromString creates a new ECDSA message signer.
+func NewECDSAMessageSignerFromString(privateKeyString string) (*ECDSASigner, error) {
+	privateKey, err := ReadPrivateKeyFromString(privateKeyString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read private key from environment variable: %w", err)
+	}
+	return NewECDSAMessageSigner(privateKey)
 }
 
 // NewECDSAMessageSigner creates a new ECDSA message signer.
@@ -48,7 +55,7 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 }
 
 // SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask verifier.VerificationTask, sourceVerifierAddress protocol.UnknownAddress) ([]byte, error) {
+func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask VerificationTask, sourceVerifierAddress protocol.UnknownAddress) ([]byte, error) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
@@ -56,7 +63,7 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask veri
 		return nil, fmt.Errorf("failed to compute message ID: %w", err)
 	}
 
-	_, err = utils.FindVerifierIndexBySourceAddress(&verificationTask, sourceVerifierAddress)
+	_, err = findVerifierIndexBySourceAddress(&verificationTask, sourceVerifierAddress)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find verifier index: %w", err)
 	}

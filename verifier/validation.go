@@ -1,15 +1,14 @@
-package commit
+package verifier
 
 import (
 	"bytes"
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 // ValidateMessage validates a verification task message using the new format.
-func ValidateMessage(verificationTask *verifier.VerificationTask, verifierOnRampAddress protocol.UnknownAddress) error {
+func ValidateMessage(verificationTask *VerificationTask, verifierOnRampAddress protocol.UnknownAddress) error {
 	if verificationTask == nil {
 		return fmt.Errorf("verification task is nil")
 	}

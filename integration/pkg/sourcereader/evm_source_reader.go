@@ -26,6 +26,7 @@ type EVMSourceReader struct {
 	lggr                 logger.Logger
 }
 
+// TODO: Use UnknownAddress instead of common.Address
 func NewEVMSourceReader(chainClient client.Client, contractAddress common.Address, ccipMessageSentTopic string, chainSelector protocol.ChainSelector, lggr logger.Logger) (verifiertypes.SourceReader, error) {
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {

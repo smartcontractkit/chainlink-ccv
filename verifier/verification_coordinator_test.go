@@ -18,7 +18,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -115,7 +114,7 @@ func createTestSigner(t *testing.T) verifier.MessageSigner {
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+	signer, err := verifier.NewECDSAMessageSigner(privateKeyBytes)
 	require.NoError(t, err)
 	return signer
 }
@@ -234,8 +233,6 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	ts := newTestSetup(t)
 
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
-	require.NoError(t, err)
 
 	testcases := []struct {
 		name    string
@@ -259,7 +256,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 			options: []verifier.Option{
 				verifier.WithConfig(config),
 				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
+				verifier.WithSigner(ts.signer),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
@@ -270,7 +267,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 			name: "missing config",
 			options: []verifier.Option{
 				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
+				verifier.WithSigner(ts.signer),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
@@ -281,7 +278,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 			name: "missing source readers",
 			options: []verifier.Option{
 				verifier.WithConfig(config),
-				verifier.WithVerifier(commitVerifier),
+				verifier.WithSigner(ts.signer),
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
@@ -307,7 +304,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 			options: []verifier.Option{
 				verifier.WithConfig(config),
 				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
+				verifier.WithSigner(ts.signer),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
 			},
@@ -318,7 +315,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 			options: []verifier.Option{
 				verifier.WithConfig(config),
 				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
+				verifier.WithSigner(ts.signer),
 				verifier.WithStorage(ts.storage),
 				verifier.WithMonitoring(noopMonitoring),
 			},
@@ -329,7 +326,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 			options: []verifier.Option{
 				verifier.WithConfig(config),
 				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
+				verifier.WithSigner(ts.signer),
 				verifier.WithLogger(ts.logger),
 				verifier.WithStorage(ts.storage),
 			},
@@ -362,13 +359,11 @@ func TestNewVerifierCoordinator(t *testing.T) {
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
-	require.NoError(ts.t, err)
 
 	return verifier.NewVerificationCoordinator(
 		verifier.WithConfig(config),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithVerifier(commitVerifier),
+		verifier.WithSigner(ts.signer),
 		verifier.WithStorage(ts.storage),
 		verifier.WithLogger(ts.logger),
 		verifier.WithMonitoring(noopMonitoring),
