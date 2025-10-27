@@ -143,6 +143,14 @@ type CheckpointConfig struct {
 	MaxCheckpointsPerRequest int `toml:"maxCheckpointsPerRequest"`
 }
 
+// AggregationConfig represents the configuration for the aggregation system.
+type AggregationConfig struct {
+	// ChannelBufferSize controls the size of the aggregation request channel buffer
+	ChannelBufferSize int `toml:"channelBufferSize"`
+	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
+	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
+}
+
 type OrphanRecoveryConfig struct {
 	// Enabled controls whether orphan recovery is enabled
 	Enabled bool `toml:"enabled"`
@@ -335,6 +343,7 @@ type AggregatorConfig struct {
 	Storage                          *StorageConfig             `toml:"storage"`
 	APIKeys                          APIKeyConfig               `toml:"-"`
 	Checkpoints                      CheckpointConfig           `toml:"checkpoints"`
+	Aggregation                      AggregationConfig          `toml:"aggregation"`
 	OrphanRecovery                   OrphanRecoveryConfig       `toml:"orphanRecovery"`
 	RateLimiting                     RateLimitingConfig         `toml:"rateLimiting"`
 	HealthCheck                      HealthCheckConfig          `toml:"healthCheck"`
@@ -349,6 +358,14 @@ type AggregatorConfig struct {
 func (c *AggregatorConfig) SetDefaults() {
 	if c.Checkpoints.MaxCheckpointsPerRequest == 0 {
 		c.Checkpoints.MaxCheckpointsPerRequest = 1000
+	}
+	// Aggregation defaults
+	if c.Aggregation.ChannelBufferSize == 0 {
+		// Set to 10 by default matching the number of background workers
+		c.Aggregation.ChannelBufferSize = 10
+	}
+	if c.Aggregation.BackgroundWorkerCount == 0 {
+		c.Aggregation.BackgroundWorkerCount = 10
 	}
 	// Initialize Storage config if nil
 	if c.Storage == nil {
@@ -418,6 +435,24 @@ func (c *AggregatorConfig) ValidateCheckpointConfig() error {
 	return nil
 }
 
+// ValidateAggregationConfig validates the aggregation configuration.
+func (c *AggregatorConfig) ValidateAggregationConfig() error {
+	if c.Aggregation.ChannelBufferSize <= 0 {
+		return errors.New("aggregation.channelBufferSize must be greater than 0")
+	}
+	if c.Aggregation.ChannelBufferSize > 100000 {
+		return errors.New("aggregation.channelBufferSize cannot exceed 100000")
+	}
+	if c.Aggregation.BackgroundWorkerCount <= 0 {
+		return errors.New("aggregation.backgroundWorkerCount must be greater than 0")
+	}
+	if c.Aggregation.BackgroundWorkerCount > 100 {
+		return errors.New("aggregation.backgroundWorkerCount cannot exceed 100")
+	}
+
+	return nil
+}
+
 // ValidateStorageConfig validates the storage configuration.
 func (c *AggregatorConfig) ValidateStorageConfig() error {
 	if c.Storage.PageSize <= 0 {
@@ -458,6 +493,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate checkpoint configuration
 	if err := c.ValidateCheckpointConfig(); err != nil {
 		return fmt.Errorf("checkpoint configuration error: %w", err)
+	}
+
+	// Validate aggregation configuration
+	if err := c.ValidateAggregationConfig(); err != nil {
+		return fmt.Errorf("aggregation configuration error: %w", err)
 	}
 
 	// Validate storage configuration
