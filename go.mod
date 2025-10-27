@@ -40,7 +40,7 @@ require (
 	github.com/smartcontractkit/chainlink-deployments-framework v0.56.0
 	github.com/smartcontractkit/chainlink-evm v0.3.3
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251016184633-215666be5318
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251027175634-5359f314eb16
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.33
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0

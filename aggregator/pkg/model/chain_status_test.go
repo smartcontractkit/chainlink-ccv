@@ -8,115 +8,115 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-// TestBlockCheckpointValidation tests validation of BlockCheckpoint.
-func TestBlockCheckpointValidation(t *testing.T) {
+// TestChainStatusValidation tests validation of ChainStatus.
+func TestChainStatusValidation(t *testing.T) {
 	t.Run("valid_checkpoint_passes", func(t *testing.T) {
-		checkpoint := &pb.BlockCheckpoint{
+		checkpoint := &pb.ChainStatus{
 			ChainSelector:        1,
 			FinalizedBlockHeight: 100,
 		}
 
-		err := ValidateBlockCheckpoint(checkpoint)
+		err := ValidateChainStatus(checkpoint)
 		require.NoError(t, err, "valid checkpoint should pass validation")
 	})
 
 	t.Run("zero_chain_selector_fails", func(t *testing.T) {
-		checkpoint := &pb.BlockCheckpoint{
+		checkpoint := &pb.ChainStatus{
 			ChainSelector:        0,
 			FinalizedBlockHeight: 100,
 		}
 
-		err := ValidateBlockCheckpoint(checkpoint)
+		err := ValidateChainStatus(checkpoint)
 		require.Error(t, err, "zero chain selector should fail validation")
 		require.Contains(t, err.Error(), "chain_selector must be greater than 0")
 	})
 
 	t.Run("zero_block_height_fails", func(t *testing.T) {
-		checkpoint := &pb.BlockCheckpoint{
+		checkpoint := &pb.ChainStatus{
 			ChainSelector:        1,
 			FinalizedBlockHeight: 0,
 		}
 
-		err := ValidateBlockCheckpoint(checkpoint)
+		err := ValidateChainStatus(checkpoint)
 		require.Error(t, err, "zero block height should fail validation")
 		require.Contains(t, err.Error(), "finalized_block_height must be greater than 0")
 	})
 
 	t.Run("nil_checkpoint_fails", func(t *testing.T) {
-		err := ValidateBlockCheckpoint(nil)
+		err := ValidateChainStatus(nil)
 		require.Error(t, err, "nil checkpoint should fail validation")
-		require.Contains(t, err.Error(), "checkpoint cannot be nil")
+		require.Contains(t, err.Error(), "chain status cannot be nil")
 	})
 }
 
-// TestWriteBlockCheckpointRequestValidation tests validation of write requests.
-func TestWriteBlockCheckpointRequestValidation(t *testing.T) {
+// TestWriteChainStatusRequestValidation tests validation of write requests.
+func TestWriteChainStatusRequestValidation(t *testing.T) {
 	t.Run("valid_request_passes", func(t *testing.T) {
-		req := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 100},
-				{ChainSelector: 2, FinalizedBlockHeight: 200},
+		req := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 100, Disabled: false},
+				{ChainSelector: 2, FinalizedBlockHeight: 200, Disabled: false},
 			},
 		}
 
-		err := ValidateWriteBlockCheckpointRequest(req)
+		err := ValidateWriteChainStatusRequest(req)
 		require.NoError(t, err, "valid request should pass validation")
 	})
 
 	t.Run("empty_checkpoints_fails", func(t *testing.T) {
-		req := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{},
+		req := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{},
 		}
 
-		err := ValidateWriteBlockCheckpointRequest(req)
+		err := ValidateWriteChainStatusRequest(req)
 		require.Error(t, err, "empty checkpoints should fail validation")
-		require.Contains(t, err.Error(), "at least one checkpoint required")
+		require.Contains(t, err.Error(), "at least one chain status required")
 	})
 
 	t.Run("nil_checkpoints_fails", func(t *testing.T) {
-		req := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: nil,
+		req := &pb.WriteChainStatusRequest{
+			Statuses: nil,
 		}
 
-		err := ValidateWriteBlockCheckpointRequest(req)
+		err := ValidateWriteChainStatusRequest(req)
 		require.Error(t, err, "nil checkpoints should fail validation")
-		require.Contains(t, err.Error(), "at least one checkpoint required")
+		require.Contains(t, err.Error(), "at least one chain status required")
 	})
 
 	t.Run("nil_request_fails", func(t *testing.T) {
-		err := ValidateWriteBlockCheckpointRequest(nil)
+		err := ValidateWriteChainStatusRequest(nil)
 		require.Error(t, err, "nil request should fail validation")
 		require.Contains(t, err.Error(), "request cannot be nil")
 	})
 
 	t.Run("too_many_checkpoints_fails", func(t *testing.T) {
 		// Create more than 1000 checkpoints
-		checkpoints := make([]*pb.BlockCheckpoint, 1001)
+		checkpoints := make([]*pb.ChainStatus, 1001)
 		for i := 0; i < 1001; i++ {
-			checkpoints[i] = &pb.BlockCheckpoint{
+			checkpoints[i] = &pb.ChainStatus{
 				ChainSelector:        uint64(i + 1),
 				FinalizedBlockHeight: 100,
 			}
 		}
 
-		req := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: checkpoints,
+		req := &pb.WriteChainStatusRequest{
+			Statuses: checkpoints,
 		}
 
-		err := ValidateWriteBlockCheckpointRequest(req)
+		err := ValidateWriteChainStatusRequest(req)
 		require.Error(t, err, "too many checkpoints should fail validation")
-		require.Contains(t, err.Error(), "maximum 1000 checkpoints per request")
+		require.Contains(t, err.Error(), "maximum 1000 chain statuses per request")
 	})
 
 	t.Run("invalid_checkpoint_in_request_fails", func(t *testing.T) {
-		req := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 100},
-				{ChainSelector: 0, FinalizedBlockHeight: 200}, // Invalid
+		req := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 100, Disabled: false},
+				{ChainSelector: 0, FinalizedBlockHeight: 200, Disabled: false}, // Invalid
 			},
 		}
 
-		err := ValidateWriteBlockCheckpointRequest(req)
+		err := ValidateWriteChainStatusRequest(req)
 		require.Error(t, err, "request with invalid checkpoint should fail")
 		require.Contains(t, err.Error(), "chain_selector must be greater than 0")
 	})
@@ -156,13 +156,13 @@ func TestAPIKeyValidation(t *testing.T) {
 // TestCheckpointConversion tests conversion between proto and internal models.
 func TestCheckpointConversion(t *testing.T) {
 	t.Run("proto_to_map_conversion", func(t *testing.T) {
-		checkpoints := []*pb.BlockCheckpoint{
-			{ChainSelector: 1, FinalizedBlockHeight: 100},
-			{ChainSelector: 2, FinalizedBlockHeight: 200},
-			{ChainSelector: 5, FinalizedBlockHeight: 500},
+		checkpoints := []*pb.ChainStatus{
+			{ChainSelector: 1, FinalizedBlockHeight: 100, Disabled: false},
+			{ChainSelector: 2, FinalizedBlockHeight: 200, Disabled: false},
+			{ChainSelector: 5, FinalizedBlockHeight: 500, Disabled: false},
 		}
 
-		result := ProtoCheckpointsToMap(checkpoints)
+		result := ProtoChainStatusToMap(checkpoints)
 
 		expected := map[uint64]uint64{
 			1: 100,
@@ -180,7 +180,7 @@ func TestCheckpointConversion(t *testing.T) {
 			5: 500,
 		}
 
-		result := MapToProtoCheckpoints(checkpointMap)
+		result := MapToProtoChainStatus(checkpointMap)
 
 		require.Len(t, result, 3, "should convert all checkpoints")
 
@@ -194,12 +194,12 @@ func TestCheckpointConversion(t *testing.T) {
 	})
 
 	t.Run("empty_map_conversion", func(t *testing.T) {
-		result := MapToProtoCheckpoints(map[uint64]uint64{})
+		result := MapToProtoChainStatus(map[uint64]uint64{})
 		require.Empty(t, result, "empty map should convert to empty slice")
 	})
 
 	t.Run("nil_checkpoints_conversion", func(t *testing.T) {
-		result := ProtoCheckpointsToMap(nil)
+		result := ProtoChainStatusToMap(nil)
 		require.Empty(t, result, "nil checkpoints should convert to empty map")
 	})
 }
@@ -207,13 +207,13 @@ func TestCheckpointConversion(t *testing.T) {
 // TestDuplicateHandling tests handling of duplicate chain selectors.
 func TestDuplicateHandling(t *testing.T) {
 	t.Run("duplicate_chain_selectors_in_request", func(t *testing.T) {
-		checkpoints := []*pb.BlockCheckpoint{
-			{ChainSelector: 1, FinalizedBlockHeight: 100},
-			{ChainSelector: 2, FinalizedBlockHeight: 200},
-			{ChainSelector: 1, FinalizedBlockHeight: 150}, // Duplicate chain selector
+		checkpoints := []*pb.ChainStatus{
+			{ChainSelector: 1, FinalizedBlockHeight: 100, Disabled: false},
+			{ChainSelector: 2, FinalizedBlockHeight: 200, Disabled: false},
+			{ChainSelector: 1, FinalizedBlockHeight: 150, Disabled: false}, // Duplicate chain selector
 		}
 
-		result := ProtoCheckpointsToMap(checkpoints)
+		result := ProtoChainStatusToMap(checkpoints)
 
 		// Later entry should override earlier one
 		require.Equal(t, uint64(150), result[1], "later checkpoint should override earlier")
@@ -222,14 +222,14 @@ func TestDuplicateHandling(t *testing.T) {
 	})
 
 	t.Run("validate_allows_duplicates_in_request", func(t *testing.T) {
-		req := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 100},
-				{ChainSelector: 1, FinalizedBlockHeight: 150}, // Duplicate
+		req := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 100, Disabled: false},
+				{ChainSelector: 1, FinalizedBlockHeight: 150, Disabled: false}, // Duplicate
 			},
 		}
 
-		err := ValidateWriteBlockCheckpointRequest(req)
+		err := ValidateWriteChainStatusRequest(req)
 		require.NoError(t, err, "duplicates within request should be allowed")
 	})
 }

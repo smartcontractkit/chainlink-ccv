@@ -63,10 +63,10 @@ func (f *Factory) CreateStorage(config *model.StorageConfig, monitoring common.A
 	}
 }
 
-func (f *Factory) CreateCheckpointStorage(config *model.StorageConfig, monitoring common.AggregatorMonitoring) (common.CheckpointStorageInterface, error) {
+func (f *Factory) CreateChainStatusStorage(config *model.StorageConfig, monitoring common.AggregatorMonitoring) (common.ChainStatusStorageInterface, error) {
 	switch config.StorageType {
 	case model.StorageTypeMemory:
-		return memory.NewCheckpointStorage(), nil
+		return memory.NewChainStatusStorage(), nil
 	case model.StorageTypePostgreSQL:
 		if config.ConnectionURL == "" {
 			return nil, fmt.Errorf("PostgreSQL connection URL is required")
@@ -89,11 +89,11 @@ func (f *Factory) CreateCheckpointStorage(config *model.StorageConfig, monitorin
 		if err != nil {
 			return nil, fmt.Errorf("failed to run PostgreSQL migrations: %w", err)
 		}
-		return postgres.NewDatabaseCheckpointStorage(sqlxDB), nil
+		return postgres.NewDatabaseChainStatusStorage(sqlxDB), nil
 	case model.StorageTypeDynamoDB:
-		return f.createDynamoDBCheckpointStorage(config, monitoring)
+		return f.createDynamoDBChainStatusStorage(config, monitoring)
 	default:
-		return nil, fmt.Errorf("unsupported checkpoint storage type: %s", config.StorageType)
+		return nil, fmt.Errorf("unsupported chain status storage type: %s", config.StorageType)
 	}
 }
 
@@ -186,19 +186,19 @@ func createDynamoDBClient(config *model.StorageConfig) (*dynamodb.Client, error)
 	return client, nil
 }
 
-// createDynamoDBCheckpointStorage creates a DynamoDB-backed checkpoint storage instance.
-func (f *Factory) createDynamoDBCheckpointStorage(config *model.StorageConfig, monitoring common.AggregatorMonitoring) (common.CheckpointStorageInterface, error) {
+// createDynamoDBChainStatusStorage creates a DynamoDB-backed chain status storage instance.
+func (f *Factory) createDynamoDBChainStatusStorage(config *model.StorageConfig, monitoring common.AggregatorMonitoring) (common.ChainStatusStorageInterface, error) {
 	client, err := createDynamoDBClient(config)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create checkpoint storage instance
-	checkpointStorage := ddb.NewCheckpointStorage(
+	// Create chain status storage instance
+	chainStatusStorage := ddb.NewChainStatusStorage(
 		client,
 		config.DynamoDB.CheckpointTableName,
 		monitoring,
 	)
 
-	return checkpointStorage, nil
+	return chainStatusStorage, nil
 }

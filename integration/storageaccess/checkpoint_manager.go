@@ -23,12 +23,12 @@ func NewAggregatorCheckpointManager(writer *AggregatorWriter, reader *Aggregator
 
 // WriteCheckpoint writes a checkpoint using the aggregator writer.
 func (cm *AggregatorCheckpointManager) WriteCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector, blockHeight *big.Int) error {
-	return cm.writer.WriteCheckpoint(ctx, chainSelector, blockHeight)
+	return cm.writer.WriteChainStatus(ctx, chainSelector, blockHeight, false) // Default to not disabled
 }
 
 // ReadCheckpoint reads a checkpoint using the aggregator reader.
 func (cm *AggregatorCheckpointManager) ReadCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
-	return cm.reader.ReadCheckpoint(ctx, chainSelector)
+	return cm.reader.ReadChainStatus(ctx, chainSelector)
 }
 
 // Close closes both the writer and reader connections.

@@ -112,8 +112,8 @@ func (dto *CheckpointDTO) FromItem(item map[string]types.AttributeValue) (*Check
 	}, nil
 }
 
-// ToCheckpointMap converts a slice of CheckpointRecord to the format expected by CheckpointStorageInterface.
-func (dto *CheckpointDTO) ToCheckpointMap(records []*CheckpointRecord) map[uint64]uint64 {
+// ToChainStatusMap converts a slice of CheckpointRecord to the format expected by ChainStatusStorageInterface.
+func (dto *CheckpointDTO) ToChainStatusMap(records []*CheckpointRecord) map[uint64]uint64 {
 	result := make(map[uint64]uint64, len(records))
 	for _, record := range records {
 		result[record.ChainSelector] = record.FinalizedBlockHeight
@@ -121,8 +121,8 @@ func (dto *CheckpointDTO) ToCheckpointMap(records []*CheckpointRecord) map[uint6
 	return result
 }
 
-// FromCheckpointMap converts the CheckpointStorageInterface format to CheckpointRecord slice.
-func (dto *CheckpointDTO) FromCheckpointMap(clientID string, checkpoints map[uint64]uint64) []*CheckpointRecord {
+// FromChainStatusMap converts the ChainStatusStorageInterface format to CheckpointRecord slice.
+func (dto *CheckpointDTO) FromChainStatusMap(clientID string, checkpoints map[uint64]uint64) []*CheckpointRecord {
 	result := make([]*CheckpointRecord, 0, len(checkpoints))
 	now := time.Now().Unix()
 

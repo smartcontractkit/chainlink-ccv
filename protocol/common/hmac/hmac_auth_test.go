@@ -11,7 +11,7 @@ import (
 
 func TestGenerateSignature(t *testing.T) {
 	secret := "test-secret-key"
-	method := "/Aggregator/ReadBlockCheckpoint"
+	method := "/Aggregator/ReadChainStatus"
 	apiKey := "test-api-key"
 	timestampMs := time.Now().UnixMilli()
 
@@ -55,14 +55,14 @@ func TestComputeBodyHash(t *testing.T) {
 
 func TestGenerateStringToSign(t *testing.T) {
 	method := "POST"
-	fullPath := "/Aggregator/ReadBlockCheckpoint"
+	fullPath := "/Aggregator/ReadChainStatus"
 	bodyHash := "abc123"
 	apiKey := "api-key-uuid"
 	timestamp := "1234567890"
 
 	stringToSign := GenerateStringToSign(method, fullPath, bodyHash, apiKey, timestamp)
 
-	expected := "POST /Aggregator/ReadBlockCheckpoint abc123 api-key-uuid 1234567890"
+	expected := "POST /Aggregator/ReadChainStatus abc123 api-key-uuid 1234567890"
 	require.Equal(t, expected, stringToSign, "String to sign should match expected format")
 }
 

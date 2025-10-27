@@ -21,7 +21,7 @@ import (
 const (
 	TestCommitVerificationRecordTableName = "commit_verification_records_test"
 	TestFinalizedFeedTableName            = "finalized_feed_test"
-	TestCheckpointTableName               = "checkpoint_storage_test"
+	TestChainStatusTableName               = "chain_status_storage_test"
 )
 
 // CreateFinalizedFeedTable creates the FinalizedFeed table for storing aggregated reports.
@@ -140,9 +140,9 @@ func CreateCommitVerificationRecordsTable(ctx context.Context, client *dynamodb.
 	return err
 }
 
-// CreateCheckpointTable creates the DynamoDB table for checkpoint storage.
+// CreateChainStatusTable creates the DynamoDB table for checkpoint storage.
 // This function is intended for test environments and development setup.
-func CreateCheckpointTable(ctx context.Context, client *dynamodb.Client, tableName string) error {
+func CreateChainStatusTable(ctx context.Context, client *dynamodb.Client, tableName string) error {
 	input := &dynamodb.CreateTableInput{
 		TableName: &tableName,
 		KeySchema: []types.KeySchemaElement{
@@ -216,7 +216,7 @@ func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 		})
 
 		// Create the checkpoint table
-		err = CreateCheckpointTable(ctx, client, TestCheckpointTableName)
+		err = CreateChainStatusTable(ctx, client, TestChainStatusTableName)
 		if err != nil {
 			cleanup()
 			return nil, "", nil, err

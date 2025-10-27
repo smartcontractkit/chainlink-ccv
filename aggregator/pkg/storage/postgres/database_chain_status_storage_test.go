@@ -17,7 +17,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func setupTestCheckpointDB(t *testing.T) (*DatabaseCheckpointStorage, func()) {
+func setupTestCheckpointDB(t *testing.T) (*DatabaseChainStatusStorage, func()) {
 	ctx := context.Background()
 
 	postgresContainer, err := postgres.Run(ctx,
@@ -43,7 +43,7 @@ func setupTestCheckpointDB(t *testing.T) (*DatabaseCheckpointStorage, func()) {
 	err = RunMigrations(ds, "postgres")
 	require.NoError(t, err)
 
-	storage := NewDatabaseCheckpointStorage(ds)
+	storage := NewDatabaseChainStatusStorage(ds)
 
 	cleanup := func() {
 		ds.Close()
@@ -55,45 +55,45 @@ func setupTestCheckpointDB(t *testing.T) (*DatabaseCheckpointStorage, func()) {
 	return storage, cleanup
 }
 
-func TestStoreCheckpoints_HappyPath_SingleCheckpoint(t *testing.T) {
+func TestStoreChainStatus_HappyPath_SingleCheckpoint(t *testing.T) {
 	storage, cleanup := setupTestCheckpointDB(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	clientID := "test-client-1"
-	checkpoints := map[uint64]uint64{
+	statuses := map[uint64]uint64{
 		1: 100,
 	}
 
-	err := storage.StoreCheckpoints(ctx, clientID, checkpoints)
+	err := storage.StoreChainStatus(ctx, clientID, statuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientCheckpoints(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
 	require.NoError(t, err)
-	require.Equal(t, checkpoints, retrieved)
+	require.Equal(t, statuses, retrieved)
 }
 
-func TestStoreCheckpoints_HappyPath_MultipleCheckpoints(t *testing.T) {
+func TestStoreChainStatus_HappyPath_MultipleCheckpoints(t *testing.T) {
 	storage, cleanup := setupTestCheckpointDB(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	clientID := "test-client-2"
-	checkpoints := map[uint64]uint64{
+	statuses := map[uint64]uint64{
 		1: 100,
 		2: 200,
 		3: 300,
 	}
 
-	err := storage.StoreCheckpoints(ctx, clientID, checkpoints)
+	err := storage.StoreChainStatus(ctx, clientID, statuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientCheckpoints(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
 	require.NoError(t, err)
-	require.Equal(t, checkpoints, retrieved)
+	require.Equal(t, statuses, retrieved)
 }
 
-func TestStoreCheckpoints_ValidationErrors(t *testing.T) {
+func TestStoreChainStatus_ValidationErrors(t *testing.T) {
 	storage, cleanup := setupTestCheckpointDB(t)
 	defer cleanup()
 
@@ -102,31 +102,31 @@ func TestStoreCheckpoints_ValidationErrors(t *testing.T) {
 	tests := []struct {
 		name        string
 		clientID    string
-		checkpoints map[uint64]uint64
+		statuses    map[uint64]uint64
 		expectedErr string
 	}{
 		{
 			name:        "empty client ID",
 			clientID:    "",
-			checkpoints: map[uint64]uint64{1: 100},
+			statuses:    map[uint64]uint64{1: 100},
 			expectedErr: "client ID cannot be empty",
 		},
 		{
 			name:        "whitespace client ID",
 			clientID:    "   ",
-			checkpoints: map[uint64]uint64{1: 100},
+			statuses:    map[uint64]uint64{1: 100},
 			expectedErr: "client ID cannot be empty",
 		},
 		{
-			name:        "nil checkpoints",
+			name:        "nil statuses",
 			clientID:    "test-client",
-			checkpoints: nil,
-			expectedErr: "checkpoints cannot be nil",
+			statuses:    nil,
+			expectedErr: "statuses cannot be nil",
 		},
 		{
 			name:     "zero chain selector",
 			clientID: "test-client",
-			checkpoints: map[uint64]uint64{
+			statuses: map[uint64]uint64{
 				0: 100,
 			},
 			expectedErr: "chain_selector must be greater than 0",
@@ -134,7 +134,7 @@ func TestStoreCheckpoints_ValidationErrors(t *testing.T) {
 		{
 			name:     "zero block height",
 			clientID: "test-client",
-			checkpoints: map[uint64]uint64{
+			statuses: map[uint64]uint64{
 				1: 0,
 			},
 			expectedErr: "finalized_block_height must be greater than 0",
@@ -143,14 +143,14 @@ func TestStoreCheckpoints_ValidationErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := storage.StoreCheckpoints(ctx, tt.clientID, tt.checkpoints)
+			err := storage.StoreChainStatus(ctx, tt.clientID, tt.statuses)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tt.expectedErr)
 		})
 	}
 }
 
-func TestStoreCheckpoints_OverrideExisting(t *testing.T) {
+func TestStoreChainStatus_OverrideExisting(t *testing.T) {
 	storage, cleanup := setupTestCheckpointDB(t)
 	defer cleanup()
 
@@ -161,23 +161,23 @@ func TestStoreCheckpoints_OverrideExisting(t *testing.T) {
 		1: 100,
 		2: 200,
 	}
-	err := storage.StoreCheckpoints(ctx, clientID, initialCheckpoints)
+	err := storage.StoreChainStatus(ctx, clientID, initialCheckpoints)
 	require.NoError(t, err)
 
 	updatedCheckpoints := map[uint64]uint64{
 		1: 150,
 		2: 200,
 	}
-	err = storage.StoreCheckpoints(ctx, clientID, updatedCheckpoints)
+	err = storage.StoreChainStatus(ctx, clientID, updatedCheckpoints)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientCheckpoints(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
 	require.NoError(t, err)
 	require.Equal(t, uint64(150), retrieved[1], "chain selector 1 should be updated")
 	require.Equal(t, uint64(200), retrieved[2], "chain selector 2 should remain unchanged")
 }
 
-func TestStoreCheckpoints_PartialOverride(t *testing.T) {
+func TestStoreChainStatus_PartialOverride(t *testing.T) {
 	storage, cleanup := setupTestCheckpointDB(t)
 	defer cleanup()
 
@@ -189,16 +189,16 @@ func TestStoreCheckpoints_PartialOverride(t *testing.T) {
 		2: 200,
 		3: 300,
 	}
-	err := storage.StoreCheckpoints(ctx, clientID, initialCheckpoints)
+	err := storage.StoreChainStatus(ctx, clientID, initialCheckpoints)
 	require.NoError(t, err)
 
 	partialUpdate := map[uint64]uint64{
 		2: 250,
 	}
-	err = storage.StoreCheckpoints(ctx, clientID, partialUpdate)
+	err = storage.StoreChainStatus(ctx, clientID, partialUpdate)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientCheckpoints(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
 	require.NoError(t, err)
 	require.Equal(t, uint64(100), retrieved[1])
 	require.Equal(t, uint64(250), retrieved[2])
@@ -211,7 +211,7 @@ func TestGetClientCheckpoints_NotFound(t *testing.T) {
 
 	ctx := context.Background()
 
-	retrieved, err := storage.GetClientCheckpoints(ctx, "non-existent-client")
+	retrieved, err := storage.GetClientChainStatus(ctx, "non-existent-client")
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	require.Empty(t, retrieved)
@@ -236,10 +236,10 @@ func TestGetAllClients_MultipleClients(t *testing.T) {
 
 	clientIDs := []string{"client-a", "client-b", "client-c"}
 	for i, clientID := range clientIDs {
-		checkpoints := map[uint64]uint64{
+		statuses := map[uint64]uint64{
 			uint64(i + 1): uint64((i + 1) * 100),
 		}
-		err := storage.StoreCheckpoints(ctx, clientID, checkpoints)
+		err := storage.StoreChainStatus(ctx, clientID, statuses)
 		require.NoError(t, err)
 	}
 
@@ -257,10 +257,10 @@ func TestGetAllClients_Sorted(t *testing.T) {
 
 	clientIDs := []string{"zebra", "alpha", "beta"}
 	for i, clientID := range clientIDs {
-		checkpoints := map[uint64]uint64{
+		statuses := map[uint64]uint64{
 			uint64(i + 1): uint64((i + 1) * 100),
 		}
-		err := storage.StoreCheckpoints(ctx, clientID, checkpoints)
+		err := storage.StoreChainStatus(ctx, clientID, statuses)
 		require.NoError(t, err)
 	}
 
@@ -275,7 +275,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	ctx := context.Background()
 	numGoroutines := 10
-	checkpointsPerGoroutine := 5
+	statusesPerGoroutine := 5
 
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
@@ -285,18 +285,18 @@ func TestConcurrentAccess(t *testing.T) {
 		go func(cID string, index int) {
 			defer wg.Done()
 
-			checkpoints := make(map[uint64]uint64)
-			for j := 0; j < checkpointsPerGoroutine; j++ {
-				chainSelector := uint64(index*checkpointsPerGoroutine + j + 1)
-				checkpoints[chainSelector] = uint64((index + 1) * 1000)
+			statuses := make(map[uint64]uint64)
+			for j := 0; j < statusesPerGoroutine; j++ {
+				chainSelector := uint64(index*statusesPerGoroutine + j + 1)
+				statuses[chainSelector] = uint64((index + 1) * 1000)
 			}
 
-			err := storage.StoreCheckpoints(ctx, cID, checkpoints)
+			err := storage.StoreChainStatus(ctx, cID, statuses)
 			require.NoError(t, err)
 
-			retrieved, err := storage.GetClientCheckpoints(ctx, cID)
+			retrieved, err := storage.GetClientChainStatus(ctx, cID)
 			require.NoError(t, err)
-			require.Equal(t, checkpoints, retrieved)
+			require.Equal(t, statuses, retrieved)
 		}(clientID, i)
 	}
 
@@ -322,18 +322,18 @@ func TestConcurrentUpdates_SameClient(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 
-			checkpoints := map[uint64]uint64{
+			statuses := map[uint64]uint64{
 				uint64(index + 1): uint64((index + 1) * 100),
 			}
 
-			err := storage.StoreCheckpoints(ctx, clientID, checkpoints)
+			err := storage.StoreChainStatus(ctx, clientID, statuses)
 			require.NoError(t, err)
 		}(i)
 	}
 
 	wg.Wait()
 
-	retrieved, err := storage.GetClientCheckpoints(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
 	require.NoError(t, err)
 	require.Len(t, retrieved, numGoroutines)
 
@@ -344,42 +344,42 @@ func TestConcurrentUpdates_SameClient(t *testing.T) {
 	}
 }
 
-func TestStoreCheckpoints_LargeValues(t *testing.T) {
+func TestStoreChainStatus_LargeValues(t *testing.T) {
 	storage, cleanup := setupTestCheckpointDB(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	clientID := "large-values-client"
 
-	checkpoints := map[uint64]uint64{
+	statuses := map[uint64]uint64{
 		999999999999999: 999999999999999,
 		1:               1,
 	}
 
-	err := storage.StoreCheckpoints(ctx, clientID, checkpoints)
+	err := storage.StoreChainStatus(ctx, clientID, statuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientCheckpoints(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
 	require.NoError(t, err)
-	require.Equal(t, checkpoints, retrieved)
+	require.Equal(t, statuses, retrieved)
 }
 
-func TestStoreCheckpoints_HighBitSetValues(t *testing.T) {
+func TestStoreChainStatus_HighBitSetValues(t *testing.T) {
 	storage, cleanup := setupTestCheckpointDB(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	clientID := "high-bit-client"
 
-	checkpoints := map[uint64]uint64{
+	statuses := map[uint64]uint64{
 		11344663052800119908: 12345678901234567890,
 		18446744073709551615: 18446744073709551615,
 	}
 
-	err := storage.StoreCheckpoints(ctx, clientID, checkpoints)
+	err := storage.StoreChainStatus(ctx, clientID, statuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientCheckpoints(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
 	require.NoError(t, err)
-	require.Equal(t, checkpoints, retrieved)
+	require.Equal(t, statuses, retrieved)
 }

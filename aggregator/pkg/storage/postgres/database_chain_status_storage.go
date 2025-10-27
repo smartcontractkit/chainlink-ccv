@@ -12,26 +12,26 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
-// DatabaseCheckpointStorage implements CheckpointStorageInterface using a database backend.
-type DatabaseCheckpointStorage struct {
+// DatabaseChainStatusStorage implements CheckpointStorageInterface using a database backend.
+type DatabaseChainStatusStorage struct {
 	ds         sqlutil.DataSource
 	driverName string
 }
 
-// Ensure DatabaseCheckpointStorage implements the interface.
-var _ common.CheckpointStorageInterface = (*DatabaseCheckpointStorage)(nil)
+// Ensure DatabaseChainStatusStorage implements the interface.
+var _ common.ChainStatusStorageInterface = (*DatabaseChainStatusStorage)(nil)
 
-// NewDatabaseCheckpointStorage creates a new database-backed checkpoint storage instance.
-func NewDatabaseCheckpointStorage(ds sqlutil.DataSource) *DatabaseCheckpointStorage {
-	return &DatabaseCheckpointStorage{
+// NewDatabaseChainStatusStorage creates a new database-backed chain status storage instance.
+func NewDatabaseChainStatusStorage(ds sqlutil.DataSource) *DatabaseChainStatusStorage {
+	return &DatabaseChainStatusStorage{
 		ds:         ds,
 		driverName: ds.DriverName(),
 	}
 }
 
-func (d *DatabaseCheckpointStorage) HealthCheck(ctx context.Context) *common.ComponentHealth {
+func (d *DatabaseChainStatusStorage) HealthCheck(ctx context.Context) *common.ComponentHealth {
 	result := &common.ComponentHealth{
-		Name:      "postgres_checkpoint_storage",
+		Name:      "postgres_chain_status_storage",
 		Timestamp: time.Now(),
 	}
 
@@ -51,18 +51,18 @@ func (d *DatabaseCheckpointStorage) HealthCheck(ctx context.Context) *common.Com
 	return result
 }
 
-// validateStoreCheckpointsInput validates the input parameters for StoreCheckpoints.
-func validateStoreCheckpointsInput(clientID string, checkpoints map[uint64]uint64) error {
+// validateStoreChainStatusInput validates the input parameters for StoreChainStatus.
+func validateStoreChainStatusInput(clientID string, statuses map[uint64]uint64) error {
 	if strings.TrimSpace(clientID) == "" {
 		return errors.New("client ID cannot be empty")
 	}
 
-	if checkpoints == nil {
-		return errors.New("checkpoints cannot be nil")
+	if statuses == nil {
+		return errors.New("statuses cannot be nil")
 	}
 
 	// Validate each checkpoint
-	for chainSelector, blockHeight := range checkpoints {
+	for chainSelector, blockHeight := range statuses {
 		if chainSelector == 0 {
 			return errors.New("chain_selector must be greater than 0")
 		}
@@ -74,17 +74,17 @@ func validateStoreCheckpointsInput(clientID string, checkpoints map[uint64]uint6
 	return nil
 }
 
-// StoreCheckpoints stores a batch of checkpoints for a client atomically.
+// StoreChainStatus stores a batch of statuses for a client atomically.
 // If the client doesn't exist, it will be created.
-// Existing checkpoints for the same chain_selector will be overridden.
-func (d *DatabaseCheckpointStorage) StoreCheckpoints(ctx context.Context, clientID string, checkpoints map[uint64]uint64) error {
-	if err := validateStoreCheckpointsInput(clientID, checkpoints); err != nil {
+// Existing statuses for the same chain_selector will be overridden.
+func (d *DatabaseChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, statuses map[uint64]uint64) error {
+	if err := validateStoreChainStatusInput(clientID, statuses); err != nil {
 		return err
 	}
 
 	return sqlutil.TransactDataSource(ctx, d.ds, nil, func(tx sqlutil.DataSource) error {
-		for chainSelector, blockHeight := range checkpoints {
-			stmt := `INSERT INTO block_checkpoints 
+		for chainSelector, blockHeight := range statuses {
+			stmt := `INSERT INTO block_statuses 
 				(client_id, chain_selector, finalized_block_height) 
 				VALUES ($1, $2, $3)
 				ON CONFLICT (client_id, chain_selector) 
@@ -103,11 +103,11 @@ func (d *DatabaseCheckpointStorage) StoreCheckpoints(ctx context.Context, client
 	})
 }
 
-// GetClientCheckpoints retrieves all checkpoints for a client.
-// Returns an empty map if the client has no checkpoints.
-func (d *DatabaseCheckpointStorage) GetClientCheckpoints(ctx context.Context, clientID string) (map[uint64]uint64, error) {
+// GetClientCheckpoints retrieves all statuses for a client.
+// Returns an empty map if the client has no statuses.
+func (d *DatabaseChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]uint64, error) {
 	stmt := `SELECT chain_selector, finalized_block_height 
-		FROM block_checkpoints 
+		FROM block_statuses 
 		WHERE client_id = $1`
 
 	type checkpoint struct {
@@ -115,14 +115,14 @@ func (d *DatabaseCheckpointStorage) GetClientCheckpoints(ctx context.Context, cl
 		FinalizedBlockHeight string `db:"finalized_block_height"`
 	}
 
-	var checkpoints []checkpoint
-	err := d.ds.SelectContext(ctx, &checkpoints, stmt, clientID)
+	var statuses []checkpoint
+	err := d.ds.SelectContext(ctx, &statuses, stmt, clientID)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[uint64]uint64, len(checkpoints))
-	for _, cp := range checkpoints {
+	result := make(map[uint64]uint64, len(statuses))
+	for _, cp := range statuses {
 		chainSelector, err := strconv.ParseUint(cp.ChainSelector, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse chain_selector %s: %w", cp.ChainSelector, err)
@@ -139,9 +139,9 @@ func (d *DatabaseCheckpointStorage) GetClientCheckpoints(ctx context.Context, cl
 	return result, nil
 }
 
-// GetAllClients returns a list of all client IDs that have stored checkpoints.
-func (d *DatabaseCheckpointStorage) GetAllClients(ctx context.Context) ([]string, error) {
-	stmt := `SELECT DISTINCT client_id FROM block_checkpoints ORDER BY client_id`
+// GetAllClients returns a list of all client IDs that have stored statuses.
+func (d *DatabaseChainStatusStorage) GetAllClients(ctx context.Context) ([]string, error) {
+	stmt := `SELECT DISTINCT client_id FROM block_statuses ORDER BY client_id`
 
 	var clients []string
 	err := d.ds.SelectContext(ctx, &clients, stmt)
