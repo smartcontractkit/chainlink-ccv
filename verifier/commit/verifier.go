@@ -145,8 +145,14 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		return fmt.Errorf("message format validation failed for message 0x%x: %w", messageID, err)
 	}
 
-	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
-		return fmt.Errorf("message validation failed for message 0x%x with verifier address %s: %w", messageID, sourceConfig.VerifierAddress.String(), err)
+	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress, sourceConfig.DefaultExecutorAddress); err != nil {
+		return fmt.Errorf(
+			"message validation failed for message 0x%x with verifier address %s and default executor address %s: %w",
+			messageID,
+			sourceConfig.VerifierAddress.String(),
+			sourceConfig.DefaultExecutorAddress.String(),
+			err,
+		)
 	}
 
 	cv.lggr.Infow("Message validation passed",
