@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
@@ -37,6 +38,36 @@ const (
 )
 
 var L = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
+
+type Selector uint64
+
+func (s *Selector) UnmarshalText(text []byte) error {
+	val, err := strconv.ParseUint(string(text), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid selector value %q: %w", string(text), err)
+	}
+	*s = Selector(val)
+	return nil
+}
+
+func (s Selector) MarshalText() ([]byte, error) {
+	return []byte(strconv.FormatUint(uint64(s), 10)), nil
+}
+
+type VirtualSelector struct {
+	Selector      Selector `toml:"selector"`
+	Name          string   `toml:"name"`
+	Qualifier     string   `toml:"qualifier"`
+	PhysicalChain string   `toml:"physical_chain"`
+}
+
+// PhysicalChainInfo contains the physical blockchain details that a virtual selector maps to.
+type PhysicalChainInfo struct {
+	ChainID       string
+	WSURL         string
+	HTTPURL       string
+	ContainerName string
+}
 
 // Load loads TOML configurations from a list of paths, i.e. env.toml,overrides.toml
 // and unmarshalls the files from left to right overriding keys.
@@ -101,7 +132,7 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 	}
 
 	// Load addresses into the datastore so that tests can query them appropriately.
-	if c, ok := any(config).(*Cfg); ok {
+	if c, ok := any(config).(*Cfg); ok { //nolint:nestif
 		if len(c.CLDF.Addresses) > 0 {
 			ds := datastore.NewMemoryDataStore()
 			for _, addrRefJSON := range c.CLDF.Addresses {

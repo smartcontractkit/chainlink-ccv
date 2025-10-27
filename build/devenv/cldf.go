@@ -2,6 +2,7 @@ package ccv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -40,22 +42,41 @@ func (c *CLDF) AddAddresses(addresses string) {
 	c.Addresses = append(c.Addresses, addresses)
 }
 
-func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.DataStore) ([]uint64, *deployment.Environment, error) {
-	providers := make([]cldf_chain.BlockChain, 0)
-	selectors := make([]uint64, 0)
-	for _, b := range bc {
-		chainID := b.Out.ChainID
-		rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
-		rpcHTTPURL := b.Out.Nodes[0].ExternalHTTPUrl
+func NewCLDFOperationsEnvironment(
+	blockchains []*blockchain.Input,
+	virtualSelectors []*VirtualSelector,
+	dataStore datastore.DataStore,
+) ([]uint64, *deployment.Environment, map[uint64]*PhysicalChainInfo, error) {
+	blockchainsByName := make(map[string]*blockchain.Input)
+	for i := range blockchains {
+		blockchainsByName[blockchains[i].ContainerName] = blockchains[i]
+	}
 
-		d, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
-		if err != nil {
-			return nil, nil, err
+	physicalProviders := make(map[string]evm.Chain)
+	for _, vs := range virtualSelectors {
+		physicalName := vs.PhysicalChain
+		if _, exists := physicalProviders[physicalName]; exists {
+			continue
 		}
-		selectors = append(selectors, d.ChainSelector)
 
-		p, err := cldf_evm_provider.NewRPCChainProvider(
-			d.ChainSelector,
+		bc := blockchainsByName[physicalName]
+		chainID := bc.Out.ChainID
+		rpcWSURL := bc.Out.Nodes[0].ExternalWSUrl
+		rpcHTTPURL := bc.Out.Nodes[0].ExternalHTTPUrl
+
+		physicalChainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("get chain details for %s: %w", physicalName, err)
+		}
+
+		Plog.Info().
+			Str("ContainerName", physicalName).
+			Str("ChainID", chainID).
+			Uint64("PhysicalSelector", physicalChainDetails.ChainSelector).
+			Msg("Creating RPC provider for physical blockchain")
+
+		provider, err := cldf_evm_provider.NewRPCChainProvider(
+			physicalChainDetails.ChainSelector,
 			cldf_evm_provider.RPCChainProviderConfig{
 				DeployerTransactorGen: cldf_evm_provider.TransactorFromRaw(
 					getNetworkPrivateKey(),
@@ -72,28 +93,73 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 			},
 		).Initialize(context.Background())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, fmt.Errorf("initialize provider for %s: %w", physicalName, err)
 		}
-		providers = append(providers, p)
+
+		evmChain, ok := provider.(evm.Chain)
+		if !ok {
+			return nil, nil, nil, fmt.Errorf("provider for %s is not an evm.Chain", physicalName)
+		}
+		physicalProviders[physicalName] = evmChain
 	}
 
-	blockchains := cldf_chain.NewBlockChainsFromSlice(providers)
+	blockchainMap := make(map[uint64]cldf_chain.BlockChain)
+	selectors := make([]uint64, 0, len(virtualSelectors))
+	for _, vs := range virtualSelectors {
+		physicalProvider := physicalProviders[vs.PhysicalChain]
+
+		virtualChain := evm.Chain{
+			Selector:            uint64(vs.Selector),
+			Client:              physicalProvider.Client,
+			DeployerKey:         physicalProvider.DeployerKey,
+			Confirm:             physicalProvider.Confirm,
+			Users:               physicalProvider.Users,
+			SignHash:            physicalProvider.SignHash,
+			IsZkSyncVM:          physicalProvider.IsZkSyncVM,
+			ClientZkSyncVM:      physicalProvider.ClientZkSyncVM,
+			DeployerKeyZkSyncVM: physicalProvider.DeployerKeyZkSyncVM,
+		}
+		blockchainMap[uint64(vs.Selector)] = virtualChain
+		selectors = append(selectors, uint64(vs.Selector))
+
+		bc := blockchainsByName[vs.PhysicalChain]
+		Plog.Info().
+			Uint64("VirtualSelector", uint64(vs.Selector)).
+			Str("VirtualName", vs.Name).
+			Str("PhysicalChain", vs.PhysicalChain).
+			Str("PhysicalChainID", bc.ChainID).
+			Msg("Virtual selector mapped to physical chain")
+	}
+
+	chains := cldf_chain.NewBlockChains(blockchainMap)
 
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = true
 		config.Encoding = "console"
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	e := deployment.Environment{
 		GetContext:  func() context.Context { return context.Background() },
 		Logger:      lggr,
-		BlockChains: blockchains,
+		BlockChains: chains,
 		DataStore:   dataStore,
 	}
-	return selectors, &e, nil
+
+	physicalChainMap := make(map[uint64]*PhysicalChainInfo)
+	for _, vs := range virtualSelectors {
+		bc := blockchainsByName[vs.PhysicalChain]
+		physicalChainMap[uint64(vs.Selector)] = &PhysicalChainInfo{
+			ChainID:       bc.ChainID,
+			WSURL:         bc.Out.Nodes[0].ExternalWSUrl,
+			HTTPURL:       bc.Out.Nodes[0].ExternalHTTPUrl,
+			ContainerName: vs.PhysicalChain,
+		}
+	}
+
+	return selectors, &e, physicalChainMap, nil
 }
 
 // NewDefaultCLDFBundle creates a new default CLDF bundle.

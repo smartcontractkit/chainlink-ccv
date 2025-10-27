@@ -41,17 +41,25 @@ func TestE2ESmoke(t *testing.T) {
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-	}
-
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	selectors, e, physicalChainMap, err := ccv.NewCLDFOperationsEnvironment(
+		in.Blockchains,
+		in.VirtualSelectors,
+		in.CLDF.DataStore,
+	)
 	require.NoError(t, err)
 	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
 
-	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+	evmPhysicalChainMap := make(map[uint64]*ccvEvm.PhysicalChainInfo)
+	for selector, info := range physicalChainMap {
+		evmPhysicalChainMap[selector] = &ccvEvm.PhysicalChainInfo{
+			ChainID:       info.ChainID,
+			WSURL:         info.WSURL,
+			HTTPURL:       info.HTTPURL,
+			ContainerName: info.ContainerName,
+		}
+	}
+
+	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, selectors, evmPhysicalChainMap)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -363,5 +371,6 @@ func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, con
 	)
 	require.NoErrorf(t, err, "failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s",
 		contractName, chainSelector, contractType, version)
+	t.Logf("Retrieved %s at address: %s on chain selector %d", contractType, ref.Address, chainSelector)
 	return protocol.UnknownAddress(common.HexToAddress(ref.Address).Bytes())
 }
