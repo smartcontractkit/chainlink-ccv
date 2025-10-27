@@ -33,7 +33,6 @@ func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 
 // Tests.
 func Test_ChainlinkExecutor(t *testing.T) {
-
 	address1, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 	address2, err := protocol.RandomAddress()

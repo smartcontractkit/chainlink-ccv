@@ -52,6 +52,8 @@ func StartCCVExecutor(
 		destReaders,
 		// TODO: verifierResultsReader
 		nil,
+		// TODO: get addresses of executor on source chain
+		nil,
 		// TODO: monitoring
 		nil)
 
