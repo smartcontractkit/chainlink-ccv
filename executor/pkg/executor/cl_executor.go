@@ -23,6 +23,7 @@ type ChainlinkExecutor struct {
 	contractTransmitters  map[protocol.ChainSelector]executor.ContractTransmitter
 	destinationReaders    map[protocol.ChainSelector]executor.DestinationReader
 	verifierResultsReader executor.VerifierResultReader
+	executorAddresses     map[protocol.ChainSelector]protocol.UnknownAddress
 	monitoring            common.ExecutorMonitoring
 }
 
@@ -31,6 +32,7 @@ func NewChainlinkExecutor(
 	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter,
 	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
 	verifierResultReader executor.VerifierResultReader,
+	executorAddresses map[protocol.ChainSelector]protocol.UnknownAddress,
 	monitoring common.ExecutorMonitoring,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
@@ -38,6 +40,7 @@ func NewChainlinkExecutor(
 		contractTransmitters:  contractTransmitters,
 		destinationReaders:    destinationReaders,
 		verifierResultsReader: verifierResultReader,
+		executorAddresses:     executorAddresses,
 		monitoring:            monitoring,
 	}
 }
@@ -74,13 +77,31 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	g, ctx := errgroup.WithContext(ctx)
 	ccvData := make([]protocol.CCVData, 0)
 	g.Go(func() error {
+		srcExecutorAddress, ok := cle.executorAddresses[destinationChain]
+		if !ok {
+			return fmt.Errorf("no executor address defined for chain %d", destinationChain)
+		}
 		id, _ := message.MessageID()
 		res, err := cle.verifierResultsReader.GetVerifierResults(ctx, id)
 		if err != nil {
 			return fmt.Errorf("failed to get CCV data for message: %w", err)
 		}
 		ccvData = append(ccvData, res...)
-		return nil
+
+		// check if Executor is defined on the receipt
+		for _, datum := range ccvData {
+			// todo: add a check to ensure we're only comparing against the CommitteeVerifier's CCVData
+
+			for _, blob := range datum.ReceiptBlobs {
+				// if we find the executor address in any of the receipts, we can proceed
+				if blob.Issuer.String() == srcExecutorAddress.String() {
+					return nil
+				}
+			}
+		}
+
+		// if this executor is not in any receipt bob, don't proceed with this message
+		return fmt.Errorf("executor address %s not found in any receipt for message %d", srcExecutorAddress.String(), id)
 	})
 
 	var ccvInfo executor.CcvAddressInfo
