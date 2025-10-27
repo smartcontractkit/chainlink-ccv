@@ -106,7 +106,7 @@ func deduplicateVerificationsByParticipant(verifications []*model.CommitVerifica
 			continue
 		}
 
-		participantID := string(verification.IdentifierSigner.ParticipantID)
+		participantID := verification.IdentifierSigner.ParticipantID
 		existing, exists := participantMap[participantID]
 
 		if !exists || verification.GetTimestamp() > existing.GetTimestamp() {
@@ -175,8 +175,8 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.done = make(chan struct{})
 	waitGrp := sync.WaitGroup{}
 	for i := 0; i < c.backgroundWorkerCount; i++ {
+		waitGrp.Add(1)
 		go func() {
-			waitGrp.Add(1)
 			defer waitGrp.Done()
 			for {
 				select {
