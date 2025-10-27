@@ -361,10 +361,11 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 	// Aggregation defaults
 	if c.Aggregation.ChannelBufferSize == 0 {
-		c.Aggregation.ChannelBufferSize = 1000
+		// Set to 10 by default matching the number of background workers
+		c.Aggregation.ChannelBufferSize = 10
 	}
 	if c.Aggregation.BackgroundWorkerCount == 0 {
-		c.Aggregation.BackgroundWorkerCount = 4
+		c.Aggregation.BackgroundWorkerCount = 10
 	}
 	// Initialize Storage config if nil
 	if c.Storage == nil {
