@@ -9,12 +9,14 @@ executor_id="cl_node_executor_a"
 execution_interval="15s"
 min_wait="3s"
 ccv_info_cache_expiry="5m"
-
 [offramp_addresses]
     3379446385462418246 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
     12922642891491394802 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
     4793464827907405086 = "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
-
+[executor_addresses]
+    3379446385462418246 = "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f"
+    12922642891491394802 = "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f"
+    4793464827907405086 = "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f"
 [blockchain_infos]
     [blockchain_infos.3379446385462418246]
         ChainID = "1337"

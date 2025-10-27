@@ -88,13 +88,14 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		}
 		ccvData = append(ccvData, res...)
 
+		cle.lggr.Debugw("fetched CCV data for message", "messageID", id, "verifierResult", ccvData)
 		// check if Executor is defined on the receipt
 		for _, datum := range ccvData {
 			// todo: add a check to ensure we're only comparing against the CommitteeVerifier's CCVData
 
 			for _, blob := range datum.ReceiptBlobs {
 				// if we find the executor address in any of the receipts, we can proceed
-				if blob.Issuer.String() == srcExecutorAddress.String() {
+				if strings.EqualFold(blob.Issuer.String(), srcExecutorAddress.String()) {
 					return nil
 				}
 			}

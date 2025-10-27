@@ -147,11 +147,26 @@ func main() {
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
 	}
 
+	executorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+	for strSel, addr := range executorConfig.ExecutorAddresses {
+		selector, err := strconv.ParseUint(strSel, 10, 64)
+		if err != nil {
+			lggr.Errorw("Invalid chain selector in executor addresses", "error", err, "chainSelector", strSel)
+			continue
+		}
+		unknownAddress, err := protocol.NewUnknownAddressFromHex(addr)
+		if err != nil {
+			lggr.Errorw("Invalid executor address", "error", err, "address", addr)
+			continue
+		}
+		executorAddresses[protocol.ChainSelector(selector)] = unknownAddress
+	}
+
 	// create indexer client which implements MessageReader and VerifierResultReader
 	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
 
 	// create executor
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient, executorMonitoring)
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient, executorAddresses, executorMonitoring)
 
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(
