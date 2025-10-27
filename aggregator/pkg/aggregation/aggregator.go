@@ -2,6 +2,7 @@ package aggregation
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
@@ -19,13 +20,14 @@ type QuorumValidator interface {
 // It manages the verification and storage of commit reports through a configurable storage backend,
 // processes aggregation requests via a message channel, and forwards verified reports to a sink.
 type CommitReportAggregator struct {
-	storage       common.CommitVerificationStore
-	sink          common.Sink
-	messageIDChan chan aggregationRequest
-	quorum        QuorumValidator
-	l             logger.SugaredLogger
-	monitoring    common.AggregatorMonitoring
-	done          chan struct{}
+	storage               common.CommitVerificationStore
+	sink                  common.Sink
+	messageIDChan         chan aggregationRequest
+	backgroundWorkerCount int
+	quorum                QuorumValidator
+	l                     logger.SugaredLogger
+	monitoring            common.AggregatorMonitoring
+	done                  chan struct{}
 }
 
 type aggregationRequest struct {
@@ -70,13 +72,16 @@ func (c *CommitReportAggregator) HealthCheck(ctx context.Context) *common.Compon
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
 func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, committeeID model.CommitteeID) error {
-	go func() {
+	request := aggregationRequest{
+		MessageID:   messageID,
+		CommitteeID: committeeID,
+	}
+	select {
+	case c.messageIDChan <- request:
 		c.monitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
-		c.messageIDChan <- aggregationRequest{
-			MessageID:   messageID,
-			CommitteeID: committeeID,
-		}
-	}()
+	default:
+		return common.ErrAggregationChannelFull
+	}
 	return nil
 }
 
@@ -97,11 +102,11 @@ func deduplicateVerificationsByParticipant(verifications []*model.CommitVerifica
 	participantMap := make(map[string]*model.CommitVerificationRecord)
 
 	for _, verification := range verifications {
-		if verification.IdentifierSigner == nil || len(verification.IdentifierSigner.Address) == 0 {
+		if verification.IdentifierSigner == nil || len(verification.IdentifierSigner.ParticipantID) == 0 {
 			continue
 		}
 
-		addressKey := string(verification.IdentifierSigner.Address)
+		addressKey := string(verification.IdentifierSigner.ParticipantID)
 		existing, exists := participantMap[addressKey]
 
 		if !exists || verification.GetTimestamp() > existing.GetTimestamp() {
@@ -168,12 +173,14 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 // StartBackground begins processing aggregation requests in the background.
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.done = make(chan struct{})
-	go func() {
-		defer close(c.done)
-		for {
-			select {
-			case request := <-c.messageIDChan:
-				go func() {
+	waitGrp := sync.WaitGroup{}
+	for i := 0; i < c.backgroundWorkerCount; i++ {
+		go func() {
+			waitGrp.Add(1)
+			defer waitGrp.Done()
+			for {
+				select {
+				case request := <-c.messageIDChan:
 					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(context.Background(), 1)
 					ctx := scope.WithMessageID(context.Background(), request.MessageID)
 					ctx = scope.WithCommitteeID(ctx, request.CommitteeID)
@@ -181,11 +188,15 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 					if err != nil {
 						c.logger(ctx).Errorw("Failed to process aggregation request", "error", err)
 					}
-				}()
-			case <-ctx.Done():
-				return
+				case <-ctx.Done():
+					return
+				}
 			}
-		}
+		}()
+	}
+	go func() {
+		waitGrp.Wait()
+		close(c.done)
 	}()
 }
 
@@ -202,13 +213,14 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 //   - *CommitReportAggregator: A new aggregator instance ready to process commit reports
 //
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
-func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, quorum QuorumValidator, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring) *CommitReportAggregator {
+func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, quorum QuorumValidator, config *model.AggregatorConfig, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring) *CommitReportAggregator {
 	return &CommitReportAggregator{
-		storage:       storage,
-		sink:          sink,
-		messageIDChan: make(chan aggregationRequest, 1000),
-		quorum:        quorum,
-		monitoring:    monitoring,
-		l:             logger,
+		storage:               storage,
+		sink:                  sink,
+		messageIDChan:         make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
+		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
+		quorum:                quorum,
+		monitoring:            monitoring,
+		l:                     logger,
 	}
 }
