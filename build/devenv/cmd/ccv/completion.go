@@ -4,15 +4,49 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
 )
 
+const (
+	historyFileName = "shell_history"
+	activeFileName  = "active_config"
+)
+
+func init() {
+	// Ensure the config directory exists
+	configPath := filepath.Join(configDir(), "ccv")
+	if err := os.MkdirAll(configPath, os.ModePerm); err != nil {
+		fmt.Printf("Error creating config directory: %v\n", err)
+	}
+}
+
+func configDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		return os.Getenv("APPDATA")
+	case "darwin":
+		return fmt.Sprintf("%s/Library/Preferences", os.Getenv("HOME"))
+	default: // Unix/Linux
+		if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
+			return configHome
+		}
+		return fmt.Sprintf("%s/.config", os.Getenv("HOME"))
+	}
+}
+
 func getCommands() []prompt.Suggest {
+	activeConfig := getActiveConfig()
+	if activeConfig == "" {
+		activeConfig = "default"
+	}
+
 	return []prompt.Suggest{
 		{Text: "", Description: "Choose command, press <space> for more options after selecting command"},
-		{Text: "up", Description: "Spin up the development environment"},
+		{Text: "up", Description: "Spin up the development environment [active config: " + activeConfig + "]"},
 		{Text: "down", Description: "Tear down the development environment"},
 		{Text: "restart", Description: "Restart the development environment"},
 		{Text: "test", Description: "Perform smoke or load/chaos testing"},
@@ -114,6 +148,26 @@ func executor(in string) {
 		fmt.Println("Goodbye!")
 		os.Exit(0)
 	}
+
+	if strings.HasPrefix(in, "up ") {
+		saveActiveConfig(in[3:])
+	} else if strings.HasPrefix(in, "u ") {
+		saveActiveConfig(in[2:])
+	}
+
+	switch in {
+	// append active config to "up" and "restart" commands with no arguments
+	case "up", "u":
+		in = fmt.Sprintf("%s %s", in, activeConfigPath())
+	case "restart", "r":
+		// skip debug flag if present
+		noDebugConfig := strings.ReplaceAll(activeConfigPath(), "--debug", "")
+		in = fmt.Sprintf("%s %s", in, noDebugConfig)
+	}
+
+	// don't save "exit" or empty lines to history
+	saveHistory(in)
+
 	args := strings.Fields(in)
 	os.Args = append([]string{"ccv"}, args...)
 	if err := rootCmd.Execute(); err != nil {
@@ -186,6 +240,7 @@ func StartShell() {
 				os.Exit(0)
 			},
 		}),
+		prompt.OptionHistory(getHistory()),
 	)
 	p.Run()
 }
