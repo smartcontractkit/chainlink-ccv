@@ -2,8 +2,9 @@ package aggregation
 
 import (
 	"context"
-	"sync"
 	"time"
+
+	"github.com/sourcegraph/conc/pool"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -173,30 +174,23 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 // StartBackground begins processing aggregation requests in the background.
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.done = make(chan struct{})
-	waitGrp := sync.WaitGroup{}
-	for i := 0; i < c.backgroundWorkerCount; i++ {
-		waitGrp.Add(1)
-		go func() {
-			defer waitGrp.Done()
-			for {
-				select {
-				case request := <-c.messageIDChan:
-					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(context.Background(), 1)
-					ctx := scope.WithMessageID(context.Background(), request.MessageID)
-					ctx = scope.WithCommitteeID(ctx, request.CommitteeID)
-					_, err := c.checkAggregationAndSubmitComplete(ctx, request.MessageID, request.CommitteeID)
-					if err != nil {
-						c.logger(ctx).Errorw("Failed to process aggregation request", "error", err)
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-	}
+	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(ctx)
 	go func() {
-		waitGrp.Wait()
-		close(c.done)
+		for {
+			select {
+			case request := <-c.messageIDChan:
+				p.Go(func(poolCtx context.Context) error {
+					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
+					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
+					poolCtx = scope.WithCommitteeID(poolCtx, request.CommitteeID)
+					_, err := c.checkAggregationAndSubmitComplete(poolCtx, request.MessageID, request.CommitteeID)
+					return err
+				})
+			case <-ctx.Done():
+				close(c.done)
+				return
+			}
+		}
 	}()
 }
 
