@@ -106,11 +106,11 @@ func deduplicateVerificationsByParticipant(verifications []*model.CommitVerifica
 			continue
 		}
 
-		addressKey := string(verification.IdentifierSigner.ParticipantID)
-		existing, exists := participantMap[addressKey]
+		participantID := string(verification.IdentifierSigner.ParticipantID)
+		existing, exists := participantMap[participantID]
 
 		if !exists || verification.GetTimestamp() > existing.GetTimestamp() {
-			participantMap[addressKey] = verification
+			participantMap[participantID] = verification
 		}
 	}
 
