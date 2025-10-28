@@ -16,6 +16,7 @@ type Configuration struct {
 	IndexerQueryLimit  uint64                              `toml:"indexer_query_limit"`
 	PyroscopeURL       string                              `toml:"pyroscope_url"`
 	OffRampAddresses   map[string]string                   `toml:"offramp_addresses"`
+	ExecutorAddresses  map[string]string                   `toml:"executor_addresses"`
 	ExecutorPool       []string                            `toml:"executor_pool"`
 	ExecutorID         string                              `toml:"executor_id"`
 	ExecutionInterval  string                              `toml:"execution_interval"`
