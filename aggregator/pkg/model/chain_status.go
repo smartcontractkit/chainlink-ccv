@@ -62,7 +62,7 @@ func ValidateReadChainStatusRequest(req *pb.ReadChainStatusRequest) error {
 }
 
 // ValidateAPIKey validates that an API key is not empty and not too long.
-// This is a basic validation - for configuration-based validation use CheckpointConfig.ValidateAPIKey.
+// This is a basic validation - for configuration-based validation use ChainStatusConfig.ValidateAPIKey.
 func ValidateAPIKey(apiKey string) error {
 	if strings.TrimSpace(apiKey) == "" {
 		return errors.New("api key cannot be empty")
@@ -73,46 +73,6 @@ func ValidateAPIKey(apiKey string) error {
 	}
 
 	return nil
-}
-
-// ProtoChainStatusToMap converts protobuf chain statuses to a map for storage.
-// Disabled chains are excluded from the storage map.
-func ProtoChainStatusToMap(protoChainStatuses []*pb.ChainStatus) map[uint64]uint64 {
-	result := make(map[uint64]uint64)
-
-	for _, chainStatus := range protoChainStatuses {
-		if chainStatus != nil && !chainStatus.Disabled {
-			result[chainStatus.ChainSelector] = chainStatus.FinalizedBlockHeight
-		}
-	}
-
-	return result
-}
-
-// MapToProtoChainStatus converts a storage map to protobuf chain statuses.
-// Results are sorted by chain_selector for deterministic ordering.
-// All returned chain statuses have disabled=false since disabled chains are not stored.
-func MapToProtoChainStatus(checkpoints map[uint64]uint64) []*pb.ChainStatus {
-	result := make([]*pb.ChainStatus, 0, len(checkpoints))
-
-	for chainSelector, blockHeight := range checkpoints {
-		result = append(result, &pb.ChainStatus{
-			ChainSelector:        chainSelector,
-			FinalizedBlockHeight: blockHeight,
-			Disabled:             false, // Stored chains are always enabled
-		})
-	}
-
-	// Sort by chain selector for deterministic ordering
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[i].ChainSelector > result[j].ChainSelector {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
-
-	return result
 }
 
 // NewWriteChainStatusResponse creates a WriteChainStatusResponse with the given status.

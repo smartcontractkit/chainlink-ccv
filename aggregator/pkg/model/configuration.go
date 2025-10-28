@@ -103,7 +103,7 @@ const (
 type DynamoDBConfig struct {
 	CommitVerificationRecordTableName string `toml:"commitVerificationRecordTableName"`
 	FinalizedFeedTableName            string `toml:"finalizedFeedTableName"`
-	CheckpointTableName               string `toml:"checkpointTableName"`
+	ChainStatusTableName              string `toml:"chainStatusTableName"`
 	Region                            string `toml:"region,omitempty"`
 	Endpoint                          string `toml:"endpoint,omitempty"`
 	ShardCount                        int    `toml:"shardCount"`
@@ -137,10 +137,10 @@ type APIKeyConfig struct {
 	Clients map[string]*APIClient `toml:"clients"`
 }
 
-// CheckpointConfig represents the configuration for the checkpoint API.
-type CheckpointConfig struct {
-	// MaxCheckpointsPerRequest limits the number of checkpoints per write request
-	MaxCheckpointsPerRequest int `toml:"maxCheckpointsPerRequest"`
+// ChainStatusConfig represents the configuration for the chain status API.
+type ChainStatusConfig struct {
+	// MaxChainStatusesPerRequest limits the number of chain statuses per write request
+	MaxChainStatusesPerRequest int `toml:"maxChainStatusesPerRequest"`
 }
 
 type OrphanRecoveryConfig struct {
@@ -334,7 +334,7 @@ type AggregatorConfig struct {
 	Server                           ServerConfig               `toml:"server"`
 	Storage                          *StorageConfig             `toml:"storage"`
 	APIKeys                          APIKeyConfig               `toml:"-"`
-	Checkpoints                      CheckpointConfig           `toml:"checkpoints"`
+	ChainStatuses                    ChainStatusConfig          `toml:"chainStatuses"`
 	OrphanRecovery                   OrphanRecoveryConfig       `toml:"orphanRecovery"`
 	RateLimiting                     RateLimitingConfig         `toml:"rateLimiting"`
 	HealthCheck                      HealthCheckConfig          `toml:"healthCheck"`
@@ -347,8 +347,8 @@ type AggregatorConfig struct {
 
 // SetDefaults sets default values for the configuration.
 func (c *AggregatorConfig) SetDefaults() {
-	if c.Checkpoints.MaxCheckpointsPerRequest == 0 {
-		c.Checkpoints.MaxCheckpointsPerRequest = 1000
+	if c.ChainStatuses.MaxChainStatusesPerRequest == 0 {
+		c.ChainStatuses.MaxChainStatusesPerRequest = 1000
 	}
 	// Initialize Storage config if nil
 	if c.Storage == nil {
@@ -409,10 +409,10 @@ func (c *AggregatorConfig) ValidateAPIKeyConfig() error {
 	return nil
 }
 
-// ValidateCheckpointConfig validates the checkpoint configuration.
-func (c *AggregatorConfig) ValidateCheckpointConfig() error {
-	if c.Checkpoints.MaxCheckpointsPerRequest <= 0 {
-		return errors.New("checkpoints.maxCheckpointsPerRequest must be greater than 0")
+// ValidateChainStatusConfig validates the chain status configuration.
+func (c *AggregatorConfig) ValidateChainStatusConfig() error {
+	if c.ChainStatuses.MaxChainStatusesPerRequest <= 0 {
+		return errors.New("chainStatuses.maxChainStatusesPerRequest must be greater than 0")
 	}
 
 	return nil
@@ -455,9 +455,9 @@ func (c *AggregatorConfig) Validate() error {
 		return fmt.Errorf("api key configuration error: %w", err)
 	}
 
-	// Validate checkpoint configuration
-	if err := c.ValidateCheckpointConfig(); err != nil {
-		return fmt.Errorf("checkpoint configuration error: %w", err)
+	// Validate chain status configuration
+	if err := c.ValidateChainStatusConfig(); err != nil {
+		return fmt.Errorf("chain status configuration error: %w", err)
 	}
 
 	// Validate storage configuration

@@ -10,8 +10,8 @@ pyroscope_url = "http://pyroscope:4040"
 [storage]
   type = "postgres"
 
-[checkpoints]
-  maxCheckpointsPerRequest = 100
+[chainStatuses]
+  maxChainStatusesPerRequest = 100
 
 [orphanRecovery]
   enabled = false
@@ -36,8 +36,8 @@ pyroscope_url = "http://pyroscope:4040"
   # Group-based rate limits (more restrictive than defaults for specific groups)
   [rateLimiting.groupLimits.verifiers]
     "/chainlink_ccv.v1.Aggregator/BatchWriteCommitCCVNodeData" = { limit_per_minute = 6000 }
-    "/chainlink_ccv.v1.Aggregator/WriteChainStatus" = { limit_per_minute = 5 }
-    "/chainlink_ccv.v1.Aggregator/ReadChainStatus" = { limit_per_minute = 5 }
+    "/chainlink_ccv.v1.Aggregator/WriteChainStatus" = { limit_per_minute = 60 }
+    "/chainlink_ccv.v1.Aggregator/ReadChainStatus" = { limit_per_minute = 60 }
   
   [rateLimiting.groupLimits.monitoring]
     "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 200 }

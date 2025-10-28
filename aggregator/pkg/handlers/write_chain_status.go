@@ -38,11 +38,12 @@ func (h *WriteChainStatusHandler) Handle(ctx context.Context, req *pb.WriteChain
 		return &pb.WriteChainStatusResponse{Status: pb.WriteStatus_FAILED}, status.Errorf(codes.InvalidArgument, "invalid request: %v", err)
 	}
 
-	// Convert protobuf chain statuses to storage format (excluding disabled chains)
-	chainStatusMap := make(map[uint64]uint64)
+	// Convert protobuf chain statuses to storage format
+	chainStatusMap := make(map[uint64]*common.ChainStatus)
 	for _, chainStatus := range req.Statuses {
-		if !chainStatus.Disabled {
-			chainStatusMap[chainStatus.ChainSelector] = chainStatus.FinalizedBlockHeight
+		chainStatusMap[chainStatus.ChainSelector] = &common.ChainStatus{
+			FinalizedBlockHeight: chainStatus.FinalizedBlockHeight,
+			Disabled:             chainStatus.Disabled,
 		}
 	}
 

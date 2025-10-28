@@ -7,10 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 )
 
-// TestChainStatusStorage tests all checkpoint storage operations with shared DynamoDB infrastructure.
+// TestChainStatusStorage tests all status storage operations with shared DynamoDB infrastructure.
 func TestChainStatusStorage(t *testing.T) {
 	client, _, cleanup := SetupTestDynamoDB(t)
 	defer cleanup()
@@ -33,10 +34,13 @@ func TestChainStatusStorage(t *testing.T) {
 	})
 
 	t.Run("StoreAndRetrieve", func(t *testing.T) {
-		t.Run("store_single_checkpoint", func(t *testing.T) {
+		t.Run("store_single_status", func(t *testing.T) {
 			clientID := "store-client-1"
-			statuses := map[uint64]uint64{
-				1: 100, // chain_selector -> block_height
+			statuses := map[uint64]*common.ChainStatus{
+				1: {
+					FinalizedBlockHeight: 100,
+					Disabled:             false,
+				},
 			}
 
 			err := storage.StoreChainStatus(ctx, clientID, statuses)
@@ -55,10 +59,10 @@ func TestChainStatusStorage(t *testing.T) {
 
 		t.Run("store_multiple_statuses", func(t *testing.T) {
 			clientID := "store-client-2"
-			statuses := map[uint64]uint64{
-				1: 100,
-				2: 200,
-				5: 500,
+			statuses := map[uint64]*common.ChainStatus{
+				1: {FinalizedBlockHeight: 100, Disabled: false},
+				2: {FinalizedBlockHeight: 200, Disabled: false},
+				5: {FinalizedBlockHeight: 500, Disabled: false},
 			}
 
 			err := storage.StoreChainStatus(ctx, clientID, statuses)
@@ -70,16 +74,20 @@ func TestChainStatusStorage(t *testing.T) {
 			require.Equal(t, statuses, result)
 		})
 
-		t.Run("override_existing_checkpoint", func(t *testing.T) {
+		t.Run("override_existing_status", func(t *testing.T) {
 			clientID := "store-client-3"
 
-			// Store initial checkpoint
-			initial := map[uint64]uint64{1: 100}
+			// Store initial status
+			initial := map[uint64]*common.ChainStatus{
+				1: {FinalizedBlockHeight: 100, Disabled: false},
+			}
 			err := storage.StoreChainStatus(ctx, clientID, initial)
 			require.NoError(t, err)
 
 			// Override with new value
-			updated := map[uint64]uint64{1: 200}
+			updated := map[uint64]*common.ChainStatus{
+				1: {FinalizedBlockHeight: 200, Disabled: false},
+			}
 			err = storage.StoreChainStatus(ctx, clientID, updated)
 			require.NoError(t, err)
 
@@ -93,19 +101,28 @@ func TestChainStatusStorage(t *testing.T) {
 			clientID := "store-client-4"
 
 			// Store initial statuses
-			initial := map[uint64]uint64{1: 100, 2: 200}
+			initial := map[uint64]*common.ChainStatus{
+				1: {FinalizedBlockHeight: 100, Disabled: false},
+				2: {FinalizedBlockHeight: 200, Disabled: false},
+			}
 			err := storage.StoreChainStatus(ctx, clientID, initial)
 			require.NoError(t, err)
 
-			// Add new checkpoint
-			additional := map[uint64]uint64{3: 300}
+			// Add new status
+			additional := map[uint64]*common.ChainStatus{
+				3: {FinalizedBlockHeight: 300, Disabled: false},
+			}
 			err = storage.StoreChainStatus(ctx, clientID, additional)
 			require.NoError(t, err)
 
 			// Verify all statuses exist
 			result, err := storage.GetClientChainStatus(ctx, clientID)
 			require.NoError(t, err)
-			expected := map[uint64]uint64{1: 100, 2: 200, 3: 300}
+			expected := map[uint64]*common.ChainStatus{
+				1: {FinalizedBlockHeight: 100, Disabled: false},
+				2: {FinalizedBlockHeight: 200, Disabled: false},
+				3: {FinalizedBlockHeight: 300, Disabled: false},
+			}
 			require.Equal(t, expected, result)
 		})
 	})
@@ -115,8 +132,14 @@ func TestChainStatusStorage(t *testing.T) {
 		client2 := "isolation-client-2"
 
 		// Store different statuses for each client
-		statuses1 := map[uint64]uint64{1: 1000, 2: 2000}
-		statuses2 := map[uint64]uint64{1: 1500, 3: 3000} // Same chain 1, different value
+		statuses1 := map[uint64]*common.ChainStatus{
+			1: {FinalizedBlockHeight: 1000, Disabled: false},
+			2: {FinalizedBlockHeight: 2000, Disabled: false},
+		}
+		statuses2 := map[uint64]*common.ChainStatus{
+			1: {FinalizedBlockHeight: 1500, Disabled: false}, // Same chain 1, different value
+			3: {FinalizedBlockHeight: 3000, Disabled: false},
+		}
 
 		err := storage.StoreChainStatus(ctx, client1, statuses1)
 		require.NoError(t, err)
@@ -144,7 +167,9 @@ func TestChainStatusStorage(t *testing.T) {
 
 	t.Run("Validation", func(t *testing.T) {
 		t.Run("empty_client_id_fails", func(t *testing.T) {
-			statuses := map[uint64]uint64{1: 100}
+			statuses := map[uint64]*common.ChainStatus{
+				1: {FinalizedBlockHeight: 100, Disabled: false},
+			}
 			err := storage.StoreChainStatus(ctx, "", statuses)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "client ID cannot be empty")
@@ -161,14 +186,18 @@ func TestChainStatusStorage(t *testing.T) {
 		})
 
 		t.Run("zero_chain_selector_fails", func(t *testing.T) {
-			statuses := map[uint64]uint64{0: 100}
+			statuses := map[uint64]*common.ChainStatus{
+				0: {FinalizedBlockHeight: 100, Disabled: false},
+			}
 			err := storage.StoreChainStatus(ctx, "validation-client", statuses)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "chain_selector must be greater than 0")
 		})
 
 		t.Run("zero_block_height_fails", func(t *testing.T) {
-			statuses := map[uint64]uint64{1: 0}
+			statuses := map[uint64]*common.ChainStatus{
+				1: {FinalizedBlockHeight: 0, Disabled: false},
+			}
 			err := storage.StoreChainStatus(ctx, "validation-client", statuses)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "finalized_block_height must be greater than 0")
@@ -182,8 +211,11 @@ func TestChainStatusStorage(t *testing.T) {
 		// Store statuses for many clients
 		for i := 0; i < numClients; i++ {
 			clientID := "many-client-" + strconv.Itoa(i)
-			statuses := map[uint64]uint64{
-				chainSelector: uint64((i + 1) * 100),
+			statuses := map[uint64]*common.ChainStatus{
+				chainSelector: {
+					FinalizedBlockHeight: uint64((i + 1) * 100),
+					Disabled:             false,
+				},
 			}
 
 			err := storage.StoreChainStatus(ctx, clientID, statuses)
@@ -196,7 +228,12 @@ func TestChainStatusStorage(t *testing.T) {
 			result, err := storage.GetClientChainStatus(ctx, clientID)
 			require.NoError(t, err, "failed to get statuses for client %d", i)
 
-			expected := map[uint64]uint64{chainSelector: uint64((i + 1) * 100)}
+			expected := map[uint64]*common.ChainStatus{
+				chainSelector: {
+					FinalizedBlockHeight: uint64((i + 1) * 100),
+					Disabled:             false,
+				},
+			}
 			require.Equal(t, expected, result, "client %d should have correct statuses", i)
 		}
 
@@ -219,7 +256,7 @@ func TestChainStatusStorage(t *testing.T) {
 
 	t.Run("EmptyBatch", func(t *testing.T) {
 		// Empty map should succeed (no-op)
-		err := storage.StoreChainStatus(ctx, "empty-client", map[uint64]uint64{})
+		err := storage.StoreChainStatus(ctx, "empty-client", map[uint64]*common.ChainStatus{})
 		require.NoError(t, err)
 
 		// Client should not appear in all clients list
@@ -235,9 +272,9 @@ func TestChainStatusStorage(t *testing.T) {
 
 	t.Run("LargeValues", func(t *testing.T) {
 		clientID := "large-values-client"
-		statuses := map[uint64]uint64{
-			18446744073709551615: 18446744073709551615, // Max uint64 values
-			1000000000000:        1000000000000,        // Large but realistic values
+		statuses := map[uint64]*common.ChainStatus{
+			18446744073709551615: {FinalizedBlockHeight: 18446744073709551615, Disabled: false}, // Max uint64 values
+			1000000000000:        {FinalizedBlockHeight: 1000000000000, Disabled: false},        // Large but realistic values
 		}
 
 		err := storage.StoreChainStatus(ctx, clientID, statuses)

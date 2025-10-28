@@ -45,11 +45,11 @@ func (h *ReadChainStatusHandler) Handle(ctx context.Context, req *pb.ReadChainSt
 
 	// Convert storage format to protobuf chain statuses
 	protoChainStatuses := make([]*pb.ChainStatus, 0, len(chainStatusMap))
-	for chainSelector, blockHeight := range chainStatusMap {
+	for chainSelector, chainStatus := range chainStatusMap {
 		protoChainStatuses = append(protoChainStatuses, &pb.ChainStatus{
 			ChainSelector:        chainSelector,
-			FinalizedBlockHeight: blockHeight,
-			Disabled:             false, // Stored chains are always enabled
+			FinalizedBlockHeight: chainStatus.FinalizedBlockHeight,
+			Disabled:             chainStatus.Disabled,
 		})
 	}
 

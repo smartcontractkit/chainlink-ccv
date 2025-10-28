@@ -110,9 +110,9 @@ func (s *MetricsAwareStorage) ListOrphanedMessageIDs(ctx context.Context, commit
 }
 
 const (
-	storeCheckpointsOp     = "StoreChainStatus"
-	getClientCheckpointsOp = "GetClientCheckpoints"
-	getAllClientsOp        = "GetAllClients"
+	storeChainStatusesOp     = "StoreChainStatus"
+	getClientChainStatusesOp = "GetClientChainStatuses"
+	getAllClientsOp          = "GetAllClients"
 )
 
 type MetricsAwareChainStatusStorage struct {
@@ -136,14 +136,14 @@ func WrapChainStatusWithMetrics(inner common.ChainStatusStorageInterface, m comm
 	return NewMetricsAwareChainStatusStorage(inner, m)
 }
 
-func (s *MetricsAwareChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, checkpoints map[uint64]uint64) error {
-	return captureMetricsNoReturn(ctx, s.metrics(ctx, storeCheckpointsOp), func() error {
-		return s.inner.StoreChainStatus(ctx, clientID, checkpoints)
+func (s *MetricsAwareChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, chainStatuses map[uint64]*common.ChainStatus) error {
+	return captureMetricsNoReturn(ctx, s.metrics(ctx, storeChainStatusesOp), func() error {
+		return s.inner.StoreChainStatus(ctx, clientID, chainStatuses)
 	})
 }
 
-func (s *MetricsAwareChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]uint64, error) {
-	return captureMetrics(ctx, s.metrics(ctx, getClientCheckpointsOp), func() (map[uint64]uint64, error) {
+func (s *MetricsAwareChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*common.ChainStatus, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getClientChainStatusesOp), func() (map[uint64]*common.ChainStatus, error) {
 		return s.inner.GetClientChainStatus(ctx, clientID)
 	})
 }

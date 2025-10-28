@@ -149,8 +149,8 @@ func (f *Factory) createDynamoDBStorage(config *model.StorageConfig, monitoring 
 
 func createDynamoDBClient(config *model.StorageConfig) (*dynamodb.Client, error) {
 	// Validate required configuration
-	if config.DynamoDB.CheckpointTableName == "" {
-		return nil, fmt.Errorf("DynamoDB CheckpointTableName is required")
+	if config.DynamoDB.ChainStatusTableName == "" {
+		return nil, fmt.Errorf("DynamoDB ChainStatusTableName is required")
 	}
 
 	// Set default region if not specified
@@ -196,7 +196,7 @@ func (f *Factory) createDynamoDBChainStatusStorage(config *model.StorageConfig, 
 	// Create chain status storage instance
 	chainStatusStorage := ddb.NewChainStatusStorage(
 		client,
-		config.DynamoDB.CheckpointTableName,
+		config.DynamoDB.ChainStatusTableName,
 		monitoring,
 	)
 

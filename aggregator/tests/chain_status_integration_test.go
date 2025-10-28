@@ -89,7 +89,7 @@ func TestChainStatusClientIsolation(t *testing.T) {
 		_, err = client1.WriteChainStatus(context.Background(), writeReq1)
 		require.NoError(t, err, "client 1 write should succeed")
 
-		// Client 2 stores different checkpoints
+		// Client 2 stores different statuses
 		writeReq2 := &pb.WriteChainStatusRequest{
 			Statuses: []*pb.ChainStatus{
 				{ChainSelector: 1, FinalizedBlockHeight: 1500, Disabled: false}, // Same chain, different value
@@ -326,6 +326,12 @@ func TestChainStatusConcurrency(t *testing.T) {
 						{
 							ChainSelector:        1, // All clients use same chain
 							FinalizedBlockHeight: uint64((clientIndex + 1) * 100),
+							Disabled:             true,
+						},
+						{
+							ChainSelector:        2,
+							FinalizedBlockHeight: uint64((clientIndex + 1) * 200),
+							Disabled:             false,
 						},
 					},
 				}
@@ -341,10 +347,27 @@ func TestChainStatusConcurrency(t *testing.T) {
 		for i := 0; i < numClients; i++ {
 			resp, err := clients[i].client.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 			require.NoError(t, err, "concurrent client %d read should succeed", i)
-			require.Len(t, resp.Statuses, 1, "client %d should have 1 chain status", i)
+			require.Len(t, resp.Statuses, 2, "client %d should have 2 chain statuses", i)
 
-			expectedHeight := uint64((i + 1) * 100)
-			require.Equal(t, expectedHeight, resp.Statuses[0].FinalizedBlockHeight, "client %d should have correct value", i)
+			// Create a map to look up statuses by chain selector (order independent)
+			statusMap := make(map[uint64]*pb.ChainStatus)
+			for _, status := range resp.Statuses {
+				statusMap[status.ChainSelector] = status
+			}
+
+			// Verify chain 1 (disabled chain)
+			chain1Status, exists := statusMap[1]
+			require.True(t, exists, "client %d should have chain selector 1", i)
+			expectedHeight1 := uint64((i + 1) * 100)
+			require.Equal(t, expectedHeight1, chain1Status.FinalizedBlockHeight, "client %d should have correct value for chain 1", i)
+			require.True(t, chain1Status.Disabled, "client %d chain 1 status should be disabled", i)
+
+			// Verify chain 2 (enabled chain)
+			chain2Status, exists := statusMap[2]
+			require.True(t, exists, "client %d should have chain selector 2", i)
+			expectedHeight2 := uint64((i + 1) * 200)
+			require.Equal(t, expectedHeight2, chain2Status.FinalizedBlockHeight, "client %d should have correct value for chain 2", i)
+			require.False(t, chain2Status.Disabled, "client %d chain 2 status should be enabled", i)
 		}
 	})
 
@@ -497,7 +520,7 @@ func TestChainStatusClientIsolation_DynamoDB(t *testing.T) {
 		_, err = client1.WriteChainStatus(context.Background(), writeReq1)
 		require.NoError(t, err, "client 1 write should succeed")
 
-		// Client 2 stores different checkpoints
+		// Client 2 stores different statuses
 		writeReq2 := &pb.WriteChainStatusRequest{
 			Statuses: []*pb.ChainStatus{
 				{ChainSelector: 1, FinalizedBlockHeight: 1500, Disabled: false}, // Same chain, different value

@@ -17,7 +17,7 @@ import (
 type ChainStatusStorage struct {
 	client     *dynamodb.Client
 	tableName  string
-	dto        *CheckpointDTO
+	dto        *ChainStatusDTO
 	monitoring common.AggregatorMonitoring
 }
 
@@ -29,7 +29,7 @@ func NewChainStatusStorage(client *dynamodb.Client, tableName string, monitoring
 	return &ChainStatusStorage{
 		client:     client,
 		tableName:  tableName,
-		dto:        &CheckpointDTO{},
+		dto:        &ChainStatusDTO{},
 		monitoring: monitoring,
 	}
 }
@@ -43,7 +43,7 @@ func (s *ChainStatusStorage) RecordCapacity(capacity *types.ConsumedCapacity) {
 // StoreChainStatus stores a batch of statuses for a client atomically.
 // If the client doesn't exist, it will be created.
 // Existing statuses for the same chain_selector will be overridden.
-func (s *ChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, statuses map[uint64]uint64) error {
+func (s *ChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, statuses map[uint64]*common.ChainStatus) error {
 	if err := s.validateStoreChainStatusInput(clientID, statuses); err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (s *ChainStatusStorage) StoreChainStatus(ctx context.Context, clientID stri
 	for _, record := range records {
 		item, err := s.dto.ToItem(record)
 		if err != nil {
-			return fmt.Errorf("failed to convert checkpoint to DynamoDB item: %w", err)
+			return fmt.Errorf("failed to convert chain status to DynamoDB item: %w", err)
 		}
 
 		transactItems = append(transactItems, types.TransactWriteItem{
@@ -90,14 +90,14 @@ func (s *ChainStatusStorage) StoreChainStatus(ctx context.Context, clientID stri
 
 // GetClientChainStatus retrieves all statuses for a client.
 // Returns an empty map if the client has no statuses.
-func (s *ChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]uint64, error) {
+func (s *ChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*common.ChainStatus, error) {
 	if clientID == "" {
 		return nil, fmt.Errorf("client ID cannot be empty")
 	}
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(s.tableName),
-		KeyConditionExpression: aws.String(ddbconstant.QueryCheckpointsByClient),
+		KeyConditionExpression: aws.String(ddbconstant.QueryChainStatusesByClient),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":client_id": &types.AttributeValueMemberS{Value: clientID},
 		},
@@ -114,11 +114,11 @@ func (s *ChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID 
 		return nil, fmt.Errorf("failed to query statuses for client %s: %w", clientID, err)
 	}
 
-	records := make([]*CheckpointRecord, 0, len(result.Items))
+	records := make([]*ChainStatusRecord, 0, len(result.Items))
 	for _, item := range result.Items {
 		record, err := s.dto.FromItem(item)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse checkpoint record: %w", err)
+			return nil, fmt.Errorf("failed to parse chain status record: %w", err)
 		}
 		records = append(records, record)
 	}
@@ -133,7 +133,7 @@ func (s *ChainStatusStorage) GetAllClients(ctx context.Context) ([]string, error
 	// Note: This can be expensive for large datasets, but it's primarily for testing
 	input := &dynamodb.ScanInput{
 		TableName:              aws.String(s.tableName),
-		ProjectionExpression:   aws.String(ddbconstant.CheckpointFieldClientID),
+		ProjectionExpression:   aws.String(ddbconstant.ChainStatusFieldClientID),
 		ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
 	}
 
@@ -152,11 +152,11 @@ func (s *ChainStatusStorage) GetAllClients(ctx context.Context) ([]string, error
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan checkpoint table: %w", err)
+			return nil, fmt.Errorf("failed to scan chain status table: %w", err)
 		}
 
 		for _, item := range result.Items {
-			clientIDAttr, ok := item[ddbconstant.CheckpointFieldClientID].(*types.AttributeValueMemberS)
+			clientIDAttr, ok := item[ddbconstant.ChainStatusFieldClientID].(*types.AttributeValueMemberS)
 			if ok {
 				clientSet[clientIDAttr.Value] = true
 			}
@@ -177,7 +177,7 @@ func (s *ChainStatusStorage) GetAllClients(ctx context.Context) ([]string, error
 }
 
 // validateStoreChainStatusInput validates the input parameters for StoreChainStatus.
-func (s *ChainStatusStorage) validateStoreChainStatusInput(clientID string, statuses map[uint64]uint64) error {
+func (s *ChainStatusStorage) validateStoreChainStatusInput(clientID string, statuses map[uint64]*common.ChainStatus) error {
 	if clientID == "" {
 		return fmt.Errorf("client ID cannot be empty")
 	}
@@ -186,11 +186,14 @@ func (s *ChainStatusStorage) validateStoreChainStatusInput(clientID string, stat
 		return fmt.Errorf("statuses cannot be nil")
 	}
 
-	for chainSelector, blockHeight := range statuses {
+	for chainSelector, chainStatus := range statuses {
 		if chainSelector == 0 {
 			return fmt.Errorf("chain_selector must be greater than 0")
 		}
-		if blockHeight == 0 {
+		if chainStatus == nil {
+			return fmt.Errorf("chain status cannot be nil")
+		}
+		if chainStatus.FinalizedBlockHeight == 0 {
 			return fmt.Errorf("finalized_block_height must be greater than 0")
 		}
 	}

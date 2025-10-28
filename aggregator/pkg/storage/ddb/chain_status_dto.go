@@ -7,24 +7,27 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+
 	ddbconstant "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb/constants"
 )
 
-// CheckpointRecord represents a checkpoint entry in DynamoDB.
-type CheckpointRecord struct {
-	ClientID             string `json:"client_id"`
-	ChainSelector        uint64 `json:"chain_selector"`
-	FinalizedBlockHeight uint64 `json:"finalized_block_height"`
-	LastUpdated          int64  `json:"last_updated"`
+// ChainStatusRecord represents a chain status entry in DynamoDB.
+type ChainStatusRecord struct {
+	ClientID             string
+	ChainSelector        uint64
+	FinalizedBlockHeight uint64
+	Disabled             bool
+	LastUpdated          time.Time
 }
 
-// CheckpointDTO handles marshaling and unmarshaling of checkpoint records to/from DynamoDB items.
-type CheckpointDTO struct{}
+// ChainStatusDTO handles marshaling and unmarshaling of chain status records to/from DynamoDB items.
+type ChainStatusDTO struct{}
 
-// ToItem converts a CheckpointRecord to a DynamoDB item.
-func (dto *CheckpointDTO) ToItem(record *CheckpointRecord) (map[string]types.AttributeValue, error) {
+// ToItem converts a ChainStatusRecord to a DynamoDB item.
+func (dto *ChainStatusDTO) ToItem(record *ChainStatusRecord) (map[string]types.AttributeValue, error) {
 	if record == nil {
-		return nil, fmt.Errorf("checkpoint record cannot be nil")
+		return nil, fmt.Errorf("chain status record cannot be nil")
 	}
 
 	if record.ClientID == "" {
@@ -40,44 +43,47 @@ func (dto *CheckpointDTO) ToItem(record *CheckpointRecord) (map[string]types.Att
 	}
 
 	// Set LastUpdated to current time if not set
-	if record.LastUpdated == 0 {
-		record.LastUpdated = time.Now().Unix()
+	if record.LastUpdated.IsZero() {
+		record.LastUpdated = time.Now()
 	}
 
 	item := map[string]types.AttributeValue{
-		ddbconstant.CheckpointFieldClientID: &types.AttributeValueMemberS{
+		ddbconstant.ChainStatusFieldClientID: &types.AttributeValueMemberS{
 			Value: record.ClientID,
 		},
-		ddbconstant.CheckpointFieldChainSelector: &types.AttributeValueMemberN{
+		ddbconstant.ChainStatusFieldChainSelector: &types.AttributeValueMemberN{
 			Value: strconv.FormatUint(record.ChainSelector, 10),
 		},
-		ddbconstant.CheckpointFieldFinalizedBlockHeight: &types.AttributeValueMemberN{
+		ddbconstant.ChainStatusFieldFinalizedBlockHeight: &types.AttributeValueMemberN{
 			Value: strconv.FormatUint(record.FinalizedBlockHeight, 10),
 		},
-		ddbconstant.CheckpointFieldLastUpdated: &types.AttributeValueMemberN{
-			Value: strconv.FormatInt(record.LastUpdated, 10),
+		ddbconstant.ChainStatusFieldDisabled: &types.AttributeValueMemberBOOL{
+			Value: record.Disabled,
+		},
+		ddbconstant.ChainStatusFieldLastUpdated: &types.AttributeValueMemberN{
+			Value: strconv.FormatInt(record.LastUpdated.Unix(), 10),
 		},
 	}
 
 	return item, nil
 }
 
-// FromItem converts a DynamoDB item to a CheckpointRecord.
-func (dto *CheckpointDTO) FromItem(item map[string]types.AttributeValue) (*CheckpointRecord, error) {
+// FromItem converts a DynamoDB item to a ChainStatusRecord.
+func (dto *ChainStatusDTO) FromItem(item map[string]types.AttributeValue) (*ChainStatusRecord, error) {
 	if item == nil {
 		return nil, fmt.Errorf("item cannot be nil")
 	}
 
 	// Extract ClientID
-	clientIDAttr, ok := item[ddbconstant.CheckpointFieldClientID].(*types.AttributeValueMemberS)
+	clientIDAttr, ok := item[ddbconstant.ChainStatusFieldClientID].(*types.AttributeValueMemberS)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.CheckpointFieldClientID)
+		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.ChainStatusFieldClientID)
 	}
 
 	// Extract ChainSelector
-	chainSelectorAttr, ok := item[ddbconstant.CheckpointFieldChainSelector].(*types.AttributeValueMemberN)
+	chainSelectorAttr, ok := item[ddbconstant.ChainStatusFieldChainSelector].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.CheckpointFieldChainSelector)
+		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.ChainStatusFieldChainSelector)
 	}
 	chainSelector, err := strconv.ParseUint(chainSelectorAttr.Value, 10, 64)
 	if err != nil {
@@ -85,9 +91,9 @@ func (dto *CheckpointDTO) FromItem(item map[string]types.AttributeValue) (*Check
 	}
 
 	// Extract FinalizedBlockHeight
-	blockHeightAttr, ok := item[ddbconstant.CheckpointFieldFinalizedBlockHeight].(*types.AttributeValueMemberN)
+	blockHeightAttr, ok := item[ddbconstant.ChainStatusFieldFinalizedBlockHeight].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.CheckpointFieldFinalizedBlockHeight)
+		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.ChainStatusFieldFinalizedBlockHeight)
 	}
 	blockHeight, err := strconv.ParseUint(blockHeightAttr.Value, 10, 64)
 	if err != nil {
@@ -95,42 +101,54 @@ func (dto *CheckpointDTO) FromItem(item map[string]types.AttributeValue) (*Check
 	}
 
 	// Extract LastUpdated
-	lastUpdatedAttr, ok := item[ddbconstant.CheckpointFieldLastUpdated].(*types.AttributeValueMemberN)
+	lastUpdatedAttr, ok := item[ddbconstant.ChainStatusFieldLastUpdated].(*types.AttributeValueMemberN)
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.CheckpointFieldLastUpdated)
+		return nil, fmt.Errorf("missing or invalid %s field", ddbconstant.ChainStatusFieldLastUpdated)
 	}
 	lastUpdated, err := strconv.ParseInt(lastUpdatedAttr.Value, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse last updated: %w", err)
 	}
 
-	return &CheckpointRecord{
+	disabled := false
+	if disabledAttr, exists := item[ddbconstant.ChainStatusFieldDisabled]; exists {
+		if disabledBool, ok := disabledAttr.(*types.AttributeValueMemberBOOL); ok {
+			disabled = disabledBool.Value
+		}
+	}
+
+	return &ChainStatusRecord{
 		ClientID:             clientIDAttr.Value,
 		ChainSelector:        chainSelector,
 		FinalizedBlockHeight: blockHeight,
-		LastUpdated:          lastUpdated,
+		Disabled:             disabled,
+		LastUpdated:          time.Unix(lastUpdated, 0),
 	}, nil
 }
 
-// ToChainStatusMap converts a slice of CheckpointRecord to the format expected by ChainStatusStorageInterface.
-func (dto *CheckpointDTO) ToChainStatusMap(records []*CheckpointRecord) map[uint64]uint64 {
-	result := make(map[uint64]uint64, len(records))
+// ToChainStatusMap converts a slice of ChainStatusRecord to the format expected by ChainStatusStorageInterface.
+func (dto *ChainStatusDTO) ToChainStatusMap(records []*ChainStatusRecord) map[uint64]*common.ChainStatus {
+	result := make(map[uint64]*common.ChainStatus, len(records))
 	for _, record := range records {
-		result[record.ChainSelector] = record.FinalizedBlockHeight
+		result[record.ChainSelector] = &common.ChainStatus{
+			FinalizedBlockHeight: record.FinalizedBlockHeight,
+			Disabled:             record.Disabled,
+		}
 	}
 	return result
 }
 
-// FromChainStatusMap converts the ChainStatusStorageInterface format to CheckpointRecord slice.
-func (dto *CheckpointDTO) FromChainStatusMap(clientID string, checkpoints map[uint64]uint64) []*CheckpointRecord {
-	result := make([]*CheckpointRecord, 0, len(checkpoints))
-	now := time.Now().Unix()
+// FromChainStatusMap converts the ChainStatusStorageInterface format to ChainStatusRecord slice.
+func (dto *ChainStatusDTO) FromChainStatusMap(clientID string, chainStatuses map[uint64]*common.ChainStatus) []*ChainStatusRecord {
+	result := make([]*ChainStatusRecord, 0, len(chainStatuses))
+	now := time.Now()
 
-	for chainSelector, blockHeight := range checkpoints {
-		result = append(result, &CheckpointRecord{
+	for chainSelector, chainStatus := range chainStatuses {
+		result = append(result, &ChainStatusRecord{
 			ClientID:             clientID,
 			ChainSelector:        chainSelector,
-			FinalizedBlockHeight: blockHeight,
+			FinalizedBlockHeight: chainStatus.FinalizedBlockHeight,
+			Disabled:             chainStatus.Disabled,
 			LastUpdated:          now,
 		})
 	}

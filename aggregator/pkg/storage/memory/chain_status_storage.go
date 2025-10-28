@@ -23,7 +23,7 @@ var _ common.ChainStatusStorageInterface = (*ChainStatusStorage)(nil)
 // ClientChainStatus holds chain status data for a single client with thread-safe access.
 type ClientChainStatus struct {
 	lastUpdated time.Time
-	statuses    map[uint64]uint64 // chain_selector -> finalized_block_height
+	statuses    map[uint64]*common.ChainStatus // chain_selector -> ChainStatus
 	mu          sync.RWMutex
 }
 
@@ -37,14 +37,14 @@ func NewChainStatusStorage() *ChainStatusStorage {
 // NewClientChainStatus creates a new instance of ClientChainStatus.
 func NewClientChainStatus() *ClientChainStatus {
 	return &ClientChainStatus{
-		statuses: make(map[uint64]uint64),
+		statuses: make(map[uint64]*common.ChainStatus),
 	}
 }
 
 // StoreChainStatus stores a batch of statuses for a client atomically.
 // If the client doesn't exist, it will be created.
 // Existing statuses for the same chain_selector will be overridden.
-func (s *ChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, statuses map[uint64]uint64) error {
+func (s *ChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, statuses map[uint64]*common.ChainStatus) error {
 	if err := validateStoreChainStatusInput(clientID, statuses); err != nil {
 		return err
 	}
@@ -64,41 +64,41 @@ func (s *ChainStatusStorage) StoreChainStatus(ctx context.Context, clientID stri
 
 // GetClientChainStatus retrieves all statuses for a client.
 // Returns an empty map if the client has no statuses.
-func (s *ChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]uint64, error) {
+func (s *ChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*common.ChainStatus, error) {
 	value, exists := s.clientData.Load(clientID)
 	if !exists {
-		return make(map[uint64]uint64), nil
+		return make(map[uint64]*common.ChainStatus), nil
 	}
 
 	clientStore, ok := value.(*ClientChainStatus)
 	if !ok {
-		return make(map[uint64]uint64), nil
+		return make(map[uint64]*common.ChainStatus), nil
 	}
 	return clientStore.GetChainStatus(ctx), nil
 }
 
 // StoreChainStatus stores statuses for this client atomically.
-func (c *ClientChainStatus) StoreChainStatus(ctx context.Context, statuses map[uint64]uint64) {
+func (c *ClientChainStatus) StoreChainStatus(ctx context.Context, statuses map[uint64]*common.ChainStatus) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Store all statuses (overriding existing ones)
-	for chainSelector, blockHeight := range statuses {
-		c.statuses[chainSelector] = blockHeight
+	for chainSelector, chainStatus := range statuses {
+		c.statuses[chainSelector] = chainStatus
 	}
 
 	c.lastUpdated = time.Now()
 }
 
 // GetChainStatus returns a copy of all statuses for this client.
-func (c *ClientChainStatus) GetChainStatus(ctx context.Context) map[uint64]uint64 {
+func (c *ClientChainStatus) GetChainStatus(ctx context.Context) map[uint64]*common.ChainStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	// Return a copy to prevent concurrent modification
-	result := make(map[uint64]uint64, len(c.statuses))
-	for chainSelector, blockHeight := range c.statuses {
-		result[chainSelector] = blockHeight
+	result := make(map[uint64]*common.ChainStatus, len(c.statuses))
+	for chainSelector, chainStatus := range c.statuses {
+		result[chainSelector] = chainStatus
 	}
 
 	return result
@@ -113,7 +113,7 @@ func (c *ClientChainStatus) GetLastUpdated() time.Time {
 }
 
 // validateStoreChainStatusInput validates the input parameters for StoreChainStatus.
-func validateStoreChainStatusInput(clientID string, statuses map[uint64]uint64) error {
+func validateStoreChainStatusInput(clientID string, statuses map[uint64]*common.ChainStatus) error {
 	if strings.TrimSpace(clientID) == "" {
 		return errors.New("client ID cannot be empty")
 	}
@@ -122,12 +122,15 @@ func validateStoreChainStatusInput(clientID string, statuses map[uint64]uint64) 
 		return errors.New("statuses cannot be nil")
 	}
 
-	// Validate each checkpoint
-	for chainSelector, blockHeight := range statuses {
+	// Validate each status
+	for chainSelector, chainStatus := range statuses {
 		if chainSelector == 0 {
 			return errors.New("chain_selector must be greater than 0")
 		}
-		if blockHeight == 0 {
+		if chainStatus == nil {
+			return errors.New("chain status cannot be nil")
+		}
+		if chainStatus.FinalizedBlockHeight == 0 {
 			return errors.New("finalized_block_height must be greater than 0")
 		}
 	}

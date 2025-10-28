@@ -89,21 +89,22 @@ const (
 	GSIPendingAggregationIndex = "PendingAggregation-Index"
 )
 
-// Checkpoint Storage Constants.
+// Chain Status Storage Constants.
 const (
-	CheckpointFieldClientID             = "ClientID"
-	CheckpointFieldChainSelector        = "ChainSelector"
-	CheckpointFieldFinalizedBlockHeight = "FinalizedBlockHeight"
-	CheckpointFieldLastUpdated          = "LastUpdated"
+	ChainStatusFieldClientID             = "ClientID"
+	ChainStatusFieldChainSelector        = "ChainSelector"
+	ChainStatusFieldFinalizedBlockHeight = "FinalizedBlockHeight"
+	ChainStatusFieldDisabled             = "Disabled"
+	ChainStatusFieldLastUpdated          = "LastUpdated"
 )
 
 const (
-	QueryCheckpointsByClient = CheckpointFieldClientID + " = :client_id"
-	QueryAllCheckpoints      = "scan"
+	QueryChainStatusesByClient = ChainStatusFieldClientID + " = :client_id"
+	QueryAllChainStatuses      = "scan"
 )
 
 const (
-	ConditionPreventDuplicateCheckpoint = "attribute_not_exists(" + CheckpointFieldClientID + ") AND attribute_not_exists(" + CheckpointFieldChainSelector + ")"
+	ConditionPreventDuplicateChainStatus = "attribute_not_exists(" + ChainStatusFieldClientID + ") AND attribute_not_exists(" + ChainStatusFieldChainSelector + ")"
 )
 
 // Orphan Recovery Helper Functions

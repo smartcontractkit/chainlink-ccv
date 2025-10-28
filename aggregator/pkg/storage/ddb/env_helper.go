@@ -21,7 +21,7 @@ import (
 const (
 	TestCommitVerificationRecordTableName = "commit_verification_records_test"
 	TestFinalizedFeedTableName            = "finalized_feed_test"
-	TestChainStatusTableName               = "chain_status_storage_test"
+	TestChainStatusTableName              = "chain_status_storage_test"
 )
 
 // CreateFinalizedFeedTable creates the FinalizedFeed table for storing aggregated reports.
@@ -140,28 +140,28 @@ func CreateCommitVerificationRecordsTable(ctx context.Context, client *dynamodb.
 	return err
 }
 
-// CreateChainStatusTable creates the DynamoDB table for checkpoint storage.
+// CreateChainStatusTable creates the DynamoDB table for chain status storage.
 // This function is intended for test environments and development setup.
 func CreateChainStatusTable(ctx context.Context, client *dynamodb.Client, tableName string) error {
 	input := &dynamodb.CreateTableInput{
 		TableName: &tableName,
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(ddbconstant.CheckpointFieldClientID), // Partition Key: ClientID
+				AttributeName: aws.String(ddbconstant.ChainStatusFieldClientID), // Partition Key: ClientID
 				KeyType:       types.KeyTypeHash,
 			},
 			{
-				AttributeName: aws.String(ddbconstant.CheckpointFieldChainSelector), // Sort Key: ChainSelector
+				AttributeName: aws.String(ddbconstant.ChainStatusFieldChainSelector), // Sort Key: ChainSelector
 				KeyType:       types.KeyTypeRange,
 			},
 		},
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
-				AttributeName: aws.String(ddbconstant.CheckpointFieldClientID),
+				AttributeName: aws.String(ddbconstant.ChainStatusFieldClientID),
 				AttributeType: types.ScalarAttributeTypeS, // String
 			},
 			{
-				AttributeName: aws.String(ddbconstant.CheckpointFieldChainSelector),
+				AttributeName: aws.String(ddbconstant.ChainStatusFieldChainSelector),
 				AttributeType: types.ScalarAttributeTypeN, // Number
 			},
 		},
@@ -172,7 +172,7 @@ func CreateChainStatusTable(ctx context.Context, client *dynamodb.Client, tableN
 	return err
 }
 
-// SetupTestDynamoDB creates a test DynamoDB container and client for checkpoint tests.
+// SetupTestDynamoDB creates a test DynamoDB container and client for chain status tests.
 func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 	// We retry the setup a few times to avoid transient issues with container startup.
 	// This is especially useful in CI environments when port collisions can occur.
@@ -215,7 +215,7 @@ func SetupTestDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 			o.BaseEndpoint = aws.String("http://" + connectionString)
 		})
 
-		// Create the checkpoint table
+		// Create the chain status table
 		err = CreateChainStatusTable(ctx, client, TestChainStatusTableName)
 		if err != nil {
 			cleanup()
