@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -32,6 +33,7 @@ const (
 // SourceReaderService implements SourceReader for reading CCIPMessageSent events from blockchain.
 type SourceReaderService struct {
 	sourceReader         SourceReader
+	headTracker          chainaccess.HeadTracker
 	logger               logger.Logger
 	lastProcessedBlock   *big.Int
 	verificationTaskCh   chan batcher.BatchResult[VerificationTask]
@@ -71,6 +73,7 @@ func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
 // NewSourceReaderService creates a new blockchain-based source reader.
 func NewSourceReaderService(
 	sourceReader SourceReader,
+	headTracker chainaccess.HeadTracker,
 	chainSelector protocol.ChainSelector,
 	checkpointManager protocol.CheckpointManager,
 	logger logger.Logger,
@@ -79,6 +82,7 @@ func NewSourceReaderService(
 ) *SourceReaderService {
 	s := &SourceReaderService{
 		sourceReader:         sourceReader,
+		headTracker:          headTracker,
 		logger:               logger,
 		verificationTaskCh:   make(chan batcher.BatchResult[VerificationTask], 1),
 		stopCh:               make(chan struct{}),
@@ -235,7 +239,7 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, _, err := r.sourceReader.LatestAndFinalizedBlock(testCtx)
+	_, _, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
 		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
 		return fmt.Errorf("connectivity test failed: %w", err)
@@ -283,7 +287,7 @@ func (r *SourceReaderService) readCheckpointWithRetries(ctx context.Context, max
 
 // calculateBlockFromHoursAgo calculates the block number from the specified hours ago.
 func (r *SourceReaderService) calculateBlockFromHoursAgo(ctx context.Context, lookbackHours uint64) (*big.Int, error) {
-	latest, _, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
+	latest, _, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest block: %w", err)
 	}
@@ -392,7 +396,7 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 // calculateCheckpointBlock determines the safe checkpoint block (finalized - buffer).
 // Takes lastProcessedBlock as parameter to avoid races with concurrent updates.
 func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context, lastProcessed *big.Int) (*big.Int, error) {
-	_, finalizedHeader, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
+	_, finalizedHeader, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
@@ -556,7 +560,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	// Get current block (potentially slow RPC call - no locks held)
 	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	latest, _, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
+	latest, _, err := r.headTracker.LatestAndFinalizedBlock(blockCtx)
 	cancel()
 
 	if err != nil {
@@ -669,4 +673,9 @@ func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
 
 func (r *SourceReaderService) GetSourceReader() SourceReader {
 	return r.sourceReader
+}
+
+// GetHeadTracker returns the injected HeadTracker.
+func (r *SourceReaderService) GetHeadTracker() chainaccess.HeadTracker {
+	return r.headTracker
 }

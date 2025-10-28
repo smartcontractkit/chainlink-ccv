@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -20,13 +21,21 @@ import (
 
 type EVMSourceReader struct {
 	chainClient          client.Client
+	headTracker          chainaccess.HeadTracker
 	contractAddress      common.Address
 	ccipMessageSentTopic string
 	chainSelector        protocol.ChainSelector
 	lggr                 logger.Logger
 }
 
-func NewEVMSourceReader(chainClient client.Client, contractAddress common.Address, ccipMessageSentTopic string, chainSelector protocol.ChainSelector, lggr logger.Logger) (verifiertypes.SourceReader, error) {
+func NewEVMSourceReader(
+	chainClient client.Client,
+	headTracker chainaccess.HeadTracker,
+	contractAddress common.Address,
+	ccipMessageSentTopic string,
+	chainSelector protocol.ChainSelector,
+	lggr logger.Logger,
+) (verifiertypes.SourceReader, error) {
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {
 		if field == nil {
@@ -35,6 +44,7 @@ func NewEVMSourceReader(chainClient client.Client, contractAddress common.Addres
 	}
 
 	appendIfNil(chainClient, "chainClient")
+	appendIfNil(headTracker, "headTracker")
 	appendIfNil(lggr, "logger")
 
 	if contractAddress == (common.Address{}) {
@@ -53,6 +63,7 @@ func NewEVMSourceReader(chainClient client.Client, contractAddress common.Addres
 
 	return &EVMSourceReader{
 		chainClient:          chainClient,
+		headTracker:          headTracker,
 		contractAddress:      contractAddress,
 		ccipMessageSentTopic: ccipMessageSentTopic,
 		chainSelector:        chainSelector,
@@ -62,75 +73,67 @@ func NewEVMSourceReader(chainClient client.Client, contractAddress common.Addres
 
 // GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
 func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+	// Get current finalized block to populate FinalizedBlockNumber field
+	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get finalized block: %w", err)
+	}
+
+	// If safe block not supported, safeBlockNum remains 0
+
 	headers := make(map[*big.Int]protocol.BlockHeader)
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get block %s: %w", blockNumber.String(), err)
 		}
 		if header.Number < 0 {
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 		}
 		headers[blockNumber] = protocol.BlockHeader{
-			Number:     uint64(header.Number),
-			Hash:       protocol.Bytes32(header.Hash),
-			ParentHash: protocol.Bytes32(header.ParentHash),
-			Timestamp:  header.Timestamp,
+			Number:               uint64(header.Number),
+			Hash:                 protocol.Bytes32(header.Hash),
+			ParentHash:           protocol.Bytes32(header.ParentHash),
+			Timestamp:            header.Timestamp,
+			FinalizedBlockNumber: finalized.Number,
 		}
 	}
 	return headers, nil
 }
 
-// SubscribeNewHeads TODO: Update internal latestBlock and latestFinalizedBlock on new head subscription?
-func (r *EVMSourceReader) SubscribeNewHeads(ctx context.Context) (<-chan *protocol.BlockHeader, error) {
-	heads, _, err := r.chainClient.SubscribeToHeads(ctx)
+// GetBlockHeaderByHash returns a block header by its hash.
+// Required for walking back parent chain during LCA finding in reorg detection.
+func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error) {
+	// Get current finalized block to populate FinalizedBlockNumber field
+	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
-		return nil, err
-	}
-	headers := make(chan *protocol.BlockHeader)
-	go func() {
-		for head := range heads {
-			// Skip blocks with negative numbers or timestamps (should not happen in practice)
-			if head.Number < 0 {
-				r.lggr.Errorw("Received block with negative number", "number", head.Number)
-				continue
-			}
-			headers <- &protocol.BlockHeader{
-				Number:     uint64(head.Number),
-				Hash:       protocol.Bytes32(head.Hash),
-				ParentHash: protocol.Bytes32(head.ParentHash),
-				Timestamp:  head.Timestamp,
-			}
-		}
-	}()
-	return headers, nil
-}
-
-// LatestBlockHeight returns the latest block height from the chain client.
-func (r *EVMSourceReader) LatestBlockHeight(ctx context.Context) (*big.Int, error) {
-	if r.chainClient == nil {
-		return nil, fmt.Errorf("chain client not configured")
-	}
-	return r.chainClient.LatestBlockHeight(ctx)
-}
-
-// LatestFinalizedBlockHeight returns the latest finalized block height from the chain client.
-func (r *EVMSourceReader) LatestFinalizedBlockHeight(ctx context.Context) (*big.Int, error) {
-	if r.chainClient == nil {
-		return nil, fmt.Errorf("chain client not configured")
+		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
 
-	// Try to get finalized block using the client's finalized block method
-	head, err := r.chainClient.LatestFinalizedBlock(ctx)
+	// Convert protocol.Bytes32 to common.Hash
+	var ethHash common.Hash
+	copy(ethHash[:], hash[:])
+
+	header, err := r.chainClient.HeadByHash(ctx, ethHash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest finalized block: %w", err)
+		return nil, fmt.Errorf("failed to get block by hash %s: %w", ethHash.Hex(), err)
 	}
 
-	if head == nil {
-		return nil, fmt.Errorf("finalized block head is nil")
+	if header == nil {
+		return nil, nil // Block not found
 	}
 
-	return big.NewInt(head.Number), nil
+	if header.Number < 0 {
+		return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
+	}
+
+	return &protocol.BlockHeader{
+		Number:               uint64(header.Number),
+		Hash:                 protocol.Bytes32(header.Hash),
+		ParentHash:           protocol.Bytes32(header.ParentHash),
+		Timestamp:            header.Timestamp,
+		FinalizedBlockNumber: finalized.Number,
+	}, nil
 }
 
 // BlockTime returns the timestamp of a given block.

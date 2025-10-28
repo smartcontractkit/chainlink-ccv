@@ -12,7 +12,6 @@ type BlockHeader struct {
 	ParentHash           Bytes32
 	Timestamp            time.Time
 	FinalizedBlockNumber uint64 // Latest finalized block at time of this block
-	SafeBlockNumber      uint64 // Latest safe block at time of this block (optional, 0 if not supported)
 }
 
 // ChainTail stores an ordered slice of block headers from stable tip to latest tip.
