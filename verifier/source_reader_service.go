@@ -559,7 +559,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	}
 
 	// Only query if there are new blocks
-	if fromBlock.Cmp(currentBlock) > 0 {
+	if fromBlock.Cmp(currentBlock) >= 0 {
 		r.logger.Debugw("🔍 No new blocks to process", "fromBlock", fromBlock.String(),
 			"currentBlock", currentBlock.String())
 		return
