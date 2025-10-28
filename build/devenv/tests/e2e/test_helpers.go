@@ -82,8 +82,9 @@ type AssertionResult struct {
 }
 
 type AssertMessageOptions struct {
-	TickInterval time.Duration
-	Timeout      time.Duration
+	TickInterval            time.Duration
+	Timeout                 time.Duration
+	ExpectedVerifierResults int
 }
 
 func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOptions) (AssertionResult, error) {
@@ -127,7 +128,8 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	indexedVerifications, err := tc.IndexerClient.WaitForVerificationsForMessageID(
 		ctx,
 		messageID,
-		opts.TickInterval)
+		opts.TickInterval,
+		opts.ExpectedVerifierResults)
 	if err != nil {
 		return result, fmt.Errorf("indexer check failed: %w", err)
 	}

@@ -11,7 +11,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/utils"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
@@ -48,7 +47,11 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 }
 
 // SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask verifier.VerificationTask, sourceVerifierAddress protocol.UnknownAddress) ([]byte, error) {
+func (ecdsa *ECDSASigner) SignMessage(
+	ctx context.Context,
+	verificationTask verifier.VerificationTask,
+	sourceVerifierAddress protocol.UnknownAddress,
+	defaultExecutorOnRampAddress protocol.UnknownAddress) ([]byte, error) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
@@ -56,9 +59,26 @@ func (ecdsa *ECDSASigner) SignMessage(ctx context.Context, verificationTask veri
 		return nil, fmt.Errorf("failed to compute message ID: %w", err)
 	}
 
-	_, err = utils.FindVerifierIndexBySourceAddress(&verificationTask, sourceVerifierAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find verifier index: %w", err)
+	// TODO: this is the third place we do this kind of check, seems misplaced.
+	var (
+		foundVerifier        = false
+		foundDefaultExecutor = false
+	)
+	for _, receipt := range verificationTask.ReceiptBlobs {
+		if receipt.Issuer.String() == sourceVerifierAddress.String() {
+			foundVerifier = true
+		}
+		if receipt.Issuer.String() == defaultExecutorOnRampAddress.String() {
+			foundDefaultExecutor = true
+		}
+	}
+	if !foundVerifier && !foundDefaultExecutor {
+		return nil, fmt.Errorf(
+			"neither verifier (%s) nor default executor (%s) found as issuer in ReceiptBlobs (%+v)",
+			sourceVerifierAddress.String(),
+			defaultExecutorOnRampAddress.String(),
+			verificationTask.ReceiptBlobs,
+		)
 	}
 
 	// 3. Sign the signature hash with v=27 normalization
