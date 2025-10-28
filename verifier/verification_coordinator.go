@@ -672,18 +672,19 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	var readyTasks []VerificationTask
 	var remainingTasks []VerificationTask
 
-	// Get latest and finalized block heights for this chain
-	latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
+	// Get latest and finalized block headers for this chain
+	latest, finalized, err := state.reader.GetSourceReader().LatestAndFinalizedBlock(ctx)
 	if err != nil {
-		vc.lggr.Errorw("Failed to get latest block", "error", err, "chain", chainSelector)
+		vc.lggr.Errorw("Failed to get latest and finalized blocks", "error", err, "chain", chainSelector)
+		return
+	}
+	if latest == nil || finalized == nil {
+		vc.lggr.Errorw("Received nil block headers", "chain", chainSelector)
 		return
 	}
 
-	latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
-	if err != nil {
-		vc.lggr.Errorw("Failed to get latest finalized block", "error", err, "chain", chainSelector)
-		return
-	}
+	latestBlock := new(big.Int).SetUint64(latest.Number)
+	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
 
 	// Record chain state metrics
 	vc.monitoring.Metrics().

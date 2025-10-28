@@ -7,10 +7,12 @@ import (
 
 // BlockHeader represents blockchain block header metadata.
 type BlockHeader struct {
-	Number     uint64
-	Hash       Bytes32
-	ParentHash Bytes32
-	Timestamp  time.Time
+	Number               uint64
+	Hash                 Bytes32
+	ParentHash           Bytes32
+	Timestamp            time.Time
+	FinalizedBlockNumber uint64 // Latest finalized block at time of this block
+	SafeBlockNumber      uint64 // Latest safe block at time of this block (optional, 0 if not supported)
 }
 
 // ChainTail stores an ordered slice of block headers from stable tip to latest tip.

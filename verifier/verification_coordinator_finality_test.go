@@ -238,12 +238,26 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockSourceReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
-	mockSourceReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).RunAndReturn(func(ctx context.Context) (*big.Int, error) {
-		// Return a copy with proper synchronization to avoid data races
+	mockSourceReader.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+		// Return latest and finalized headers with proper synchronization
 		finalizedBlockMu.RLock()
 		defer finalizedBlockMu.RUnlock()
-		return new(big.Int).Set(currentFinalizedBlock), nil
+
+		latest := &protocol.BlockHeader{
+			Number:               InitialLatestBlock,
+			Hash:                 protocol.Bytes32{byte(InitialLatestBlock % 256)},
+			ParentHash:           protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
+			Timestamp:            time.Now(),
+			FinalizedBlockNumber: currentFinalizedBlock.Uint64(),
+		}
+		finalized := &protocol.BlockHeader{
+			Number:               currentFinalizedBlock.Uint64(),
+			Hash:                 protocol.Bytes32{byte(currentFinalizedBlock.Uint64() % 256)},
+			ParentHash:           protocol.Bytes32{byte((currentFinalizedBlock.Uint64() - 1) % 256)},
+			Timestamp:            time.Now(),
+			FinalizedBlockNumber: currentFinalizedBlock.Uint64(),
+		}
+		return latest, finalized, nil
 	}).Maybe()
 
 	config := verifier.CoordinatorConfig{

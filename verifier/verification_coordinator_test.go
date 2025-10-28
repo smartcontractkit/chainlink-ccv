@@ -59,9 +59,22 @@ func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
 	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
 
-	// Add missing LatestBlockHeight expectation to prevent timeout
-	mockReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(latestBlockHeight), nil).Maybe()
-	mockReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).Return(big.NewInt(finalizedBlockHeight), nil).Maybe()
+	// Add missing LatestAndFinalizedBlock expectation to prevent timeout
+	latestHeader := &protocol.BlockHeader{
+		Number:               latestBlockHeight,
+		Hash:                 protocol.Bytes32{byte(latestBlockHeight % 256)},
+		ParentHash:           protocol.Bytes32{byte((latestBlockHeight - 1) % 256)},
+		Timestamp:            time.Now(),
+		FinalizedBlockNumber: finalizedBlockHeight,
+	}
+	finalizedHeader := &protocol.BlockHeader{
+		Number:               finalizedBlockHeight,
+		Hash:                 protocol.Bytes32{byte(finalizedBlockHeight % 256)},
+		ParentHash:           protocol.Bytes32{byte((finalizedBlockHeight - 1) % 256)},
+		Timestamp:            time.Now(),
+		FinalizedBlockNumber: finalizedBlockHeight,
+	}
+	mockReader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latestHeader, finalizedHeader, nil).Maybe()
 
 	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
 

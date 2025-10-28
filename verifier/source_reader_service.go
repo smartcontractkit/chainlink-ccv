@@ -235,7 +235,7 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := r.sourceReader.LatestBlockHeight(testCtx)
+	_, _, err := r.sourceReader.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
 		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
 		return fmt.Errorf("connectivity test failed: %w", err)
@@ -283,10 +283,14 @@ func (r *SourceReaderService) readCheckpointWithRetries(ctx context.Context, max
 
 // calculateBlockFromHoursAgo calculates the block number from the specified hours ago.
 func (r *SourceReaderService) calculateBlockFromHoursAgo(ctx context.Context, lookbackHours uint64) (*big.Int, error) {
-	currentBlock, err := r.sourceReader.LatestBlockHeight(ctx)
+	latest, _, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current block height: %w", err)
+		return nil, fmt.Errorf("failed to get latest block: %w", err)
 	}
+	if latest == nil {
+		return nil, fmt.Errorf("latest block is nil")
+	}
+	currentBlock := new(big.Int).SetUint64(latest.Number)
 
 	// Try to sample recent blocks to estimate block time
 	sampleSize := int64(2)
@@ -388,10 +392,14 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 // calculateCheckpointBlock determines the safe checkpoint block (finalized - buffer).
 // Takes lastProcessedBlock as parameter to avoid races with concurrent updates.
 func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context, lastProcessed *big.Int) (*big.Int, error) {
-	finalized, err := r.sourceReader.LatestFinalizedBlockHeight(ctx)
+	_, finalizedHeader, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
+	if finalizedHeader == nil {
+		return nil, fmt.Errorf("finalized block is nil")
+	}
+	finalized := new(big.Int).SetUint64(finalizedHeader.Number)
 
 	checkpointBlock := new(big.Int).Sub(finalized, big.NewInt(CheckpointBufferBlocks))
 
@@ -548,7 +556,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	// Get current block (potentially slow RPC call - no locks held)
 	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	currentBlock, err := r.sourceReader.LatestBlockHeight(blockCtx)
+	latest, _, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
 	cancel()
 
 	if err != nil {
@@ -557,6 +565,13 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		r.sendBatchError(ctx, fmt.Errorf("failed to get latest block: %w", err))
 		return
 	}
+	if latest == nil {
+		r.logger.Errorw("⚠️ Latest block is nil")
+		r.sendBatchError(ctx, fmt.Errorf("latest block is nil"))
+		return
+	}
+
+	currentBlock := new(big.Int).SetUint64(latest.Number)
 
 	// Only query if there are new blocks
 	if fromBlock.Cmp(currentBlock) > 0 {
