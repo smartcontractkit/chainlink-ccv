@@ -225,8 +225,9 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 
 				result, err := tc.AssertMessage(msg.MessageID, AssertMessageOptions{
-					TickInterval: 2 * time.Second,
-					Timeout:      1 * time.Minute,
+					TickInterval:            2 * time.Second,
+					Timeout:                 1 * time.Minute,
+					ExpectedVerifierResults: 1,
 				})
 
 				countMu.Lock()

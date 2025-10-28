@@ -629,16 +629,13 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		return cciptestinterfaces.SendMessageResult{}, fmt.Errorf("failed to get dest chain config: %w", err)
 	}
 
-	var result = cciptestinterfaces.SendMessageResult{
+	result := cciptestinterfaces.SendMessageResult{
 		MessageID:      messageID,
 		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(receipts)),
-		VerifierBlobs:  make([][]byte, 0, len(verifierBlobs)),
+		VerifierBlobs:  verifierBlobs,
 	}
 	for _, receipt := range receipts {
 		result.ReceiptIssuers = append(result.ReceiptIssuers, protocol.UnknownAddress(receipt.Issuer.Bytes()))
-	}
-	for _, blob := range verifierBlobs {
-		result.VerifierBlobs = append(result.VerifierBlobs, blob)
 	}
 
 	l.Info().

@@ -12,7 +12,8 @@ import (
 func ValidateMessage(
 	verificationTask *verifier.VerificationTask,
 	verifierOnRampAddress protocol.UnknownAddress,
-	defaultExecutorOnRampAddress protocol.UnknownAddress) error {
+	defaultExecutorOnRampAddress protocol.UnknownAddress,
+) error {
 	if verificationTask == nil {
 		return fmt.Errorf("verification task is nil")
 	}

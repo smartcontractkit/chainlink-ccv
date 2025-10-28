@@ -51,7 +51,8 @@ func (ecdsa *ECDSASigner) SignMessage(
 	ctx context.Context,
 	verificationTask verifier.VerificationTask,
 	sourceVerifierAddress protocol.UnknownAddress,
-	defaultExecutorOnRampAddress protocol.UnknownAddress) ([]byte, error) {
+	defaultExecutorOnRampAddress protocol.UnknownAddress,
+) ([]byte, error) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
