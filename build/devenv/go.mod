@@ -32,7 +32,7 @@ require (
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251027175634-5359f314eb16
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251028171604-3c9144b4db13
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 	google.golang.org/grpc v1.76.0
 )
