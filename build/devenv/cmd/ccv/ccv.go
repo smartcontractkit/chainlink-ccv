@@ -582,6 +582,7 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to get mock receiver address: %w", err)
 		}
 		// Use V3 if finality config is provided, otherwise use V2
+		var result cciptestinterfaces.SendMessageResult
 		if len(sels) == 3 {
 			// V3 format with finality config
 			finality, err := strconv.ParseUint(sels[2], 10, 32)
@@ -607,7 +608,7 @@ var sendCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to get executor address: %w", err)
 			}
-			result, err := impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
+			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
@@ -627,12 +628,9 @@ var sendCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to send message: %w", err)
 			}
-			ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
-			ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
-			return nil
 		} else {
 			// V2 format - use the dedicated V2 function
-			result, err := impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
+			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
@@ -643,10 +641,10 @@ var sendCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to send message: %w", err)
 			}
-			ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
-			ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
-			return nil
 		}
+		ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
+		ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
+		return nil
 	},
 }
 
