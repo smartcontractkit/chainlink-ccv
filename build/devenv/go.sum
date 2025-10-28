@@ -1024,8 +1024,8 @@ github.com/smartcontractkit/chainlink-deployments-framework v0.56.0 h1:VkzslEC/a
 github.com/smartcontractkit/chainlink-deployments-framework v0.56.0/go.mod h1:ObH5HJ4yXzTmQLc6Af+ufrTVcQ+ocasHJ0YBZjw5ZCM=
 github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3 h1:mJP6yJq2woOZchX0KvhLiKxDPaS0Vy4vTDFH4nnFkXs=
 github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3/go.mod h1:3Lsp38qxen9PABVF+O5eocveQev+hyo9HLAgRodBD4Q=
-github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251016184633-215666be5318 h1:UhLKFTtGLW9oFXrV1SR09D04siOEdMw0WvR/271Wy2I=
-github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251016184633-215666be5318/go.mod h1:HCZKKkwniOkfGfCA5vS8zXUojFBfVXx+EFCxQZd06Ms=
+github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251027175634-5359f314eb16 h1:Q/dZIPZeQ+TA4dv84H4sQ/VN9Ktuut7ARMVtgMbHevk=
+github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251027175634-5359f314eb16/go.mod h1:KJkb85Mfxr/2vjPvAWWpq0/QJMAP1Bts1wMWWhRn4/E=
 github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20250911124514-5874cc6d62b2 h1:1/KdO5AbUr3CmpLjMPuJXPo2wHMbfB8mldKLsg7D4M8=
 github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20250911124514-5874cc6d62b2/go.mod h1:jUC52kZzEnWF9tddHh85zolKybmLpbQ1oNA4FjOHt1Q=
 github.com/smartcontractkit/chainlink-protos/job-distributor v0.13.1 h1:PWwLGimBt37eDzpbfZ9V/ZkW4oCjcwKjKiAwKlSfPc0=

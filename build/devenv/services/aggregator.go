@@ -64,7 +64,7 @@ type AggregatorInput struct {
 type DynamoDBTablesConfig struct {
 	CommitVerificationRecords string `toml:"commit_verification_records"`
 	AggregatedReports         string `toml:"aggregated_reports"`
-	Checkpoints               string `toml:"checkpoints"`
+	ChainStatuses             string `toml:"chainStatuses"`
 }
 
 type AggregatorOutput struct {

@@ -7,4 +7,4 @@ packages:
     github.com/smartcontractkit/chainlink-ccv/verifier:
         interfaces:
             SourceReader:
-            CheckpointManager:
+            ChainStatusManager:

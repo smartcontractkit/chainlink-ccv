@@ -68,7 +68,7 @@ type contextCapturingHandler struct {
 
 func (h *contextCapturingHandler) Handle(ctx context.Context, req any) (any, error) {
 	h.capturedCtx = ctx //nolint:fatcontext // test helper needs to capture context for assertion
-	return &pb.ReadBlockCheckpointResponse{Checkpoints: []*pb.BlockCheckpoint{}}, nil
+	return &pb.ReadChainStatusResponse{Statuses: []*pb.ChainStatus{}}, nil
 }
 
 func TestHMACAuthMiddleware(t *testing.T) {
@@ -76,8 +76,8 @@ func TestHMACAuthMiddleware(t *testing.T) {
 	lggr := logger.Test(t)
 	middleware := NewHMACAuthMiddleware(config, lggr)
 
-	req := &pb.ReadBlockCheckpointRequest{}
-	method := "/Aggregator/ReadBlockCheckpoint"
+	req := &pb.ReadChainStatusRequest{}
+	method := "/Aggregator/ReadChainStatus"
 	info := &grpc.UnaryServerInfo{FullMethod: method}
 
 	tests := []struct {

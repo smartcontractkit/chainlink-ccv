@@ -110,45 +110,45 @@ func (s *MetricsAwareStorage) ListOrphanedMessageIDs(ctx context.Context, commit
 }
 
 const (
-	storeCheckpointsOp     = "StoreCheckpoints"
-	getClientCheckpointsOp = "GetClientCheckpoints"
-	getAllClientsOp        = "GetAllClients"
+	storeChainStatusesOp     = "StoreChainStatus"
+	getClientChainStatusesOp = "GetClientChainStatuses"
+	getAllClientsOp          = "GetAllClients"
 )
 
-type MetricsAwareCheckpointStorage struct {
-	inner common.CheckpointStorageInterface
+type MetricsAwareChainStatusStorage struct {
+	inner common.ChainStatusStorageInterface
 	m     common.AggregatorMonitoring
 }
 
-func NewMetricsAwareCheckpointStorage(inner common.CheckpointStorageInterface, m common.AggregatorMonitoring) *MetricsAwareCheckpointStorage {
-	return &MetricsAwareCheckpointStorage{
+func NewMetricsAwareChainStatusStorage(inner common.ChainStatusStorageInterface, m common.AggregatorMonitoring) *MetricsAwareChainStatusStorage {
+	return &MetricsAwareChainStatusStorage{
 		inner: inner,
 		m:     m,
 	}
 }
 
-func (s *MetricsAwareCheckpointStorage) metrics(ctx context.Context, operation string) common.AggregatorMetricLabeler {
+func (s *MetricsAwareChainStatusStorage) metrics(ctx context.Context, operation string) common.AggregatorMetricLabeler {
 	metrics := scope.AugmentMetrics(ctx, s.m.Metrics())
 	return metrics.With(operationLabel, operation)
 }
 
-func WrapCheckpointWithMetrics(inner common.CheckpointStorageInterface, m common.AggregatorMonitoring) common.CheckpointStorageInterface {
-	return NewMetricsAwareCheckpointStorage(inner, m)
+func WrapChainStatusWithMetrics(inner common.ChainStatusStorageInterface, m common.AggregatorMonitoring) common.ChainStatusStorageInterface {
+	return NewMetricsAwareChainStatusStorage(inner, m)
 }
 
-func (s *MetricsAwareCheckpointStorage) StoreCheckpoints(ctx context.Context, clientID string, checkpoints map[uint64]uint64) error {
-	return captureMetricsNoReturn(ctx, s.metrics(ctx, storeCheckpointsOp), func() error {
-		return s.inner.StoreCheckpoints(ctx, clientID, checkpoints)
+func (s *MetricsAwareChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, chainStatuses map[uint64]*common.ChainStatus) error {
+	return captureMetricsNoReturn(ctx, s.metrics(ctx, storeChainStatusesOp), func() error {
+		return s.inner.StoreChainStatus(ctx, clientID, chainStatuses)
 	})
 }
 
-func (s *MetricsAwareCheckpointStorage) GetClientCheckpoints(ctx context.Context, clientID string) (map[uint64]uint64, error) {
-	return captureMetrics(ctx, s.metrics(ctx, getClientCheckpointsOp), func() (map[uint64]uint64, error) {
-		return s.inner.GetClientCheckpoints(ctx, clientID)
+func (s *MetricsAwareChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*common.ChainStatus, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getClientChainStatusesOp), func() (map[uint64]*common.ChainStatus, error) {
+		return s.inner.GetClientChainStatus(ctx, clientID)
 	})
 }
 
-func (s *MetricsAwareCheckpointStorage) GetAllClients(ctx context.Context) ([]string, error) {
+func (s *MetricsAwareChainStatusStorage) GetAllClients(ctx context.Context) ([]string, error) {
 	return captureMetrics(ctx, s.metrics(ctx, getAllClientsOp), func() ([]string, error) {
 		return s.inner.GetAllClients(ctx)
 	})
