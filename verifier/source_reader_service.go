@@ -676,6 +676,6 @@ func (r *SourceReaderService) GetSourceReader() SourceReader {
 }
 
 // GetHeadTracker returns the injected HeadTracker.
-func (r *SourceReaderService) GetHeadTracker() chainaccess.HeadTracker {
-	return r.headTracker
+func (r *SourceReaderService) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+	return r.headTracker.LatestAndFinalizedBlock(ctx)
 }

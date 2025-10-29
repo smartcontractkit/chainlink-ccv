@@ -700,7 +700,7 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	var remainingTasks []VerificationTask
 
 	// Get latest and finalized block headers for this chain
-	latest, finalized, err := state.reader.GetHeadTracker().LatestAndFinalizedBlock(ctx)
+	latest, finalized, err := state.reader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		vc.lggr.Errorw("Failed to get latest and finalized blocks", "error", err, "chain", chainSelector)
 		return

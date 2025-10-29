@@ -208,7 +208,7 @@ func main() {
 		}
 
 		// Create mock head tracker for this chain
-		headTracker := newMockHeadTracker(chainClients[selector], lggr)
+		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr)
 
 		evmSourceReader, err := sourcereader.NewEVMSourceReader(
 			chainClients[selector],
