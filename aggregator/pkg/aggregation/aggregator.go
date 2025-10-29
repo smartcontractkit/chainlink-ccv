@@ -139,10 +139,17 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		lggr.Infow("Deduplicated verifications", "original", len(verifications), "deduplicated", len(dedupedVerifications))
 	}
 
+	winningReceiptBlobs, err := selectWinningReceiptBlobSet(dedupedVerifications)
+	if err != nil {
+		lggr.Errorw("Failed to select winning receipt blob set", "error", err)
+		return nil, err
+	}
+
 	aggregatedReport := &model.CommitAggregatedReport{
-		MessageID:     messageID,
-		CommitteeID:   committeeID,
-		Verifications: dedupedVerifications,
+		MessageID:           messageID,
+		CommitteeID:         committeeID,
+		Verifications:       dedupedVerifications,
+		WinningReceiptBlobs: winningReceiptBlobs,
 	}
 
 	mostRecentTimestamp := aggregatedReport.GetMostRecentVerificationTimestamp()

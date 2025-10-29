@@ -335,6 +335,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			car.committee_id,
 			car.created_at,
 			car.seq_num,
+			car.winning_receipt_blobs,
 			cvr.participant_id,
 			cvr.signer_address,
 			cvr.signature_r,
@@ -348,15 +349,16 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 	`
 
 	type joinedRecord struct {
-		MessageID     string         `db:"message_id"`
-		CommitteeID   string         `db:"committee_id"`
-		CreatedAt     time.Time      `db:"created_at"`
-		SeqNum        int64          `db:"seq_num"`
-		ParticipantID sql.NullString `db:"participant_id"`
-		SignerAddress sql.NullString `db:"signer_address"`
-		SignatureR    []byte         `db:"signature_r"`
-		SignatureS    []byte         `db:"signature_s"`
-		CCVNodeData   []byte         `db:"ccv_node_data"`
+		MessageID           string         `db:"message_id"`
+		CommitteeID         string         `db:"committee_id"`
+		CreatedAt           time.Time      `db:"created_at"`
+		SeqNum              int64          `db:"seq_num"`
+		WinningReceiptBlobs sql.NullString `db:"winning_receipt_blobs"`
+		ParticipantID       sql.NullString `db:"participant_id"`
+		SignerAddress       sql.NullString `db:"signer_address"`
+		SignatureR          []byte         `db:"signature_r"`
+		SignatureS          []byte         `db:"signature_s"`
+		CCVNodeData         []byte         `db:"ccv_node_data"`
 	}
 
 	rows, err := d.ds.QueryContext(ctx, stmt, committeeID, effectiveSequence)
@@ -378,6 +380,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			&record.CommitteeID,
 			&record.CreatedAt,
 			&record.SeqNum,
+			&record.WinningReceiptBlobs,
 			&record.ParticipantID,
 			&record.SignerAddress,
 			&record.SignatureR,
@@ -396,12 +399,23 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 				break
 			}
 
+			// Deserialize winning receipt blobs from JSON
+			var winningReceiptBlobs []*model.ReceiptBlob
+			if record.WinningReceiptBlobs.Valid && record.WinningReceiptBlobs.String != "" {
+				var err error
+				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(record.WinningReceiptBlobs.String))
+				if err != nil {
+					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
+				}
+			}
+
 			report = &model.CommitAggregatedReport{
-				MessageID:     common.Hex2Bytes(record.MessageID),
-				CommitteeID:   record.CommitteeID,
-				Verifications: []*model.CommitVerificationRecord{},
-				Sequence:      record.SeqNum,
-				WrittenAt:     record.CreatedAt.Unix(),
+				MessageID:           common.Hex2Bytes(record.MessageID),
+				CommitteeID:         record.CommitteeID,
+				Verifications:       []*model.CommitVerificationRecord{},
+				Sequence:            record.SeqNum,
+				WrittenAt:           record.CreatedAt.Unix(),
+				WinningReceiptBlobs: winningReceiptBlobs,
 			}
 			reportsMap[reportKey] = report
 			reportOrder = append(reportOrder, reportKey)
@@ -596,9 +610,20 @@ func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.Commit
 
 	reportData := []byte(fmt.Sprintf("verification_count:%d", len(report.Verifications)))
 
+	// Serialize winning receipt blobs using JSON for better debugging visibility
+	var winningReceiptBlobsData any
+	if len(report.WinningReceiptBlobs) > 0 {
+		jsonBytes, err := model.SerializeReceiptBlobsJSON(report.WinningReceiptBlobs)
+		if err != nil {
+			return fmt.Errorf("failed to serialize winning receipt blobs to JSON: %w", err)
+		}
+		// Convert to string for JSONB column
+		winningReceiptBlobsData = string(jsonBytes)
+	}
+
 	stmt := `INSERT INTO commit_aggregated_reports 
-		(message_id, committee_id, verification_record_ids, report_data) 
-		VALUES ($1, $2, $3, $4)
+		(message_id, committee_id, verification_record_ids, report_data, winning_receipt_blobs) 
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (message_id, committee_id, verification_record_ids) DO NOTHING`
 
 	result, err := d.ds.ExecContext(ctx, stmt,
@@ -606,6 +631,7 @@ func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.Commit
 		report.CommitteeID,
 		pq.Array(verificationRecordIDs),
 		reportData,
+		winningReceiptBlobsData,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to submit aggregated report: %w", err)
