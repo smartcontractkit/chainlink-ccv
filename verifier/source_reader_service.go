@@ -580,30 +580,29 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		return
 	}
 
-	// Skip sending if no tasks were found
-	if len(tasks) == 0 {
+	// Send batch if tasks were found
+	if len(tasks) > 0 {
+		// Send entire batch of tasks as BatchResult
+		batch := batcher.BatchResult[VerificationTask]{
+			Items: tasks,
+			Error: nil,
+		}
+
+		// Send to verification channel (blocking - backpressure)
+		select {
+		case r.verificationTaskCh <- batch:
+			r.logger.Infow("✅ Verification task batch sent to channel",
+				"batchSize", len(tasks),
+				"fromBlock", fromBlock.String(),
+				"toBlock", currentBlock.String())
+		case <-ctx.Done():
+			r.logger.Debugw("Context cancelled while sending batch")
+			return
+		}
+	} else {
 		r.logger.Debugw("🔍 No events found in range",
 			"fromBlock", fromBlock.String(),
 			"toBlock", currentBlock.String())
-		return
-	}
-
-	// Send entire batch of tasks as BatchResult
-	batch := batcher.BatchResult[VerificationTask]{
-		Items: tasks,
-		Error: nil,
-	}
-
-	// Send to verification channel (blocking - backpressure)
-	select {
-	case r.verificationTaskCh <- batch:
-		r.logger.Infow("✅ Verification task batch sent to channel",
-			"batchSize", len(tasks),
-			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
-	case <-ctx.Done():
-		r.logger.Debugw("Context cancelled while sending batch")
-		return
 	}
 
 	// Update processed block - but only if no reset occurred during our RPC calls.
@@ -634,7 +633,9 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		"fromBlock", fromBlock.String(),
 		"toBlock", currentBlock.String(),
 		"eventsFound", len(tasks))
-	r.logger.Debugw("Event details", "logs", tasks)
+	if len(tasks) > 0 {
+		r.logger.Debugw("Event details", "logs", tasks)
+	}
 }
 
 // sendBatchError sends a batch-level error to the coordinator.
