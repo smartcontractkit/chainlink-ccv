@@ -240,10 +240,20 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 	defer cancel()
 
 	// TODO: Use another method that uses the chainclient
-	_, _, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
+	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
 		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
 		return fmt.Errorf("connectivity test failed: %w", err)
+	}
+	if finalized == nil {
+		r.logger.Warnw("⚠️ Connectivity test failed: finalized block is nil")
+		return fmt.Errorf("connectivity test failed: finalized block is nil")
+	}
+
+	_, err = r.sourceReader.BlockTime(testCtx, big.NewInt(int64(finalized.Number)))
+	if err != nil {
+		r.logger.Warnw("⚠️ Connectivity test failed during BlockTime call", "error", err)
+		return fmt.Errorf("connectivity test failed during BlockTime call: %w", err)
 	}
 
 	return nil
