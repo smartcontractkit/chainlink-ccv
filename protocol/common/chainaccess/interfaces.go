@@ -7,8 +7,9 @@ import (
 )
 
 // HeadTracker provides access to the latest blockchain head information.
-// This interface is responsible for tracking the current, finalized, and safe block states. This should take into consideration finality tags where possible.
+// This interface is responsible for tracking the current and finalized block states. This should take into consideration finality tags where possible.
 //
+// The recommendation is to use HeadTracker implementations from each chain, e.g. chainlink-evm/pkg/heads.
 // Thread-safety: All methods must be safe for concurrent calls.
 type HeadTracker interface {
 	// LatestAndFinalizedBlock returns the latest and finalized block headers in a single call.

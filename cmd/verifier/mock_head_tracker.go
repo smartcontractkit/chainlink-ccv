@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 )
 

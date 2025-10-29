@@ -28,9 +28,6 @@ type Verifier interface {
 // SourceReader defines the interface for reading CCIP messages from source chains.
 // This interface abstracts polling-based access to blockchain data.
 //
-// Implementations should handle chain-specific details and use an injected HeadTracker
-// for latest block state queries.
-//
 // Thread-safety: All methods must be safe for concurrent calls.
 type SourceReader interface {
 	// VerificationTasks returns tasks in the given block range
