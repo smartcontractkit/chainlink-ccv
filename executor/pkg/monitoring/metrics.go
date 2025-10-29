@@ -7,7 +7,7 @@ import (
 
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 
@@ -71,7 +71,7 @@ func MetricViews() []sdkmetric.View {
 	}
 }
 
-var _ common.ExecutorMetricLabeler = &ExecutorMetricLabeler{}
+var _ executor.MetricLabeler = &ExecutorMetricLabeler{}
 
 // ExecutorMetricLabeler wraps ExecutorMetrics with label support.
 type ExecutorMetricLabeler struct {
@@ -80,14 +80,14 @@ type ExecutorMetricLabeler struct {
 }
 
 // NewExecutorMetricLabeler creates a new executor metric labeler.
-func NewExecutorMetricLabeler(labeler metrics.Labeler, vm *ExecutorMetrics) common.ExecutorMetricLabeler {
+func NewExecutorMetricLabeler(labeler metrics.Labeler, vm *ExecutorMetrics) executor.MetricLabeler {
 	return &ExecutorMetricLabeler{
 		Labeler: labeler,
 		vm:      vm,
 	}
 }
 
-func (v *ExecutorMetricLabeler) With(keyValues ...string) common.ExecutorMetricLabeler {
+func (v *ExecutorMetricLabeler) With(keyValues ...string) executor.MetricLabeler {
 	return &ExecutorMetricLabeler{v.Labeler.With(keyValues...), v.vm}
 }
 

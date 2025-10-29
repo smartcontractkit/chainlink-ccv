@@ -25,7 +25,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	executorcommon "github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
@@ -77,7 +76,7 @@ func main() {
 	lggr.Infow("Executor configuration", "config", executorConfig)
 
 	// Setup OTEL Monitoring (via beholder)
-	var executorMonitoring executorcommon.ExecutorMonitoring
+	var executorMonitoring executor.Monitoring
 	if executorConfig.Monitoring.Enabled && executorConfig.Monitoring.Type == "beholder" {
 		executorMonitoring, err = monitoring.InitMonitoring(beholder.Config{
 			InsecureConnection:       executorConfig.Monitoring.Beholder.InsecureConnection,
@@ -118,7 +117,7 @@ func main() {
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		dr := destinationreader.NewEvmDestinationReader(
 			lggr,
-			selector,
+			protocol.ChainSelector(selector),
 			chainClient,
 			executorConfig.OffRampAddresses[strSel],
 			executorConfig.GetCCVInfoCacheExpiry(),
@@ -133,7 +132,7 @@ func main() {
 		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
 			ctx,
 			lggr,
-			selector,
+			protocol.ChainSelector(selector),
 			chain.Nodes[0].InternalHTTPUrl,
 			pk,
 			common.HexToAddress(executorConfig.OffRampAddresses[strSel]),
