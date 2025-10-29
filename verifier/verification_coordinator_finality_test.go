@@ -7,12 +7,14 @@ import (
 	"testing"
 	"time"
 
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -236,9 +238,10 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
 
+	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockSourceReader.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
 		// Return latest and finalized headers with proper synchronization
 		finalizedBlockMu.RLock()
 		defer finalizedBlockMu.RUnlock()
@@ -275,6 +278,9 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		verifier.WithVerifier(mockVerifier),
 		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
 			1337: mockSourceReader,
+		}),
+		verifier.WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
+			1337: mockHeadTracker,
 		}),
 		verifier.WithStorage(mockStorage),
 		verifier.WithConfig(config),

@@ -82,6 +82,13 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 	}
 
 	if err := h.aggregator.CheckAggregation(req.CcvNodeData.GetMessageId(), signers[0].CommitteeID); err != nil {
+		if err == common.ErrAggregationChannelFull {
+			reqLogger.Errorf("Aggregation channel is full")
+			return &pb.WriteCommitCCVNodeDataResponse{
+				Status: pb.WriteStatus_FAILED,
+			}, status.Errorf(codes.ResourceExhausted, "aggregation channel is full")
+		}
+
 		return &pb.WriteCommitCCVNodeDataResponse{
 			Status: pb.WriteStatus_FAILED,
 		}, err

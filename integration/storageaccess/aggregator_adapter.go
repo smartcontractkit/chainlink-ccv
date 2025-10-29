@@ -120,33 +120,35 @@ func (a *AggregatorWriter) Close() error {
 	return nil
 }
 
-// WriteCheckpoint writes a checkpoint to the aggregator.
-func (a *AggregatorWriter) WriteCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector, blockHeight *big.Int) error {
+// WriteChainStatus writes a chain status to the aggregator.
+func (a *AggregatorWriter) WriteChainStatus(ctx context.Context, chainSelector protocol.ChainSelector, blockHeight *big.Int, disabled bool) error {
 	// HMAC authentication is automatically handled by the client interceptor
 
-	// Convert checkpoint to protobuf format
-	req := &pb.WriteBlockCheckpointRequest{
-		Checkpoints: []*pb.BlockCheckpoint{
+	// Convert chain status to protobuf format
+	req := &pb.WriteChainStatusRequest{
+		Statuses: []*pb.ChainStatus{
 			{
 				ChainSelector:        uint64(chainSelector),
 				FinalizedBlockHeight: blockHeight.Uint64(),
+				Disabled:             disabled,
 			},
 		},
 	}
 
 	// Make the gRPC call
-	resp, err := a.client.WriteBlockCheckpoint(ctx, req)
+	resp, err := a.client.WriteChainStatus(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to write checkpoint: %w", err)
+		return fmt.Errorf("failed to write chain status: %w", err)
 	}
 
 	if resp.Status != pb.WriteStatus_SUCCESS {
-		return fmt.Errorf("checkpoint write failed with status: %s", resp.Status.String())
+		return fmt.Errorf("chain status write failed with status: %s", resp.Status.String())
 	}
 
-	a.lggr.Debugw("Successfully wrote checkpoint",
+	a.lggr.Debugw("Successfully wrote chain status",
 		"chainSelector", chainSelector,
-		"block", blockHeight.String())
+		"blockHeight", blockHeight.String(),
+		"disabled", disabled)
 
 	return nil
 }
@@ -220,28 +222,28 @@ func (a *AggregatorReader) Close() error {
 	return nil
 }
 
-// ReadCheckpoint reads a checkpoint from the aggregator.
-func (a *AggregatorReader) ReadCheckpoint(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
+// ReadChainStatus reads a chain status from the aggregator.
+func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
 	// Create read request
-	req := &pb.ReadBlockCheckpointRequest{}
+	req := &pb.ReadChainStatusRequest{}
 
-	// Create aggregator client for checkpoint operations (different from CCV data client)
+	// Create aggregator client for chain status operations (different from CCV data client)
 	aggregatorClient := pb.NewAggregatorClient(a.conn)
 
 	// Make the gRPC call
-	resp, err := aggregatorClient.ReadBlockCheckpoint(ctx, req)
+	resp, err := aggregatorClient.ReadChainStatus(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read checkpoint: %w", err)
+		return nil, fmt.Errorf("failed to read chain status: %w", err)
 	}
 
-	// Find checkpoint for our chain selector
-	for _, checkpoint := range resp.Checkpoints {
-		if checkpoint.ChainSelector == uint64(chainSelector) {
-			return new(big.Int).SetUint64(checkpoint.FinalizedBlockHeight), nil
+	// Find chain status for our chain selector (ignore disabled chains)
+	for _, chainStatus := range resp.Statuses {
+		if chainStatus.ChainSelector == uint64(chainSelector) && !chainStatus.Disabled {
+			return new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight), nil
 		}
 	}
 
-	// No checkpoint found for this chain selector
+	// No active chain status found for this chain selector
 	return nil, nil
 }
 

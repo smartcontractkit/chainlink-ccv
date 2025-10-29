@@ -21,7 +21,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251021190514-4e4a22b89e39 // indirect
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.56.0
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.10.33
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.11.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
@@ -32,7 +32,7 @@ require (
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251016184633-215666be5318
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251027175634-5359f314eb16
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 	google.golang.org/grpc v1.76.0
 )

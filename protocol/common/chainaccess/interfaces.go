@@ -15,9 +15,4 @@ type HeadTracker interface {
 	// This is more efficient than separate RPC calls and provides complete block information
 	// including hashes, parent hashes, and timestamps needed for reorg detection.
 	LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error)
-
-	// LatestSafeBlock returns the latest safe block header.
-	// Safe block is an intermediate safety level between latest and finalized.
-	// Returns nil if the chain doesn't support safe blocks (optional feature).
-	LatestSafeBlock(ctx context.Context) (safe *protocol.BlockHeader, err error)
 }

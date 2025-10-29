@@ -52,9 +52,9 @@ type Server struct {
 	writeCommitCCVNodeDataHandler      *handlers.WriteCommitCCVNodeDataHandler
 	getMessagesSinceHandler            *handlers.GetMessagesSinceHandler
 	getCCVDataForMessageHandler        *handlers.GetCCVDataForMessageHandler
-	writeBlockCheckpointHandler        *handlers.WriteBlockCheckpointHandler
-	readBlockCheckpointHandler         *handlers.ReadBlockCheckpointHandler
-	checkpointStorage                  common.CheckpointStorageInterface
+	writeChainStatusHandler            *handlers.WriteChainStatusHandler
+	readChainStatusHandler             *handlers.ReadChainStatusHandler
+	chainStatusStorage                 common.ChainStatusStorageInterface
 	grpcServer                         *grpc.Server
 	batchWriteCommitCCVNodeDataHandler *handlers.BatchWriteCommitCCVNodeDataHandler
 	httpHealthServer                   *health.HTTPHealthServer
@@ -86,14 +86,14 @@ func (s *Server) GetMessagesSince(ctx context.Context, req *pb.GetMessagesSinceR
 	return s.getMessagesSinceHandler.Handle(ctx, req)
 }
 
-// WriteBlockCheckpoint handles requests to write blockchain checkpoints.
-func (s *Server) WriteBlockCheckpoint(ctx context.Context, req *pb.WriteBlockCheckpointRequest) (*pb.WriteBlockCheckpointResponse, error) {
-	return s.writeBlockCheckpointHandler.Handle(ctx, req)
+// WriteChainStatus handles requests to write chain statuses.
+func (s *Server) WriteChainStatus(ctx context.Context, req *pb.WriteChainStatusRequest) (*pb.WriteChainStatusResponse, error) {
+	return s.writeChainStatusHandler.Handle(ctx, req)
 }
 
-// ReadBlockCheckpoint handles requests to read blockchain checkpoints.
-func (s *Server) ReadBlockCheckpoint(ctx context.Context, req *pb.ReadBlockCheckpointRequest) (*pb.ReadBlockCheckpointResponse, error) {
-	return s.readBlockCheckpointHandler.Handle(ctx, req)
+// ReadChainStatus handles requests to read chain statuses.
+func (s *Server) ReadChainStatus(ctx context.Context, req *pb.ReadChainStatusRequest) (*pb.ReadChainStatusResponse, error) {
+	return s.readChainStatusHandler.Handle(ctx, req)
 }
 
 func (s *Server) Start(lis net.Listener) error {
@@ -194,8 +194,8 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func createAggregator(storage common.CommitVerificationStore, sink common.Sink, validator aggregation.QuorumValidator, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) (handlers.AggregationTriggerer, error) {
-	agg := aggregation.NewCommitReportAggregator(storage, sink, validator, lggr, monitoring)
+func createAggregator(storage common.CommitVerificationStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) (handlers.AggregationTriggerer, error) {
+	agg := aggregation.NewCommitReportAggregator(storage, sink, validator, config, lggr, monitoring)
 	agg.StartBackground(context.Background())
 	return agg, nil
 }
@@ -247,7 +247,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		validator = quorum.NewQuorumValidator(config, l)
 	}
 
-	agg, err := createAggregator(store, store, validator, l, aggMonitoring)
+	agg, err := createAggregator(store, store, validator, config, l, aggMonitoring)
 	if err != nil {
 		l.Errorw("failed to create aggregator", "error", err)
 		return nil
@@ -259,17 +259,17 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
-	// Initialize checkpoint storage
-	checkpointStorage, err := factory.CreateCheckpointStorage(config.Storage, aggMonitoring)
+	// Initialize chain status storage
+	chainStatusStorage, err := factory.CreateChainStatusStorage(config.Storage, aggMonitoring)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create checkpoint storage: %v", err))
+		panic(fmt.Sprintf("failed to create chain status storage: %v", err))
 	}
 
-	checkpointStorage = storage.WrapCheckpointWithMetrics(checkpointStorage, aggMonitoring)
+	chainStatusStorage = storage.WrapChainStatusWithMetrics(chainStatusStorage, aggMonitoring)
 
-	// Initialize checkpoint handlers
-	writeBlockCheckpointHandler := handlers.NewWriteBlockCheckpointHandler(checkpointStorage)
-	readBlockCheckpointHandler := handlers.NewReadBlockCheckpointHandler(checkpointStorage)
+	// Initialize chain status handlers
+	writeChainStatusHandler := handlers.NewWriteChainStatusHandler(chainStatusStorage)
+	readChainStatusHandler := handlers.NewReadChainStatusHandler(chainStatusStorage)
 
 	// Initialize middlewares
 	loggingMiddleware := middlewares.NewLoggingMiddleware(l)
@@ -321,7 +321,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	healthManager := health.NewManager()
 	healthManager.Register(store)
-	healthManager.Register(checkpointStorage)
+	healthManager.Register(chainStatusStorage)
 	healthManager.Register(rateLimitingMiddleware)
 	healthManager.Register(agg)
 
@@ -343,17 +343,16 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		writeCommitCCVNodeDataHandler:      writeHandler,
 		getMessagesSinceHandler:            getMessagesSinceHandler,
 		getCCVDataForMessageHandler:        getCCVDataForMessageHandler,
-		writeBlockCheckpointHandler:        writeBlockCheckpointHandler,
-		readBlockCheckpointHandler:         readBlockCheckpointHandler,
+		writeChainStatusHandler:            writeChainStatusHandler,
+		readChainStatusHandler:             readChainStatusHandler,
+		chainStatusStorage:                 chainStatusStorage,
 		batchWriteCommitCCVNodeDataHandler: batchWriteCommitCCVNodeDataHandler,
-		checkpointStorage:                  checkpointStorage,
 		httpHealthServer:                   httpHealthServer,
 		grpcServer:                         grpcServer,
 		recoverer:                          recoverer,
 		started:                            false,
 		mu:                                 sync.Mutex{},
 	}
-
 	pb.RegisterVerifierResultAPIServer(grpcServer, server)
 	pb.RegisterAggregatorServer(grpcServer, server)
 	reflection.Register(grpcServer)

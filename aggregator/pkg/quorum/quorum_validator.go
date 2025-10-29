@@ -37,6 +37,11 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 		return false, err
 	}
 
+	if len(aggregatedReport.Verifications) < int(quorumConfig.Threshold) {
+		q.logger(ctx).Debugf("Not enough verifications to meet quorum: have %d, need %d", len(aggregatedReport.Verifications), quorumConfig.Threshold)
+		return false, nil
+	}
+
 	participantIDs := make(map[string]struct{})
 	for _, verification := range aggregatedReport.Verifications {
 		signers, _, err := q.ValidateSignature(ctx, &verification.MessageWithCCVNodeData)

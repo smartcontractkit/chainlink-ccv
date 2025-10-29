@@ -170,7 +170,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			Address: ":50051",
 		},
 		Storage: &model.StorageConfig{
-			StorageType: model.StorageTypeDynamoDB, // Default to DynamoDB
+			StorageType: model.StorageTypePostgreSQL, // Default to PostgreSQL
 		},
 		Monitoring: model.MonitoringConfig{
 			Enabled: false,
@@ -190,8 +190,8 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 				pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:             {LimitPerMinute: 10000},
 				pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName:        {LimitPerMinute: 10000},
 				pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:              {LimitPerMinute: 10000},
-				pb.Aggregator_WriteBlockCheckpoint_FullMethodName:               {LimitPerMinute: 10000},
-				pb.Aggregator_ReadBlockCheckpoint_FullMethodName:                {LimitPerMinute: 10000},
+				pb.Aggregator_WriteChainStatus_FullMethodName:                   {LimitPerMinute: 10000},
+				pb.Aggregator_ReadChainStatus_FullMethodName:                    {LimitPerMinute: 10000},
 			},
 		},
 	}
@@ -325,7 +325,7 @@ func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*m
 
 	existingConfig.DynamoDB.CommitVerificationRecordTableName = ddb.TestCommitVerificationRecordTableName
 	existingConfig.DynamoDB.FinalizedFeedTableName = ddb.TestFinalizedFeedTableName
-	existingConfig.DynamoDB.CheckpointTableName = ddb.TestCheckpointTableName
+	existingConfig.DynamoDB.ChainStatusTableName = ddb.TestChainStatusTableName
 	existingConfig.DynamoDB.Region = "us-east-1"
 	existingConfig.DynamoDB.Endpoint = "http://" + connectionString
 

@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
+	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -19,9 +20,15 @@ import (
 	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
+// Compile-time checks to ensure EVMSourceReader implements both interfaces.
+var (
+	_ verifiertypes.SourceReader = (*EVMSourceReader)(nil)
+	_ chainaccess.HeadTracker    = (*EVMSourceReader)(nil)
+)
+
 type EVMSourceReader struct {
 	chainClient          client.Client
-	headTracker          chainaccess.HeadTracker
+	headTracker          heads.Tracker
 	contractAddress      common.Address
 	ccipMessageSentTopic string
 	chainSelector        protocol.ChainSelector
@@ -30,7 +37,7 @@ type EVMSourceReader struct {
 
 func NewEVMSourceReader(
 	chainClient client.Client,
-	headTracker chainaccess.HeadTracker,
+	headTracker heads.Tracker,
 	contractAddress common.Address,
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
@@ -74,7 +81,7 @@ func NewEVMSourceReader(
 // GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
 func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
 	// Get current finalized block to populate FinalizedBlockNumber field
-	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	_, finalizedHeader, err := r.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
@@ -95,7 +102,7 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 			Hash:                 protocol.Bytes32(header.Hash),
 			ParentHash:           protocol.Bytes32(header.ParentHash),
 			Timestamp:            header.Timestamp,
-			FinalizedBlockNumber: finalized.Number,
+			FinalizedBlockNumber: finalizedHeader.Number,
 		}
 	}
 	return headers, nil
@@ -105,7 +112,7 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 // Required for walking back parent chain during LCA finding in reorg detection.
 func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error) {
 	// Get current finalized block to populate FinalizedBlockNumber field
-	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	_, finalizedHeader, err := r.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
@@ -132,7 +139,7 @@ func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protoco
 		Hash:                 protocol.Bytes32(header.Hash),
 		ParentHash:           protocol.Bytes32(header.ParentHash),
 		Timestamp:            header.Timestamp,
-		FinalizedBlockNumber: finalized.Number,
+		FinalizedBlockNumber: finalizedHeader.Number,
 	}, nil
 }
 
@@ -304,4 +311,39 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 		})
 	}
 	return results, nil
+}
+
+// LatestAndFinalizedBlock returns the latest and finalized block headers.
+// Implements chainaccess.HeadTracker interface.
+func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+	latestHead, finalizedHead, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get latest and finalized blocks: %w", err)
+	}
+
+	if latestHead == nil || finalizedHead == nil {
+		return nil, nil, fmt.Errorf("received nil head from tracker")
+	}
+
+	if latestHead.Number < 0 || finalizedHead.Number < 0 {
+		return nil, nil, fmt.Errorf("block number cannot be negative: latest=%d, finalized=%d", latestHead.Number, finalizedHead.Number)
+	}
+
+	latest = &protocol.BlockHeader{
+		Number:               uint64(latestHead.Number),
+		Hash:                 protocol.Bytes32(latestHead.Hash),
+		ParentHash:           protocol.Bytes32(latestHead.ParentHash),
+		Timestamp:            latestHead.Timestamp,
+		FinalizedBlockNumber: uint64(finalizedHead.Number),
+	}
+
+	finalized = &protocol.BlockHeader{
+		Number:               uint64(finalizedHead.Number),
+		Hash:                 protocol.Bytes32(finalizedHead.Hash),
+		ParentHash:           protocol.Bytes32(finalizedHead.ParentHash),
+		Timestamp:            finalizedHead.Timestamp,
+		FinalizedBlockNumber: uint64(finalizedHead.Number),
+	}
+
+	return latest, finalized, nil
 }

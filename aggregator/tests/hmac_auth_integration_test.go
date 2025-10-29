@@ -22,10 +22,10 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	ctx := context.Background()
 
 	// Test Aggregator service APIs
-	t.Run("WriteBlockCheckpoint requires authentication", func(t *testing.T) {
-		req := &pb.WriteBlockCheckpointRequest{}
+	t.Run("WriteChainStatus requires authentication", func(t *testing.T) {
+		req := &pb.WriteChainStatusRequest{}
 
-		_, err := aggregatorClient.WriteBlockCheckpoint(ctx, req)
+		_, err := aggregatorClient.WriteChainStatus(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
 
 		st, ok := status.FromError(err)
@@ -33,10 +33,10 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 		require.Equal(t, codes.Unauthenticated, st.Code(), "should return Unauthenticated error")
 	})
 
-	t.Run("ReadBlockCheckpoint requires authentication", func(t *testing.T) {
-		req := &pb.ReadBlockCheckpointRequest{}
+	t.Run("ReadChainStatus requires authentication", func(t *testing.T) {
+		req := &pb.ReadChainStatusRequest{}
 
-		_, err := aggregatorClient.ReadBlockCheckpoint(ctx, req)
+		_, err := aggregatorClient.ReadChainStatus(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
 
 		st, ok := status.FromError(err)

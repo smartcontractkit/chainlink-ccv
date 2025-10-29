@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -33,6 +32,7 @@ func StartCCVComitteeVerifier(
 
 		sourceReader, err := sourcereader.NewEVMSourceReader(
 			chain.Client(),
+			chain.HeadTracker(),
 			common.HexToAddress(cfg.ChainConfigs[sel].CCVProxyAddress),
 			"TODO: topic-here",
 			sel,

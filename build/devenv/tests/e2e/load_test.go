@@ -128,7 +128,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
-			srcChain.ChainSelector,
+			dstChain.ChainSelector,
 			datastore.ContractType(mock_receiver.ContractType),
 			semver.MustParse(mock_receiver.Deploy.Version()),
 			ccvEvm.DefaultReceiverQualifier))
