@@ -1,4 +1,4 @@
-package clnode
+package constructors
 
 import (
 	"context"
@@ -18,14 +18,14 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
-// StartCCVComitteeVerifier starts the Committee Verifier with evm chains.
-func StartCCVComitteeVerifier(
+// NewVerificationCoordinator starts the Committee Verifier with evm chains.
+func NewVerificationCoordinator(
 	ctx context.Context,
 	lggr logger.Logger,
 	ccvConfig CCVConfig,
 	ccvSecrets CCVSecretsConfig,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
-) error {
+) (*verifier.Coordinator, error) {
 	cfg := ccvConfig.Verifier
 
 	if err := cfg.Validate(); err != nil {
@@ -35,12 +35,12 @@ func StartCCVComitteeVerifier(
 	onRampAddrs, err := mapAddresses(cfg.OnRampAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map onramp addresses.", "error", err)
-		return fmt.Errorf("invalid ccv configuration: failed to map onramp addresses: %w", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map onramp addresses: %w", err)
 	}
 	verifierAddrs, err := mapAddresses(cfg.CommitteeVerifierAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map verifier addresses.", "error", err)
-		return fmt.Errorf("invalid ccv configuration: failed to map verifier addresses: %w", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map verifier addresses: %w", err)
 	}
 
 	// Initialize chain components.
@@ -67,7 +67,7 @@ func StartCCVComitteeVerifier(
 			logger.With(lggr, "component", "SourceReader", "chainID", sel))
 		if err != nil {
 			lggr.Errorw("Failed to create source reader.", "error", err, "chainID", sel)
-			return fmt.Errorf("failed to create source reader: %w", err)
+			return nil, fmt.Errorf("failed to create source reader: %w", err)
 		}
 		sourceReaders[sel] = sourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
@@ -91,7 +91,7 @@ func StartCCVComitteeVerifier(
 	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, hmacConfig)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
-		return fmt.Errorf("failed to create aggregator writer: %w", err)
+		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
 	}
 
 	aggregatorReader, err := storageaccess.NewAggregatorReader(cfg.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for checkpoint reads
@@ -102,7 +102,7 @@ func StartCCVComitteeVerifier(
 			lggr.Errorw("Failed to close aggregator writer", "error", err)
 		}
 		lggr.Errorw("Failed to create aggregator reader", "error", err)
-		return fmt.Errorf("failed to create aggregator reader: %w", err)
+		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
 	}
 
 	// Create chain status manager (includes both writer and reader)
@@ -119,16 +119,16 @@ func StartCCVComitteeVerifier(
 	signer, err := commit.NewECDSAMessageSignerFromString(ccvSecrets.Verifier.SigningKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
-		return fmt.Errorf("failed to create message signer: %w", err)
+		return nil, fmt.Errorf("failed to create message signer: %w", err)
 	}
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
-		return fmt.Errorf("failed to create commit verifier: %w", err)
+		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
 	// Create verification coordinator
-	verifierCoordinator, err := verifier.NewVerificationCoordinator(
+	verifierCoordinator, err := verifier.NewCoordinator(
 		verifier.WithLogger(lggr),
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
@@ -140,11 +140,14 @@ func StartCCVComitteeVerifier(
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
-		return fmt.Errorf("failed to create verification coordinator: %w", err)
+		return nil, fmt.Errorf("failed to create verification coordinator: %w", err)
 	}
 
-	for {
-		lggr.Infow("verifier health", "HealthCheck()", verifierCoordinator.HealthReport())
-		time.Sleep(10 * time.Second)
-	}
+	return verifierCoordinator, nil
+	/*
+		for {
+			lggr.Infow("verifier health", "HealthCheck()", verifierCoordinator.HealthReport())
+			time.Sleep(10 * time.Second)
+		}
+	*/
 }

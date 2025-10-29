@@ -1,4 +1,4 @@
-package clnode
+package constructors
 
 import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
