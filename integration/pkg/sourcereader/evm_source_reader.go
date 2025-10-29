@@ -111,12 +111,6 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 // GetBlockHeaderByHash returns a block header by its hash.
 // Required for walking back parent chain during LCA finding in reorg detection.
 func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error) {
-	// Get current finalized block to populate FinalizedBlockNumber field
-	_, finalizedHeader, err := r.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get finalized block: %w", err)
-	}
-
 	// Convert protocol.Bytes32 to common.Hash
 	var ethHash common.Hash
 	copy(ethHash[:], hash[:])
@@ -139,7 +133,7 @@ func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protoco
 		Hash:                 protocol.Bytes32(header.Hash),
 		ParentHash:           protocol.Bytes32(header.ParentHash),
 		Timestamp:            header.Timestamp,
-		FinalizedBlockNumber: finalizedHeader.Number,
+		FinalizedBlockNumber: uint64(header.LatestFinalizedHead().BlockNumber()),
 	}, nil
 }
 
@@ -334,7 +328,7 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 		Hash:                 protocol.Bytes32(latestHead.Hash),
 		ParentHash:           protocol.Bytes32(latestHead.ParentHash),
 		Timestamp:            latestHead.Timestamp,
-		FinalizedBlockNumber: uint64(finalizedHead.Number),
+		FinalizedBlockNumber: uint64(latestHead.LatestFinalizedHead().BlockNumber()),
 	}
 
 	finalized = &protocol.BlockHeader{
