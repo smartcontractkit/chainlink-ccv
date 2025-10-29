@@ -405,6 +405,78 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 }
 
+// assertReceiptBlobsFromMajority validates that the aggregated report contains the expected receipt blobs from majority consensus.
+func assertReceiptBlobsFromMajority(
+	t *testing.T,
+	ctx context.Context,
+	ccvDataClient pb.VerifierResultAPIClient,
+	messageId protocol.Bytes32,
+	expectedReceiptBlobs []*pb.ReceiptBlob,
+) {
+	require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+		getResp, err := ccvDataClient.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
+			SinceSequence: 0,
+		})
+		require.NoError(collect, err, "GetMessagesSince should succeed")
+		require.Len(collect, getResp.Results, 1, "Should return exactly 1 aggregated report")
+
+		report := getResp.Results[0]
+		require.NotNil(collect, report, "Report should not be nil")
+
+		// Check that the message ID matches
+		msg := &protocol.Message{
+			Version:              uint8(report.Message.Version),
+			SourceChainSelector:  protocol.ChainSelector(report.Message.SourceChainSelector),
+			DestChainSelector:    protocol.ChainSelector(report.Message.DestChainSelector),
+			Nonce:                protocol.Nonce(report.Message.Nonce),
+			OnRampAddressLength:  uint8(report.Message.OnRampAddressLength),
+			OnRampAddress:        report.Message.OnRampAddress,
+			OffRampAddressLength: uint8(report.Message.OffRampAddressLength),
+			OffRampAddress:       report.Message.OffRampAddress,
+			Finality:             uint16(report.Message.Finality),
+			SenderLength:         uint8(report.Message.SenderLength),
+			Sender:               report.Message.Sender,
+			ReceiverLength:       uint8(report.Message.ReceiverLength),
+			Receiver:             report.Message.Receiver,
+			DestBlobLength:       uint16(report.Message.DestBlobLength),
+			DestBlob:             report.Message.DestBlob,
+			TokenTransferLength:  uint16(report.Message.TokenTransferLength),
+			TokenTransfer:        report.Message.TokenTransfer,
+			DataLength:           uint16(report.Message.DataLength),
+			Data:                 report.Message.Data,
+		}
+
+		reportMessageId, err := msg.MessageID()
+		require.NoError(collect, err, "Failed to compute message ID from report")
+		require.Equal(collect, messageId, reportMessageId, "Message ID mismatch")
+
+		// Validate the receipt blobs from majority
+		actualReceiptBlobs := report.GetReceiptBlobsFromMajority()
+		require.NotNil(collect, actualReceiptBlobs, "ReceiptBlobsFromMajority should not be nil")
+		require.Len(collect, actualReceiptBlobs, len(expectedReceiptBlobs), "Receipt blob count mismatch")
+
+		// Debug logging for receipt blob comparison
+		if len(actualReceiptBlobs) > 0 && len(expectedReceiptBlobs) > 0 {
+			t.Logf("DEBUG: Expected DestGasLimit: %d, Actual DestGasLimit: %d",
+				expectedReceiptBlobs[0].DestGasLimit, actualReceiptBlobs[0].DestGasLimit)
+			t.Logf("DEBUG: Expected Blob: %s, Actual Blob: %s",
+				expectedReceiptBlobs[0].Blob, actualReceiptBlobs[0].Blob)
+		}
+
+		// Validate each expected receipt blob
+		for i, expectedBlob := range expectedReceiptBlobs {
+			require.Less(collect, i, len(actualReceiptBlobs), "Actual receipt blobs list is too short")
+			actualBlob := actualReceiptBlobs[i]
+
+			require.Equal(collect, expectedBlob.Issuer, actualBlob.Issuer, "Receipt blob issuer mismatch at index %d", i)
+			require.Equal(collect, expectedBlob.DestGasLimit, actualBlob.DestGasLimit, "Receipt blob DestGasLimit mismatch at index %d", i)
+			require.Equal(collect, expectedBlob.DestBytesOverhead, actualBlob.DestBytesOverhead, "Receipt blob DestBytesOverhead mismatch at index %d", i)
+			require.Equal(collect, expectedBlob.Blob, actualBlob.Blob, "Receipt blob Blob data mismatch at index %d", i)
+			require.Equal(collect, expectedBlob.ExtraArgs, actualBlob.ExtraArgs, "Receipt blob ExtraArgs mismatch at index %d", i)
+		}
+	}, 5*time.Second, 100*time.Millisecond, "Aggregated report with expected receipt blobs not found")
+}
+
 // Test where a valid signer sign but is later removed from the committee and another valider signs but aggregation should not complete. Only when we sign with a third valid signer it succeeds.
 func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	storageTypes := []string{"dynamodb", "postgres"}
@@ -1165,6 +1237,129 @@ func TestSequenceOrdering(t *testing.T) {
 			"First message (written first) should have earlier or equal Sequence than second message (written second)")
 
 		t.Log("SUCCESS: GetMessagesSince returns items ordered by write time, not verification time")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestReceiptBlobMajorityConsensus tests that when there are conflicting receipt blobs,
+// the consensus algorithm selects the majority winner.
+func TestReceiptBlobMajorityConsensus(t *testing.T) {
+	storageTypes := []string{"memory", "postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		signer3 := NewSignerFixture(t, "node3")
+
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 3, // Require all 3 signers for quorum
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+							signer3.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := NewProtocolMessage(t)
+		messageId, err := message.MessageID()
+		require.NoError(t, err, "failed to compute message ID")
+
+		// Create different receipt blobs - signer1 has a different blob than signer2 and signer3
+		minorityReceiptBlob := []*pb.ReceiptBlob{
+			{
+				Issuer:            sourceVerifierAddress,
+				DestGasLimit:      100000,
+				DestBytesOverhead: 1000,
+				Blob:              []byte("minority-blob-data"),
+				ExtraArgs:         []byte("minority-args"),
+			},
+		}
+
+		majorityReceiptBlob := []*pb.ReceiptBlob{
+			{
+				Issuer:            sourceVerifierAddress,
+				DestGasLimit:      200000,
+				DestBytesOverhead: 2000,
+				Blob:              []byte("majority-blob-data"),
+				ExtraArgs:         []byte("majority-args"),
+			},
+		}
+
+		// Signer1 provides the minority receipt blob
+		t.Log("Step 1: Signer1 provides minority receipt blob")
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer1),
+			WithReceiptBlobs(minorityReceiptBlob))
+
+		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
+
+		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
+
+		// Signer2 provides the majority receipt blob
+		t.Log("Step 2: Signer2 provides majority receipt blob")
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer2),
+			WithReceiptBlobs(majorityReceiptBlob))
+
+		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
+
+		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
+
+		// Signer3 also provides the majority receipt blob
+		t.Log("Step 3: Signer3 provides majority receipt blob (should trigger aggregation)")
+		ccvNodeData3 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer3),
+			WithReceiptBlobs(majorityReceiptBlob))
+
+		resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData3,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer3")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status)
+
+		// Now we should have the aggregated result with the majority receipt blob
+		t.Log("Step 4: Verify majority receipt blob was selected")
+		_ = assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData3.GetMessage(),
+			sourceVerifierAddress, destVerifierAddress,
+			WithValidSignatureFrom(signer1),
+			WithValidSignatureFrom(signer2),
+			WithValidSignatureFrom(signer3),
+			WithExactNumberOfSignatures(3))
+
+		// Verify that the majority receipt blob was selected in the consensus
+		t.Log("Step 5: Verify majority consensus selected the correct receipt blobs")
+		assertReceiptBlobsFromMajority(t, t.Context(), ccvDataClient, messageId, majorityReceiptBlob)
+
+		t.Log("✅ Majority consensus test passed: consensus algorithm successfully processed conflicting receipt blobs")
 	}
 
 	for _, storageType := range storageTypes {

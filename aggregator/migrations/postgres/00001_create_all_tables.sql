@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS commit_aggregated_reports (
     committee_id TEXT NOT NULL,
     verification_record_ids BIGINT[] NOT NULL,
     report_data BYTEA NOT NULL,
+    winning_receipt_blobs JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unique_aggregated_report_sequence UNIQUE (message_id, committee_id, verification_record_ids)
 );

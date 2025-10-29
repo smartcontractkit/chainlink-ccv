@@ -97,6 +97,13 @@ func WithCustomTimestamp(timestamp int64) MessageWithCCVNodeDataOption {
 	}
 }
 
+func WithReceiptBlobs(receiptBlobs []*pb.ReceiptBlob) MessageWithCCVNodeDataOption {
+	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
+		m.ReceiptBlobs = receiptBlobs
+		return m
+	}
+}
+
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
 	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
