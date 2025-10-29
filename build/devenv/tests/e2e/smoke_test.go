@@ -35,6 +35,15 @@ const (
 	defaultExecTimeout = 40 * time.Second
 )
 
+func defaultAggregatorPort(in *ccv.Cfg) int {
+	for _, aggregator := range in.Aggregator {
+		if aggregator.CommitteeName == "default" {
+			return aggregator.HostPort
+		}
+	}
+	panic(fmt.Sprintf("default aggregator not found, expected to find a default aggregator in the configuration, got: %+v", in.Aggregator))
+}
+
 func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
@@ -60,15 +69,15 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
+	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
 
-	aggregatorClient, err := ccv.NewAggregatorClient(
+	defaultAggregatorClient, err := ccv.NewAggregatorClient(
 		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		aggregatorAddr)
+		defaultAggregatorAddr)
 	require.NoError(t, err)
-	require.NotNil(t, aggregatorClient)
+	require.NotNil(t, defaultAggregatorClient)
 	t.Cleanup(func() {
-		aggregatorClient.Close()
+		defaultAggregatorClient.Close()
 	})
 
 	indexerClient := ccv.NewIndexerClient(
@@ -132,7 +141,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
 
-				testCtx := NewTestingContext(t, ctx, c, aggregatorClient, indexerClient)
+				testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
 				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
 					Timeout:                 defaultExecTimeout,
@@ -360,7 +369,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
 
-				testCtx := NewTestingContext(t, t.Context(), c, aggregatorClient, indexerClient)
+				testCtx := NewTestingContext(t, t.Context(), c, defaultAggregatorClient, indexerClient)
 				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
 					ExpectedVerifierResults: tc.numExpectedVerifications,
