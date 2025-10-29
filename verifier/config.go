@@ -17,11 +17,17 @@ type Config struct {
 	AggregatorSecretKey string `toml:"aggregator_secret_key"`
 
 	// TODO: remove from verifier config, readers need to be initialized separately.
-	BlockchainInfos            map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
-	PyroscopeURL               string                              `toml:"pyroscope_url"`
-	CommitteeVerifierAddresses map[string]string                   `toml:"committee_verifier_addresses"`
-	OnRampAddresses            map[string]string                   `toml:"on_ramp_addresses"`
-	Monitoring                 MonitoringConfig                    `toml:"monitoring"`
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	PyroscopeURL    string                              `toml:"pyroscope_url"`
+	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
+	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
+	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
+	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
+	// DefaultExecutorOnRampAddresses is a map the addresses of the default executor on ramps for each chain selector.
+	// The committee verifier will verify messages that specify the default executor even if they don't
+	// specify the committee verifier.
+	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
+	Monitoring                     MonitoringConfig  `toml:"monitoring"`
 }
 
 // MonitoringConfig provides monitoring configuration for executor.

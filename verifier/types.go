@@ -18,9 +18,10 @@ type VerificationTask struct {
 
 // SourceConfig contains configuration for a single source chain.
 type SourceConfig struct {
-	VerifierAddress protocol.UnknownAddress `json:"verifier_address"`
-	ChainSelector   protocol.ChainSelector  `json:"chain_selector"`
-	PollInterval    time.Duration           `json:"poll_interval"`
+	VerifierAddress        protocol.UnknownAddress `json:"verifier_address"`
+	DefaultExecutorAddress protocol.UnknownAddress `json:"default_executor_address"`
+	ChainSelector          protocol.ChainSelector  `json:"chain_selector"`
+	PollInterval           time.Duration           `json:"poll_interval"`
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator.

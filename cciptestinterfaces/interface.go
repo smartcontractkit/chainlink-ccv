@@ -85,12 +85,19 @@ type MessageOptions struct {
 	TokenArgs []byte
 }
 
+// SendMessageResult is a chain-agnostic representation of the output of a ccipSend operation.
+type SendMessageResult struct {
+	MessageID      [32]byte
+	ReceiptIssuers []protocol.UnknownAddress
+	VerifierBlobs  [][]byte
+}
+
 // Chains provides methods to interact with a set of chains that have CCIP deployed.
 type Chains interface {
 	// GetEOAReceiverAddress gets an EOA receiver address for the provided chain selector.
 	GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error)
 	// SendMessage sends a CCIP message from src to dest with the specified message options.
-	SendMessage(ctx context.Context, src, dest uint64, fields MessageFields, opts MessageOptions) error
+	SendMessage(ctx context.Context, src, dest uint64, fields MessageFields, opts MessageOptions) (SendMessageResult, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
 	GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain
