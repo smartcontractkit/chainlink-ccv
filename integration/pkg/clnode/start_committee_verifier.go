@@ -58,6 +58,7 @@ func StartCCVComitteeVerifier(
 
 		sourceReader, err := sourcereader.NewEVMSourceReader(
 			chain.Client(),
+			chain.HeadTracker(),
 			// TODO: use UnknownAddress instead of ethereum address.
 			common.HexToAddress(onRampAddrs[sel].String()),
 			// TODO: does this need to be configurable?

@@ -17,6 +17,7 @@ import (
 func createTestSourceReader(t *testing.T, chainStatusManager protocol.ChainStatusManager) *SourceReaderService {
 	return NewSourceReaderService(
 		nil,
+		nil,
 		protocol.ChainSelector(1337),
 		chainStatusManager,
 		logger.Test(t),

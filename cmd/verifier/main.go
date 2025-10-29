@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -196,8 +197,9 @@ func main() {
 	// Create chain status manager (includes both writer and reader)
 	chainStatusManager := storageaccess.NewAggregatorChainStatusManager(aggregatorWriter, aggregatorReader)
 
-	// Create source readers - either blockchain-based or mock
+	// Create source readers and head trackers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
+	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 
 	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)
 	// Try to create blockchain source readers if possible
@@ -214,12 +216,31 @@ func main() {
 			continue
 		}
 
-		sourceReaders[selector], err = sourcereader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.OnRampAddresses[strSelector]), onramp.OnRampCCIPMessageSent{}.Topic().Hex(), selector, lggr)
+		// Create mock head tracker for this chain
+		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr)
+
+		evmSourceReader, err := sourcereader.NewEVMSourceReader(
+			chainClients[selector],
+			headTracker,
+			common.HexToAddress(config.OnRampAddresses[strSelector]),
+			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
+			selector,
+			lggr,
+		)
 		if err != nil {
 			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
 			continue
 		}
-		// sourceReaders[selector] = verifier.NewSourceReaderService(emvSourceReader, selector, chain statusManager, lggr)
+
+		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
+		sourceReaders[selector] = evmSourceReader
+		headTrackerInterface, ok := evmSourceReader.(chainaccess.HeadTracker)
+		if !ok {
+			lggr.Errorw("EVMSourceReader does not implement HeadTracker interface", "selector", selector)
+			continue
+		}
+		headTrackers[selector] = headTrackerInterface
+
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
 
@@ -285,6 +306,7 @@ func main() {
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithHeadTrackers(headTrackers),
 		verifier.WithChainStatusManager(chainStatusManager),
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
