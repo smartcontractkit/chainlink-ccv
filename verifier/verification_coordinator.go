@@ -793,7 +793,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 		// Check chain status before processing
 		state.chainStatusMu.RLock()
-		_, isFinalityViolated := state.chainStatus.(protocol.ChainStatusFinalityViolated)
+		isFinalityViolated := state.chainStatus.Type == protocol.ReorgTypeFinalityViolation
 		state.chainStatusMu.RUnlock()
 
 		if isFinalityViolated {
@@ -872,17 +872,17 @@ func (vc *Coordinator) processReorgUpdates(ctx context.Context, state *sourceSta
 			state.chainStatusMu.Unlock()
 
 			// Handle based on type (only receive problem events)
-			switch status := newStatus.(type) {
-			case protocol.ChainStatusReorg:
-				vc.handleReorg(ctx, state, status)
+			switch newStatus.Type {
+			case protocol.ReorgTypeNormal:
+				vc.handleReorg(ctx, state, newStatus)
 
-			case protocol.ChainStatusFinalityViolated:
-				vc.handleFinalityViolation(ctx, state, status)
+			case protocol.ReorgTypeFinalityViolation:
+				vc.handleFinalityViolation(ctx, state, newStatus)
 
 			default:
 				vc.lggr.Warnw("Received unknown chain status type",
 					"chain", state.chainSelector,
-					"statusType", fmt.Sprintf("%T", status))
+					"statusType", newStatus.Type)
 			}
 		}
 	}
@@ -893,12 +893,10 @@ func (vc *Coordinator) processReorgUpdates(ctx context.Context, state *sourceSta
 func (vc *Coordinator) handleReorg(
 	ctx context.Context,
 	state *sourceState,
-	reorgStatus protocol.ChainStatusReorg,
+	reorgStatus protocol.ChainStatus,
 ) {
 	chainSelector := state.chainSelector
-	commonAncestor := reorgStatus.CommonAncestorBlock
-	newTip := reorgStatus.NewTail.Tip().Number
-	depth := newTip - commonAncestor
+	commonAncestor := reorgStatus.ResetToBlock
 
 	// Set reorgInProgress flag to stop new tasks from being added
 	state.reorgInProgress.Store(true)
@@ -906,7 +904,7 @@ func (vc *Coordinator) handleReorg(
 
 	vc.lggr.Infow("Handling reorg",
 		"chain", chainSelector,
-		"depth", depth,
+		"type", reorgStatus.Type.String(),
 		"commonAncestor", commonAncestor)
 
 	// 1. Flush pending tasks from reorged blocks (per-chain queue)
@@ -944,7 +942,6 @@ func (vc *Coordinator) handleReorg(
 
 	vc.lggr.Infow("Reorg handled successfully",
 		"chain", chainSelector,
-		"depth", depth,
 		"commonAncestor", commonAncestor,
 		"flushedTasks", flushedCount)
 
@@ -955,18 +952,18 @@ func (vc *Coordinator) handleReorg(
 }
 
 // handleFinalityViolation handles a finality violation event.
+// Finality violations indicate the chain's security model is broken.
+// We immediately stop the reader and require manual intervention - no safe reset point exists.
 func (vc *Coordinator) handleFinalityViolation(
 	ctx context.Context,
 	state *sourceState,
-	violationStatus protocol.ChainStatusFinalityViolated,
+	violationStatus protocol.ChainStatus,
 ) {
 	chainSelector := state.chainSelector
 
-	vc.lggr.Errorw("FINALITY VIOLATION DETECTED",
+	vc.lggr.Errorw("FINALITY VIOLATION DETECTED - stopping chain reader immediately",
 		"chain", chainSelector,
-		"violatedBlock", violationStatus.ViolatedBlock.Number,
-		"violatedHash", violationStatus.ViolatedBlock.Hash,
-		"safeRestartBlock", violationStatus.SafeRestartBlock)
+		"type", violationStatus.Type.String())
 
 	// 1. Flush ALL pending tasks for this chain (per-chain queue)
 	state.pendingMu.Lock()
@@ -978,34 +975,18 @@ func (vc *Coordinator) handleFinalityViolation(
 		"chain", chainSelector,
 		"flushedCount", flushedCount)
 
-	// 2. Reset SourceReaderService to safe restart block
-	// Note: For finality violations, SafeRestartBlock < last chain status,
-	// so ResetToBlock will automatically persist the chain status to ensure safe restart.
-	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if err := state.reader.ResetToBlock(resetCtx, violationStatus.SafeRestartBlock); err != nil {
-		vc.lggr.Errorw("Failed to reset source reader after finality violation",
-			"error", err,
-			"chain", chainSelector,
-			"resetBlock", violationStatus.SafeRestartBlock)
-		// Critical error - continue with stop anyway
-	} else {
-		vc.lggr.Infow("Source reader reset successfully with chainStatus persisted",
-			"chain", chainSelector,
-			"resetBlock", violationStatus.SafeRestartBlock)
-	}
-
-	// 3. Stop SourceReaderService completely for finality violations
+	// Stop SourceReaderService immediately
+	// No reset - finality violation means there's no safe block to reset to
 	if err := state.reader.Stop(); err != nil {
-		// TODO: Logging only might not be enough in this case.
 		vc.lggr.Errorw("Failed to stop source reader after finality violation",
 			"error", err,
+			"chain", chainSelector)
+	} else {
+		vc.lggr.Errorw("Source reader stopped due to finality violation - manual intervention required",
 			"chain", chainSelector)
 	}
 	// TODO: Use Pause() instead of Stop() when implemented (separate PR)
 
-	// 4. Record metrics
 	// TODO: These methods need to be added to the monitoring interface
 	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).IncrementFinalityViolation(ctx)
 	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).AddTasksFlushedDueToReorg(ctx, int64(flushedCount))

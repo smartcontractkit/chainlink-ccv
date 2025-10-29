@@ -601,75 +601,44 @@ func (r *ReorgDetectorService) rebuildTailFromBlock(ctx context.Context, startBl
 	return nil
 }
 
-// sendReorgNotification sends a ChainStatusReorg notification.
+// sendReorgNotification sends a reorg notification with the common ancestor block.
 func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
-	// Build new tail for notification
-	r.tailMu.RLock()
-	blocks := make([]protocol.BlockHeader, 0, len(r.tailBlocks))
-	for i := r.tailMinBlock; i <= r.tailMaxBlock; i++ {
-		if block, exists := r.tailBlocks[i]; exists {
-			blocks = append(blocks, block)
-		}
-	}
-	r.tailMu.RUnlock()
-
-	// Create new tail (validation will ensure contiguity)
-	newTail, err := protocol.NewChainTail(blocks)
-	if err != nil {
-		r.lggr.Errorw("Failed to create ChainTail for reorg notification",
-			"chainSelector", r.config.ChainSelector,
-			"error", err)
-		return
-	}
-
-	status := protocol.ChainStatusReorg{
-		NewTail:             *newTail,
-		CommonAncestorBlock: lcaBlockNumber,
+	status := protocol.ChainStatus{
+		Type:         protocol.ReorgTypeNormal,
+		ResetToBlock: lcaBlockNumber,
 	}
 
 	select {
 	case r.statusCh <- status:
 		r.lggr.Infow("Sent reorg notification",
 			"chainSelector", r.config.ChainSelector,
-			"lcaBlock", lcaBlockNumber)
+			"type", status.Type.String(),
+			"resetToBlock", lcaBlockNumber)
 	default:
 		r.lggr.Warnw("Status channel full, dropping reorg notification",
 			"chainSelector", r.config.ChainSelector)
 	}
 }
 
-// sendFinalityViolation sends a ChainStatusFinalityViolated notification.
-func (r *ReorgDetectorService) sendFinalityViolation(violatedBlock protocol.BlockHeader, safeRestartBlock uint64) {
-	// Build new tail for notification
-	r.tailMu.RLock()
-	blocks := make([]protocol.BlockHeader, 0, len(r.tailBlocks))
-	for i := r.tailMinBlock; i <= r.tailMaxBlock; i++ {
-		if block, exists := r.tailBlocks[i]; exists {
-			blocks = append(blocks, block)
-		}
-	}
-	r.tailMu.RUnlock()
+// sendFinalityViolation sends a finality violation notification.
+// No reset block is provided - finality violations require immediate stop and manual intervention.
+func (r *ReorgDetectorService) sendFinalityViolation(violatedBlock protocol.BlockHeader, finalizedBlockNum uint64) {
+	r.lggr.Errorw("FINALITY VIOLATION - sending notification",
+		"chainSelector", r.config.ChainSelector,
+		"violatedBlock", violatedBlock.Number,
+		"violatedHash", violatedBlock.Hash,
+		"finalizedBlock", finalizedBlockNum)
 
-	// Create new tail (validation will ensure contiguity)
-	newTail, err := protocol.NewChainTail(blocks)
-	if err != nil {
-		r.lggr.Errorw("Failed to create ChainTail for finality violation notification",
-			"chainSelector", r.config.ChainSelector,
-			"error", err)
-		return
-	}
-
-	status := protocol.ChainStatusFinalityViolated{
-		ViolatedBlock:    violatedBlock,
-		NewTail:          *newTail,
-		SafeRestartBlock: safeRestartBlock,
+	status := protocol.ChainStatus{
+		Type:         protocol.ReorgTypeFinalityViolation,
+		ResetToBlock: 0, // No safe reset point exists
 	}
 
 	select {
 	case r.statusCh <- status:
-		r.lggr.Errorw("Sent finality violation notification",
+		r.lggr.Errorw("Sent finality violation notification - chain reader will stop",
 			"chainSelector", r.config.ChainSelector,
-			"violatedBlock", violatedBlock.Number)
+			"type", status.Type.String())
 	default:
 		r.lggr.Warnw("Status channel full, dropping finality violation notification",
 			"chainSelector", r.config.ChainSelector)
