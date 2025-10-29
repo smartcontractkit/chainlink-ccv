@@ -23,7 +23,7 @@ const (
 	// ChainStatusInterval is how often to write statuses.
 	ChainStatusInterval = 300 * time.Second
 
-	// StartupLookbackHours when no chain status exists.
+	// StartupLookbackHours when no chain status latestFinalizedBlockExists.
 	StartupLookbackHours = 8
 
 	// ChainStatusRetryAttempts on startup.

@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -10,6 +11,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+const (
+	MAX_GAP_BLOCKS = 10 // Maximum allowed gap in blocks before rebuilding entire tail
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -34,6 +39,8 @@ type ReorgDetectorConfig struct {
 // - Stored as map[blockNumber]BlockHeader for O(1) lookup
 // - Tracks min/max block numbers for range management
 // - HeadTracker determines finalized block (by depth or finality tag depending on chain)
+// - Automatically backfills gaps when pollInterval > blockTime (normal operation)
+// - Rebuilds entire tail if gap exceeds 100 blocks (restart/downtime recovery)
 //
 // Reorg Detection:
 // - On each poll, checks if newBlock.ParentHash == previousBlock.Hash
@@ -145,7 +152,7 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 		"pollInterval", r.pollInterval)
 
 	// Build initial tail
-	if err := r.buildInitialTail(ctx); err != nil {
+	if err := r.buildEntireTail(ctx); err != nil {
 		return nil, fmt.Errorf("failed to build initial tail: %w", err)
 	}
 
@@ -165,63 +172,6 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 		"tailMaxBlock", r.tailMaxBlock)
 
 	return r.statusCh, nil
-}
-
-// buildInitialTail builds the initial chain tail by fetching blocks from finalized to latest.
-// HeadTracker determines the finalized block (by depth or finality tag depending on the chain).
-func (r *ReorgDetectorService) buildInitialTail(ctx context.Context) error {
-	r.lggr.Infow("Building initial chain tail", "chainSelector", r.config.ChainSelector)
-
-	// Get latest and finalized blocks in a single call
-	latest, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get latest and finalized blocks: %w", err)
-	}
-	if finalized == nil {
-		return fmt.Errorf("finalized block is nil")
-	}
-	if latest == nil {
-		return fmt.Errorf("latest block is nil")
-	}
-
-	// Build tail from finalized to latest
-	finalizedBlockNum := finalized.Number
-	latestBlockNum := latest.Number
-
-	// Fetch block headers in the range [finalizedBlockNum, latestBlockNum]
-	var blockNumbers []*big.Int
-	for i := finalizedBlockNum; i <= latestBlockNum; i++ {
-		blockNumbers = append(blockNumbers, new(big.Int).SetUint64(i))
-	}
-
-	headers, err := r.sourceReader.GetBlocksHeaders(ctx, blockNumbers)
-	if err != nil {
-		return fmt.Errorf("failed to fetch block headers: %w", err)
-	}
-
-	// Populate tail map
-	r.tailMu.Lock()
-	defer r.tailMu.Unlock()
-
-	for _, blockNum := range blockNumbers {
-		header, exists := headers[blockNum]
-		if !exists {
-			return fmt.Errorf("missing block header for block %s", blockNum.String())
-		}
-		r.tailBlocks[header.Number] = header
-	}
-
-	// Set min/max bounds
-	r.tailMinBlock = finalizedBlockNum
-	r.tailMaxBlock = latestBlockNum
-
-	r.lggr.Infow("Initial chain tail built successfully",
-		"chainSelector", r.config.ChainSelector,
-		"minBlock", r.tailMinBlock,
-		"maxBlock", r.tailMaxBlock,
-		"tailSize", len(r.tailBlocks))
-
-	return nil
 }
 
 // pollAndCheckForReorgs is the main polling loop that periodically checks for new blocks
@@ -265,8 +215,10 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		return
 	}
 
+	// Get expected parent and current tail state
 	r.tailMu.RLock()
 	tailMax := r.tailMaxBlock
+	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
 	r.tailMu.RUnlock()
 
 	// Check if chain has progressed
@@ -278,23 +230,67 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		return
 	}
 
-	// Get expected parent from our tail
-	r.tailMu.RLock()
-	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
-	r.tailMu.RUnlock()
-
+	// If we don't have the parent block, backfill the gap
+	// Ideally this should not happen unless pollInterval is misconfigured to be more than block time
 	if !hasParent {
-		r.lggr.Warnw("Missing expected parent block in tail",
+		gapStart := tailMax + 1
+		gapEnd := latest.Number - 1
+		gapSize := gapEnd - gapStart + 1
+
+		r.lggr.Debugw("Gap detected in tail, backfilling",
 			"chainSelector", r.config.ChainSelector,
-			"parentBlock", latest.Number-1,
-			"latestBlock", latest.Number)
-		// This shouldn't happen in normal operation, skip this cycle
-		return
+			"gapStart", gapStart,
+			"gapEnd", gapEnd,
+			"gapSize", gapSize,
+			"latestBlock", latest.Number,
+			"tailMax", tailMax)
+
+		// Sanity check: gap should be reasonable
+		// If gap > MAX_GAP_BLOCKS, something is very wrong (missed many polls, restart after long downtime, etc.)
+		if gapSize > MAX_GAP_BLOCKS {
+			r.lggr.Errorw("Unexpectedly large gap detected, rebuilding entire tail",
+				"chainSelector", r.config.ChainSelector,
+				"gapSize", gapSize,
+				"tailMax", tailMax,
+				"latestBlock", latest.Number)
+			if err := r.buildEntireTail(ctx); err != nil {
+				r.lggr.Errorw("Failed to rebuild tail after large gap",
+					"chainSelector", r.config.ChainSelector,
+					"error", err)
+			}
+			return
+		}
+
+		// Backfill missing blocks
+		if err := r.backfillBlocks(ctx, gapStart, gapEnd, finalized.Number); err != nil {
+			r.lggr.Errorw("Failed to backfill blocks",
+				"chainSelector", r.config.ChainSelector,
+				"gapStart", gapStart,
+				"gapEnd", gapEnd,
+				"error", err)
+			return
+		}
+
+		// Re-fetch parent after backfill
+		r.tailMu.RLock()
+		expectedParent, hasParent = r.tailBlocks[latest.Number-1]
+		r.tailMu.RUnlock()
+
+		if !hasParent {
+			r.lggr.Errorw("Parent block still missing after backfill",
+				"chainSelector", r.config.ChainSelector,
+				"parentBlock", latest.Number-1)
+			return
+		}
+
+		r.lggr.Debugw("Successfully backfilled gap",
+			"chainSelector", r.config.ChainSelector,
+			"gapSize", gapSize)
 	}
 
 	// Check for reorg: does parent hash match?
 	if latest.ParentHash != expectedParent.Hash {
-		r.lggr.Warnw("Reorg detected - parent hash mismatch",
+		r.lggr.Debugw("Reorg detected - parent hash mismatch",
 			"chainSelector", r.config.ChainSelector,
 			"block", latest.Number,
 			"expectedParentHash", expectedParent.Hash,
@@ -313,6 +309,124 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	}
 }
 
+// backfillBlocks fetches and adds missing blocks to the tail.
+// This is normal when pollInterval spans multiple block times.
+func (r *ReorgDetectorService) backfillBlocks(ctx context.Context, startBlock, endBlock, finalizedBlockNum uint64) error {
+	if startBlock > endBlock {
+		return fmt.Errorf("invalid range: startBlock %d > endBlock %d", startBlock, endBlock)
+	}
+
+	r.lggr.Debugw("Backfilling missing blocks",
+		"chainSelector", r.config.ChainSelector,
+		"startBlock", startBlock,
+		"endBlock", endBlock,
+		"count", endBlock-startBlock+1)
+
+	// Fetch block headers in range
+	var blockNumbers []*big.Int
+	for i := startBlock; i <= endBlock; i++ {
+		blockNumbers = append(blockNumbers, new(big.Int).SetUint64(i))
+	}
+
+	headers, err := r.sourceReader.GetBlocksHeaders(ctx, blockNumbers)
+	if err != nil {
+		return fmt.Errorf("failed to fetch block headers for range [%d, %d]: %w", startBlock, endBlock, err)
+	}
+
+	// Add blocks to tail and trim old ones
+	r.tailMu.Lock()
+	defer r.tailMu.Unlock()
+
+	for _, blockNum := range blockNumbers {
+		header, exists := headers[blockNum]
+		if !exists {
+			return fmt.Errorf("missing block header for block %s", blockNum.String())
+		}
+		r.tailBlocks[header.Number] = header
+
+		// Update tailMaxBlock as we go
+		if header.Number > r.tailMaxBlock {
+			r.tailMaxBlock = header.Number
+		}
+	}
+
+	// Trim blocks older than finalized
+	r.trimOlderBlocks(finalizedBlockNum)
+
+	r.lggr.Debugw("Backfill completed",
+		"chainSelector", r.config.ChainSelector,
+		"tailMinBlock", r.tailMinBlock,
+		"tailMaxBlock", r.tailMaxBlock,
+		"tailSize", len(r.tailBlocks))
+
+	return nil
+}
+
+// buildEntireTail rebuilds the entire tail from finalized to latest.
+// Used when gap is too large or tail state is inconsistent.
+func (r *ReorgDetectorService) buildEntireTail(ctx context.Context) error {
+	r.lggr.Infow("Rebuilding entire tail",
+		"chainSelector", r.config.ChainSelector)
+
+	// Get current chain state
+	latest, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get latest and finalized blocks: %w", err)
+	}
+	if latest == nil || finalized == nil {
+		return fmt.Errorf("received nil block headers")
+	}
+
+	finalizedBlockNum := finalized.Number
+	latestBlockNum := latest.Number
+
+	// Fetch block headers in the range [finalizedBlockNum, latestBlockNum]
+	var blockNumbers []*big.Int
+	for i := finalizedBlockNum; i <= latestBlockNum; i++ {
+		blockNumbers = append(blockNumbers, new(big.Int).SetUint64(i))
+	}
+
+	headers, err := r.sourceReader.GetBlocksHeaders(ctx, blockNumbers)
+	if err != nil {
+		return fmt.Errorf("failed to fetch block headers: %w", err)
+	}
+
+	// Replace tail completely
+	r.tailMu.Lock()
+	defer r.tailMu.Unlock()
+
+	r.tailBlocks = make(map[uint64]protocol.BlockHeader)
+	for _, blockNum := range blockNumbers {
+		header, exists := headers[blockNum]
+		if !exists {
+			return fmt.Errorf("missing block header for block %s", blockNum.String())
+		}
+		r.tailBlocks[header.Number] = header
+	}
+
+	r.tailMinBlock = finalizedBlockNum
+	r.tailMaxBlock = latestBlockNum
+
+	r.lggr.Infow("Tail rebuilt successfully",
+		"chainSelector", r.config.ChainSelector,
+		"minBlock", r.tailMinBlock,
+		"maxBlock", r.tailMaxBlock,
+		"tailSize", len(r.tailBlocks))
+
+	return nil
+}
+
+// trimOlderBlocks removes blocks older than the finalized block from the tail.
+// Must be called with tailMu lock held.
+func (r *ReorgDetectorService) trimOlderBlocks(finalizedBlockNum uint64) {
+	if r.tailMinBlock < finalizedBlockNum {
+		for blockNum := r.tailMinBlock; blockNum < finalizedBlockNum; blockNum++ {
+			delete(r.tailBlocks, blockNum)
+		}
+		r.tailMinBlock = finalizedBlockNum
+	}
+}
+
 // addBlockToTail adds a new block to the tail and trims old blocks older than finalized.
 // The finalized block is determined by HeadTracker (by depth or finality tag per chain).
 func (r *ReorgDetectorService) addBlockToTail(block protocol.BlockHeader, finalizedBlockNum uint64) {
@@ -323,12 +437,7 @@ func (r *ReorgDetectorService) addBlockToTail(block protocol.BlockHeader, finali
 	r.tailMaxBlock = block.Number
 
 	// Trim blocks older than finalized
-	if r.tailMinBlock < finalizedBlockNum {
-		for blockNum := r.tailMinBlock; blockNum < finalizedBlockNum; blockNum++ {
-			delete(r.tailBlocks, blockNum)
-		}
-		r.tailMinBlock = finalizedBlockNum
-	}
+	r.trimOlderBlocks(finalizedBlockNum)
 
 	r.lggr.Debugw("Added block to tail",
 		"chainSelector", r.config.ChainSelector,
@@ -349,7 +458,8 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 	blockAfterLCA, err := r.findBlockAfterLCA(ctx, newBlock, latestFinalizedBlock)
 	if err != nil {
 		// Check if it's a finality violation
-		if _, isFinalityViolation := err.(*finalityViolationError); isFinalityViolation {
+		var finalityViolationError *finalityViolationError
+		if errors.As(err, &finalityViolationError) {
 			r.lggr.Errorw("FINALITY VIOLATION DETECTED",
 				"chainSelector", r.config.ChainSelector,
 				"error", err)
@@ -428,11 +538,10 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 	r.tailMu.RUnlock()
 
 	return blockAfterLCA, &finalityViolationError{
-		violatedBlock: ourFinalizedBlock,
-		newChainBlock: blockAfterLCA,
-		finalizedNum:  latestFinalizedBlock,
-		chainSelector: r.config.ChainSelector,
-		exists:        exists,
+		violatedBlock:              ourFinalizedBlock,
+		newChainBlock:              blockAfterLCA,
+		finalizedNum:               latestFinalizedBlock,
+		latestFinalizedBlockExists: exists,
 	}
 }
 
@@ -569,15 +678,14 @@ func (r *ReorgDetectorService) sendFinalityViolation(violatedBlock protocol.Bloc
 
 // finalityViolationError is returned when a reorg violates finality.
 type finalityViolationError struct {
-	violatedBlock protocol.BlockHeader
-	newChainBlock protocol.BlockHeader
-	finalizedNum  uint64
-	chainSelector protocol.ChainSelector
-	exists        bool
+	violatedBlock              protocol.BlockHeader
+	newChainBlock              protocol.BlockHeader
+	finalizedNum               uint64
+	latestFinalizedBlockExists bool
 }
 
 func (e *finalityViolationError) Error() string {
-	if !e.exists {
+	if !e.latestFinalizedBlockExists {
 		return fmt.Sprintf("finality violation: finalized block %d not found in tail", e.finalizedNum)
 	}
 	return fmt.Sprintf("finality violation: finalized block hash %s does not match new chain hash %s at height %d",
