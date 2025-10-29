@@ -6,4 +6,4 @@ outpkg: mocks
 packages:
     github.com/smartcontractkit/chainlink-ccv/protocol:
         interfaces:
-            CheckpointManager:
+            ChainStatusManager:

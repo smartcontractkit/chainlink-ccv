@@ -10,7 +10,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -18,13 +17,13 @@ import (
 type Verifier struct {
 	signer     verifier.MessageSigner
 	lggr       logger.Logger
-	monitoring common.VerifierMonitoring
+	monitoring verifier.Monitoring
 	// TODO: Use a separate config
 	config verifier.CoordinatorConfig
 }
 
 // NewCommitVerifier creates a new commit verifier.
-func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring common.VerifierMonitoring) (verifier.Verifier, error) {
+func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring verifier.Monitoring) (verifier.Verifier, error) {
 	cv := &Verifier{
 		config:     config,
 		signer:     signer,

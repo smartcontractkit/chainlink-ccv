@@ -19,6 +19,15 @@ type ECDSASigner struct {
 	address    protocol.UnknownAddress
 }
 
+// NewECDSAMessageSignerFromString creates a new ECDSA message signer.
+func NewECDSAMessageSignerFromString(privateKeyString string) (*ECDSASigner, error) {
+	privateKey, err := ReadPrivateKeyFromString(privateKeyString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read private key from environment variable: %w", err)
+	}
+	return NewECDSAMessageSigner(privateKey)
+}
+
 // NewECDSAMessageSigner creates a new ECDSA message signer.
 func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 	if len(privateKeyBytes) == 0 {

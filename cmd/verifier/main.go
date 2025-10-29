@@ -183,7 +183,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for chain status reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()
@@ -193,8 +193,8 @@ func main() {
 		lggr.Errorw("Failed to create aggregator reader", "error", err)
 		os.Exit(1)
 	}
-	// Create checkpoint manager (includes both writer and reader)
-	checkpointManager := storageaccess.NewAggregatorCheckpointManager(aggregatorWriter, aggregatorReader)
+	// Create chain status manager (includes both writer and reader)
+	chainStatusManager := storageaccess.NewAggregatorChainStatusManager(aggregatorWriter, aggregatorReader)
 
 	// Create source readers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
@@ -219,7 +219,7 @@ func main() {
 			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
 			continue
 		}
-		// sourceReaders[selector] = verifier.NewSourceReaderService(emvSourceReader, selector, checkpointManager, lggr)
+		// sourceReaders[selector] = verifier.NewSourceReaderService(emvSourceReader, selector, chain statusManager, lggr)
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
 
@@ -285,7 +285,7 @@ func main() {
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithCheckpointManager(checkpointManager),
+		verifier.WithChainStatusManager(chainStatusManager),
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),

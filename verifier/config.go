@@ -7,12 +7,18 @@ import (
 )
 
 type Config struct {
-	VerifierID          string                              `toml:"verifier_id"`
-	AggregatorAddress   string                              `toml:"aggregator_address"`
-	AggregatorAPIKey    string                              `toml:"aggregator_api_key"`
-	AggregatorSecretKey string                              `toml:"aggregator_secret_key"`
-	BlockchainInfos     map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
-	PyroscopeURL        string                              `toml:"pyroscope_url"`
+	VerifierID        string `toml:"verifier_id"`
+	AggregatorAddress string `toml:"aggregator_address"`
+
+	// TODO: Move to a separate secrets config file.
+	AggregatorAPIKey string `toml:"aggregator_api_key"`
+
+	// TODO: Move to a separate secrets config file.
+	AggregatorSecretKey string `toml:"aggregator_secret_key"`
+
+	// TODO: remove from verifier config, readers need to be initialized separately.
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	PyroscopeURL    string                              `toml:"pyroscope_url"`
 	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
 	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
@@ -52,6 +58,26 @@ type BeholderConfig struct {
 	TraceSampleRatio float64 `toml:"TraceSampleRatio"`
 	// TraceBatchTimeout is the timeout for a batch of traces.
 	TraceBatchTimeout int64 `toml:"TraceBatchTimeout"`
+}
+
+func (c *Config) Validate() error {
+	if len(c.BlockchainInfos) != len(c.OnRampAddresses) ||
+		len(c.BlockchainInfos) != len(c.CommitteeVerifierAddresses) {
+		prefix := "invalid verifier configuration, mismatched lengths of blockchain infos and addresses"
+		return fmt.Errorf(
+			"%s: BlockchainInfos: %d, OnRampAddresses: %d, CommitteeVerifierAddresses: %d",
+			prefix, len(c.BlockchainInfos), len(c.OnRampAddresses), len(c.CommitteeVerifierAddresses))
+	}
+
+	for k := range c.BlockchainInfos {
+		if _, ok := c.OnRampAddresses[k]; !ok {
+			return fmt.Errorf("invalid CCV configuration, missing onramp address for chain: %s", k)
+		}
+		if _, ok := c.CommitteeVerifierAddresses[k]; !ok {
+			return fmt.Errorf("invalid CCV configuration, missing verifier address for chain: %s", k)
+		}
+	}
+	return nil
 }
 
 // Validate performs validation on the monitoring configuration.

@@ -15,7 +15,7 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func WithCheckpointTestClients() ConfigOption {
+func WithChainStatusTestClients() ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		testClients := []string{
 			"isolation-client-1", "isolation-client-2", "isolation-client-3",
@@ -61,11 +61,11 @@ func WithCheckpointTestClients() ConfigOption {
 	}
 }
 
-// TestCheckpointClientIsolation tests that clients can't access each other's data.
-func TestCheckpointClientIsolation(t *testing.T) {
+// TestChainStatusClientIsolation tests that clients can't access each other's data.
+func TestChainStatusClientIsolation(t *testing.T) {
 	t.Run("different_clients_isolated_data", func(t *testing.T) {
 		// Setup server
-		listener, cleanup, err := CreateServerOnly(t, WithCheckpointTestClients())
+		listener, cleanup, err := CreateServerOnly(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server")
 		defer cleanup()
 
@@ -79,61 +79,61 @@ func TestCheckpointClientIsolation(t *testing.T) {
 		client3, _, cleanup3 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-3", "secret-isolation-client-3"))
 		defer cleanup3()
 
-		// Client 1 stores checkpoints
-		writeReq1 := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 1000},
-				{ChainSelector: 2, FinalizedBlockHeight: 2000},
+		// Client 1 stores chain status
+		writeReq1 := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 1000, Disabled: false},
+				{ChainSelector: 2, FinalizedBlockHeight: 2000, Disabled: false},
 			},
 		}
-		_, err = client1.WriteBlockCheckpoint(context.Background(), writeReq1)
+		_, err = client1.WriteChainStatus(context.Background(), writeReq1)
 		require.NoError(t, err, "client 1 write should succeed")
 
-		// Client 2 stores different checkpoints
-		writeReq2 := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 1500}, // Same chain, different value
-				{ChainSelector: 3, FinalizedBlockHeight: 3000},
+		// Client 2 stores different statuses
+		writeReq2 := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 1500, Disabled: false}, // Same chain, different value
+				{ChainSelector: 3, FinalizedBlockHeight: 3000, Disabled: false},
 			},
 		}
-		_, err = client2.WriteBlockCheckpoint(context.Background(), writeReq2)
+		_, err = client2.WriteChainStatus(context.Background(), writeReq2)
 		require.NoError(t, err, "client 2 write should succeed")
 
 		// Client 3 has no data stored
 
 		// Verify client 1 sees only their data
-		resp1, err := client1.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+		resp1, err := client1.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "client 1 read should succeed")
-		require.Len(t, resp1.Checkpoints, 2, "client 1 should see 2 checkpoints")
+		require.Len(t, resp1.Statuses, 2, "client 1 should see 2 chain statuses")
 
 		client1Data := make(map[uint64]uint64)
-		for _, cp := range resp1.Checkpoints {
+		for _, cp := range resp1.Statuses {
 			client1Data[cp.ChainSelector] = cp.FinalizedBlockHeight
 		}
 		require.Equal(t, uint64(1000), client1Data[1], "client 1 should see their chain 1 value")
 		require.Equal(t, uint64(2000), client1Data[2], "client 1 should see their chain 2 value")
 
 		// Verify client 2 sees only their data
-		resp2, err := client2.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+		resp2, err := client2.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "client 2 read should succeed")
-		require.Len(t, resp2.Checkpoints, 2, "client 2 should see 2 checkpoints")
+		require.Len(t, resp2.Statuses, 2, "client 2 should see 2 chain statuses")
 
 		client2Data := make(map[uint64]uint64)
-		for _, cp := range resp2.Checkpoints {
+		for _, cp := range resp2.Statuses {
 			client2Data[cp.ChainSelector] = cp.FinalizedBlockHeight
 		}
 		require.Equal(t, uint64(1500), client2Data[1], "client 2 should see their chain 1 value")
 		require.Equal(t, uint64(3000), client2Data[3], "client 2 should see their chain 3 value")
 
 		// Verify client 3 sees no data
-		resp3, err := client3.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+		resp3, err := client3.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "client 3 read should succeed")
-		require.Empty(t, resp3.Checkpoints, "client 3 should see no checkpoints")
+		require.Empty(t, resp3.Statuses, "client 3 should see no chain status")
 	})
 
 	t.Run("same_chain_different_clients", func(t *testing.T) {
 		// Setup server only
-		listener, cleanup, err := CreateServerOnly(t, WithCheckpointTestClients())
+		listener, cleanup, err := CreateServerOnly(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server")
 		defer cleanup()
 
@@ -165,30 +165,30 @@ func TestCheckpointClientIsolation(t *testing.T) {
 
 		// Each client stores their own value for the same chain
 		for i := 0; i < numClients; i++ {
-			writeReq := &pb.WriteBlockCheckpointRequest{
-				Checkpoints: []*pb.BlockCheckpoint{
+			writeReq := &pb.WriteChainStatusRequest{
+				Statuses: []*pb.ChainStatus{
 					{ChainSelector: chainSelector, FinalizedBlockHeight: uint64((i + 1) * 100)},
 				},
 			}
-			_, err = clients[i].client.WriteBlockCheckpoint(context.Background(), writeReq)
+			_, err = clients[i].client.WriteChainStatus(context.Background(), writeReq)
 			require.NoError(t, err, "client %d write should succeed", i)
 		}
 
 		// Verify each client sees only their own value
 		for i := 0; i < numClients; i++ {
-			resp, err := clients[i].client.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+			resp, err := clients[i].client.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 			require.NoError(t, err, "client %d read should succeed", i)
-			require.Len(t, resp.Checkpoints, 1, "client %d should see 1 checkpoint", i)
+			require.Len(t, resp.Statuses, 1, "client %d should see 1 chain status", i)
 
-			checkpoint := resp.Checkpoints[0]
-			require.Equal(t, chainSelector, checkpoint.ChainSelector, "client %d should see correct chain", i)
-			require.Equal(t, uint64((i+1)*100), checkpoint.FinalizedBlockHeight, "client %d should see their own value", i)
+			chainStatus := resp.Statuses[0]
+			require.Equal(t, chainSelector, chainStatus.ChainSelector, "client %d should see correct chain", i)
+			require.Equal(t, uint64((i+1)*100), chainStatus.FinalizedBlockHeight, "client %d should see their own value", i)
 		}
 	})
 
 	t.Run("client_updates_dont_affect_others", func(t *testing.T) {
 		// Setup server only
-		listener, cleanup, err := CreateServerOnly(t, WithCheckpointTestClients())
+		listener, cleanup, err := CreateServerOnly(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server")
 		defer cleanup()
 
@@ -199,42 +199,42 @@ func TestCheckpointClientIsolation(t *testing.T) {
 		defer cleanupB()
 
 		// Both clients store initial data
-		initialReq := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 100},
+		initialReq := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 100, Disabled: false},
 			},
 		}
-		_, err = clientA.WriteBlockCheckpoint(context.Background(), initialReq)
+		_, err = clientA.WriteChainStatus(context.Background(), initialReq)
 		require.NoError(t, err, "client A initial write should succeed")
-		_, err = clientB.WriteBlockCheckpoint(context.Background(), initialReq)
+		_, err = clientB.WriteChainStatus(context.Background(), initialReq)
 		require.NoError(t, err, "client B initial write should succeed")
 
 		// Client A updates their data
-		updateReq := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 200},
+		updateReq := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 200, Disabled: false},
 			},
 		}
-		_, err = clientA.WriteBlockCheckpoint(context.Background(), updateReq)
+		_, err = clientA.WriteChainStatus(context.Background(), updateReq)
 		require.NoError(t, err, "client A update should succeed")
 
 		// Verify client A sees updated data
-		respA, err := clientA.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+		respA, err := clientA.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "client A read should succeed")
-		require.Equal(t, uint64(200), respA.Checkpoints[0].FinalizedBlockHeight, "client A should see updated value")
+		require.Equal(t, uint64(200), respA.Statuses[0].FinalizedBlockHeight, "client A should see updated value")
 
 		// Verify client B still sees original data
-		respB, err := clientB.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+		respB, err := clientB.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "client B read should succeed")
-		require.Equal(t, uint64(100), respB.Checkpoints[0].FinalizedBlockHeight, "client B should see original value")
+		require.Equal(t, uint64(100), respB.Statuses[0].FinalizedBlockHeight, "client B should see original value")
 	})
 }
 
-// TestCheckpointConcurrency tests concurrent access to checkpoint operations.
-func TestCheckpointConcurrency(t *testing.T) {
+// TestChainStatusConcurrency tests concurrent access to chain status operations.
+func TestChainStatusConcurrency(t *testing.T) {
 	t.Run("concurrent_writes_same_client", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t, WithCheckpointTestClients())
+		client, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
@@ -248,8 +248,8 @@ func TestCheckpointConcurrency(t *testing.T) {
 			go func(index int) {
 				defer wg.Done()
 
-				writeReq := &pb.WriteBlockCheckpointRequest{
-					Checkpoints: []*pb.BlockCheckpoint{
+				writeReq := &pb.WriteChainStatusRequest{
+					Statuses: []*pb.ChainStatus{
 						{
 							ChainSelector:        uint64(index + 1),
 							FinalizedBlockHeight: uint64((index + 1) * 100),
@@ -257,7 +257,7 @@ func TestCheckpointConcurrency(t *testing.T) {
 					},
 				}
 
-				_, err := client.WriteBlockCheckpoint(ctx, writeReq)
+				_, err := client.WriteChainStatus(ctx, writeReq)
 				require.NoError(t, err, "concurrent write %d should succeed", index)
 			}(i)
 		}
@@ -265,13 +265,13 @@ func TestCheckpointConcurrency(t *testing.T) {
 		wg.Wait()
 
 		// Verify all writes succeeded
-		resp, err := client.ReadBlockCheckpoint(ctx, &pb.ReadBlockCheckpointRequest{})
+		resp, err := client.ReadChainStatus(ctx, &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "read after concurrent writes should succeed")
-		require.Len(t, resp.Checkpoints, numGoroutines, "should have all concurrent checkpoints")
+		require.Len(t, resp.Statuses, numGoroutines, "should have all concurrent chain statuses")
 
 		// Verify data integrity
 		resultMap := make(map[uint64]uint64)
-		for _, cp := range resp.Checkpoints {
+		for _, cp := range resp.Statuses {
 			resultMap[cp.ChainSelector] = cp.FinalizedBlockHeight
 		}
 
@@ -284,7 +284,7 @@ func TestCheckpointConcurrency(t *testing.T) {
 
 	t.Run("concurrent_writes_different_clients", func(t *testing.T) {
 		// Setup server only
-		listener, cleanup, err := CreateServerOnly(t, WithCheckpointTestClients())
+		listener, cleanup, err := CreateServerOnly(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server")
 		defer cleanup()
 
@@ -321,16 +321,22 @@ func TestCheckpointConcurrency(t *testing.T) {
 			go func(clientIndex int) {
 				defer wg.Done()
 
-				writeReq := &pb.WriteBlockCheckpointRequest{
-					Checkpoints: []*pb.BlockCheckpoint{
+				writeReq := &pb.WriteChainStatusRequest{
+					Statuses: []*pb.ChainStatus{
 						{
 							ChainSelector:        1, // All clients use same chain
 							FinalizedBlockHeight: uint64((clientIndex + 1) * 100),
+							Disabled:             true,
+						},
+						{
+							ChainSelector:        2,
+							FinalizedBlockHeight: uint64((clientIndex + 1) * 200),
+							Disabled:             false,
 						},
 					},
 				}
 
-				_, err := clients[clientIndex].client.WriteBlockCheckpoint(context.Background(), writeReq)
+				_, err := clients[clientIndex].client.WriteChainStatus(context.Background(), writeReq)
 				require.NoError(t, err, "concurrent client %d write should succeed", clientIndex)
 			}(i)
 		}
@@ -339,31 +345,48 @@ func TestCheckpointConcurrency(t *testing.T) {
 
 		// Verify each client has their own data
 		for i := 0; i < numClients; i++ {
-			resp, err := clients[i].client.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+			resp, err := clients[i].client.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 			require.NoError(t, err, "concurrent client %d read should succeed", i)
-			require.Len(t, resp.Checkpoints, 1, "client %d should have 1 checkpoint", i)
+			require.Len(t, resp.Statuses, 2, "client %d should have 2 chain statuses", i)
 
-			expectedHeight := uint64((i + 1) * 100)
-			require.Equal(t, expectedHeight, resp.Checkpoints[0].FinalizedBlockHeight, "client %d should have correct value", i)
+			// Create a map to look up statuses by chain selector (order independent)
+			statusMap := make(map[uint64]*pb.ChainStatus)
+			for _, status := range resp.Statuses {
+				statusMap[status.ChainSelector] = status
+			}
+
+			// Verify chain 1 (disabled chain)
+			chain1Status, exists := statusMap[1]
+			require.True(t, exists, "client %d should have chain selector 1", i)
+			expectedHeight1 := uint64((i + 1) * 100)
+			require.Equal(t, expectedHeight1, chain1Status.FinalizedBlockHeight, "client %d should have correct value for chain 1", i)
+			require.True(t, chain1Status.Disabled, "client %d chain 1 status should be disabled", i)
+
+			// Verify chain 2 (enabled chain)
+			chain2Status, exists := statusMap[2]
+			require.True(t, exists, "client %d should have chain selector 2", i)
+			expectedHeight2 := uint64((i + 1) * 200)
+			require.Equal(t, expectedHeight2, chain2Status.FinalizedBlockHeight, "client %d should have correct value for chain 2", i)
+			require.False(t, chain2Status.Disabled, "client %d chain 2 status should be enabled", i)
 		}
 	})
 
 	t.Run("concurrent_read_write_operations", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t, WithCheckpointTestClients())
+		client, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
 		ctx := context.Background()
 
 		// Pre-populate some data
-		initialReq := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 100},
-				{ChainSelector: 2, FinalizedBlockHeight: 200},
+		initialReq := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 100, Disabled: false},
+				{ChainSelector: 2, FinalizedBlockHeight: 200, Disabled: false},
 			},
 		}
-		_, err = client.WriteBlockCheckpoint(ctx, initialReq)
+		_, err = client.WriteChainStatus(ctx, initialReq)
 		require.NoError(t, err, "initial write should succeed")
 
 		var wg sync.WaitGroup
@@ -381,9 +404,9 @@ func TestCheckpointConcurrency(t *testing.T) {
 				reads := 0
 
 				for time.Since(start) < duration {
-					resp, err := client.ReadBlockCheckpoint(ctx, &pb.ReadBlockCheckpointRequest{})
+					resp, err := client.ReadChainStatus(ctx, &pb.ReadChainStatusRequest{})
 					require.NoError(t, err, "reader %d should succeed", readerIndex)
-					require.GreaterOrEqual(t, len(resp.Checkpoints), 2, "should always have at least initial data")
+					require.GreaterOrEqual(t, len(resp.Statuses), 2, "should always have at least initial data")
 					reads++
 				}
 
@@ -401,8 +424,8 @@ func TestCheckpointConcurrency(t *testing.T) {
 				writes := 0
 
 				for time.Since(start) < duration {
-					writeReq := &pb.WriteBlockCheckpointRequest{
-						Checkpoints: []*pb.BlockCheckpoint{
+					writeReq := &pb.WriteChainStatusRequest{
+						Statuses: []*pb.ChainStatus{
 							{
 								ChainSelector:        uint64(writerIndex + 10), // Avoid conflicts with initial data
 								FinalizedBlockHeight: uint64(time.Now().UnixNano()%10000) + 1,
@@ -410,7 +433,7 @@ func TestCheckpointConcurrency(t *testing.T) {
 						},
 					}
 
-					_, err := client.WriteBlockCheckpoint(ctx, writeReq)
+					_, err := client.WriteChainStatus(ctx, writeReq)
 					require.NoError(t, err, "writer %d should succeed", writerIndex)
 					writes++
 
@@ -424,14 +447,14 @@ func TestCheckpointConcurrency(t *testing.T) {
 		wg.Wait()
 
 		// Final consistency check
-		resp, err := client.ReadBlockCheckpoint(ctx, &pb.ReadBlockCheckpointRequest{})
+		resp, err := client.ReadChainStatus(ctx, &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "final read should succeed")
-		require.GreaterOrEqual(t, len(resp.Checkpoints), 2, "should have at least initial checkpoints")
+		require.GreaterOrEqual(t, len(resp.Statuses), 2, "should have at least initial chain statuses")
 	})
 
 	t.Run("high_frequency_updates_same_chain", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t, WithCheckpointTestClients())
+		client, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
@@ -446,8 +469,8 @@ func TestCheckpointConcurrency(t *testing.T) {
 			go func(updateIndex int) {
 				defer wg.Done()
 
-				writeReq := &pb.WriteBlockCheckpointRequest{
-					Checkpoints: []*pb.BlockCheckpoint{
+				writeReq := &pb.WriteChainStatusRequest{
+					Statuses: []*pb.ChainStatus{
 						{
 							ChainSelector:        chainSelector,
 							FinalizedBlockHeight: uint64(updateIndex + 1000),
@@ -455,7 +478,7 @@ func TestCheckpointConcurrency(t *testing.T) {
 					},
 				}
 
-				_, err := client.WriteBlockCheckpoint(ctx, writeReq)
+				_, err := client.WriteChainStatus(ctx, writeReq)
 				require.NoError(t, err, "update %d should succeed", updateIndex)
 			}(i)
 		}
@@ -463,21 +486,21 @@ func TestCheckpointConcurrency(t *testing.T) {
 		wg.Wait()
 
 		// Verify final state is consistent (one of the values)
-		resp, err := client.ReadBlockCheckpoint(ctx, &pb.ReadBlockCheckpointRequest{})
+		resp, err := client.ReadChainStatus(ctx, &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "final read should succeed")
-		require.Len(t, resp.Checkpoints, 1, "should have exactly 1 checkpoint")
+		require.Len(t, resp.Statuses, 1, "should have exactly 1 chain status")
 
-		finalValue := resp.Checkpoints[0].FinalizedBlockHeight
+		finalValue := resp.Statuses[0].FinalizedBlockHeight
 		require.GreaterOrEqual(t, finalValue, uint64(1000), "final value should be from one of the updates")
 		require.LessOrEqual(t, finalValue, uint64(1000+numUpdates-1), "final value should be within expected range")
 	})
 }
 
-// TestCheckpointClientIsolation_DynamoDB tests checkpoint isolation with DynamoDB storage.
-func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
+// TestChainStatusClientIsolation_DynamoDB tests client isolation with DynamoDB storage.
+func TestChainStatusClientIsolation_DynamoDB(t *testing.T) {
 	t.Run("dynamodb_client_isolation", func(t *testing.T) {
 		// Setup with DynamoDB storage
-		listener, cleanup, err := CreateServerOnly(t, WithStorageType("dynamodb"), WithCheckpointTestClients())
+		listener, cleanup, err := CreateServerOnly(t, WithStorageType("dynamodb"), WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server with DynamoDB")
 		defer cleanup()
 
@@ -487,45 +510,45 @@ func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
 		client2, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("ddb-isolation-client-2", "secret-ddb-isolation-client-2"))
 		defer cleanup2()
 
-		// Client 1 stores checkpoints
-		writeReq1 := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 1000},
-				{ChainSelector: 2, FinalizedBlockHeight: 2000},
+		// Client 1 stores chain status
+		writeReq1 := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 1000, Disabled: false},
+				{ChainSelector: 2, FinalizedBlockHeight: 2000, Disabled: false},
 			},
 		}
-		_, err = client1.WriteBlockCheckpoint(context.Background(), writeReq1)
+		_, err = client1.WriteChainStatus(context.Background(), writeReq1)
 		require.NoError(t, err, "client 1 write should succeed")
 
-		// Client 2 stores different checkpoints
-		writeReq2 := &pb.WriteBlockCheckpointRequest{
-			Checkpoints: []*pb.BlockCheckpoint{
-				{ChainSelector: 1, FinalizedBlockHeight: 1500}, // Same chain, different value
-				{ChainSelector: 3, FinalizedBlockHeight: 3000},
+		// Client 2 stores different statuses
+		writeReq2 := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 1500, Disabled: false}, // Same chain, different value
+				{ChainSelector: 3, FinalizedBlockHeight: 3000, Disabled: false},
 			},
 		}
-		_, err = client2.WriteBlockCheckpoint(context.Background(), writeReq2)
+		_, err = client2.WriteChainStatus(context.Background(), writeReq2)
 		require.NoError(t, err, "client 2 write should succeed")
 
 		// Verify client 1 sees only their data
-		resp1, err := client1.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+		resp1, err := client1.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "client 1 read should succeed")
-		require.Len(t, resp1.Checkpoints, 2, "client 1 should see 2 checkpoints")
+		require.Len(t, resp1.Statuses, 2, "client 1 should see 2 chain statuses")
 
 		client1Data := make(map[uint64]uint64)
-		for _, cp := range resp1.Checkpoints {
+		for _, cp := range resp1.Statuses {
 			client1Data[cp.ChainSelector] = cp.FinalizedBlockHeight
 		}
 		require.Equal(t, uint64(1000), client1Data[1], "client 1 should see their chain 1 value")
 		require.Equal(t, uint64(2000), client1Data[2], "client 1 should see their chain 2 value")
 
 		// Verify client 2 sees only their data
-		resp2, err := client2.ReadBlockCheckpoint(context.Background(), &pb.ReadBlockCheckpointRequest{})
+		resp2, err := client2.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "client 2 read should succeed")
-		require.Len(t, resp2.Checkpoints, 2, "client 2 should see 2 checkpoints")
+		require.Len(t, resp2.Statuses, 2, "client 2 should see 2 chain statuses")
 
 		client2Data := make(map[uint64]uint64)
-		for _, cp := range resp2.Checkpoints {
+		for _, cp := range resp2.Statuses {
 			client2Data[cp.ChainSelector] = cp.FinalizedBlockHeight
 		}
 		require.Equal(t, uint64(1500), client2Data[1], "client 2 should see their chain 1 value")
@@ -533,11 +556,11 @@ func TestCheckpointClientIsolation_DynamoDB(t *testing.T) {
 	})
 }
 
-// TestCheckpointConcurrency_DynamoDB tests concurrent checkpoint operations with DynamoDB.
-func TestCheckpointConcurrency_DynamoDB(t *testing.T) {
+// TestChainStatusConcurrency_DynamoDB tests concurrent chain status operations with DynamoDB.
+func TestChainStatusConcurrency_DynamoDB(t *testing.T) {
 	t.Run("dynamodb_concurrent_writes", func(t *testing.T) {
 		// Setup with DynamoDB storage
-		client, _, cleanup, err := CreateServerAndClient(t, WithStorageType("dynamodb"), WithCheckpointTestClients())
+		client, _, cleanup, err := CreateServerAndClient(t, WithStorageType("dynamodb"), WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server and client with DynamoDB")
 		defer cleanup()
 
@@ -551,8 +574,8 @@ func TestCheckpointConcurrency_DynamoDB(t *testing.T) {
 			go func(index int) {
 				defer wg.Done()
 
-				writeReq := &pb.WriteBlockCheckpointRequest{
-					Checkpoints: []*pb.BlockCheckpoint{
+				writeReq := &pb.WriteChainStatusRequest{
+					Statuses: []*pb.ChainStatus{
 						{
 							ChainSelector:        uint64(index + 10), // Start from 10 to avoid conflicts
 							FinalizedBlockHeight: uint64((index + 1) * 100),
@@ -560,7 +583,7 @@ func TestCheckpointConcurrency_DynamoDB(t *testing.T) {
 					},
 				}
 
-				_, err := client.WriteBlockCheckpoint(ctx, writeReq)
+				_, err := client.WriteChainStatus(ctx, writeReq)
 				require.NoError(t, err, "concurrent write %d should succeed", index)
 			}(i)
 		}
@@ -568,13 +591,13 @@ func TestCheckpointConcurrency_DynamoDB(t *testing.T) {
 		wg.Wait()
 
 		// Verify all writes succeeded
-		resp, err := client.ReadBlockCheckpoint(ctx, &pb.ReadBlockCheckpointRequest{})
+		resp, err := client.ReadChainStatus(ctx, &pb.ReadChainStatusRequest{})
 		require.NoError(t, err, "read after concurrent writes should succeed")
-		require.Len(t, resp.Checkpoints, numGoroutines, "should have all concurrent checkpoints")
+		require.Len(t, resp.Statuses, numGoroutines, "should have all concurrent chain statuses")
 
 		// Verify data integrity
 		resultMap := make(map[uint64]uint64)
-		for _, cp := range resp.Checkpoints {
+		for _, cp := range resp.Statuses {
 			resultMap[cp.ChainSelector] = cp.FinalizedBlockHeight
 		}
 

@@ -14,10 +14,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-
-	commontypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 const (
@@ -82,7 +81,7 @@ type VerifierInput struct {
 	SourceCodePath    string               `toml:"source_code_path"`
 	RootPath          string               `toml:"root_path"`
 	ContainerName     string               `toml:"container_name"`
-	VerifierConfig    commontypes.Config   `toml:"verifier_config"`
+	VerifierConfig    verifier.Config      `toml:"verifier_config"`
 	Port              int                  `toml:"port"`
 	UseCache          bool                 `toml:"use_cache"`
 	ConfigFilePath    string               `toml:"config_file_path"`

@@ -27,12 +27,18 @@ type CommitVerificationAggregatedStore interface {
 	GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error)
 }
 
-// CheckpointStorageInterface defines the interface for checkpoint storage implementations.
-type CheckpointStorageInterface interface {
-	// StoreCheckpoints stores checkpoint data for a client.
-	StoreCheckpoints(ctx context.Context, clientID string, checkpoints map[uint64]uint64) error
-	// GetClientCheckpoints retrieves all checkpoints for a specific client.
-	GetClientCheckpoints(ctx context.Context, clientID string) (map[uint64]uint64, error)
-	// GetAllClients returns a list of all client IDs that have stored checkpoints.
+// ChainStatus represents chain status data with finalized block height and disabled flag.
+type ChainStatus struct {
+	FinalizedBlockHeight uint64
+	Disabled             bool
+}
+
+// ChainStatusStorageInterface defines the interface for chain status storage implementations.
+type ChainStatusStorageInterface interface {
+	// StoreChainStatus stores chain status data for a client.
+	StoreChainStatus(ctx context.Context, clientID string, chainStatuses map[uint64]*ChainStatus) error
+	// GetClientChainStatus retrieves all chain statuses for a specific client.
+	GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*ChainStatus, error)
+	// GetAllClients returns a list of all client IDs that have stored chain statuses.
 	GetAllClients(ctx context.Context) ([]string, error)
 }

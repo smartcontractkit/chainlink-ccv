@@ -11,7 +11,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -42,7 +41,7 @@ type Coordinator struct {
 	verifier              Verifier
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
-	monitoring            common.VerifierMonitoring
+	monitoring            Monitoring
 	sourceStates          map[protocol.ChainSelector]*sourceState
 	cancel                context.CancelFunc
 	config                CoordinatorConfig
@@ -60,9 +59,9 @@ type Coordinator struct {
 	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVData]
 
 	// Configuration
-	checkpointManager protocol.CheckpointManager
-	sourceReaders     map[protocol.ChainSelector]SourceReader
-	reorgDetectors    map[protocol.ChainSelector]protocol.ReorgDetector
+	chainStatusManager protocol.ChainStatusManager
+	sourceReaders      map[protocol.ChainSelector]SourceReader
+	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
 }
 
 // Option is the functional option type for Coordinator.
@@ -75,10 +74,10 @@ func WithVerifier(verifier Verifier) Option {
 	}
 }
 
-// WithCheckpointManager sets the checkpoint manager.
-func WithCheckpointManager(manager protocol.CheckpointManager) Option {
+// WithChainStatusManager sets the chain status manager.
+func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
 	return func(vc *Coordinator) {
-		vc.checkpointManager = manager
+		vc.chainStatusManager = manager
 	}
 }
 
@@ -129,7 +128,7 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 }
 
 // WithMonitoring sets the monitoring implementation.
-func WithMonitoring(monitoring common.VerifierMonitoring) Option {
+func WithMonitoring(monitoring Monitoring) Option {
 	return func(vc *Coordinator) {
 		vc.monitoring = monitoring
 	}
@@ -213,7 +212,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		service := NewSourceReaderService(
 			sourceReader,
 			chainSelector,
-			vc.checkpointManager,
+			vc.chainStatusManager,
 			vc.lggr,
 			sourcePollInterval,
 		)
@@ -523,7 +522,7 @@ func (vc *Coordinator) validate() error {
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
 	appendIfNil(vc.monitoring, "monitoring")
-	// checkpointManager is optional, not required
+	// chain statusManager is optional, not required
 
 	if len(vc.sourceReaders) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
@@ -896,9 +895,9 @@ func (vc *Coordinator) handleReorg(
 	state.pendingMu.Unlock()
 
 	// 2. Reset SourceReaderService synchronously
-	// Note: For regular reorgs, the common ancestor is always >= last checkpoint,
-	// so ResetToBlock will update in-memory position without writing checkpoint.
-	// Periodic checkpointing will naturally advance from this point.
+	// Note: For regular reorgs, the common ancestor is always >= last chain status,
+	// so ResetToBlock will update in-memory position without writing chain status.
+	// Periodic chain status chain statuses will naturally advance from this point.
 	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -951,8 +950,8 @@ func (vc *Coordinator) handleFinalityViolation(
 		"flushedCount", flushedCount)
 
 	// 2. Reset SourceReaderService to safe restart block
-	// Note: For finality violations, SafeRestartBlock < last checkpoint,
-	// so ResetToBlock will automatically persist the checkpoint to ensure safe restart.
+	// Note: For finality violations, SafeRestartBlock < last chain status,
+	// so ResetToBlock will automatically persist the chain status to ensure safe restart.
 	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -963,7 +962,7 @@ func (vc *Coordinator) handleFinalityViolation(
 			"resetBlock", violationStatus.SafeRestartBlock)
 		// Critical error - continue with stop anyway
 	} else {
-		vc.lggr.Infow("Source reader reset successfully with checkpoint persisted",
+		vc.lggr.Infow("Source reader reset successfully with chainStatus persisted",
 			"chain", chainSelector,
 			"resetBlock", violationStatus.SafeRestartBlock)
 	}
