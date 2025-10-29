@@ -144,16 +144,28 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		return fmt.Errorf("message format validation failed for message 0x%x: %w", messageID, err)
 	}
 
-	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
-		return fmt.Errorf("message validation failed for message 0x%x with verifier address %s: %w", messageID, sourceConfig.VerifierAddress.String(), err)
+	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress, sourceConfig.DefaultExecutorAddress); err != nil {
+		return fmt.Errorf(
+			"message validation failed for message 0x%x with verifier address %s and default executor address %s: %w",
+			messageID,
+			sourceConfig.VerifierAddress.String(),
+			sourceConfig.DefaultExecutorAddress.String(),
+			err,
+		)
 	}
 
 	cv.lggr.Infow("Message validation passed",
 		"messageID", messageID,
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
+		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress.String(),
 	)
 
-	encodedSignature, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
+	encodedSignature, err := cv.signer.SignMessage(
+		ctx,
+		verificationTask,
+		sourceConfig.VerifierAddress,
+		sourceConfig.DefaultExecutorAddress,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}
