@@ -11,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -61,6 +62,7 @@ type Coordinator struct {
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
 	sourceReaders      map[protocol.ChainSelector]SourceReader
+	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
 }
 
@@ -97,6 +99,24 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Op
 // AddSourceReader adds a single source reader to the existing map.
 func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
 	return WithSourceReaders(map[protocol.ChainSelector]SourceReader{chainSelector: sourceReader})
+}
+
+// WithHeadTrackers sets multiple head trackers.
+func WithHeadTrackers(headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) Option {
+	return func(vc *Coordinator) {
+		if vc.headTrackers == nil {
+			vc.headTrackers = make(map[protocol.ChainSelector]chainaccess.HeadTracker)
+		}
+
+		for chainSelector, tracker := range headTrackers {
+			vc.headTrackers[chainSelector] = tracker
+		}
+	}
+}
+
+// AddHeadTracker adds a single head tracker to the existing map.
+func AddHeadTracker(chainSelector protocol.ChainSelector, headTracker chainaccess.HeadTracker) Option {
+	return WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{chainSelector: headTracker})
 }
 
 // WithStorage sets the storage writer.
@@ -209,8 +229,16 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			sourcePollInterval = sourceCfg.PollInterval
 		}
 
+		// Get the corresponding HeadTracker for this chain
+		headTracker, ok := vc.headTrackers[chainSelector]
+		if !ok {
+			vc.lggr.Errorw("skipping source reader: no head tracker found for chain selector", "chainSelector", chainSelector)
+			continue
+		}
+
 		service := NewSourceReaderService(
 			sourceReader,
+			headTracker,
 			chainSelector,
 			vc.chainStatusManager,
 			vc.lggr,
@@ -671,18 +699,19 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	var readyTasks []VerificationTask
 	var remainingTasks []VerificationTask
 
-	// Get latest and finalized block heights for this chain
-	latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
+	// Get latest and finalized block headers for this chain
+	latest, finalized, err := state.reader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
-		vc.lggr.Errorw("Failed to get latest block", "error", err, "chain", chainSelector)
+		vc.lggr.Errorw("Failed to get latest and finalized blocks", "error", err, "chain", chainSelector)
+		return
+	}
+	if latest == nil || finalized == nil {
+		vc.lggr.Errorw("Received nil block headers", "chain", chainSelector)
 		return
 	}
 
-	latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
-	if err != nil {
-		vc.lggr.Errorw("Failed to get latest finalized block", "error", err, "chain", chainSelector)
-		return
-	}
+	latestBlock := new(big.Int).SetUint64(latest.Number)
+	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
 
 	// Record chain state metrics
 	vc.monitoring.Metrics().

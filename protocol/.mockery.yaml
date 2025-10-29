@@ -6,4 +6,7 @@ outpkg: mocks
 packages:
     github.com/smartcontractkit/chainlink-ccv/protocol:
         interfaces:
-            ChainStatusManager:
+          ChainStatusManager:
+    github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess:
+        interfaces:
+            HeadTracker:
