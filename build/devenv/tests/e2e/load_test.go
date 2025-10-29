@@ -437,15 +437,15 @@ func TestE2ELoad(t *testing.T) {
 	require.NoError(t, err)
 
 	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	aggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator.Port)
+	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
 
-	aggregatorClient, err := ccv.NewAggregatorClient(
+	defaultAggregatorClient, err := ccv.NewAggregatorClient(
 		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		aggregatorAddr)
+		defaultAggregatorAddr)
 	require.NoError(t, err)
-	require.NotNil(t, aggregatorClient)
+	require.NotNil(t, defaultAggregatorClient)
 	t.Cleanup(func() {
-		aggregatorClient.Close()
+		defaultAggregatorClient.Close()
 	})
 
 	indexerClient := ccv.NewIndexerClient(
@@ -458,7 +458,7 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(5)
 		testDuration := 30 * time.Second
 
-		tc := NewTestingContext(t, ctx, impl, aggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
 		tc.Timeout = 5 * time.Minute
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
@@ -492,7 +492,7 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 120 * time.Second
 
-		tc := NewTestingContext(t, ctx, impl, aggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
 		tc.Timeout = 220 * time.Second
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
@@ -518,7 +518,7 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, impl, aggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
 		tc.Timeout = 10 * time.Minute
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
@@ -592,7 +592,7 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, impl, aggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
@@ -759,7 +759,7 @@ func TestE2ELoad(t *testing.T) {
 			},
 		}
 
-		tc := NewTestingContext(t, ctx, impl, aggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)

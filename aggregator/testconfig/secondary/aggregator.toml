@@ -1,0 +1,97 @@
+stubQuorumValidation = false
+pyroscope_url = "http://pyroscope:4040"
+
+[server]
+  address = ":50051"
+
+[healthCheck]
+  enabled = true
+
+[storage]
+  type = "postgres"
+
+[chainStatuses]
+  maxChainStatusesPerRequest = 100
+
+[orphanRecovery]
+  enabled = false
+  intervalSeconds = 300
+
+# Rate Limiting Configuration
+[rateLimiting]
+  enabled = true
+  
+  # Storage backend: "memory" (single instance) or "redis" (distributed)
+  [rateLimiting.storage]
+    type = "redis"
+    
+    [rateLimiting.storage.redis]
+      key_prefix = "ratelimit"
+  
+  # Default rate limits (applied to all callers unless overridden)
+  [rateLimiting.defaultLimits]
+    "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 1200 }
+    "/chainlink_ccv.v1.VerifierResultAPI/GetVerifierResultForMessage" = { limit_per_minute = 6000 }
+  
+  # Group-based rate limits (more restrictive than defaults for specific groups)
+  [rateLimiting.groupLimits.verifiers]
+    "/chainlink_ccv.v1.Aggregator/BatchWriteCommitCCVNodeData" = { limit_per_minute = 6000 }
+    "/chainlink_ccv.v1.Aggregator/WriteChainStatus" = { limit_per_minute = 60 }
+    "/chainlink_ccv.v1.Aggregator/ReadChainStatus" = { limit_per_minute = 60 }
+  
+  [rateLimiting.groupLimits.monitoring]
+    "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 200 }
+
+[committees]
+  [committees.secondary]
+    [committees.secondary.quorumConfigs]
+      [committees.secondary.quorumConfigs.12922642891491394802]
+        committeeVerifierAddress = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+        threshold = 2
+
+        [[committees.secondary.quorumConfigs.12922642891491394802.signers]]
+          participantID = "secondary-participant1"
+          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+
+        [[committees.secondary.quorumConfigs.12922642891491394802.signers]]
+          participantID = "secondary-participant2"
+          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
+      [committees.secondary.quorumConfigs.3379446385462418246]
+        committeeVerifierAddress = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+        threshold = 2
+
+        [[committees.secondary.quorumConfigs.3379446385462418246.signers]]
+          participantID = "secondary-participant1"
+          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+
+        [[committees.secondary.quorumConfigs.3379446385462418246.signers]]
+          participantID = "secondary-participant2"
+          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
+      [committees.secondary.quorumConfigs.4793464827907405086]
+        committeeVerifierAddress = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+        threshold = 2
+
+        [[committees.secondary.quorumConfigs.4793464827907405086.signers]]
+          participantID = "secondary-participant1"
+          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+        
+        [[committees.secondary.quorumConfigs.4793464827907405086.signers]]
+          participantID = "secondary-participant2"
+          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
+    [committees.secondary.sourceVerifierAddresses]
+      12922642891491394802 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+      3379446385462418246 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+      4793464827907405086 = "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
+
+[Monitoring]
+Enabled = true
+Type = "beholder"
+[Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10

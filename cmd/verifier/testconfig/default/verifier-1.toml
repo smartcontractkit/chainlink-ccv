@@ -1,5 +1,5 @@
 verifier_id = "default-verifier-1"
-aggregator_address = "aggregator:50051"
+aggregator_address = "default-aggregator:50051"
 pyroscope_url = "http://pyroscope:4040"
 
 [Monitoring]
