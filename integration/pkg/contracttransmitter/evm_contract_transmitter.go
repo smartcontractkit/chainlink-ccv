@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
@@ -30,11 +31,11 @@ type EVMContractTransmitter struct {
 	Client        *ethclient.Client
 	Pk            *ecdsa.PrivateKey
 	OffRamp       offramp.OffRamp
-	chainSelector uint64
+	chainSelector protocol.ChainSelector
 	mu            sync.Mutex
 }
 
-func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector uint64, client txmgr.TxManager) *EVMContractTransmitter {
+func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager) *EVMContractTransmitter {
 	return &EVMContractTransmitter{
 		lggr:          lggr,
 		chainSelector: chainSelector,
@@ -43,7 +44,7 @@ func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector uint64, 
 }
 
 // todo: this is a stub before we use real txm
-func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, chainSelector uint64, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
+func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, chainSelector protocol.ChainSelector, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
 	// create a client for the off ramp contract
 	client, err := ethclient.Dial(rpc)
 	if err != nil {
@@ -55,7 +56,7 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 		return nil, err
 	}
 
-	id, err := chainselectors.GetChainIDFromSelector(chainSelector)
+	id, err := chainselectors.GetChainIDFromSelector(uint64(chainSelector))
 	if err != nil {
 		return nil, err
 	}

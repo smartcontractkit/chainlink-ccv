@@ -34,11 +34,11 @@ type EvmDestinationReader struct {
 	offRampCaller offramp.OffRampCaller
 	lggr          logger.Logger
 	client        bind.ContractCaller
-	chainSelector uint64
+	chainSelector protocol.ChainSelector
 	ccvCache      *expirable.LRU[cacheKey, executor.CcvAddressInfo]
 }
 
-func NewEvmDestinationReader(lggr logger.Logger, chainSelector uint64, chainClient client.Client, offrampAddress string, cacheExpiry time.Duration) *EvmDestinationReader {
+func NewEvmDestinationReader(lggr logger.Logger, chainSelector protocol.ChainSelector, chainClient client.Client, offrampAddress string, cacheExpiry time.Duration) *EvmDestinationReader {
 	offRampAddr := common.HexToAddress(offrampAddress)
 	offRamp, err := offramp.NewOffRampCaller(offRampAddr, chainClient)
 	if err != nil {

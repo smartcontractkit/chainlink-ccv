@@ -20,30 +20,36 @@ import (
 func StartCCVExecutor(
 	ctx context.Context,
 	lggr logger.Logger,
-	cfg CCVConfig,
+	ccvConfig CCVConfig,
+	ccvSecrets CCVSecretsConfig,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 ) {
+
+	cfg := ccvConfig.Executor
+	offRampAddresses, err := mapAddresses(cfg.OffRampAddresses)
+	if err != nil {
+		lggr.Errorw("Invalid CCV configuration, failed to map offramp addresses.", "error", err)
+	}
+
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
-
 	for sel, chain := range relayers {
-		if _, ok := cfg.ChainConfigs[sel]; !ok {
-			lggr.Warnw("No config for chain, skipping.", "chainID", sel)
+		if _, ok := offRampAddresses[sel]; !ok {
+			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
 			continue
 		}
 
 		transmitters[sel] = contracttransmitter.NewEVMContractTransmitterFromTxm(
 			logger.With(lggr, "component", "ContractTransmitter"),
-			uint64(sel),
+			sel,
 			chain.TxManager())
 
 		destReaders[sel] = destinationreader.NewEvmDestinationReader(
 			logger.With(lggr, "component", "DestinationReader"),
-			uint64(sel),
+			sel,
 			chain.Client(),
-			cfg.ChainConfigs[sel].CCVAggregatorAddress,
-			// TODO: How long should this cache last?
-			5*time.Minute)
+			offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
+			cfg.GetCCVInfoCacheExpiry())
 	}
 
 	ex := x.NewChainlinkExecutor(

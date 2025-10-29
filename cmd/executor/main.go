@@ -118,7 +118,7 @@ func main() {
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		dr := destinationreader.NewEvmDestinationReader(
 			lggr,
-			selector,
+			protocol.ChainSelector(selector),
 			chainClient,
 			executorConfig.OffRampAddresses[strSel],
 			executorConfig.GetCCVInfoCacheExpiry(),
@@ -133,7 +133,7 @@ func main() {
 		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
 			ctx,
 			lggr,
-			selector,
+			protocol.ChainSelector(selector),
 			chain.Nodes[0].InternalHTTPUrl,
 			pk,
 			common.HexToAddress(executorConfig.OffRampAddresses[strSel]),
