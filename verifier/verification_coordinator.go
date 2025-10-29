@@ -12,7 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -43,7 +42,7 @@ type Coordinator struct {
 	verifier              Verifier
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
-	monitoring            common.VerifierMonitoring
+	monitoring            Monitoring
 	sourceStates          map[protocol.ChainSelector]*sourceState
 	cancel                context.CancelFunc
 	config                CoordinatorConfig
@@ -149,7 +148,7 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 }
 
 // WithMonitoring sets the monitoring implementation.
-func WithMonitoring(monitoring common.VerifierMonitoring) Option {
+func WithMonitoring(monitoring Monitoring) Option {
 	return func(vc *Coordinator) {
 		vc.monitoring = monitoring
 	}
