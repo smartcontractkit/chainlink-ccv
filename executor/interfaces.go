@@ -69,13 +69,13 @@ type DestinationReader interface {
 	IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error)
 }
 
-// ExecutorMonitoring provides all core monitoring functionality for the indexer. Also can be implemented as a no-op.
+// Monitoring provides all core monitoring functionality for the indexer. Also can be implemented as a no-op.
 type Monitoring interface {
 	// Metrics returns the metrics labeler for the indexer.
 	Metrics() MetricLabeler
 }
 
-// ExecutorMetricLabeler provides all metric recording functionality for the indexer.
+// MetricLabeler provides all metric recording functionality for the indexer.
 type MetricLabeler interface {
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) MetricLabeler
