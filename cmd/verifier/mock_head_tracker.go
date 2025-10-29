@@ -12,17 +12,17 @@ import (
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 )
 
-// mockHeadTracker is a simple implementation that wraps chain client calls.
+// simpleHeadTrackerWrapper is a simple implementation that wraps chain client calls.
 // This provides a HeadTracker interface without requiring the full EVM head tracker setup.
 // It implements the heads.Tracker interface by delegating to the chain client.
-type mockHeadTracker struct {
+type simpleHeadTrackerWrapper struct {
 	chainClient client.Client
 	lggr        logger.Logger
 }
 
-// newMockHeadTracker creates a new mock head tracker that delegates to the chain client.
-func newMockHeadTracker(chainClient client.Client, lggr logger.Logger) *mockHeadTracker {
-	return &mockHeadTracker{
+// newSimpleHeadTrackerWrapper creates a new mock head tracker that delegates to the chain client.
+func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger) *simpleHeadTrackerWrapper {
+	return &simpleHeadTrackerWrapper{
 		chainClient: chainClient,
 		lggr:        lggr,
 	}
@@ -30,7 +30,7 @@ func newMockHeadTracker(chainClient client.Client, lggr logger.Logger) *mockHead
 
 // LatestAndFinalizedBlock returns the latest and finalized block headers.
 // This method makes RPC calls in parallel to get the current state of the chain efficiently.
-func (m *mockHeadTracker) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *evmtypes.Head, err error) {
+func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *evmtypes.Head, err error) {
 	var latestHead, finalizedHead *evmtypes.Head
 	var wg sync.WaitGroup
 	errCh := make(chan error, 2) // Buffered channel to avoid goroutine leaks
@@ -80,44 +80,44 @@ func (m *mockHeadTracker) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 
 // LatestSafeBlock returns the latest safe block header.
 // Returns nil if the chain doesn't support safe blocks (optional feature).
-func (m *mockHeadTracker) LatestSafeBlock(ctx context.Context) (safe *evmtypes.Head, err error) {
+func (m *simpleHeadTrackerWrapper) LatestSafeBlock(ctx context.Context) (safe *evmtypes.Head, err error) {
 	return nil, nil
 }
 
 // Backfill is a no-op for the mock implementation.
 // In production, this would fetch historical blocks to fill gaps in the chain.
-func (m *mockHeadTracker) Backfill(ctx context.Context, headWithChain, prevHeadWithChain *evmtypes.Head) error {
+func (m *simpleHeadTrackerWrapper) Backfill(ctx context.Context, headWithChain, prevHeadWithChain *evmtypes.Head) error {
 	// Mock implementation doesn't need backfill functionality
 	return nil
 }
 
 // LatestChain returns the latest head.
 // This is a synchronous call that returns the most recent block.
-func (m *mockHeadTracker) LatestChain() *evmtypes.Head {
+func (m *simpleHeadTrackerWrapper) LatestChain() *evmtypes.Head {
 	return nil
 }
 
 // Start is a no-op for the mock implementation (implements services.Service).
-func (m *mockHeadTracker) Start(ctx context.Context) error {
+func (m *simpleHeadTrackerWrapper) Start(ctx context.Context) error {
 	return nil
 }
 
 // Close is a no-op for the mock implementation (implements services.Service).
-func (m *mockHeadTracker) Close() error {
+func (m *simpleHeadTrackerWrapper) Close() error {
 	return nil
 }
 
 // Name returns the service name (implements services.Service).
-func (m *mockHeadTracker) Name() string {
+func (m *simpleHeadTrackerWrapper) Name() string {
 	return "MockHeadTracker"
 }
 
 // Ready checks if the service is ready (implements services.Service).
-func (m *mockHeadTracker) Ready() error {
+func (m *simpleHeadTrackerWrapper) Ready() error {
 	return nil
 }
 
 // HealthReport returns the health status (implements services.Service).
-func (m *mockHeadTracker) HealthReport() map[string]error {
+func (m *simpleHeadTrackerWrapper) HealthReport() map[string]error {
 	return map[string]error{m.Name(): nil}
 }

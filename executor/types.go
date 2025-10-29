@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -15,6 +16,24 @@ type AbstractAggregatedReport struct {
 	CCVS    []protocol.UnknownAddress
 	CCVData [][]byte
 	Message protocol.Message
+}
+
+// MarshalJSON implements the json.Marshaler interface for AbstractAggregatedReport.
+// CCVS and CCVData are marshaled as hex strings.
+func (a AbstractAggregatedReport) MarshalJSON() ([]byte, error) {
+	ccvData := make([]protocol.ByteSlice, len(a.CCVData))
+	for i, data := range a.CCVData {
+		ccvData[i] = protocol.ByteSlice(data)
+	}
+	return json.Marshal(struct {
+		CCVS    []protocol.UnknownAddress `json:"ccvs"`
+		CCVData []protocol.ByteSlice      `json:"ccv_data"`
+		Message protocol.Message          `json:"message"`
+	}{
+		CCVS:    a.CCVS,
+		CCVData: ccvData,
+		Message: a.Message,
+	})
 }
 
 // ContractAddresses is a map of contract names across all chain selectors and their address.

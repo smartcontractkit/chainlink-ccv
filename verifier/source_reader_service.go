@@ -239,6 +239,7 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	// TODO: Use another method that uses the chainclient
 	_, _, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
 		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
@@ -599,30 +600,29 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		return
 	}
 
-	// Skip sending if no tasks were found
-	if len(tasks) == 0 {
+	// Send batch if tasks were found
+	if len(tasks) > 0 {
+		// Send entire batch of tasks as BatchResult
+		batch := batcher.BatchResult[VerificationTask]{
+			Items: tasks,
+			Error: nil,
+		}
+
+		// Send to verification channel (blocking - backpressure)
+		select {
+		case r.verificationTaskCh <- batch:
+			r.logger.Infow("✅ Verification task batch sent to channel",
+				"batchSize", len(tasks),
+				"fromBlock", fromBlock.String(),
+				"toBlock", currentBlock.String())
+		case <-ctx.Done():
+			r.logger.Debugw("Context cancelled while sending batch")
+			return
+		}
+	} else {
 		r.logger.Debugw("🔍 No events found in range",
 			"fromBlock", fromBlock.String(),
 			"toBlock", currentBlock.String())
-		return
-	}
-
-	// Send entire batch of tasks as BatchResult
-	batch := batcher.BatchResult[VerificationTask]{
-		Items: tasks,
-		Error: nil,
-	}
-
-	// Send to verification channel (blocking - backpressure)
-	select {
-	case r.verificationTaskCh <- batch:
-		r.logger.Infow("✅ Verification task batch sent to channel",
-			"batchSize", len(tasks),
-			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
-	case <-ctx.Done():
-		r.logger.Debugw("Context cancelled while sending batch")
-		return
 	}
 
 	// Update processed block - but only if no reset occurred during our RPC calls.
@@ -653,7 +653,9 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		"fromBlock", fromBlock.String(),
 		"toBlock", currentBlock.String(),
 		"eventsFound", len(tasks))
-	r.logger.Debugw("Event details", "logs", tasks)
+	if len(tasks) > 0 {
+		r.logger.Debugw("Event details", "logs", tasks)
+	}
 }
 
 // sendBatchError sends a batch-level error to the coordinator.
@@ -676,6 +678,6 @@ func (r *SourceReaderService) GetSourceReader() SourceReader {
 }
 
 // GetHeadTracker returns the injected HeadTracker.
-func (r *SourceReaderService) GetHeadTracker() chainaccess.HeadTracker {
-	return r.headTracker
+func (r *SourceReaderService) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+	return r.headTracker.LatestAndFinalizedBlock(ctx)
 }

@@ -9,12 +9,17 @@ import (
 )
 
 // ValidateMessage validates a verification task message using the new format.
-func ValidateMessage(verificationTask *verifier.VerificationTask, verifierOnRampAddress protocol.UnknownAddress) error {
+func ValidateMessage(
+	verificationTask *verifier.VerificationTask,
+	verifierOnRampAddress protocol.UnknownAddress,
+	defaultExecutorOnRampAddress protocol.UnknownAddress,
+) error {
 	if verificationTask == nil {
 		return fmt.Errorf("verification task is nil")
 	}
 
 	message := verificationTask.Message
+	// TODO: this check seems redundant - its already done in Verifier.ValidateMessage.
 	if message.Version != protocol.MessageVersion {
 		return fmt.Errorf("unsupported message version: %d", message.Version)
 	}
@@ -27,17 +32,23 @@ func ValidateMessage(verificationTask *verifier.VerificationTask, verifierOnRamp
 		return fmt.Errorf("message ID is empty")
 	}
 
-	// Check if the verifier onramp address is found as issuer in any receipt blob
+	// Check if the verifier onramp address or the default executor onramp address is found as issuer in any receipt blob
 	found := false
 	for _, receipt := range verificationTask.ReceiptBlobs {
-		if bytes.Equal(receipt.Issuer.Bytes(), verifierOnRampAddress.Bytes()) {
+		isVerifierOnRamp := bytes.Equal(receipt.Issuer.Bytes(), verifierOnRampAddress.Bytes())
+		isDefaultExecutorOnRamp := bytes.Equal(receipt.Issuer.Bytes(), defaultExecutorOnRampAddress.Bytes())
+		if isVerifierOnRamp || isDefaultExecutorOnRamp {
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		return fmt.Errorf("verifier onramp address %s not found as issuer in any receipt blob", verifierOnRampAddress.String())
+		return fmt.Errorf(
+			"verifier onramp address %s or default executor onramp address %s not found as issuer in any receipt blob",
+			verifierOnRampAddress.String(),
+			defaultExecutorOnRampAddress.String(),
+		)
 	}
 
 	return nil

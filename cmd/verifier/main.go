@@ -163,6 +163,15 @@ func main() {
 		}
 		verifierAddresses[selector] = addr
 	}
+	defaultExecutorAddresses := make(map[string]protocol.UnknownAddress)
+	for selector, address := range config.DefaultExecutorOnRampAddresses {
+		addr, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			lggr.Errorw("Failed to create default executor address", "error", err)
+			os.Exit(1)
+		}
+		defaultExecutorAddresses[selector] = addr
+	}
 
 	hmacConfig := &hmac.ClientConfig{
 		APIKey: config.AggregatorAPIKey,
@@ -208,7 +217,7 @@ func main() {
 		}
 
 		// Create mock head tracker for this chain
-		headTracker := newMockHeadTracker(chainClients[selector], lggr)
+		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr)
 
 		evmSourceReader, err := sourcereader.NewEVMSourceReader(
 			chainClients[selector],
@@ -240,9 +249,10 @@ func main() {
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 		sourceConfigs[selector] = verifier.SourceConfig{
-			VerifierAddress: verifierAddresses[strSelector],
-			PollInterval:    1 * time.Second,
-			ChainSelector:   selector,
+			VerifierAddress:        verifierAddresses[strSelector],
+			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
+			PollInterval:           1 * time.Second,
+			ChainSelector:          selector,
 		}
 	}
 

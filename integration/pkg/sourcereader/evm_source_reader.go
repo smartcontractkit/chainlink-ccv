@@ -86,8 +86,6 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
 
-	// If safe block not supported, safeBlockNum remains 0
-
 	headers := make(map[*big.Int]protocol.BlockHeader)
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
@@ -328,7 +326,7 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 		Hash:                 protocol.Bytes32(latestHead.Hash),
 		ParentHash:           protocol.Bytes32(latestHead.ParentHash),
 		Timestamp:            latestHead.Timestamp,
-		FinalizedBlockNumber: uint64(latestHead.LatestFinalizedHead().BlockNumber()),
+		FinalizedBlockNumber: uint64(finalizedHead.Number),
 	}
 
 	finalized = &protocol.BlockHeader{
