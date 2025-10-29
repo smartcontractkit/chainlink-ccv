@@ -17,12 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
 
 // Test constants.
@@ -59,16 +62,35 @@ func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
 	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
 
-	// Add missing LatestBlockHeight expectation to prevent timeout
-	mockReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(latestBlockHeight), nil).Maybe()
-	mockReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).Return(big.NewInt(finalizedBlockHeight), nil).Maybe()
-
 	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
 
 	return &mockSourceReaderSetup{
 		reader:  mockReader,
 		channel: channel,
 	}
+}
+
+// setupMockHeadTracker creates a mock head tracker with expectations.
+func setupMockHeadTracker(t *testing.T) *protocol_mocks.MockHeadTracker {
+	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
+
+	latestHeader := &protocol.BlockHeader{
+		Number:               latestBlockHeight,
+		Hash:                 protocol.Bytes32{byte(latestBlockHeight % 256)},
+		ParentHash:           protocol.Bytes32{byte((latestBlockHeight - 1) % 256)},
+		Timestamp:            time.Now(),
+		FinalizedBlockNumber: finalizedBlockHeight,
+	}
+	finalizedHeader := &protocol.BlockHeader{
+		Number:               finalizedBlockHeight,
+		Hash:                 protocol.Bytes32{byte(finalizedBlockHeight % 256)},
+		ParentHash:           protocol.Bytes32{byte((finalizedBlockHeight - 1) % 256)},
+		Timestamp:            time.Now(),
+		FinalizedBlockNumber: finalizedBlockHeight,
+	}
+	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latestHeader, finalizedHeader, nil).Maybe()
+
+	return mockHeadTracker
 }
 
 func (msrs *mockSourceReaderSetup) ExpectVerificationTask(maybeVerificationTask bool) {
@@ -360,7 +382,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 }
 
 // createVerificationCoordinator creates a verification coordinator with the given setup.
-func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader) (*verifier.Coordinator, error) {
+func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader, headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
 	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(ts.t, err)
@@ -368,6 +390,7 @@ func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorCon
 	return verifier.NewVerificationCoordinator(
 		verifier.WithConfig(config),
 		verifier.WithSourceReaders(sourceReaders),
+		verifier.WithHeadTrackers(headTrackers),
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithStorage(ts.storage),
 		verifier.WithLogger(ts.logger),
@@ -437,8 +460,14 @@ func TestVerifier(t *testing.T) {
 		sourceChain1: mockSetup.reader,
 	}
 
+	// Set up mock head tracker
+	mockHeadTracker := setupMockHeadTracker(t)
+	headTrackers := map[protocol.ChainSelector]chainaccess.HeadTracker{
+		sourceChain1: mockHeadTracker,
+	}
+
 	// Create and start verifier
-	v, err := createVerificationCoordinator(ts, config, sourceReaders)
+	v, err := createVerificationCoordinator(ts, config, sourceReaders, headTrackers)
 	require.NoError(t, err)
 
 	err = v.Start(ts.ctx)
@@ -496,8 +525,16 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 		sourceChain2: mockSetup2.reader,
 	}
 
+	// Set up mock head trackers
+	mockHeadTracker1 := setupMockHeadTracker(t)
+	mockHeadTracker2 := setupMockHeadTracker(t)
+	headTrackers := map[protocol.ChainSelector]chainaccess.HeadTracker{
+		sourceChain1: mockHeadTracker1,
+		sourceChain2: mockHeadTracker2,
+	}
+
 	// Create and start verifier
-	v, err := createVerificationCoordinator(ts, config, sourceReaders)
+	v, err := createVerificationCoordinator(ts, config, sourceReaders, headTrackers)
 	require.NoError(t, err)
 
 	err = v.Start(ts.ctx)
@@ -564,8 +601,16 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 		sourceChain2: mockSetup2.reader,
 	}
 
+	// Set up mock head trackers
+	mockHeadTracker1 := setupMockHeadTracker(t)
+	mockHeadTracker2 := setupMockHeadTracker(t)
+	headTrackers := map[protocol.ChainSelector]chainaccess.HeadTracker{
+		sourceChain1: mockHeadTracker1,
+		sourceChain2: mockHeadTracker2,
+	}
+
 	// Create and start verifier
-	v, err := createVerificationCoordinator(ts, config, sourceReaders)
+	v, err := createVerificationCoordinator(ts, config, sourceReaders, headTrackers)
 	require.NoError(t, err)
 
 	err = v.Start(ts.ctx)
@@ -641,7 +686,9 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := createVerificationCoordinator(ts, tt.config, tt.readers)
+			// For error tests, provide empty head trackers to trigger validation errors
+			headTrackers := map[protocol.ChainSelector]chainaccess.HeadTracker{}
+			_, err := createVerificationCoordinator(ts, tt.config, tt.readers, headTrackers)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectError)
 		})
@@ -668,7 +715,15 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 		sourceChain2: mockSetup2.reader,
 	}
 
-	v, err := createVerificationCoordinator(ts, config, sourceReaders)
+	// Set up mock head trackers
+	mockHeadTracker1 := setupMockHeadTracker(t)
+	mockHeadTracker2 := setupMockHeadTracker(t)
+	headTrackers := map[protocol.ChainSelector]chainaccess.HeadTracker{
+		sourceChain1: mockHeadTracker1,
+		sourceChain2: mockHeadTracker2,
+	}
+
+	v, err := createVerificationCoordinator(ts, config, sourceReaders, headTrackers)
 	require.NoError(t, err)
 
 	// Before starting, should not be ready
@@ -722,8 +777,15 @@ func TestVerificationErrorHandling(t *testing.T) {
 		unconfiguredChain: mockSetup2.reader,
 	}
 
+	// Set up mock head trackers - only for sourceChain1 since unconfiguredChain won't be started
+	mockHeadTracker1 := setupMockHeadTracker(t)
+	headTrackers := map[protocol.ChainSelector]chainaccess.HeadTracker{
+		sourceChain1: mockHeadTracker1,
+		// unconfiguredChain doesn't get a head tracker since it's not in config
+	}
+
 	// Create and start verifier - this should succeed even with extra readers
-	v, err := createVerificationCoordinator(ts, config, sourceReaders)
+	v, err := createVerificationCoordinator(ts, config, sourceReaders, headTrackers)
 	require.NoError(t, err)
 
 	err = v.Start(ts.ctx)

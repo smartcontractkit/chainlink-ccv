@@ -13,10 +13,13 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
 
 const (
@@ -236,14 +239,29 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
 
+	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockSourceReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
-	mockSourceReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).RunAndReturn(func(ctx context.Context) (*big.Int, error) {
-		// Return a copy with proper synchronization to avoid data races
+	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+		// Return latest and finalized headers with proper synchronization
 		finalizedBlockMu.RLock()
 		defer finalizedBlockMu.RUnlock()
-		return new(big.Int).Set(currentFinalizedBlock), nil
+
+		latest := &protocol.BlockHeader{
+			Number:               InitialLatestBlock,
+			Hash:                 protocol.Bytes32{byte(InitialLatestBlock % 256)},
+			ParentHash:           protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
+			Timestamp:            time.Now(),
+			FinalizedBlockNumber: currentFinalizedBlock.Uint64(),
+		}
+		finalized := &protocol.BlockHeader{
+			Number:               currentFinalizedBlock.Uint64(),
+			Hash:                 protocol.Bytes32{byte(currentFinalizedBlock.Uint64() % 256)},
+			ParentHash:           protocol.Bytes32{byte((currentFinalizedBlock.Uint64() - 1) % 256)},
+			Timestamp:            time.Now(),
+			FinalizedBlockNumber: currentFinalizedBlock.Uint64(),
+		}
+		return latest, finalized, nil
 	}).Maybe()
 
 	config := verifier.CoordinatorConfig{
@@ -261,6 +279,9 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		verifier.WithVerifier(mockVerifier),
 		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
 			1337: mockSourceReader,
+		}),
+		verifier.WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
+			1337: mockHeadTracker,
 		}),
 		verifier.WithStorage(mockStorage),
 		verifier.WithConfig(config),

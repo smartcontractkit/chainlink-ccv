@@ -144,7 +144,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err).Error(), Failed: true}
 	}
-	err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
+	_, err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
 		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 		Data:     []byte{},
 	}, cciptestinterfaces.MessageOptions{
@@ -225,8 +225,9 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 
 				result, err := tc.AssertMessage(msg.MessageID, AssertMessageOptions{
-					TickInterval: 2 * time.Second,
-					Timeout:      1 * time.Minute,
+					TickInterval:            2 * time.Second,
+					Timeout:                 1 * time.Minute,
+					ExpectedVerifierResults: 1,
 				})
 
 				countMu.Lock()

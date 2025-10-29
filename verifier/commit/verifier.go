@@ -10,7 +10,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -18,13 +17,13 @@ import (
 type Verifier struct {
 	signer     verifier.MessageSigner
 	lggr       logger.Logger
-	monitoring common.VerifierMonitoring
+	monitoring verifier.Monitoring
 	// TODO: Use a separate config
 	config verifier.CoordinatorConfig
 }
 
 // NewCommitVerifier creates a new commit verifier.
-func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring common.VerifierMonitoring) (verifier.Verifier, error) {
+func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring verifier.Monitoring) (verifier.Verifier, error) {
 	cv := &Verifier{
 		config:     config,
 		signer:     signer,
@@ -145,16 +144,28 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		return fmt.Errorf("message format validation failed for message 0x%x: %w", messageID, err)
 	}
 
-	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress); err != nil {
-		return fmt.Errorf("message validation failed for message 0x%x with verifier address %s: %w", messageID, sourceConfig.VerifierAddress.String(), err)
+	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress, sourceConfig.DefaultExecutorAddress); err != nil {
+		return fmt.Errorf(
+			"message validation failed for message 0x%x with verifier address %s and default executor address %s: %w",
+			messageID,
+			sourceConfig.VerifierAddress.String(),
+			sourceConfig.DefaultExecutorAddress.String(),
+			err,
+		)
 	}
 
 	cv.lggr.Infow("Message validation passed",
 		"messageID", messageID,
 		"verifierAddress", sourceConfig.VerifierAddress.String(),
+		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress.String(),
 	)
 
-	encodedSignature, err := cv.signer.SignMessage(ctx, verificationTask, sourceConfig.VerifierAddress)
+	encodedSignature, err := cv.signer.SignMessage(
+		ctx,
+		verificationTask,
+		sourceConfig.VerifierAddress,
+		sourceConfig.DefaultExecutorAddress,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}

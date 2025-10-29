@@ -7,20 +7,20 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
-var _ common.VerifierMonitoring = (*VerifierBeholderMonitoring)(nil)
+var _ verifier.Monitoring = (*VerifierBeholderMonitoring)(nil)
 
 // VerifierBeholderMonitoring provides beholder-based monitoring for the verifier.
 type VerifierBeholderMonitoring struct {
-	metrics common.VerifierMetricLabeler
+	metrics verifier.MetricLabeler
 }
 
 // InitMonitoring initializes the beholder monitoring system for the verifier.
-func InitMonitoring(config beholder.Config) (common.VerifierMonitoring, error) {
+func InitMonitoring(config beholder.Config) (verifier.Monitoring, error) {
 	// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
 	config.MetricViews = MetricViews()
 
@@ -62,39 +62,39 @@ func InitMonitoring(config beholder.Config) (common.VerifierMonitoring, error) {
 	}, nil
 }
 
-func (v *VerifierBeholderMonitoring) Metrics() common.VerifierMetricLabeler {
+func (v *VerifierBeholderMonitoring) Metrics() verifier.MetricLabeler {
 	return v.metrics
 }
 
-var _ common.VerifierMonitoring = (*NoopVerifierMonitoring)(nil)
+var _ verifier.Monitoring = (*NoopVerifierMonitoring)(nil)
 
 // NoopVerifierMonitoring provides a no-op implementation of VerifierMonitoring.
 type NoopVerifierMonitoring struct {
-	noop common.VerifierMetricLabeler
+	noop verifier.MetricLabeler
 }
 
 // NewNoopVerifierMonitoring creates a new noop monitoring instance.
-func NewNoopVerifierMonitoring() common.VerifierMonitoring {
+func NewNoopVerifierMonitoring() verifier.Monitoring {
 	return &NoopVerifierMonitoring{
 		noop: NewNoopVerifierMetricLabeler(),
 	}
 }
 
-func (n *NoopVerifierMonitoring) Metrics() common.VerifierMetricLabeler {
+func (n *NoopVerifierMonitoring) Metrics() verifier.MetricLabeler {
 	return n.noop
 }
 
-var _ common.VerifierMetricLabeler = (*NoopVerifierMetricLabeler)(nil)
+var _ verifier.MetricLabeler = (*NoopVerifierMetricLabeler)(nil)
 
 // NoopVerifierMetricLabeler provides a no-op implementation of VerifierMetricLabeler.
 type NoopVerifierMetricLabeler struct{}
 
 // NewNoopVerifierMetricLabeler creates a new noop metric labeler.
-func NewNoopVerifierMetricLabeler() common.VerifierMetricLabeler {
+func NewNoopVerifierMetricLabeler() verifier.MetricLabeler {
 	return &NoopVerifierMetricLabeler{}
 }
 
-func (n *NoopVerifierMetricLabeler) With(keyValues ...string) common.VerifierMetricLabeler {
+func (n *NoopVerifierMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
 	return n
 }
 
