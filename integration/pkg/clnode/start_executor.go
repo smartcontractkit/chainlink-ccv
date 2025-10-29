@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
@@ -24,7 +25,6 @@ func StartCCVExecutor(
 	ccvSecrets CCVSecretsConfig,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 ) {
-
 	cfg := ccvConfig.Executor
 	offRampAddresses, err := mapAddresses(cfg.OffRampAddresses)
 	if err != nil {
@@ -52,26 +52,43 @@ func StartCCVExecutor(
 			cfg.GetCCVInfoCacheExpiry())
 	}
 
+	var monitoring executor.Monitoring // TODO: implement monitoring
+
+	// create indexer client which implements MessageReader and VerifierResultReader
+	indexerClient := storageaccess.NewIndexerAPIReader(lggr, cfg.IndexerAddress)
+
 	ex := x.NewChainlinkExecutor(
 		logger.With(lggr, "component", "Executor"),
 		transmitters,
 		destReaders,
-		// TODO: verifierResultsReader
-		nil,
-		// TODO: monitoring
-		nil)
+		indexerClient,
+		monitoring)
 
-	// TODO: in memory storage reader??
-	// TODO: indexer or aggregator reader config??
-	messageSubscriber := ccvstreamer.NewIndexerStorageStreamer(
-		nil, ccvstreamer.IndexerStorageConfig{})
+	// create hash-based leader elector
+	le := leaderelector.NewHashBasedLeaderElector(
+		lggr,
+		cfg.ExecutorPool,
+		cfg.ExecutorID,
+		cfg.GetExecutionInterval(),
+		cfg.GetMinWaitPeriod(),
+	)
+
+	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
+		lggr,
+		ccvstreamer.IndexerStorageConfig{
+			IndexerClient:   indexerClient,
+			LastQueryTime:   time.Now().Add(-1 * cfg.GetLookbackWindow()).Unix(),
+			PollingInterval: cfg.GetPollingInterval(),
+			Backoff:         cfg.GetBackoffDuration(),
+			QueryLimit:      cfg.IndexerQueryLimit,
+		})
 
 	exec, err := executor.NewCoordinator(
 		executor.WithLogger(logger.With(lggr, "component", "Coordinator")),
 		executor.WithExecutor(ex),
-		// TODO: hash based leader elector arguments.
-		executor.WithLeaderElector(&leaderelector.HashBasedLeaderElector{}),
-		executor.WithMessageSubscriber(messageSubscriber),
+		executor.WithLeaderElector(le),
+		executor.WithMessageSubscriber(indexerStream),
+		executor.WithMonitoring(monitoring),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)

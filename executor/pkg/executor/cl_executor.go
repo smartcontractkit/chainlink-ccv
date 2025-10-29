@@ -10,7 +10,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -23,7 +22,7 @@ type ChainlinkExecutor struct {
 	contractTransmitters  map[protocol.ChainSelector]executor.ContractTransmitter
 	destinationReaders    map[protocol.ChainSelector]executor.DestinationReader
 	verifierResultsReader executor.VerifierResultReader
-	monitoring            common.ExecutorMonitoring
+	monitoring            executor.Monitoring
 }
 
 func NewChainlinkExecutor(
@@ -31,7 +30,7 @@ func NewChainlinkExecutor(
 	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter,
 	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
 	verifierResultReader executor.VerifierResultReader,
-	monitoring common.ExecutorMonitoring,
+	monitoring executor.Monitoring,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
 		lggr:                  lggr,

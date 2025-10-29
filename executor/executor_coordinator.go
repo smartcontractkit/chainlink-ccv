@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -21,7 +20,7 @@ type Coordinator struct {
 	messageSubscriber   MessageSubscriber
 	leaderElector       LeaderElector
 	lggr                logger.Logger
-	monitoring          common.ExecutorMonitoring
+	monitoring          Monitoring
 	ccvDataCh           chan MessageWithCCVData
 	executableMessageCh chan MessageWithCCVData
 	doneCh              chan struct{}
@@ -51,7 +50,7 @@ func WithMessageSubscriber(sub MessageSubscriber) Option {
 	}
 }
 
-func WithMonitoring(monitoring common.ExecutorMonitoring) Option {
+func WithMonitoring(monitoring Monitoring) Option {
 	return func(ec *Coordinator) {
 		ec.monitoring = monitoring
 	}
