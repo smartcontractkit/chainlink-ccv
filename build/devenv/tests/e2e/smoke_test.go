@@ -202,7 +202,6 @@ func TestE2ESmoke(t *testing.T) {
 					},
 				},
 				// default verifier and secondary verifier will verify so should be two verifications.
-				// TODO: indexer doesn't seem to pick up the secondary verifier's results, need to investigate.
 				numExpectedVerifications: 2,
 				// default executor and secondary committee verifier
 				numExpectedReceipts: 2,

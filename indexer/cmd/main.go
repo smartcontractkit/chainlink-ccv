@@ -33,7 +33,7 @@ func main() {
 	lggr, err := logger.NewWith(func(config *zap.Config) {
 		config.Development = false
 		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 		config.DisableStacktrace = true
 	})
 
