@@ -330,6 +330,10 @@ func (r *SourceReaderService) calculateBlockFromHoursAgo(ctx context.Context, lo
 		"timeDiff", timeDiff)
 	if blockDiff.Sign() > 0 && timeDiff > 0 {
 		avgBlockTime := timeDiff / blockDiff.Uint64()
+		if avgBlockTime <= 0 {
+			r.logger.Warnw("Average block time calculated as zero, using fallback")
+			return r.fallbackBlockEstimate(currentBlock), nil
+		}
 		blocksInLookback := (lookbackHours * 3600) / avgBlockTime
 
 		lookbackBlock := new(big.Int).Sub(currentBlock, new(big.Int).SetUint64(blocksInLookback))
