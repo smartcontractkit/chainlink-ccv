@@ -42,7 +42,7 @@ func newTestVerifier() *testVerifier {
 func (t *testVerifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.CCVData],
+	ccvDataBatcher *batcher.Batcher[verifier.CCVDataWithIdempotencyKey],
 ) batcher.BatchResult[verifier.VerificationError] {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
@@ -65,7 +65,13 @@ func (t *testVerifier) VerifyMessages(
 			ReceiptBlobs:          verificationTask.ReceiptBlobs,
 		}
 
-		if err := ccvDataBatcher.Add(ccvData); err != nil {
+		// Create the paired struct with idempotency key
+		ccvDataWithKey := verifier.CCVDataWithIdempotencyKey{
+			CCVData:        ccvData,
+			IdempotencyKey: verificationTask.IdempotencyKey,
+		}
+
+		if err := ccvDataBatcher.Add(ccvDataWithKey); err != nil {
 			// If context is canceled or batcher is closed, stop processing
 			return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 		}
@@ -84,7 +90,7 @@ func (t *testVerifier) getProcessedTaskCount() int {
 // testStorage for testing.
 type testStorage struct{}
 
-func (m *testStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData) error {
+func (m *testStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData, idempotencyKeys []string) error {
 	return nil
 }
 

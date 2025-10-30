@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -178,4 +179,20 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 		ccvNodeData = opt(ccvNodeData)
 	}
 	return ccvNodeData
+}
+
+// NewWriteCommitCCVNodeDataRequest creates a new WriteCommitCCVNodeDataRequest with a generated idempotency key.
+func NewWriteCommitCCVNodeDataRequest(ccvNodeData *pb.MessageWithCCVNodeData) *pb.WriteCommitCCVNodeDataRequest {
+	return &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData:    ccvNodeData,
+		IdempotencyKey: uuid.New().String(),
+	}
+}
+
+// NewWriteCommitCCVNodeDataRequestWithKey creates a new WriteCommitCCVNodeDataRequest with a specific idempotency key.
+func NewWriteCommitCCVNodeDataRequestWithKey(ccvNodeData *pb.MessageWithCCVNodeData, idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest {
+	return &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData:    ccvNodeData,
+		IdempotencyKey: idempotencyKey,
+	}
 }

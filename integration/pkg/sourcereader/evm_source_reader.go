@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -305,9 +306,10 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 
 		// Create verification task
 		results = append(results, verifiertypes.VerificationTask{
-			Message:      *decodedMsg,
-			ReceiptBlobs: receiptBlobs,
-			BlockNumber:  log.BlockNumber,
+			Message:        *decodedMsg,
+			ReceiptBlobs:   receiptBlobs,
+			BlockNumber:    log.BlockNumber,
+			IdempotencyKey: uuid.NewString(),
 		})
 	}
 	return results, nil
