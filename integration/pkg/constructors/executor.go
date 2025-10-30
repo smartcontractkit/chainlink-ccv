@@ -1,7 +1,6 @@
 package constructors
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -20,13 +19,12 @@ import (
 
 // NewExecutorCoordinator initializes the executor coordinator object.
 func NewExecutorCoordinator(
-	ctx context.Context,
 	lggr logger.Logger,
-	ccvConfig CCVConfig,
-	ccvSecrets CCVSecretsConfig,
+	cfg executor.Configuration,
+// no executor secrets?
+//ccvSecrets CCVSecretsConfig,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 ) (*executor.Coordinator, error) {
-	cfg := ccvConfig.Executor
 	offRampAddresses, err := mapAddresses(cfg.OffRampAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map offramp addresses.", "error", err)

@@ -7,7 +7,7 @@ import (
 
 // CCVConfig holds the configuration needed to configure the CCV services.
 type CCVConfig struct {
-	Verifier verifier.Config
+	Verifier []verifier.Config
 	Executor executor.Configuration
 }
 

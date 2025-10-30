@@ -1,7 +1,6 @@
 package constructors
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -20,14 +19,11 @@ import (
 
 // NewVerificationCoordinator starts the Committee Verifier with evm chains.
 func NewVerificationCoordinator(
-	ctx context.Context,
 	lggr logger.Logger,
-	ccvConfig CCVConfig,
-	ccvSecrets CCVSecretsConfig,
+	cfg verifier.Config,
+	secrets VerifierSecrets,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 ) (*verifier.Coordinator, error) {
-	cfg := ccvConfig.Verifier
-
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 	}
@@ -116,7 +112,7 @@ func NewVerificationCoordinator(
 	}
 
 	// Create commit verifier (with ECDSA signer)
-	signer, err := commit.NewECDSAMessageSignerFromString(ccvSecrets.Verifier.SigningKey)
+	signer, err := commit.NewECDSAMessageSignerFromString(secrets.SigningKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		return nil, fmt.Errorf("failed to create message signer: %w", err)
