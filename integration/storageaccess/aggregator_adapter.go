@@ -209,7 +209,7 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacCo
 	return &AggregatorReader{
 		client: pb.NewVerifierResultAPIClient(conn),
 		conn:   conn,
-		lggr:   lggr,
+		lggr:   logger.With(lggr, "aggregatorAddress", address),
 		since:  since,
 	}, nil
 }
