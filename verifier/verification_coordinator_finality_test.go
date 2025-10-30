@@ -240,14 +240,7 @@ type coordinatorTestSetup struct {
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
 
-// Helper to safely read finalized block
-func (s *coordinatorTestSetup) getFinalizedBlock() uint64 {
-	s.finalizedBlockMu.RLock()
-	defer s.finalizedBlockMu.RUnlock()
-	return s.currentFinalizedBlock.Uint64()
-}
-
-// Helper to safely update finalized block
+// Helper to safely update finalized block.
 func (s *coordinatorTestSetup) setFinalizedBlock(block uint64) {
 	s.finalizedBlockMu.Lock()
 	defer s.finalizedBlockMu.Unlock()
