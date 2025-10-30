@@ -582,7 +582,7 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to get mock receiver address: %w", err)
 		}
 		// Use V3 if finality config is provided, otherwise use V2
-		var result cciptestinterfaces.SendMessageResult
+		var result cciptestinterfaces.MessageSentEvent
 		if len(sels) == 3 {
 			// V3 format with finality config
 			finality, err := strconv.ParseUint(sels[2], 10, 32)
