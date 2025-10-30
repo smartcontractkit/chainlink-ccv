@@ -15,8 +15,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -27,10 +25,6 @@ import (
 )
 
 const (
-	// See Internal.sol for the full enum values.
-	MessageExecutionStateSuccess uint8 = 2
-	MessageExecutionStateFailed  uint8 = 3
-
 	defaultSentTimeout = 10 * time.Second
 	defaultExecTimeout = 40 * time.Second
 )
@@ -139,7 +133,7 @@ func TestE2ESmoke(t *testing.T) {
 				// its currently being used in an EVM-specific way.
 				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
-				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
+				messageID := sentEvent.MessageID
 
 				testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
 				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
@@ -157,16 +151,16 @@ func TestE2ESmoke(t *testing.T) {
 
 				if tc.expectFail {
 					require.Equalf(t,
-						MessageExecutionStateFailed,
-						e.(*offramp.OffRampExecutionStateChanged).State,
+						cciptestinterfaces.ExecutionStateFailure,
+						e.State,
 						"unexpected state, return data: %x",
-						e.(*offramp.OffRampExecutionStateChanged).ReturnData)
+						e.ReturnData)
 				} else {
 					require.Equalf(t,
-						MessageExecutionStateSuccess,
-						e.(*offramp.OffRampExecutionStateChanged).State,
+						cciptestinterfaces.ExecutionStateSuccess,
+						e.State,
 						"unexpected state, return data: %x",
-						e.(*offramp.OffRampExecutionStateChanged).ReturnData)
+						e.ReturnData)
 				}
 			})
 		}
@@ -367,7 +361,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.Lenf(t, sendMessageResult.ReceiptIssuers, tc.numExpectedReceipts, "expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
 				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
-				messageID := sentEvent.(*onramp.OnRampCCIPMessageSent).MessageId
+				messageID := sentEvent.MessageID
 
 				testCtx := NewTestingContext(t, t.Context(), c, defaultAggregatorClient, indexerClient)
 				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
@@ -383,9 +377,9 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				if tc.expectFail {
-					require.Equal(t, MessageExecutionStateFailed, e.(*offramp.OffRampExecutionStateChanged).State)
+					require.Equal(t, cciptestinterfaces.ExecutionStateFailure, e.State)
 				} else {
-					require.Equal(t, MessageExecutionStateSuccess, e.(*offramp.OffRampExecutionStateChanged).State)
+					require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, e.State)
 				}
 				if receiverStartBalance != nil {
 					receiverEndBalance, err := c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
