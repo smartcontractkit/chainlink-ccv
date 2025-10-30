@@ -535,7 +535,7 @@ var sendCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		ctx = ccv.Plog.WithContext(ctx)
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		in, err := ccv.LoadOutput[ccv.Cfg]("env-staging.toml")
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
@@ -624,6 +624,7 @@ var sendCmd = &cobra.Command{
 						ArgsLen:    0,
 					},
 				},
+				GasLimit: 50_000_000,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to send message: %w", err)
@@ -635,7 +636,7 @@ var sendCmd = &cobra.Command{
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
 				Version:             2,
-				GasLimit:            200_000,
+				GasLimit:            20_000_000,
 				OutOfOrderExecution: true,
 			})
 			if err != nil {
