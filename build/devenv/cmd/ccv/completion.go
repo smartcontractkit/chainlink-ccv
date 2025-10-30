@@ -151,17 +151,19 @@ func executor(in string) {
 
 	if strings.HasPrefix(in, "up ") {
 		saveActiveConfig(in[3:])
+		in = "up"
 	} else if strings.HasPrefix(in, "u ") {
 		saveActiveConfig(in[2:])
+		in = "up"
 	}
 
 	switch in {
 	// append active config to "up" and "restart" commands with no arguments
 	case "up", "u":
-		in = fmt.Sprintf("%s %s", in, activeConfigPath())
+		in = fmt.Sprintf("%s %s", in, getActiveConfig())
 	case "restart", "r":
 		// skip debug flag if present
-		noDebugConfig := strings.ReplaceAll(activeConfigPath(), "--debug", "")
+		noDebugConfig := strings.ReplaceAll(getActiveConfig(), "--debug", "")
 		in = fmt.Sprintf("%s %s", in, noDebugConfig)
 	}
 
