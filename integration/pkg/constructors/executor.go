@@ -21,8 +21,8 @@ import (
 func NewExecutorCoordinator(
 	lggr logger.Logger,
 	cfg executor.Configuration,
-// no executor secrets?
-//ccvSecrets CCVSecretsConfig,
+	// no executor secrets?
+	//ccvSecrets CCVSecretsConfig,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 ) (*executor.Coordinator, error) {
 	offRampAddresses, err := mapAddresses(cfg.OffRampAddresses)

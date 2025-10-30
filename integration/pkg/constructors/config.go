@@ -7,8 +7,8 @@ import (
 
 // CCVConfig holds the configuration needed to configure the CCV services.
 type CCVConfig struct {
-	Verifier []verifier.Config
-	Executor executor.Configuration
+	Verifiers []verifier.Config
+	Executor  executor.Configuration
 }
 
 type VerifierSecrets struct {
