@@ -15,7 +15,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
-	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
@@ -31,6 +30,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+
+	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 )
 
 const (
