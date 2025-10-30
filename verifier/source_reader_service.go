@@ -585,7 +585,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	if err != nil {
 		r.logger.Errorw("⚠️ Failed to get latest block", "error", err)
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to get latest block: %w", err))
+		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
 		return
 	}
 	if finalized == nil {
