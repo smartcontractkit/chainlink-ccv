@@ -41,8 +41,10 @@ var (
 	DefaultExecutorConfigTOML string
 )
 
+/*
 // Indexer configuration.
 var (
 	//go:embed indexer/config.toml
 	DefaultIndexerConfigTOML string
 )
+*/
