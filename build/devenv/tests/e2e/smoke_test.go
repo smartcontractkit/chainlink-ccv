@@ -129,8 +129,7 @@ func TestE2ESmoke(t *testing.T) {
 					OutOfOrderExecution: true,
 				})
 				require.NoError(t, err)
-				// TODO: maybe this method should just return a message ID for now,
-				// its currently being used in an EVM-specific way.
+
 				sentEvent, err := c.WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
 				messageID := sentEvent.MessageID
@@ -204,7 +203,7 @@ func TestE2ESmoke(t *testing.T) {
 				},
 				// default verifier and secondary verifier will verify so should be two verifications.
 				// TODO: indexer doesn't seem to pick up the secondary verifier's results, need to investigate.
-				numExpectedVerifications: 1,
+				numExpectedVerifications: 2,
 				// default executor and secondary committee verifier
 				numExpectedReceipts: 2,
 			},
