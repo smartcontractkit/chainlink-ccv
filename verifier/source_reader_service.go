@@ -546,6 +546,21 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 	}
 }
 
+// findHighestBlockInTasks returns the highest block number from verification tasks.
+// Returns nil if tasks is empty.
+func findHighestBlockInTasks(tasks []VerificationTask) *big.Int {
+	if len(tasks) == 0 {
+		return nil
+	}
+	highest := uint64(0)
+	for _, task := range tasks {
+		if task.BlockNumber > highest {
+			highest = task.BlockNumber
+		}
+	}
+	return new(big.Int).SetUint64(highest)
+}
+
 // processEventCycle processes a single cycle of event monitoring.
 //
 // Thread-safety:
@@ -564,27 +579,18 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	// Get current block (potentially slow RPC call - no locks held)
 	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	latest, _, err := r.headTracker.LatestAndFinalizedBlock(blockCtx)
+	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(blockCtx)
 	cancel()
 
 	if err != nil {
 		r.logger.Errorw("⚠️ Failed to get latest block", "error", err)
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to get latest block: %w", err))
+		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
 		return
 	}
-	if latest == nil {
-		r.logger.Errorw("⚠️ Latest block is nil")
-		r.sendBatchError(ctx, fmt.Errorf("latest block is nil"))
-		return
-	}
-
-	currentBlock := new(big.Int).SetUint64(latest.Number)
-
-	// Only query if there are new blocks
-	if fromBlock.Cmp(currentBlock) >= 0 {
-		r.logger.Debugw("🔍 No new blocks to process", "fromBlock", fromBlock.String(),
-			"currentBlock", currentBlock.String())
+	if finalized == nil {
+		r.logger.Errorw("⚠️ Finalized block is nil")
+		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
 		return
 	}
 
@@ -592,14 +598,15 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, currentBlock)
+	// Fetch until latest available
+	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, nil)
 	if err != nil {
 		r.logger.Errorw("⚠️ Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
+			"toBlock", "latest")
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to %s: %w",
-			fromBlock.String(), currentBlock.String(), err))
+		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to latest: %w",
+			fromBlock.String(), err))
 		return
 	}
 
@@ -617,7 +624,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 			r.logger.Infow("✅ Verification task batch sent to channel",
 				"batchSize", len(tasks),
 				"fromBlock", fromBlock.String(),
-				"toBlock", currentBlock.String())
+				"toBlock", "latest")
 		case <-ctx.Done():
 			r.logger.Debugw("Context cancelled while sending batch")
 			return
@@ -625,36 +632,51 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	} else {
 		r.logger.Debugw("🔍 No events found in range",
 			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
+			"toBlock", "latest")
 	}
 
-	// Update processed block - but only if no reset occurred during our RPC calls.
-	// We use optimistic locking: check if resetVersion changed since we captured it.
-	// If it changed, a reset happened during this cycle's work, so we skip the update
-	// to preserve the reset value.
+	// Determine the block we've processed up to
+	var processedToBlock *big.Int
+	if len(tasks) > 0 {
+		// Use highest block from returned logs
+		highestLogBlock := findHighestBlockInTasks(tasks)
+		processedToBlock = new(big.Int).Set(highestLogBlock)
+	} else {
+		// No logs - use current position
+		processedToBlock = new(big.Int).Set(r.lastProcessedBlock)
+	}
+
+	// Always advance at least to finalized (stable across all RPC nodes)
+	finalizedBlock := new(big.Int).SetUint64(finalized.Number)
+	if finalizedBlock.Cmp(processedToBlock) > 0 {
+		processedToBlock = finalizedBlock
+	}
+
+	// Update processed block with optimistic locking check
 	r.mu.Lock()
 	currentVersion := r.resetVersion.Load()
 	if currentVersion == startVersion {
 		// No reset occurred - safe to update
-		r.lastProcessedBlock = new(big.Int).Set(currentBlock)
+		r.lastProcessedBlock = processedToBlock
 	} else {
 		// Reset occurred during this cycle - skip update to preserve reset value
 		r.logger.Infow("Skipping lastProcessedBlock update due to concurrent reset",
 			"cycleStartVersion", startVersion,
 			"currentVersion", currentVersion,
-			"wouldHaveSet", currentBlock.String(),
+			"wouldHaveSet", processedToBlock.String(),
 			"preserving", r.lastProcessedBlock.String())
 	}
 	r.mu.Unlock()
 
-	// Try to chain status if appropriate (only if we updated)
+	// Update chain status if no reset occurred
 	if currentVersion == startVersion {
-		r.updateChainStatus(ctx, currentBlock)
+		r.updateChainStatus(ctx, processedToBlock)
 	}
 
 	r.logger.Infow("📈 Processed block range",
 		"fromBlock", fromBlock.String(),
-		"toBlock", currentBlock.String(),
+		"toBlock", "latest",
+		"advancedTo", processedToBlock.String(),
 		"eventsFound", len(tasks))
 	if len(tasks) > 0 {
 		r.logger.Debugw("Event details", "logs", tasks)
