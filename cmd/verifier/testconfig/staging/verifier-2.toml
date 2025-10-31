@@ -40,7 +40,7 @@ TraceBatchTimeout = 10
       InternalWSUrl = "wss://rpcs.cldev.sh/avalanche/fuji"
 
   [blockchain_infos.3676871237479449268]
-    ChainID = "56798"
+    ChainID = "57054"
     Type = "anvil"
     Family = "evm"
     UniqueChainName = "blockchain-dst"
