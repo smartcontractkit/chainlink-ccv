@@ -23,6 +23,7 @@ import (
 )
 
 func TestAggregationHappyPath(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -85,6 +86,7 @@ func TestAggregationHappyPath(t *testing.T) {
 }
 
 func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -185,6 +187,7 @@ func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
 }
 
 func TestIdempotency(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -469,6 +472,7 @@ func assertReceiptBlobsFromMajority(
 
 // Test where a valid signer sign but is later removed from the committee and another valider signs but aggregation should not complete. Only when we sign with a third valid signer it succeeds.
 func TestChangingCommitteeBeforeAggregation(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -545,6 +549,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 }
 
 func TestChangingCommitteeAfterAggregation(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -626,6 +631,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 
 // TestPaginationWithVariousPageSizes tests the GetMessagesSince API with pagination.
 func TestPaginationWithVariousPageSizes(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"postgres", "dynamodb"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -807,6 +813,7 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 
 // TestMultiShardPagination tests pagination with multiple shard configurations.
 func TestMultiShardPagination(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -989,6 +996,7 @@ func runMultiShardPaginationTest(t *testing.T, shardCount, pageSize int, storage
 // TestParticipantDeduplication verifies that only one verification per participant
 // is included in the aggregated report, keeping the most recent one.
 func TestParticipantDeduplication(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -1088,6 +1096,7 @@ func TestParticipantDeduplication(t *testing.T) {
 
 // TestSequenceOrdering verifies that GetMessagesSince returns reports ordered by WrittenAt.
 func TestSequenceOrdering(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -1204,6 +1213,7 @@ func TestSequenceOrdering(t *testing.T) {
 // TestReceiptBlobMajorityConsensus tests that when there are conflicting receipt blobs,
 // the consensus algorithm selects the majority winner.
 func TestReceiptBlobMajorityConsensus(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"memory", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -1321,6 +1331,7 @@ func TestReceiptBlobMajorityConsensus(t *testing.T) {
 // TestGetMessagesSinceDeduplication verifies that GetMessagesSince deduplicates messages
 // and shows correct behavior when the same signer submits multiple verifications.
 func TestGetMessagesSinceDeduplication(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
