@@ -47,60 +47,60 @@ jobs:
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
           echo "coverage=$total" >> $GITHUB_ENV
 
-      - name: Coverage on target branch
-        if: github.event_name == 'pull_request'
-        run: |
-          cp ./tools/bin/cov_compare.sh ${{ runner.temp }}
-          git fetch origin ${{ github.base_ref }}
-          git branch -a
-          git checkout ${{ github.base_ref }}
-          # TODO: enable after available on base branch.
-          # just test-coverage coverage_file=coverage_target.out
-          go test -shuffle on -v -coverprofile=coverage_target.out ./...
-          total=$(go tool cover -func=coverage_target.out | grep total | awk '{print $3}')
-          echo "coverage_target=$total" >> $GITHUB_ENV
-          cp ${{ runner.temp }}/cov_compare.sh cov_compare.sh
-          {
-            echo 'coverage_report<<COVERAGE_REPORT_DELIM'
-            ./cov_compare.sh --no-header coverage_target.out coverage.out
-            echo 'COVERAGE_REPORT_DELIM'
-          } >> "$GITHUB_ENV"
+      # - name: Coverage on target branch
+      #   if: github.event_name == 'pull_request'
+      #   run: |
+      #     cp ./tools/bin/cov_compare.sh ${{ runner.temp }}
+      #     git fetch origin ${{ github.base_ref }}
+      #     git branch -a
+      #     git checkout ${{ github.base_ref }}
+      #     # TODO: enable after available on base branch.
+      #     # just test-coverage coverage_file=coverage_target.out
+      #     go test -shuffle on -v -coverprofile=coverage_target.out ./...
+      #     total=$(go tool cover -func=coverage_target.out | grep total | awk '{print $3}')
+      #     echo "coverage_target=$total" >> $GITHUB_ENV
+      #     cp ${{ runner.temp }}/cov_compare.sh cov_compare.sh
+      #     {
+      #       echo 'coverage_report<<COVERAGE_REPORT_DELIM'
+      #       ./cov_compare.sh --no-header coverage_target.out coverage.out
+      #       echo 'COVERAGE_REPORT_DELIM'
+      #     } >> "$GITHUB_ENV"
 
-      - name: Remove previous coverage comments
-        uses: actions/github-script@v6
-        if: github.event_name == 'pull_request'
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { owner, repo, number: issue_number } = context.issue;
-            const comments = await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number
-            });
-            const coverageCommentPrefix = "Code coverage report:";
-            for (const comment of comments.data) {
-              if (comment.body.startsWith(coverageCommentPrefix)) {
-                await github.rest.issues.deleteComment({
-                  owner,
-                  repo,
-                  comment_id: comment.id
-                });
-              }
-            }
+      # - name: Remove previous coverage comments
+      #   uses: actions/github-script@v6
+      #   if: github.event_name == 'pull_request'
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     script: |
+      #       const { owner, repo, number: issue_number } = context.issue;
+      #       const comments = await github.rest.issues.listComments({
+      #         owner,
+      #         repo,
+      #         issue_number
+      #       });
+      #       const coverageCommentPrefix = "Code coverage report:";
+      #       for (const comment of comments.data) {
+      #         if (comment.body.startsWith(coverageCommentPrefix)) {
+      #           await github.rest.issues.deleteComment({
+      #             owner,
+      #             repo,
+      #             comment_id: comment.id
+      #           });
+      #         }
+      #       }
 
-      - name: Display coverage in PR comment
-        uses: actions/github-script@v6
-        if: github.event_name == 'pull_request'
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const coverage = process.env.coverage;
-            const coverage_target = process.env.coverage_target;
-            const coverage_report = process.env.coverage_report;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `Code coverage report:\n| Package | \`${{ github.base_ref }}\` | \`${{ github.head_ref }}\` |\n ${coverage_report}`
-            });
+      # - name: Display coverage in PR comment
+      #   uses: actions/github-script@v6
+      #   if: github.event_name == 'pull_request'
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     script: |
+      #       const coverage = process.env.coverage;
+      #       const coverage_target = process.env.coverage_target;
+      #       const coverage_report = process.env.coverage_report;
+      #       github.rest.issues.createComment({
+      #         issue_number: context.issue.number,
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         body: `Code coverage report:\n| Package | \`${{ github.base_ref }}\` | \`${{ github.head_ref }}\` |\n ${coverage_report}`
+      #       });
