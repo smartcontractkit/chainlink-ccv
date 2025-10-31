@@ -77,6 +77,11 @@ const (
 var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
+	// TEMPORARY: The actual topic hash found in deployed contract logs
+	// This is for debugging - the deployed contract appears to use a different event signature
+	// Topic found: 0xdc37a122d47e708a593d43fba77d7a22899a573dfbd0cd4423c7d41a6291e0ff
+	actualDeployedTopic = common.HexToHash("0xdc37a122d47e708a593d43fba77d7a22899a573dfbd0cd4423c7d41a6291e0ff")
+
 	// this is a hacky way to be able to programmatically generate the individual verifier
 	// signing addresses for each qualifier.
 	nodesPerCommittee = map[string]int{
@@ -634,14 +639,31 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			Str("address", log.Address.Hex()).
 			Msg("Inspecting log")
 
-		if log.Topics[0] == ccipMessageSentTopic {
+		// Check for expected topic OR the actual deployed contract topic
+		matchedExpected := log.Topics[0] == ccipMessageSentTopic
+		matchedActual := log.Topics[0] == actualDeployedTopic
+
+		if matchedExpected || matchedActual {
+			if matchedExpected {
+				l.Info().Msg("✅ Found CCIPMessageSent event with EXPECTED topic")
+			} else {
+				l.Warn().
+					Str("expected_topic", ccipMessageSentTopic.Hex()).
+					Str("actual_topic", actualDeployedTopic.Hex()).
+					Msg("⚠️ Found CCIPMessageSent event with DEPLOYED CONTRACT topic (version mismatch!)")
+			}
+
 			var err error
 			messageSentEvent, err = m.onRampBySelector[src].ParseCCIPMessageSent(*log)
 			if err != nil {
-				// Don't fail the entire test just because of this but do log a warning.
-				l.Warn().Err(err).Msg("Failed to parse CCIPMessageSent event")
+				l.Warn().
+					Err(err).
+					Bool("matched_expected", matchedExpected).
+					Bool("matched_actual", matchedActual).
+					Msg("Failed to parse CCIPMessageSent event - this indicates struct incompatibility")
 				continue
 			}
+			l.Info().Msg("✅ Successfully parsed CCIPMessageSent event")
 			break
 		}
 	}
@@ -654,8 +676,8 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 				topics = append(topics, fmt.Sprintf("log[%d].address=%s topic0=%s", i, log.Address.Hex(), log.Topics[0].Hex()))
 			}
 		}
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("CCIPMessageSent event not found in transaction receipt: hash=%s, num_logs=%d, expected_topic=%s, actual_topics=[%v]",
-			sendReport.Output.ExecInfo.Hash, len(receipt.Logs), ccipMessageSentTopic.Hex(), topics)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("CCIPMessageSent event not found in transaction receipt: hash=%s, num_logs=%d, expected_topic=%s, checking_for_deployed_topic=%s, actual_topics=[%v]",
+			sendReport.Output.ExecInfo.Hash, len(receipt.Logs), ccipMessageSentTopic.Hex(), actualDeployedTopic.Hex(), topics)
 	}
 
 	dcc, err := m.onRampBySelector[src].GetDestChainConfig(&bind.CallOpts{
