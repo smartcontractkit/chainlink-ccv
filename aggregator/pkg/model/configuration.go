@@ -127,6 +127,7 @@ type APIClient struct {
 	ClientID    string            `toml:"clientId"`
 	Description string            `toml:"description,omitempty"`
 	Enabled     bool              `toml:"enabled"`
+	IsAdmin     bool              `toml:"isAdmin,omitempty"`
 	Secrets     map[string]string `toml:"secrets,omitempty"`
 	Groups      []string          `toml:"groups,omitempty"`
 }
