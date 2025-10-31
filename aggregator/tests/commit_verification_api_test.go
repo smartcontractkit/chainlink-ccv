@@ -1517,6 +1517,9 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 	storageTypes := []string{"postgres", "dynamodb"}
 
 	testFunc := func(t *testing.T, storageType string) {
+		// Track the timestamp (int64) of the first aggregated report so we can compare with the second
+		var firstAggregationTimestamp int64
+
 		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
@@ -1602,13 +1605,14 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 			require.Len(collect, getResp.Results, 1, "Should return 1 report (first quorum reached)")
 		}, 5*time.Second, 500*time.Millisecond, "GetMessagesSince should eventually return 1 report after first quorum is reached")
 
-		// Check GetVerifierResultForMessage after first aggregation
+		// Check GetVerifierResultForMessage after first aggregation and record its timestamp
 		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
 			getVerifierResp, err := ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
 				MessageId: messageID[:],
 			})
 			require.NoError(collect, err, "GetVerifierResultForMessage should succeed")
 			require.NotNil(collect, getVerifierResp, "Should return a result after first quorum")
+			firstAggregationTimestamp = getVerifierResp.Timestamp
 		}, 5*time.Second, 500*time.Millisecond, "GetVerifierResultForMessage should eventually return a result after first quorum")
 
 		// Wait a second to ensure the aggregation timestamp is different (we use write time as aggregation time)
@@ -1643,7 +1647,7 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 			assert.Greater(collect, result2.Timestamp, result1.Timestamp, "Second report should have newer timestamp")
 		}, 10*time.Second, 500*time.Millisecond, "GetMessagesSince should eventually return 2 reports when feature is disabled")
 
-		// GetVerifierResultForMessage should return the most recent aggregated report
+		// GetVerifierResultForMessage should return the most recent aggregated report; verify timestamp advanced
 		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
 			getVerifierResp, err := ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
 				MessageId: messageID[:],
@@ -1654,11 +1658,10 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 			// Should return the most recent aggregated report
 			assert.Equal(collect, uint64(message.Nonce), getVerifierResp.Message.Nonce, "Should return result for our message")
 
-			// The result should have the recent timestamp (indicating it's the newer aggregation)
-			// We can't check exact timestamp due to timing variations, but we can verify it's reasonably recent
-			now := time.Now().Unix()
-			assert.InDelta(collect, now, getVerifierResp.Timestamp, 10, "Result timestamp should be recent")
-		}, 10*time.Second, 500*time.Millisecond, "GetVerifierResultForMessage should return the most recent aggregated report")
+			// The new aggregation timestamp should be different and greater than the first
+			assert.NotEqual(collect, firstAggregationTimestamp, getVerifierResp.Timestamp, "Second aggregation should have a different timestamp")
+			assert.Greater(collect, getVerifierResp.Timestamp, firstAggregationTimestamp, "Second aggregation should be more recent than first")
+		}, 10*time.Second, 500*time.Millisecond, "GetVerifierResultForMessage should return the newer aggregated report with a later timestamp")
 
 		t.Log("✓ Both GetMessagesSince and GetVerifierResultForMessage behave correctly with feature disabled")
 	}
