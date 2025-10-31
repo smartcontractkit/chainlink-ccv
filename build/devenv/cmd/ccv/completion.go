@@ -149,6 +149,7 @@ func executor(in string) {
 		os.Exit(0)
 	}
 
+	restart := "restart"
 	// Save active config for "up" and "restart" commands if provided.
 	if strings.HasPrefix(in, "up ") {
 		saveActiveConfig(in[3:])
@@ -158,15 +159,15 @@ func executor(in string) {
 		in = "up"
 	} else if strings.HasPrefix(in, "restart ") {
 		saveActiveConfig(in[8:])
-		in = "restart"
+		in = restart
 	} else if strings.HasPrefix(in, "r ") {
 		saveActiveConfig(in[2:])
-		in = "restart"
+		in = restart
 	}
 
 	switch in {
 	// append active config to "up" and "restart" commands.
-	case "up", "u", "restart", "r":
+	case "up", "u", restart, "r":
 		in = fmt.Sprintf("%s %s", in, getActiveConfig())
 	}
 
