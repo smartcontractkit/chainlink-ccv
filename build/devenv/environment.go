@@ -138,16 +138,18 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	_, err = services.NewIndexer(in.Indexer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create indexer service: %w", err)
-	}
-
 	for _, aggregatorInput := range in.Aggregator {
 		_, err = services.NewAggregator(aggregatorInput)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
+	}
+
+	// start up the indexer after the aggregators are up to avoid spamming of errors
+	// in the logs when it starts before the aggregators are up.
+	_, err = services.NewIndexer(in.Indexer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")
