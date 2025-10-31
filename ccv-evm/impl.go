@@ -77,11 +77,6 @@ const (
 var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
-	// TEMPORARY: The actual topic hash found in deployed contract logs
-	// This is for debugging - the deployed contract appears to use a different event signature
-	// Topic found: 0xdc37a122d47e708a593d43fba77d7a22899a573dfbd0cd4423c7d41a6291e0ff
-	actualDeployedTopic = common.HexToHash("0xdc37a122d47e708a593d43fba77d7a22899a573dfbd0cd4423c7d41a6291e0ff")
-
 	// this is a hacky way to be able to programmatically generate the individual verifier
 	// signing addresses for each qualifier.
 	nodesPerCommittee = map[string]int{
@@ -627,44 +622,64 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 
+	onRampAddress := m.onRampBySelector[src].Address()
+
 	var messageSentEvent *onramp.OnRampCCIPMessageSent
+	var parseAttempts []string
+
+	// First pass: Try to find and parse logs with the expected topic
 	for i, log := range receipt.Logs {
 		if len(log.Topics) == 0 {
 			l.Debug().Int("log_index", i).Msg("Log has no topics")
 			continue
 		}
+
 		l.Debug().
 			Int("log_index", i).
 			Str("topic0", log.Topics[0].Hex()).
 			Str("address", log.Address.Hex()).
 			Msg("Inspecting log")
 
-		// Check for expected topic OR the actual deployed contract topic
-		matchedExpected := log.Topics[0] == ccipMessageSentTopic
-		matchedActual := log.Topics[0] == actualDeployedTopic
+		// Check if this log is from the OnRamp contract
+		if log.Address != onRampAddress {
+			continue
+		}
 
-		if matchedExpected || matchedActual {
-			if matchedExpected {
-				l.Info().Msg("✅ Found CCIPMessageSent event with EXPECTED topic")
+		// Try to parse this log as CCIPMessageSent
+		parsedEvent, err := m.onRampBySelector[src].ParseCCIPMessageSent(*log)
+
+		if log.Topics[0] == ccipMessageSentTopic {
+			// This is the expected topic
+			if err == nil {
+				l.Info().
+					Str("topic0", log.Topics[0].Hex()).
+					Msg("✅ Found and parsed CCIPMessageSent with EXPECTED topic")
+				messageSentEvent = parsedEvent
+				break
 			} else {
-				l.Warn().
-					Str("expected_topic", ccipMessageSentTopic.Hex()).
-					Str("actual_topic", actualDeployedTopic.Hex()).
-					Msg("⚠️ Found CCIPMessageSent event with DEPLOYED CONTRACT topic (version mismatch!)")
-			}
-
-			var err error
-			messageSentEvent, err = m.onRampBySelector[src].ParseCCIPMessageSent(*log)
-			if err != nil {
+				parseAttempts = append(parseAttempts, fmt.Sprintf("log[%d] expected_topic=%s parse_error=%v", i, log.Topics[0].Hex(), err))
 				l.Warn().
 					Err(err).
-					Bool("matched_expected", matchedExpected).
-					Bool("matched_actual", matchedActual).
-					Msg("Failed to parse CCIPMessageSent event - this indicates struct incompatibility")
-				continue
+					Int("log_index", i).
+					Msg("Found expected topic but failed to parse")
 			}
-			l.Info().Msg("✅ Successfully parsed CCIPMessageSent event")
-			break
+		} else {
+			// This is a different topic from OnRamp - try to parse anyway
+			if err == nil {
+				l.Warn().
+					Str("expected_topic", ccipMessageSentTopic.Hex()).
+					Str("actual_topic", log.Topics[0].Hex()).
+					Msg("⚠️ Found and parsed CCIPMessageSent with DIFFERENT topic (version mismatch!)")
+				messageSentEvent = parsedEvent
+				break
+			} else {
+				parseAttempts = append(parseAttempts, fmt.Sprintf("log[%d] onramp_topic=%s parse_error=%v", i, log.Topics[0].Hex(), err))
+				l.Debug().
+					Err(err).
+					Int("log_index", i).
+					Str("topic0", log.Topics[0].Hex()).
+					Msg("OnRamp log but failed to parse as CCIPMessageSent")
+			}
 		}
 	}
 
@@ -676,8 +691,8 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 				topics = append(topics, fmt.Sprintf("log[%d].address=%s topic0=%s", i, log.Address.Hex(), log.Topics[0].Hex()))
 			}
 		}
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("CCIPMessageSent event not found in transaction receipt: hash=%s, num_logs=%d, expected_topic=%s, checking_for_deployed_topic=%s, actual_topics=[%v]",
-			sendReport.Output.ExecInfo.Hash, len(receipt.Logs), ccipMessageSentTopic.Hex(), actualDeployedTopic.Hex(), topics)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("CCIPMessageSent event not found in transaction receipt: hash=%s, num_logs=%d, expected_topic=%s, onramp_address=%s, parse_attempts=%v, all_topics=%v",
+			sendReport.Output.ExecInfo.Hash, len(receipt.Logs), ccipMessageSentTopic.Hex(), onRampAddress.Hex(), parseAttempts, topics)
 	}
 
 	dcc, err := m.onRampBySelector[src].GetDestChainConfig(&bind.CallOpts{
