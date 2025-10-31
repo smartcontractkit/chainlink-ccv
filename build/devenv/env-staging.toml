@@ -1,3 +1,6 @@
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
 [cldf]
 addresses = ['[{"address": "0x3dcfD4Be3c82e88901c483F92C26765d2D9C802d","chainSelector": 14767482510784806043,"labels": [],"qualifier": "","type": "Executor","version": "1.7.0"},{"address": "0x0808ec272deA09d5058399C152A6E695428C25ab","chainSelector": 14767482510784806043,"labels": [],"qualifier": "default","type": "CommitteeVerifierProxy","version": "1.7.0"},{"address": "0x2e1Db870aFcf520648EFDd7C6cC10E3371C316d9","chainSelector": 14767482510784806043,"labels": [],"qualifier": "","type": "LINK","version": "1.0.0"},{"address":"0x2A5e2b9321127B0457D94d7c7001a0f53C34B087","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"WETH","version":"1.0.0"},{"address":"0xEEcCE31a98a4dCD070F80094fF17D7ffCBB0D8E3","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"OffRamp","version":"1.7.0"},{"address":"0x88553FB2D824F0F6D6bB5E76017B2Ac4b0e43D59","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"OnRamp","version":"1.7.0"},{"address": "0xfFEE022304d4F413D1ccb9a8553cFD3AD4499b2D", "chainSelector": 14767482510784806043, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"},{"address": "0xe66A279f95684d76DB6e9A90E19D0e7eB2149B7A", "chainSelector": 14767482510784806043, "labels": [], "qualifier": "default", "type": "MockReceiver", "version": "1.7.0"}]', '[{"address": "0xf477433dFcBd172a08541d634a682522e39b7155", "chainSelector": 3676871237479449268, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"},{"address": "0x77D6f60c1e5A754b8Af5461FD755ffC310484403", "chainSelector": 3676871237479449268, "labels": [], "qualifier": "default", "type": "MockReceiver", "version": "1.7.0"},{"address":"0xdBf0A69a04f05df93099022f8A1Cb99555B2c899","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"OnRamp","version":"1.7.0"},{"address":"0x3CDAE15a1B8ddaD124b840cA4bFA9A55ADd81eb6","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"OffRamp","version":"1.7.0"},{"address":"0x68E13981a19f260AfC0f702A78d171C33568BaFa","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"WETH","version":"1.0.0"},{"address": "0xb945d77dA9f81B919FafE5Db362C727F0E5f5DEc","chainSelector": 3676871237479449268,"labels": [],"qualifier": "","type": "LINK","version": "1.0.0"},{"address": "0x5369084c8C90f4c55bBD8Ea1F9C66D192a47487C","chainSelector": 3676871237479449268,"labels": [],"qualifier": "default","type": "CommitteeVerifierProxy","version": "1.7.0"},{"address": "0x94B3d156D64032d3CAa7aAFDd5908F3202d16A21","chainSelector": 3676871237479449268,"labels": [],"qualifier": "","type": "Executor","version": "1.7.0"}]']
 
@@ -21,18 +24,189 @@ ws_url = "wss://rpcs.cldev.sh/avalanche/fuji"
 
 [[blockchains]]
 container_name = "blockchain-dst"
-chain_id = "57054"
+chain_id = "56798"
 type = "anvil"
 
 [blockchains.out]
 type = "anvil"
 use_cache = true
-chain_id = "57054"
+chain_id = "56798"
 family = 'evm'
-container_name = 'fuji'
+container_name = 'sonic'
 
 [[blockchains.out.nodes]]
 http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
 internal_http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
 internal_ws_url = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
 ws_url = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+
+[fake]
+  image = "ccv-fakes:dev"
+  port = 9111
+  source_code_path = "../build/devenv/fakes"
+  root_path = "../../"
+
+## Staging Verifier Setup
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "staging-verifier-1"
+  port = 8100
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "staging"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "staging-verifier-1-db"
+    port = 8432
+  
+  [verifier.env]
+    aggregator_api_key = "staging-api-key-verifier-1"
+    aggregator_secret_key = "staging-secret-verifier-1"
+
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "staging-verifier-2"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "staging"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "staging-verifier-2-db"
+    port = 8433
+  
+  [verifier.env]
+    aggregator_api_key = "staging-api-key-verifier-2"
+    aggregator_secret_key = "staging-secret-verifier-2"
+
+[executor]
+  image = "executor:dev"
+  port = 8101
+  source_code_path = "../executor"
+  root_path = "../../"
+  config_file_path = "/app/cmd/executor/executor_config_staging.toml"
+
+[indexer]
+  image = "indexer:dev"
+  port = 8102
+  source_code_path = "../indexer"
+  root_path = "../../"
+  [indexer.db]
+    image = "postgres:16-alpine"
+
+[indexer.indexer_config]
+[indexer.indexer_config.Monitoring]
+Enabled = true
+Type = 'beholder'
+
+[indexer.indexer_config.Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'otel-collector:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[indexer.indexer_config.Scanner]
+ScanInterval = 1
+ReaderTimeout = 5
+
+[indexer.indexer_config.Discovery]
+Type = 'static'
+
+[indexer.indexer_config.Discovery.Static]
+[[indexer.indexer_config.Discovery.Static.Readers]]
+type = 'aggregator'
+
+[indexer.indexer_config.Discovery.Static.Readers.Aggregator]
+Address = 'staging-aggregator:50051'
+Since = 0
+
+[[indexer.indexer_config.Discovery.Static.Readers]]
+type = 'rest'
+
+[indexer.indexer_config.Discovery.Static.Readers.Rest]
+BaseURL = 'http://fake:9111'
+Since = 0
+RequestTimeout = 5
+
+[indexer.indexer_config.Storage]
+Strategy = "sink" 
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = "memory"
+
+[indexer.indexer_config.Storage.Sink.Storages.Memory]
+TTL = 3600            
+MaxSize = 10000      
+CleanupInterval = 300
+
+[indexer.indexer_config.Storage.Sink.Storages.ReadCondition]
+Type = "recent"
+LookbackWindowSeconds = 3600
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Sink.Storages.Postgres]
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[indexer.indexer_config.Storage.Sink.Storages.ReadCondition]
+Type = "always"
+
+[[aggregator]]
+  committee_name = "staging"
+  image = "aggregator:dev"
+  host_port = 50051
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7432
+  
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6379
+  
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@staging-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "staging-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+    api_keys_json = '''
+{
+  "staging-api-key-verifier-1": "staging-secret-verifier-1",
+  "staging-api-key-verifier-2": "staging-secret-verifier-2"
+}
+'''
+
+[[nodesets]]
+  node_count = 4
+  deploy_chainlink = true
+  db_image = "postgres:16-alpine"
+  cl_image = "chainlink-ccip:ccipv1_7"
+
+  [[nodesets.nodespecs]]
+    [nodesets.nodespecs.node]
+      test_config_overrides = ""
+
+  [[nodesets.nodespecs]]
+    [nodesets.nodespecs.node]
+      test_config_overrides = ""
+
+  [[nodesets.nodespecs]]
+    [nodesets.nodespecs.node]
+      test_config_overrides = ""
+
+  [[nodesets.nodespecs]]
+    [nodesets.nodespecs.node]
+      test_config_overrides = ""

@@ -1,0 +1,53 @@
+verifier_id = "staging-verifier-1"
+aggregator_address = "staging-aggregator:50051"
+pyroscope_url = "http://pyroscope:4040"
+
+[Monitoring]
+Enabled = true
+Type = "beholder"
+[Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[on_ramp_addresses]
+  14767482510784806043 = "0x88553FB2D824F0F6D6bB5E76017B2Ac4b0e43D59"
+  3676871237479449268 = "0xdBf0A69a04f05df93099022f8A1Cb99555B2c899"
+
+[committee_verifier_addresses]
+  14767482510784806043 = "0x0808ec272deA09d5058399C152A6E695428C25ab"
+  3676871237479449268 = "0x5369084c8C90f4c55bBD8Ea1F9C66D192a47487C"
+
+[default_executor_on_ramp_addresses]
+  14767482510784806043 = "0x88553FB2D824F0F6D6bB5E76017B2Ac4b0e43D59"
+  3676871237479449268 = "0xdBf0A69a04f05df93099022f8A1Cb99555B2c899"
+
+[blockchain_infos]
+  [blockchain_infos.14767482510784806043]
+    ChainID = "43113"
+    Type = "anvil"
+    Family = "evm"
+    UniqueChainName = "blockchain-src"
+    [[blockchain_infos.14767482510784806043.Nodes]]
+      ExternalHTTPUrl = "https://rpcs.cldev.sh/avalanche/fuji"
+      InternalHTTPUrl = "https://rpcs.cldev.sh/avalanche/fuji"
+      ExternalWSUrl = "wss://rpcs.cldev.sh/avalanche/fuji"
+      InternalWSUrl = "wss://rpcs.cldev.sh/avalanche/fuji"
+
+  [blockchain_infos.3676871237479449268]
+    ChainID = "56798"
+    Type = "anvil"
+    Family = "evm"
+    UniqueChainName = "blockchain-dst"
+    OfframpRouter = ""
+    [[blockchain_infos.3676871237479449268.Nodes]]
+      ExternalHTTPUrl = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+      InternalHTTPUrl = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+      ExternalWSUrl = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+      InternalWSUrl = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+

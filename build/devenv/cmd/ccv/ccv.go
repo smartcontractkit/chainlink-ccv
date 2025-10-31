@@ -87,7 +87,7 @@ var upCmd = &cobra.Command{
 		if len(args) > 0 {
 			configFile = args[0]
 		} else {
-			configFile = "env.toml"
+			configFile = "env-staging.toml"
 		}
 		framework.L.Info().Str("Config", configFile).Msg("Creating development environment")
 		_ = os.Setenv("CTF_CONFIGS", configFile)
@@ -704,7 +704,7 @@ func checkDockerIsRunning() {
 func main() {
 	checkDockerIsRunning()
 	if len(os.Args) == 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
-		_ = os.Setenv("CTF_CONFIGS", "env.toml") // Set default config for shell
+		_ = os.Setenv("CTF_CONFIGS", "env-staging.toml") // Set default config for shell
 
 		StartShell()
 		return

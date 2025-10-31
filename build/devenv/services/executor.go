@@ -26,6 +26,7 @@ type ExecutorInput struct {
 	ContainerName  string          `toml:"container_name"`
 	Port           int             `toml:"port"`
 	UseCache       bool            `toml:"use_cache"`
+	ConfigFilePath string          `toml:"config_file_path"`
 }
 
 type ExecutorOutput struct {
@@ -44,6 +45,9 @@ func executorDefaults(in *ExecutorInput) {
 	}
 	if in.ContainerName == "" {
 		in.ContainerName = DefaultExecutorName
+	}
+	if in.ConfigFilePath == "" {
+		in.ConfigFilePath = "/app/cmd/executor/executor_config.toml"
 	}
 }
 
@@ -82,6 +86,7 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 		},
 		Env: map[string]string{
 			"EXECUTOR_TRANSMITTER_PRIVATE_KEY": "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+			"EXECUTOR_CONFIG_PATH":             in.ConfigFilePath,
 		},
 	}
 

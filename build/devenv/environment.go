@@ -183,7 +183,14 @@ func NewEnvironment() (in *Cfg, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
-	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+
+	// Check if contracts are pre-deployed (addresses already in config)
+	hasPreDeployedContracts := len(in.CLDF.Addresses) > 0
+	if hasPreDeployedContracts {
+		L.Info().Int("AddressSets", len(in.CLDF.Addresses)).Msg("Using pre-deployed contracts from configuration, skipping deployment")
+	} else {
+		L.Info().Any("Selectors", selectors).Msg("Deploying contracts for chain selectors")
+	}
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
@@ -196,43 +203,66 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, err
 		}
 		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deployed chain selector")
-		var dsi datastore.DataStore
-		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector)
-		if err != nil {
-			return nil, err
-		}
-		var addresses []datastore.AddressRef
-		addresses, err = dsi.Addresses().Fetch()
-		if err != nil {
-			return nil, err
-		}
-		var a []byte
-		a, err = json.Marshal(addresses)
-		if err != nil {
-			return nil, err
-		}
-		in.CLDF.AddAddresses(string(a))
-		if err = ds.Merge(dsi); err != nil {
-			return nil, err
-		}
-	}
-	e.DataStore = ds.Seal()
 
-	for i, impl := range impls {
-		var networkInfo chainsel.ChainDetails
-		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
-		if err != nil {
-			return nil, err
-		}
-		selsToConnect := make([]uint64, 0)
-		for _, sel := range selectors {
-			if sel != networkInfo.ChainSelector {
-				selsToConnect = append(selsToConnect, sel)
+		// Only deploy contracts if not pre-deployed
+		if !hasPreDeployedContracts {
+			var dsi datastore.DataStore
+			dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector)
+			if err != nil {
+				return nil, err
+			}
+			var addresses []datastore.AddressRef
+			addresses, err = dsi.Addresses().Fetch()
+			if err != nil {
+				return nil, err
+			}
+			var a []byte
+			a, err = json.Marshal(addresses)
+			if err != nil {
+				return nil, err
+			}
+			in.CLDF.AddAddresses(string(a))
+			if err = ds.Merge(dsi); err != nil {
+				return nil, err
 			}
 		}
-		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect)
-		if err != nil {
-			return nil, err
+	}
+
+	// Load pre-deployed addresses into datastore if they exist
+	if hasPreDeployedContracts {
+		for _, addrRefJSON := range in.CLDF.Addresses {
+			var addrs []datastore.AddressRef
+			if err := json.Unmarshal([]byte(addrRefJSON), &addrs); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal pre-deployed addresses from config: %w", err)
+			}
+			for _, addr := range addrs {
+				if err := ds.Addresses().Add(addr); err != nil {
+					return nil, fmt.Errorf("failed to add pre-deployed address to datastore: %w", err)
+				}
+			}
+		}
+	}
+
+	e.DataStore = ds.Seal()
+
+	// Only connect contracts if we deployed them (skip for pre-deployed)
+	if !hasPreDeployedContracts {
+		for i, impl := range impls {
+			var networkInfo chainsel.ChainDetails
+			networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
+			if err != nil {
+				return nil, err
+			}
+			selsToConnect := make([]uint64, 0)
+			for _, sel := range selectors {
+				if sel != networkInfo.ChainSelector {
+					selsToConnect = append(selsToConnect, sel)
+				}
+			}
+			err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

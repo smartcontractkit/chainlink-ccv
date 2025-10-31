@@ -1,0 +1,52 @@
+indexer_address="http://indexer:8100"
+source_polling_interval="5s"
+source_backoff_duration="15s"
+startup_lookback_window="1h"
+indexer_query_limit=20
+pyroscope_url="http://pyroscope:4040"
+executor_pool=["cl_node_executor_a"]
+executor_id="cl_node_executor_a"
+execution_interval="15s"
+min_wait="3s"
+ccv_info_cache_expiry="5m"
+
+[offramp_addresses]
+    14767482510784806043 = "0xEEcCE31a98a4dCD070F80094fF17D7ffCBB0D8E3"
+    3676871237479449268 = "0x3CDAE15a1B8ddaD124b840cA4bFA9A55ADd81eb6"
+
+[blockchain_infos]
+    [blockchain_infos.14767482510784806043]
+        ChainID = "43113"
+        Type = "anvil"
+        Family = "evm"
+        UniqueChainName = "blockchain-src"
+        [[blockchain_infos.14767482510784806043.Nodes]]
+            ExternalHTTPUrl = "https://rpcs.cldev.sh/avalanche/fuji"
+            InternalHTTPUrl = "https://rpcs.cldev.sh/avalanche/fuji"
+            ExternalWSUrl = "wss://rpcs.cldev.sh/avalanche/fuji"
+            InternalWSUrl = "wss://rpcs.cldev.sh/avalanche/fuji"
+
+    [blockchain_infos.3676871237479449268]
+        ChainID = "56798"
+        Type = "anvil"
+        Family = "evm"
+        UniqueChainName = "blockchain-dst"
+        [[blockchain_infos.3676871237479449268.Nodes]]
+            ExternalHTTPUrl = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+            InternalHTTPUrl = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+            ExternalWSUrl = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+            InternalWSUrl = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+
+[Monitoring]
+Enabled = true
+Type = "beholder"
+[Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
