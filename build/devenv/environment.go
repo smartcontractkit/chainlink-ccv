@@ -194,8 +194,22 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
-			return nil, err
+		// Skip funding if amounts are 0
+		if in.CLNodesFundingETH > 0 || in.CLNodesFundingLink > 0 {
+			ethAmount := new(big.Float).SetFloat64(in.CLNodesFundingETH)
+			linkAmount := new(big.Float).SetFloat64(in.CLNodesFundingLink)
+
+			// Convert to wei/smallest unit (1 ETH/LINK = 10^18 wei)
+			ethWei := new(big.Int)
+			linkWei := new(big.Int)
+			ethAmount.Mul(ethAmount, big.NewFloat(1e18)).Int(ethWei)
+			linkAmount.Mul(linkAmount, big.NewFloat(1e18)).Int(linkWei)
+
+			if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], ethWei, linkWei); err != nil {
+				return nil, err
+			}
+		} else {
+			L.Info().Msg("Skipping node funding (amounts set to 0)")
 		}
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)

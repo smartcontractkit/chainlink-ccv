@@ -1,0 +1,464 @@
+cl_nodes_funding_eth = 0.0
+cl_nodes_funding_link = 0.0
+
+[cldf]
+addresses = ['[{"address": "0x3dcfD4Be3c82e88901c483F92C26765d2D9C802d","chainSelector": 14767482510784806043,"labels": [],"qualifier": "","type": "Executor","version": "1.7.0"},{"address": "0x0808ec272deA09d5058399C152A6E695428C25ab","chainSelector": 14767482510784806043,"labels": [],"qualifier": "default","type": "CommitteeVerifierProxy","version": "1.7.0"},{"address": "0x2e1Db870aFcf520648EFDd7C6cC10E3371C316d9","chainSelector": 14767482510784806043,"labels": [],"qualifier": "","type": "LINK","version": "1.0.0"},{"address":"0x2A5e2b9321127B0457D94d7c7001a0f53C34B087","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"WETH","version":"1.0.0"},{"address":"0xEEcCE31a98a4dCD070F80094fF17D7ffCBB0D8E3","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"OffRamp","version":"1.7.0"},{"address":"0x88553FB2D824F0F6D6bB5E76017B2Ac4b0e43D59","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"OnRamp","version":"1.7.0"},{"address": "0xfFEE022304d4F413D1ccb9a8553cFD3AD4499b2D", "chainSelector": 14767482510784806043, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"},{"address": "0xe66A279f95684d76DB6e9A90E19D0e7eB2149B7A", "chainSelector": 14767482510784806043, "labels": [], "qualifier": "default", "type": "MockReceiver", "version": "1.7.0"}]', '[{"address": "0xf477433dFcBd172a08541d634a682522e39b7155", "chainSelector": 3676871237479449268, "labels": [], "qualifier": "", "type": "Router", "version": "1.2.0"},{"address": "0x77D6f60c1e5A754b8Af5461FD755ffC310484403", "chainSelector": 3676871237479449268, "labels": [], "qualifier": "default", "type": "MockReceiver", "version": "1.7.0"},{"address":"0xdBf0A69a04f05df93099022f8A1Cb99555B2c899","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"OnRamp","version":"1.7.0"},{"address":"0x3CDAE15a1B8ddaD124b840cA4bFA9A55ADd81eb6","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"OffRamp","version":"1.7.0"},{"address":"0x68E13981a19f260AfC0f702A78d171C33568BaFa","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"WETH","version":"1.0.0"},{"address": "0xb945d77dA9f81B919FafE5Db362C727F0E5f5DEc","chainSelector": 3676871237479449268,"labels": [],"qualifier": "","type": "LINK","version": "1.0.0"},{"address": "0x5369084c8C90f4c55bBD8Ea1F9C66D192a47487C","chainSelector": 3676871237479449268,"labels": [],"qualifier": "default","type": "CommitteeVerifierProxy","version": "1.7.0"},{"address": "0x94B3d156D64032d3CAa7aAFDd5908F3202d16A21","chainSelector": 3676871237479449268,"labels": [],"qualifier": "","type": "Executor","version": "1.7.0"}]']
+
+[fake]
+image = 'ccv-fakes:dev'
+port = 9111
+source_code_path = '../build/devenv/fakes'
+root_path = '../../'
+container_name = 'fake'
+use_cache = false
+
+[[verifier]]
+image = 'verifier:dev'
+source_code_path = '../verifier'
+root_path = '../../'
+container_name = 'staging-verifier-1'
+port = 8100
+use_cache = false
+config_file_path = '/app/cmd/verifier/testconfig/staging/verifier-1.toml'
+aggregator_address = ''
+signing_key = 'be89ea99b0c92899913bc62d6ffa95c33a97ba53885645a49af3f7084180119f'
+committee_name = 'staging'
+node_index = 0
+
+[verifier.db]
+image = 'postgres:16-alpine'
+name = 'staging-verifier-1-db'
+port = 8432
+
+[verifier.verifier_config]
+verifier_id = ''
+aggregator_address = ''
+aggregator_api_key = ''
+aggregator_secret_key = ''
+pyroscope_url = ''
+
+[verifier.verifier_config.monitoring]
+Enabled = false
+Type = ''
+
+[verifier.verifier_config.monitoring.Beholder]
+InsecureConnection = false
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = ''
+LogStreamingEnabled = false
+MetricReaderInterval = 0
+TraceSampleRatio = 0.0
+TraceBatchTimeout = 0
+
+[verifier.env]
+aggregator_api_key = 'staging-api-key-verifier-1'
+aggregator_secret_key = 'staging-secret-verifier-1'
+
+[[verifier]]
+image = 'verifier:dev'
+source_code_path = '../verifier'
+root_path = '../../'
+container_name = 'staging-verifier-2'
+port = 8200
+use_cache = false
+config_file_path = '/app/cmd/verifier/testconfig/staging/verifier-2.toml'
+aggregator_address = ''
+signing_key = 'c348db36d90d853400d41f4eb5f8890dfbc62d47f50cce50a56bcb2957d33c5c'
+committee_name = 'staging'
+node_index = 1
+
+[verifier.db]
+image = 'postgres:16-alpine'
+name = 'staging-verifier-2-db'
+port = 8433
+
+[verifier.verifier_config]
+verifier_id = ''
+aggregator_address = ''
+aggregator_api_key = ''
+aggregator_secret_key = ''
+pyroscope_url = ''
+
+[verifier.verifier_config.monitoring]
+Enabled = false
+Type = ''
+
+[verifier.verifier_config.monitoring.Beholder]
+InsecureConnection = false
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = ''
+LogStreamingEnabled = false
+MetricReaderInterval = 0
+TraceSampleRatio = 0.0
+TraceBatchTimeout = 0
+
+[verifier.env]
+aggregator_api_key = 'staging-api-key-verifier-2'
+aggregator_secret_key = 'staging-secret-verifier-2'
+
+[executor]
+image = 'executor:dev'
+source_code_path = '../executor'
+root_path = '../../'
+container_name = 'executor'
+port = 8101
+use_cache = false
+config_file_path = '/app/cmd/executor/executor_config_staging.toml'
+
+[indexer]
+image = 'indexer:dev'
+port = 8102
+source_code_path = '../indexer'
+root_path = '../../'
+container_name = 'indexer'
+use_cache = false
+
+[indexer.db]
+image = 'postgres:16-alpine'
+
+[indexer.indexer_config]
+[indexer.indexer_config.Monitoring]
+Enabled = true
+Type = 'beholder'
+
+[indexer.indexer_config.Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'otel-collector:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[indexer.indexer_config.Scanner]
+ScanInterval = 1
+ReaderTimeout = 5
+
+[indexer.indexer_config.Discovery]
+Type = 'static'
+
+[indexer.indexer_config.Discovery.Static]
+[[indexer.indexer_config.Discovery.Static.Readers]]
+type = 'aggregator'
+
+[indexer.indexer_config.Discovery.Static.Readers.Aggregator]
+Address = 'staging-aggregator:50051'
+Since = 0
+
+[indexer.indexer_config.Discovery.Static.Readers.Rest]
+BaseURL = ''
+Since = 0
+RequestTimeout = 0
+
+[[indexer.indexer_config.Discovery.Static.Readers]]
+type = 'rest'
+
+[indexer.indexer_config.Discovery.Static.Readers.Aggregator]
+Address = ''
+Since = 0
+
+[indexer.indexer_config.Discovery.Static.Readers.Rest]
+BaseURL = 'http://fake:9111'
+Since = 0
+RequestTimeout = 5
+
+[indexer.indexer_config.Storage]
+Strategy = 'sink'
+
+[indexer.indexer_config.Storage.Sink]
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = 'memory'
+
+[indexer.indexer_config.Storage.Sink.Storages.Memory]
+TTL = 3600
+MaxSize = 10000
+CleanupInterval = 300
+
+[indexer.indexer_config.Storage.Sink.Storages.ReadCondition]
+Type = 'recent'
+LookbackWindowSeconds = 3600
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = 'postgres'
+
+[indexer.indexer_config.Storage.Sink.Storages.Postgres]
+URI = 'postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable'
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[indexer.indexer_config.Storage.Sink.Storages.ReadCondition]
+Type = 'always'
+
+[indexer.indexer_config.API]
+[indexer.indexer_config.API.RateLimit]
+Enabled = false
+
+[[aggregator]]
+image = 'aggregator:dev'
+host_port = 50051
+source_code_path = '../aggregator'
+root_path = '../../'
+committee_name = 'staging'
+
+[aggregator.db]
+image = 'postgres:16-alpine'
+host_port = 7432
+
+[aggregator.redis]
+image = 'redis:7-alpine'
+host_port = 6379
+
+[aggregator.env]
+storage_connection_url = 'postgresql://aggregator:aggregator@staging-aggregator-db:5432/aggregator?sslmode=disable'
+redis_address = 'staging-aggregator-redis:6379'
+redis_password = ''
+redis_db = '0'
+api_keys_json = "{\n  \"staging-api-key-verifier-1\": \"staging-secret-verifier-1\",\n  \"staging-api-key-verifier-2\": \"staging-secret-verifier-2\"\n}\n"
+
+[[blockchains]]
+type = 'anvil'
+image = ''
+pull_image = false
+port = ''
+container_name = 'blockchain-src'
+port_ws = ''
+chain_id = '43113'
+docker_cmd_params = []
+public_key = ''
+contracts_dir = ''
+custom_ports = []
+faucet_port = ''
+host_network_mode = false
+certificates_path = ''
+
+[blockchains.out]
+use_cache = true
+type = 'anvil'
+family = 'evm'
+container_name = 'fuji'
+chain_id = '43113'
+
+[[blockchains.out.nodes]]
+ws_url = 'wss://rpcs.cldev.sh/avalanche/fuji'
+http_url = 'https://rpcs.cldev.sh/avalanche/fuji'
+internal_ws_url = 'wss://rpcs.cldev.sh/avalanche/fuji'
+internal_http_url = 'https://rpcs.cldev.sh/avalanche/fuji'
+
+[[blockchains]]
+type = 'anvil'
+image = ''
+pull_image = false
+port = ''
+container_name = 'blockchain-dst'
+port_ws = ''
+chain_id = '57054'
+docker_cmd_params = []
+public_key = ''
+contracts_dir = ''
+custom_ports = []
+faucet_port = ''
+host_network_mode = false
+certificates_path = ''
+
+[blockchains.out]
+use_cache = true
+type = 'anvil'
+family = 'evm'
+container_name = 'sonic'
+chain_id = '57054'
+
+[[blockchains.out.nodes]]
+ws_url = 'wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'
+http_url = 'https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'
+internal_ws_url = 'wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'
+internal_http_url = 'https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'
+
+[[nodesets]]
+name = 'don'
+nodes = 4
+http_port_range_start = 0
+p2p_port_range_start = 0
+dlv_port_range_start = 0
+override_mode = 'each'
+no_dns = false
+
+[nodesets.db]
+image = 'postgres:15.0'
+port = 0
+name = 'don-ns-postgresql'
+volume_name = 'don'
+databases = 4
+jd_database = false
+jd_sql_dump_path = ''
+pull_image = false
+
+[[nodesets.node_specs]]
+no_dns = false
+
+[nodesets.node_specs.node]
+image = 'public.ecr.aws/chainlink/chainlink:2.26.0'
+name = ''
+docker_file = ''
+docker_ctx = ''
+pull_image = false
+capabilities = []
+capabilities_container_dir = ''
+test_config_overrides = "\n\t\t\t[Log]\n\t\t\tJSONConsole = true\n\t\t\tLevel = 'debug'\n\t\t\t[Pyroscope]\n\t\t\tServerAddress = 'http://host.docker.internal:4040'\n\t\t\tEnvironment = 'local'\n\t\t\t[WebServer]\n\t\t\tSessionTimeout = '999h0m0s'\n\t\t\tHTTPWriteTimeout = '3m'\n\t\t\tSecureCookies = false\n\t\t\tHTTPPort = 6688\n\t\t\t[WebServer.TLS]\n\t\t\tHTTPSPort = 0\n\t\t\t[WebServer.RateLimit]\n\t\t\tAuthenticated = 5000\n\t\t\tUnauthenticated = 5000\n\t\t\t[JobPipeline]\n\t\t\t[JobPipeline.HTTPRequest]\n\t\t\tDefaultTimeout = '1m'\n\t\t\t[Log.File]\n\t\t\tMaxSize = '0b'\n\t\t\t[Feature]\n\t\t\tFeedsManager = true\n\t\t\tLogPoller = true\n\t\t\tUICSAKeys = true\n\t\t\t[OCR2]\n\t\t\tEnabled = true\n\t\t\tSimulateTransactions = false\n\t\t\tDefaultTransactionQueueDepth = 1\n\t\t\t[P2P.V2]\n\t\t\tEnabled = true\n\t\t\tListenAddresses = ['0.0.0.0:6690']\n\n\n       [[EVM]]\n       LogPollInterval = '1s'\n       BlockBackfillDepth = 100\n       ChainID = '43113'\n       MinIncomingConfirmations = 1\n       MinContractPayment = '0.0000001 link'\n       FinalityDepth = 1\n\n       [[EVM.Nodes]]\n       Name = 'node-evm-f7c61'\n       WsUrl = 'wss://rpcs.cldev.sh/avalanche/fuji'\n       HttpUrl = 'https://rpcs.cldev.sh/avalanche/fuji'\n\n       [[EVM]]\n       LogPollInterval = '1s'\n       BlockBackfillDepth = 100\n       ChainID = '57054'\n       MinIncomingConfirmations = 1\n       MinContractPayment = '0.0000001 link'\n       FinalityDepth = 1\n\n       [[EVM.Nodes]]\n       Name = 'node-evm-872fc'\n       WsUrl = 'wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'\n       HttpUrl = 'https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'"
+user_config_overrides = ''
+test_secrets_overrides = ''
+user_secrets_overrides = ''
+port = 0
+p2p_port = 0
+custom_ports = []
+debugger_port = 0
+
+[[nodesets.node_specs]]
+no_dns = false
+
+[nodesets.node_specs.node]
+image = 'public.ecr.aws/chainlink/chainlink:2.26.0'
+name = ''
+docker_file = ''
+docker_ctx = ''
+pull_image = false
+capabilities = []
+capabilities_container_dir = ''
+test_config_overrides = "\n\t\t\t[Log]\n\t\t\tJSONConsole = true\n\t\t\tLevel = 'debug'\n\t\t\t[Pyroscope]\n\t\t\tServerAddress = 'http://host.docker.internal:4040'\n\t\t\tEnvironment = 'local'\n\t\t\t[WebServer]\n\t\t\tSessionTimeout = '999h0m0s'\n\t\t\tHTTPWriteTimeout = '3m'\n\t\t\tSecureCookies = false\n\t\t\tHTTPPort = 6688\n\t\t\t[WebServer.TLS]\n\t\t\tHTTPSPort = 0\n\t\t\t[WebServer.RateLimit]\n\t\t\tAuthenticated = 5000\n\t\t\tUnauthenticated = 5000\n\t\t\t[JobPipeline]\n\t\t\t[JobPipeline.HTTPRequest]\n\t\t\tDefaultTimeout = '1m'\n\t\t\t[Log.File]\n\t\t\tMaxSize = '0b'\n\t\t\t[Feature]\n\t\t\tFeedsManager = true\n\t\t\tLogPoller = true\n\t\t\tUICSAKeys = true\n\t\t\t[OCR2]\n\t\t\tEnabled = true\n\t\t\tSimulateTransactions = false\n\t\t\tDefaultTransactionQueueDepth = 1\n\t\t\t[P2P.V2]\n\t\t\tEnabled = true\n\t\t\tListenAddresses = ['0.0.0.0:6690']\n\n\n       [[EVM]]\n       LogPollInterval = '1s'\n       BlockBackfillDepth = 100\n       ChainID = '43113'\n       MinIncomingConfirmations = 1\n       MinContractPayment = '0.0000001 link'\n       FinalityDepth = 1\n\n       [[EVM.Nodes]]\n       Name = 'node-evm-f7c61'\n       WsUrl = 'wss://rpcs.cldev.sh/avalanche/fuji'\n       HttpUrl = 'https://rpcs.cldev.sh/avalanche/fuji'\n\n       [[EVM]]\n       LogPollInterval = '1s'\n       BlockBackfillDepth = 100\n       ChainID = '57054'\n       MinIncomingConfirmations = 1\n       MinContractPayment = '0.0000001 link'\n       FinalityDepth = 1\n\n       [[EVM.Nodes]]\n       Name = 'node-evm-872fc'\n       WsUrl = 'wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'\n       HttpUrl = 'https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'"
+user_config_overrides = ''
+test_secrets_overrides = ''
+user_secrets_overrides = ''
+port = 0
+p2p_port = 0
+custom_ports = []
+debugger_port = 0
+
+[[nodesets.node_specs]]
+no_dns = false
+
+[nodesets.node_specs.node]
+image = 'public.ecr.aws/chainlink/chainlink:2.26.0'
+name = ''
+docker_file = ''
+docker_ctx = ''
+pull_image = false
+capabilities = []
+capabilities_container_dir = ''
+test_config_overrides = "\n\t\t\t[Log]\n\t\t\tJSONConsole = true\n\t\t\tLevel = 'debug'\n\t\t\t[Pyroscope]\n\t\t\tServerAddress = 'http://host.docker.internal:4040'\n\t\t\tEnvironment = 'local'\n\t\t\t[WebServer]\n\t\t\tSessionTimeout = '999h0m0s'\n\t\t\tHTTPWriteTimeout = '3m'\n\t\t\tSecureCookies = false\n\t\t\tHTTPPort = 6688\n\t\t\t[WebServer.TLS]\n\t\t\tHTTPSPort = 0\n\t\t\t[WebServer.RateLimit]\n\t\t\tAuthenticated = 5000\n\t\t\tUnauthenticated = 5000\n\t\t\t[JobPipeline]\n\t\t\t[JobPipeline.HTTPRequest]\n\t\t\tDefaultTimeout = '1m'\n\t\t\t[Log.File]\n\t\t\tMaxSize = '0b'\n\t\t\t[Feature]\n\t\t\tFeedsManager = true\n\t\t\tLogPoller = true\n\t\t\tUICSAKeys = true\n\t\t\t[OCR2]\n\t\t\tEnabled = true\n\t\t\tSimulateTransactions = false\n\t\t\tDefaultTransactionQueueDepth = 1\n\t\t\t[P2P.V2]\n\t\t\tEnabled = true\n\t\t\tListenAddresses = ['0.0.0.0:6690']\n\n\n       [[EVM]]\n       LogPollInterval = '1s'\n       BlockBackfillDepth = 100\n       ChainID = '43113'\n       MinIncomingConfirmations = 1\n       MinContractPayment = '0.0000001 link'\n       FinalityDepth = 1\n\n       [[EVM.Nodes]]\n       Name = 'node-evm-f7c61'\n       WsUrl = 'wss://rpcs.cldev.sh/avalanche/fuji'\n       HttpUrl = 'https://rpcs.cldev.sh/avalanche/fuji'\n\n       [[EVM]]\n       LogPollInterval = '1s'\n       BlockBackfillDepth = 100\n       ChainID = '57054'\n       MinIncomingConfirmations = 1\n       MinContractPayment = '0.0000001 link'\n       FinalityDepth = 1\n\n       [[EVM.Nodes]]\n       Name = 'node-evm-872fc'\n       WsUrl = 'wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'\n       HttpUrl = 'https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'"
+user_config_overrides = ''
+test_secrets_overrides = ''
+user_secrets_overrides = ''
+port = 0
+p2p_port = 0
+custom_ports = []
+debugger_port = 0
+
+[[nodesets.node_specs]]
+no_dns = false
+
+[nodesets.node_specs.node]
+image = 'public.ecr.aws/chainlink/chainlink:2.26.0'
+name = ''
+docker_file = ''
+docker_ctx = ''
+pull_image = false
+capabilities = []
+capabilities_container_dir = ''
+test_config_overrides = "\n\t\t\t[Log]\n\t\t\tJSONConsole = true\n\t\t\tLevel = 'debug'\n\t\t\t[Pyroscope]\n\t\t\tServerAddress = 'http://host.docker.internal:4040'\n\t\t\tEnvironment = 'local'\n\t\t\t[WebServer]\n\t\t\tSessionTimeout = '999h0m0s'\n\t\t\tHTTPWriteTimeout = '3m'\n\t\t\tSecureCookies = false\n\t\t\tHTTPPort = 6688\n\t\t\t[WebServer.TLS]\n\t\t\tHTTPSPort = 0\n\t\t\t[WebServer.RateLimit]\n\t\t\tAuthenticated = 5000\n\t\t\tUnauthenticated = 5000\n\t\t\t[JobPipeline]\n\t\t\t[JobPipeline.HTTPRequest]\n\t\t\tDefaultTimeout = '1m'\n\t\t\t[Log.File]\n\t\t\tMaxSize = '0b'\n\t\t\t[Feature]\n\t\t\tFeedsManager = true\n\t\t\tLogPoller = true\n\t\t\tUICSAKeys = true\n\t\t\t[OCR2]\n\t\t\tEnabled = true\n\t\t\tSimulateTransactions = false\n\t\t\tDefaultTransactionQueueDepth = 1\n\t\t\t[P2P.V2]\n\t\t\tEnabled = true\n\t\t\tListenAddresses = ['0.0.0.0:6690']\n\n\n       [[EVM]]\n       LogPollInterval = '1s'\n       BlockBackfillDepth = 100\n       ChainID = '43113'\n       MinIncomingConfirmations = 1\n       MinContractPayment = '0.0000001 link'\n       FinalityDepth = 1\n\n       [[EVM.Nodes]]\n       Name = 'node-evm-f7c61'\n       WsUrl = 'wss://rpcs.cldev.sh/avalanche/fuji'\n       HttpUrl = 'https://rpcs.cldev.sh/avalanche/fuji'\n\n       [[EVM]]\n       LogPollInterval = '1s'\n       BlockBackfillDepth = 100\n       ChainID = '57054'\n       MinIncomingConfirmations = 1\n       MinContractPayment = '0.0000001 link'\n       FinalityDepth = 1\n\n       [[EVM.Nodes]]\n       Name = 'node-evm-872fc'\n       WsUrl = 'wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'\n       HttpUrl = 'https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC'"
+user_config_overrides = ''
+test_secrets_overrides = ''
+user_secrets_overrides = ''
+port = 0
+p2p_port = 0
+custom_ports = []
+debugger_port = 0
+
+[nodesets.out]
+use_cache = true
+
+[nodesets.out.db_out]
+url = 'postgresql://chainlink:thispasswordislongenough@127.0.0.1:13000/chainlink?sslmode=disable'
+container_name = 'don-ns-postgresql'
+internal_url = 'postgresql://chainlink:thispasswordislongenough@don-ns-postgresql:5432/chainlink?sslmode=disable'
+jd_url = ''
+jd_internal_url = ''
+
+[[nodesets.out.cl_nodes]]
+use_cache = true
+
+[nodesets.out.cl_nodes.node]
+api_auth_user = 'notreal@fakeemail.ch'
+api_auth_password = 'fj293fbBnlQ!f9vNs'
+container_name = 'don-node0'
+url = 'http://127.0.0.1:10000'
+internal_url = 'http://don-node0:6688'
+p2p_internal_url = 'http://don-node0:6690'
+internal_ip = '172.20.0.9'
+
+[nodesets.out.cl_nodes.postgresql]
+url = 'postgresql://chainlink:thispasswordislongenough@127.0.0.1:13000/db_0?sslmode=disable'
+container_name = ''
+internal_url = 'postgresql://chainlink:thispasswordislongenough@don-ns-postgresql:5432/db_0?sslmode=disable'
+jd_url = ''
+jd_internal_url = ''
+
+[[nodesets.out.cl_nodes]]
+use_cache = true
+
+[nodesets.out.cl_nodes.node]
+api_auth_user = 'notreal@fakeemail.ch'
+api_auth_password = 'fj293fbBnlQ!f9vNs'
+container_name = 'don-node1'
+url = 'http://127.0.0.1:10001'
+internal_url = 'http://don-node1:6688'
+p2p_internal_url = 'http://don-node1:6690'
+internal_ip = '172.20.0.10'
+
+[nodesets.out.cl_nodes.postgresql]
+url = 'postgresql://chainlink:thispasswordislongenough@127.0.0.1:13000/db_1?sslmode=disable'
+container_name = ''
+internal_url = 'postgresql://chainlink:thispasswordislongenough@don-ns-postgresql:5432/db_1?sslmode=disable'
+jd_url = ''
+jd_internal_url = ''
+
+[[nodesets.out.cl_nodes]]
+use_cache = true
+
+[nodesets.out.cl_nodes.node]
+api_auth_user = 'notreal@fakeemail.ch'
+api_auth_password = 'fj293fbBnlQ!f9vNs'
+container_name = 'don-node2'
+url = 'http://127.0.0.1:10002'
+internal_url = 'http://don-node2:6688'
+p2p_internal_url = 'http://don-node2:6690'
+internal_ip = '172.20.0.12'
+
+[nodesets.out.cl_nodes.postgresql]
+url = 'postgresql://chainlink:thispasswordislongenough@127.0.0.1:13000/db_2?sslmode=disable'
+container_name = ''
+internal_url = 'postgresql://chainlink:thispasswordislongenough@don-ns-postgresql:5432/db_2?sslmode=disable'
+jd_url = ''
+jd_internal_url = ''
+
+[[nodesets.out.cl_nodes]]
+use_cache = true
+
+[nodesets.out.cl_nodes.node]
+api_auth_user = 'notreal@fakeemail.ch'
+api_auth_password = 'fj293fbBnlQ!f9vNs'
+container_name = 'don-node3'
+url = 'http://127.0.0.1:10003'
+internal_url = 'http://don-node3:6688'
+p2p_internal_url = 'http://don-node3:6690'
+internal_ip = '172.20.0.11'
+
+[nodesets.out.cl_nodes.postgresql]
+url = 'postgresql://chainlink:thispasswordislongenough@127.0.0.1:13000/db_3?sslmode=disable'
+container_name = ''
+internal_url = 'postgresql://chainlink:thispasswordislongenough@don-ns-postgresql:5432/db_3?sslmode=disable'
+jd_url = ''
+jd_internal_url = ''

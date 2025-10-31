@@ -1,0 +1,90 @@
+stubQuorumValidation = false
+pyroscope_url = "http://pyroscope:4040"
+
+[server]
+  address = ":50051"
+
+[healthCheck]
+  enabled = true
+
+[storage]
+  type = "postgres"
+
+[chainStatuses]
+  maxChainStatusesPerRequest = 100
+
+[orphanRecovery]
+  enabled = false
+  intervalSeconds = 300
+
+# Rate Limiting Configuration
+[rateLimiting]
+  enabled = true
+  
+  # Storage backend: "memory" (single instance) or "redis" (distributed)
+  [rateLimiting.storage]
+    type = "redis"
+    
+    [rateLimiting.storage.redis]
+      key_prefix = "ratelimit"
+  
+  # Default rate limits (applied to all callers unless overridden)
+  [rateLimiting.defaultLimits]
+    "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 1200 }
+    "/chainlink_ccv.v1.VerifierResultAPI/GetVerifierResultForMessage" = { limit_per_minute = 6000 }
+  
+  # Group-based rate limits (more restrictive than defaults for specific groups)
+  [rateLimiting.groupLimits.verifiers]
+    "/chainlink_ccv.v1.Aggregator/BatchWriteCommitCCVNodeData" = { limit_per_minute = 6000 }
+    "/chainlink_ccv.v1.Aggregator/WriteChainStatus" = { limit_per_minute = 60 }
+    "/chainlink_ccv.v1.Aggregator/ReadChainStatus" = { limit_per_minute = 60 }
+  
+  [rateLimiting.groupLimits.monitoring]
+    "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 200 }
+
+[committees]
+  [committees.staging]
+    [committees.staging.quorumConfigs]
+      # Fuji (Avalanche Testnet) - Chain Selector: 14767482510784806043
+      [committees.staging.quorumConfigs.14767482510784806043]
+        committeeVerifierAddress = "0x0808ec272deA09d5058399C152A6E695428C25ab"
+        threshold = 2
+
+        [[committees.staging.quorumConfigs.14767482510784806043.signers]]
+          participantID = "staging-participant1"
+          addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
+
+        [[committees.staging.quorumConfigs.14767482510784806043.signers]]
+          participantID = "staging-participant2"
+          addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
+
+      # Sonic Testnet - Chain Selector: 3676871237479449268
+      [committees.staging.quorumConfigs.3676871237479449268]
+        committeeVerifierAddress = "0x5369084c8C90f4c55bBD8Ea1F9C66D192a47487C"
+        threshold = 2
+
+        [[committees.staging.quorumConfigs.3676871237479449268.signers]]
+          participantID = "staging-participant1"
+          addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
+
+        [[committees.staging.quorumConfigs.3676871237479449268.signers]]
+          participantID = "staging-participant2"
+          addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
+
+    [committees.staging.sourceVerifierAddresses]
+      14767482510784806043 = "0x0808ec272deA09d5058399C152A6E695428C25ab"
+      3676871237479449268 = "0x5369084c8C90f4c55bBD8Ea1F9C66D192a47487C"
+
+[Monitoring]
+Enabled = true
+Type = "beholder"
+[Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
+OtelExporterHTTPEndpoint = "otel-collector:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
