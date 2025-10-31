@@ -1865,8 +1865,8 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 		// Test batch request with mix of existing and non-existing messages
 		batchReqWithMissing := &pb.BatchGetVerifierResultForMessageRequest{
 			Requests: []*pb.GetVerifierResultForMessageRequest{
-				{MessageId: existingMessageId[:]},   // exists
-				{MessageId: nonExistentMsgId[:]},    // doesn't exist
+				{MessageId: existingMessageId[:]}, // exists
+				{MessageId: nonExistentMsgId[:]},  // doesn't exist
 			},
 		}
 
