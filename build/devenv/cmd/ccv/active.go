@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func activeConfigPath() string {
@@ -19,6 +20,9 @@ func getActiveConfig() string {
 }
 
 func saveActiveConfig(activeConfig string) {
+	if !strings.Contains(activeConfig, "toml") {
+		return // no new active config to update
+	}
 	err := os.WriteFile(activeConfigPath(), []byte(activeConfig), 0o644)
 	if err != nil {
 		fmt.Printf("Error writing active config file: %v\n", err)
