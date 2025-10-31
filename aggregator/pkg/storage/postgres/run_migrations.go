@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose/v3"
@@ -11,8 +12,13 @@ import (
 
 const postgresDialect = "postgres"
 
+var migrationMutex = sync.Mutex{}
+
 // runMigrations applies database-specific SQL migrations.
 func RunMigrations(db *sqlx.DB, dbType string) error {
+	migrationMutex.Lock()
+	defer migrationMutex.Unlock()
+
 	var dialect, migrationsSubdir string
 
 	switch dbType {

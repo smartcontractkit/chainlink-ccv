@@ -47,8 +47,8 @@ func (h *WriteChainStatusHandler) Handle(ctx context.Context, req *pb.WriteChain
 		}
 	}
 
-	// Store chain statuses using the caller's identity
-	if err := h.storage.StoreChainStatus(ctx, identity.CallerID, chainStatusMap); err != nil {
+	// Store chain statuses using the effective caller ID (handles admin on-behalf-of automatically)
+	if err := h.storage.StoreChainStatus(ctx, identity.EffectiveCallerID, chainStatusMap); err != nil {
 		return &pb.WriteChainStatusResponse{Status: pb.WriteStatus_FAILED}, status.Errorf(codes.Internal, "failed to store chain statuses: %v", err)
 	}
 
