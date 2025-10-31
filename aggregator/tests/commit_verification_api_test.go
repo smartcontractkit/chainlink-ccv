@@ -1509,9 +1509,7 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 		// Step 1: Signer1 sends their verification
 		t.Log("Step 1: Signer1 sends verification")
 		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-2*time.Minute).UnixMicro()))
-		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
-			CcvNodeData: ccvNodeData1,
-		})
+		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
 
@@ -1534,9 +1532,7 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 		// Step 2: Signer2 sends their verification (quorum reached)
 		t.Log("Step 2: Signer2 sends verification")
 		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
-		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
-			CcvNodeData: ccvNodeData2,
-		})
+		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
 
@@ -1566,9 +1562,7 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 		t.Log("Step 3: Signer2 sends new verification for the same message (more recent timestamp)")
 		newerTimestamp := time.Now().UnixMicro()
 		ccvNodeData2New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(newerTimestamp))
-		resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
-			CcvNodeData: ccvNodeData2New,
-		})
+		resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2New))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2 (newer timestamp)")
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status)
 
