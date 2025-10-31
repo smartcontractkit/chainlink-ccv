@@ -1501,3 +1501,445 @@ func TestGetMessagesSinceDeduplication(t *testing.T) {
 		})
 	}
 }
+
+// TestBatchGetVerifierResult_HappyPath tests basic batch API functionality with multiple messages.
+func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"} // DynamoDB not implemented for batch operations
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		signer3 := NewSignerFixture(t, "node3")
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 2,
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+							signer3.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		// Create two different messages
+		message1 := NewProtocolMessage(t)
+		message1.Nonce = protocol.Nonce(1001)
+		messageId1, err := message1.MessageID()
+		require.NoError(t, err, "failed to compute message ID 1")
+
+		message2 := NewProtocolMessage(t)
+		message2.Nonce = protocol.Nonce(2002)
+		messageId2, err := message2.MessageID()
+		require.NoError(t, err, "failed to compute message ID 2")
+
+		// Ensure messages have different IDs
+		require.NotEqual(t, messageId1, messageId2, "message IDs should be different")
+
+		// Create first aggregated report (message1 with signer1 and signer2)
+		ccvNodeData1_1 := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		resp1_1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1_1,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for message1/signer1")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1_1.Status, "expected WriteStatus_SUCCESS")
+
+		ccvNodeData1_2 := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		resp1_2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1_2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for message1/signer2")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1_2.Status, "expected WriteStatus_SUCCESS")
+
+		// Create second aggregated report (message2 with signer2 and signer3)
+		ccvNodeData2_2 := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		resp2_2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2_2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for message2/signer2")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp2_2.Status, "expected WriteStatus_SUCCESS")
+
+		ccvNodeData2_3 := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress, WithSignatureFrom(t, signer3))
+		resp2_3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2_3,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for message2/signer3")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp2_3.Status, "expected WriteStatus_SUCCESS")
+
+		// Wait for aggregation to complete
+		time.Sleep(100 * time.Millisecond)
+
+		// Test batch retrieval with both message IDs
+		batchReq := &pb.BatchGetVerifierResultForMessageRequest{
+			Requests: []*pb.GetVerifierResultForMessageRequest{
+				{MessageId: messageId1[:]},
+				{MessageId: messageId2[:]},
+			},
+		}
+
+		batchResp, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReq)
+		require.NoError(t, err, "BatchGetVerifierResultForMessage failed")
+		require.NotNil(t, batchResp, "batch response should not be nil")
+
+		// Verify we got results for both messages
+		require.Len(t, batchResp.Results, 2, "should have 2 results")
+		require.Len(t, batchResp.Errors, 0, "should have no errors")
+
+		// Verify both messages are present
+		resultsByNonce := make(map[uint64]*pb.VerifierResult)
+		for _, result := range batchResp.Results {
+			resultsByNonce[result.GetMessage().GetNonce()] = result
+		}
+
+		result1, found := resultsByNonce[1001]
+		require.True(t, found, "message1 should be found in batch results")
+		require.Equal(t, sourceVerifierAddress, result1.SourceVerifierAddress, "source verifier address should match")
+		require.Equal(t, destVerifierAddress, result1.DestVerifierAddress, "dest verifier address should match")
+		require.NotNil(t, result1.CcvData, "CCV data should not be nil")
+
+		result2, found := resultsByNonce[2002]
+		require.True(t, found, "message2 should be found in batch results")
+		require.Equal(t, sourceVerifierAddress, result2.SourceVerifierAddress, "source verifier address should match")
+		require.Equal(t, destVerifierAddress, result2.DestVerifierAddress, "dest verifier address should match")
+		require.NotNil(t, result2.CcvData, "CCV data should not be nil")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestBatchGetVerifierResult_ReAggregation tests that batch API returns updated results after re-aggregation.
+func TestBatchGetVerifierResult_ReAggregation(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 2,
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		// Create message and aggregate it
+		message := NewProtocolMessage(t)
+		message.Nonce = protocol.Nonce(1001)
+		messageId, err := message.MessageID()
+		require.NoError(t, err, "failed to compute message ID")
+
+		// Initial aggregation
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
+
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Get initial batch result
+		batchReq := &pb.BatchGetVerifierResultForMessageRequest{
+			Requests: []*pb.GetVerifierResultForMessageRequest{
+				{MessageId: messageId[:]},
+			},
+		}
+
+		batchResp, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReq)
+		require.NoError(t, err, "BatchGetVerifierResultForMessage failed")
+		require.Len(t, batchResp.Results, 1, "should have 1 result")
+
+		originalTimestamp := batchResp.Results[0].Timestamp
+		t.Logf("Original timestamp: %d", originalTimestamp)
+
+		// Wait and submit with newer timestamp to trigger re-aggregation
+		time.Sleep(1 * time.Second)
+		newerTimestamp := time.Now().UnixMicro()
+		ccvNodeData1Newer := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer1),
+			WithCustomTimestamp(newerTimestamp))
+
+		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1Newer,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for newer timestamp")
+
+		time.Sleep(200 * time.Millisecond)
+
+		// Get batch result after re-aggregation
+		batchRespReagg, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReq)
+		require.NoError(t, err, "BatchGetVerifierResultForMessage after re-aggregation failed")
+		require.Len(t, batchRespReagg.Results, 1, "should have 1 result after re-aggregation")
+
+		newTimestamp := batchRespReagg.Results[0].Timestamp
+		t.Logf("New timestamp: %d", newTimestamp)
+
+		// Verify the timestamp is newer, indicating re-aggregation occurred
+		require.Greater(t, newTimestamp, originalTimestamp,
+			"re-aggregated result should have newer timestamp than original")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestBatchGetVerifierResult_DuplicateMessageIDs tests batch API with duplicate message IDs in request.
+func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 2,
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		// Create and aggregate a message
+		message := NewProtocolMessage(t)
+		message.Nonce = protocol.Nonce(1001)
+		messageId, err := message.MessageID()
+		require.NoError(t, err, "failed to compute message ID")
+
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
+
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Test batch request with duplicate message IDs
+		batchReqWithDuplicates := &pb.BatchGetVerifierResultForMessageRequest{
+			Requests: []*pb.GetVerifierResultForMessageRequest{
+				{MessageId: messageId[:]},
+				{MessageId: messageId[:]}, // duplicate
+				{MessageId: messageId[:]}, // another duplicate
+			},
+		}
+
+		batchResp, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReqWithDuplicates)
+		require.NoError(t, err, "BatchGetVerifierResultForMessage with duplicates should not error")
+		require.NotNil(t, batchResp, "batch response with duplicates should not be nil")
+
+		// Should have 1 result (deduplicated by the backend) and no errors
+		require.Len(t, batchResp.Results, 1, "should have 1 result (deduplicated)")
+		require.Len(t, batchResp.Errors, 0, "should have no errors")
+
+		// Verify the result is correct
+		result := batchResp.Results[0]
+		require.Equal(t, uint64(1001), result.GetMessage().GetNonce(), "nonce should match")
+		require.Equal(t, sourceVerifierAddress, result.SourceVerifierAddress, "source verifier address should match")
+		require.Equal(t, destVerifierAddress, result.DestVerifierAddress, "dest verifier address should match")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestBatchGetVerifierResult_MissingMessages tests batch API with mix of existing and non-existing messages.
+func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 2,
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		// Create and aggregate one message
+		existingMessage := NewProtocolMessage(t)
+		existingMessage.Nonce = protocol.Nonce(1001)
+		existingMessageId, err := existingMessage.MessageID()
+		require.NoError(t, err, "failed to compute existing message ID")
+
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, existingMessage, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
+
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, existingMessage, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Create a non-existent message ID
+		nonExistentMessage := NewProtocolMessage(t)
+		nonExistentMessage.Nonce = protocol.Nonce(9999)
+		nonExistentMsgId, err := nonExistentMessage.MessageID()
+		require.NoError(t, err, "failed to compute non-existent message ID")
+
+		// Test batch request with mix of existing and non-existing messages
+		batchReqWithMissing := &pb.BatchGetVerifierResultForMessageRequest{
+			Requests: []*pb.GetVerifierResultForMessageRequest{
+				{MessageId: existingMessageId[:]},   // exists
+				{MessageId: nonExistentMsgId[:]},    // doesn't exist
+			},
+		}
+
+		batchResp, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReqWithMissing)
+		require.NoError(t, err, "BatchGetVerifierResultForMessage with missing should not error")
+		require.NotNil(t, batchResp, "batch response with missing should not be nil")
+
+		// Should have 1 result and 1 error
+		require.Len(t, batchResp.Results, 1, "should have 1 result (existing message)")
+		require.Len(t, batchResp.Errors, 1, "should have 1 error (missing message)")
+
+		// Verify the error is NotFound
+		errorStatus := batchResp.Errors[0]
+		require.Equal(t, int32(codes.NotFound), errorStatus.Code, "error should be NotFound")
+
+		// Verify the result is correct
+		result := batchResp.Results[0]
+		require.Equal(t, uint64(1001), result.GetMessage().GetNonce(), "nonce should match")
+		require.Equal(t, sourceVerifierAddress, result.SourceVerifierAddress, "source verifier address should match")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestBatchGetVerifierResult_EmptyRequest tests batch API with empty request.
+func TestBatchGetVerifierResult_EmptyRequest(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 2,
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+		_, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		// Test empty batch request (should fail)
+		emptyBatchReq := &pb.BatchGetVerifierResultForMessageRequest{
+			Requests: []*pb.GetVerifierResultForMessageRequest{},
+		}
+
+		_, err = ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), emptyBatchReq)
+		require.Error(t, err, "empty batch request should fail")
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "error should be InvalidArgument")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}

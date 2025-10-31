@@ -339,26 +339,31 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
-	Committees                       map[CommitteeID]*Committee `toml:"committees"`
-	Server                           ServerConfig               `toml:"server"`
-	Storage                          *StorageConfig             `toml:"storage"`
-	APIKeys                          APIKeyConfig               `toml:"-"`
-	ChainStatuses                    ChainStatusConfig          `toml:"chainStatuses"`
-	Aggregation                      AggregationConfig          `toml:"aggregation"`
-	OrphanRecovery                   OrphanRecoveryConfig       `toml:"orphanRecovery"`
-	RateLimiting                     RateLimitingConfig         `toml:"rateLimiting"`
-	HealthCheck                      HealthCheckConfig          `toml:"healthCheck"`
-	DisableValidation                bool                       `toml:"disableValidation"`
-	StubMode                         bool                       `toml:"stubQuorumValidation"`
-	Monitoring                       MonitoringConfig           `toml:"monitoring"`
-	PyroscopeURL                     string                     `toml:"pyroscope_url"`
-	MaxAnonymousGetMessageSinceRange int64                      `toml:"maxAnonymousGetMessageSinceRange"`
+	Committees        map[CommitteeID]*Committee `toml:"committees"`
+	Server            ServerConfig               `toml:"server"`
+	Storage           *StorageConfig             `toml:"storage"`
+	APIKeys           APIKeyConfig               `toml:"-"`
+	ChainStatuses     ChainStatusConfig          `toml:"chainStatuses"`
+	Aggregation       AggregationConfig          `toml:"aggregation"`
+	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
+	RateLimiting      RateLimitingConfig         `toml:"rateLimiting"`
+	HealthCheck       HealthCheckConfig          `toml:"healthCheck"`
+	DisableValidation bool                       `toml:"disableValidation"`
+	StubMode          bool                       `toml:"stubQuorumValidation"`
+	Monitoring        MonitoringConfig           `toml:"monitoring"`
+	PyroscopeURL      string                     `toml:"pyroscope_url"`
+	// MaxMessageIDsPerBatch limits the number of message IDs per batch verifier result request
+	MaxMessageIDsPerBatch int `toml:"maxMessageIDsPerBatch"`
 }
 
 // SetDefaults sets default values for the configuration.
 func (c *AggregatorConfig) SetDefaults() {
 	if c.ChainStatuses.MaxChainStatusesPerRequest == 0 {
 		c.ChainStatuses.MaxChainStatusesPerRequest = 1000
+	}
+	// Batch verifier result defaults
+	if c.MaxMessageIDsPerBatch == 0 {
+		c.MaxMessageIDsPerBatch = 100
 	}
 	// Aggregation defaults
 	if c.Aggregation.ChannelBufferSize == 0 {
@@ -436,6 +441,18 @@ func (c *AggregatorConfig) ValidateChainStatusConfig() error {
 	return nil
 }
 
+// ValidateBatchConfig validates the batch verifier result configuration.
+func (c *AggregatorConfig) ValidateBatchConfig() error {
+	if c.MaxMessageIDsPerBatch <= 0 {
+		return errors.New("maxMessageIDsPerBatch must be greater than 0")
+	}
+	if c.MaxMessageIDsPerBatch > 1000 {
+		return errors.New("maxMessageIDsPerBatch cannot exceed 1000")
+	}
+
+	return nil
+}
+
 // ValidateAggregationConfig validates the aggregation configuration.
 func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	if c.Aggregation.ChannelBufferSize <= 0 {
@@ -494,6 +511,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate chain status configuration
 	if err := c.ValidateChainStatusConfig(); err != nil {
 		return fmt.Errorf("chain status configuration error: %w", err)
+	}
+
+	// Validate batch configuration
+	if err := c.ValidateBatchConfig(); err != nil {
+		return fmt.Errorf("batch configuration error: %w", err)
 	}
 
 	// Validate aggregation configuration
