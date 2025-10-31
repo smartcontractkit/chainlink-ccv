@@ -35,7 +35,7 @@ type EvmDestinationReader struct {
 	lggr          logger.Logger
 	client        bind.ContractCaller
 	chainSelector protocol.ChainSelector
-	ccvCache      *expirable.LRU[cacheKey, executor.CcvAddressInfo]
+	ccvCache      *expirable.LRU[cacheKey, executor.CCVAddressInfo]
 }
 
 func NewEvmDestinationReader(lggr logger.Logger, chainSelector protocol.ChainSelector, chainClient client.Client, offrampAddress string, cacheExpiry time.Duration) *EvmDestinationReader {
@@ -45,7 +45,7 @@ func NewEvmDestinationReader(lggr logger.Logger, chainSelector protocol.ChainSel
 		lggr.Errorw("Failed to create Off Ramp caller", "error", err, "address", offRampAddr.Hex(), "chainSelector", chainSelector)
 	}
 	// Create cache with max 1000 entries and configurable expiry
-	ccvCache := expirable.NewLRU[cacheKey, executor.CcvAddressInfo](1000, nil, cacheExpiry)
+	ccvCache := expirable.NewLRU[cacheKey, executor.CCVAddressInfo](1000, nil, cacheExpiry)
 
 	return &EvmDestinationReader{
 		offRampCaller: *offRamp,
@@ -58,25 +58,25 @@ func NewEvmDestinationReader(lggr logger.Logger, chainSelector protocol.ChainSel
 
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.
 // The ABI is defined here https://github.com/smartcontractkit/chainlink-ccip/blob/0e7fcfd20ab005d75d0eb863790470f91fa5b8d7/chains/evm/contracts/interfaces/IAny2EVMMessageReceiverV2.sol
-func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CcvAddressInfo, error) {
+func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CCVAddressInfo, error) {
 	_ = ctx
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 	// Try to get CCV info from cache first
 	// TODO: Do we need custom cache eviction logic beyond ttl?
-	ccvInfo, found := dr.ccvCache.Get(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: string(receiverAddress)})
+	ccvInfo, found := dr.ccvCache.Get(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()})
 	if found {
 		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s on source chain %d",
-			string(receiverAddress), sourceSelector)
+			receiverAddress.String(), sourceSelector)
 		return ccvInfo, nil
 	}
 
 	encodedMsg, err := message.Encode()
 	if err != nil {
-		return executor.CcvAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
+		return executor.CCVAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
 	}
 	chainCCVInfo, err := dr.offRampCaller.GetCCVsForMessage(nil, encodedMsg)
 	if err != nil {
-		return executor.CcvAddressInfo{}, fmt.Errorf("failed to call GetCCVSForMessage: %w", err)
+		return executor.CCVAddressInfo{}, fmt.Errorf("failed to call GetCCVSForMessage: %w", err)
 	}
 
 	req, opt, optThreshold := chainCCVInfo.RequiredCCVs, chainCCVInfo.OptionalCCVs, chainCCVInfo.Threshold
@@ -84,25 +84,30 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	requiredCCVs := make([]protocol.UnknownAddress, 0)
 	optionalCCVs := make([]protocol.UnknownAddress, 0)
 	for _, addr := range req {
-		requiredCCVs = append(requiredCCVs, protocol.UnknownAddress(addr.Hex()))
+		requiredCCVs = append(requiredCCVs, protocol.UnknownAddress(addr.Bytes()))
 	}
 
 	for _, addr := range opt {
-		optionalCCVs = append(optionalCCVs, protocol.UnknownAddress(addr.Hex()))
+		optionalCCVs = append(optionalCCVs, protocol.UnknownAddress(addr.Bytes()))
 	}
 
-	ccvInfo = executor.CcvAddressInfo{
-		RequiredCcvs:      requiredCCVs,
-		OptionalCcvs:      optionalCCVs,
+	ccvInfo = executor.CCVAddressInfo{
+		RequiredCCVs:      requiredCCVs,
+		OptionalCCVs:      optionalCCVs,
 		OptionalThreshold: optThreshold,
 	}
 
-	dr.lggr.Infow("Using CCV Info", "sourceChain", sourceSelector, "receiver", string(receiverAddress), "chain", dr.chainSelector)
+	dr.lggr.Infow("Using CCV Info",
+		"sourceChain", sourceSelector,
+		"receiver", receiverAddress.String(),
+		"chain", dr.chainSelector,
+		"ccvInfo", ccvInfo,
+	)
 
 	// Store in expirable cache for future use
-	dr.ccvCache.Add(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: string(receiverAddress)}, ccvInfo)
+	dr.ccvCache.Add(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()}, ccvInfo)
 	dr.lggr.Debugf("CCV info cached for receiver %s on source chain %d: %+v",
-		string(receiverAddress), sourceSelector, ccvInfo)
+		receiverAddress.String(), sourceSelector, ccvInfo)
 
 	return ccvInfo, nil
 }

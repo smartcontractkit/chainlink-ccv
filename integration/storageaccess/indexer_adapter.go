@@ -174,6 +174,18 @@ func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID pro
 		return nil, fmt.Errorf("indexer GetVerifierResults returned error: %s", response.Error)
 	}
 
-	i.lggr.Debugw("Successfully retrieved VerifierResults", "messageID", messageID, "numberOfResults", len(response.VerifierResults))
+	i.lggr.Infow("Successfully retrieved VerifierResults",
+		"messageID", messageID,
+		"numberOfResults", len(response.VerifierResults),
+		"verifierAddresses", sourceVerifierAddresses(response.VerifierResults),
+	)
 	return response.VerifierResults, nil
+}
+
+func sourceVerifierAddresses(verifierResults []protocol.CCVData) []string {
+	sourceVerifierAddresses := make([]string, 0, len(verifierResults))
+	for _, verifierResult := range verifierResults {
+		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.SourceVerifierAddress.String())
+	}
+	return sourceVerifierAddresses
 }
