@@ -1,7 +1,7 @@
-package clnode
+package constructors
 
 import (
-	"context"
+	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -17,18 +17,16 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
-// StartCCVExecutor starts an executor with evm chains.
-func StartCCVExecutor(
-	ctx context.Context,
+// NewExecutorCoordinator initializes the executor coordinator object.
+func NewExecutorCoordinator(
 	lggr logger.Logger,
-	ccvConfig CCVConfig,
-	ccvSecrets CCVSecretsConfig,
+	cfg executor.Configuration,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
-) {
-	cfg := ccvConfig.Executor
+) (*executor.Coordinator, error) {
 	offRampAddresses, err := mapAddresses(cfg.OffRampAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map offramp addresses.", "error", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map offramp addresses: %w", err)
 	}
 
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
@@ -92,17 +90,20 @@ func StartCCVExecutor(
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)
-		return
+		return nil, fmt.Errorf("failed to create coordinator: %w", err)
 	}
 
-	err = exec.Start(ctx)
-	if err != nil {
-		lggr.Errorw("Failed to start execution coordinator.", "error", err)
-		return
-	}
+	return exec, nil
+	/*
+		err = exec.Start(ctx)
+		if err != nil {
+			lggr.Errorw("Failed to start execution coordinator.", "error", err)
+			return
+		}
 
-	for {
-		lggr.Info("Executor is running:", exec.HealthReport())
-		time.Sleep(10 * time.Second)
-	}
+		for {
+			lggr.Info("Executor is running:", exec.HealthReport())
+			time.Sleep(10 * time.Second)
+		}
+	*/
 }

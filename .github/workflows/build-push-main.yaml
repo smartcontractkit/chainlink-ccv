@@ -1,0 +1,53 @@
+name: Publish Main commit
+
+on:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: publish-main-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-pub:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [verifier, aggregator, indexer, executor]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff
+        with:
+          just-version: '1.40.0'
+
+      - name: Authenticate to AWS ECR
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          aws-region: us-west-2
+          registry-type: private
+
+      - name: Build & Publish Release Candidate
+        env:
+          MODULE: ${{ matrix.module }}
+          COMMIT_SHA: ${{ github.sha }}
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+        run: |
+          TAG="$COMMIT_SHA"
+
+          echo "Module: $MODULE"
+          echo "Commit SHA: $COMMIT_SHA"
+          echo "Full Tag: $TAG"
+          echo "Building latest main image.."
+          just "$MODULE"/build-rc
+          echo "Publishing image.."
+          just "$MODULE"/publish-rc "$ECR_REGISTRY" "$TAG"
