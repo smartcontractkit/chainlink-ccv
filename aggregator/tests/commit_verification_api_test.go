@@ -1510,10 +1510,10 @@ func TestGetMessagesSinceDeduplication(t *testing.T) {
 	}
 }
 
-// TestPostQuorumAggregationWhenDisabled verifies that when EnableAggregationAfterQuorum is enabled
+// TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled verifies that when EnableAggregationAfterQuorum is enabled
 // the system allows post-quorum aggregations and both GetMessagesSince and GetVerifierResultForMessage
 // return the expected results with multiple aggregated reports.
-func TestPostQuorumAggregationWhenDisabled(t *testing.T) {
+func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 	storageTypes := []string{"postgres", "dynamodb"}
 
 	testFunc := func(t *testing.T, storageType string) {
