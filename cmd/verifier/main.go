@@ -303,7 +303,7 @@ func main() {
 	}
 
 	// Create verification coordinator
-	coordinator, err := verifier.NewVerificationCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
 		verifier.WithHeadTrackers(headTrackers),
