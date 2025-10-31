@@ -161,7 +161,9 @@ func ccvDataSourceVerifiers(ccvDatas []protocol.CCVData) []string {
 }
 
 // orderCCVData orders the CCV data retrieved from the indexer to match the order expected
-// by the receiver contract.
+// by the receiver contract. It validates that all required CCVs are present and
+// that the number of optional CCVs is sufficient. It also determines the latest
+// timestamp among all CCV datas for monitoring purposes.
 func orderCCVData(
 	ccvDatas []protocol.CCVData,
 	receiverCCVInfo executor.CCVAddressInfo,
