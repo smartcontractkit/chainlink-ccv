@@ -5,15 +5,15 @@ import (
 
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status" //nolint:gci
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	ethcommon "github.com/ethereum/go-ethereum/common"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
-	grpcstatus "google.golang.org/grpc/status"
+	ethcommon "github.com/ethereum/go-ethereum/common"                    //nolint:goimports
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1" //nolint:gci
 )
 
 // GetBatchCCVDataForMessageHandler handles batch requests to retrieve commit verification data for multiple message IDs.
@@ -59,7 +59,6 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.B
 		reqLogger.Errorf("Failed to retrieve batch CCV data: %v", err)
 		return nil, grpcstatus.Errorf(codes.Internal, "failed to retrieve batch data: %v", err)
 	}
-
 	// Prepare response
 	response := &pb.BatchGetVerifierResultForMessageResponse{
 		Results: make([]*pb.VerifierResult, 0),
