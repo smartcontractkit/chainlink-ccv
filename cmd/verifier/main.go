@@ -124,7 +124,7 @@ func main() {
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "verifier",
 		ServerAddress:   config.PyroscopeURL,
-		Logger:          pyroscope.StandardLogger,
+		Logger:          nil, // Disable pyroscope logging to avoid noisy DEBUG logs
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,

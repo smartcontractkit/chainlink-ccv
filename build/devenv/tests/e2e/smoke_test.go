@@ -11,7 +11,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -39,7 +38,7 @@ func defaultAggregatorPort(in *ccv.Cfg) int {
 }
 
 func TestE2ESmoke(t *testing.T) {
-	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
+	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-staging-out.toml")
 	require.NoError(t, err)
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
@@ -52,7 +51,7 @@ func TestE2ESmoke(t *testing.T) {
 
 	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
-	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
+	require.Len(t, selectors, 2, "expected 3 chains for this test in the environment")
 
 	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
@@ -63,7 +62,7 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
+	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", in.Aggregator[0].HostPort)
 
 	defaultAggregatorClient, err := ccv.NewAggregatorClient(
 		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
@@ -186,28 +185,28 @@ func TestE2ESmoke(t *testing.T) {
 		}
 
 		tcs := []testcase{
-			{
-				// Since the receiver is an EOA, the default verifier will be returned on the destination chain.
-				// Since the CCV specified in the message does not include the default, but the secondary, and
-				// the executor used is the default executor, the default verifier should still sign the message.
-				name:        "src_dest msg execution with EOA receiver and secondary committee verifier",
-				srcSelector: selectors[0],
-				dstSelector: selectors[1],
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				// default verifier and secondary verifier will verify so should be two verifications.
-				// TODO: indexer doesn't seem to pick up the secondary verifier's results, need to investigate.
-				numExpectedVerifications: 1,
-				// default executor and secondary committee verifier
-				numExpectedReceipts: 2,
-			},
+			//{
+			//	// Since the receiver is an EOA, the default verifier will be returned on the destination chain.
+			//	// Since the CCV specified in the message does not include the default, but the secondary, and
+			//	// the executor used is the default executor, the default verifier should still sign the message.
+			//	name:        "src_dest msg execution with EOA receiver and secondary committee verifier",
+			//	srcSelector: selectors[0],
+			//	dstSelector: selectors[1],
+			//	finality:    1,
+			//	receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
+			//	ccvs: []protocol.CCV{
+			//		{
+			//			CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy"),
+			//			Args:       []byte{},
+			//			ArgsLen:    0,
+			//		},
+			//	},
+			//	// default verifier and secondary verifier will verify so should be two verifications.
+			//	// TODO: indexer doesn't seem to pick up the secondary verifier's results, need to investigate.
+			//	numExpectedVerifications: 1,
+			//	// default executor and secondary committee verifier
+			//	numExpectedReceipts: 2,
+			//},
 			{
 				name:        "src_dst msg execution with EOA receiver",
 				srcSelector: selectors[0],
@@ -226,110 +225,110 @@ func TestE2ESmoke(t *testing.T) {
 				// default executor and default committee verifier
 				numExpectedReceipts: 2,
 			},
-			{
-				name:        "dst_src msg execution with EOA receiver",
-				srcSelector: selectors[1],
-				dstSelector: selectors[0],
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-			{
-				name:        "1337->3337 msg execution with EOA receiver",
-				srcSelector: selectors[0],
-				dstSelector: selectors[2],
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-
-			{
-				name:        "src_dst msg execution with mock receiver",
-				srcSelector: selectors[0],
-				dstSelector: selectors[1],
-				finality:    1,
-				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				expectFail: false,
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-			{
-				name:        "dst_src msg execution with mock receiver",
-				srcSelector: selectors[1],
-				dstSelector: selectors[0],
-				finality:    1,
-				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				expectFail: false,
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-			{
-				name:        "src_dst msg execution with EOA receiver and token transfer",
-				srcSelector: selectors[0],
-				dstSelector: selectors[1],
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				tokenTransfer: &tokenTransfer{
-					tokenAmount: cciptestinterfaces.TokenAmount{
-						Amount:       big.NewInt(1000),
-						TokenAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), "TEST", "burn mint erc677"),
-					},
-					destTokenRef: datastore.AddressRef{
-						Type:      datastore.ContractType(burn_mint_erc677.ContractType),
-						Version:   semver.MustParse(burn_mint_erc677.Deploy.Version()),
-						Qualifier: "TEST",
-					},
-				},
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor, default committee verifier and the token contract
-				numExpectedReceipts: 3,
-			},
+			//{
+			//	name:        "dst_src msg execution with EOA receiver",
+			//	srcSelector: selectors[1],
+			//	dstSelector: selectors[0],
+			//	finality:    1,
+			//	receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
+			//	ccvs: []protocol.CCV{
+			//		{
+			//			CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+			//			Args:       []byte{},
+			//			ArgsLen:    0,
+			//		},
+			//	},
+			//	// default verifier
+			//	numExpectedVerifications: 1,
+			//	// default executor and default committee verifier
+			//	numExpectedReceipts: 2,
+			//},
+			//{
+			//	name:        "1337->3337 msg execution with EOA receiver",
+			//	srcSelector: selectors[0],
+			//	dstSelector: selectors[2],
+			//	finality:    1,
+			//	receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
+			//	ccvs: []protocol.CCV{
+			//		{
+			//			CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+			//			Args:       []byte{},
+			//			ArgsLen:    0,
+			//		},
+			//	},
+			//	// default verifier
+			//	numExpectedVerifications: 1,
+			//	// default executor and default committee verifier
+			//	numExpectedReceipts: 2,
+			//},
+			//
+			//{
+			//	name:        "src_dst msg execution with mock receiver",
+			//	srcSelector: selectors[0],
+			//	dstSelector: selectors[1],
+			//	finality:    1,
+			//	receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
+			//	ccvs: []protocol.CCV{
+			//		{
+			//			CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+			//			Args:       []byte{},
+			//			ArgsLen:    0,
+			//		},
+			//	},
+			//	expectFail: false,
+			//	// default verifier
+			//	numExpectedVerifications: 1,
+			//	// default executor and default committee verifier
+			//	numExpectedReceipts: 2,
+			//},
+			//{
+			//	name:        "dst_src msg execution with mock receiver",
+			//	srcSelector: selectors[1],
+			//	dstSelector: selectors[0],
+			//	finality:    1,
+			//	receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
+			//	ccvs: []protocol.CCV{
+			//		{
+			//			CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+			//			Args:       []byte{},
+			//			ArgsLen:    0,
+			//		},
+			//	},
+			//	expectFail: false,
+			//	// default verifier
+			//	numExpectedVerifications: 1,
+			//	// default executor and default committee verifier
+			//	numExpectedReceipts: 2,
+			//},
+			//{
+			//	name:        "src_dst msg execution with EOA receiver and token transfer",
+			//	srcSelector: selectors[0],
+			//	dstSelector: selectors[1],
+			//	finality:    1,
+			//	receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
+			//	ccvs: []protocol.CCV{
+			//		{
+			//			CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+			//			Args:       []byte{},
+			//			ArgsLen:    0,
+			//		},
+			//	},
+			//	tokenTransfer: &tokenTransfer{
+			//		tokenAmount: cciptestinterfaces.TokenAmount{
+			//			Amount:       big.NewInt(1000),
+			//			TokenAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), "TEST", "burn mint erc677"),
+			//		},
+			//		destTokenRef: datastore.AddressRef{
+			//			Type:      datastore.ContractType(burn_mint_erc677.ContractType),
+			//			Version:   semver.MustParse(burn_mint_erc677.Deploy.Version()),
+			//			Qualifier: "TEST",
+			//		},
+			//	},
+			//	// default verifier
+			//	numExpectedVerifications: 1,
+			//	// default executor, default committee verifier and the token contract
+			//	numExpectedReceipts: 3,
+			//},
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {

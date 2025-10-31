@@ -89,7 +89,7 @@ func NewSourceReaderService(
 		pollInterval:         pollInterval,
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-		chainStatusManager:   chainStatusManager,
+		chainStatusManager:   nil,
 	}
 
 	// Apply options

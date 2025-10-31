@@ -44,7 +44,7 @@ func InitMonitoring(config beholder.Config) (verifier.Monitoring, error) {
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "verifier",
 		ServerAddress:   "http://pyroscope:4040",
-		Logger:          pyroscope.StandardLogger,
+		Logger:          nil, // Disable pyroscope logging to avoid noisy DEBUG logs
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,
