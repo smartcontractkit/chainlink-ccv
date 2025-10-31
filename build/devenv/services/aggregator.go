@@ -55,13 +55,13 @@ type AggregatorEnvConfig struct {
 	Clients map[string]ClientCredentials `toml:"clients"`
 }
 
-// ClientCredentials holds API credentials for a client with support for multiple key pairs
+// ClientCredentials holds API credentials for a client with support for multiple key pairs.
 type ClientCredentials struct {
 	// Support multiple environment variable pairs for rotation
 	KeyPairEnvVars []ClientEnvVarPair `toml:"key_pair_env_vars,omitempty"`
 }
 
-// ClientEnvVarPair represents environment variable names and values for API key and secret
+// ClientEnvVarPair represents environment variable names and values for API key and secret.
 type ClientEnvVarPair struct {
 	APIKeyEnv   string `toml:"api_key_env"`
 	SecretEnv   string `toml:"secret_env"`
