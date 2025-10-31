@@ -455,6 +455,10 @@ func (d *DynamoDBStorage) GetCCVData(ctx context.Context, messageID model.Messag
 	return report, nil
 }
 
+func (d *DynamoDBStorage) GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
+	return nil, errors.New("batch CCV data retrieval is not yet implemented for DynamoDB storage")
+}
+
 func (d *DynamoDBStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
 	resultChan := make(chan model.MessageID, 100)
 	errorChan := make(chan error, 1)
