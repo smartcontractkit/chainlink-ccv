@@ -30,6 +30,7 @@ brew install just # click the link above if you are not on OS X
 cd build/devenv
 just clean-docker-dev # needed in case you have old JD image
 just build-docker-dev
+just setup-gh
 just cli
 ```
 
@@ -136,3 +137,11 @@ Or by exporting the `DOCKER_HOST` variable:
 ```bash
 export DOCKER_HOST unix://$HOME/.docker/desktop/docker.sock
 ```
+
+## getDX tracking
+
+getDX is used for tracking:
+- success/failure rate of environment startup with:
+    - configuration files used
+    - truncated error message
+- startup time

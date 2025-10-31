@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -162,6 +163,15 @@ func main() {
 		}
 		verifierAddresses[selector] = addr
 	}
+	defaultExecutorAddresses := make(map[string]protocol.UnknownAddress)
+	for selector, address := range config.DefaultExecutorOnRampAddresses {
+		addr, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			lggr.Errorw("Failed to create default executor address", "error", err)
+			os.Exit(1)
+		}
+		defaultExecutorAddresses[selector] = addr
+	}
 
 	hmacConfig := &hmac.ClientConfig{
 		APIKey: config.AggregatorAPIKey,
@@ -174,7 +184,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for chain status reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()
@@ -184,11 +194,12 @@ func main() {
 		lggr.Errorw("Failed to create aggregator reader", "error", err)
 		os.Exit(1)
 	}
-	// Create checkpoint manager (includes both writer and reader)
-	checkpointManager := storageaccess.NewAggregatorCheckpointManager(aggregatorWriter, aggregatorReader)
+	// Create chain status manager (includes both writer and reader)
+	chainStatusManager := storageaccess.NewAggregatorChainStatusManager(aggregatorWriter, aggregatorReader)
 
-	// Create source readers - either blockchain-based or mock
+	// Create source readers and head trackers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
+	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 
 	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)
 	// Try to create blockchain source readers if possible
@@ -205,12 +216,31 @@ func main() {
 			continue
 		}
 
-		sourceReaders[selector], err = sourcereader.NewEVMSourceReader(chainClients[selector], common.HexToAddress(config.OnRampAddresses[strSelector]), onramp.OnRampCCIPMessageSent{}.Topic().Hex(), selector, lggr)
+		// Create mock head tracker for this chain
+		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr)
+
+		evmSourceReader, err := sourcereader.NewEVMSourceReader(
+			chainClients[selector],
+			headTracker,
+			common.HexToAddress(config.OnRampAddresses[strSelector]),
+			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
+			selector,
+			lggr,
+		)
 		if err != nil {
 			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
 			continue
 		}
-		// sourceReaders[selector] = verifier.NewSourceReaderService(emvSourceReader, selector, checkpointManager, lggr)
+
+		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
+		sourceReaders[selector] = evmSourceReader
+		headTrackerInterface, ok := evmSourceReader.(chainaccess.HeadTracker)
+		if !ok {
+			lggr.Errorw("EVMSourceReader does not implement HeadTracker interface", "selector", selector)
+			continue
+		}
+		headTrackers[selector] = headTrackerInterface
+
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
 
@@ -219,9 +249,10 @@ func main() {
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 		sourceConfigs[selector] = verifier.SourceConfig{
-			VerifierAddress: verifierAddresses[strSelector],
-			PollInterval:    1 * time.Second,
-			ChainSelector:   selector,
+			VerifierAddress:        verifierAddresses[strSelector],
+			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
+			PollInterval:           1 * time.Second,
+			ChainSelector:          selector,
 		}
 	}
 
@@ -275,7 +306,8 @@ func main() {
 	coordinator, err := verifier.NewVerificationCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithCheckpointManager(checkpointManager),
+		verifier.WithHeadTrackers(headTrackers),
+		verifier.WithChainStatusManager(chainStatusManager),
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),

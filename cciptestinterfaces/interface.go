@@ -85,18 +85,46 @@ type MessageOptions struct {
 	TokenArgs []byte
 }
 
+// MessageSentEvent is a chain-agnostic representation of the output of a ccipSend operation.
+type MessageSentEvent struct {
+	MessageID      [32]byte
+	SequenceNumber uint64
+	Message        *protocol.Message
+	ReceiptIssuers []protocol.UnknownAddress
+	VerifierBlobs  [][]byte
+}
+
+// MessageExecutionState represents the execution state of a CCIP message.
+// This must be the same across all implementations of CCIP on all chain families.
+type MessageExecutionState uint8
+
+const (
+	ExecutionStateUntouched MessageExecutionState = iota
+	ExecutionStateInProgress
+	ExecutionStateSuccess
+	ExecutionStateFailure
+)
+
+// ExecutionStateChangedEvent is a chain-agnostic representation of the output of a ccip message execution operation.
+type ExecutionStateChangedEvent struct {
+	MessageID      [32]byte
+	SequenceNumber uint64
+	State          MessageExecutionState
+	ReturnData     []byte
+}
+
 // Chains provides methods to interact with a set of chains that have CCIP deployed.
 type Chains interface {
 	// GetEOAReceiverAddress gets an EOA receiver address for the provided chain selector.
 	GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error)
 	// SendMessage sends a CCIP message from src to dest with the specified message options.
-	SendMessage(ctx context.Context, src, dest uint64, fields MessageFields, opts MessageOptions) error
+	SendMessage(ctx context.Context, src, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
 	GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain
-	WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error)
+	WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (MessageSentEvent, error)
 	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain
-	WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error)
+	WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (ExecutionStateChangedEvent, error)
 	// GetTokenBalance gets the balance of an account for a token on a chain
 	GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
 }

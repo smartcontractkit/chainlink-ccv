@@ -11,27 +11,29 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
-	// CheckpointBufferBlocks is the number of blocks to lag behind finalized
+	// ChainStatusBufferBlocks is the number of blocks to lag behind finalized
 	// to ensure downstream processing is complete.
-	CheckpointBufferBlocks = 20
+	ChainStatusBufferBlocks = 20
 
-	// CheckpointInterval is how often to write checkpoints.
-	CheckpointInterval = 300 * time.Second
+	// ChainStatusInterval is how often to write statuses.
+	ChainStatusInterval = 300 * time.Second
 
-	// StartupLookbackHours when no checkpoint exists.
+	// StartupLookbackHours when no chain status exists.
 	StartupLookbackHours = 8
 
-	// CheckpointRetryAttempts on startup.
-	CheckpointRetryAttempts = 5
+	// ChainStatusRetryAttempts on startup.
+	ChainStatusRetryAttempts = 5
 )
 
 // SourceReaderService implements SourceReader for reading CCIPMessageSent events from blockchain.
 type SourceReaderService struct {
 	sourceReader         SourceReader
+	headTracker          chainaccess.HeadTracker
 	logger               logger.Logger
 	lastProcessedBlock   *big.Int
 	verificationTaskCh   chan batcher.BatchResult[VerificationTask]
@@ -52,10 +54,10 @@ type SourceReaderService struct {
 	// This allows us to protect lastProcessedBlock without holding locks across I/O.
 	resetVersion atomic.Uint64
 
-	// Checkpoint management
-	checkpointManager     protocol.CheckpointManager
-	lastCheckpointTime    time.Time
-	lastCheckpointedBlock *big.Int
+	// ChainStatus management
+	chainStatusManager   protocol.ChainStatusManager
+	lastChainStatusTime  time.Time
+	lastChainStatusBlock *big.Int
 }
 
 // SourceReaderServiceOption is a functional option for SourceReaderService.
@@ -71,21 +73,23 @@ func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
 // NewSourceReaderService creates a new blockchain-based source reader.
 func NewSourceReaderService(
 	sourceReader SourceReader,
+	headTracker chainaccess.HeadTracker,
 	chainSelector protocol.ChainSelector,
-	checkpointManager protocol.CheckpointManager,
+	chainStatusManager protocol.ChainStatusManager,
 	logger logger.Logger,
 	pollInterval time.Duration,
 	opts ...SourceReaderServiceOption,
 ) *SourceReaderService {
 	s := &SourceReaderService{
 		sourceReader:         sourceReader,
+		headTracker:          headTracker,
 		logger:               logger,
 		verificationTaskCh:   make(chan batcher.BatchResult[VerificationTask], 1),
 		stopCh:               make(chan struct{}),
 		pollInterval:         pollInterval,
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-		checkpointManager:    checkpointManager,
+		chainStatusManager:   chainStatusManager,
 	}
 
 	// Apply options
@@ -169,7 +173,7 @@ func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
 // This method uses an optimistic locking pattern via resetVersion to coordinate
 // with in-flight processEventCycle() calls. The sequence is:
 //  1. Acquire write lock
-//  2. Write checkpoint if resetBlock < lastCheckpointedBlock (finality violation scenario)
+//  2. Write chain status if resetBlock < lastChainStatusBlock (finality violation scenario)
 //  3. Increment resetVersion (signals to cycles: "your read is now stale")
 //  4. Update lastProcessedBlock to the reset value
 //  5. Release lock
@@ -180,40 +184,40 @@ func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
 // The coordinator's reorgInProgress flag prevents new tasks from being queued
 // into the coordinator's pending queue during the reset window.
 //
-// Checkpoint handling:
-// For regular reorgs (non-finalized range), the common ancestor is always >= checkpoint,
-// so no checkpoint write is needed - periodic checkpointing will naturally advance.
-// For finality violations, the reset block falls below the last checkpoint, so we must
-// immediately persist the new checkpoint to ensure safe restart.
+// ChainStatus handling:
+// For regular reorgs (non-finalized range), the common ancestor is always >= chain status,
+// so no chainStatus write is needed - periodic chain status chain statuses will naturally advance.
+// For finality violations, the reset block falls below the last chain status, so we must
+// immediately persist the new chain status to ensure safe restart.
 func (r *SourceReaderService) ResetToBlock(ctx context.Context, block uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	resetBlock := new(big.Int).SetUint64(block)
 
-	// Check if we need to write checkpoint (resetBlock < lastCheckpointedBlock)
+	// Check if we need to write chain status (resetBlock < lastChainStatusBlock)
 	// This only happens during finality violations where we reset below finalized range
-	needsCheckpointWrite := r.lastCheckpointedBlock != nil && resetBlock.Cmp(r.lastCheckpointedBlock) < 0
+	needsChainStatusWrite := r.lastChainStatusBlock != nil && resetBlock.Cmp(r.lastChainStatusBlock) < 0
 
 	r.logger.Infow("Resetting source reader to block",
 		"chainSelector", r.chainSelector,
 		"fromBlock", r.lastProcessedBlock,
 		"toBlock", resetBlock,
-		"lastCheckpoint", r.lastCheckpointedBlock,
-		"needsCheckpointWrite", needsCheckpointWrite,
+		"lastChainStatus", r.lastChainStatusBlock,
+		"needsChainStatusWrite", needsChainStatusWrite,
 		"resetVersion", r.resetVersion.Load()+1)
 
-	// Write checkpoint FIRST if needed (before updating in-memory state)
+	// Write chain status FIRST if needed (before updating in-memory state)
 	// This ensures restart safety for finality violations
-	if needsCheckpointWrite && r.checkpointManager != nil {
-		if err := r.checkpointManager.WriteCheckpoint(ctx, r.chainSelector, resetBlock); err != nil {
-			return fmt.Errorf("failed to persist reset checkpoint: %w", err)
+	if needsChainStatusWrite && r.chainStatusManager != nil {
+		if err := r.chainStatusManager.WriteChainStatus(ctx, r.chainSelector, resetBlock); err != nil {
+			return fmt.Errorf("failed to persist reset chainStatus: %w", err)
 		}
-		r.logger.Infow("Reset checkpoint persisted successfully",
+		r.logger.Infow("Reset chainStatus persisted successfully",
 			"chainSelector", r.chainSelector,
-			"checkpointBlock", resetBlock.String())
-		r.lastCheckpointedBlock = new(big.Int).Set(resetBlock)
-		r.lastCheckpointTime = time.Now()
+			"chainStatusBlock", resetBlock.String())
+		r.lastChainStatusBlock = new(big.Int).Set(resetBlock)
+		r.lastChainStatusTime = time.Now()
 	}
 
 	// Increment version to signal in-flight cycles that their read is stale
@@ -235,7 +239,7 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := r.sourceReader.LatestBlockHeight(testCtx)
+	_, _, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
 		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
 		return fmt.Errorf("connectivity test failed: %w", err)
@@ -244,22 +248,22 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 	return nil
 }
 
-// readCheckpointWithRetries tries to read checkpoint from aggregator with exponential backoff.
-func (r *SourceReaderService) readCheckpointWithRetries(ctx context.Context, maxAttempts int) (*big.Int, error) {
-	if r.checkpointManager == nil {
-		r.logger.Debugw("No checkpoint manager available for checkpoint reading")
+// readChainStatusWithRetries tries to read chain status from aggregator with exponential backoff.
+func (r *SourceReaderService) readChainStatusWithRetries(ctx context.Context, maxAttempts int) (*big.Int, error) {
+	if r.chainStatusManager == nil {
+		r.logger.Debugw("No chainStatus manager available for chainStatus reading")
 		return nil, nil
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		checkpoint, err := r.checkpointManager.ReadCheckpoint(ctx, r.chainSelector)
+		chainStatus, err := r.chainStatusManager.ReadChainStatus(ctx, r.chainSelector)
 		if err == nil {
-			return checkpoint, nil
+			return chainStatus, nil
 		}
 
 		lastErr = err
-		r.logger.Warnw("Failed to read checkpoint",
+		r.logger.Warnw("Failed to read chainStatus",
 			"attempt", attempt,
 			"maxAttempts", maxAttempts,
 			"error", err)
@@ -267,7 +271,7 @@ func (r *SourceReaderService) readCheckpointWithRetries(ctx context.Context, max
 		if attempt < maxAttempts {
 			// Exponential backoff: 1s, 2s, 4s
 			backoffDuration := time.Duration(1<<(attempt-1)) * time.Second
-			r.logger.Debugw("Retrying checkpoint read after backoff", "duration", backoffDuration)
+			r.logger.Debugw("Retrying chainStatus read after backoff", "duration", backoffDuration)
 
 			select {
 			case <-ctx.Done():
@@ -278,15 +282,19 @@ func (r *SourceReaderService) readCheckpointWithRetries(ctx context.Context, max
 		}
 	}
 
-	return nil, fmt.Errorf("failed to read checkpoint after %d attempts: %w", maxAttempts, lastErr)
+	return nil, fmt.Errorf("failed to read chainStatus after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // calculateBlockFromHoursAgo calculates the block number from the specified hours ago.
 func (r *SourceReaderService) calculateBlockFromHoursAgo(ctx context.Context, lookbackHours uint64) (*big.Int, error) {
-	currentBlock, err := r.sourceReader.LatestBlockHeight(ctx)
+	latest, _, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current block height: %w", err)
+		return nil, fmt.Errorf("failed to get latest block: %w", err)
 	}
+	if latest == nil {
+		return nil, fmt.Errorf("latest block is nil")
+	}
+	currentBlock := new(big.Int).SetUint64(latest.Number)
 
 	// Try to sample recent blocks to estimate block time
 	sampleSize := int64(2)
@@ -322,6 +330,10 @@ func (r *SourceReaderService) calculateBlockFromHoursAgo(ctx context.Context, lo
 		"timeDiff", timeDiff)
 	if blockDiff.Sign() > 0 && timeDiff > 0 {
 		avgBlockTime := timeDiff / blockDiff.Uint64()
+		if avgBlockTime <= 0 {
+			r.logger.Warnw("Average block time calculated as zero, using fallback")
+			return r.fallbackBlockEstimate(currentBlock), nil
+		}
 		blocksInLookback := (lookbackHours * 3600) / avgBlockTime
 
 		lookbackBlock := new(big.Int).Sub(currentBlock, new(big.Int).SetUint64(blocksInLookback))
@@ -363,89 +375,93 @@ func (r *SourceReaderService) fallbackBlockEstimate(currentBlock *big.Int) *big.
 func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.Int, error) {
 	r.logger.Infow("Initializing start block for event monitoring")
 
-	// Try to read checkpoint with retries
-	checkpoint, err := r.readCheckpointWithRetries(ctx, CheckpointRetryAttempts)
+	// Try to read chain status with retries
+	chainStatus, err := r.readChainStatusWithRetries(ctx, ChainStatusRetryAttempts)
 	if err != nil {
-		r.logger.Warnw("Failed to read checkpoint after retries, falling back to lookback hours window",
+		r.logger.Warnw("Failed to read chainStatus after retries, falling back to lookback hours window",
 			"lookbackHours", StartupLookbackHours,
 			"error", err)
 	}
 
-	if checkpoint == nil {
-		r.logger.Infow("No checkpoint found, calculating from lookback hours ago", "lookbackHours", StartupLookbackHours)
+	if chainStatus == nil {
+		r.logger.Infow("No chainStatus found, calculating from lookback hours ago", "lookbackHours", StartupLookbackHours)
 		return r.calculateBlockFromHoursAgo(ctx, StartupLookbackHours)
 	}
 
-	// Resume from checkpoint + 1
-	startBlock := new(big.Int).Add(checkpoint, big.NewInt(1))
-	r.logger.Infow("Resuming from checkpoint",
-		"checkpointBlock", checkpoint.String(),
+	// Resume from chain status + 1
+	startBlock := new(big.Int).Add(chainStatus, big.NewInt(1))
+	r.logger.Infow("Resuming from chainStatus",
+		"chainStatusBlock", chainStatus.String(),
 		"startBlock", startBlock.String())
 
 	return startBlock, nil
 }
 
-// calculateCheckpointBlock determines the safe checkpoint block (finalized - buffer).
+// calculateChainStatusBlock determines the safe chain status block (finalized - buffer).
 // Takes lastProcessedBlock as parameter to avoid races with concurrent updates.
-func (r *SourceReaderService) calculateCheckpointBlock(ctx context.Context, lastProcessed *big.Int) (*big.Int, error) {
-	finalized, err := r.sourceReader.LatestFinalizedBlockHeight(ctx)
+func (r *SourceReaderService) calculateChainStatusBlock(ctx context.Context, lastProcessed *big.Int) (*big.Int, error) {
+	_, finalizedHeader, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
+	if finalizedHeader == nil {
+		return nil, fmt.Errorf("finalized block is nil")
+	}
+	finalized := new(big.Int).SetUint64(finalizedHeader.Number)
 
-	checkpointBlock := new(big.Int).Sub(finalized, big.NewInt(CheckpointBufferBlocks))
+	chainStatusBlock := new(big.Int).Sub(finalized, big.NewInt(ChainStatusBufferBlocks))
 
 	// Handle early chain scenario
-	if checkpointBlock.Sign() <= 0 {
-		r.logger.Debugw("Too early to checkpoint",
+	if chainStatusBlock.Sign() <= 0 {
+		r.logger.Debugw("Too early to chainStatus",
 			"finalized", finalized.String(),
-			"buffer", CheckpointBufferBlocks)
+			"buffer", ChainStatusBufferBlocks)
 		return nil, nil
 	}
 
-	// Safety: don't checkpoint beyond what we've read
-	if lastProcessed != nil && checkpointBlock.Cmp(lastProcessed) > 0 {
-		checkpointBlock = new(big.Int).Set(lastProcessed)
-		r.logger.Debugw("Capping checkpoint at last processed block",
+	// Safety: don't chain status beyond what we've read
+	if lastProcessed != nil && chainStatusBlock.Cmp(lastProcessed) > 0 {
+		chainStatusBlock = new(big.Int).Set(lastProcessed)
+		r.logger.Debugw("Capping chainStatus at last processed block",
 			"finalized", finalized.String(),
 			"lastProcessed", lastProcessed.String(),
-			"checkpoint", checkpointBlock.String())
+			"chainStatus", chainStatusBlock.String())
 	}
 
-	return checkpointBlock, nil
+	return chainStatusBlock, nil
 }
 
-// updateCheckpoint writes a checkpoint if conditions are met.
+// updateChainStatus writes a chain status if conditions are met.
 // Takes lastProcessedBlock as parameter to avoid races with concurrent updates.
 //
 // Thread-safety:
-// Uses optimistic locking via resetVersion to prevent overwriting a reset checkpoint.
-// If a reset occurs between checkpoint calculation and write, the stale write is skipped.
-func (r *SourceReaderService) updateCheckpoint(ctx context.Context, lastProcessed *big.Int) {
-	// Skip if no checkpoint manager
-	if r.checkpointManager == nil {
+// Uses optimistic locking via resetVersion to prevent overwriting a reset chain status.
+// If a reset occurs between chain status calculation and write, the stale write is skipped.
+func (r *SourceReaderService) updateChainStatus(ctx context.Context, lastProcessed *big.Int) {
+	// Skip if no chain status manager
+	if r.chainStatusManager == nil {
 		return
 	}
 
-	// Only checkpoint periodically
-	if time.Since(r.lastCheckpointTime) < CheckpointInterval {
+	// Only chain status periodically
+	if time.Since(r.lastChainStatusTime) < ChainStatusInterval {
 		return
 	}
 
-	// Capture version before starting checkpoint calculation
+	// Capture version before starting chain status calculation
 	versionBeforeCalc := r.resetVersion.Load()
 
-	// Calculate safe checkpoint block (finalized - buffer)
+	// Calculate safe chain status block (finalized - buffer)
 	// This may take time due to RPC calls
-	checkpointBlock, err := r.calculateCheckpointBlock(ctx, lastProcessed)
+	chainStatusBlock, err := r.calculateChainStatusBlock(ctx, lastProcessed)
 	if err != nil {
-		r.logger.Warnw("Failed to calculate checkpoint block", "error", err)
+		r.logger.Warnw("Failed to calculate chainStatus block", "error", err)
 		return
 	}
 
-	if checkpointBlock == nil {
-		// Too early to checkpoint (still in buffer zone from genesis)
-		r.logger.Debugw("Skipping checkpoint - too early")
+	if chainStatusBlock == nil {
+		// Too early to chain status (still in buffer zone from genesis)
+		r.logger.Debugw("Skipping chainStatus - too early")
 		return
 	}
 
@@ -456,35 +472,35 @@ func (r *SourceReaderService) updateCheckpoint(ctx context.Context, lastProcesse
 	// Check if a reset occurred during our calculation
 	currentVersion := r.resetVersion.Load()
 	if currentVersion != versionBeforeCalc {
-		r.logger.Debugw("Skipping stale checkpoint write due to concurrent reset",
-			"calculatedCheckpoint", checkpointBlock.String(),
+		r.logger.Debugw("Skipping stale chainStatus write due to concurrent reset",
+			"calculatedChainStatus", chainStatusBlock.String(),
 			"versionBeforeCalc", versionBeforeCalc,
 			"currentVersion", currentVersion)
 		return
 	}
 
-	// Don't re-checkpoint the same block
-	if r.lastCheckpointedBlock != nil &&
-		checkpointBlock.Cmp(r.lastCheckpointedBlock) <= 0 {
-		r.logger.Debugw("Skipping checkpoint - no progress",
-			"checkpointBlock", checkpointBlock.String(),
-			"lastCheckpointed", r.lastCheckpointedBlock.String())
+	// Don't re-chain status the same block
+	if r.lastChainStatusBlock != nil &&
+		chainStatusBlock.Cmp(r.lastChainStatusBlock) <= 0 {
+		r.logger.Debugw("Skipping chainStatus - no progress",
+			"chainStatusBlock", chainStatusBlock.String(),
+			"lastChainStatused", r.lastChainStatusBlock.String())
 		return
 	}
 
-	// Write checkpoint (fire-and-forget, just log errors)
-	err = r.checkpointManager.WriteCheckpoint(ctx, r.chainSelector, checkpointBlock)
+	// Write chain status (fire-and-forget, just log errors)
+	err = r.chainStatusManager.WriteChainStatus(ctx, r.chainSelector, chainStatusBlock)
 	if err != nil {
-		r.logger.Errorw("Failed to write checkpoint",
+		r.logger.Errorw("Failed to write chainStatus",
 			"error", err,
-			"block", checkpointBlock.String())
+			"block", chainStatusBlock.String())
 		// Continue processing, don't fail
 	} else {
-		r.logger.Infow("Checkpoint updated",
-			"checkpointBlock", checkpointBlock.String(),
+		r.logger.Infow("ChainStatus updated",
+			"chainStatusBlock", chainStatusBlock.String(),
 			"currentProcessed", lastProcessed.String())
-		r.lastCheckpointTime = time.Now()
-		r.lastCheckpointedBlock = new(big.Int).Set(checkpointBlock)
+		r.lastChainStatusTime = time.Now()
+		r.lastChainStatusBlock = new(big.Int).Set(chainStatusBlock)
 	}
 }
 
@@ -530,6 +546,21 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 	}
 }
 
+// findHighestBlockInTasks returns the highest block number from verification tasks.
+// Returns nil if tasks is empty.
+func findHighestBlockInTasks(tasks []VerificationTask) *big.Int {
+	if len(tasks) == 0 {
+		return nil
+	}
+	highest := uint64(0)
+	for _, task := range tasks {
+		if task.BlockNumber > highest {
+			highest = task.BlockNumber
+		}
+	}
+	return new(big.Int).SetUint64(highest)
+}
+
 // processEventCycle processes a single cycle of event monitoring.
 //
 // Thread-safety:
@@ -548,20 +579,18 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	// Get current block (potentially slow RPC call - no locks held)
 	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	currentBlock, err := r.sourceReader.LatestBlockHeight(blockCtx)
+	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(blockCtx)
 	cancel()
 
 	if err != nil {
 		r.logger.Errorw("⚠️ Failed to get latest block", "error", err)
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to get latest block: %w", err))
+		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
 		return
 	}
-
-	// Only query if there are new blocks
-	if fromBlock.Cmp(currentBlock) > 0 {
-		r.logger.Debugw("🔍 No new blocks to process", "fromBlock", fromBlock.String(),
-			"currentBlock", currentBlock.String())
+	if finalized == nil {
+		r.logger.Errorw("⚠️ Finalized block is nil")
+		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
 		return
 	}
 
@@ -569,72 +598,89 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, currentBlock)
+	// Fetch until latest available
+	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, nil)
 	if err != nil {
 		r.logger.Errorw("⚠️ Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
+			"toBlock", "latest")
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to %s: %w",
-			fromBlock.String(), currentBlock.String(), err))
+		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to latest: %w",
+			fromBlock.String(), err))
 		return
 	}
 
-	// Skip sending if no tasks were found
-	if len(tasks) == 0 {
+	// Send batch if tasks were found
+	if len(tasks) > 0 {
+		// Send entire batch of tasks as BatchResult
+		batch := batcher.BatchResult[VerificationTask]{
+			Items: tasks,
+			Error: nil,
+		}
+
+		// Send to verification channel (blocking - backpressure)
+		select {
+		case r.verificationTaskCh <- batch:
+			r.logger.Infow("✅ Verification task batch sent to channel",
+				"batchSize", len(tasks),
+				"fromBlock", fromBlock.String(),
+				"toBlock", "latest")
+		case <-ctx.Done():
+			r.logger.Debugw("Context cancelled while sending batch")
+			return
+		}
+	} else {
 		r.logger.Debugw("🔍 No events found in range",
 			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
-		return
+			"toBlock", "latest")
 	}
 
-	// Send entire batch of tasks as BatchResult
-	batch := batcher.BatchResult[VerificationTask]{
-		Items: tasks,
-		Error: nil,
+	// Determine the block we've processed up to
+	var processedToBlock *big.Int
+	if len(tasks) > 0 {
+		// Use highest block from returned logs
+		highestLogBlock := findHighestBlockInTasks(tasks)
+		processedToBlock = new(big.Int).Set(highestLogBlock)
+	} else {
+		// No logs - use current position
+		processedToBlock = new(big.Int).Set(r.lastProcessedBlock)
 	}
 
-	// Send to verification channel (blocking - backpressure)
-	select {
-	case r.verificationTaskCh <- batch:
-		r.logger.Infow("✅ Verification task batch sent to channel",
-			"batchSize", len(tasks),
-			"fromBlock", fromBlock.String(),
-			"toBlock", currentBlock.String())
-	case <-ctx.Done():
-		r.logger.Debugw("Context cancelled while sending batch")
-		return
+	// Always advance at least to finalized (stable across all RPC nodes)
+	finalizedBlock := new(big.Int).SetUint64(finalized.Number)
+	if finalizedBlock.Cmp(processedToBlock) > 0 {
+		processedToBlock = finalizedBlock
 	}
 
-	// Update processed block - but only if no reset occurred during our RPC calls.
-	// We use optimistic locking: check if resetVersion changed since we captured it.
-	// If it changed, a reset happened during this cycle's work, so we skip the update
-	// to preserve the reset value.
+	// Update processed block with optimistic locking check
 	r.mu.Lock()
 	currentVersion := r.resetVersion.Load()
 	if currentVersion == startVersion {
 		// No reset occurred - safe to update
-		r.lastProcessedBlock = new(big.Int).Set(currentBlock)
+		r.lastProcessedBlock = processedToBlock
 	} else {
 		// Reset occurred during this cycle - skip update to preserve reset value
 		r.logger.Infow("Skipping lastProcessedBlock update due to concurrent reset",
 			"cycleStartVersion", startVersion,
 			"currentVersion", currentVersion,
-			"wouldHaveSet", currentBlock.String(),
+			"wouldHaveSet", processedToBlock.String(),
 			"preserving", r.lastProcessedBlock.String())
 	}
 	r.mu.Unlock()
 
-	// Try to checkpoint if appropriate (only if we updated)
+	// Update chain status if no reset occurred
 	if currentVersion == startVersion {
-		r.updateCheckpoint(ctx, currentBlock)
+		r.updateChainStatus(ctx, processedToBlock)
 	}
 
 	r.logger.Infow("📈 Processed block range",
 		"fromBlock", fromBlock.String(),
-		"toBlock", currentBlock.String(),
+		"toBlock", "latest",
+		"advancedTo", processedToBlock.String(),
 		"eventsFound", len(tasks))
-	r.logger.Debugw("Event details", "logs", tasks)
+	if len(tasks) > 0 {
+		r.logger.Debugw("Event details", "logs", tasks)
+	}
 }
 
 // sendBatchError sends a batch-level error to the coordinator.
@@ -654,4 +700,9 @@ func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
 
 func (r *SourceReaderService) GetSourceReader() SourceReader {
 	return r.sourceReader
+}
+
+// GetHeadTracker returns the injected HeadTracker.
+func (r *SourceReaderService) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+	return r.headTracker.LatestAndFinalizedBlock(ctx)
 }

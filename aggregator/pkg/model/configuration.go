@@ -103,7 +103,7 @@ const (
 type DynamoDBConfig struct {
 	CommitVerificationRecordTableName string `toml:"commitVerificationRecordTableName"`
 	FinalizedFeedTableName            string `toml:"finalizedFeedTableName"`
-	CheckpointTableName               string `toml:"checkpointTableName"`
+	ChainStatusTableName              string `toml:"chainStatusTableName"`
 	Region                            string `toml:"region,omitempty"`
 	Endpoint                          string `toml:"endpoint,omitempty"`
 	ShardCount                        int    `toml:"shardCount"`
@@ -127,6 +127,7 @@ type APIClient struct {
 	ClientID    string            `toml:"clientId"`
 	Description string            `toml:"description,omitempty"`
 	Enabled     bool              `toml:"enabled"`
+	IsAdmin     bool              `toml:"isAdmin,omitempty"`
 	Secrets     map[string]string `toml:"secrets,omitempty"`
 	Groups      []string          `toml:"groups,omitempty"`
 }
@@ -137,10 +138,23 @@ type APIKeyConfig struct {
 	Clients map[string]*APIClient `toml:"clients"`
 }
 
-// CheckpointConfig represents the configuration for the checkpoint API.
-type CheckpointConfig struct {
-	// MaxCheckpointsPerRequest limits the number of checkpoints per write request
-	MaxCheckpointsPerRequest int `toml:"maxCheckpointsPerRequest"`
+// ChainStatusConfig represents the configuration for the chain status API.
+type ChainStatusConfig struct {
+	// MaxChainStatusesPerRequest limits the number of chain statuses per write request
+	MaxChainStatusesPerRequest int `toml:"maxChainStatusesPerRequest"`
+}
+
+// AggregationConfig represents the configuration for the aggregation system.
+type AggregationConfig struct {
+	// ChannelBufferSize controls the size of the aggregation request channel buffer
+	ChannelBufferSize int `toml:"channelBufferSize"`
+	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
+	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
+	// EnableAggregationAfterQuorum allows new aggregations even when an existing one already meets quorum.
+	// When disabled (default false), the aggregator will check for existing aggregated reports before creating new ones.
+	// If an existing report still meets quorum requirements, no new aggregation will be created.
+	// Set to true to disable this optimization and always attempt new aggregations.
+	EnableAggregationAfterQuorum bool `toml:"enableAggregationAfterQuorum"`
 }
 
 type OrphanRecoveryConfig struct {
@@ -334,7 +348,8 @@ type AggregatorConfig struct {
 	Server                           ServerConfig               `toml:"server"`
 	Storage                          *StorageConfig             `toml:"storage"`
 	APIKeys                          APIKeyConfig               `toml:"-"`
-	Checkpoints                      CheckpointConfig           `toml:"checkpoints"`
+	ChainStatuses                    ChainStatusConfig          `toml:"chainStatuses"`
+	Aggregation                      AggregationConfig          `toml:"aggregation"`
 	OrphanRecovery                   OrphanRecoveryConfig       `toml:"orphanRecovery"`
 	RateLimiting                     RateLimitingConfig         `toml:"rateLimiting"`
 	HealthCheck                      HealthCheckConfig          `toml:"healthCheck"`
@@ -347,9 +362,18 @@ type AggregatorConfig struct {
 
 // SetDefaults sets default values for the configuration.
 func (c *AggregatorConfig) SetDefaults() {
-	if c.Checkpoints.MaxCheckpointsPerRequest == 0 {
-		c.Checkpoints.MaxCheckpointsPerRequest = 1000
+	if c.ChainStatuses.MaxChainStatusesPerRequest == 0 {
+		c.ChainStatuses.MaxChainStatusesPerRequest = 1000
 	}
+	// Aggregation defaults
+	if c.Aggregation.ChannelBufferSize == 0 {
+		// Set to 10 by default matching the number of background workers
+		c.Aggregation.ChannelBufferSize = 10
+	}
+	if c.Aggregation.BackgroundWorkerCount == 0 {
+		c.Aggregation.BackgroundWorkerCount = 10
+	}
+	// Note: EnableAggregationAfterQuorum defaults to false (no reaggregation after quorum)
 	// Initialize Storage config if nil
 	if c.Storage == nil {
 		c.Storage = &StorageConfig{}
@@ -409,10 +433,28 @@ func (c *AggregatorConfig) ValidateAPIKeyConfig() error {
 	return nil
 }
 
-// ValidateCheckpointConfig validates the checkpoint configuration.
-func (c *AggregatorConfig) ValidateCheckpointConfig() error {
-	if c.Checkpoints.MaxCheckpointsPerRequest <= 0 {
-		return errors.New("checkpoints.maxCheckpointsPerRequest must be greater than 0")
+// ValidateChainStatusConfig validates the chain status configuration.
+func (c *AggregatorConfig) ValidateChainStatusConfig() error {
+	if c.ChainStatuses.MaxChainStatusesPerRequest <= 0 {
+		return errors.New("chainStatuses.maxChainStatusesPerRequest must be greater than 0")
+	}
+
+	return nil
+}
+
+// ValidateAggregationConfig validates the aggregation configuration.
+func (c *AggregatorConfig) ValidateAggregationConfig() error {
+	if c.Aggregation.ChannelBufferSize <= 0 {
+		return errors.New("aggregation.channelBufferSize must be greater than 0")
+	}
+	if c.Aggregation.ChannelBufferSize > 100000 {
+		return errors.New("aggregation.channelBufferSize cannot exceed 100000")
+	}
+	if c.Aggregation.BackgroundWorkerCount <= 0 {
+		return errors.New("aggregation.backgroundWorkerCount must be greater than 0")
+	}
+	if c.Aggregation.BackgroundWorkerCount > 100 {
+		return errors.New("aggregation.backgroundWorkerCount cannot exceed 100")
 	}
 
 	return nil
@@ -455,9 +497,14 @@ func (c *AggregatorConfig) Validate() error {
 		return fmt.Errorf("api key configuration error: %w", err)
 	}
 
-	// Validate checkpoint configuration
-	if err := c.ValidateCheckpointConfig(); err != nil {
-		return fmt.Errorf("checkpoint configuration error: %w", err)
+	// Validate chain status configuration
+	if err := c.ValidateChainStatusConfig(); err != nil {
+		return fmt.Errorf("chain status configuration error: %w", err)
+	}
+
+	// Validate aggregation configuration
+	if err := c.ValidateAggregationConfig(); err != nil {
+		return fmt.Errorf("aggregation configuration error: %w", err)
 	}
 
 	// Validate storage configuration

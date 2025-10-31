@@ -12,6 +12,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -170,7 +171,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			Address: ":50051",
 		},
 		Storage: &model.StorageConfig{
-			StorageType: model.StorageTypeDynamoDB, // Default to DynamoDB
+			StorageType: model.StorageTypePostgreSQL, // Default to PostgreSQL
 		},
 		Monitoring: model.MonitoringConfig{
 			Enabled: false,
@@ -190,8 +191,8 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 				pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:             {LimitPerMinute: 10000},
 				pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName:        {LimitPerMinute: 10000},
 				pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:              {LimitPerMinute: 10000},
-				pb.Aggregator_WriteBlockCheckpoint_FullMethodName:               {LimitPerMinute: 10000},
-				pb.Aggregator_ReadBlockCheckpoint_FullMethodName:                {LimitPerMinute: 10000},
+				pb.Aggregator_WriteChainStatus_FullMethodName:                   {LimitPerMinute: 10000},
+				pb.Aggregator_ReadChainStatus_FullMethodName:                    {LimitPerMinute: 10000},
 			},
 		},
 	}
@@ -314,6 +315,61 @@ func createSimpleHMACClientInterceptor(config *hmacutil.ClientConfig) grpc.Unary
 	return hmacutil.NewClientInterceptor(config)
 }
 
+// createAdminHMACClientInterceptor creates an HMAC client interceptor with admin header support.
+func createAdminHMACClientInterceptor(config *hmacutil.ClientConfig, onBehalfOfClientID string) grpc.UnaryClientInterceptor {
+	hmacInterceptor := hmacutil.NewClientInterceptor(config)
+
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		// Add admin header if specified
+		if onBehalfOfClientID != "" {
+			md := metadata.New(map[string]string{
+				"x-admin-client-id": onBehalfOfClientID,
+			})
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+
+		// Call the HMAC interceptor with the modified context
+		return hmacInterceptor(ctx, method, req, reply, cc, invoker, opts...)
+	}
+}
+
+// CreateAdminAuthenticatedClient creates a gRPC client with admin authentication and optional on-behalf-of functionality.
+func CreateAdminAuthenticatedClient(t *testing.T, listener *bufconn.Listener, adminClientID, adminSecret, onBehalfOfClientID string) (pb.AggregatorClient, pb.VerifierResultAPIClient, func()) {
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	hmacConfig := &hmacutil.ClientConfig{
+		APIKey: adminClientID,
+		Secret: adminSecret,
+	}
+
+	clientOptions := []grpc.DialOption{
+		grpc.WithUnaryInterceptor(createAdminHMACClientInterceptor(hmacConfig, onBehalfOfClientID)),
+	}
+
+	aggregatorClient, aggregatorConn, err := createAggregatorClient(ctx, listener, clientOptions...)
+	if err != nil {
+		t.Fatalf("failed to create admin aggregator client: %v", err)
+	}
+
+	ccvDataClient, ccvDataConn, err := createCCVDataClient(ctx, listener, clientOptions...)
+	if err != nil {
+		t.Fatalf("failed to create admin CCV data client: %v", err)
+	}
+
+	cleanup := func() {
+		if err := aggregatorConn.Close(); err != nil {
+			t.Errorf("failed to close admin aggregator connection: %v", err)
+		}
+		if err := ccvDataConn.Close(); err != nil {
+			t.Errorf("failed to close admin ccv data connection: %v", err)
+		}
+	}
+
+	return aggregatorClient, ccvDataClient, cleanup
+}
+
 func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
 	// Start DynamoDB Local container
 	_, connectionString, cleanup := ddb.SetupTestDynamoDB(t)
@@ -325,7 +381,7 @@ func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*m
 
 	existingConfig.DynamoDB.CommitVerificationRecordTableName = ddb.TestCommitVerificationRecordTableName
 	existingConfig.DynamoDB.FinalizedFeedTableName = ddb.TestFinalizedFeedTableName
-	existingConfig.DynamoDB.CheckpointTableName = ddb.TestCheckpointTableName
+	existingConfig.DynamoDB.ChainStatusTableName = ddb.TestChainStatusTableName
 	existingConfig.DynamoDB.Region = "us-east-1"
 	existingConfig.DynamoDB.Endpoint = "http://" + connectionString
 

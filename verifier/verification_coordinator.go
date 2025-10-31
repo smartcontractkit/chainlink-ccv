@@ -11,7 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -42,7 +42,7 @@ type Coordinator struct {
 	verifier              Verifier
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
-	monitoring            common.VerifierMonitoring
+	monitoring            Monitoring
 	sourceStates          map[protocol.ChainSelector]*sourceState
 	cancel                context.CancelFunc
 	config                CoordinatorConfig
@@ -60,9 +60,10 @@ type Coordinator struct {
 	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVData]
 
 	// Configuration
-	checkpointManager protocol.CheckpointManager
-	sourceReaders     map[protocol.ChainSelector]SourceReader
-	reorgDetectors    map[protocol.ChainSelector]protocol.ReorgDetector
+	chainStatusManager protocol.ChainStatusManager
+	sourceReaders      map[protocol.ChainSelector]SourceReader
+	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
+	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
 }
 
 // Option is the functional option type for Coordinator.
@@ -75,10 +76,10 @@ func WithVerifier(verifier Verifier) Option {
 	}
 }
 
-// WithCheckpointManager sets the checkpoint manager.
-func WithCheckpointManager(manager protocol.CheckpointManager) Option {
+// WithChainStatusManager sets the chain status manager.
+func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
 	return func(vc *Coordinator) {
-		vc.checkpointManager = manager
+		vc.chainStatusManager = manager
 	}
 }
 
@@ -98,6 +99,24 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Op
 // AddSourceReader adds a single source reader to the existing map.
 func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
 	return WithSourceReaders(map[protocol.ChainSelector]SourceReader{chainSelector: sourceReader})
+}
+
+// WithHeadTrackers sets multiple head trackers.
+func WithHeadTrackers(headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) Option {
+	return func(vc *Coordinator) {
+		if vc.headTrackers == nil {
+			vc.headTrackers = make(map[protocol.ChainSelector]chainaccess.HeadTracker)
+		}
+
+		for chainSelector, tracker := range headTrackers {
+			vc.headTrackers[chainSelector] = tracker
+		}
+	}
+}
+
+// AddHeadTracker adds a single head tracker to the existing map.
+func AddHeadTracker(chainSelector protocol.ChainSelector, headTracker chainaccess.HeadTracker) Option {
+	return WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{chainSelector: headTracker})
 }
 
 // WithStorage sets the storage writer.
@@ -129,7 +148,7 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 }
 
 // WithMonitoring sets the monitoring implementation.
-func WithMonitoring(monitoring common.VerifierMonitoring) Option {
+func WithMonitoring(monitoring Monitoring) Option {
 	return func(vc *Coordinator) {
 		vc.monitoring = monitoring
 	}
@@ -210,10 +229,18 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			sourcePollInterval = sourceCfg.PollInterval
 		}
 
+		// Get the corresponding HeadTracker for this chain
+		headTracker, ok := vc.headTrackers[chainSelector]
+		if !ok {
+			vc.lggr.Errorw("skipping source reader: no head tracker found for chain selector", "chainSelector", chainSelector)
+			continue
+		}
+
 		service := NewSourceReaderService(
 			sourceReader,
+			headTracker,
 			chainSelector,
-			vc.checkpointManager,
+			vc.chainStatusManager,
 			vc.lggr,
 			sourcePollInterval,
 		)
@@ -523,7 +550,7 @@ func (vc *Coordinator) validate() error {
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
 	appendIfNil(vc.monitoring, "monitoring")
-	// checkpointManager is optional, not required
+	// chain statusManager is optional, not required
 
 	if len(vc.sourceReaders) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
@@ -672,18 +699,19 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	var readyTasks []VerificationTask
 	var remainingTasks []VerificationTask
 
-	// Get latest and finalized block heights for this chain
-	latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
+	// Get latest and finalized block headers for this chain
+	latest, finalized, err := state.reader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
-		vc.lggr.Errorw("Failed to get latest block", "error", err, "chain", chainSelector)
+		vc.lggr.Errorw("Failed to get latest and finalized blocks", "error", err, "chain", chainSelector)
+		return
+	}
+	if latest == nil || finalized == nil {
+		vc.lggr.Errorw("Received nil block headers", "chain", chainSelector)
 		return
 	}
 
-	latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
-	if err != nil {
-		vc.lggr.Errorw("Failed to get latest finalized block", "error", err, "chain", chainSelector)
-		return
-	}
+	latestBlock := new(big.Int).SetUint64(latest.Number)
+	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
 
 	// Record chain state metrics
 	vc.monitoring.Metrics().
@@ -896,9 +924,9 @@ func (vc *Coordinator) handleReorg(
 	state.pendingMu.Unlock()
 
 	// 2. Reset SourceReaderService synchronously
-	// Note: For regular reorgs, the common ancestor is always >= last checkpoint,
-	// so ResetToBlock will update in-memory position without writing checkpoint.
-	// Periodic checkpointing will naturally advance from this point.
+	// Note: For regular reorgs, the common ancestor is always >= last chain status,
+	// so ResetToBlock will update in-memory position without writing chain status.
+	// Periodic chain status chain statuses will naturally advance from this point.
 	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -951,8 +979,8 @@ func (vc *Coordinator) handleFinalityViolation(
 		"flushedCount", flushedCount)
 
 	// 2. Reset SourceReaderService to safe restart block
-	// Note: For finality violations, SafeRestartBlock < last checkpoint,
-	// so ResetToBlock will automatically persist the checkpoint to ensure safe restart.
+	// Note: For finality violations, SafeRestartBlock < last chain status,
+	// so ResetToBlock will automatically persist the chain status to ensure safe restart.
 	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -963,7 +991,7 @@ func (vc *Coordinator) handleFinalityViolation(
 			"resetBlock", violationStatus.SafeRestartBlock)
 		// Critical error - continue with stop anyway
 	} else {
-		vc.lggr.Infow("Source reader reset successfully with checkpoint persisted",
+		vc.lggr.Infow("Source reader reset successfully with chainStatus persisted",
 			"chain", chainSelector,
 			"resetBlock", violationStatus.SafeRestartBlock)
 	}

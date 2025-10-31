@@ -95,10 +95,19 @@ type GetVerificationsForMessageIDResponse struct {
 	MessageID       string             `json:"messageID"`
 }
 
+func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protocol.UnknownAddress {
+	sourceVerifierAddresses := make([]protocol.UnknownAddress, 0, len(g.VerifierResults))
+	for _, verifierResult := range g.VerifierResults {
+		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.SourceVerifierAddress)
+	}
+	return sourceVerifierAddresses
+}
+
 func (i *IndexerClient) WaitForVerificationsForMessageID(
 	ctx context.Context,
 	messageID [32]byte,
 	tickInterval time.Duration,
+	expectedVerifierResults int,
 ) (GetVerificationsForMessageIDResponse, error) {
 	msgIDHex := common.BytesToHash(messageID[:]).Hex()
 	ticker := time.NewTicker(tickInterval)
@@ -114,14 +123,16 @@ func (i *IndexerClient) WaitForVerificationsForMessageID(
 				i.logger.Error().Err(err).Msgf("failed to get verifications for messageID: %s, retrying", msgIDHex)
 				continue
 			}
-			if response.Success && len(response.VerifierResults) > 0 {
+			if response.Success && len(response.VerifierResults) == expectedVerifierResults {
 				i.logger.Info().
 					Str("messageID", msgIDHex).
 					Int("verifierResultsLen", len(response.VerifierResults)).
+					Any("verifierAddresses", response.SourceVerifierAddresses()).
+					Int("expectedVerifierResults", expectedVerifierResults).
 					Msg("found verifications for messageID in indexer")
 				return response, nil
 			}
-			i.logger.Error().Msgf("no verifications found for messageID: %s, retrying", msgIDHex)
+			i.logger.Error().Msgf("not enough verifications found for messageID: %s, expected %d, got %d, retrying", msgIDHex, expectedVerifierResults, len(response.VerifierResults))
 		}
 	}
 }

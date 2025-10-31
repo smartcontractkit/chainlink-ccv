@@ -34,13 +34,22 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 		return nil, err
 	}
 
-	records := make([]*pb.VerifierResult, 0, len(storage.Reports))
+	records := make([]*pb.MessageWithVerifierResult, 0, len(storage.Reports))
 	for _, report := range storage.Reports {
 		ccvData, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
 		if err != nil {
 			return nil, err
 		}
-		records = append(records, ccvData)
+		messageWithResult := &pb.MessageWithVerifierResult{
+			Message:                  ccvData.Message,
+			SourceVerifierAddress:    ccvData.SourceVerifierAddress,
+			DestVerifierAddress:      ccvData.DestVerifierAddress,
+			CcvData:                  ccvData.CcvData,
+			Timestamp:                ccvData.Timestamp,
+			Sequence:                 ccvData.Sequence,
+			ReceiptBlobsFromMajority: model.ReceiptBlobsToProto(report.WinningReceiptBlobs),
+		}
+		records = append(records, messageWithResult)
 	}
 
 	h.m.Metrics().RecordMessageSinceNumberOfRecordsReturned(ctx, len(records))

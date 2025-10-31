@@ -22,6 +22,7 @@ import (
 )
 
 func TestAggregationHappyPath(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -88,6 +89,7 @@ func TestAggregationHappyPath(t *testing.T) {
 }
 
 func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -196,6 +198,7 @@ func TestAggregationHappyPathMultipleCommittees(t *testing.T) {
 }
 
 func TestIdempotency(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -405,8 +408,81 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 }
 
+// assertReceiptBlobsFromMajority validates that the aggregated report contains the expected receipt blobs from majority consensus.
+func assertReceiptBlobsFromMajority(
+	t *testing.T,
+	ctx context.Context,
+	ccvDataClient pb.VerifierResultAPIClient,
+	messageId protocol.Bytes32,
+	expectedReceiptBlobs []*pb.ReceiptBlob,
+) {
+	require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+		getResp, err := ccvDataClient.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
+			SinceSequence: 0,
+		})
+		require.NoError(collect, err, "GetMessagesSince should succeed")
+		require.Len(collect, getResp.Results, 1, "Should return exactly 1 aggregated report")
+
+		report := getResp.Results[0]
+		require.NotNil(collect, report, "Report should not be nil")
+
+		// Check that the message ID matches
+		msg := &protocol.Message{
+			Version:              uint8(report.Message.Version),
+			SourceChainSelector:  protocol.ChainSelector(report.Message.SourceChainSelector),
+			DestChainSelector:    protocol.ChainSelector(report.Message.DestChainSelector),
+			Nonce:                protocol.Nonce(report.Message.Nonce),
+			OnRampAddressLength:  uint8(report.Message.OnRampAddressLength),
+			OnRampAddress:        report.Message.OnRampAddress,
+			OffRampAddressLength: uint8(report.Message.OffRampAddressLength),
+			OffRampAddress:       report.Message.OffRampAddress,
+			Finality:             uint16(report.Message.Finality),
+			SenderLength:         uint8(report.Message.SenderLength),
+			Sender:               report.Message.Sender,
+			ReceiverLength:       uint8(report.Message.ReceiverLength),
+			Receiver:             report.Message.Receiver,
+			DestBlobLength:       uint16(report.Message.DestBlobLength),
+			DestBlob:             report.Message.DestBlob,
+			TokenTransferLength:  uint16(report.Message.TokenTransferLength),
+			TokenTransfer:        report.Message.TokenTransfer,
+			DataLength:           uint16(report.Message.DataLength),
+			Data:                 report.Message.Data,
+		}
+
+		reportMessageId, err := msg.MessageID()
+		require.NoError(collect, err, "Failed to compute message ID from report")
+		require.Equal(collect, messageId, reportMessageId, "Message ID mismatch")
+
+		// Validate the receipt blobs from majority
+		actualReceiptBlobs := report.GetReceiptBlobsFromMajority()
+		require.NotNil(collect, actualReceiptBlobs, "ReceiptBlobsFromMajority should not be nil")
+		require.Len(collect, actualReceiptBlobs, len(expectedReceiptBlobs), "Receipt blob count mismatch")
+
+		// Debug logging for receipt blob comparison
+		if len(actualReceiptBlobs) > 0 && len(expectedReceiptBlobs) > 0 {
+			t.Logf("DEBUG: Expected DestGasLimit: %d, Actual DestGasLimit: %d",
+				expectedReceiptBlobs[0].DestGasLimit, actualReceiptBlobs[0].DestGasLimit)
+			t.Logf("DEBUG: Expected Blob: %s, Actual Blob: %s",
+				expectedReceiptBlobs[0].Blob, actualReceiptBlobs[0].Blob)
+		}
+
+		// Validate each expected receipt blob
+		for i, expectedBlob := range expectedReceiptBlobs {
+			require.Less(collect, i, len(actualReceiptBlobs), "Actual receipt blobs list is too short")
+			actualBlob := actualReceiptBlobs[i]
+
+			require.Equal(collect, expectedBlob.Issuer, actualBlob.Issuer, "Receipt blob issuer mismatch at index %d", i)
+			require.Equal(collect, expectedBlob.DestGasLimit, actualBlob.DestGasLimit, "Receipt blob DestGasLimit mismatch at index %d", i)
+			require.Equal(collect, expectedBlob.DestBytesOverhead, actualBlob.DestBytesOverhead, "Receipt blob DestBytesOverhead mismatch at index %d", i)
+			require.Equal(collect, expectedBlob.Blob, actualBlob.Blob, "Receipt blob Blob data mismatch at index %d", i)
+			require.Equal(collect, expectedBlob.ExtraArgs, actualBlob.ExtraArgs, "Receipt blob ExtraArgs mismatch at index %d", i)
+		}
+	}, 5*time.Second, 100*time.Millisecond, "Aggregated report with expected receipt blobs not found")
+}
+
 // Test where a valid signer sign but is later removed from the committee and another valider signs but aggregation should not complete. Only when we sign with a third valid signer it succeeds.
 func TestChangingCommitteeBeforeAggregation(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -489,6 +565,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 }
 
 func TestChangingCommitteeAfterAggregation(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -576,6 +653,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 
 // TestPaginationWithVariousPageSizes tests the GetMessagesSince API with pagination.
 func TestPaginationWithVariousPageSizes(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"postgres", "dynamodb"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -761,6 +839,7 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 
 // TestMultiShardPagination tests pagination with multiple shard configurations.
 func TestMultiShardPagination(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -947,6 +1026,7 @@ func runMultiShardPaginationTest(t *testing.T, shardCount, pageSize int, storage
 // TestParticipantDeduplication verifies that only one verification per participant
 // is included in the aggregated report, keeping the most recent one.
 func TestParticipantDeduplication(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -972,7 +1052,13 @@ func TestParticipantDeduplication(t *testing.T) {
 			},
 		}
 
-		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		// Create server with enabled EnableAggregationAfterQuorum feature
+		configOption := func(c *model.AggregatorConfig, clientConfig *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
+			c.Aggregation.EnableAggregationAfterQuorum = true // Explicitly enable the feature
+			return c, clientConfig
+		}
+
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType), configOption)
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
@@ -1054,6 +1140,7 @@ func TestParticipantDeduplication(t *testing.T) {
 
 // TestSequenceOrdering verifies that GetMessagesSince returns reports ordered by WrittenAt.
 func TestSequenceOrdering(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"dynamodb", "postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -1175,9 +1262,136 @@ func TestSequenceOrdering(t *testing.T) {
 	}
 }
 
+// TestReceiptBlobMajorityConsensus tests that when there are conflicting receipt blobs,
+// the consensus algorithm selects the majority winner.
+func TestReceiptBlobMajorityConsensus(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"memory", "postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		signer3 := NewSignerFixture(t, "node3")
+
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 3, // Require all 3 signers for quorum
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+							signer3.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := NewProtocolMessage(t)
+		messageId, err := message.MessageID()
+		require.NoError(t, err, "failed to compute message ID")
+
+		// Create different receipt blobs - signer1 has a different blob than signer2 and signer3
+		minorityReceiptBlob := []*pb.ReceiptBlob{
+			{
+				Issuer:            sourceVerifierAddress,
+				DestGasLimit:      100000,
+				DestBytesOverhead: 1000,
+				Blob:              []byte("minority-blob-data"),
+				ExtraArgs:         []byte("minority-args"),
+			},
+		}
+
+		majorityReceiptBlob := []*pb.ReceiptBlob{
+			{
+				Issuer:            sourceVerifierAddress,
+				DestGasLimit:      200000,
+				DestBytesOverhead: 2000,
+				Blob:              []byte("majority-blob-data"),
+				ExtraArgs:         []byte("majority-args"),
+			},
+		}
+
+		// Signer1 provides the minority receipt blob
+		t.Log("Step 1: Signer1 provides minority receipt blob")
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer1),
+			WithReceiptBlobs(minorityReceiptBlob))
+
+		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
+
+		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
+
+		// Signer2 provides the majority receipt blob
+		t.Log("Step 2: Signer2 provides majority receipt blob")
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer2),
+			WithReceiptBlobs(majorityReceiptBlob))
+
+		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
+
+		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
+
+		// Signer3 also provides the majority receipt blob
+		t.Log("Step 3: Signer3 provides majority receipt blob (should trigger aggregation)")
+		ccvNodeData3 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer3),
+			WithReceiptBlobs(majorityReceiptBlob))
+
+		resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData3,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer3")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status)
+
+		// Now we should have the aggregated result with the majority receipt blob
+		t.Log("Step 4: Verify majority receipt blob was selected")
+		_ = assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData3.GetMessage(),
+			sourceVerifierAddress, destVerifierAddress,
+			WithValidSignatureFrom(signer1),
+			WithValidSignatureFrom(signer2),
+			WithValidSignatureFrom(signer3),
+			WithExactNumberOfSignatures(3))
+
+		// Verify that the majority receipt blob was selected in the consensus
+		t.Log("Step 5: Verify majority consensus selected the correct receipt blobs")
+		assertReceiptBlobsFromMajority(t, t.Context(), ccvDataClient, messageId, majorityReceiptBlob)
+
+		t.Log("✅ Majority consensus test passed: consensus algorithm successfully processed conflicting receipt blobs")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
 // TestGetMessagesSinceDeduplication verifies that GetMessagesSince deduplicates messages
 // and shows correct behavior when the same signer submits multiple verifications.
+// With the stop-aggregation-after-quorum feature enabled (default), reaggregation is prevented
+// when an existing report already meets quorum, even with newer timestamps.
 func TestGetMessagesSinceDeduplication(t *testing.T) {
+	t.Parallel()
 	storageTypes := []string{"postgres", "dynamodb"}
 
 	testFunc := func(t *testing.T, storageType string) {
@@ -1284,8 +1498,172 @@ func TestGetMessagesSinceDeduplication(t *testing.T) {
 				SinceSequence: 0,
 			})
 			require.NoError(collect, err, "GetMessagesSince should succeed")
-			require.Len(collect, getResp.Results, 2, "Should return 2 reports (because of reaggregation with newer timestamp)")
-		}, 5*time.Second, 500*time.Millisecond, "GetMessagesSince should eventually return 2 reports")
+			require.Len(collect, getResp.Results, 1, "Should return 1 report (reaggregation skipped due to existing quorum)")
+		}, 5*time.Second, 500*time.Millisecond, "GetMessagesSince should still return 1 report (reaggregation prevented by stop-aggregation-after-quorum feature)")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled verifies that when EnableAggregationAfterQuorum is enabled
+// the system allows post-quorum aggregations and both GetMessagesSince and GetVerifierResultForMessage
+// return the expected results with multiple aggregated reports.
+func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
+	storageTypes := []string{"postgres", "dynamodb"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		// Track the timestamp (int64) of the first aggregated report so we can compare with the second
+		var firstAggregationTimestamp int64
+
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 2,
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+
+		// Create server with enabled EnableAggregationAfterQuorum feature
+		configOption := func(c *model.AggregatorConfig, clientConfig *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
+			c.Aggregation.EnableAggregationAfterQuorum = true // Explicitly enable the feature
+			return c, clientConfig
+		}
+
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(
+			t,
+			WithCommitteeConfig(config),
+			WithStorageType(storageType),
+			configOption,
+		)
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		// Create a message that both signers will verify
+		message := NewProtocolMessage(t)
+		messageID, err := message.MessageID()
+		require.NoError(t, err, "failed to compute message ID")
+
+		// Step 1: Signer1 sends their verification
+		t.Log("Step 1: Signer1 sends verification")
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-2*time.Minute).UnixMicro()))
+		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData1,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
+
+		// GetMessagesSince should return nothing (no quorum yet)
+		getResp1, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+			SinceSequence: 0,
+		})
+		require.NoError(t, err, "GetMessagesSince should succeed")
+		require.Len(t, getResp1.Results, 0, "Should return 0 reports (no quorum yet)")
+		t.Log("✓ GetMessagesSince returns 0 reports after signer1 verification")
+
+		// GetVerifierResultForMessage should return nothing (no quorum yet)
+		_, err = ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
+			MessageId: messageID[:],
+		})
+		require.Error(t, err, "GetVerifierResultForMessage should fail before quorum")
+		require.Contains(t, err.Error(), "no data found", "Error should indicate no data found before quorum")
+		t.Log("✓ GetVerifierResultForMessage returns not found before quorum")
+
+		// Step 2: Signer2 sends their verification (quorum reached)
+		t.Log("Step 2: Signer2 sends verification")
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
+		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
+
+		// Wait for first aggregation to complete
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			getResp, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+				SinceSequence: 0,
+			})
+			require.NoError(collect, err, "GetMessagesSince should succeed")
+			require.Len(collect, getResp.Results, 1, "Should return 1 report (first quorum reached)")
+		}, 5*time.Second, 500*time.Millisecond, "GetMessagesSince should eventually return 1 report after first quorum is reached")
+
+		// Check GetVerifierResultForMessage after first aggregation and record its timestamp
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			getVerifierResp, err := ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
+				MessageId: messageID[:],
+			})
+			require.NoError(collect, err, "GetVerifierResultForMessage should succeed")
+			require.NotNil(collect, getVerifierResp, "Should return a result after first quorum")
+			firstAggregationTimestamp = getVerifierResp.Timestamp
+		}, 5*time.Second, 500*time.Millisecond, "GetVerifierResultForMessage should eventually return a result after first quorum")
+
+		// Wait a second to ensure the aggregation timestamp is different (we use write time as aggregation time)
+		time.Sleep(1 * time.Second)
+
+		// Step 3: Signer2 sends new verification with more recent timestamp (should trigger reaggregation since feature is disabled)
+		t.Log("Step 3: Signer2 sends new verification for the same message (more recent timestamp)")
+		newerTimestamp := time.Now().UnixMicro()
+		ccvNodeData2New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(newerTimestamp))
+		resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), &pb.WriteCommitCCVNodeDataRequest{
+			CcvNodeData: ccvNodeData2New,
+		})
+		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2 (newer timestamp)")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status)
+
+		// GetMessagesSince should eventually return 2 reports (feature disabled allows reaggregation)
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			getResp, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
+				SinceSequence: 0,
+			})
+			require.NoError(collect, err, "GetMessagesSince should succeed")
+			require.Len(collect, getResp.Results, 2, "Should return 2 reports (feature disabled allows reaggregation)")
+
+			// Verify both reports are for the same message but with different timestamps
+			result1 := getResp.Results[0]
+			result2 := getResp.Results[1]
+
+			assert.Equal(collect, uint64(message.Nonce), result1.Message.Nonce, "First report should be for our message")
+			assert.Equal(collect, uint64(message.Nonce), result2.Message.Nonce, "Second report should be for our message")
+
+			// The newer report should have a more recent timestamp
+			assert.Greater(collect, result2.Timestamp, result1.Timestamp, "Second report should have newer timestamp")
+		}, 10*time.Second, 500*time.Millisecond, "GetMessagesSince should eventually return 2 reports when feature is disabled")
+
+		// GetVerifierResultForMessage should return the most recent aggregated report; verify timestamp advanced
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			getVerifierResp, err := ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
+				MessageId: messageID[:],
+			})
+			require.NoError(collect, err, "GetVerifierResultForMessage should succeed")
+			require.NotNil(collect, getVerifierResp, "Should return a result")
+
+			// Should return the most recent aggregated report
+			assert.Equal(collect, uint64(message.Nonce), getVerifierResp.Message.Nonce, "Should return result for our message")
+
+			// The new aggregation timestamp should be different and greater than the first
+			assert.NotEqual(collect, firstAggregationTimestamp, getVerifierResp.Timestamp, "Second aggregation should have a different timestamp")
+			assert.Greater(collect, getVerifierResp.Timestamp, firstAggregationTimestamp, "Second aggregation should be more recent than first")
+		}, 10*time.Second, 500*time.Millisecond, "GetVerifierResultForMessage should return the newer aggregated report with a later timestamp")
+
+		t.Log("✓ Both GetMessagesSince and GetVerifierResultForMessage behave correctly with feature disabled")
 	}
 
 	for _, storageType := range storageTypes {

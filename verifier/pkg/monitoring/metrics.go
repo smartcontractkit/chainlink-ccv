@@ -7,7 +7,7 @@ import (
 
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 
@@ -179,7 +179,7 @@ func MetricViews() []sdkmetric.View {
 	}
 }
 
-var _ common.VerifierMetricLabeler = (*VerifierMetricLabeler)(nil)
+var _ verifier.MetricLabeler = (*VerifierMetricLabeler)(nil)
 
 // VerifierMetricLabeler wraps VerifierMetrics with label support.
 type VerifierMetricLabeler struct {
@@ -188,14 +188,14 @@ type VerifierMetricLabeler struct {
 }
 
 // NewVerifierMetricLabeler creates a new verifier metric labeler.
-func NewVerifierMetricLabeler(labeler metrics.Labeler, vm *VerifierMetrics) common.VerifierMetricLabeler {
+func NewVerifierMetricLabeler(labeler metrics.Labeler, vm *VerifierMetrics) verifier.MetricLabeler {
 	return &VerifierMetricLabeler{
 		Labeler: labeler,
 		vm:      vm,
 	}
 }
 
-func (v *VerifierMetricLabeler) With(keyValues ...string) common.VerifierMetricLabeler {
+func (v *VerifierMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
 	return &VerifierMetricLabeler{v.Labeler.With(keyValues...), v.vm}
 }
 
