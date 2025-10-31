@@ -158,13 +158,9 @@ func executor(in string) {
 	}
 
 	switch in {
-	// append active config to "up" and "restart" commands with no arguments
-	case "up", "u":
+	// append active config to "up" and "restart" commands.
+	case "up", "u", "restart", "r":
 		in = fmt.Sprintf("%s %s", in, getActiveConfig())
-	case "restart", "r":
-		// skip debug flag if present
-		noDebugConfig := strings.ReplaceAll(getActiveConfig(), "--debug", "")
-		in = fmt.Sprintf("%s %s", in, noDebugConfig)
 	}
 
 	// don't save "exit" or empty lines to history
