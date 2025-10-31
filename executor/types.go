@@ -47,8 +47,8 @@ type MessageWithCCVData struct {
 	VerifiedTimestamp int64
 }
 
-type CcvAddressInfo struct {
-	RequiredCcvs      []protocol.UnknownAddress
-	OptionalCcvs      []protocol.UnknownAddress
-	OptionalThreshold uint8
+type CCVAddressInfo struct {
+	RequiredCCVs      []protocol.UnknownAddress `json:"required_ccvs"`
+	OptionalCCVs      []protocol.UnknownAddress `json:"optional_ccvs"`
+	OptionalThreshold uint8                     `json:"optional_threshold"`
 }

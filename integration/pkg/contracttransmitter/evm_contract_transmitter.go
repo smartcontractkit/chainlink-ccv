@@ -116,7 +116,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 
 	contractCcvs := make([]common.Address, 0)
 	for _, ccv := range report.CCVS {
-		contractCcvs = append(contractCcvs, common.HexToAddress(string(ccv)))
+		contractCcvs = append(contractCcvs, common.HexToAddress(ccv.String()))
 	}
 	opts, err := ct.GetTransactOpts()
 	if err != nil {
@@ -131,7 +131,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 
 	messageID, _ := report.Message.MessageID()
 
-	ct.lggr.Infow("submitted tx to chain", "tx hash", tx.Hash().Hex(), "messageID", messageID)
+	ct.lggr.Infow("submitted tx to chain", "txHash", tx.Hash().Hex(), "messageID", messageID)
 
 	return nil
 }
