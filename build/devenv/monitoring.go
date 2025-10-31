@@ -95,6 +95,14 @@ type GetVerificationsForMessageIDResponse struct {
 	MessageID       string             `json:"messageID"`
 }
 
+func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protocol.UnknownAddress {
+	sourceVerifierAddresses := make([]protocol.UnknownAddress, 0, len(g.VerifierResults))
+	for _, verifierResult := range g.VerifierResults {
+		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.SourceVerifierAddress)
+	}
+	return sourceVerifierAddresses
+}
+
 func (i *IndexerClient) WaitForVerificationsForMessageID(
 	ctx context.Context,
 	messageID [32]byte,
@@ -119,6 +127,7 @@ func (i *IndexerClient) WaitForVerificationsForMessageID(
 				i.logger.Info().
 					Str("messageID", msgIDHex).
 					Int("verifierResultsLen", len(response.VerifierResults)).
+					Any("verifierAddresses", response.SourceVerifierAddresses()).
 					Int("expectedVerifierResults", expectedVerifierResults).
 					Msg("found verifications for messageID in indexer")
 				return response, nil

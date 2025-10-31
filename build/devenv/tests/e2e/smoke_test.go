@@ -38,6 +38,24 @@ func defaultAggregatorPort(in *ccv.Cfg) int {
 	panic(fmt.Sprintf("default aggregator not found, expected to find a default aggregator in the configuration, got: %+v", in.Aggregator))
 }
 
+type tokenTransfer struct {
+	tokenAmount  cciptestinterfaces.TokenAmount
+	destTokenRef datastore.AddressRef
+}
+
+type testcase struct {
+	name                     string
+	srcSelector              uint64
+	dstSelector              uint64
+	finality                 uint16
+	receiver                 protocol.UnknownAddress
+	ccvs                     []protocol.CCV
+	expectFail               bool
+	tokenTransfer            *tokenTransfer
+	numExpectedReceipts      int
+	numExpectedVerifications int
+}
+
 func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
@@ -80,16 +98,14 @@ func TestE2ESmoke(t *testing.T) {
 	require.NotNil(t, indexerClient)
 
 	t.Run("test extra args v2 messages", func(t *testing.T) {
-		type testcase struct {
+		tcs := []struct {
 			name                     string
 			fromSelector             uint64
 			toSelector               uint64
 			receiver                 protocol.UnknownAddress
 			expectFail               bool
 			numExpectedVerifications int
-		}
-
-		tcs := []testcase{
+		}{
 			{
 				name:                     "src->dst msg execution eoa receiver",
 				fromSelector:             selectors[0],
@@ -165,149 +181,26 @@ func TestE2ESmoke(t *testing.T) {
 		}
 	})
 
-	t.Run("test extra args v3 messages", func(t *testing.T) {
-		type tokenTransfer struct {
-			tokenAmount  cciptestinterfaces.TokenAmount
-			destTokenRef datastore.AddressRef
-		}
+	t.Run("extra args v3", func(t *testing.T) {
+		var tcs []testcase
+		src, dest := selectors[0], selectors[1]
+		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, c)
+		tcs = append(tcs, mvtcsSrcToDest...)
+		// add one test case the other way around (dest->src) to test the reverse lane.
+		mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, c)
+		tcs = append(tcs, mvtcsDestToSrc[0])
+		// TODO: add more messaging test cases here.
 
-		type testcase struct {
-			name                     string
-			srcSelector              uint64
-			dstSelector              uint64
-			finality                 uint16
-			receiver                 protocol.UnknownAddress
-			ccvs                     []protocol.CCV
-			expectFail               bool
-			tokenTransfer            *tokenTransfer
-			numExpectedReceipts      int
-			numExpectedVerifications int
-		}
-
-		tcs := []testcase{
+		tcs = append(tcs, []testcase{
 			{
-				// Since the receiver is an EOA, the default verifier will be returned on the destination chain.
-				// Since the CCV specified in the message does not include the default, but the secondary, and
-				// the executor used is the default executor, the default verifier should still sign the message.
-				name:        "src_dest msg execution with EOA receiver and secondary committee verifier",
-				srcSelector: selectors[0],
-				dstSelector: selectors[1],
+				name:        "EOA receiver and default committee verifier with token transfer",
+				srcSelector: src,
+				dstSelector: dest,
 				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
+				receiver:    mustGetEOAReceiverAddress(t, c, dest),
 				ccvs: []protocol.CCV{
 					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				// default verifier and secondary verifier will verify so should be two verifications.
-				numExpectedVerifications: 2,
-				// default executor and secondary committee verifier
-				numExpectedReceipts: 2,
-			},
-			{
-				name:        "src_dst msg execution with EOA receiver",
-				srcSelector: selectors[0],
-				dstSelector: selectors[1],
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-			{
-				name:        "dst_src msg execution with EOA receiver",
-				srcSelector: selectors[1],
-				dstSelector: selectors[0],
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[0]),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-			{
-				name:        "1337->3337 msg execution with EOA receiver",
-				srcSelector: selectors[0],
-				dstSelector: selectors[2],
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[2]),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-
-			{
-				name:        "src_dst msg execution with mock receiver",
-				srcSelector: selectors[0],
-				dstSelector: selectors[1],
-				finality:    1,
-				receiver:    getContractAddress(t, in, selectors[1], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				expectFail: false,
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-			{
-				name:        "dst_src msg execution with mock receiver",
-				srcSelector: selectors[1],
-				dstSelector: selectors[0],
-				finality:    1,
-				receiver:    getContractAddress(t, in, selectors[0], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[1], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				expectFail: false,
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor and default committee verifier
-				numExpectedReceipts: 2,
-			},
-			{
-				name:        "src_dst msg execution with EOA receiver and token transfer",
-				srcSelector: selectors[0],
-				dstSelector: selectors[1],
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, selectors[1]),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+						CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 						Args:       []byte{},
 						ArgsLen:    0,
 					},
@@ -315,7 +208,7 @@ func TestE2ESmoke(t *testing.T) {
 				tokenTransfer: &tokenTransfer{
 					tokenAmount: cciptestinterfaces.TokenAmount{
 						Amount:       big.NewInt(1000),
-						TokenAddress: getContractAddress(t, in, selectors[0], datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), "TEST", "burn mint erc677"),
+						TokenAddress: getContractAddress(t, in, src, datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), "TEST", "burn mint erc677"),
 					},
 					destTokenRef: datastore.AddressRef{
 						Type:      datastore.ContractType(burn_mint_erc677.ContractType),
@@ -328,7 +221,7 @@ func TestE2ESmoke(t *testing.T) {
 				// default executor, default committee verifier and the token contract
 				numExpectedReceipts: 3,
 			},
-		}
+		}...)
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				var receiverStartBalance *big.Int
@@ -377,7 +270,7 @@ func TestE2ESmoke(t *testing.T) {
 				if tc.expectFail {
 					require.Equal(t, cciptestinterfaces.ExecutionStateFailure, e.State)
 				} else {
-					require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, e.State)
+					require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, e.State, "unexpected state, return data: %x", e.ReturnData)
 				}
 				if receiverStartBalance != nil {
 					receiverEndBalance, err := c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
@@ -403,4 +296,256 @@ func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, con
 	require.NoErrorf(t, err, "failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s",
 		contractName, chainSelector, contractType, version)
 	return protocol.UnknownAddress(common.HexToAddress(ref.Address).Bytes())
+}
+
+// multiVerifierTestCases returns a list of test cases for testing multi-verifier scenarios.
+func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvEvm.CCIP17EVM) []testcase {
+	return []testcase{
+		{
+			name:        "EOA receiver and default committee verifier",
+			srcSelector: src,
+			dstSelector: dest,
+			finality:    1,
+			receiver:    mustGetEOAReceiverAddress(t, c, dest),
+			ccvs: []protocol.CCV{
+				{
+					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+					Args:       []byte{},
+					ArgsLen:    0,
+				},
+			},
+			// default verifier
+			numExpectedVerifications: 1,
+			// default executor and default committee verifier
+			numExpectedReceipts: 2,
+		},
+		{
+			name:        "EOA receiver and secondary committee verifier",
+			srcSelector: src,
+			dstSelector: dest,
+			finality:    1,
+			receiver:    mustGetEOAReceiverAddress(t, c, dest),
+			ccvs: []protocol.CCV{
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.SecondaryCommitteeVerifierQualifier,
+						"secondary committee verifier proxy",
+					),
+					Args:    []byte{},
+					ArgsLen: 0,
+				},
+			},
+			// default verifier and secondary verifier will verify so should be two verifications.
+			numExpectedVerifications: 2,
+			// default executor and secondary committee verifier
+			// default verifier does NOT show up onchain because it is only a default and not lane mandated.
+			numExpectedReceipts: 2,
+		},
+		{
+			name:        "receiver w/ secondary verifier required",
+			srcSelector: src,
+			dstSelector: dest,
+			finality:    1,
+			receiver: getContractAddress(
+				t,
+				in,
+				dest,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				ccvEvm.SecondaryReceiverQualifier,
+				"secondary mock receiver",
+			),
+			ccvs: []protocol.CCV{
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.SecondaryCommitteeVerifierQualifier,
+						"secondary committee verifier proxy",
+					),
+					Args:    []byte{},
+					ArgsLen: 0,
+				},
+			},
+			// default verifier and secondary verifier will verify so should be two verifications.
+			numExpectedVerifications: 2,
+			// default executor and secondary committee verifier
+			// default verifier does NOT show up onchain because it is only a default and not lane mandated.
+			numExpectedReceipts: 2,
+		},
+		{
+			name:        "receiver w/ secondary required and tertiary optional threshold=1",
+			srcSelector: src,
+			dstSelector: dest,
+			finality:    1,
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.SecondaryReceiverQualifier, "secondary mock receiver"),
+			ccvs: []protocol.CCV{
+				// secondary is required, so it should be retrieved.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy",
+					),
+					Args:    []byte{},
+					ArgsLen: 0,
+				},
+				// tertiary is optional with threshold=1 on the dest, so it should be retrieved.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.TertiaryCommitteeVerifierQualifier,
+						"tertiary committee verifier proxy",
+					),
+					Args:    []byte{},
+					ArgsLen: 0,
+				},
+			},
+			// default, secondary and tertiary verifiers will verify so should be three verifications.
+			numExpectedVerifications: 3,
+			// default executor and secondary and tertiary committee verifiers
+			// default verifier does NOT show up onchain because it is only a default and not lane mandated.
+			numExpectedReceipts: 3,
+		},
+		{
+			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies all three",
+			srcSelector: src,
+			dstSelector: dest,
+			finality:    1,
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			ccvs: []protocol.CCV{
+				// default is required, so it should be retrieved.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.DefaultCommitteeVerifierQualifier,
+						"default committee verifier proxy",
+					),
+				},
+				// secondary and tertiary are optional with threshold=1 on the dest, so one of them should be retrieved.
+				// We specify both here, but one may not end up getting included in the message execution on the dest.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.SecondaryCommitteeVerifierQualifier,
+						"secondary committee verifier proxy",
+					),
+				},
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.TertiaryCommitteeVerifierQualifier,
+						"tertiary committee verifier proxy",
+					),
+				},
+			},
+			// default, secondary and tertiary verifiers will verify so should be three verifications.
+			numExpectedVerifications: 3,
+			// default executor and default, secondary and tertiary committee verifiers
+			numExpectedReceipts: 4,
+		},
+		{
+			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies default and secondary",
+			srcSelector: src,
+			dstSelector: dest,
+			finality:    1,
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			ccvs: []protocol.CCV{
+				// default is required, so it should be retrieved.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.DefaultCommitteeVerifierQualifier,
+						"default committee verifier proxy",
+					),
+				},
+				// secondary and tertiary are optional with threshold=1 on the dest, so one of them should be retrieved.
+				// We specify only secondary here, which should be enough since threshold=1 (out of 2).
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.SecondaryCommitteeVerifierQualifier,
+						"secondary committee verifier proxy",
+					),
+				},
+			},
+			// default and secondary verifiers will verify so should be two verifications.
+			numExpectedVerifications: 2,
+			// default executor, default and secondary committee verifiers
+			numExpectedReceipts: 3,
+		},
+		{
+			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies default and tertiary",
+			srcSelector: src,
+			dstSelector: dest,
+			finality:    1,
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			ccvs: []protocol.CCV{
+				// default is required, so it should be retrieved.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.DefaultCommitteeVerifierQualifier,
+						"default committee verifier proxy",
+					),
+				},
+				// secondary and tertiary are optional with threshold=1 on the dest, so one of them should be retrieved.
+				// We specify only tertiary here, which should be enough since threshold=1 (out of 2).
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.TertiaryCommitteeVerifierQualifier,
+						"tertiary committee verifier proxy",
+					),
+				},
+			},
+			// default and tertiary verifiers will verify so should be two verifications.
+			numExpectedVerifications: 2,
+			// default executor, default and tertiary committee verifiers
+			numExpectedReceipts: 3,
+		},
+	}
 }

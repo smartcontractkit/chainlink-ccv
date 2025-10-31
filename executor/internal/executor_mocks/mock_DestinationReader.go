@@ -25,22 +25,22 @@ func (_m *MockDestinationReader) EXPECT() *MockDestinationReader_Expecter {
 }
 
 // GetCCVSForMessage provides a mock function with given fields: ctx, message
-func (_m *MockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CcvAddressInfo, error) {
+func (_m *MockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CCVAddressInfo, error) {
 	ret := _m.Called(ctx, message)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetCCVSForMessage")
 	}
 
-	var r0 executor.CcvAddressInfo
+	var r0 executor.CCVAddressInfo
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (executor.CcvAddressInfo, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (executor.CCVAddressInfo, error)); ok {
 		return rf(ctx, message)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) executor.CcvAddressInfo); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) executor.CCVAddressInfo); ok {
 		r0 = rf(ctx, message)
 	} else {
-		r0 = ret.Get(0).(executor.CcvAddressInfo)
+		r0 = ret.Get(0).(executor.CCVAddressInfo)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) error); ok {
@@ -71,12 +71,12 @@ func (_c *MockDestinationReader_GetCCVSForMessage_Call) Run(run func(ctx context
 	return _c
 }
 
-func (_c *MockDestinationReader_GetCCVSForMessage_Call) Return(_a0 executor.CcvAddressInfo, _a1 error) *MockDestinationReader_GetCCVSForMessage_Call {
+func (_c *MockDestinationReader_GetCCVSForMessage_Call) Return(_a0 executor.CCVAddressInfo, _a1 error) *MockDestinationReader_GetCCVSForMessage_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockDestinationReader_GetCCVSForMessage_Call) RunAndReturn(run func(context.Context, protocol.Message) (executor.CcvAddressInfo, error)) *MockDestinationReader_GetCCVSForMessage_Call {
+func (_c *MockDestinationReader_GetCCVSForMessage_Call) RunAndReturn(run func(context.Context, protocol.Message) (executor.CCVAddressInfo, error)) *MockDestinationReader_GetCCVSForMessage_Call {
 	_c.Call.Return(run)
 	return _c
 }
