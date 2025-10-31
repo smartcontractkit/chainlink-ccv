@@ -55,44 +55,82 @@ func WithChainStatusTestClients() ConfigOption {
 			testClients = append(testClients, clientID)
 		}
 
+		// Initialize APIClients metadata map
+		if cfg.APIClients == nil {
+			cfg.APIClients = make(map[string]*model.APIClientMetadata)
+		}
+
+		// Configure metadata for regular test clients
+		for _, clientID := range testClients {
+			cfg.APIClients[clientID] = &model.APIClientMetadata{
+				Description: "Test client for " + clientID,
+				Groups:      []string{},
+				Enabled:     true,
+				Admin:       false,
+			}
+		}
+
+		// Configure metadata for admin clients
+		for _, clientID := range adminClients {
+			cfg.APIClients[clientID] = &model.APIClientMetadata{
+				Description: "Admin test client for " + clientID,
+				Groups:      []string{},
+				Enabled:     true,
+				Admin:       true,
+			}
+		}
+
+		// Configure metadata for verifier clients
+		for _, clientID := range verifierClients {
+			cfg.APIClients[clientID] = &model.APIClientMetadata{
+				Description: "Verifier test client for " + clientID,
+				Groups:      []string{"verifiers"},
+				Enabled:     true,
+				Admin:       false,
+			}
+		}
+
 		// Configure regular test clients
 		for _, clientID := range testClients {
+			apiKey := "key-" + clientID
 			secret := "secret-" + clientID
 			cfg.APIKeys.Clients[clientID] = &model.APIClient{
 				ClientID:    clientID,
 				Description: "Test client for " + clientID,
 				Enabled:     true,
 				IsAdmin:     false,
-				Secrets: map[string]string{
-					"current": secret,
+				APIKeys: map[string]string{
+					apiKey: secret,
 				},
 			}
 		}
 
 		// Configure admin clients
 		for _, clientID := range adminClients {
+			apiKey := "key-" + clientID
 			secret := "secret-" + clientID
 			cfg.APIKeys.Clients[clientID] = &model.APIClient{
 				ClientID:    clientID,
 				Description: "Admin test client for " + clientID,
 				Enabled:     true,
 				IsAdmin:     true,
-				Secrets: map[string]string{
-					"current": secret,
+				APIKeys: map[string]string{
+					apiKey: secret,
 				},
 			}
 		}
 
 		// Configure verifier clients for admin tests
 		for _, clientID := range verifierClients {
+			apiKey := "key-" + clientID
 			secret := "secret-" + clientID
 			cfg.APIKeys.Clients[clientID] = &model.APIClient{
 				ClientID:    clientID,
 				Description: "Verifier test client for " + clientID,
 				Enabled:     true,
 				IsAdmin:     false,
-				Secrets: map[string]string{
-					"current": secret,
+				APIKeys: map[string]string{
+					apiKey: secret,
 				},
 			}
 		}

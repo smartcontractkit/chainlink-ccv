@@ -96,3 +96,34 @@ LogStreamingEnabled = true
 MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
+
+# API Client Metadata Configuration
+# This section defines static metadata for API clients
+# The actual API keys and secrets are loaded from environment variables
+
+[apiClients.verifier_1]
+description = "Development default verifier node 1"
+groups = ["verifiers"]
+enabled = true
+admin = false
+key_pair_env_vars = [
+  { api_key_env = "AGGREGATOR_VERIFIER_1_API_KEY", secret_env = "AGGREGATOR_VERIFIER_1_SECRET" }
+]
+
+[apiClients.verifier_2]
+description = "Development default verifier node 2"
+groups = ["verifiers"]
+enabled = true
+admin = false
+key_pair_env_vars = [
+  { api_key_env = "AGGREGATOR_VERIFIER_2_API_KEY", secret_env = "AGGREGATOR_VERIFIER_2_SECRET" }
+]
+
+[apiClients.monitoring]
+description = "Monitoring and infrastructure client"
+groups = ["monitoring"]
+enabled = true
+admin = false
+key_pair_env_vars = [
+  { api_key_env = "AGGREGATOR_MONITORING_API_KEY", secret_env = "AGGREGATOR_MONITORING_SECRET" }
+]

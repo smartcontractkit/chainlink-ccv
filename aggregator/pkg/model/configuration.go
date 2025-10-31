@@ -2,8 +2,8 @@ package model
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"math/big"
 	"os"
@@ -12,6 +12,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 )
+
+// isRunningInTest returns true if the code is running under `go test`.
+func isRunningInTest() bool {
+	return flag.Lookup("test.v") != nil
+}
 
 // Signer represents a participant in the commit verification process.
 type Signer struct {
@@ -124,17 +129,36 @@ type ServerConfig struct {
 
 // APIClient represents a configured client for API access.
 type APIClient struct {
-	ClientID    string            `toml:"clientId"`
-	Description string            `toml:"description,omitempty"`
-	Enabled     bool              `toml:"enabled"`
-	IsAdmin     bool              `toml:"isAdmin,omitempty"`
-	Secrets     map[string]string `toml:"secrets,omitempty"`
-	Groups      []string          `toml:"groups,omitempty"`
+	ClientID    string `toml:"clientId"`
+	Description string `toml:"description,omitempty"`
+	Enabled     bool   `toml:"enabled"`
+	IsAdmin     bool   `toml:"isAdmin,omitempty"`
+	// APIKeys maps API keys to their corresponding secrets
+	// This allows multiple active API key/secret pairs for rotation
+	APIKeys map[string]string `toml:"-"`
+	Groups  []string          `toml:"groups,omitempty"`
+}
+
+// ClientEnvVarPair represents an API key and secret environment variable pair.
+type ClientEnvVarPair struct {
+	APIKeyEnv string `toml:"api_key_env"`
+	SecretEnv string `toml:"secret_env"`
+}
+
+// APIClientMetadata represents client metadata loaded from TOML configuration.
+type APIClientMetadata struct {
+	Description string   `toml:"description,omitempty"`
+	Groups      []string `toml:"groups,omitempty"`
+	Enabled     bool     `toml:"enabled"`
+	Admin       bool     `toml:"admin,omitempty"`
+	// Environment variable configuration for API key/secret pairs
+	// This allows arbitrary environment variable names and supports multiple pairs for rotation
+	KeyPairEnvVars []ClientEnvVarPair `toml:"key_pair_env_vars,omitempty"`
 }
 
 // APIKeyConfig represents the configuration for API key management.
 type APIKeyConfig struct {
-	// Clients maps API keys to client configurations
+	// Clients maps client IDs to client configurations
 	Clients map[string]*APIClient `toml:"clients"`
 }
 
@@ -311,11 +335,17 @@ type BeholderConfig struct {
 
 // GetClientByAPIKey returns the client configuration for a given API key.
 func (c *APIKeyConfig) GetClientByAPIKey(apiKey string) (*APIClient, bool) {
-	client, exists := c.Clients[apiKey]
-	if !exists || !client.Enabled {
-		return nil, false
+	// Search through all clients to find the one with this API key
+	for _, client := range c.Clients {
+		if !client.Enabled {
+			continue
+		}
+		// Check if this client has the requested API key
+		if _, exists := client.APIKeys[apiKey]; exists {
+			return client, true
+		}
 	}
-	return client, true
+	return nil, false
 }
 
 // ValidateAPIKey validates an API key against the configuration.
@@ -339,20 +369,21 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
-	Committees                       map[CommitteeID]*Committee `toml:"committees"`
-	Server                           ServerConfig               `toml:"server"`
-	Storage                          *StorageConfig             `toml:"storage"`
-	APIKeys                          APIKeyConfig               `toml:"-"`
-	ChainStatuses                    ChainStatusConfig          `toml:"chainStatuses"`
-	Aggregation                      AggregationConfig          `toml:"aggregation"`
-	OrphanRecovery                   OrphanRecoveryConfig       `toml:"orphanRecovery"`
-	RateLimiting                     RateLimitingConfig         `toml:"rateLimiting"`
-	HealthCheck                      HealthCheckConfig          `toml:"healthCheck"`
-	DisableValidation                bool                       `toml:"disableValidation"`
-	StubMode                         bool                       `toml:"stubQuorumValidation"`
-	Monitoring                       MonitoringConfig           `toml:"monitoring"`
-	PyroscopeURL                     string                     `toml:"pyroscope_url"`
-	MaxAnonymousGetMessageSinceRange int64                      `toml:"maxAnonymousGetMessageSinceRange"`
+	Committees                       map[CommitteeID]*Committee    `toml:"committees"`
+	Server                           ServerConfig                  `toml:"server"`
+	Storage                          *StorageConfig                `toml:"storage"`
+	APIKeys                          APIKeyConfig                  `toml:"-"`
+	APIClients                       map[string]*APIClientMetadata `toml:"apiClients"`
+	ChainStatuses                    ChainStatusConfig             `toml:"chainStatuses"`
+	Aggregation                      AggregationConfig             `toml:"aggregation"`
+	OrphanRecovery                   OrphanRecoveryConfig          `toml:"orphanRecovery"`
+	RateLimiting                     RateLimitingConfig            `toml:"rateLimiting"`
+	HealthCheck                      HealthCheckConfig             `toml:"healthCheck"`
+	DisableValidation                bool                          `toml:"disableValidation"`
+	StubMode                         bool                          `toml:"stubQuorumValidation"`
+	Monitoring                       MonitoringConfig              `toml:"monitoring"`
+	PyroscopeURL                     string                        `toml:"pyroscope_url"`
+	MaxAnonymousGetMessageSinceRange int64                         `toml:"maxAnonymousGetMessageSinceRange"`
 }
 
 // SetDefaults sets default values for the configuration.
@@ -401,16 +432,34 @@ func (c *AggregatorConfig) SetDefaults() {
 
 // ValidateAPIKeyConfig validates the API key configuration.
 func (c *AggregatorConfig) ValidateAPIKeyConfig() error {
-	// Validate each API key configuration
-	for apiKey, client := range c.APIKeys.Clients {
-		if strings.TrimSpace(apiKey) == "" {
-			return errors.New("api key cannot be empty")
+	// Validate each client configuration
+	for clientID, client := range c.APIKeys.Clients {
+		if strings.TrimSpace(clientID) == "" {
+			return errors.New("client ID cannot be empty")
 		}
 		if client == nil {
-			return fmt.Errorf("client configuration for api key '%s' cannot be nil", apiKey)
+			return fmt.Errorf("client configuration for client ID '%s' cannot be nil", clientID)
 		}
 		if strings.TrimSpace(client.ClientID) == "" {
-			return fmt.Errorf("client id for api key '%s' cannot be empty", apiKey)
+			return fmt.Errorf("client ID field for client '%s' cannot be empty", clientID)
+		}
+		if client.ClientID != clientID {
+			return fmt.Errorf("client ID mismatch: map key '%s' does not match client.ClientID '%s'", clientID, client.ClientID)
+		}
+
+		// Validate that enabled clients have at least one API key
+		if client.Enabled && len(client.APIKeys) == 0 {
+			return fmt.Errorf("enabled client '%s' must have at least one API key", clientID)
+		}
+
+		// Validate API keys and secrets
+		for apiKey, secret := range client.APIKeys {
+			if strings.TrimSpace(apiKey) == "" {
+				return fmt.Errorf("API key cannot be empty for client '%s'", clientID)
+			}
+			if strings.TrimSpace(secret) == "" {
+				return fmt.Errorf("secret cannot be empty for API key '%s' of client '%s'", apiKey, clientID)
+			}
 		}
 
 		// Validate group references
@@ -461,6 +510,15 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	}
 	if c.Storage.PageSize > 1000 {
 		return errors.New("storage.pageSize cannot exceed 1000")
+	}
+
+	// Validate that PostgreSQL storage has a connection URL
+	// In test environments, allow dynamic configuration of storage URL
+	if c.Storage.StorageType == StorageTypePostgreSQL && c.Storage.ConnectionURL == "" {
+		if !isRunningInTest() {
+			return errors.New("PostgreSQL storage requires a connection URL")
+		}
+		// In tests, we allow storage URL to be set up dynamically after config loading
 	}
 
 	return nil
@@ -525,28 +583,89 @@ func (c *AggregatorConfig) Validate() error {
 }
 
 func (c *AggregatorConfig) LoadFromEnvironment() error {
-	if c.Storage.StorageType == StorageTypePostgreSQL {
+	// Load storage connection URL if using PostgreSQL and not already configured
+	if c.Storage.StorageType == StorageTypePostgreSQL && c.Storage.ConnectionURL == "" {
 		storageURL := os.Getenv("AGGREGATOR_STORAGE_CONNECTION_URL")
-		if storageURL == "" {
-			return errors.New("AGGREGATOR_STORAGE_CONNECTION_URL environment variable is required")
+		if storageURL != "" {
+			c.Storage.ConnectionURL = storageURL
 		}
-		c.Storage.ConnectionURL = storageURL
+		// Note: Empty storage URL is allowed for tests where storage is configured dynamically
 	}
 
-	apiKeysJSON := os.Getenv("AGGREGATOR_API_KEYS_JSON")
-	if apiKeysJSON == "" {
-		return errors.New("AGGREGATOR_API_KEYS_JSON environment variable is required")
+	// Load API clients from individual environment variables
+	if err := c.loadAPIClientsFromEnvironment(); err != nil {
+		return fmt.Errorf("failed to load API clients from environment: %w", err)
 	}
-
-	var apiKeyConfig APIKeyConfig
-	if err := json.Unmarshal([]byte(apiKeysJSON), &apiKeyConfig); err != nil {
-		return fmt.Errorf("failed to parse AGGREGATOR_API_KEYS_JSON: %w", err)
-	}
-	c.APIKeys = apiKeyConfig
 
 	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis {
 		if err := c.loadRateLimiterRedisConfigFromEnvironment(); err != nil {
 			return fmt.Errorf("failed to load rate limiter redis config from environment: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (c *AggregatorConfig) loadAPIClientsFromEnvironment() error {
+	// Initialize APIKeys if nil
+	if c.APIKeys.Clients == nil {
+		c.APIKeys.Clients = make(map[string]*APIClient)
+	}
+
+	// If APIKeys are already populated (e.g., in tests), skip environment loading
+	if len(c.APIKeys.Clients) > 0 {
+		return nil
+	}
+
+	if len(c.APIClients) == 0 {
+		return nil
+	}
+
+	// For each client defined in metadata, load their API keys and secrets from environment
+	for clientID, metadata := range c.APIClients {
+		// Create the client configuration from metadata
+		client := &APIClient{
+			ClientID:    clientID,
+			Description: metadata.Description,
+			Groups:      metadata.Groups,
+			Enabled:     metadata.Enabled,
+			IsAdmin:     metadata.Admin,
+			APIKeys:     make(map[string]string),
+		}
+
+		foundKeys := false
+
+		// Require explicit environment variable configuration
+		if len(metadata.KeyPairEnvVars) == 0 {
+			return fmt.Errorf("client '%s' has no key_pair_env_vars configured - explicit environment variable configuration is required", clientID)
+		}
+
+		for _, envVarPair := range metadata.KeyPairEnvVars {
+			if envVarPair.APIKeyEnv == "" || envVarPair.SecretEnv == "" {
+				return fmt.Errorf("client '%s' has incomplete environment variable configuration: both api_key_env and secret_env must be specified", clientID)
+			}
+
+			apiKey := os.Getenv(envVarPair.APIKeyEnv)
+			secret := os.Getenv(envVarPair.SecretEnv)
+
+			if apiKey != "" && secret != "" {
+				client.APIKeys[apiKey] = secret
+				foundKeys = true
+			} else if apiKey == "" || secret == "" {
+				// If only one is set, that's an error
+				return fmt.Errorf("both %s and %s must be set together for client '%s'", envVarPair.APIKeyEnv, envVarPair.SecretEnv, clientID)
+			}
+			// If both are empty, we just skip this pair (allows optional backup keys)
+		}
+
+		// Require at least one API key/secret pair for enabled clients
+		if client.Enabled && !foundKeys {
+			return fmt.Errorf("enabled client '%s' has no API key/secret pairs in environment variables", clientID)
+		}
+
+		// Only store clients that have at least one API key or are explicitly disabled
+		if foundKeys || !client.Enabled {
+			c.APIKeys.Clients[clientID] = client
 		}
 	}
 

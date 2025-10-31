@@ -50,9 +50,9 @@ func createTestAPIKeyConfig() *model.APIKeyConfig {
 				Description: "Test client 1",
 				Enabled:     true,
 				IsAdmin:     false,
-				Secrets: map[string]string{
-					"current":  testSecretCurrent1,
-					"previous": "secret-old-1",
+				APIKeys: map[string]string{
+					testAPIKey1:      testSecretCurrent1,
+					"previous-key-1": "secret-old-1", // For key rotation testing
 				},
 			},
 			"test-api-key-2": {
@@ -60,8 +60,8 @@ func createTestAPIKeyConfig() *model.APIKeyConfig {
 				Description: "Test client 2",
 				Enabled:     true,
 				IsAdmin:     false,
-				Secrets: map[string]string{
-					"current": "secret-current-2",
+				APIKeys: map[string]string{
+					"test-api-key-2": "secret-current-2",
 				},
 			},
 			testAdminAPIKey: {
@@ -69,8 +69,8 @@ func createTestAPIKeyConfig() *model.APIKeyConfig {
 				Description: "Test admin client",
 				Enabled:     true,
 				IsAdmin:     true,
-				Secrets: map[string]string{
-					"current": testAdminSecretCurrent,
+				APIKeys: map[string]string{
+					testAdminAPIKey: testAdminSecretCurrent,
 				},
 			},
 		},

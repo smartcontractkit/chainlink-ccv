@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +32,21 @@ var (
 	defaultAPIKey = "test-api-key"
 	defaultSecret = "test-secret-key"
 )
+
+// setupTestEnvironmentVariables sets up environment variables for testing.
+func setupTestEnvironmentVariables(t *testing.T, apiKey, secret string) {
+	// Set up environment variables for the default test client
+	// In test context, we can safely ignore errors from environment variable setting
+	_ = os.Setenv("AGGREGATOR_TEST_CLIENT_API_KEY", apiKey)
+	_ = os.Setenv("AGGREGATOR_TEST_CLIENT_SECRET", secret)
+
+	// Clean up environment variables when test completes
+	t.Cleanup(func() {
+		// In test context, we can safely ignore errors from environment variable cleanup
+		_ = os.Unsetenv("AGGREGATOR_TEST_CLIENT_API_KEY")
+		_ = os.Unsetenv("AGGREGATOR_TEST_CLIENT_SECRET")
+	})
+}
 
 // ClientConfig holds configuration for test client behavior.
 type ClientConfig struct {
@@ -80,14 +97,16 @@ func WithShardCount(shardCount int) ConfigOption {
 
 func WithAPIKeyAuth(apiKey, secret string) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.APIKeys.Clients[apiKey] = &model.APIClient{
-			ClientID:    apiKey,
-			Description: "Custom test client",
-			Enabled:     true,
-			Secrets: map[string]string{
-				"current": secret,
-			},
-		}
+		// Set environment variables for this custom client
+		// Use a normalized client ID for environment variable naming
+		clientID := "custom_test_client"
+		envAPIKey := fmt.Sprintf("AGGREGATOR_%s_API_KEY", strings.ToUpper(clientID))
+		envSecret := fmt.Sprintf("AGGREGATOR_%s_SECRET", strings.ToUpper(clientID))
+
+		// In test context, we can safely ignore errors from environment variable setting
+		_ = os.Setenv(envAPIKey, apiKey)
+		_ = os.Setenv(envSecret, secret)
+
 		return cfg, clientCfg
 	}
 }
@@ -165,7 +184,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	// Use SugaredLogger for better API
 	sugaredLggr := logger.Sugared(lggr)
 
-	// Create base config with DynamoDB storage as default
+	// Create base config with PostgreSQL storage as default
 	config := &model.AggregatorConfig{
 		Server: model.ServerConfig{
 			Address: ":50051",
@@ -197,23 +216,22 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		},
 	}
 
-	config.APIKeys.Clients[defaultAPIKey] = &model.APIClient{
-		ClientID:    "test-client",
-		Description: "Test client for integration tests",
-		Enabled:     true,
-		Secrets: map[string]string{
-			"current": defaultSecret,
-		},
-	}
-
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
 		APIKey:   defaultAPIKey,
 		Secret:   defaultSecret,
 	}
 
+	// Set up default test environment variables for API clients
+	setupTestEnvironmentVariables(t, defaultAPIKey, defaultSecret)
+
 	for _, option := range options {
 		config, clientConfig = option(config, clientConfig)
+	}
+
+	// Load API clients from environment variables
+	if err := config.LoadFromEnvironment(); err != nil {
+		return nil, nil, fmt.Errorf("failed to load configuration from environment: %w", err)
 	}
 
 	// Setup storage based on final configuration

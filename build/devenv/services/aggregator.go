@@ -50,7 +50,23 @@ type AggregatorEnvConfig struct {
 	RedisAddress         string `toml:"redis_address"`
 	RedisPassword        string `toml:"redis_password"`
 	RedisDB              string `toml:"redis_db"`
-	APIKeysJSON          string `toml:"api_keys_json"`
+	// Client credentials - supports arbitrary number of clients
+	// Map key is the client identifier, value contains API key and secret
+	Clients map[string]ClientCredentials `toml:"clients"`
+}
+
+// ClientCredentials holds API credentials for a client with support for multiple key pairs
+type ClientCredentials struct {
+	// Support multiple environment variable pairs for rotation
+	KeyPairEnvVars []ClientEnvVarPair `toml:"key_pair_env_vars,omitempty"`
+}
+
+// ClientEnvVarPair represents environment variable names and values for API key and secret
+type ClientEnvVarPair struct {
+	APIKeyEnv   string `toml:"api_key_env"`
+	SecretEnv   string `toml:"secret_env"`
+	APIKeyValue string `toml:"api_key_value,omitempty"`
+	SecretValue string `toml:"secret_value,omitempty"`
 }
 
 type AggregatorInput struct {
@@ -251,10 +267,17 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		}
 		envVars["AGGREGATOR_STORAGE_CONNECTION_URL"] = in.Env.StorageConnectionURL
 
-		if in.Env.APIKeysJSON == "" {
-			return nil, fmt.Errorf("AGGREGATOR_API_KEYS_JSON is required in env config")
+		// Set client environment variables using the new map-based approach with rotation support
+		for _, creds := range in.Env.Clients {
+			// Support multiple environment variable pairs from metadata
+			if len(creds.KeyPairEnvVars) > 0 {
+				for _, envVarPair := range creds.KeyPairEnvVars {
+					// Use the explicit environment variable names and values from metadata
+					envVars[envVarPair.APIKeyEnv] = envVarPair.APIKeyValue
+					envVars[envVarPair.SecretEnv] = envVarPair.SecretValue
+				}
+			}
 		}
-		envVars["AGGREGATOR_API_KEYS_JSON"] = in.Env.APIKeysJSON
 
 		if in.Env.RedisAddress == "" {
 			return nil, fmt.Errorf("AGGREGATOR_REDIS_ADDRESS is required in env config")

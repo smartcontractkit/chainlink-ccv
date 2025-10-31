@@ -60,8 +60,8 @@ func (m *HMACAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.
 		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
 
-	if len(client.Secrets) == 0 {
-		m.logger.Errorf("Client %s has no secrets configured", client.ClientID)
+	if len(client.APIKeys) == 0 {
+		m.logger.Errorf("Client %s has no API keys configured", client.ClientID)
 		return nil, status.Error(codes.Internal, "authentication configuration error")
 	}
 
@@ -80,7 +80,7 @@ func (m *HMACAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.
 
 	stringToSign := hmac.GenerateStringToSign(hmac.HTTPMethodPost, info.FullMethod, bodyHash, apiKey, timestamp)
 
-	if !hmac.ValidateSignature(stringToSign, providedSignature, client.Secrets) {
+	if !hmac.ValidateSignature(stringToSign, providedSignature, client.APIKeys) {
 		m.logger.Warnf("Authentication failed for client %s: invalid signature", client.ClientID)
 		return nil, status.Error(codes.Unauthenticated, "invalid signature")
 	}

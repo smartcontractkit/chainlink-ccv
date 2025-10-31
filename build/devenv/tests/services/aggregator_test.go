@@ -33,7 +33,38 @@ func TestServiceAggregator(t *testing.T) {
 			RedisAddress:  "default-aggregator-redis:6379",
 			RedisPassword: "",
 			RedisDB:       "0",
-			APIKeysJSON:   `{"clients":{"test-key":{"clientId":"test","enabled":true,"groups":[],"secrets":{"primary":"test-secret"}}}}`,
+			Clients: map[string]services.ClientCredentials{
+				"verifier_1": {
+					KeyPairEnvVars: []services.ClientEnvVarPair{
+						{
+							APIKeyEnv:   "AGGREGATOR_VERIFIER_1_API_KEY",
+							SecretEnv:   "AGGREGATOR_VERIFIER_1_SECRET",
+							APIKeyValue: "dev-api-key-verifier-1",
+							SecretValue: "dev-secret-verifier-1",
+						},
+					},
+				},
+				"verifier_2": {
+					KeyPairEnvVars: []services.ClientEnvVarPair{
+						{
+							APIKeyEnv:   "AGGREGATOR_VERIFIER_2_API_KEY",
+							SecretEnv:   "AGGREGATOR_VERIFIER_2_SECRET",
+							APIKeyValue: "dev-api-key-verifier-2",
+							SecretValue: "dev-secret-verifier-2",
+						},
+					},
+				},
+				"monitoring": {
+					KeyPairEnvVars: []services.ClientEnvVarPair{
+						{
+							APIKeyEnv:   "AGGREGATOR_MONITORING_API_KEY",
+							SecretEnv:   "AGGREGATOR_MONITORING_SECRET",
+							APIKeyValue: "dev-monitoring-api-key",
+							SecretValue: "dev-monitoring-secret",
+						},
+					},
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
