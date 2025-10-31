@@ -199,8 +199,8 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func createAggregator(storage common.CommitVerificationStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) (handlers.AggregationTriggerer, error) {
-	agg := aggregation.NewCommitReportAggregator(storage, sink, validator, config, lggr, monitoring)
+func createAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) (handlers.AggregationTriggerer, error) {
+	agg := aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring)
 	agg.StartBackground(context.Background())
 	return agg, nil
 }
@@ -252,7 +252,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		validator = quorum.NewQuorumValidator(config, l)
 	}
 
-	agg, err := createAggregator(store, store, validator, config, l, aggMonitoring)
+	agg, err := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 	if err != nil {
 		l.Errorw("failed to create aggregator", "error", err)
 		return nil
