@@ -623,7 +623,17 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	}
 
 	var messageSentEvent *onramp.OnRampCCIPMessageSent
-	for _, log := range receipt.Logs {
+	for i, log := range receipt.Logs {
+		if len(log.Topics) == 0 {
+			l.Debug().Int("log_index", i).Msg("Log has no topics")
+			continue
+		}
+		l.Debug().
+			Int("log_index", i).
+			Str("topic0", log.Topics[0].Hex()).
+			Str("address", log.Address.Hex()).
+			Msg("Inspecting log")
+
 		if log.Topics[0] == ccipMessageSentTopic {
 			var err error
 			messageSentEvent, err = m.onRampBySelector[src].ParseCCIPMessageSent(*log)
@@ -635,6 +645,19 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			break
 		}
 	}
+
+	if messageSentEvent == nil {
+		// Log all topics for debugging
+		topics := make([]string, 0, len(receipt.Logs))
+		for i, log := range receipt.Logs {
+			if len(log.Topics) > 0 {
+				topics = append(topics, fmt.Sprintf("log[%d].address=%s topic0=%s", i, log.Address.Hex(), log.Topics[0].Hex()))
+			}
+		}
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("CCIPMessageSent event not found in transaction receipt: hash=%s, num_logs=%d, expected_topic=%s, actual_topics=[%v]",
+			sendReport.Output.ExecInfo.Hash, len(receipt.Logs), ccipMessageSentTopic.Hex(), topics)
+	}
+
 	dcc, err := m.onRampBySelector[src].GetDestChainConfig(&bind.CallOpts{
 		Context: ctx,
 	}, dest)

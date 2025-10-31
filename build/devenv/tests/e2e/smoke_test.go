@@ -9,6 +9,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -37,6 +38,19 @@ func defaultAggregatorPort(in *ccv.Cfg) int {
 	panic(fmt.Sprintf("default aggregator not found, expected to find a default aggregator in the configuration, got: %+v", in.Aggregator))
 }
 
+// TestVerifyEventTopic prints the CCIPMessageSent event topic hash for verification
+func TestVerifyEventTopic(t *testing.T) {
+	topic := onramp.OnRampCCIPMessageSent{}.Topic()
+	fmt.Printf("\n=== CCIPMessageSent Event Topic ===\n")
+	fmt.Printf("Topic Hash: %s\n", topic.Hex())
+	fmt.Printf("Expected:   0x9b8fdf7fa94e7e8692c830c07cc6ce91a34c507d9f8efea07eb71cd64ed4891f\n")
+	fmt.Printf("Match: %v\n", topic.Hex() == "0x9b8fdf7fa94e7e8692c830c07cc6ce91a34c507d9f8efea07eb71cd64ed4891f")
+	fmt.Printf("===================================\n\n")
+
+	if topic.Hex() != "0x9b8fdf7fa94e7e8692c830c07cc6ce91a34c507d9f8efea07eb71cd64ed4891f" {
+		t.Errorf("Event topic mismatch! This indicates the contract or bindings have changed.")
+	}
+}
 func TestE2ESmoke(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-staging-out.toml")
 	require.NoError(t, err)
@@ -51,7 +65,7 @@ func TestE2ESmoke(t *testing.T) {
 
 	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
-	require.Len(t, selectors, 2, "expected 3 chains for this test in the environment")
+	require.Len(t, selectors, 2, "expected 2 chains for this test in the environment")
 
 	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
