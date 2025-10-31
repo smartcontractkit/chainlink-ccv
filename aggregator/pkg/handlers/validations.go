@@ -12,7 +12,8 @@ import (
 func validateWriteRequest(req *pb.WriteCommitCCVNodeDataRequest) error {
 	err := validation.ValidateStruct(
 		req,
-		validation.Field(&req.CcvNodeData, validation.Required))
+		validation.Field(&req.CcvNodeData, validation.Required),
+		validation.Field(&req.IdempotencyKey, validation.Required, validation.Length(1, 255)))
 	if err != nil {
 		return err
 	}

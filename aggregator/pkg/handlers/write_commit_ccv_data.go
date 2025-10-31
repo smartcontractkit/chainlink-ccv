@@ -71,6 +71,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 			MessageWithCCVNodeData: *req.GetCcvNodeData(),
 			IdentifierSigner:       signer,
 			CommitteeID:            signer.CommitteeID,
+			IdempotencyKey:         req.GetIdempotencyKey(),
 		}
 		err := h.storage.SaveCommitVerification(signerCtx, &record)
 		if err != nil {
