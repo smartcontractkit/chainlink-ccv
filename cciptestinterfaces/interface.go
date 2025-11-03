@@ -127,6 +127,8 @@ type Chains interface {
 	WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (ExecutionStateChangedEvent, error)
 	// GetTokenBalance gets the balance of an account for a token on a chain
 	GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
+	// GetMaxDataBytes gets the maximum data size for a CCIP message to a remote chain.
+	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 }
 
 // OnChainConfigurable defines methods that allows devenv to

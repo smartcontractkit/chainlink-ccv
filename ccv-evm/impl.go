@@ -33,8 +33,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences/tokens"
+	fee_quoter_wrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+
 	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -1112,6 +1114,22 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	env.DataStore = runningDS.Seal()
 
 	return runningDS.Seal(), nil
+}
+
+func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error) {
+	feeQuoterRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(remoteChainSelector, datastore.ContractType(fee_quoter.ContractType), semver.MustParse(fee_quoter.Deploy.Version()), ""))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get fee quoter address: %w", err)
+	}
+	feeQuoter, err := fee_quoter_wrapper.NewFeeQuoter(common.HexToAddress(feeQuoterRef.Address), m.ethClients[remoteChainSelector])
+	if err != nil {
+		return 0, fmt.Errorf("failed to new fee quoter contract: %w", err)
+	}
+	destChainConfig, err := feeQuoter.GetDestChainConfig(&bind.CallOpts{Context: ctx}, remoteChainSelector)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get dest chain config: %w", err)
+	}
+	return destChainConfig.MaxDataBytes, nil
 }
 
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
