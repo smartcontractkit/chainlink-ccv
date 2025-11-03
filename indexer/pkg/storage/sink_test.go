@@ -32,7 +32,7 @@ func TestStorageSink_ReadFromFirstStorage(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             1000,
+		Timestamp:             time.UnixMilli(1000),
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -67,7 +67,7 @@ func TestStorageSink_ReadFromSecondStorageOnMiss(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             1000,
+		Timestamp:             time.UnixMilli(1000),
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -122,7 +122,7 @@ func TestStorageSink_WriteToAllStorages(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             1000,
+		Timestamp:             time.UnixMilli(1000),
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -160,7 +160,7 @@ func TestStorageSink_QueryFromFirstStorage(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             1000,
+		Timestamp:             time.UnixMilli(1000),
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -194,7 +194,7 @@ func TestStorageSink_WriteDuplicateHandling(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             1000,
+		Timestamp:             time.UnixMilli(1000),
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -250,7 +250,7 @@ func TestStorageSink_TimeRangeCondition_RecentDataOnly(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             9500, // Recent
+		Timestamp:             time.UnixMilli(9500), // Recent
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -261,7 +261,7 @@ func TestStorageSink_TimeRangeCondition_RecentDataOnly(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x02},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             8000, // Old
+		Timestamp:             time.UnixMilli(8000), // Old
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(2),
@@ -319,7 +319,7 @@ func TestStorageSink_TimeRangeCondition_HotAndCold(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             now - 100, // Very recent
+		Timestamp:             time.UnixMilli(now - 100), // Very recent
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -332,7 +332,7 @@ func TestStorageSink_TimeRangeCondition_HotAndCold(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x02},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             now - 700000, // Very old
+		Timestamp:             time.UnixMilli(now - 700000), // Very old
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(2),
@@ -379,7 +379,7 @@ func TestStorageSink_NeverReadCondition(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             1000,
+		Timestamp:             time.UnixMilli(1000),
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -427,12 +427,12 @@ func TestStorageSink_RecentReadCondition(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create recent test data (within the last hour)
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli() // Get current time in milliseconds
 	recentData := protocol.CCVData{
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             now - 30*60, // 30 minutes ago
+		Timestamp:             time.UnixMilli(now - 30*60*1000), // 30 minutes ago
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -443,7 +443,7 @@ func TestStorageSink_RecentReadCondition(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x02},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             now - 2*60*60, // 2 hours ago
+		Timestamp:             time.UnixMilli(now - 2*60*60*1000), // 2 hours ago
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(2),
@@ -458,15 +458,15 @@ func TestStorageSink_RecentReadCondition(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query for recent data (last 45 minutes) - should use hot storage
-	queryStart := now - 45*60
-	queryEnd := now
+	queryStart := now - 45*60*1000 // 45 minutes ago in milliseconds
+	queryEnd := now                // Current time in milliseconds
 	results, err := chain.QueryCCVData(ctx, queryStart, queryEnd, nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find recent data in hot storage")
 
 	// Query for old data (2-3 hours ago) - should skip hot storage and use cold storage
-	queryStart = now - 3*60*60
-	queryEnd = now - 90*60
+	queryStart = now - 3*60*60*1000 // 3 hours ago in milliseconds
+	queryEnd = now - 90*60*1000     // 90 minutes ago in milliseconds
 	results, err = chain.QueryCCVData(ctx, queryStart, queryEnd, nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find old data in cold storage")
@@ -496,14 +496,14 @@ func TestStorageSink_RecentReadCondition_ShortDuration(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli() // Get current time in milliseconds
 
 	// Insert very recent data (30 seconds ago) into very hot storage
 	veryRecentData := protocol.CCVData{
 		MessageID:             protocol.Bytes32{0x01},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             now - 30, // 30 seconds ago
+		Timestamp:             time.UnixMilli(now - 30*1000), // 30 seconds ago
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(1),
@@ -516,7 +516,7 @@ func TestStorageSink_RecentReadCondition_ShortDuration(t *testing.T) {
 		MessageID:             protocol.Bytes32{0x02},
 		SourceVerifierAddress: protocol.UnknownAddress{0x02},
 		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             now - 5*60, // 5 minutes ago
+		Timestamp:             time.UnixMilli(now - 5*60*1000), // 5 minutes ago
 		SourceChainSelector:   protocol.ChainSelector(1),
 		DestChainSelector:     protocol.ChainSelector(2),
 		Nonce:                 protocol.Nonce(2),
@@ -525,12 +525,12 @@ func TestStorageSink_RecentReadCondition_ShortDuration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query for very recent data (last 45 seconds) - should use very hot storage
-	results, err := chain.QueryCCVData(ctx, now-45, now, nil, nil, 10, 0)
+	results, err := chain.QueryCCVData(ctx, now-45*1000, now, nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find very recent data in very hot storage")
 
 	// Query for slightly old data (5-10 minutes ago) - should skip very hot and use warm storage
-	results, err = chain.QueryCCVData(ctx, now-10*60, now-4*60, nil, nil, 10, 0)
+	results, err = chain.QueryCCVData(ctx, now-10*60*1000, now-4*60*1000, nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find slightly old data in warm storage")
 }

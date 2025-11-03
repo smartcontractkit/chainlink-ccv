@@ -30,11 +30,11 @@ func TestInMemoryStorage_TTLEviction(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert some test data
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	testData := []protocol.CCVData{
-		createTestCCVDataForEviction("0x001", now-3, 1, 2), // 3 seconds old (should be evicted)
-		createTestCCVDataForEviction("0x002", now-1, 1, 2), // 1 second old (should remain)
-		createTestCCVDataForEviction("0x003", now, 1, 2),   // just now (should remain)
+		createTestCCVDataForEviction("0x001", now-3000, 1, 2), // 3 seconds old (should be evicted)
+		createTestCCVDataForEviction("0x002", now-1000, 1, 2), // 1 second old (should remain)
+		createTestCCVDataForEviction("0x003", now, 1, 2),      // just now (should remain)
 	}
 
 	for _, data := range testData {
@@ -83,7 +83,7 @@ func TestInMemoryStorage_SizeBasedEviction(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert 10 items
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	for i := 0; i < 10; i++ {
 		data := createTestCCVDataForEviction(
 			fmt.Sprintf("0x%03d", i),
@@ -143,7 +143,7 @@ func TestInMemoryStorage_CombinedTTLAndSizeEviction(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert 8 items with varying timestamps
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	timestamps := []int64{
 		now - 5, // Expired by TTL
 		now - 4, // Expired by TTL
@@ -196,7 +196,7 @@ func TestInMemoryStorage_NoEviction(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert some test data
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	for i := 0; i < 10; i++ {
 		data := createTestCCVDataForEviction(
 			fmt.Sprintf("0x%03d", i),
@@ -279,7 +279,7 @@ func createTestCCVDataForEviction(messageIDHex string, timestamp int64, sourceCh
 
 	return protocol.CCVData{
 		MessageID:             messageID,
-		Timestamp:             timestamp,
+		Timestamp:             time.UnixMilli(timestamp),
 		SourceChainSelector:   sourceChain,
 		DestChainSelector:     destChain,
 		Nonce:                 protocol.Nonce(1),

@@ -23,8 +23,8 @@ func CreateCCVData(verificationTask *verifier.VerificationTask, signature, verif
 		SourceVerifierAddress: sourceVerifierAddress,
 		DestVerifierAddress:   protocol.UnknownAddress{}, // Will be set by the caller if needed
 		CCVData:               signature,
-		BlobData:              verifierBlob,           // Additional verifier-specific data
-		Timestamp:             time.Now().UnixMilli(), // Unix timestamp in milliseconds
+		BlobData:              verifierBlob, // Additional verifier-specific data
+		Timestamp:             time.Now(),
 		Message:               message,
 		ReceiptBlobs:          verificationTask.ReceiptBlobs, // Include all receipt blobs for executors
 	}, nil

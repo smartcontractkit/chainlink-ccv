@@ -684,8 +684,6 @@ func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return fmt.Errorf("aggregated report cannot be nil")
 	}
 
-	report.Sequence = time.Now().Unix()
-
 	verificationRecordIDs := make([]int64, 0, len(report.Verifications))
 	messageIDHex := common.Bytes2Hex(report.MessageID)
 

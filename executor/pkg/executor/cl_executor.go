@@ -201,7 +201,7 @@ func orderCCVData(
 
 		orderedCCVData = append(orderedCCVData, data.CCVData)
 		orderedCCVOfframps = append(orderedCCVOfframps, ccvAddress)
-		lastRequiredCCVTimestamp = max(lastRequiredCCVTimestamp, data.Timestamp)
+		lastRequiredCCVTimestamp = max(lastRequiredCCVTimestamp, data.Timestamp.UnixMilli())
 	}
 
 	// Check which optional CCVs are present in the CCV data retrieved.
@@ -220,7 +220,7 @@ func orderCCVData(
 		// optional CCV found, add to the ordered lists.
 		orderedCCVData = append(orderedCCVData, data.CCVData)
 		orderedCCVOfframps = append(orderedCCVOfframps, ccvAddress)
-		optionalCCVTimestamps = append(optionalCCVTimestamps, data.Timestamp)
+		optionalCCVTimestamps = append(optionalCCVTimestamps, data.Timestamp.UnixMilli())
 		optionalCount++
 	}
 

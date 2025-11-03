@@ -202,7 +202,7 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 	i.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
 
 	// Insert into timestamp-sorted index
-	insertPos := i.findTimestampIndex(ccvData.Timestamp, func(ts, target int64) bool { return ts > target })
+	insertPos := i.findTimestampIndex(ccvData.Timestamp.UnixMilli(), func(ts, target int64) bool { return ts > target })
 	i.byTimestamp = append(i.byTimestamp, protocol.CCVData{})
 	copy(i.byTimestamp[insertPos+1:], i.byTimestamp[insertPos:])
 	i.byTimestamp[insertPos] = ccvData
@@ -251,7 +251,7 @@ func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 		insertedCount++
 
 		// Insert into timestamp-sorted index
-		insertPos := i.findTimestampIndex(ccvData.Timestamp, func(ts, target int64) bool { return ts > target })
+		insertPos := i.findTimestampIndex(ccvData.Timestamp.UnixMilli(), func(ts, target int64) bool { return ts > target })
 		i.byTimestamp = append(i.byTimestamp, protocol.CCVData{})
 		copy(i.byTimestamp[insertPos+1:], i.byTimestamp[insertPos:])
 		i.byTimestamp[insertPos] = ccvData
@@ -276,7 +276,7 @@ func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 // findTimestampIndex finds the first index where timestamp satisfies the condition.
 func (i *InMemoryStorage) findTimestampIndex(timestamp int64, condition func(int64, int64) bool) int {
 	return sort.Search(len(i.byTimestamp), func(idx int) bool {
-		return condition(i.byTimestamp[idx].Timestamp, timestamp)
+		return condition(i.byTimestamp[idx].Timestamp.UnixMilli(), timestamp)
 	})
 }
 
@@ -381,11 +381,11 @@ func (i *InMemoryStorage) cleanup() {
 
 	// 1. Check for TTL-based eviction
 	if i.ttl > 0 {
-		cutoffTime := time.Now().Add(-i.ttl).Unix()
+		cutoffTime := time.Now().Add(-i.ttl).UnixMilli()
 		// Find the first index where timestamp is >= cutoffTime
 		expiredCount := 0
 		for _, data := range i.byTimestamp {
-			if data.Timestamp >= cutoffTime {
+			if data.Timestamp.UnixMilli() >= cutoffTime {
 				break // Since byTimestamp is sorted, we can stop here
 			}
 			expiredCount++

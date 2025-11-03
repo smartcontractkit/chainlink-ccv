@@ -68,7 +68,7 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
-			timestamp := report.WrittenAt.Unix()
+			timestamp := report.WrittenAt.UnixMilli()
 			if timestamp == 0 {
 				timestamp = report.Sequence
 			}
@@ -82,7 +82,7 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 }
 
 func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, start int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
-	end := s.timeProvider.Now().Unix()
+	end := s.timeProvider.Now().UnixMilli()
 	return s.QueryAggregatedReportsRange(ctx, start, end, committeeID, token)
 }
 

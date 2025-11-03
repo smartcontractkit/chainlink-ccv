@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS indexer.verifier_results (
     dest_verifier_address TEXT NOT NULL,
     
     -- Query fields (indexed for performance)
-    timestamp BIGINT NOT NULL,
+    timestamp TIMESTAMPZ NOT NULL,
     source_chain_selector DECIMAL(20, 0) NOT NULL,
     dest_chain_selector DECIMAL(20, 0) NOT NULL,
 

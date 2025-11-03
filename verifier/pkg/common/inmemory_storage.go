@@ -56,7 +56,7 @@ type InMemoryOffchainStorage struct {
 
 // NewInMemoryOffchainStorage creates a new in-memory offchain storage with some default parameters.
 func NewInMemoryOffchainStorage(lggr logger.Logger) *InMemoryOffchainStorage {
-	return NewInMemoryOffchainStorageWithTimeProvider(lggr, DefaultTimeProvider, nil, nil, 10, 0, time.Now().Unix())
+	return NewInMemoryOffchainStorageWithTimeProvider(lggr, DefaultTimeProvider, nil, nil, 10, 0, time.Now().UnixMilli())
 }
 
 // NewInMemoryOffchainStorageWithTimeProvider creates a new in-memory offchain storage with custom time provider.

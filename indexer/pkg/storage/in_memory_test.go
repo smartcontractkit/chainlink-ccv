@@ -113,7 +113,7 @@ func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
 
 	// Query for source chain 1
 	sourceChains := []protocol.ChainSelector{1}
-	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), sourceChains, []protocol.ChainSelector{}, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().UnixMilli(), sourceChains, []protocol.ChainSelector{}, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -138,7 +138,7 @@ func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
 
 	// Query for dest chain 2
 	destChains := []protocol.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, time.Now().Unix(), []protocol.ChainSelector{}, destChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, 0, time.Now().UnixMilli(), []protocol.ChainSelector{}, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -294,7 +294,7 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 
 	return protocol.CCVData{
 		MessageID:             messageID,
-		Timestamp:             timestamp,
+		Timestamp:             time.UnixMilli(timestamp),
 		SourceChainSelector:   sourceChain,
 		DestChainSelector:     destChain,
 		Nonce:                 protocol.Nonce(1),

@@ -60,7 +60,7 @@ func (t *testVerifier) VerifyMessages(
 			DestVerifierAddress:   protocol.UnknownAddress{},
 			CCVData:               []byte("mock-signature"),
 			BlobData:              []byte("mock-blob"),
-			Timestamp:             time.Now().UnixMilli(),
+			Timestamp:             time.Now(),
 			Message:               verificationTask.Message,
 			ReceiptBlobs:          verificationTask.ReceiptBlobs,
 		}
@@ -281,7 +281,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	})
 
 	// Mock BlockTime to return immediately during initialization
-	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
+	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().UnixMilli()), nil).Maybe()
 
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
