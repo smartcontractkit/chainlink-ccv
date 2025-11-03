@@ -234,59 +234,11 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	// If we don't have the parent block, backfill the gap
 	// Ideally this should not happen unless pollInterval is misconfigured to be more than block time
 	if !hasParent {
-		gapStart := tailMax + 1
-		gapEnd := latest.Number - 1
-		gapSize := gapEnd - gapStart + 1
-
-		r.lggr.Debugw("Gap detected in tail, backfilling",
-			"chainSelector", r.config.ChainSelector,
-			"gapStart", gapStart,
-			"gapEnd", gapEnd,
-			"gapSize", gapSize,
-			"latestBlock", latest.Number,
-			"tailMax", tailMax)
-
-		// Sanity check: gap should be reasonable
-		// If gap > MAX_GAP_BLOCKS, something is very wrong (missed many polls, restart after long downtime, etc.)
-		if gapSize > MAX_GAP_BLOCKS {
-			r.lggr.Errorw("Unexpectedly large gap detected, rebuilding entire tail",
-				"chainSelector", r.config.ChainSelector,
-				"gapSize", gapSize,
-				"tailMax", tailMax,
-				"latestBlock", latest.Number)
-			if err := r.buildEntireTail(ctx); err != nil {
-				r.lggr.Errorw("Failed to rebuild tail after large gap",
-					"chainSelector", r.config.ChainSelector,
-					"error", err)
-			}
+		var ok bool
+		expectedParent, ok = r.handleGapBackfill(ctx, tailMax, latest.Number, finalized.Number)
+		if !ok {
 			return
 		}
-
-		// Backfill missing blocks
-		if err := r.backfillBlocks(ctx, gapStart, gapEnd, finalized.Number); err != nil {
-			r.lggr.Errorw("Failed to backfill blocks",
-				"chainSelector", r.config.ChainSelector,
-				"gapStart", gapStart,
-				"gapEnd", gapEnd,
-				"error", err)
-			return
-		}
-
-		// Re-fetch parent after backfill
-		r.tailMu.RLock()
-		expectedParent, hasParent = r.tailBlocks[latest.Number-1]
-		r.tailMu.RUnlock()
-
-		if !hasParent {
-			r.lggr.Errorw("Parent block still missing after backfill",
-				"chainSelector", r.config.ChainSelector,
-				"parentBlock", latest.Number-1)
-			return
-		}
-
-		r.lggr.Debugw("Successfully backfilled gap",
-			"chainSelector", r.config.ChainSelector,
-			"gapSize", gapSize)
 	}
 
 	// Check for reorg: does parent hash match?
@@ -446,6 +398,65 @@ func (r *ReorgDetectorService) addBlockToTail(block protocol.BlockHeader, finali
 		"hash", block.Hash,
 		"finalizedBlock", finalizedBlockNum,
 		"tailSize", len(r.tailBlocks))
+}
+
+// handleGapBackfill handles backfilling when there's a gap in the tail.
+// Returns the expected parent block and a boolean indicating success.
+func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, latestBlockNum, finalizedBlockNum uint64) (protocol.BlockHeader, bool) {
+	gapStart := tailMax + 1
+	gapEnd := latestBlockNum - 1
+	gapSize := gapEnd - gapStart + 1
+
+	r.lggr.Debugw("Gap detected in tail, backfilling",
+		"chainSelector", r.config.ChainSelector,
+		"gapStart", gapStart,
+		"gapEnd", gapEnd,
+		"gapSize", gapSize,
+		"latestBlock", latestBlockNum,
+		"tailMax", tailMax)
+
+	// Sanity check: gap should be reasonable
+	if gapSize > MAX_GAP_BLOCKS {
+		r.lggr.Errorw("Unexpectedly large gap detected, rebuilding entire tail",
+			"chainSelector", r.config.ChainSelector,
+			"gapSize", gapSize,
+			"tailMax", tailMax,
+			"latestBlock", latestBlockNum)
+		if err := r.buildEntireTail(ctx); err != nil {
+			r.lggr.Errorw("Failed to rebuild tail after large gap",
+				"chainSelector", r.config.ChainSelector,
+				"error", err)
+		}
+		return protocol.BlockHeader{}, false
+	}
+
+	// Backfill missing blocks
+	if err := r.backfillBlocks(ctx, gapStart, gapEnd, finalizedBlockNum); err != nil {
+		r.lggr.Errorw("Failed to backfill blocks",
+			"chainSelector", r.config.ChainSelector,
+			"gapStart", gapStart,
+			"gapEnd", gapEnd,
+			"error", err)
+		return protocol.BlockHeader{}, false
+	}
+
+	// Re-fetch parent after backfill
+	r.tailMu.RLock()
+	expectedParent, hasParent := r.tailBlocks[latestBlockNum-1]
+	r.tailMu.RUnlock()
+
+	if !hasParent {
+		r.lggr.Errorw("Parent block still missing after backfill",
+			"chainSelector", r.config.ChainSelector,
+			"parentBlock", latestBlockNum-1)
+		return protocol.BlockHeader{}, false
+	}
+
+	r.lggr.Debugw("Successfully backfilled gap",
+		"chainSelector", r.config.ChainSelector,
+		"gapSize", gapSize)
+
+	return expectedParent, true
 }
 
 // handleReorg handles a detected reorg by finding the LCA and sending appropriate notifications.
