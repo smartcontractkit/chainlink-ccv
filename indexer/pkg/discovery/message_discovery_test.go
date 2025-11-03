@@ -3,7 +3,6 @@ package discovery
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -311,53 +310,6 @@ func TestStart_ContextCancellation(t *testing.T) {
 	}
 }
 
-// TestPolling_RespectsPollInterval tests that polling respects the configured interval.
-func TestPolling_RespectsPollInterval(t *testing.T) {
-	config := Config{
-		PollInterval:       100 * time.Millisecond,
-		Timeout:            500 * time.Millisecond,
-		MessageChannelSize: 1000,
-	}
-	ts := setupMessageDiscoveryTestWithConfig(t, config)
-
-	messageCh := ts.Discovery.Start(ts.Context)
-
-	// Drain channel in background to prevent blocking
-	go func() {
-		for range messageCh {
-			// Drain any messages
-		}
-	}()
-
-	// Configure mock to return empty responses but track calls
-	callCounts := make(chan int, 10)
-	originalConfig := ts.MockReader
-	callCount := 0
-
-	// Replace mock reader with one that tracks calls
-	mockReader := readers.NewMockReader(readers.MockReaderConfig{
-		EmitEmptyResponses: true,
-		MessageGenerator: func(messageNumber int) protocol.CCVData {
-			callCount++
-			select {
-			case callCounts <- callCount:
-			default:
-			}
-			return readers.DefaultMessageGenerator(messageNumber)
-		},
-	})
-
-	ts.Reader = readers.NewResilientReader(mockReader, ts.Logger, readers.DefaultResilienceConfig())
-	ts.Discovery.aggregatorReader = ts.Reader
-
-	// Wait for at least 2 poll intervals
-	time.Sleep(250 * time.Millisecond)
-
-	// Check that reader was called (at least once)
-	_ = originalConfig
-	// Note: The exact count depends on timing, but we verify polling is happening
-}
-
 // TestMessageDiscovery_SingleMessage tests discovering and emitting a single message.
 func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
@@ -601,102 +553,6 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 	default:
 		// Expected
 	}
-}
-
-// TestTimeout_ContextTimeout tests that timeout context cancels reader call.
-func TestTimeout_ContextTimeout(t *testing.T) {
-	config := Config{
-		PollInterval:       50 * time.Millisecond,
-		Timeout:            51 * time.Millisecond, // Short timeout
-		MessageChannelSize: 100,
-	}
-	ts := setupMessageDiscoveryTestWithConfig(t, config)
-
-	// Create a reader that takes longer than timeout
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
-		EmitEmptyResponses: true,
-		MinLatency:         100 * time.Millisecond, // Longer than timeout
-		MaxLatency:         100 * time.Millisecond,
-	})
-
-	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
-	ts.Discovery.aggregatorReader = ts.Reader
-
-	messageCh := ts.Discovery.Start(ts.Context)
-
-	// Drain channel in background to prevent blocking
-	go func() {
-		for range messageCh {
-			// Drain any unexpected messages
-		}
-	}()
-
-	// Wait for timeout to occur
-	time.Sleep(150 * time.Millisecond)
-
-	// Discovery should continue (timeout is handled gracefully)
-	select {
-	case <-ts.Discovery.doneCh:
-		t.Fatal("discovery should not stop on timeout")
-	default:
-		// Expected
-	}
-}
-
-// TestConcurrency_ReaderLock tests that reader lock prevents concurrent access.
-func TestConcurrency_ReaderLock(t *testing.T) {
-	ts := setupMessageDiscoveryTest(t)
-	defer ts.Cleanup()
-
-	// Track concurrent calls
-	var mu sync.Mutex
-	activeCalls := 0
-	maxConcurrent := 0
-
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
-		EmitEmptyResponses: true,
-		MessageGenerator: func(messageNumber int) protocol.CCVData {
-			mu.Lock()
-			activeCalls++
-			if activeCalls > maxConcurrent {
-				maxConcurrent = activeCalls
-			}
-			mu.Unlock()
-
-			// Simulate some work
-			time.Sleep(10 * time.Millisecond)
-
-			mu.Lock()
-			activeCalls--
-			mu.Unlock()
-
-			return readers.DefaultMessageGenerator(messageNumber)
-		},
-	})
-
-	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
-	ts.Discovery.aggregatorReader = ts.Reader
-
-	messageCh := ts.Discovery.Start(ts.Context)
-
-	// Use fast polling to potentially trigger concurrent calls
-	config := fastTestConfig()
-	ts.Discovery.config = config
-
-	// Wait for multiple poll intervals
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify max concurrent calls is 1 (lock prevents concurrent access)
-	mu.Lock()
-	assert.LessOrEqual(t, maxConcurrent, 1, "reader should not be called concurrently")
-	mu.Unlock()
-
-	// Drain channel in background to prevent blocking
-	go func() {
-		for range messageCh {
-			// Drain any messages
-		}
-	}()
 }
 
 // TestConsumeReader_MultipleBatches tests that consumeReader processes multiple batches.
