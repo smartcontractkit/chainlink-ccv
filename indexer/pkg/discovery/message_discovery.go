@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
-
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -22,7 +21,7 @@ type AggregatorMessageDiscovery struct {
 	aggregatorReader *readers.ResilientReader
 	storageSink      common.IndexerStorage
 	monitoring       common.IndexerMonitoring
-	messageCh        chan protocol.Message
+	messageCh        chan protocol.CCVData
 	stopCh           chan struct{}
 	doneCh           chan struct{}
 	readerLock       *sync.Mutex
@@ -79,7 +78,7 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	}
 
 	// Create the buffered message channel
-	a.messageCh = make(chan protocol.Message, a.config.MessageChannelSize)
+	a.messageCh = make(chan protocol.CCVData, a.config.MessageChannelSize)
 
 	// Validata the configuration
 	if err := a.validate(); err != nil {
@@ -121,7 +120,7 @@ func (a *AggregatorMessageDiscovery) validate() error {
 	return nil
 }
 
-func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan protocol.Message {
+func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan protocol.CCVData {
 	go a.run(ctx)
 	a.logger.Info("MessageDiscovery Started")
 
@@ -224,7 +223,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		}
 
 		// Emit the Message into the message channel for downstream components to consume
-		a.messageCh <- response.Data.Message
+		a.messageCh <- response.Data
 	}
 
 	// Return true if we processed any data, false if the slice was empty

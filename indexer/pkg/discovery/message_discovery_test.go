@@ -7,15 +7,14 @@ import (
 	"time"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testSetup contains all the components needed for message discovery tests.
@@ -322,7 +321,7 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	messageCh := ts.Discovery.Start(ts.Context)
 
 	// Wait for message to be discovered
-	var receivedMessage protocol.Message
+	var receivedMessage protocol.CCVData
 	select {
 	case msg := <-messageCh:
 		receivedMessage = msg
@@ -331,7 +330,7 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	}
 
 	// Verify message
-	assert.Equal(t, ccvData.Message, receivedMessage)
+	assert.Equal(t, ccvData.Message, receivedMessage.Message)
 
 	// Verify message was stored
 	stored, err := ts.Storage.GetCCVData(ts.Context, ccvData.MessageID)
@@ -376,7 +375,7 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 	for i := range messages {
 		select {
 		case msg := <-messageCh:
-			receivedMessages = append(receivedMessages, msg)
+			receivedMessages = append(receivedMessages, msg.Message)
 		case <-time.After(200 * time.Millisecond):
 			t.Fatalf("timeout waiting for message %d", i+1)
 		}
@@ -454,7 +453,7 @@ func TestMessageDiscovery_ContinuesAfterEmptyResponse(t *testing.T) {
 	messageCh := ts.Discovery.Start(ts.Context)
 
 	// Wait for message (polling should continue even after empty responses)
-	var receivedMessage protocol.Message
+	var receivedMessage protocol.CCVData
 	select {
 	case msg := <-messageCh:
 		receivedMessage = msg
@@ -569,7 +568,7 @@ func TestConsumeReader_MultipleBatches(t *testing.T) {
 	messageCh := ts.Discovery.Start(ts.Context)
 
 	// Collect messages - consumeReader should loop until no more data
-	receivedMessages := make([]protocol.Message, 0)
+	receivedMessages := make([]protocol.CCVData, 0)
 	timeout := time.After(500 * time.Millisecond)
 	done := false
 	for !done {
@@ -660,7 +659,7 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	messageCh := ts.Discovery.Start(ts.Context)
 
 	// Wait for the message to be emitted to the channel
-	var receivedMessage protocol.Message
+	var receivedMessage protocol.CCVData
 	select {
 	case msg := <-messageCh:
 		receivedMessage = msg
@@ -670,7 +669,7 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 
 	// Verify the message was emitted to the channel
 	require.NotNil(t, receivedMessage, "message should be emitted to channel")
-	assert.Equal(t, ccvData.Message, receivedMessage, "emitted message should match expected message")
+	assert.Equal(t, ccvData.Message, receivedMessage.Message, "emitted message should match expected message")
 
 	// Verify the message was saved to storage
 	stored, err := ts.Storage.GetCCVData(ts.Context, ccvData.MessageID)
@@ -679,5 +678,5 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	assert.Equal(t, ccvData, stored[0], "stored message should match expected message")
 
 	// Verify that the stored message's Message field matches what was emitted
-	assert.Equal(t, receivedMessage, stored[0].Message, "stored message's Message field should match emitted message")
+	assert.Equal(t, receivedMessage.Message, stored[0].Message, "stored message's Message field should match emitted message")
 }
