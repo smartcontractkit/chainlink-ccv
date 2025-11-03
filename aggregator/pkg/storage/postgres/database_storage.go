@@ -143,9 +143,9 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 
 	stmt := `INSERT INTO commit_verification_records 
 		(message_id, committee_id, participant_id, signer_address, source_chain_selector, dest_chain_selector, 
-		 onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, verification_timestamp) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		ON CONFLICT (message_id, committee_id, signer_address, verification_timestamp) 
+		 onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, verification_timestamp, idempotency_key) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		ON CONFLICT (message_id, committee_id, signer_address, idempotency_key) 
 		DO NOTHING`
 
 	ccvNodeData, err := proto.Marshal(&record.MessageWithCCVNodeData)
@@ -175,6 +175,7 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		record.IdentifierSigner.SignatureS[:],
 		ccvNodeData,
 		record.Timestamp,
+		record.IdempotencyKey,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save commit verification record: %w", err)

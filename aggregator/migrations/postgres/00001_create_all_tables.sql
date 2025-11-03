@@ -16,8 +16,9 @@ CREATE TABLE IF NOT EXISTS commit_verification_records (
     signature_s BYTEA NOT NULL DEFAULT '',
     ccv_node_data BYTEA NOT NULL,
     verification_timestamp BIGINT NOT NULL,
+    idempotency_key UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_verification UNIQUE (message_id, committee_id, signer_address, verification_timestamp)
+    CONSTRAINT unique_verification UNIQUE (message_id, committee_id, signer_address, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS commit_aggregated_reports (
