@@ -114,7 +114,8 @@ func createDevVerificationTask(counter uint64, chainSelector protocol.ChainSelec
 		protocol.Nonce(counter),
 		onRampAddr,
 		offRampAddr,
-		0, // finality
+		0,       // finality
+		300_000, // gas limit
 		senderAddr,
 		receiverAddr,
 		[]byte(fmt.Sprintf("mock-data-%d", counter)), // dest blob

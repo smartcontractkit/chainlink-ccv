@@ -26,7 +26,8 @@ func TestMessageEncodeDecode(t *testing.T) {
 		Nonce(123),
 		onRampAddr,
 		offRampAddr,
-		10, // finality
+		10,      // finality
+		300_000, // gas limit
 		sender,
 		receiver,
 		[]byte("test dest blob"),
@@ -42,7 +43,8 @@ func TestMessageEncodeDecode(t *testing.T) {
 		Nonce(123),
 		onRampAddr,
 		offRampAddr,
-		10, // finality
+		10,      // finality
+		300_000, // gas limit
 		sender,
 		receiver,
 		[]byte("test dest blob"),
@@ -103,6 +105,7 @@ func TestMessageID(t *testing.T) {
 		onRampAddr,
 		offRampAddr,
 		10,
+		300_000,
 		sender,
 		receiver,
 		[]byte("test data"),
@@ -118,6 +121,7 @@ func TestMessageID(t *testing.T) {
 		onRampAddr,
 		offRampAddr,
 		10,
+		300_000,
 		sender,
 		receiver,
 		[]byte("test data"),
@@ -141,6 +145,7 @@ func TestMessageID(t *testing.T) {
 		onRampAddr,
 		offRampAddr,
 		10,
+		300_000,
 		sender,
 		receiver,
 		[]byte("test data"),

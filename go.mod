@@ -13,7 +13,7 @@ replace (
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/Masterminds/semver/v3 v3.4.0
-	github.com/ethereum/go-ethereum v1.16.2
+	github.com/ethereum/go-ethereum v1.16.5
 	github.com/failsafe-go/failsafe-go v0.9.0
 	github.com/gin-gonic/gin v1.10.1
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
@@ -28,9 +28,11 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.72
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251021190514-4e4a22b89e39
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251021190514-4e4a22b89e39
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251021190514-4e4a22b89e39
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251103193049-9f70bcf47551
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251103193049-9f70bcf47551
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251103193049-9f70bcf47551
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251103193049-9f70bcf47551
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251103193049-9f70bcf47551
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.56.0
 	github.com/smartcontractkit/chainlink-evm v0.3.3
@@ -68,7 +70,7 @@ require (
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/DataDog/zstd v1.5.6 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/VictoriaMetrics/fastcache v1.12.2 // indirect
+	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/XSAM/otelsql v0.37.0 // indirect
 	github.com/aptos-labs/aptos-go-sdk v1.9.1-0.20250613185448-581cb03acb8f // indirect
 	github.com/avast/retry-go/v4 v4.6.1 // indirect
@@ -108,9 +110,10 @@ require (
 	github.com/cosmos/go-bip39 v1.0.0 // indirect
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
-	github.com/crate-crypto/go-eth-kzg v1.3.0 // indirect
+	github.com/crate-crypto/go-eth-kzg v1.4.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
@@ -120,7 +123,8 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/ebitengine/purego v0.8.4 // indirect
 	github.com/emicklei/dot v1.6.2 // indirect
-	github.com/ethereum/c-kzg-4844/v2 v2.1.0 // indirect
+	github.com/ethereum/c-kzg-4844/v2 v2.1.3 // indirect
+	github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fbsobreira/gotron-sdk v0.0.0-20250403083053-2943ce8c759b // indirect
@@ -159,7 +163,7 @@ require (
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/hasura/go-graphql-client v0.13.1 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
-	github.com/holiman/billy v0.0.0-20240216141850-2abb0c79d3c4 // indirect
+	github.com/holiman/billy v0.0.0-20250707135307-f2f9b9aae7db // indirect
 	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
@@ -258,7 +262,7 @@ require (
 	github.com/stephenlacy/go-ethereum-hdwallet v0.0.0-20230913225845-a4fa94429863 // indirect
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/supranational/blst v0.3.14 // indirect
+	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/theodesp/go-heaps v0.0.0-20190520121037-88e35354fe0a // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect

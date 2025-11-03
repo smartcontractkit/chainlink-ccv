@@ -154,6 +154,7 @@ type Message struct {
 	DestChainSelector    ChainSelector  `json:"dest_chain_selector"`
 	Nonce                Nonce          `json:"nonce"`
 	Finality             uint16         `json:"finality"`
+	GasLimit             uint32         `json:"gas_limit"`
 	DestBlobLength       uint16         `json:"dest_blob_length"`
 	TokenTransferLength  uint16         `json:"token_transfer_length"`
 	DataLength           uint16         `json:"data_length"`
@@ -192,6 +193,9 @@ func (m *Message) Encode() ([]byte, error) {
 
 	// User provided data
 	if err := binary.Write(&buf, binary.BigEndian, m.Finality); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, m.GasLimit); err != nil {
 		return nil, err
 	}
 
@@ -281,6 +285,11 @@ func DecodeMessage(data []byte) (*Message, error) {
 	// Read finality
 	if err := binary.Read(reader, binary.BigEndian, &msg.Finality); err != nil {
 		return nil, fmt.Errorf("failed to read finality: %w", err)
+	}
+
+	// Read gas limit
+	if err := binary.Read(reader, binary.BigEndian, &msg.GasLimit); err != nil {
+		return nil, fmt.Errorf("failed to read gas limit: %w", err)
 	}
 
 	// Read sender
@@ -448,6 +457,7 @@ func NewMessage(
 	nonce Nonce,
 	onRampAddress, offRampAddress UnknownAddress,
 	finality uint16,
+	gasLimit uint32,
 	sender, receiver UnknownAddress,
 	destBlob, data []byte,
 	tokenTransfer *TokenTransfer,
@@ -485,6 +495,7 @@ func NewMessage(
 		OffRampAddressLength: uint8(len(offRampAddress)),
 		OffRampAddress:       offRampAddress.Bytes(),
 		Finality:             finality,
+		GasLimit:             gasLimit,
 		SenderLength:         uint8(len(sender)),
 		Sender:               sender.Bytes(),
 		ReceiverLength:       uint8(len(receiver)),
