@@ -198,6 +198,20 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		APIKeys: model.APIKeyConfig{
 			Clients: make(map[string]*model.APIClient),
 		},
+		// Add explicit API client metadata for tests
+		APIClients: map[string]*model.APIClientMetadata{
+			"test_client": {
+				Description: "Test client for integration tests",
+				Enabled:     true,
+				Admin:       false,
+				KeyPairEnvVars: []model.ClientEnvVarPair{
+					{
+						APIKeyEnv: "AGGREGATOR_TEST_CLIENT_API_KEY",
+						SecretEnv: "AGGREGATOR_TEST_CLIENT_SECRET",
+					},
+				},
+			},
+		},
 		RateLimiting: model.RateLimitingConfig{
 			Enabled: true,
 			Storage: model.RateLimiterStoreConfig{

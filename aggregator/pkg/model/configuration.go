@@ -374,10 +374,12 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
-	Committees                       map[CommitteeID]*Committee    `toml:"committees"`
-	Server                           ServerConfig                  `toml:"server"`
-	Storage                          *StorageConfig                `toml:"storage"`
-	APIKeys                          APIKeyConfig                  `toml:"-"`
+	Committees map[CommitteeID]*Committee `toml:"committees"`
+	Server     ServerConfig               `toml:"server"`
+	Storage    *StorageConfig             `toml:"storage"`
+	// Client credentials loaded from environment variables
+	APIKeys APIKeyConfig `toml:"-"`
+	// TOML configuration for client metadata
 	APIClients                       map[string]*APIClientMetadata `toml:"apiClients"`
 	ChainStatuses                    ChainStatusConfig             `toml:"chainStatuses"`
 	Aggregation                      AggregationConfig             `toml:"aggregation"`
