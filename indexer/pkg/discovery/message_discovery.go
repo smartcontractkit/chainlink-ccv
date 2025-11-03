@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -28,9 +29,9 @@ type AggregatorMessageDiscovery struct {
 }
 
 type Config struct {
-	PollInterval        time.Duration
-	Timeout             time.Duration
-	MessageChannelSize  int
+	PollInterval       time.Duration
+	Timeout            time.Duration
+	MessageChannelSize int
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -117,7 +118,7 @@ func (a *AggregatorMessageDiscovery) validate() error {
 		return errors.New("storage must be specified")
 	}
 
-  return nil
+	return nil
 }
 
 func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan protocol.Message {
@@ -215,8 +216,12 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
+
 		// Save the VerificationResult to the storage layer
-		a.storageSink.InsertCCVData(ctx, response.Data)
+		if err := a.storageSink.InsertCCVData(ctx, response.Data); err != nil {
+			a.logger.Error("Error saving VerificationResult for MessageID %s to storage", response.Data.MessageID.String())
+			continue
+		}
 
 		// Emit the Message into the message channel for downstream components to consume
 		a.messageCh <- response.Data.Message

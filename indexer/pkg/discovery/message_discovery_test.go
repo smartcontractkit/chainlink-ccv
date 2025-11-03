@@ -21,14 +21,14 @@ import (
 
 // testSetup contains all the components needed for message discovery tests.
 type testSetup struct {
-	Discovery *AggregatorMessageDiscovery
-	Logger    logger.Logger
-	Monitor   common.IndexerMonitoring
-	Storage   common.IndexerStorage
-	Reader    *readers.ResilientReader
+	Discovery  *AggregatorMessageDiscovery
+	Logger     logger.Logger
+	Monitor    common.IndexerMonitoring
+	Storage    common.IndexerStorage
+	Reader     *readers.ResilientReader
 	MockReader *readers.MockReader
-	Context   context.Context
-	Cancel    context.CancelFunc
+	Context    context.Context
+	Cancel     context.CancelFunc
 }
 
 // Cleanup stops the discovery and cancels the context.
@@ -45,9 +45,9 @@ func (ts *testSetup) Cleanup() {
 func setupMessageDiscoveryTest(t *testing.T) *testSetup {
 	t.Helper()
 	return setupMessageDiscoveryTestWithConfig(t, Config{
-		PollInterval: 50 * time.Millisecond,
-		Timeout:      500 * time.Millisecond,
-    MessageChannelSize: 1000,
+		PollInterval:       50 * time.Millisecond,
+		Timeout:            500 * time.Millisecond,
+		MessageChannelSize: 1000,
 	})
 }
 
@@ -120,7 +120,7 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config Config) *testSetup 
 	)
 
 	return &testSetup{
-		Discovery:  discovery.(*AggregatorMessageDiscovery), 
+		Discovery:  discovery.(*AggregatorMessageDiscovery),
 		Logger:     lggr,
 		Monitor:    mon,
 		Storage:    store,
@@ -134,8 +134,8 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config Config) *testSetup 
 // defaultTestConfig returns the standard configuration used in most tests.
 func defaultTestConfig() Config {
 	return Config{
-		PollInterval: 50 * time.Millisecond,
-		Timeout:      500 * time.Millisecond,
+		PollInterval:       50 * time.Millisecond,
+		Timeout:            500 * time.Millisecond,
 		MessageChannelSize: 1000,
 	}
 }
@@ -143,9 +143,9 @@ func defaultTestConfig() Config {
 // fastTestConfig returns a configuration with faster intervals for testing.
 func fastTestConfig() Config {
 	return Config{
-		PollInterval: 10 * time.Millisecond,
-		Timeout:      200 * time.Millisecond,
-	  MessageChannelSize: 1000,
+		PollInterval:       10 * time.Millisecond,
+		Timeout:            200 * time.Millisecond,
+		MessageChannelSize: 1000,
 	}
 }
 
@@ -314,8 +314,8 @@ func TestStart_ContextCancellation(t *testing.T) {
 // TestPolling_RespectsPollInterval tests that polling respects the configured interval.
 func TestPolling_RespectsPollInterval(t *testing.T) {
 	config := Config{
-		PollInterval: 100 * time.Millisecond,
-		Timeout:      500 * time.Millisecond,
+		PollInterval:       100 * time.Millisecond,
+		Timeout:            500 * time.Millisecond,
 		MessageChannelSize: 1000,
 	}
 	ts := setupMessageDiscoveryTestWithConfig(t, config)
@@ -370,7 +370,7 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 			return ccvData
 		},
 		EmitEmptyResponses: false,
-		MaxMessages:         1,
+		MaxMessages:        1,
 	})
 
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
@@ -420,7 +420,7 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 			return readers.DefaultMessageGenerator(messageNumber)
 		},
 		EmitEmptyResponses: false,
-		MaxMessages:         len(messages),
+		MaxMessages:        len(messages),
 	})
 
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
@@ -496,10 +496,10 @@ func TestMessageDiscovery_ContinuesAfterEmptyResponse(t *testing.T) {
 		EmitEmptyResponses: true,
 		MessageGenerator: func(messageNumber int) protocol.CCVData {
 			callCount++
-		// Return a message after a few empty calls
-		if callCount >= 3 {
-			return createTestCCVData(1, time.Now().Unix(), 1, 2)
-		}
+			// Return a message after a few empty calls
+			if callCount >= 3 {
+				return createTestCCVData(1, time.Now().Unix(), 1, 2)
+			}
 			return readers.DefaultMessageGenerator(messageNumber)
 		},
 		MaxMessages: 1,
@@ -529,8 +529,8 @@ func TestErrorHandling_ReaderError(t *testing.T) {
 
 	expectedError := errors.New("reader error")
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
-		ErrorAfterCalls: 1,
-		Error:           expectedError,
+		ErrorAfterCalls:    1,
+		Error:              expectedError,
 		EmitEmptyResponses: true,
 	})
 
@@ -565,8 +565,8 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 
 	// Create a reader that will open circuit breaker after failures
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
-		ErrorAfterCalls: 1,
-		Error:           errors.New("simulated error"),
+		ErrorAfterCalls:    1,
+		Error:              errors.New("simulated error"),
 		EmitEmptyResponses: true,
 	})
 
@@ -606,8 +606,8 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 // TestTimeout_ContextTimeout tests that timeout context cancels reader call.
 func TestTimeout_ContextTimeout(t *testing.T) {
 	config := Config{
-		PollInterval: 50 * time.Millisecond,
-		Timeout:      51 * time.Millisecond, // Short timeout
+		PollInterval:       50 * time.Millisecond,
+		Timeout:            51 * time.Millisecond, // Short timeout
 		MessageChannelSize: 100,
 	}
 	ts := setupMessageDiscoveryTestWithConfig(t, config)
