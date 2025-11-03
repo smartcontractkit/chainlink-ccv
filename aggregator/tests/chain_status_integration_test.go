@@ -66,7 +66,7 @@ func WithChainStatusTestClients() ConfigOption {
 		for _, clientID := range testClients {
 			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
 			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
-			
+
 			cfg.APIClients[clientID] = &model.APIClientMetadata{
 				Description: "Test client for " + clientID,
 				Groups:      []string{},
@@ -85,7 +85,7 @@ func WithChainStatusTestClients() ConfigOption {
 		for _, clientID := range adminClients {
 			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
 			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
-			
+
 			cfg.APIClients[clientID] = &model.APIClientMetadata{
 				Description: "Admin test client for " + clientID,
 				Groups:      []string{},
@@ -104,7 +104,7 @@ func WithChainStatusTestClients() ConfigOption {
 		for _, clientID := range verifierClients {
 			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
 			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
-			
+
 			cfg.APIClients[clientID] = &model.APIClientMetadata{
 				Description: "Verifier test client for " + clientID,
 				Groups:      []string{"verifiers"},
