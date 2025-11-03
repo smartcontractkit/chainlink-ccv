@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
@@ -68,16 +67,6 @@ func WithPaginationConfig(pageSize int) ConfigOption {
 	}
 }
 
-func WithShardCount(shardCount int) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		if cfg.Storage.DynamoDB == nil {
-			cfg.Storage.DynamoDB = &model.DynamoDBConfig{}
-		}
-		cfg.Storage.DynamoDB.ShardCount = shardCount
-		return cfg, clientCfg
-	}
-}
-
 func WithAPIKeyAuth(apiKey, secret string) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.APIKeys.Clients[apiKey] = &model.APIClient{
@@ -109,7 +98,7 @@ func WithoutClientAuth() ConfigOption {
 }
 
 // CreateServerAndClient creates a test server and client for functional testing.
-// Uses DynamoDB storage by default, but can be overridden with options.
+// Uses PostgreSQL storage by default, but can be overridden with options.
 func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.VerifierResultAPIClient, func(), error) {
 	// Create server
 	listener, serverCleanup, err := CreateServerOnly(t, options...)
@@ -124,9 +113,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 	}
 
 	dummyConfig := &model.AggregatorConfig{
-		Storage: &model.StorageConfig{
-			DynamoDB: &model.DynamoDBConfig{},
-		},
+		Storage: &model.StorageConfig{},
 		APIKeys: model.APIKeyConfig{
 			Clients: make(map[string]*model.APIClient),
 		},
@@ -165,7 +152,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	// Use SugaredLogger for better API
 	sugaredLggr := logger.Sugared(lggr)
 
-	// Create base config with DynamoDB storage as default
+	// Create base config with PostgreSQL storage as default
 	config := &model.AggregatorConfig{
 		Server: model.ServerConfig{
 			Address: ":50051",
@@ -220,13 +207,6 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	var cleanupStorage func()
 
 	switch config.Storage.StorageType {
-	case model.StorageTypeDynamoDB:
-		storageConfig, cleanup, err := setupDynamoDBStorage(t, config.Storage)
-		if err != nil {
-			return nil, nil, err
-		}
-		config.Storage = storageConfig
-		cleanupStorage = cleanup
 	case model.StorageTypeMemory:
 		// No setup needed for memory storage
 		cleanupStorage = func() {}
@@ -263,9 +243,7 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 	}
 
 	dummyConfig := &model.AggregatorConfig{
-		Storage: &model.StorageConfig{
-			DynamoDB: &model.DynamoDBConfig{},
-		},
+		Storage: &model.StorageConfig{},
 		APIKeys: model.APIKeyConfig{
 			Clients: make(map[string]*model.APIClient),
 		},
@@ -368,24 +346,6 @@ func CreateAdminAuthenticatedClient(t *testing.T, listener *bufconn.Listener, ad
 	}
 
 	return aggregatorClient, ccvDataClient, cleanup
-}
-
-func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
-	// Start DynamoDB Local container
-	_, connectionString, cleanup := ddb.SetupTestDynamoDB(t)
-
-	// Preserve existing storage config and only update DynamoDB-specific fields
-	if existingConfig.DynamoDB == nil {
-		existingConfig.DynamoDB = &model.DynamoDBConfig{}
-	}
-
-	existingConfig.DynamoDB.CommitVerificationRecordTableName = ddb.TestCommitVerificationRecordTableName
-	existingConfig.DynamoDB.FinalizedFeedTableName = ddb.TestFinalizedFeedTableName
-	existingConfig.DynamoDB.ChainStatusTableName = ddb.TestChainStatusTableName
-	existingConfig.DynamoDB.Region = "us-east-1"
-	existingConfig.DynamoDB.Endpoint = "http://" + connectionString
-
-	return existingConfig, cleanup, nil
 }
 
 func setupPostgresStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
