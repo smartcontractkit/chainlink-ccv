@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -67,13 +68,22 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 		signerCtx := scope.WithAddress(ctx, signer.Address)
 		signerCtx = scope.WithParticipantID(signerCtx, signer.ParticipantID)
 		signerCtx = scope.WithCommitteeID(signerCtx, signer.CommitteeID)
+
+		// Parse the idempotency key as UUID
+		idempotencyUUID, err := uuid.Parse(req.GetIdempotencyKey())
+		if err != nil {
+			return &pb.WriteCommitCCVNodeDataResponse{
+				Status: pb.WriteStatus_FAILED,
+			}, status.Errorf(codes.InvalidArgument, "invalid idempotency key format: %v", err)
+		}
+
 		record := model.CommitVerificationRecord{
 			MessageWithCCVNodeData: *req.GetCcvNodeData(),
 			IdentifierSigner:       signer,
 			CommitteeID:            signer.CommitteeID,
-			IdempotencyKey:         req.GetIdempotencyKey(),
+			IdempotencyKey:         idempotencyUUID,
 		}
-		err := h.storage.SaveCommitVerification(signerCtx, &record)
+		err = h.storage.SaveCommitVerification(signerCtx, &record)
 		if err != nil {
 			return &pb.WriteCommitCCVNodeDataResponse{
 				Status: pb.WriteStatus_FAILED,

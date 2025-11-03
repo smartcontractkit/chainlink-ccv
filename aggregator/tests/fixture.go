@@ -2,6 +2,7 @@ package tests
 
 import (
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"encoding/binary"
 	"testing"
 	"time"
@@ -15,6 +16,28 @@ import (
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
+
+// DeriveUUIDFromString creates a deterministic UUID from a string for testing.
+func DeriveUUIDFromString(input string) string {
+	hash := sha256.Sum256([]byte(input))
+	// Use first 16 bytes to create a UUID
+	return uuid.UUID(hash[:16]).String()
+}
+
+// DeriveUUIDFromTimestamp creates a deterministic UUID from a timestamp for testing.
+func DeriveUUIDFromTimestamp(timestamp int64) string {
+	buf := make([]byte, 8)
+	// Safe conversion: use absolute value to avoid issues with negative timestamps
+	var ts uint64
+	if timestamp < 0 {
+		ts = uint64(-timestamp)
+	} else {
+		ts = uint64(timestamp)
+	}
+	binary.LittleEndian.PutUint64(buf, ts)
+	hash := sha256.Sum256(buf)
+	return uuid.UUID(hash[:16]).String()
+}
 
 func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
 	// Generate valid Ethereum addresses using private keys

@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -27,7 +29,7 @@ type CommitVerificationRecord struct {
 	IdentifierSigner *IdentifierSigner
 	pb.MessageWithCCVNodeData
 	CommitteeID    CommitteeID
-	IdempotencyKey string
+	IdempotencyKey uuid.UUID
 }
 
 // GetID retrieves the unique identifier for the commit verification record.

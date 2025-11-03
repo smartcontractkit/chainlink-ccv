@@ -4,7 +4,6 @@ package tests
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -217,7 +216,7 @@ func TestIdempotency(t *testing.T) {
 		ccvNodeData := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
 
 		// Use the same idempotency key for both requests to test idempotency
-		idempotencyKey := "test-idempotency-key-for-duplicate-requests"
+		idempotencyKey := DeriveUUIDFromString("test-idempotency-key-for-duplicate-requests")
 
 		for i := 0; i < 2; i++ {
 			resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequestWithKey(ccvNodeData, idempotencyKey))
@@ -1395,7 +1394,7 @@ func TestGetMessagesSinceDeduplication(t *testing.T) {
 		// Step 2: Signer2 sends their verification
 		t.Log("Step 2: Signer2 sends verification")
 		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
-		signer2IdempotencyKey := fmt.Sprintf("signer2-%d", ccvNodeData2.Timestamp) // Generate consistent idempotency key
+		signer2IdempotencyKey := DeriveUUIDFromTimestamp(ccvNodeData2.Timestamp) // Generate consistent idempotency key
 		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequestWithKey(ccvNodeData2, signer2IdempotencyKey))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)

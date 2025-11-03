@@ -183,7 +183,7 @@ func createTestCommitVerificationRecord(msgWithCCV *pb.MessageWithCCVNodeData, s
 			CommitteeID: committeeID,
 		},
 		CommitteeID:    committeeID,
-		IdempotencyKey: uuid.NewString(), // Generate unique idempotency key for each record
+		IdempotencyKey: uuid.New(), // Generate unique idempotency key for each record
 	}
 }
 
