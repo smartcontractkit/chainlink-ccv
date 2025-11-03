@@ -97,24 +97,13 @@ type StorageType string
 const (
 	StorageTypeMemory     StorageType = "memory"
 	StorageTypePostgreSQL StorageType = "postgres"
-	StorageTypeDynamoDB   StorageType = "dynamodb"
 )
-
-type DynamoDBConfig struct {
-	CommitVerificationRecordTableName string `toml:"commitVerificationRecordTableName"`
-	FinalizedFeedTableName            string `toml:"finalizedFeedTableName"`
-	ChainStatusTableName              string `toml:"chainStatusTableName"`
-	Region                            string `toml:"region,omitempty"`
-	Endpoint                          string `toml:"endpoint,omitempty"`
-	ShardCount                        int    `toml:"shardCount"`
-}
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType   StorageType     `toml:"type"`
-	ConnectionURL string          `toml:"-"`
-	DynamoDB      *DynamoDBConfig `toml:"dynamoDB,omitempty"`
-	PageSize      int             `toml:"pageSize"`
+	StorageType   StorageType `toml:"type"`
+	ConnectionURL string      `toml:"-"`
+	PageSize      int         `toml:"pageSize"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -386,13 +375,6 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Storage.PageSize == 0 {
 		c.Storage.PageSize = 100
 	}
-	// Initialize DynamoDB config if nil
-	if c.Storage.DynamoDB == nil {
-		c.Storage.DynamoDB = &DynamoDBConfig{}
-	}
-	if c.Storage.DynamoDB.ShardCount == 0 {
-		c.Storage.DynamoDB.ShardCount = 1
-	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
 	}
@@ -489,21 +471,6 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	return nil
 }
 
-// ValidateDynamoDBConfig validates the DynamoDB configuration.
-func (c *AggregatorConfig) ValidateDynamoDBConfig() error {
-	// Only validate DynamoDB-specific settings if using DynamoDB storage
-	if c.Storage.StorageType == StorageTypeDynamoDB {
-		if c.Storage.DynamoDB.ShardCount <= 0 {
-			return errors.New("dynamoDB.shardCount must be greater than 0")
-		}
-		if c.Storage.DynamoDB.ShardCount > 100 {
-			return errors.New("dynamoDB.shardCount cannot exceed 100")
-		}
-	}
-
-	return nil
-}
-
 // Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
 	// Set defaults first
@@ -532,11 +499,6 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate storage configuration
 	if err := c.ValidateStorageConfig(); err != nil {
 		return fmt.Errorf("storage configuration error: %w", err)
-	}
-
-	// Validate DynamoDB configuration
-	if err := c.ValidateDynamoDBConfig(); err != nil {
-		return fmt.Errorf("dynamoDB configuration error: %w", err)
 	}
 
 	// TODO: Add other validation logic
