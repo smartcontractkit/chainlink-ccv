@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"fmt"
 	"math/big"
 	"testing"
@@ -50,6 +51,7 @@ type testcase struct {
 	finality                 uint16
 	receiver                 protocol.UnknownAddress
 	ccvs                     []protocol.CCV
+	msgData                  []byte
 	expectFail               bool
 	tokenTransfer            *tokenTransfer
 	numExpectedReceipts      int
@@ -97,7 +99,7 @@ func TestE2ESmoke(t *testing.T) {
 		indexerURL)
 	require.NotNil(t, indexerClient)
 
-	t.Run("test extra args v2 messages", func(t *testing.T) {
+	t.Run("extra args v2", func(t *testing.T) {
 		tcs := []struct {
 			name                     string
 			fromSelector             uint64
@@ -189,8 +191,7 @@ func TestE2ESmoke(t *testing.T) {
 		// add one test case the other way around (dest->src) to test the reverse lane.
 		mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, c)
 		tcs = append(tcs, mvtcsDestToSrc[0])
-		// TODO: add more messaging test cases here.
-
+		tcs = append(tcs, dataSizeTestCases(t, src, dest, in, c)...)
 		tcs = append(tcs, []testcase{
 			{
 				name:        "EOA receiver and default committee verifier with token transfer",
@@ -240,7 +241,7 @@ func TestE2ESmoke(t *testing.T) {
 				sendMessageResult, err := c.SendMessage(
 					ctx, tc.srcSelector, tc.dstSelector, cciptestinterfaces.MessageFields{
 						Receiver:     tc.receiver,
-						Data:         []byte{},
+						Data:         tc.msgData,
 						TokenAmounts: tokenAmounts,
 					}, cciptestinterfaces.MessageOptions{
 						Version:        3,
@@ -296,6 +297,39 @@ func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, con
 	require.NoErrorf(t, err, "failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s",
 		contractName, chainSelector, contractType, version)
 	return protocol.UnknownAddress(common.HexToAddress(ref.Address).Bytes())
+}
+
+func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvEvm.CCIP17EVM) []testcase {
+	maxDataBytes, err := c.GetMaxDataBytes(t.Context(), dest)
+	require.NoError(t, err)
+	return []testcase{
+		{
+			name:        "max data size",
+			srcSelector: src,
+			dstSelector: dest,
+			finality:    1,
+			receiver: getContractAddress(
+				t,
+				in,
+				dest,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				ccvEvm.DefaultReceiverQualifier,
+				"default mock receiver",
+			),
+			msgData: bytes.Repeat([]byte("a"), int(maxDataBytes)),
+			ccvs: []protocol.CCV{
+				{
+					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+					Args:       []byte{},
+					ArgsLen:    0,
+				},
+			},
+			numExpectedReceipts:      2,
+			expectFail:               false,
+			numExpectedVerifications: 1,
+		},
+	}
 }
 
 // multiVerifierTestCases returns a list of test cases for testing multi-verifier scenarios.
