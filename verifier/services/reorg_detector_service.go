@@ -449,14 +449,14 @@ func (r *ReorgDetectorService) addBlockToTail(block protocol.BlockHeader, finali
 }
 
 // handleReorg handles a detected reorg by finding the LCA and sending appropriate notifications.
-func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protocol.BlockHeader, latestFinalizedBlock uint64) error {
+func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protocol.BlockHeader, finalizedBlockNum uint64) error {
 	r.lggr.Infow("Handling reorg",
 		"chainSelector", r.config.ChainSelector,
 		"newBlock", newBlock.Number,
-		"latestFinalized", latestFinalizedBlock)
+		"latestFinalized", finalizedBlockNum)
 
 	// Find block after LCA by walking back the new chain
-	blockAfterLCA, err := r.findBlockAfterLCA(ctx, newBlock, latestFinalizedBlock)
+	blockAfterLCA, err := r.findBlockAfterLCA(ctx, newBlock, finalizedBlockNum)
 	if err != nil {
 		// Check if it's a finality violation
 		var finalityViolationError *finalityViolationError
@@ -466,7 +466,7 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 				"error", err)
 
 			// Send finality violation notification
-			r.sendFinalityViolation(blockAfterLCA, latestFinalizedBlock)
+			r.sendFinalityViolation(blockAfterLCA, finalizedBlockNum)
 			return nil
 		}
 		return fmt.Errorf("failed to find LCA: %w", err)
