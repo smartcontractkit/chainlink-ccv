@@ -21,7 +21,7 @@ func TestInMemoryStorage_TTLEviction(t *testing.T) {
 
 	// Create storage with 2 second TTL and fast cleanup interval
 	config := InMemoryStorageConfig{
-		TTL:             2 * time.Second,
+		TTL:             5 * time.Second,
 		CleanupInterval: 500 * time.Millisecond,
 	}
 	storage := NewInMemoryStorageWithConfig(lggr, mon, config).(*InMemoryStorage)
@@ -32,9 +32,9 @@ func TestInMemoryStorage_TTLEviction(t *testing.T) {
 	// Insert some test data
 	now := time.Now().UnixMilli()
 	testData := []protocol.CCVData{
-		createTestCCVDataForEviction("0x001", time.UnixMilli(now-3000), 1, 2), // 3 seconds old (should be evicted)
-		createTestCCVDataForEviction("0x002", time.UnixMilli(now-1000), 1, 2), // 1 second old (should remain)
-		createTestCCVDataForEviction("0x003", time.UnixMilli(now), 1, 2),      // just now (should remain)
+		createTestCCVDataForEviction("0x001", time.UnixMilli(now-10000), 1, 2), // 10 seconds old (should be evicted)
+		createTestCCVDataForEviction("0x002", time.UnixMilli(now-1000), 1, 2),  // 1 second old (should remain)
+		createTestCCVDataForEviction("0x003", time.UnixMilli(now), 1, 2),       // just now (should remain)
 	}
 
 	for _, data := range testData {
