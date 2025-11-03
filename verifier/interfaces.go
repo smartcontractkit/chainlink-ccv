@@ -9,9 +9,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
-// MessageSigner defines the interface for signing messages using the new chain-agnostic format.
+// MessageSigner defines the interface for signing data using the new chain-agnostic format.
 type MessageSigner interface {
-	// Sign signs arbitrary data and returns the signature
+	// Sign signs arbitrary data and returns the signature. Must be encoded using the
+	// new chain-agnostic V27 normalized format.
 	Sign(data []byte) ([]byte, error)
 }
 
