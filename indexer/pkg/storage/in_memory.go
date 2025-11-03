@@ -126,8 +126,8 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	}
 
 	// Binary search for timestamp range
-	startIdx := i.findTimestampIndex(start, func(ts, target int64) bool { return ts >= target })
-	endIdx := i.findTimestampIndex(end, func(ts, target int64) bool { return ts > target })
+	startIdx := i.findTimestampIndex(time.UnixMilli(start), func(ts, target int64) bool { return ts >= target })
+	endIdx := i.findTimestampIndex(time.UnixMilli(end), func(ts, target int64) bool { return ts > target })
 	if startIdx >= endIdx {
 		return make(map[string][]protocol.CCVData), nil
 	}
@@ -202,7 +202,7 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 	i.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
 
 	// Insert into timestamp-sorted index
-	insertPos := i.findTimestampIndex(ccvData.Timestamp.UnixMilli(), func(ts, target int64) bool { return ts > target })
+	insertPos := i.findTimestampIndex(ccvData.Timestamp, func(ts, target int64) bool { return ts > target })
 	i.byTimestamp = append(i.byTimestamp, protocol.CCVData{})
 	copy(i.byTimestamp[insertPos+1:], i.byTimestamp[insertPos:])
 	i.byTimestamp[insertPos] = ccvData
@@ -251,7 +251,7 @@ func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 		insertedCount++
 
 		// Insert into timestamp-sorted index
-		insertPos := i.findTimestampIndex(ccvData.Timestamp.UnixMilli(), func(ts, target int64) bool { return ts > target })
+		insertPos := i.findTimestampIndex(ccvData.Timestamp, func(ts, target int64) bool { return ts > target })
 		i.byTimestamp = append(i.byTimestamp, protocol.CCVData{})
 		copy(i.byTimestamp[insertPos+1:], i.byTimestamp[insertPos:])
 		i.byTimestamp[insertPos] = ccvData
@@ -274,9 +274,9 @@ func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 }
 
 // findTimestampIndex finds the first index where timestamp satisfies the condition.
-func (i *InMemoryStorage) findTimestampIndex(timestamp int64, condition func(int64, int64) bool) int {
+func (i *InMemoryStorage) findTimestampIndex(timestamp time.Time, condition func(int64, int64) bool) int {
 	return sort.Search(len(i.byTimestamp), func(idx int) bool {
-		return condition(i.byTimestamp[idx].Timestamp.UnixMilli(), timestamp)
+		return condition(i.byTimestamp[idx].Timestamp.UnixMilli(), timestamp.UnixMilli())
 	})
 }
 
