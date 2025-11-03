@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -181,7 +182,8 @@ func createTestCommitVerificationRecord(msgWithCCV *pb.MessageWithCCVNodeData, s
 			SignatureS:  s32,
 			CommitteeID: committeeID,
 		},
-		CommitteeID: committeeID,
+		CommitteeID:    committeeID,
+		IdempotencyKey: uuid.New(), // Generate unique idempotency key for each record
 	}
 }
 

@@ -48,7 +48,7 @@ func getCommands() []prompt.Suggest {
 		{Text: "", Description: "Choose command, press <space> for more options after selecting command"},
 		{Text: "up", Description: "Spin up the development environment [active config: " + activeConfig + "]"},
 		{Text: "down", Description: "Tear down the development environment"},
-		{Text: "restart", Description: "Restart the development environment"},
+		{Text: "restart", Description: "Restart the development environment [active config: " + activeConfig + "]"},
 		{Text: "test", Description: "Perform smoke or load/chaos testing"},
 		{Text: "bs", Description: "Manage the Blockscout EVM block explorer"},
 		{Text: "obs", Description: "Manage the observability stack"},
@@ -149,20 +149,26 @@ func executor(in string) {
 		os.Exit(0)
 	}
 
+	restart := "restart"
+	// Save active config for "up" and "restart" commands if provided.
 	if strings.HasPrefix(in, "up ") {
 		saveActiveConfig(in[3:])
+		in = "up"
 	} else if strings.HasPrefix(in, "u ") {
 		saveActiveConfig(in[2:])
+		in = "up"
+	} else if strings.HasPrefix(in, "restart ") {
+		saveActiveConfig(in[8:])
+		in = restart
+	} else if strings.HasPrefix(in, "r ") {
+		saveActiveConfig(in[2:])
+		in = restart
 	}
 
 	switch in {
-	// append active config to "up" and "restart" commands with no arguments
-	case "up", "u":
-		in = fmt.Sprintf("%s %s", in, activeConfigPath())
-	case "restart", "r":
-		// skip debug flag if present
-		noDebugConfig := strings.ReplaceAll(activeConfigPath(), "--debug", "")
-		in = fmt.Sprintf("%s %s", in, noDebugConfig)
+	// append active config to "up" and "restart" commands.
+	case "up", "u", restart, "r":
+		in = fmt.Sprintf("%s %s", in, getActiveConfig())
 	}
 
 	// don't save "exit" or empty lines to history

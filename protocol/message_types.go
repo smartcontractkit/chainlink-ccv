@@ -397,7 +397,8 @@ type QueryResponse struct {
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
 type CCVNodeDataWriter interface {
 	// WriteCCVNodeData stores multiple CCV node data entries in the offchain storage
-	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData) error
+	// idempotencyKeys should have the same length as ccvDataList, with each key corresponding to the CCVData at the same index
+	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData, idempotencyKeys []string) error
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
@@ -451,9 +452,6 @@ func NewMessage(
 	destBlob, data []byte,
 	tokenTransfer *TokenTransfer,
 ) (*Message, error) {
-	if tokenTransfer == nil {
-		tokenTransfer = NewEmptyTokenTransfer()
-	}
 	if len(onRampAddress) > math.MaxUint8 {
 		return nil, fmt.Errorf("onRampAddress length exceeds maximum value")
 	}
@@ -466,7 +464,10 @@ func NewMessage(
 	if len(receiver) > math.MaxUint8 {
 		return nil, fmt.Errorf("receiver length exceeds maximum value")
 	}
-	tokenTransferBytes := tokenTransfer.Encode()
+	tokenTransferBytes := make([]byte, 0)
+	if tokenTransfer != nil {
+		tokenTransferBytes = tokenTransfer.Encode()
+	}
 	if len(tokenTransferBytes) > math.MaxUint8 {
 		return nil, fmt.Errorf("tokenTransferBytes length exceeds maximum value")
 	}

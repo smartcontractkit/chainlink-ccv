@@ -574,7 +574,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	// This establishes a "snapshot" that we'll validate before updating state later.
 	r.mu.RLock()
 	startVersion := r.resetVersion.Load()
-	fromBlock := new(big.Int).Add(r.lastProcessedBlock, big.NewInt(1))
+	fromBlock := r.lastProcessedBlock
 	r.mu.RUnlock()
 
 	// Get current block (potentially slow RPC call - no locks held)
