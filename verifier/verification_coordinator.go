@@ -171,8 +171,8 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 	return WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{chainSelector: detector})
 }
 
-// NewVerificationCoordinator creates a new verification coordinator.
-func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
+// NewCoordinator creates a new verification coordinator.
+func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		messageTimestamps:     make(map[protocol.Bytes32]time.Time),

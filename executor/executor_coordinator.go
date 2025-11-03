@@ -197,7 +197,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 						ec.lggr.Infow("message already executed, skipping", "messageID", id)
 						return
 					} else if errors.Is(err, ErrInsufficientVerifiers) {
-						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id)
+						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
 						return
 					} else if err != nil {
 						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
