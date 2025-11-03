@@ -17,6 +17,7 @@ const (
 
 	queryAggregatedReportsOp = "QueryAggregatedReports"
 	getCCVDataOp             = "GetCCVData"
+	getBatchCCVDataOp        = "GetBatchCCVData"
 	submitReportOp           = "SubmitReport"
 	ListOrphanedMessageIDsOp = "ListOrphanedMessageIDs"
 )
@@ -69,6 +70,12 @@ func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start 
 func (s *MetricsAwareStorage) GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {
 	return captureMetrics(ctx, s.metrics(ctx, getCCVDataOp), func() (*model.CommitAggregatedReport, error) {
 		return s.inner.GetCCVData(ctx, messageID, committeeID)
+	})
+}
+
+func (s *MetricsAwareStorage) GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getBatchCCVDataOp), func() (map[string]*model.CommitAggregatedReport, error) {
+		return s.inner.GetBatchCCVData(ctx, messageIDs, committeeID)
 	})
 }
 
