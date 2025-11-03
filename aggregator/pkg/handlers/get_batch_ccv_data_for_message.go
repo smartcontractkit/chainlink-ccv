@@ -10,7 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	ethcommon "github.com/ethereum/go-ethereum/common" //nolint:goimports
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	grpcstatus "google.golang.org/grpc/status"
 )
