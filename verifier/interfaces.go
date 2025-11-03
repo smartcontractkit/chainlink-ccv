@@ -11,16 +11,21 @@ import (
 
 // MessageSigner defines the interface for signing messages using the new chain-agnostic format.
 type MessageSigner interface {
-	// SignMessage signs a message event and returns the signature
-	SignMessage(
-		ctx context.Context,
-		verificationTask VerificationTask,
-		sourceVerifierAddress protocol.UnknownAddress,
-		defaultExecutorOnRampAddress protocol.UnknownAddress,
-	) ([]byte, error)
+	// Sign signs arbitrary data and returns the signature
+	Sign(data []byte) ([]byte, error)
 
-	// GetSignerAddress returns the address of the signer
-	GetSignerAddress() protocol.UnknownAddress
+	/*
+		// SignMessage signs a message event and returns the signature
+		SignMessage(
+			ctx context.Context,
+			verificationTask VerificationTask,
+			sourceVerifierAddress protocol.UnknownAddress,
+			defaultExecutorOnRampAddress protocol.UnknownAddress,
+		) ([]byte, error)
+
+		// GetSignerAddress returns the address of the signer
+		GetSignerAddress() protocol.UnknownAddress
+	*/
 }
 
 // Verifier defines the interface for message verification logic.

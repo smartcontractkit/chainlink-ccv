@@ -10,6 +10,9 @@ type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
 
+	// SignerAddress is the signers public address.
+	SignerAddress string `toml:"signer_address"`
+
 	// TODO: Move to a separate secrets config file.
 	AggregatorAPIKey string `toml:"aggregator_api_key"`
 
