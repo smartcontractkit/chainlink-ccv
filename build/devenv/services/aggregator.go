@@ -67,12 +67,6 @@ type AggregatorInput struct {
 	CommitteeName  string                `toml:"committee_name"`
 }
 
-type DynamoDBTablesConfig struct {
-	CommitVerificationRecords string `toml:"commit_verification_records"`
-	AggregatedReports         string `toml:"aggregated_reports"`
-	ChainStatuses             string `toml:"chainStatuses"`
-}
-
 type AggregatorOutput struct {
 	UseCache           bool   `toml:"use_cache"`
 	ContainerName      string `toml:"container_name"`
