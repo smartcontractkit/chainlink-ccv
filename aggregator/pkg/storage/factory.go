@@ -3,7 +3,6 @@ package storage
 import (
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -20,8 +19,6 @@ const (
 	postgresDriver      = "postgres"
 	defaultMaxOpenConns = 25
 )
-
-var earliestDateForGetMessageSince = time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)
 
 // CommitVerificationStorage combines all storage interfaces for production use.
 type CommitVerificationStorage interface {
