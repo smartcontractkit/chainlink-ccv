@@ -126,12 +126,17 @@ func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protoco
 		return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 	}
 
+	finalizedBlockNum := header.LatestFinalizedHead().BlockNumber()
+	if finalizedBlockNum < 0 {
+		return nil, fmt.Errorf("finalized block number cannot be negative: %d", finalizedBlockNum)
+	}
+
 	return &protocol.BlockHeader{
 		Number:               uint64(header.Number),
 		Hash:                 protocol.Bytes32(header.Hash),
 		ParentHash:           protocol.Bytes32(header.ParentHash),
 		Timestamp:            header.Timestamp,
-		FinalizedBlockNumber: uint64(header.LatestFinalizedHead().BlockNumber()),
+		FinalizedBlockNumber: uint64(finalizedBlockNum),
 	}, nil
 }
 
