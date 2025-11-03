@@ -7,18 +7,18 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
 // ExecutorBeholderMonitoring provides beholder-based monitoring for the executor.
 type ExecutorBeholderMonitoring struct {
-	metrics common.ExecutorMetricLabeler
+	metrics executor.MetricLabeler
 }
 
 // InitMonitoring initializes the beholder monitoring system for the executor.
-func InitMonitoring(config beholder.Config) (common.ExecutorMonitoring, error) {
+func InitMonitoring(config beholder.Config) (executor.Monitoring, error) {
 	// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
 	config.MetricViews = MetricViews()
 
@@ -60,39 +60,39 @@ func InitMonitoring(config beholder.Config) (common.ExecutorMonitoring, error) {
 	}, nil
 }
 
-func (v *ExecutorBeholderMonitoring) Metrics() common.ExecutorMetricLabeler {
+func (v *ExecutorBeholderMonitoring) Metrics() executor.MetricLabeler {
 	return v.metrics
 }
 
-var _ common.ExecutorMonitoring = (*NoopExecutorMonitoring)(nil)
+var _ executor.Monitoring = (*NoopExecutorMonitoring)(nil)
 
 // NoopExecutorMonitoring provides a no-op implementation of ExecutorMonitoring.
 type NoopExecutorMonitoring struct {
-	noop common.ExecutorMetricLabeler
+	noop executor.MetricLabeler
 }
 
 // NewNoopExecutorMonitoring creates a new noop monitoring instance.
-func NewNoopExecutorMonitoring() common.ExecutorMonitoring {
+func NewNoopExecutorMonitoring() executor.Monitoring {
 	return &NoopExecutorMonitoring{
 		noop: NewNoopExecutorMetricLabeler(),
 	}
 }
 
-func (n *NoopExecutorMonitoring) Metrics() common.ExecutorMetricLabeler {
+func (n *NoopExecutorMonitoring) Metrics() executor.MetricLabeler {
 	return n.noop
 }
 
-var _ common.ExecutorMetricLabeler = (*NoopExecutorMetricLabeler)(nil)
+var _ executor.MetricLabeler = (*NoopExecutorMetricLabeler)(nil)
 
 // NoopExecutorMetricLabeler provides a no-op implementation of ExecutorMetricLabeler.
 type NoopExecutorMetricLabeler struct{}
 
 // NewNoopExecutorMetricLabeler creates a new noop metric labeler.
-func NewNoopExecutorMetricLabeler() common.ExecutorMetricLabeler {
+func NewNoopExecutorMetricLabeler() executor.MetricLabeler {
 	return &NoopExecutorMetricLabeler{}
 }
 
-func (n *NoopExecutorMetricLabeler) With(keyValues ...string) common.ExecutorMetricLabeler {
+func (n *NoopExecutorMetricLabeler) With(keyValues ...string) executor.MetricLabeler {
 	return n
 }
 

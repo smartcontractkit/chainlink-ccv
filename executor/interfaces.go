@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -63,7 +64,25 @@ type LeaderElector interface {
 // When integrating with non-evms, the implementer only needs to add support for a single chain.
 type DestinationReader interface {
 	// GetCCVSForMessage return cross-chain verifications for selected message
-	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CcvAddressInfo, error)
+	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
 	// IsMessageExecuted returns true if message is executed
 	IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error)
+}
+
+// Monitoring provides all core monitoring functionality for the indexer. Also can be implemented as a no-op.
+type Monitoring interface {
+	// Metrics returns the metrics labeler for the indexer.
+	Metrics() MetricLabeler
+}
+
+// MetricLabeler provides all metric recording functionality for the indexer.
+type MetricLabeler interface {
+	// With returns a new metrics labeler with the given key-value pairs.
+	With(keyValues ...string) MetricLabeler
+	// RecordMessageExecutionLatency increments the HTTP request counter.
+	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration)
+	// IncrementMessagesProcessed increments the active requests counter.
+	IncrementMessagesProcessed(ctx context.Context)
+	// IncrementMessagesProcessingFailed decrements the active requests counter.
+	IncrementMessagesProcessingFailed(ctx context.Context)
 }

@@ -59,16 +59,16 @@ const (
 )
 
 type Cfg struct {
-	CLDF               CLDF                      `toml:"cldf"                  validate:"required"`
-	Fake               *services.FakeInput       `toml:"fake"                  validate:"required"`
-	Verifier           []*services.VerifierInput `toml:"verifier"              validate:"required"`
-	Executor           *services.ExecutorInput   `toml:"executor"              validate:"required"`
-	Indexer            *services.IndexerInput    `toml:"indexer"               validate:"required"`
-	Aggregator         *services.AggregatorInput `toml:"aggregator"            validate:"required"`
-	Blockchains        []*blockchain.Input       `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input               `toml:"nodesets"              validate:"required"`
-	CLNodesFundingETH  float64                   `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                   `toml:"cl_nodes_funding_link"`
+	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
+	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
+	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
+	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
+	Indexer            *services.IndexerInput      `toml:"indexer"               validate:"required"`
+	Aggregator         []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
+	Blockchains        []*blockchain.Input         `toml:"blockchains"           validate:"required"`
+	NodeSets           []*ns.Input                 `toml:"nodesets"              validate:"required"`
+	CLNodesFundingETH  float64                     `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64                     `toml:"cl_nodes_funding_link"`
 }
 
 func checkKeys(in *Cfg) error {
@@ -138,14 +138,18 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	for _, aggregatorInput := range in.Aggregator {
+		_, err = services.NewAggregator(aggregatorInput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
+		}
+	}
+
+	// start up the indexer after the aggregators are up to avoid spamming of errors
+	// in the logs when it starts before the aggregators are up.
 	_, err = services.NewIndexer(in.Indexer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
-	}
-
-	_, err = services.NewAggregator(in.Aggregator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create aggregator service: %w", err)
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")

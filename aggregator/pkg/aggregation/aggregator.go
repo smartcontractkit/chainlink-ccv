@@ -21,14 +21,16 @@ type QuorumValidator interface {
 // It manages the verification and storage of commit reports through a configurable storage backend,
 // processes aggregation requests via a message channel, and forwards verified reports to a sink.
 type CommitReportAggregator struct {
-	storage               common.CommitVerificationStore
-	sink                  common.Sink
-	messageIDChan         chan aggregationRequest
-	backgroundWorkerCount int
-	quorum                QuorumValidator
-	l                     logger.SugaredLogger
-	monitoring            common.AggregatorMonitoring
-	done                  chan struct{}
+	storage                      common.CommitVerificationStore
+	aggregatedStore              common.CommitVerificationAggregatedStore
+	sink                         common.Sink
+	messageIDChan                chan aggregationRequest
+	backgroundWorkerCount        int
+	quorum                       QuorumValidator
+	l                            logger.SugaredLogger
+	monitoring                   common.AggregatorMonitoring
+	done                         chan struct{}
+	enableAggregationAfterQuorum bool
 }
 
 type aggregationRequest struct {
@@ -123,9 +125,72 @@ func deduplicateVerificationsByParticipant(verifications []*model.CommitVerifica
 	return result
 }
 
+// shouldSkipAggregationDueToExistingQuorum checks if we should skip creating a new aggregation
+// because an existing aggregated report already meets quorum requirements.
+// Returns true if aggregation should be skipped, false otherwise.
+func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (bool, error) {
+	// If reaggregation is enabled, never skip aggregation
+	if c.enableAggregationAfterQuorum {
+		return false, nil
+	}
+
+	lggr := c.logger(ctx)
+
+	// Check if aggregated store is available
+	if c.aggregatedStore == nil {
+		lggr.Warnw("No aggregated store available, cannot check existing aggregations")
+		return false, nil
+	}
+
+	// Try to get existing aggregated report
+	existingReport, err := c.aggregatedStore.GetCCVData(ctx, messageID, committeeID)
+	if err != nil {
+		lggr.Warnw("Failed to check for existing aggregated report", "error", err)
+		return false, nil // On error, proceed with aggregation
+	}
+
+	// If no existing report, don't skip
+	if existingReport == nil {
+		lggr.Debugw("No existing aggregated report found, proceeding with aggregation")
+		return false, nil
+	}
+
+	// Check if the existing report still meets quorum
+	quorumMet, err := c.quorum.CheckQuorum(ctx, existingReport)
+	if err != nil {
+		lggr.Warnw("Failed to check quorum for existing report", "error", err)
+		return false, nil // On error, proceed with aggregation
+	}
+
+	if quorumMet {
+		lggr.Infow("Skipping aggregation: existing report already meets quorum",
+			"existingReportTimestamp", existingReport.GetMostRecentVerificationTimestamp(),
+			"verificationCount", len(existingReport.Verifications))
+		return true, nil
+	}
+
+	lggr.Infow("Existing report no longer meets quorum, proceeding with new aggregation",
+		"existingReportTimestamp", existingReport.GetMostRecentVerificationTimestamp(),
+		"verificationCount", len(existingReport.Verifications))
+	return false, nil
+}
+
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
 	lggr.Infof("Checking aggregation for message", messageID, committeeID)
+
+	// Check if we should skip aggregation due to existing quorum (only if reaggregation is disabled)
+	if !c.enableAggregationAfterQuorum {
+		shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		if err != nil {
+			lggr.Errorw("Error checking existing quorum", "error", err)
+			// Continue with aggregation on error
+		} else if shouldSkip {
+			lggr.Infow("Skipping aggregation due to existing quorum")
+			return nil, nil
+		}
+	}
+
 	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committeeID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
@@ -139,10 +204,17 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		lggr.Infow("Deduplicated verifications", "original", len(verifications), "deduplicated", len(dedupedVerifications))
 	}
 
+	winningReceiptBlobs, err := selectWinningReceiptBlobSet(dedupedVerifications)
+	if err != nil {
+		lggr.Errorw("Failed to select winning receipt blob set", "error", err)
+		return nil, err
+	}
+
 	aggregatedReport := &model.CommitAggregatedReport{
-		MessageID:     messageID,
-		CommitteeID:   committeeID,
-		Verifications: dedupedVerifications,
+		MessageID:           messageID,
+		CommitteeID:         committeeID,
+		Verifications:       dedupedVerifications,
+		WinningReceiptBlobs: winningReceiptBlobs,
 	}
 
 	mostRecentTimestamp := aggregatedReport.GetMostRecentVerificationTimestamp()
@@ -200,6 +272,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 //
 // Parameters:
 //   - storage: Interface for storing and retrieving commit verifications
+//   - aggregatedStore: Interface for querying existing aggregated reports (can be nil to disable the feature)
 //   - sink: Interface for submitting aggregated reports
 //   - config: Configuration containing committee and quorum settings
 //
@@ -207,14 +280,16 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 //   - *CommitReportAggregator: A new aggregator instance ready to process commit reports
 //
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
-func NewCommitReportAggregator(storage common.CommitVerificationStore, sink common.Sink, quorum QuorumValidator, config *model.AggregatorConfig, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring) *CommitReportAggregator {
+func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, quorum QuorumValidator, config *model.AggregatorConfig, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring) *CommitReportAggregator {
 	return &CommitReportAggregator{
-		storage:               storage,
-		sink:                  sink,
-		messageIDChan:         make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
-		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
-		quorum:                quorum,
-		monitoring:            monitoring,
-		l:                     logger,
+		storage:                      storage,
+		aggregatedStore:              aggregatedStore,
+		sink:                         sink,
+		messageIDChan:                make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
+		backgroundWorkerCount:        config.Aggregation.BackgroundWorkerCount,
+		quorum:                       quorum,
+		monitoring:                   monitoring,
+		l:                            logger,
+		enableAggregationAfterQuorum: config.Aggregation.EnableAggregationAfterQuorum,
 	}
 }

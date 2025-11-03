@@ -361,7 +361,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ec, err := verifier.NewVerificationCoordinator(tc.options...)
+			ec, err := verifier.NewCoordinator(tc.options...)
 
 			if len(tc.err) > 0 {
 				require.Error(t, err)
@@ -387,7 +387,7 @@ func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorCon
 	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(ts.t, err)
 
-	return verifier.NewVerificationCoordinator(
+	return verifier.NewCoordinator(
 		verifier.WithConfig(config),
 		verifier.WithSourceReaders(sourceReaders),
 		verifier.WithHeadTrackers(headTrackers),

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
@@ -17,28 +16,33 @@ import (
 )
 
 const (
-	DefaultAggregatorName  = "aggregator"
-	DefaultAggregatorImage = "aggregator:dev"
-	DefaultAggregatorPort  = 8103
+	AggregatorContainerNameSuffix = "aggregator"
 
 	// Redis constants.
-	DefaultAggregatorRedisName  = "aggregator-redis"
-	DefaultAggregatorRedisImage = "redis:7-alpine"
-	DefaultAggregatorRedisPort  = 6379
+	AggregatorRedisContainerNameSuffix = "aggregator-redis"
+	DefaultRedisContainerPort          = "6379/tcp"
 
 	// PostgreSQL constants.
-	DefaultAggregatorDBName  = "aggregator-db"
-	DefaultAggregatorDBPort  = 7432
-	DefaultAggregatorSQLInit = "init.sql"
-
-	DefaultAggregatorDBImage = "postgres:16-alpine"
+	AggregatorDBContainerNameSuffix = "aggregator-db"
+	DefaultAggregatorDBUsername     = "aggregator"
+	DefaultAggregatorDBPassword     = "aggregator"
+	DefaultAggregatorDBName         = "aggregator"
+	DefaultDBContainerPort          = "5432/tcp"
+	DefaultAggregatorSQLInit        = "init.sql"
 )
-
-var DefaultAggregatorDBConnectionString = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-	DefaultAggregatorName, DefaultAggregatorName, DefaultAggregatorDBName, DefaultAggregatorName)
 
 type AggregatorDBInput struct {
 	Image string `toml:"image"`
+	// HostPort is the port on the host machine that the database will be exposed on.
+	// This should be unique across all containers.
+	HostPort int `toml:"host_port"`
+}
+
+type AggregatorRedisInput struct {
+	Image string `toml:"image"`
+	// HostPort is the port on the host machine that the redis will be exposed on.
+	// This should be unique across all containers.
+	HostPort int `toml:"host_port"`
 }
 
 type AggregatorEnvConfig struct {
@@ -50,15 +54,17 @@ type AggregatorEnvConfig struct {
 }
 
 type AggregatorInput struct {
-	Image          string               `toml:"image"`
-	Port           int                  `toml:"port"`
-	SourceCodePath string               `toml:"source_code_path"`
-	RootPath       string               `toml:"root_path"`
-	DB             *DBInput             `toml:"db"`
-	ContainerName  string               `toml:"container_name"`
-	UseCache       bool                 `toml:"use_cache"`
-	Out            *AggregatorOutput    `toml:"-"`
-	Env            *AggregatorEnvConfig `toml:"env"`
+	Image string `toml:"image"`
+	// HostPort is the port on the host machine that the aggregator will be exposed on.
+	// This should be unique across all containers.
+	HostPort       int                   `toml:"host_port"`
+	SourceCodePath string                `toml:"source_code_path"`
+	RootPath       string                `toml:"root_path"`
+	DB             *AggregatorDBInput    `toml:"db"`
+	Redis          *AggregatorRedisInput `toml:"redis"`
+	Out            *AggregatorOutput     `toml:"-"`
+	Env            *AggregatorEnvConfig  `toml:"env"`
+	CommitteeName  string                `toml:"committee_name"`
 }
 
 type DynamoDBTablesConfig struct {
@@ -108,21 +114,48 @@ type ServerConfig struct {
 	Address string `toml:"address"`
 }
 
-func aggregatorDefaults(in *AggregatorInput) {
+func validateAggregatorInput(in *AggregatorInput) error {
 	if in.Image == "" {
-		in.Image = DefaultAggregatorImage
+		return fmt.Errorf("image is required for aggregator")
 	}
-	if in.Port == 0 {
-		in.Port = DefaultAggregatorPort
+	if in.HostPort == 0 {
+		return fmt.Errorf("host port is required for aggregator")
 	}
-	if in.ContainerName == "" {
-		in.ContainerName = DefaultAggregatorName
+	if in.CommitteeName == "" {
+		return fmt.Errorf("committee name is required for aggregator")
+	}
+	if in.SourceCodePath == "" {
+		return fmt.Errorf("source code path is required for aggregator")
+	}
+	if in.RootPath == "" {
+		return fmt.Errorf("root path is required for aggregator")
 	}
 	if in.DB == nil {
-		in.DB = &DBInput{
-			Image: DefaultAggregatorDBImage,
-		}
+		return fmt.Errorf("explicit database configuration is required for aggregator")
 	}
+	if in.DB.HostPort == 0 || in.DB.Image == "" {
+		return fmt.Errorf("invalid database configuration for aggregator, both of 'host_port' and 'image' must be set, got: %+v", in.DB)
+	}
+	if in.Redis == nil {
+		return fmt.Errorf("explicit Redis configuration is required for aggregator")
+	}
+	if in.Redis.HostPort == 0 || in.Redis.Image == "" {
+		return fmt.Errorf("invalid Redis configuration for aggregator, both of 'host_port' and 'image' must be set, got: %+v", in.Redis)
+	}
+	if in.Env == nil {
+		return fmt.Errorf("explicit environment configuration is required for aggregator")
+	}
+	if in.Env.StorageConnectionURL == "" {
+		return fmt.Errorf("storage connection URL is required for aggregator")
+	}
+	if in.Env.RedisAddress == "" {
+		return fmt.Errorf("redis address is required for aggregator")
+	}
+	// Note: redis password can be empty.
+	if in.Env.RedisDB == "" {
+		return fmt.Errorf("redis DB is required for aggregator")
+	}
+	return nil
 }
 
 func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
@@ -132,36 +165,45 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
+	if err := validateAggregatorInput(in); err != nil {
+		return nil, err
+	}
 	ctx := context.Background()
-	aggregatorDefaults(in)
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
 	}
 
-	/* Database */
+	// Start the aggregator postgres database container
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
-		postgres.WithDatabase(DefaultAggregatorName),
-		postgres.WithUsername(DefaultAggregatorName),
-		postgres.WithPassword(DefaultAggregatorName),
+		// The container name should be scoped by the committee name.
+		testcontainers.WithName(fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorDBContainerNameSuffix)),
+		// Database names don't have to be, its probably simpler we keep them the same across all containers
+		// in case some debugging or some introspection is required.
+		postgres.WithDatabase(DefaultAggregatorDBName),
+		postgres.WithUsername(DefaultAggregatorDBUsername),
+		postgres.WithPassword(DefaultAggregatorDBPassword),
 		postgres.WithInitScripts(filepath.Join(p, DefaultAggregatorSQLInit)),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
-				Name:         DefaultAggregatorDBName,
-				ExposedPorts: []string{"5432/tcp"},
+				Name: fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorDBContainerNameSuffix),
+				// This is the container port, not the host port, so it can be the same across different containers.
+				ExposedPorts: []string{DefaultDBContainerPort},
 				Networks:     []string{framework.DefaultNetworkName},
 				NetworkAliases: map[string][]string{
-					framework.DefaultNetworkName: {DefaultAggregatorDBName},
+					framework.DefaultNetworkName: {fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorDBContainerNameSuffix)},
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
 					h.PortBindings = nat.PortMap{
-						"5432/tcp": []nat.PortBinding{
-							{HostPort: strconv.Itoa(DefaultAggregatorDBPort)},
+						DefaultDBContainerPort: []nat.PortBinding{
+							// The host port must be unique across all containers.
+							{HostPort: strconv.Itoa(in.DB.HostPort)},
 						},
 					}
 				},
+				WaitingFor: wait.ForLog("database system is ready to accept connections"),
 			},
 		}),
 	)
@@ -169,23 +211,22 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return nil, fmt.Errorf("failed to create Postgres container: %w", err)
 	}
 
-	// Allow some time for DynamoDB Local to initialize
-	time.Sleep(5 * time.Second)
-
-	// Create Redis container for rate limiting
+	// Start the aggregator redis container for rate limiting
 	redisReq := testcontainers.ContainerRequest{
-		Image:        DefaultAggregatorRedisImage,
-		Name:         DefaultAggregatorRedisName,
-		ExposedPorts: []string{"6379/tcp"},
+		Image: in.Redis.Image,
+		Name:  fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorRedisContainerNameSuffix),
+		// This is the container port, not the host port, so it can be the same across different containers.
+		ExposedPorts: []string{DefaultRedisContainerPort},
 		Networks:     []string{framework.DefaultNetworkName},
 		NetworkAliases: map[string][]string{
-			framework.DefaultNetworkName: {DefaultAggregatorRedisName},
+			framework.DefaultNetworkName: {fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorRedisContainerNameSuffix)},
 		},
 		Labels: framework.DefaultTCLabels(),
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
-				"6379/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(DefaultAggregatorRedisPort)},
+				DefaultRedisContainerPort: []nat.PortBinding{
+					// The host port must be unique across all containers.
+					{HostPort: strconv.Itoa(in.Redis.HostPort)},
 				},
 			}
 		},
@@ -222,24 +263,19 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 
 		envVars["AGGREGATOR_REDIS_PASSWORD"] = in.Env.RedisPassword
 		envVars["AGGREGATOR_REDIS_DB"] = in.Env.RedisDB
-	} else {
-		// Inject default environment variables for testing
-		envVars["AGGREGATOR_STORAGE_CONNECTION_URL"] = DefaultAggregatorDBConnectionString
-		envVars["AGGREGATOR_REDIS_ADDRESS"] = fmt.Sprintf("%s:%d", DefaultAggregatorRedisName, DefaultAggregatorRedisPort)
-		envVars["AGGREGATOR_REDIS_PASSWORD"] = ""
-		envVars["AGGREGATOR_REDIS_DB"] = "0"
-		// Minimal API keys for testing
-		envVars["AGGREGATOR_API_KEYS_JSON"] = `{"clients":{"test-key":{"clientId":"test","enabled":true,"groups":[],"secrets":{"primary":"test-secret"}}}}`
 	}
 
-	/* Service */
+	envVars["AGGREGATOR_CONFIG_PATH"] = fmt.Sprintf("testconfig/%s/aggregator.toml", in.CommitteeName)
+
+	// Start the aggregator container
+	aggregatorContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorContainerNameSuffix)
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
-		Name:     in.ContainerName,
+		Name:     aggregatorContainerName,
 		Labels:   framework.DefaultTCLabels(),
 		Networks: []string{framework.DefaultNetworkName},
 		NetworkAliases: map[string][]string{
-			framework.DefaultNetworkName: {in.ContainerName},
+			framework.DefaultNetworkName: {aggregatorContainerName},
 		},
 		Env: envVars,
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
@@ -248,7 +284,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 			h.PortBindings = nat.PortMap{
 				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
 				"50051/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(in.Port)},
+					{HostPort: strconv.Itoa(in.HostPort)},
 				},
 			}
 		},
@@ -260,7 +296,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		framework.L.Info().
-			Str("Service", in.ContainerName).
+			Str("Service", aggregatorContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
 	}
 
@@ -272,8 +308,8 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 	in.Out = &AggregatorOutput{
-		ContainerName: in.ContainerName,
-		Address:       fmt.Sprintf("%s:%d", in.ContainerName, in.Port),
+		ContainerName: aggregatorContainerName,
+		Address:       fmt.Sprintf("%s:%d", aggregatorContainerName, in.HostPort),
 	}
 	return in.Out, nil
 }

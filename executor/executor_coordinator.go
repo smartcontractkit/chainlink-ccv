@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -21,7 +20,7 @@ type Coordinator struct {
 	messageSubscriber   MessageSubscriber
 	leaderElector       LeaderElector
 	lggr                logger.Logger
-	monitoring          common.ExecutorMonitoring
+	monitoring          Monitoring
 	ccvDataCh           chan MessageWithCCVData
 	executableMessageCh chan MessageWithCCVData
 	doneCh              chan struct{}
@@ -51,7 +50,7 @@ func WithMessageSubscriber(sub MessageSubscriber) Option {
 	}
 }
 
-func WithMonitoring(monitoring common.ExecutorMonitoring) Option {
+func WithMonitoring(monitoring Monitoring) Option {
 	return func(ec *Coordinator) {
 		ec.monitoring = monitoring
 	}
@@ -198,7 +197,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 						ec.lggr.Infow("message already executed, skipping", "messageID", id)
 						return
 					} else if errors.Is(err, ErrInsufficientVerifiers) {
-						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id)
+						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
 						return
 					} else if err != nil {
 						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
