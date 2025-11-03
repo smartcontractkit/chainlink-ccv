@@ -451,9 +451,6 @@ func NewMessage(
 	destBlob, data []byte,
 	tokenTransfer *TokenTransfer,
 ) (*Message, error) {
-	if tokenTransfer == nil {
-		tokenTransfer = NewEmptyTokenTransfer()
-	}
 	if len(onRampAddress) > math.MaxUint8 {
 		return nil, fmt.Errorf("onRampAddress length exceeds maximum value")
 	}
@@ -466,7 +463,10 @@ func NewMessage(
 	if len(receiver) > math.MaxUint8 {
 		return nil, fmt.Errorf("receiver length exceeds maximum value")
 	}
-	tokenTransferBytes := tokenTransfer.Encode()
+	tokenTransferBytes := make([]byte, 0)
+	if tokenTransfer != nil {
+		tokenTransferBytes = tokenTransfer.Encode()
+	}
 	if len(tokenTransferBytes) > math.MaxUint8 {
 		return nil, fmt.Errorf("tokenTransferBytes length exceeds maximum value")
 	}
