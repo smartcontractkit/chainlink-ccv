@@ -4,8 +4,6 @@ import (
 	"context"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // ValidatorStub is a stub implementation of a quorum validator for testing.
@@ -18,7 +16,7 @@ func (q *ValidatorStub) CheckQuorum(ctx context.Context, report *model.CommitAgg
 	return true, nil
 }
 
-func (q *ValidatorStub) ValidateSignature(ctx context.Context, report *pb.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *ValidatorStub) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	// Implement your signature validation logic here
 	return []*model.IdentifierSigner{
 		{

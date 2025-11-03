@@ -848,7 +848,7 @@ func TestParticipantDeduplication(t *testing.T) {
 		messageId, err := message.MessageID()
 		require.NoError(t, err, "failed to compute message ID")
 
-		oldTimestamp := time.Now().Add(-1 * time.Hour).UnixMicro()
+		oldTimestamp := time.Now().Add(-1 * time.Hour).UnixMilli()
 		ccvNodeData1Old := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 			WithSignatureFrom(t, signer1),
 			WithCustomTimestamp(oldTimestamp))
@@ -857,7 +857,7 @@ func TestParticipantDeduplication(t *testing.T) {
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1 (old)")
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-		newTimestamp := time.Now().Add(-30 * time.Minute).UnixMicro()
+		newTimestamp := time.Now().Add(-30 * time.Minute).UnixMilli()
 		ccvNodeData1New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 			WithSignatureFrom(t, signer1),
 			WithCustomTimestamp(newTimestamp))
@@ -884,7 +884,7 @@ func TestParticipantDeduplication(t *testing.T) {
 		// Wait a second to ensure the aggregation timestamp is different (we use write time as aggregation time)
 		time.Sleep(1 * time.Second)
 
-		newerTimestamp := time.Now().UnixMicro()
+		newerTimestamp := time.Now().UnixMilli()
 		ccvNodeData1Newer := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 			WithSignatureFrom(t, signer1),
 			WithCustomTimestamp(newerTimestamp))
@@ -948,13 +948,13 @@ func TestSequenceOrdering(t *testing.T) {
 		messageId1, err := message1.MessageID()
 		require.NoError(t, err, "failed to compute message ID 1")
 
-		oldTime := time.Now().Add(-24 * time.Hour).UnixMicro()
+		oldTime := time.Now().Add(-24 * time.Hour).UnixMilli()
 
 		message2 := NewProtocolMessage(t, WithNonce(200))
 		messageId2, err := message2.MessageID()
 		require.NoError(t, err, "failed to compute message ID 2")
 
-		recentTime := time.Now().UnixMicro()
+		recentTime := time.Now().UnixMilli()
 
 		t.Log("Submitting message 2 with recent timestamps - will aggregate first")
 		ccvNodeData2_1 := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress,
@@ -1191,7 +1191,7 @@ func TestGetMessagesSinceDeduplication(t *testing.T) {
 
 		// Step 1: Signer1 sends their verification
 		t.Log("Step 1: Signer1 sends verification")
-		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMilli()))
 		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
@@ -1206,7 +1206,7 @@ func TestGetMessagesSinceDeduplication(t *testing.T) {
 
 		// Step 2: Signer2 sends their verification
 		t.Log("Step 2: Signer2 sends verification")
-		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMilli()))
 		signer2IdempotencyKey := DeriveUUIDFromTimestamp(ccvNodeData2.Timestamp) // Generate consistent idempotency key
 		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequestWithKey(ccvNodeData2, signer2IdempotencyKey))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
@@ -1243,7 +1243,7 @@ func TestGetMessagesSinceDeduplication(t *testing.T) {
 		// Step 4: Create a second message with a more recent timestamp
 		t.Log("Step 4: Signer2 sends new verification for the same message (more recent timestamp)")
 
-		newerTimestamp := time.Now().UnixMicro()
+		newerTimestamp := time.Now().UnixMilli()
 		ccvNodeData2New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(newerTimestamp))
 		resp4, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2New))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2 (newer timestamp)")
@@ -1320,7 +1320,7 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 
 		// Step 1: Signer1 sends their verification
 		t.Log("Step 1: Signer1 sends verification")
-		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-2*time.Minute).UnixMicro()))
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-2*time.Minute).UnixMilli()))
 		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
@@ -1343,7 +1343,7 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 
 		// Step 2: Signer2 sends their verification (quorum reached)
 		t.Log("Step 2: Signer2 sends verification")
-		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMicro()))
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMilli()))
 		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
@@ -1372,7 +1372,7 @@ func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
 
 		// Step 3: Signer2 sends new verification with more recent timestamp (should trigger reaggregation since feature is disabled)
 		t.Log("Step 3: Signer2 sends new verification for the same message (more recent timestamp)")
-		newerTimestamp := time.Now().UnixMicro()
+		newerTimestamp := time.Now().UnixMilli()
 		ccvNodeData2New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(newerTimestamp))
 		resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2New))
 		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2 (newer timestamp)")
@@ -1608,7 +1608,7 @@ func TestBatchGetVerifierResult_ReAggregation(t *testing.T) {
 
 		// Wait and submit with newer timestamp to trigger re-aggregation
 		time.Sleep(1 * time.Second)
-		newerTimestamp := time.Now().UnixMicro()
+		newerTimestamp := time.Now().UnixMilli()
 		ccvNodeData1Newer := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 			WithSignatureFrom(t, signer1),
 			WithCustomTimestamp(newerTimestamp))

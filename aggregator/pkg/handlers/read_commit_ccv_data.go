@@ -46,8 +46,10 @@ func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadC
 		return nil, err
 	}
 
+	protoRecord := model.CommitVerificationRecordToProto(record)
+
 	return &pb.ReadCommitCCVNodeDataResponse{
-		CcvNodeData: &record.MessageWithCCVNodeData,
+		CcvNodeData: protoRecord,
 	}, nil
 }
 

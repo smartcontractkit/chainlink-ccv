@@ -49,7 +49,7 @@ func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.Comm
 func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
 	var results []*model.CommitVerificationRecord
 	s.records.Range(func(key, value any) bool {
-		if record, ok := value.(*model.CommitVerificationRecord); ok && bytes.Equal(record.MessageId, messageID) && record.CommitteeID == committee {
+		if record, ok := value.(*model.CommitVerificationRecord); ok && bytes.Equal(record.MessageID, messageID) && record.CommitteeID == committee {
 			results = append(results, record)
 		}
 		return true
@@ -59,7 +59,7 @@ func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, m
 
 func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
 	id := report.GetID()
-	report.WrittenAt = s.timeProvider.Now().Unix()
+	report.WrittenAt = s.timeProvider.Now()
 	s.aggregatedReports.Store(id, report)
 	return nil
 }
@@ -68,7 +68,7 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
-			timestamp := report.WrittenAt
+			timestamp := report.WrittenAt.Unix()
 			if timestamp == 0 {
 				timestamp = report.Sequence
 			}
@@ -133,7 +133,7 @@ func (s *InMemoryStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 			}
 
 			if record, ok := value.(*model.CommitVerificationRecord); ok {
-				pairCh <- record.MessageId
+				pairCh <- record.MessageID
 			}
 			return true
 		})

@@ -16,8 +16,8 @@ import (
 )
 
 type SignatureValidator interface {
-	// ValidateSignature validates a signature for a MessageWithCCVNodeData and returns the signers.
-	ValidateSignature(ctx context.Context, report *pb.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
+	// ValidateSignature validates a signature for a CommitVerificationRecord and returns the signers.
+	ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
 }
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
@@ -54,7 +54,8 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 		reqLogger.Warnf("Request validation is disabled")
 	}
 
-	signers, _, err := h.signatureValidator.ValidateSignature(ctx, req.GetCcvNodeData())
+	record := model.CommitVerificationRecordFromProto(req.GetCcvNodeData())
+	signers, _, err := h.signatureValidator.ValidateSignature(ctx, record)
 	if err != nil {
 		return &pb.WriteCommitCCVNodeDataResponse{
 			Status: pb.WriteStatus_FAILED,
@@ -77,13 +78,12 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 			}, status.Errorf(codes.InvalidArgument, "invalid idempotency key format: %v", err)
 		}
 
-		record := model.CommitVerificationRecord{
-			MessageWithCCVNodeData: *req.GetCcvNodeData(),
-			IdentifierSigner:       signer,
-			CommitteeID:            signer.CommitteeID,
-			IdempotencyKey:         idempotencyUUID,
-		}
-		err = h.storage.SaveCommitVerification(signerCtx, &record)
+		record := model.CommitVerificationRecordFromProto(req.GetCcvNodeData())
+		record.IdentifierSigner = signer
+		record.CommitteeID = signer.CommitteeID
+		record.IdempotencyKey = idempotencyUUID
+
+		err = h.storage.SaveCommitVerification(signerCtx, record)
 		if err != nil {
 			return &pb.WriteCommitCCVNodeDataResponse{
 				Status: pb.WriteStatus_FAILED,

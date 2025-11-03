@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS commit_verification_records (
     offramp_address TEXT NOT NULL,
     signature_r BYTEA NOT NULL DEFAULT '',
     signature_s BYTEA NOT NULL DEFAULT '',
-    ccv_node_data BYTEA NOT NULL,
-    verification_timestamp BIGINT NOT NULL,
+    ccv_node_data JSONB NOT NULL,
+    verification_timestamp TIMESTAMPTZ NOT NULL,
     idempotency_key UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unique_verification UNIQUE (message_id, committee_id, signer_address, idempotency_key)
@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS commit_aggregated_reports (
     message_id TEXT NOT NULL,
     committee_id TEXT NOT NULL,
     verification_record_ids BIGINT[] NOT NULL,
-    report_data BYTEA NOT NULL,
     winning_receipt_blobs JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unique_aggregated_report_sequence UNIQUE (message_id, committee_id, verification_record_ids)
