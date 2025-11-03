@@ -19,11 +19,8 @@ func TestMessageEncodeDecode(t *testing.T) {
 	offRampAddr, err := RandomAddress()
 	require.NoError(t, err)
 
-	// Create empty token transfer
-	tokenTransfer := NewEmptyTokenTransfer()
-
-	// Create a test message
-	msg, err := NewMessage(
+	// Create a test message w/ token transfer
+	msg1, err := NewMessage(
 		ChainSelector(1337),
 		ChainSelector(2337),
 		Nonce(123),
@@ -34,39 +31,57 @@ func TestMessageEncodeDecode(t *testing.T) {
 		receiver,
 		[]byte("test dest blob"),
 		[]byte("test data"),
-		tokenTransfer,
+		NewEmptyTokenTransfer(),
 	)
 	require.NoError(t, err)
 
-	// Encode
-	encoded, err := msg.Encode()
+	// Create a test message w/o token transfer
+	msg2, err := NewMessage(
+		ChainSelector(1337),
+		ChainSelector(2337),
+		Nonce(123),
+		onRampAddr,
+		offRampAddr,
+		10, // finality
+		sender,
+		receiver,
+		[]byte("test dest blob"),
+		[]byte("test data"),
+		nil,
+	)
 	require.NoError(t, err)
-	require.NotEmpty(t, encoded)
 
-	// Decode
-	decoded, err := DecodeMessage(encoded)
-	require.NoError(t, err)
+	for _, msg := range []*Message{msg1, msg2} {
+		// Encode
+		encoded, err := msg.Encode()
+		require.NoError(t, err)
+		require.NotEmpty(t, encoded)
 
-	// Verify all fields match
-	assert.Equal(t, msg.Version, decoded.Version)
-	assert.Equal(t, msg.SourceChainSelector, decoded.SourceChainSelector)
-	assert.Equal(t, msg.DestChainSelector, decoded.DestChainSelector)
-	assert.Equal(t, msg.Nonce, decoded.Nonce)
-	assert.Equal(t, msg.OnRampAddressLength, decoded.OnRampAddressLength)
-	assert.Equal(t, msg.OnRampAddress, decoded.OnRampAddress)
-	assert.Equal(t, msg.OffRampAddressLength, decoded.OffRampAddressLength)
-	assert.Equal(t, msg.OffRampAddress, decoded.OffRampAddress)
-	assert.Equal(t, msg.Finality, decoded.Finality)
-	assert.Equal(t, msg.SenderLength, decoded.SenderLength)
-	assert.Equal(t, msg.Sender, decoded.Sender)
-	assert.Equal(t, msg.ReceiverLength, decoded.ReceiverLength)
-	assert.Equal(t, msg.Receiver, decoded.Receiver)
-	assert.Equal(t, msg.DestBlobLength, decoded.DestBlobLength)
-	assert.Equal(t, msg.DestBlob, decoded.DestBlob)
-	assert.Equal(t, msg.TokenTransferLength, decoded.TokenTransferLength)
-	assert.Equal(t, msg.TokenTransfer, decoded.TokenTransfer)
-	assert.Equal(t, msg.DataLength, decoded.DataLength)
-	assert.Equal(t, msg.Data, decoded.Data)
+		// Decode
+		decoded, err := DecodeMessage(encoded)
+		require.NoError(t, err)
+
+		// Verify all fields match
+		assert.Equal(t, msg.Version, decoded.Version)
+		assert.Equal(t, msg.SourceChainSelector, decoded.SourceChainSelector)
+		assert.Equal(t, msg.DestChainSelector, decoded.DestChainSelector)
+		assert.Equal(t, msg.Nonce, decoded.Nonce)
+		assert.Equal(t, msg.OnRampAddressLength, decoded.OnRampAddressLength)
+		assert.Equal(t, msg.OnRampAddress, decoded.OnRampAddress)
+		assert.Equal(t, msg.OffRampAddressLength, decoded.OffRampAddressLength)
+		assert.Equal(t, msg.OffRampAddress, decoded.OffRampAddress)
+		assert.Equal(t, msg.Finality, decoded.Finality)
+		assert.Equal(t, msg.SenderLength, decoded.SenderLength)
+		assert.Equal(t, msg.Sender, decoded.Sender)
+		assert.Equal(t, msg.ReceiverLength, decoded.ReceiverLength)
+		assert.Equal(t, msg.Receiver, decoded.Receiver)
+		assert.Equal(t, msg.DestBlobLength, decoded.DestBlobLength)
+		assert.Equal(t, msg.DestBlob, decoded.DestBlob)
+		assert.Equal(t, msg.TokenTransferLength, decoded.TokenTransferLength)
+		assert.Equal(t, msg.TokenTransfer, decoded.TokenTransfer)
+		assert.Equal(t, msg.DataLength, decoded.DataLength)
+		assert.Equal(t, msg.Data, decoded.Data)
+	}
 }
 
 func TestMessageID(t *testing.T) {
