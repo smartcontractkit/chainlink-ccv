@@ -1,4 +1,4 @@
-package verifier
+package services
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -57,7 +58,7 @@ type ReorgDetectorConfig struct {
 // - Runs alongside SourceReaderService for each chain
 // - Uses same SourceReader instance to share RPC connections.
 type ReorgDetectorService struct {
-	sourceReader SourceReader
+	sourceReader verifier.SourceReader
 	headTracker  chainaccess.HeadTracker
 	config       ReorgDetectorConfig
 	lggr         logger.Logger
@@ -87,7 +88,7 @@ type ReorgDetectorService struct {
 // - *ReorgDetectorService ready to be started
 // - error if configuration is invalid.
 func NewReorgDetectorService(
-	sourceReader SourceReader,
+	sourceReader verifier.SourceReader,
 	headTracker chainaccess.HeadTracker,
 	config ReorgDetectorConfig,
 	lggr logger.Logger,
