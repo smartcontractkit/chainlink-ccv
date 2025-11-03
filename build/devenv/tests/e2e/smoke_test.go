@@ -317,7 +317,7 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvEvm.CC
 				ccvEvm.DefaultReceiverQualifier,
 				"default mock receiver",
 			),
-			msgData: bytes.Repeat([]byte("a"), int(maxDataBytes)), //nolint:gosec
+			msgData: bytes.Repeat([]byte("a"), int(maxDataBytes)),
 			ccvs: []protocol.CCV{
 				{
 					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
