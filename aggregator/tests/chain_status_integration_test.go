@@ -4,6 +4,8 @@ package tests
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -55,46 +57,90 @@ func WithChainStatusTestClients() ConfigOption {
 			testClients = append(testClients, clientID)
 		}
 
-		// Configure regular test clients
+		// Initialize APIClients metadata map
+		if cfg.APIClients == nil {
+			cfg.APIClients = make(map[string]*model.APIClientMetadata)
+		}
+
+		// Configure metadata for regular test clients
 		for _, clientID := range testClients {
-			secret := "secret-" + clientID
-			cfg.APIKeys.Clients[clientID] = &model.APIClient{
-				ClientID:    clientID,
+			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
+			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
+
+			cfg.APIClients[clientID] = &model.APIClientMetadata{
 				Description: "Test client for " + clientID,
+				Groups:      []string{},
 				Enabled:     true,
-				IsAdmin:     false,
-				Secrets: map[string]string{
-					"current": secret,
+				Admin:       false,
+				KeyPairEnvVars: []model.ClientEnvVarPair{
+					{
+						APIKeyEnv: apiKeyEnv,
+						SecretEnv: secretEnv,
+					},
 				},
 			}
 		}
 
-		// Configure admin clients
+		// Configure metadata for admin clients
 		for _, clientID := range adminClients {
-			secret := "secret-" + clientID
-			cfg.APIKeys.Clients[clientID] = &model.APIClient{
-				ClientID:    clientID,
+			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
+			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
+
+			cfg.APIClients[clientID] = &model.APIClientMetadata{
 				Description: "Admin test client for " + clientID,
+				Groups:      []string{},
 				Enabled:     true,
-				IsAdmin:     true,
-				Secrets: map[string]string{
-					"current": secret,
+				Admin:       true,
+				KeyPairEnvVars: []model.ClientEnvVarPair{
+					{
+						APIKeyEnv: apiKeyEnv,
+						SecretEnv: secretEnv,
+					},
 				},
 			}
 		}
 
-		// Configure verifier clients for admin tests
+		// Configure metadata for verifier clients
 		for _, clientID := range verifierClients {
-			secret := "secret-" + clientID
-			cfg.APIKeys.Clients[clientID] = &model.APIClient{
-				ClientID:    clientID,
+			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
+			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
+
+			cfg.APIClients[clientID] = &model.APIClientMetadata{
 				Description: "Verifier test client for " + clientID,
+				Groups:      []string{"verifiers"},
 				Enabled:     true,
-				IsAdmin:     false,
-				Secrets: map[string]string{
-					"current": secret,
+				Admin:       false,
+				KeyPairEnvVars: []model.ClientEnvVarPair{
+					{
+						APIKeyEnv: apiKeyEnv,
+						SecretEnv: secretEnv,
+					},
 				},
 			}
+		}
+
+		// Set up environment variables for all test clients
+		for _, clientID := range testClients {
+			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
+			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
+			_ = os.Setenv(apiKeyEnv, "key-"+clientID)
+			_ = os.Setenv(secretEnv, "secret-"+clientID)
+		}
+
+		// Set up environment variables for admin clients
+		for _, clientID := range adminClients {
+			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
+			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
+			_ = os.Setenv(apiKeyEnv, "key-"+clientID)
+			_ = os.Setenv(secretEnv, "secret-"+clientID)
+		}
+
+		// Set up environment variables for verifier clients
+		for _, clientID := range verifierClients {
+			apiKeyEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_API_KEY"
+			secretEnv := "AGGREGATOR_" + strings.ToUpper(strings.ReplaceAll(clientID, "-", "_")) + "_SECRET"
+			_ = os.Setenv(apiKeyEnv, "key-"+clientID)
+			_ = os.Setenv(secretEnv, "secret-"+clientID)
 		}
 
 		return cfg, clientCfg
@@ -110,13 +156,13 @@ func TestChainStatusClientIsolation(t *testing.T) {
 		defer cleanup()
 
 		// Create separate clients with different credentials
-		client1, _, cleanup1 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-1", "secret-isolation-client-1"))
+		client1, _, cleanup1 := CreateAuthenticatedClient(t, listener, WithClientAuth("key-isolation-client-1", "secret-isolation-client-1"))
 		defer cleanup1()
 
-		client2, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-2", "secret-isolation-client-2"))
+		client2, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("key-isolation-client-2", "secret-isolation-client-2"))
 		defer cleanup2()
 
-		client3, _, cleanup3 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-3", "secret-isolation-client-3"))
+		client3, _, cleanup3 := CreateAuthenticatedClient(t, listener, WithClientAuth("key-isolation-client-3", "secret-isolation-client-3"))
 		defer cleanup3()
 
 		// Client 1 stores chain status
@@ -189,7 +235,7 @@ func TestChainStatusClientIsolation(t *testing.T) {
 		clients := make([]*clientInfo, numClients)
 		for i := 0; i < numClients; i++ {
 			clientID := "same-chain-client-" + string(rune('A'+i))
-			aggClient, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth(clientID, "secret-"+clientID))
+			aggClient, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-"+clientID, "secret-"+clientID))
 			clients[i] = &clientInfo{
 				client:   aggClient,
 				clientID: clientID,
@@ -233,9 +279,9 @@ func TestChainStatusClientIsolation(t *testing.T) {
 		defer cleanup()
 
 		// Create two separate clients
-		clientA, _, cleanupA := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-A", "secret-update-client-A"))
+		clientA, _, cleanupA := CreateAuthenticatedClient(t, listener, WithClientAuth("key-update-client-A", "secret-update-client-A"))
 		defer cleanupA()
-		clientB, _, cleanupB := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-B", "secret-update-client-B"))
+		clientB, _, cleanupB := CreateAuthenticatedClient(t, listener, WithClientAuth("key-update-client-B", "secret-update-client-B"))
 		defer cleanupB()
 
 		// Both clients store initial data
@@ -339,7 +385,7 @@ func TestChainStatusConcurrency(t *testing.T) {
 		clients := make([]*clientInfo, numClients)
 		for i := 0; i < numClients; i++ {
 			clientID := "concurrent-client-" + string(rune('A'+i%26)) + string(rune('A'+i/26))
-			aggClient, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth(clientID, "secret-"+clientID))
+			aggClient, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-"+clientID, "secret-"+clientID))
 			clients[i] = &clientInfo{
 				client:   aggClient,
 				clientID: clientID,
@@ -545,9 +591,9 @@ func TestChainStatusClientIsolation_DynamoDB(t *testing.T) {
 		defer cleanup()
 
 		// Create two separate clients
-		client1, _, cleanup1 := CreateAuthenticatedClient(t, listener, WithClientAuth("ddb-isolation-client-1", "secret-ddb-isolation-client-1"))
+		client1, _, cleanup1 := CreateAuthenticatedClient(t, listener, WithClientAuth("key-ddb-isolation-client-1", "secret-ddb-isolation-client-1"))
 		defer cleanup1()
-		client2, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("ddb-isolation-client-2", "secret-ddb-isolation-client-2"))
+		client2, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("key-ddb-isolation-client-2", "secret-ddb-isolation-client-2"))
 		defer cleanup2()
 
 		// Client 1 stores chain status
@@ -658,11 +704,11 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create verifier client
-		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-verifier-client-1", "secret-verifier-client-1"))
 		defer verifierCleanup()
 
 		// Create admin client
-		adminClient, _, adminCleanup := CreateAdminAuthenticatedClient(t, listener, "admin-client-1", "secret-admin-client-1", "")
+		adminClient, _, adminCleanup := CreateAdminAuthenticatedClient(t, listener, "key-admin-client-1", "secret-admin-client-1", "")
 		defer adminCleanup()
 
 		// Verifier stores initial chain status
@@ -681,7 +727,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		require.Len(t, verifierResp.Statuses, 2, "verifier should see their data")
 
 		// Admin overrides verifier data using on-behalf-of
-		adminOverrideClient, _, adminOverrideCleanup := CreateAdminAuthenticatedClient(t, listener, "admin-client-1", "secret-admin-client-1", "verifier-client-1")
+		adminOverrideClient, _, adminOverrideCleanup := CreateAdminAuthenticatedClient(t, listener, "key-admin-client-1", "secret-admin-client-1", "verifier-client-1")
 		defer adminOverrideCleanup()
 
 		overrideReq := &pb.WriteChainStatusRequest{
@@ -724,7 +770,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create two verifier clients
-		verifier1Client, _, verifier1Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifier1Client, _, verifier1Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-verifier-client-1", "secret-verifier-client-1"))
 		defer verifier1Cleanup()
 
 		// We don't need to create verifier2Client, we only need to test the attack attempt
@@ -740,7 +786,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 
 		// Try to create a "fake admin" client using verifier 2 credentials with admin header
 		// This should fail because verifier 2 is not an admin
-		fakeAdminClient, _, fakeAdminCleanup := CreateAdminAuthenticatedClient(t, listener, "verifier-client-2", "secret-verifier-client-2", "verifier-client-1")
+		fakeAdminClient, _, fakeAdminCleanup := CreateAdminAuthenticatedClient(t, listener, "key-verifier-client-2", "secret-verifier-client-2", "verifier-client-1")
 		defer fakeAdminCleanup()
 
 		attackReq := &pb.WriteChainStatusRequest{
@@ -767,11 +813,11 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create verifier client
-		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-verifier-client-1", "secret-verifier-client-1"))
 		defer verifierCleanup()
 
 		// Admin sets extreme configuration values on behalf of verifier
-		adminOverrideClient, _, adminOverrideCleanup := CreateAdminAuthenticatedClient(t, listener, "admin-client-1", "secret-admin-client-1", "verifier-client-1")
+		adminOverrideClient, _, adminOverrideCleanup := CreateAdminAuthenticatedClient(t, listener, "key-admin-client-1", "secret-admin-client-1", "verifier-client-1")
 		defer adminOverrideCleanup()
 
 		extremeReq := &pb.WriteChainStatusRequest{
@@ -809,11 +855,11 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create multiple verifier clients
-		verifier1Client, _, verifier1Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifier1Client, _, verifier1Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-verifier-client-1", "secret-verifier-client-1"))
 		defer verifier1Cleanup()
-		verifier2Client, _, verifier2Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-2", "secret-verifier-client-2"))
+		verifier2Client, _, verifier2Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-verifier-client-2", "secret-verifier-client-2"))
 		defer verifier2Cleanup()
-		verifier3Client, _, verifier3Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-3", "secret-verifier-client-3"))
+		verifier3Client, _, verifier3Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-verifier-client-3", "secret-verifier-client-3"))
 		defer verifier3Cleanup()
 
 		// Each verifier stores initial data
@@ -828,7 +874,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		}
 
 		// Admin overrides only verifier 2's data
-		adminOverrideClient, _, adminOverrideCleanup := CreateAdminAuthenticatedClient(t, listener, "admin-client-1", "secret-admin-client-1", "verifier-client-2")
+		adminOverrideClient, _, adminOverrideCleanup := CreateAdminAuthenticatedClient(t, listener, "key-admin-client-1", "secret-admin-client-1", "verifier-client-2")
 		defer adminOverrideCleanup()
 
 		overrideReq := &pb.WriteChainStatusRequest{
@@ -866,11 +912,11 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create admin client without on-behalf-of header
-		adminClient, _, adminCleanup := CreateAdminAuthenticatedClient(t, listener, "admin-client-1", "secret-admin-client-1", "")
+		adminClient, _, adminCleanup := CreateAdminAuthenticatedClient(t, listener, "key-admin-client-1", "secret-admin-client-1", "")
 		defer adminCleanup()
 
 		// Create verifier client
-		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-verifier-client-1", "secret-verifier-client-1"))
 		defer verifierCleanup()
 
 		// Verifier stores data
@@ -912,11 +958,11 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create verifier client
-		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("key-verifier-client-1", "secret-verifier-client-1"))
 		defer verifierCleanup()
 
 		// Create admin client
-		adminOverrideClient, _, adminOverrideCleanup := CreateAdminAuthenticatedClient(t, listener, "admin-client-1", "secret-admin-client-1", "verifier-client-1")
+		adminOverrideClient, _, adminOverrideCleanup := CreateAdminAuthenticatedClient(t, listener, "key-admin-client-1", "secret-admin-client-1", "verifier-client-1")
 		defer adminOverrideCleanup()
 
 		// Verifier stores initial data with 10 chain selectors
