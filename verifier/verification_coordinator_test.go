@@ -20,12 +20,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	verifier_mocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
+	verifier_mocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 )
 
 // Test constants.

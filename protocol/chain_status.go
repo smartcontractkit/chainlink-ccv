@@ -39,7 +39,7 @@ func (r ReorgType) String() string {
 //
 // ResetToBlock usage:
 // - ReorgTypeNormal: Block number to reset to (common ancestor)
-// - ReorgTypeFinalityViolation: Always 0 (no safe reset point - requires immediate stop)
+// - ReorgTypeFinalityViolation: Always 0 (no safe reset point - requires immediate stop).
 type ChainStatus struct {
 	Type         ReorgType
 	ResetToBlock uint64 // Block number to reset to (0 for finality violations)

@@ -239,7 +239,6 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// TODO: Use another method that uses the chainclient
 	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
 		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)

@@ -12,12 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
 	commonmocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	verifier_mocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Helper functions
+// Helper functions.
 func createTestBlocks(start, end uint64) []protocol.BlockHeader {
 	blocks := make([]protocol.BlockHeader, 0, end-start+1)
 	for i := start; i <= end; i++ {

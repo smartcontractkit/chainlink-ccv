@@ -198,7 +198,7 @@ func (r *ReorgDetectorService) pollAndCheckForReorgs(ctx context.Context) {
 }
 
 // checkBlockMaybeHandleReorg checks the latest block and handles reorgs if detected.
-// Based on logpoller's getCurrentBlockMaybeHandleReorg pattern
+// Based on logpoller's getCurrentBlockMaybeHandleReorg pattern.
 func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	// Get current chain state in a single RPC call
 	latest, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
