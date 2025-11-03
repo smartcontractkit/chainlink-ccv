@@ -66,7 +66,7 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature1"),
 			BlobData:              []byte("blob1"),
-			Timestamp:             time.Now().Unix(),
+			Timestamp:             time.Now().UnixMilli(),
 			ReceiptBlobs: []protocol.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,
@@ -87,7 +87,7 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature2"),
 			BlobData:              []byte("blob2"),
-			Timestamp:             time.Now().Unix() + 1,
+			Timestamp:             time.Now().UnixMilli() + 1,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,
@@ -303,7 +303,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature"),
 			BlobData:              []byte("blob"),
-			Timestamp:             time.Now().Unix(),
+			Timestamp:             time.Now().UnixMilli(),
 			ReceiptBlobs: []protocol.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,

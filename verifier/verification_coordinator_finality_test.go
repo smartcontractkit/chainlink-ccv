@@ -60,7 +60,7 @@ func (t *testVerifier) VerifyMessages(
 			DestVerifierAddress:   protocol.UnknownAddress{},
 			CCVData:               []byte("mock-signature"),
 			BlobData:              []byte("mock-blob"),
-			Timestamp:             time.Now().UnixMicro(),
+			Timestamp:             time.Now().UnixMilli(),
 			Message:               verificationTask.Message,
 			ReceiptBlobs:          verificationTask.ReceiptBlobs,
 		}
