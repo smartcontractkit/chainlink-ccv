@@ -7,14 +7,15 @@ import (
 	"time"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // testSetup contains all the components needed for message discovery tests.
