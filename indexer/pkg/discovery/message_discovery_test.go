@@ -139,15 +139,6 @@ func defaultTestConfig() Config {
 	}
 }
 
-// fastTestConfig returns a configuration with faster intervals for testing.
-func fastTestConfig() Config {
-	return Config{
-		PollInterval:       10 * time.Millisecond,
-		Timeout:            200 * time.Millisecond,
-		MessageChannelSize: 1000,
-	}
-}
-
 // TestNewAggregatorMessageDiscovery tests the constructor.
 func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	lggr := logger.Test(t)
