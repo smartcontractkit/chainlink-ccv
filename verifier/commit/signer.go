@@ -53,16 +53,17 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 	}, nil
 }
 
-// SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) SignMessage(
+// Sign signs some data with the new chain-agnostic format.
+func (ecdsa *ECDSASigner) Sign(
 	data []byte,
 ) ([]byte, error) {
+	// 1. Sign with v27 format.
 	r, s, signerAddress, err := protocol.SignV27(data, ecdsa.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// 4. Create signature data with signer address
+	// 2. Create signature data with signer address.
 	signatures := []protocol.Data{
 		{
 			R:      r,
@@ -71,7 +72,7 @@ func (ecdsa *ECDSASigner) SignMessage(
 		},
 	}
 
-	// 5. Encode signature using simple format
+	// 3. Encode signature using protocol format.
 	encodedSignature, err := protocol.EncodeSignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)

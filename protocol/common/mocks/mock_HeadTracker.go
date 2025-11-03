@@ -89,64 +89,6 @@ func (_c *MockHeadTracker_LatestAndFinalizedBlock_Call) RunAndReturn(run func(co
 	return _c
 }
 
-// LatestSafeBlock provides a mock function with given fields: ctx
-func (_m *MockHeadTracker) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for LatestSafeBlock")
-	}
-
-	var r0 *protocol.BlockHeader
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (*protocol.BlockHeader, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) *protocol.BlockHeader); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*protocol.BlockHeader)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockHeadTracker_LatestSafeBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LatestSafeBlock'
-type MockHeadTracker_LatestSafeBlock_Call struct {
-	*mock.Call
-}
-
-// LatestSafeBlock is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockHeadTracker_Expecter) LatestSafeBlock(ctx interface{}) *MockHeadTracker_LatestSafeBlock_Call {
-	return &MockHeadTracker_LatestSafeBlock_Call{Call: _e.mock.On("LatestSafeBlock", ctx)}
-}
-
-func (_c *MockHeadTracker_LatestSafeBlock_Call) Run(run func(ctx context.Context)) *MockHeadTracker_LatestSafeBlock_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockHeadTracker_LatestSafeBlock_Call) Return(safe *protocol.BlockHeader, err error) *MockHeadTracker_LatestSafeBlock_Call {
-	_c.Call.Return(safe, err)
-	return _c
-}
-
-func (_c *MockHeadTracker_LatestSafeBlock_Call) RunAndReturn(run func(context.Context) (*protocol.BlockHeader, error)) *MockHeadTracker_LatestSafeBlock_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewMockHeadTracker creates a new instance of MockHeadTracker. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockHeadTracker(t interface {

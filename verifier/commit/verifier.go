@@ -160,14 +160,14 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress.String(),
 	)
 
-	sig, err := cv.signer.Sign(messageID[:])
+	encodedSignature, err := cv.signer.Sign(messageID[:])
 	if err != nil {
 		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}
 
 	cv.lggr.Infow("Message signed successfully",
 		"messageID", messageID,
-		"signerAddress", cv.signer.GetSignerAddress().String(),
+		"signer", cv.config.VerifierID,
 		"signatureLength", len(encodedSignature),
 	)
 
