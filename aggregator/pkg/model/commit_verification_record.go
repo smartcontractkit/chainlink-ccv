@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -26,7 +28,8 @@ func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
 type CommitVerificationRecord struct {
 	IdentifierSigner *IdentifierSigner
 	pb.MessageWithCCVNodeData
-	CommitteeID CommitteeID
+	CommitteeID    CommitteeID
+	IdempotencyKey uuid.UUID
 }
 
 // GetID retrieves the unique identifier for the commit verification record.

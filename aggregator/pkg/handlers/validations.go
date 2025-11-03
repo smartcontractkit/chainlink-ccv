@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"regexp"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 
@@ -9,10 +10,14 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
+// uuidRegex matches standard UUID format (with or without hyphens).
+var uuidRegex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
 func validateWriteRequest(req *pb.WriteCommitCCVNodeDataRequest) error {
 	err := validation.ValidateStruct(
 		req,
-		validation.Field(&req.CcvNodeData, validation.Required))
+		validation.Field(&req.CcvNodeData, validation.Required),
+		validation.Field(&req.IdempotencyKey, validation.Required, validation.Match(uuidRegex).Error("must be a valid UUID")))
 	if err != nil {
 		return err
 	}

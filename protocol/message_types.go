@@ -397,7 +397,8 @@ type QueryResponse struct {
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
 type CCVNodeDataWriter interface {
 	// WriteCCVNodeData stores multiple CCV node data entries in the offchain storage
-	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData) error
+	// idempotencyKeys should have the same length as ccvDataList, with each key corresponding to the CCVData at the same index
+	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData, idempotencyKeys []string) error
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
