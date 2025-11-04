@@ -425,6 +425,16 @@ type DisconnectableReader interface {
 	ShouldDisconnect() bool
 }
 
+// VerifierResultsAPI defines the interface for the public API to interact with verifiers
+// It provides a singular API for offchain storage lookups by providing a batch endpoint
+//
+// Different transport layers (REST, S3) might not support batch lookups however this
+// responsibility should be delegated to the underlying implementation.
+type VerifierResultsAPI interface {
+	// GetVerifications retrieves verifications for a set of provided messages.
+	GetVerifications(ctx context.Context, messageIDs []Bytes32) (map[Bytes32]CCVData, error)
+}
+
 // Helper functions for creating empty/default values
 
 // NewEmptyTokenTransfer creates an empty token transfer.
