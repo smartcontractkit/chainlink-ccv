@@ -258,8 +258,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		return nil
 	}
 
-	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
-	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l)
+	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator)
+	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring)
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
 	getBatchCCVDataForMessageHandler := handlers.NewGetBatchCCVDataForMessageHandler(store, config.Committees, config.MaxMessageIDsPerBatch, l)

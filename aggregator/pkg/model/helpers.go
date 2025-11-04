@@ -3,6 +3,7 @@ package model
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -109,11 +110,82 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	}
 
 	return &pb.VerifierResult{
-		Message:               report.GetMessage(),
+		Message:               report.GetProtoMessage(),
 		SourceVerifierAddress: report.GetSourceVerifierAddress(),
 		DestVerifierAddress:   quorumConfig.GetDestVerifierAddressBytes(),
 		CcvData:               ccvData,
-		Timestamp:             report.WrittenAt,
+		Timestamp:             timeToTimestampMillis(report.WrittenAt),
 		Sequence:              report.Sequence,
 	}, nil
+}
+
+// timestampMillisToTime converts millisecond timestamp to time.Time in UTC.
+func timestampMillisToTime(timestampMillis int64) time.Time {
+	return time.UnixMilli(timestampMillis).UTC()
+}
+
+// timeToTimestampMillis converts time.Time to millisecond timestamp.
+func timeToTimestampMillis(t time.Time) int64 {
+	return t.UnixMilli()
+}
+
+// MapProtocolMessageToProtoMessage converts a protocol.Message to pb.Message.
+func MapProtocolMessageToProtoMessage(m *protocol.Message) *pb.Message {
+	return &pb.Message{
+		Version:              uint32(m.Version),
+		SourceChainSelector:  uint64(m.SourceChainSelector),
+		DestChainSelector:    uint64(m.DestChainSelector),
+		Nonce:                uint64(m.Nonce),
+		OnRampAddressLength:  uint32(m.OnRampAddressLength),
+		OnRampAddress:        m.OnRampAddress,
+		OffRampAddressLength: uint32(m.OffRampAddressLength),
+		OffRampAddress:       m.OffRampAddress,
+		Finality:             uint32(m.Finality),
+		SenderLength:         uint32(m.SenderLength),
+		Sender:               m.Sender,
+		ReceiverLength:       uint32(m.ReceiverLength),
+		Receiver:             m.Receiver,
+		DestBlobLength:       uint32(m.DestBlobLength),
+		DestBlob:             m.DestBlob,
+		TokenTransferLength:  uint32(m.TokenTransferLength),
+		TokenTransfer:        m.TokenTransfer,
+		DataLength:           uint32(m.DataLength),
+		Data:                 m.Data,
+	}
+}
+
+// CommitVerificationRecordFromProto converts protobuf MessageWithCCVNodeData to domain model.
+func CommitVerificationRecordFromProto(proto *pb.MessageWithCCVNodeData) *CommitVerificationRecord {
+	record := &CommitVerificationRecord{
+		MessageID:             proto.MessageId,
+		SourceVerifierAddress: proto.SourceVerifierAddress,
+		BlobData:              proto.BlobData,
+		CcvData:               proto.CcvData,
+		Timestamp:             timestampMillisToTime(proto.Timestamp),
+		ReceiptBlobs:          ReceiptBlobsFromProto(proto.ReceiptBlobs),
+	}
+
+	if proto.Message != nil {
+		record.Message = MapProtoMessageToProtocolMessage(proto.Message)
+	}
+
+	return record
+}
+
+// CommitVerificationRecordToProto converts domain model to protobuf MessageWithCCVNodeData.
+func CommitVerificationRecordToProto(record *CommitVerificationRecord) *pb.MessageWithCCVNodeData {
+	proto := &pb.MessageWithCCVNodeData{
+		MessageId:             record.MessageID,
+		SourceVerifierAddress: record.SourceVerifierAddress,
+		BlobData:              record.BlobData,
+		CcvData:               record.CcvData,
+		Timestamp:             timeToTimestampMillis(record.Timestamp),
+		ReceiptBlobs:          ReceiptBlobsToProto(record.ReceiptBlobs),
+	}
+
+	if record.Message != nil {
+		proto.Message = MapProtocolMessageToProtoMessage(record.Message)
+	}
+
+	return proto
 }

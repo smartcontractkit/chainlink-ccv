@@ -333,19 +333,18 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
-	Committees        map[CommitteeID]*Committee `toml:"committees"`
-	Server            ServerConfig               `toml:"server"`
-	Storage           *StorageConfig             `toml:"storage"`
-	APIKeys           APIKeyConfig               `toml:"-"`
-	ChainStatuses     ChainStatusConfig          `toml:"chainStatuses"`
-	Aggregation       AggregationConfig          `toml:"aggregation"`
-	OrphanRecovery    OrphanRecoveryConfig       `toml:"orphanRecovery"`
-	RateLimiting      RateLimitingConfig         `toml:"rateLimiting"`
-	HealthCheck       HealthCheckConfig          `toml:"healthCheck"`
-	DisableValidation bool                       `toml:"disableValidation"`
-	StubMode          bool                       `toml:"stubQuorumValidation"`
-	Monitoring        MonitoringConfig           `toml:"monitoring"`
-	PyroscopeURL      string                     `toml:"pyroscope_url"`
+	Committees     map[CommitteeID]*Committee `toml:"committees"`
+	Server         ServerConfig               `toml:"server"`
+	Storage        *StorageConfig             `toml:"storage"`
+	APIKeys        APIKeyConfig               `toml:"-"`
+	ChainStatuses  ChainStatusConfig          `toml:"chainStatuses"`
+	Aggregation    AggregationConfig          `toml:"aggregation"`
+	OrphanRecovery OrphanRecoveryConfig       `toml:"orphanRecovery"`
+	RateLimiting   RateLimitingConfig         `toml:"rateLimiting"`
+	HealthCheck    HealthCheckConfig          `toml:"healthCheck"`
+	StubMode       bool                       `toml:"stubQuorumValidation"`
+	Monitoring     MonitoringConfig           `toml:"monitoring"`
+	PyroscopeURL   string                     `toml:"pyroscope_url"`
 	// MaxMessageIDsPerBatch limits the number of message IDs per batch verifier result request
 	MaxMessageIDsPerBatch int `toml:"maxMessageIDsPerBatch"`
 }

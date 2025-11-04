@@ -78,7 +78,7 @@ func (oss *IndexerStorageStreamer) Start(
 			oss.running = false
 			oss.mu.Unlock()
 		}()
-		newtime := time.Now().Unix()
+		newtime := time.Now().UnixMilli()
 		offset := uint64(0)
 		for {
 			select {
@@ -149,7 +149,7 @@ func (oss *IndexerStorageStreamer) Start(
 				}
 
 				// Update time for next iteration
-				newtime = time.Now().Unix()
+				newtime = time.Now().UnixMilli()
 			}
 		}
 	}()

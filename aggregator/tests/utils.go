@@ -7,15 +7,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
@@ -53,30 +55,9 @@ func WithStorageType(storageType string) ConfigOption {
 	}
 }
 
-func WithStubMode(stub bool) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.StubMode = stub
-		return cfg, clientCfg
-	}
-}
-
 func WithPaginationConfig(pageSize int) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.Storage.PageSize = pageSize
-		return cfg, clientCfg
-	}
-}
-
-func WithAPIKeyAuth(apiKey, secret string) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.APIKeys.Clients[apiKey] = &model.APIClient{
-			ClientID:    apiKey,
-			Description: "Custom test client",
-			Enabled:     true,
-			Secrets: map[string]string{
-				"current": secret,
-			},
-		}
 		return cfg, clientCfg
 	}
 }
@@ -139,15 +120,8 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 // CreateServerOnly creates and starts a test gRPC server using bufconn for in-memory communication.
 func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener, func(), error) {
 	buf := bufconn.Listen(bufSize)
-	// Setup logging - always debug level for now
-	lggr, err := logger.NewWith(func(logConfig *zap.Config) {
-		logConfig.Development = true
-		logConfig.Encoding = "console"
-		logConfig.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	})
-	if err != nil {
-		panic(err)
-	}
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
+	require.NoError(t, err)
 
 	// Use SugaredLogger for better API
 	sugaredLggr := logger.Sugared(lggr)

@@ -14,13 +14,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -226,7 +227,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 				SpanID:            SpanID(msgID, "msg_sig"),
 				Name:              "msg_sig",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
-				EndTimeUnixNano:   uint64(msgSig.Timestamp) * 1_000_000_000, //nolint:gosec // conversion from int to uint64 is safe here
+				EndTimeUnixNano:   uint64(msgSig.Timestamp.Nanosecond()), //nolint:gosec // conversion from int to uint64 is safe here
 				Kind:              2,
 				Attributes: []Attribute{
 					{
@@ -276,13 +277,9 @@ func FetchLaneEvents(ctx context.Context, c *CCIP17EVM, cfg *LaneStreamConfig) (
 }
 
 func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggregatorSince int64) ([]protocol.QueryResponse, error) {
-	lggr, err := logger.NewWith(func(config *zap.Config) {
-		config.Development = true
-		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	})
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create monitoring logger: %w", err)
 	}
 
 	hmacConfig := hmac.ClientConfig{
@@ -298,7 +295,7 @@ func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggreg
 		&hmacConfig,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
 	}
 	return reader.ReadCCVData(ctx)
 }

@@ -468,7 +468,7 @@ func (d *PostgresStorage) scanCCVData(row interface {
 		MessageID:             messageID,
 		SourceVerifierAddress: sourceVerifierAddress,
 		DestVerifierAddress:   destVerifierAddress,
-		Timestamp:             timestamp,
+		Timestamp:             time.UnixMilli(timestamp),
 		SourceChainSelector:   protocol.ChainSelector(sourceChainSelector),
 		DestChainSelector:     protocol.ChainSelector(destChainSelector),
 		Nonce:                 protocol.Nonce(nonce),

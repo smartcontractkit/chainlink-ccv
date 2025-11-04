@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"time"
 )
 
 // Constants for CCIP v1.7.
@@ -393,7 +394,7 @@ type CCVData struct {
 	Nonce                 Nonce             `json:"nonce"`
 	SourceChainSelector   ChainSelector     `json:"source_chain_selector"`
 	DestChainSelector     ChainSelector     `json:"dest_chain_selector"`
-	Timestamp             int64             `json:"timestamp"`
+	Timestamp             time.Time         `json:"timestamp"`
 	MessageID             Bytes32           `json:"message_id"`
 }
 
@@ -431,6 +432,16 @@ type DisconnectableReader interface {
 	// ShouldDisconnect returns true if this reader should be disconnected or no longer used.
 	// This method should be called after each ReadCCVData call to check the readers validity.
 	ShouldDisconnect() bool
+}
+
+// VerifierResultsAPI defines the interface for the public API to interact with verifiers
+// It provides a singular API for offchain storage lookups by providing a batch endpoint
+//
+// Different transport layers (REST, S3) might not support batch lookups however this
+// responsibility should be delegated to the underlying implementation.
+type VerifierResultsAPI interface {
+	// GetVerifications retrieves verifications for a set of provided messages.
+	GetVerifications(ctx context.Context, messageIDs []Bytes32) (map[Bytes32]CCVData, error)
 }
 
 // Helper functions for creating empty/default values

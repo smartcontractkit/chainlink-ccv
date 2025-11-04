@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -51,28 +52,6 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 	if err != nil {
 		return nil, err
 	}
-	msg := &pb.Message{
-		Version:              uint32(ccvData.Message.Version),
-		SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
-		DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
-		Nonce:                uint64(ccvData.Message.Nonce),
-		OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
-		OnRampAddress:        ccvData.Message.OnRampAddress[:],
-		OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
-		OffRampAddress:       ccvData.Message.OffRampAddress[:],
-		Finality:             uint32(ccvData.Message.Finality),
-		SenderLength:         uint32(ccvData.Message.SenderLength),
-		Sender:               ccvData.Message.Sender[:],
-		ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
-		Receiver:             ccvData.Message.Receiver[:],
-		DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
-		DestBlob:             ccvData.Message.DestBlob[:],
-		TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
-		TokenTransfer:        ccvData.Message.TokenTransfer[:],
-		DataLength:           uint32(ccvData.Message.DataLength),
-		Data:                 ccvData.Message.Data[:],
-		GasLimit:             uint32(ccvData.Message.GasLimit),
-	}
 
 	return &pb.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: &pb.MessageWithCCVNodeData{
@@ -80,9 +59,30 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
 			CcvData:               ccvData.CCVData,
 			BlobData:              ccvData.BlobData,
-			Timestamp:             ccvData.Timestamp,
-			Message:               msg,
-			ReceiptBlobs:          receiptBlobs,
+			Timestamp:             ccvData.Timestamp.UnixMilli(),
+			Message: &pb.Message{
+				Version:              uint32(ccvData.Message.Version),
+				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
+				DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
+				Nonce:                uint64(ccvData.Message.Nonce),
+				OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
+				OnRampAddress:        ccvData.Message.OnRampAddress[:],
+				OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
+				OffRampAddress:       ccvData.Message.OffRampAddress[:],
+				Finality:             uint32(ccvData.Message.Finality),
+				SenderLength:         uint32(ccvData.Message.SenderLength),
+				Sender:               ccvData.Message.Sender[:],
+				ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
+				Receiver:             ccvData.Message.Receiver[:],
+				DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
+				DestBlob:             ccvData.Message.DestBlob[:],
+				TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
+				TokenTransfer:        ccvData.Message.TokenTransfer[:],
+				DataLength:           uint32(ccvData.Message.DataLength),
+				Data:                 ccvData.Message.Data[:],
+				GasLimit:             uint32(ccvData.Message.GasLimit),
+			},
+			ReceiptBlobs: receiptBlobs,
 		},
 		IdempotencyKey: idempotencyKey, // Use provided idempotency key
 	}, nil
@@ -357,7 +357,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 				Nonce:               msg.Nonce,
 				SourceChainSelector: msg.SourceChainSelector,
 				DestChainSelector:   msg.DestChainSelector,
-				Timestamp:           result.Timestamp,
+				Timestamp:           time.UnixMilli(result.Timestamp),
 				MessageID:           messageID,
 			},
 		})
