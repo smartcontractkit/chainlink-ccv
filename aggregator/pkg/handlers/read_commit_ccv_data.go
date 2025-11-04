@@ -17,9 +17,8 @@ import (
 
 // ReadCommitCCVNodeDataHandler handles requests to read commit verification records.
 type ReadCommitCCVNodeDataHandler struct {
-	storage           common.CommitVerificationStore
-	l                 logger.SugaredLogger
-	disableValidation bool
+	storage common.CommitVerificationStore
+	l       logger.SugaredLogger
 }
 
 func (h *ReadCommitCCVNodeDataHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -28,13 +27,13 @@ func (h *ReadCommitCCVNodeDataHandler) logger(ctx context.Context) logger.Sugare
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
 func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadCommitCCVNodeDataRequest) (*pb.ReadCommitCCVNodeDataResponse, error) {
-	ctx = scope.WithMessageID(ctx, req.GetMessageId())
-	h.logger(ctx).Infof("Received ReadCommitCCVNodeDataRequest")
-	if !h.disableValidation {
-		if err := validateReadRequest(req); err != nil {
-			return &pb.ReadCommitCCVNodeDataResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
-		}
+	if err := validateReadRequest(req); err != nil {
+		h.logger(ctx).Errorw("validation error", "error", err)
+		return &pb.ReadCommitCCVNodeDataResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 	}
+	ctx = scope.WithMessageID(ctx, req.GetMessageId())
+
+	h.logger(ctx).Infof("Received ReadCommitCCVNodeDataRequest")
 
 	id := model.CommitVerificationRecordIdentifier{
 		Address:   req.GetAddress(),
@@ -54,10 +53,9 @@ func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadC
 }
 
 // NewReadCommitCCVNodeDataHandler creates a new instance of ReadCommitCCVNodeDataHandler.
-func NewReadCommitCCVNodeDataHandler(store common.CommitVerificationStore, disableValidation bool, l logger.SugaredLogger) *ReadCommitCCVNodeDataHandler {
+func NewReadCommitCCVNodeDataHandler(store common.CommitVerificationStore, l logger.SugaredLogger) *ReadCommitCCVNodeDataHandler {
 	return &ReadCommitCCVNodeDataHandler{
-		storage:           store,
-		disableValidation: disableValidation,
-		l:                 l,
+		storage: store,
+		l:       l,
 	}
 }
