@@ -282,6 +282,108 @@ func TestE2ESmoke(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("token transfer", func(t *testing.T) {
+		tcs := []struct {
+			name    string
+			src     uint64
+			dest    uint64
+			amount  *big.Int
+			timeout time.Duration
+		}{
+			{
+				name:    "burn&mint EOA executes; receiver increases; sender decreases",
+				src:     selectors[0],
+				dest:    selectors[1],
+				amount:  big.NewInt(1000),
+				timeout: 45 * time.Second,
+			},
+		}
+		for _, tc := range tcs {
+			t.Run(tc.name, func(t *testing.T) {
+				receiver := mustGetEOAReceiverAddress(t, c, tc.dest)
+				// Sender is the chain deployer key used by the env
+				sender := protocol.UnknownAddress(common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").Bytes())
+
+				// Resolve token on src and dest chains
+				srcToken := getContractAddress(t, in, tc.src,
+					datastore.ContractType(burn_mint_erc677.ContractType),
+					burn_mint_erc677.Deploy.Version(),
+					"TEST",
+					"burn mint erc677",
+				)
+				destToken := getContractAddress(t, in, tc.dest,
+					datastore.ContractType(burn_mint_erc677.ContractType),
+					burn_mint_erc677.Deploy.Version(),
+					"TEST",
+					"burn mint erc677",
+				)
+
+				// Record receiver start balance (dest) and sender start balance (src)
+				startBal, err := c.GetTokenBalance(ctx, tc.dest, receiver, destToken)
+				require.NoError(t, err)
+				l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Msg("receiver start balance")
+				srcStartBal, err := c.GetTokenBalance(ctx, tc.src, sender, srcToken)
+				require.NoError(t, err)
+				l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Msg("sender start balance")
+
+				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.src, tc.dest)
+				require.NoError(t, err)
+				l.Info().Uint64("SeqNo", seqNo).Msg("expecting sequence number")
+
+				// Send v3 message with one token amount
+				sendRes, err := c.SendMessage(
+					ctx, tc.src, tc.dest,
+					cciptestinterfaces.MessageFields{
+						Receiver: receiver,
+						TokenAmounts: []cciptestinterfaces.TokenAmount{{
+							Amount:       tc.amount,
+							TokenAddress: srcToken,
+						}},
+					},
+					cciptestinterfaces.MessageOptions{
+						Version:        3,
+						FinalityConfig: 1, // finalized
+						Executor:       getContractAddress(t, in, tc.src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
+						CCVs: []protocol.CCV{{
+							CCVAddress: getContractAddress(t, in, tc.src, datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+						}},
+					},
+				)
+				require.NoError(t, err)
+				require.NotNil(t, sendRes)
+
+				sentEvt, err := c.WaitOneSentEventBySeqNo(ctx, tc.src, tc.dest, seqNo, defaultSentTimeout)
+				require.NoError(t, err)
+				msgID := sentEvt.MessageID
+
+				// Assert verifier publishes within timeout and aggregation succeeds
+				testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
+				res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
+					TickInterval:            1 * time.Second,
+					Timeout:                 tc.timeout,
+					ExpectedVerifierResults: 1,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, res.AggregatedResult)
+
+				execEvt, err := c.WaitOneExecEventBySeqNo(ctx, tc.src, tc.dest, seqNo, tc.timeout)
+				require.NoError(t, err)
+				require.NotNil(t, execEvt)
+				require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
+
+				endBal, err := c.GetTokenBalance(ctx, tc.dest, receiver, destToken)
+				require.NoError(t, err)
+				require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), tc.amount), endBal)
+				l.Info().Uint64("EndBalance", endBal.Uint64()).Msg("receiver end balance")
+
+				srcEndBal, err := c.GetTokenBalance(ctx, tc.src, sender, srcToken)
+				require.NoError(t, err)
+				require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.amount), srcEndBal)
+				l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Msg("sender end balance")
+			})
+		}
+	})
 }
 
 func mustGetEOAReceiverAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector uint64) protocol.UnknownAddress {
