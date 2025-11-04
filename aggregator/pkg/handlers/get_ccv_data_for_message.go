@@ -34,15 +34,18 @@ func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.GetVer
 
 	data, err := h.storage.GetCCVData(ctx, req.MessageId, committeeID)
 	if err != nil {
+		h.logger(ctx).Errorw("failed to get CCV data", "messageID", fmt.Sprintf("%x", req.MessageId), "error", err)
 		return nil, status.Errorf(codes.Internal, "%s", fmt.Sprintf("failed to get CCV data for message ID %x: %v", req.MessageId, err))
 	}
 
 	if data == nil {
+		h.logger(ctx).Infow("no data found for message ID", "messageID", fmt.Sprintf("%x", req.MessageId))
 		return nil, status.Errorf(codes.NotFound, "%s", fmt.Sprintf("no data found for message ID %x", req.MessageId))
 	}
 
 	ccvData, err := model.MapAggregatedReportToCCVDataProto(data, h.committee)
 	if err != nil {
+		h.logger(ctx).Errorw("failed to map aggregated report to CCV data", "messageID", fmt.Sprintf("%x", req.MessageId), "error", err)
 		return nil, status.Errorf(codes.Internal, "%s", fmt.Sprintf("failed to map aggregated report to CCV data: %v", err))
 	}
 
