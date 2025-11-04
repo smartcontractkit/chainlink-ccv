@@ -53,30 +53,9 @@ func WithStorageType(storageType string) ConfigOption {
 	}
 }
 
-func WithStubMode(stub bool) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.StubMode = stub
-		return cfg, clientCfg
-	}
-}
-
 func WithPaginationConfig(pageSize int) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.Storage.PageSize = pageSize
-		return cfg, clientCfg
-	}
-}
-
-func WithAPIKeyAuth(apiKey, secret string) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.APIKeys.Clients[apiKey] = &model.APIClient{
-			ClientID:    apiKey,
-			Description: "Custom test client",
-			Enabled:     true,
-			Secrets: map[string]string{
-				"current": secret,
-			},
-		}
 		return cfg, clientCfg
 	}
 }
