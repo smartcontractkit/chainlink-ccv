@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -252,31 +253,35 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	// - Tasks at blocks 101, 102: ABOVE finalized block (100), should be FLUSHED by reorg
 	finalizedTasks := []verifier.VerificationTask{
 		{
-			Message:      test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
-			BlockNumber:  98,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
-			CreatedAt:    time.Now(),
+			Message:        test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			BlockNumber:    98,
+			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
+			CreatedAt:      time.Now(),
+			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:      test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
-			BlockNumber:  99,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
-			CreatedAt:    time.Now(),
+			Message:        test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			BlockNumber:    99,
+			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
+			CreatedAt:      time.Now(),
+			IdempotencyKey: uuid.NewString(),
 		},
 	}
 
 	pendingTasks := []verifier.VerificationTask{
 		{
-			Message:      test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
-			BlockNumber:  101,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
-			CreatedAt:    time.Now(),
+			Message:        test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
+			BlockNumber:    101,
+			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
+			CreatedAt:      time.Now(),
+			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:      test.CreateTestMessage(t, 4, chainSelector, defaultDestChain, 0),
-			BlockNumber:  102,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt4")}},
-			CreatedAt:    time.Now(),
+			Message:        test.CreateTestMessage(t, 4, chainSelector, defaultDestChain, 0),
+			BlockNumber:    102,
+			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt4")}},
+			CreatedAt:      time.Now(),
+			IdempotencyKey: uuid.NewString(),
 		},
 	}
 
@@ -347,22 +352,25 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	// Create tasks at blocks 98, 99, 100 (around finalized block)
 	tasks := []verifier.VerificationTask{
 		{
-			Message:      test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
-			BlockNumber:  98,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
-			CreatedAt:    time.Now(),
+			Message:        test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			BlockNumber:    98,
+			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
+			CreatedAt:      time.Now(),
+			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:      test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
-			BlockNumber:  99,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
-			CreatedAt:    time.Now(),
+			Message:        test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			BlockNumber:    99,
+			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
+			CreatedAt:      time.Now(),
+			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:      test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
-			BlockNumber:  100,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
-			CreatedAt:    time.Now(),
+			Message:        test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
+			BlockNumber:    100,
+			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
+			CreatedAt:      time.Now(),
+			IdempotencyKey: uuid.NewString(),
 		},
 	}
 

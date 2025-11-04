@@ -25,7 +25,7 @@ func NewTestVerifier() *TestVerifier {
 func (t *TestVerifier) VerifyMessages(
 	_ context.Context,
 	tasks []verifier.VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.CCVData],
+	ccvDataBatcher *batcher.Batcher[verifier.CCVDataWithIdempotencyKey],
 ) batcher.BatchResult[verifier.VerificationError] {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
@@ -43,12 +43,17 @@ func (t *TestVerifier) VerifyMessages(
 			DestVerifierAddress:   protocol.UnknownAddress{},
 			CCVData:               []byte("mock-signature"),
 			BlobData:              []byte("mock-blob"),
-			Timestamp:             time.Now().UnixMicro(),
+			Timestamp:             time.Now(),
 			Message:               verificationTask.Message,
 			ReceiptBlobs:          verificationTask.ReceiptBlobs,
 		}
 
-		if err := ccvDataBatcher.Add(ccvData); err != nil {
+		ccvDataWithKey := verifier.CCVDataWithIdempotencyKey{
+			CCVData:        ccvData,
+			IdempotencyKey: verificationTask.IdempotencyKey,
+		}
+
+		if err := ccvDataBatcher.Add(ccvDataWithKey); err != nil {
 			// If context is canceled or batcher is closed, stop processing
 			return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 		}
@@ -79,6 +84,6 @@ func (t *TestVerifier) GetProcessedTasks() []verifier.VerificationTask {
 // NoopStorage for testing.
 type NoopStorage struct{}
 
-func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData) error {
+func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData, idempotencyKeys []string) error {
 	return nil
 }
