@@ -1507,9 +1507,15 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 		require.NoError(t, err, "BatchGetVerifierResultForMessage failed")
 		require.NotNil(t, batchResp, "batch response should not be nil")
 
-		// Verify we got results for both messages
+		// Verify we got results for both messages with 1:1 correspondence
 		require.Len(t, batchResp.Results, 2, "should have 2 results")
-		require.Len(t, batchResp.Errors, 0, "should have no errors")
+		require.Len(t, batchResp.Errors, 2, "should have 2 errors (1:1 correspondence)")
+
+		// All errors should be success (Code: 0)
+		for i, errStatus := range batchResp.Errors {
+			require.NotNil(t, errStatus, "error status at index %d should not be nil", i)
+			require.Equal(t, int32(0), errStatus.Code, "error at index %d should be success (Code: 0)", i)
+		}
 
 		// Verify both messages are present
 		resultsByNonce := make(map[uint64]*pb.VerifierResult)
@@ -1698,15 +1704,22 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 		require.NoError(t, err, "BatchGetVerifierResultForMessage with duplicates should not error")
 		require.NotNil(t, batchResp, "batch response with duplicates should not be nil")
 
-		// Should have 1 result (deduplicated by the backend) and no errors
-		require.Len(t, batchResp.Results, 1, "should have 1 result (deduplicated)")
-		require.Len(t, batchResp.Errors, 0, "should have no errors")
+		// Should have 3 results (1:1 correspondence with requests) and 3 errors (all successful)
+		require.Len(t, batchResp.Results, 3, "should have 3 results (1:1 correspondence)")
+		require.Len(t, batchResp.Errors, 3, "should have 3 errors (1:1 correspondence)")
 
-		// Verify the result is correct
-		result := batchResp.Results[0]
-		require.Equal(t, uint64(1001), result.GetMessage().GetNonce(), "nonce should match")
-		require.Equal(t, sourceVerifierAddress, result.SourceVerifierAddress, "source verifier address should match")
-		require.Equal(t, destVerifierAddress, result.DestVerifierAddress, "dest verifier address should match")
+		// All errors should be success (Code: 0)
+		for i, errStatus := range batchResp.Errors {
+			require.NotNil(t, errStatus, "error status at index %d should not be nil", i)
+			require.Equal(t, int32(0), errStatus.Code, "error at index %d should be success (Code: 0)", i)
+		}
+
+		// Verify all results are correct and identical (since they're duplicates)
+		for i, result := range batchResp.Results {
+			require.Equal(t, uint64(1001), result.GetMessage().GetNonce(), "nonce should match for result %d", i)
+			require.Equal(t, sourceVerifierAddress, result.SourceVerifierAddress, "source verifier address should match for result %d", i)
+			require.Equal(t, destVerifierAddress, result.DestVerifierAddress, "dest verifier address should match for result %d", i)
+		}
 	}
 
 	for _, storageType := range storageTypes {
