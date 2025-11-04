@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -30,7 +31,7 @@ const testCommitteeID = "test-committee"
 func assertCommitVerificationRecordEqual(t *testing.T, expected, actual *model.CommitVerificationRecord, msgPrefix string) {
 	require.Equal(t, expected.CommitteeID, actual.CommitteeID, "%s: CommitteeID mismatch", msgPrefix)
 
-	require.Equal(t, expected.MessageId, actual.MessageId, "%s: MessageId mismatch", msgPrefix)
+	require.Equal(t, expected.MessageID, actual.MessageID, "%s: MessageID mismatch", msgPrefix)
 	require.Equal(t, expected.SourceVerifierAddress, actual.SourceVerifierAddress, "%s: SourceVerifierAddress mismatch", msgPrefix)
 	require.Equal(t, expected.Timestamp, actual.Timestamp, "%s: Timestamp mismatch", msgPrefix)
 	require.Equal(t, expected.BlobData, actual.BlobData, "%s: BlobData mismatch", msgPrefix)
@@ -153,7 +154,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 		},
 		BlobData:  []byte("test blob data"),
 		CcvData:   ccvData,
-		Timestamp: time.Now().UnixMicro(),
+		Timestamp: time.Now().UnixMilli(),
 	}
 }
 
@@ -164,25 +165,18 @@ func createTestCommitVerificationRecord(msgWithCCV *pb.MessageWithCCVNodeData, s
 
 	signerAddress := common.HexToAddress(signer.Signer.Addresses[0])
 
-	return &model.CommitVerificationRecord{
-		MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
-			MessageId:             msgWithCCV.MessageId,
-			SourceVerifierAddress: msgWithCCV.SourceVerifierAddress,
-			Message:               msgWithCCV.Message,
-			BlobData:              msgWithCCV.BlobData,
-			CcvData:               msgWithCCV.CcvData,
-			Timestamp:             msgWithCCV.Timestamp,
-			ReceiptBlobs:          msgWithCCV.ReceiptBlobs,
-		},
-		IdentifierSigner: &model.IdentifierSigner{
-			Signer:      signer.Signer,
-			Address:     signerAddress.Bytes(),
-			SignatureR:  r32,
-			SignatureS:  s32,
-			CommitteeID: committeeID,
-		},
+	record := model.CommitVerificationRecordFromProto(msgWithCCV)
+	record.IdentifierSigner = &model.IdentifierSigner{
+		Signer:      signer.Signer,
+		Address:     signerAddress.Bytes(),
+		SignatureR:  r32,
+		SignatureS:  s32,
 		CommitteeID: committeeID,
 	}
+	record.CommitteeID = committeeID
+	record.IdempotencyKey = uuid.New()
+
+	return record
 }
 
 func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
@@ -324,7 +318,7 @@ func TestGetCommitVerification_MultipleVersions(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	record2 := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
-	record2.Timestamp = time.Now().UnixMicro()
+	record2.SetTimestampFromMillis(time.Now().UnixMilli())
 	err = storage.SaveCommitVerification(ctx, record2)
 	require.NoError(t, err)
 
@@ -827,7 +821,7 @@ func TestListCommitVerificationByMessageID_DistinctOnSigner(t *testing.T) {
 
 	msgWithCCV1 := createTestMessageWithCCV(t, message, signer)
 	record1 := createTestCommitVerificationRecord(msgWithCCV1, signer, "test-committee")
-	record1.Timestamp = time.Now().UnixMicro()
+	record1.SetTimestampFromMillis(time.Now().UnixMilli())
 	err = storage.SaveCommitVerification(ctx, record1)
 	require.NoError(t, err)
 
@@ -835,7 +829,7 @@ func TestListCommitVerificationByMessageID_DistinctOnSigner(t *testing.T) {
 
 	msgWithCCV2 := createTestMessageWithCCV(t, message, signer)
 	record2 := createTestCommitVerificationRecord(msgWithCCV2, signer, "test-committee")
-	record2.Timestamp = time.Now().UnixMicro()
+	record2.SetTimestampFromMillis(time.Now().UnixMilli())
 	err = storage.SaveCommitVerification(ctx, record2)
 	require.NoError(t, err)
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -46,7 +47,7 @@ func mapReceiptBlobs(receiptBlobs []protocol.ReceiptWithBlob) ([]*pb.ReceiptBlob
 	return result, nil
 }
 
-func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitCCVNodeDataRequest, error) {
+func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey string) (*pb.WriteCommitCCVNodeDataRequest, error) {
 	receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
 	if err != nil {
 		return nil, err
@@ -57,7 +58,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitCCVN
 			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
 			CcvData:               ccvData.CCVData,
 			BlobData:              ccvData.BlobData,
-			Timestamp:             ccvData.Timestamp,
+			Timestamp:             ccvData.Timestamp.UnixMilli(),
 			Message: &pb.Message{
 				Version:              uint32(ccvData.Message.Version),
 				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
@@ -81,14 +82,19 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitCCVN
 			},
 			ReceiptBlobs: receiptBlobs,
 		},
+		IdempotencyKey: idempotencyKey, // Use provided idempotency key
 	}, nil
 }
 
 // WriteCCVNodeData writes CCV data to the aggregator via gRPC.
-func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData, idempotencyKeys []string) error {
+	if len(ccvDataList) != len(idempotencyKeys) {
+		return fmt.Errorf("ccvDataList and idempotencyKeys must have the same length: got %d and %d", len(ccvDataList), len(idempotencyKeys))
+	}
+
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
-	for _, ccvData := range ccvDataList {
-		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
+	for i, ccvData := range ccvDataList {
+		req, err := mapCCVDataToCCVNodeDataProto(ccvData, idempotencyKeys[i])
 		if err != nil {
 			return err
 		}
@@ -348,7 +354,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 				Nonce:               msg.Nonce,
 				SourceChainSelector: msg.SourceChainSelector,
 				DestChainSelector:   msg.DestChainSelector,
-				Timestamp:           result.Timestamp,
+				Timestamp:           time.UnixMilli(result.Timestamp),
 				MessageID:           messageID,
 			},
 		})

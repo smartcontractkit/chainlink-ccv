@@ -52,6 +52,7 @@ type Server struct {
 	writeCommitCCVNodeDataHandler      *handlers.WriteCommitCCVNodeDataHandler
 	getMessagesSinceHandler            *handlers.GetMessagesSinceHandler
 	getCCVDataForMessageHandler        *handlers.GetCCVDataForMessageHandler
+	getBatchCCVDataForMessageHandler   *handlers.GetBatchCCVDataForMessageHandler
 	writeChainStatusHandler            *handlers.WriteChainStatusHandler
 	readChainStatusHandler             *handlers.ReadChainStatusHandler
 	chainStatusStorage                 common.ChainStatusStorageInterface
@@ -80,6 +81,10 @@ func (s *Server) ReadCommitCCVNodeData(ctx context.Context, req *pb.ReadCommitCC
 
 func (s *Server) GetVerifierResultForMessage(ctx context.Context, req *pb.GetVerifierResultForMessageRequest) (*pb.VerifierResult, error) {
 	return s.getCCVDataForMessageHandler.Handle(ctx, req)
+}
+
+func (s *Server) BatchGetVerifierResultForMessage(ctx context.Context, req *pb.BatchGetVerifierResultForMessageRequest) (*pb.BatchGetVerifierResultForMessageResponse, error) {
+	return s.getBatchCCVDataForMessageHandler.Handle(ctx, req)
 }
 
 func (s *Server) GetMessagesSince(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
@@ -253,10 +258,11 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		return nil
 	}
 
-	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, config.DisableValidation, validator)
-	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, config.DisableValidation, l)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring, time.Duration(config.MaxAnonymousGetMessageSinceRange)*time.Second)
+	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator)
+	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, l)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring)
 	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
+	getBatchCCVDataForMessageHandler := handlers.NewGetBatchCCVDataForMessageHandler(store, config.Committees, config.MaxMessageIDsPerBatch, l)
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
 	// Initialize chain status storage
@@ -343,6 +349,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		writeCommitCCVNodeDataHandler:      writeHandler,
 		getMessagesSinceHandler:            getMessagesSinceHandler,
 		getCCVDataForMessageHandler:        getCCVDataForMessageHandler,
+		getBatchCCVDataForMessageHandler:   getBatchCCVDataForMessageHandler,
 		writeChainStatusHandler:            writeChainStatusHandler,
 		readChainStatusHandler:             readChainStatusHandler,
 		chainStatusStorage:                 chainStatusStorage,

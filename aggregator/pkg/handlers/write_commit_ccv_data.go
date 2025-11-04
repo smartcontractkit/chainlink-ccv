@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -15,8 +16,8 @@ import (
 )
 
 type SignatureValidator interface {
-	// ValidateSignature validates a signature for a MessageWithCCVNodeData and returns the signers.
-	ValidateSignature(ctx context.Context, report *pb.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
+	// ValidateSignature validates a signature for a CommitVerificationRecord and returns the signers.
+	ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
 }
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
@@ -31,7 +32,6 @@ type WriteCommitCCVNodeDataHandler struct {
 	aggregator         AggregationTriggerer
 	l                  logger.SugaredLogger
 	signatureValidator SignatureValidator
-	disableValidation  bool
 }
 
 func (h *WriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -40,24 +40,25 @@ func (h *WriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.Sugar
 
 // Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.WriteCommitCCVNodeDataRequest) (*pb.WriteCommitCCVNodeDataResponse, error) {
-	ctx = scope.WithMessageID(ctx, req.CcvNodeData.MessageId)
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received WriteCommitCCVNodeDataRequest")
-	if !h.disableValidation {
-		if err := validateWriteRequest(req); err != nil {
-			return &pb.WriteCommitCCVNodeDataResponse{
-				Status: pb.WriteStatus_FAILED,
-			}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
-		}
-	} else {
-		reqLogger.Warnf("Request validation is disabled")
-	}
-
-	signers, _, err := h.signatureValidator.ValidateSignature(ctx, req.GetCcvNodeData())
-	if err != nil {
+	if err := validateWriteRequest(req); err != nil {
+		reqLogger.Errorw("validation error", "error", err)
 		return &pb.WriteCommitCCVNodeDataResponse{
 			Status: pb.WriteStatus_FAILED,
-		}, err
+		}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
+	}
+	// After successful validation, CcvNodeData is guaranteed non-nil
+	ctx = scope.WithMessageID(ctx, req.CcvNodeData.MessageId)
+	reqLogger = h.logger(ctx)
+
+	record := model.CommitVerificationRecordFromProto(req.GetCcvNodeData())
+	signers, _, err := h.signatureValidator.ValidateSignature(ctx, record)
+	if err != nil {
+		reqLogger.Errorw("signature validation failed", "error", err)
+		return &pb.WriteCommitCCVNodeDataResponse{
+			Status: pb.WriteStatus_FAILED,
+		}, status.Errorf(codes.Internal, "signature validation failed: %v", err)
 	}
 
 	reqLogger = reqLogger.With("NumSigners", len(signers))
@@ -67,16 +68,27 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 		signerCtx := scope.WithAddress(ctx, signer.Address)
 		signerCtx = scope.WithParticipantID(signerCtx, signer.ParticipantID)
 		signerCtx = scope.WithCommitteeID(signerCtx, signer.CommitteeID)
-		record := model.CommitVerificationRecord{
-			MessageWithCCVNodeData: *req.GetCcvNodeData(),
-			IdentifierSigner:       signer,
-			CommitteeID:            signer.CommitteeID,
-		}
-		err := h.storage.SaveCommitVerification(signerCtx, &record)
+
+		// Parse the idempotency key as UUID
+		idempotencyUUID, err := uuid.Parse(req.GetIdempotencyKey())
 		if err != nil {
+			h.logger(signerCtx).Errorw("invalid idempotency key format", "error", err)
 			return &pb.WriteCommitCCVNodeDataResponse{
 				Status: pb.WriteStatus_FAILED,
-			}, err
+			}, status.Errorf(codes.InvalidArgument, "invalid idempotency key format: %v", err)
+		}
+
+		record := model.CommitVerificationRecordFromProto(req.GetCcvNodeData())
+		record.IdentifierSigner = signer
+		record.CommitteeID = signer.CommitteeID
+		record.IdempotencyKey = idempotencyUUID
+
+		err = h.storage.SaveCommitVerification(signerCtx, record)
+		if err != nil {
+			h.logger(signerCtx).Errorw("failed to save commit verification record", "error", err)
+			return &pb.WriteCommitCCVNodeDataResponse{
+				Status: pb.WriteStatus_FAILED,
+			}, status.Errorf(codes.Internal, "failed to save commit verification record: %v", err)
 		}
 		h.logger(signerCtx).Infof("Successfully saved commit verification record")
 	}
@@ -89,9 +101,10 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 			}, status.Errorf(codes.ResourceExhausted, "aggregation channel is full")
 		}
 
+		reqLogger.Errorw("failed to trigger aggregation", "error", err)
 		return &pb.WriteCommitCCVNodeDataResponse{
 			Status: pb.WriteStatus_FAILED,
-		}, err
+		}, status.Errorf(codes.Internal, "failed to trigger aggregation: %v", err)
 	}
 	reqLogger.Infof("Triggered aggregation check")
 
@@ -101,12 +114,11 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 }
 
 // NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
-func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.SugaredLogger, disableValidation bool, signatureValidator SignatureValidator) *WriteCommitCCVNodeDataHandler {
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.SugaredLogger, signatureValidator SignatureValidator) *WriteCommitCCVNodeDataHandler {
 	return &WriteCommitCCVNodeDataHandler{
 		storage:            store,
 		aggregator:         aggregator,
 		l:                  l,
-		disableValidation:  disableValidation,
 		signatureValidator: signatureValidator,
 	}
 }

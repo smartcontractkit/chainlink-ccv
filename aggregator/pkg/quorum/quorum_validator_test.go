@@ -18,17 +18,10 @@ import (
 
 const destSelector = "2" // Using string keys for QuorumConfigs map
 
-// copyMessageWithCCVNodeData safely copies MessageWithCCVNodeData without mutex issues.
-func copyMessageWithCCVNodeData(src *pb.MessageWithCCVNodeData) pb.MessageWithCCVNodeData {
-	return pb.MessageWithCCVNodeData{
-		MessageId:             src.MessageId,
-		SourceVerifierAddress: src.SourceVerifierAddress,
-		Message:               src.Message,
-		BlobData:              src.BlobData,
-		CcvData:               src.CcvData,
-		Timestamp:             src.Timestamp,
-		ReceiptBlobs:          src.ReceiptBlobs,
-	}
+// Helper function to create a commit verification record from protobuf message.
+func createCommitVerificationRecord(messageData *pb.MessageWithCCVNodeData) *model.CommitVerificationRecord {
+	record := model.CommitVerificationRecordFromProto(messageData)
+	return record
 }
 
 // TestCaseBuilder helps build test cases using option pattern.
@@ -149,12 +142,10 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 		if signerFixture == nil {
 			// Create a dummy verification record for unknown signers
 			verifications[i] = &model.CommitVerificationRecord{
-				MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
-					MessageId:             []byte{1},
-					SourceVerifierAddress: b.sourceVerifierAddress,
-					Message: &pb.Message{
-						DestChainSelector: 1,
-					},
+				MessageID:             []byte{1},
+				SourceVerifierAddress: b.sourceVerifierAddress,
+				Message: &protocol.Message{
+					DestChainSelector: 1,
 				},
 			}
 			continue
@@ -169,9 +160,7 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 		messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, b.sourceVerifierAddress,
 			fixtures.WithSignatureFrom(t, signerFixture))
 
-		verificationRecord := &model.CommitVerificationRecord{}
-		// Use safe copy to avoid mutex copy issues
-		verificationRecord.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
+		verificationRecord := createCommitVerificationRecord(messageData)
 		verifications[i] = verificationRecord
 	}
 
@@ -231,11 +220,9 @@ func TestValidateSignature(t *testing.T) {
 
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
-		// Create verification record with valid signature
-		record := &model.CommitVerificationRecord{}
-		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
-
-		signers, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
+		// Convert protobuf to domain model for validation
+		record := model.CommitVerificationRecordFromProto(messageData)
+		signers, _, err := validator.ValidateSignature(context.Background(), record)
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
 		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
@@ -266,10 +253,9 @@ func TestValidateSignature(t *testing.T) {
 		messageDataNoSig := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress)
 		messageDataNoSig.CcvData = nil // Remove signature
 
-		record := &model.CommitVerificationRecord{}
-		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoSig)
-
-		signer, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
+		// Convert protobuf to domain model for validation
+		recordNoSig := model.CommitVerificationRecordFromProto(messageDataNoSig)
+		signer, _, err := validator.ValidateSignature(context.Background(), recordNoSig)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "missing signature in report")
@@ -300,10 +286,9 @@ func TestValidateSignature(t *testing.T) {
 		invalidMessageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
 			fixtures.WithSignatureFrom(t, invalidSignerFixture))
 
-		record := &model.CommitVerificationRecord{}
-		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(invalidMessageData)
-
-		signer, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
+		// Convert protobuf to domain model for validation
+		invalidRecord := model.CommitVerificationRecordFromProto(invalidMessageData)
+		signer, _, err := validator.ValidateSignature(context.Background(), invalidRecord)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "no valid signers found for the provided signature")
@@ -317,10 +302,9 @@ func TestValidateSignature(t *testing.T) {
 
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
-		record := &model.CommitVerificationRecord{}
-		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageData)
-
-		signer, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
+		// Convert protobuf to domain model for validation
+		record := model.CommitVerificationRecordFromProto(messageData)
+		signer, _, err := validator.ValidateSignature(context.Background(), record)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "quorum config not found for chain selector")
@@ -351,10 +335,9 @@ func TestValidateSignature(t *testing.T) {
 			fixtures.WithSignatureFrom(t, signerFixture))
 		messageDataNoBlob.ReceiptBlobs = []*pb.ReceiptBlob{} // Empty receipt blobs
 
-		record := &model.CommitVerificationRecord{}
-		record.MessageWithCCVNodeData = copyMessageWithCCVNodeData(messageDataNoBlob)
-
-		signers, _, err := validator.ValidateSignature(context.Background(), &record.MessageWithCCVNodeData)
+		// Convert protobuf to domain model for validation
+		recordNoBlob := model.CommitVerificationRecordFromProto(messageDataNoBlob)
+		signers, _, err := validator.ValidateSignature(context.Background(), recordNoBlob)
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
 		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"sort"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
@@ -19,10 +20,10 @@ func selectWinningReceiptBlobSet(verifications []*model.CommitVerificationRecord
 	// Group verifications by receipt blob set (order-independent)
 	setCounts := make(map[string]int)
 	setMap := make(map[string][]*model.ReceiptBlob)
-	setTimestamps := make(map[string]int64) // For tie-breaking
+	setTimestamps := make(map[string]time.Time) // For tie-breaking
 
 	for _, verification := range verifications {
-		domainBlobs := model.ReceiptBlobsFromProto(verification.ReceiptBlobs)
+		domainBlobs := verification.ReceiptBlobs
 		setKey, err := createReceiptBlobSetKey(domainBlobs)
 		if err != nil {
 			return nil, err
@@ -33,8 +34,9 @@ func selectWinningReceiptBlobSet(verifications []*model.CommitVerificationRecord
 			setTimestamps[setKey] = verification.GetTimestamp()
 		} else {
 			// Update to latest timestamp for tie-breaking
-			if verification.GetTimestamp() > setTimestamps[setKey] {
-				setTimestamps[setKey] = verification.GetTimestamp()
+			verificationTimestamp := verification.GetTimestamp()
+			if verificationTimestamp.After(setTimestamps[setKey]) {
+				setTimestamps[setKey] = verificationTimestamp
 			}
 		}
 	}
@@ -42,10 +44,10 @@ func selectWinningReceiptBlobSet(verifications []*model.CommitVerificationRecord
 	// Find winning set (most frequent, latest timestamp breaks ties)
 	var winningKey string
 	maxCount := 0
-	latestTimestamp := int64(0)
+	latestTimestamp := time.Time{}
 
 	for key, count := range setCounts {
-		if count > maxCount || (count == maxCount && setTimestamps[key] > latestTimestamp) {
+		if count > maxCount || (count == maxCount && setTimestamps[key].After(latestTimestamp)) {
 			maxCount = count
 			latestTimestamp = setTimestamps[key]
 			winningKey = key

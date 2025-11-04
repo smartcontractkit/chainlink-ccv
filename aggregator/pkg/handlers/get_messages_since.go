@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -13,11 +12,10 @@ import (
 )
 
 type GetMessagesSinceHandler struct {
-	storage                          common.CommitVerificationAggregatedStore
-	committee                        map[string]*model.Committee
-	maxAnonymousGetMessageSinceRange time.Duration
-	l                                logger.SugaredLogger
-	m                                common.AggregatorMonitoring
+	storage   common.CommitVerificationAggregatedStore
+	committee map[string]*model.Committee
+	l         logger.SugaredLogger
+	m         common.AggregatorMonitoring
 }
 
 func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -72,12 +70,11 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 }
 
 // NewGetMessagesSinceHandler creates a new instance of GetMessagesSinceHandler.
-func NewGetMessagesSinceHandler(storage common.CommitVerificationAggregatedStore, committee map[string]*model.Committee, l logger.SugaredLogger, m common.AggregatorMonitoring, maxAnonymousGetMessageSinceRange time.Duration) *GetMessagesSinceHandler {
+func NewGetMessagesSinceHandler(storage common.CommitVerificationAggregatedStore, committee map[string]*model.Committee, l logger.SugaredLogger, m common.AggregatorMonitoring) *GetMessagesSinceHandler {
 	return &GetMessagesSinceHandler{
-		storage:                          storage,
-		committee:                        committee,
-		l:                                l,
-		m:                                m,
-		maxAnonymousGetMessageSinceRange: maxAnonymousGetMessageSinceRange,
+		storage:   storage,
+		committee: committee,
+		l:         l,
+		m:         m,
 	}
 }

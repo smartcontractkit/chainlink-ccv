@@ -4,6 +4,7 @@ package memory
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"sync"
 
@@ -48,7 +49,7 @@ func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.Comm
 func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
 	var results []*model.CommitVerificationRecord
 	s.records.Range(func(key, value any) bool {
-		if record, ok := value.(*model.CommitVerificationRecord); ok && bytes.Equal(record.MessageId, messageID) && record.CommitteeID == committee {
+		if record, ok := value.(*model.CommitVerificationRecord); ok && bytes.Equal(record.MessageID, messageID) && record.CommitteeID == committee {
 			results = append(results, record)
 		}
 		return true
@@ -58,7 +59,7 @@ func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, m
 
 func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
 	id := report.GetID()
-	report.WrittenAt = s.timeProvider.Now().Unix()
+	report.WrittenAt = s.timeProvider.Now()
 	s.aggregatedReports.Store(id, report)
 	return nil
 }
@@ -67,7 +68,7 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
-			timestamp := report.WrittenAt
+			timestamp := report.WrittenAt.UnixMilli()
 			if timestamp == 0 {
 				timestamp = report.Sequence
 			}
@@ -81,7 +82,7 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 }
 
 func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, start int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
-	end := s.timeProvider.Now().Unix()
+	end := s.timeProvider.Now().UnixMilli()
 	return s.QueryAggregatedReportsRange(ctx, start, end, committeeID, token)
 }
 
@@ -93,6 +94,24 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 		}
 	}
 	return nil, nil
+}
+
+// GetBatchCCVData retrieves commit verification data for multiple message IDs.
+func (s *InMemoryStorage) GetBatchCCVData(_ context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
+	results := make(map[string]*model.CommitAggregatedReport)
+
+	for _, messageID := range messageIDs {
+		id := model.GetAggregatedReportID(messageID, committeeID)
+		if value, ok := s.aggregatedReports.Load(id); ok {
+			if report, ok := value.(*model.CommitAggregatedReport); ok && report.CommitteeID == committeeID {
+				// Use hex encoding to match PostgreSQL implementation
+				messageIDHex := hex.EncodeToString(messageID)
+				results[messageIDHex] = report
+			}
+		}
+	}
+
+	return results, nil
 }
 
 // ListOrphanedMessageIDs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
@@ -114,7 +133,7 @@ func (s *InMemoryStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 			}
 
 			if record, ok := value.(*model.CommitVerificationRecord); ok {
-				pairCh <- record.MessageId
+				pairCh <- record.MessageID
 			}
 			return true
 		})

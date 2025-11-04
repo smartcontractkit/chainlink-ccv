@@ -56,8 +56,8 @@ type Coordinator struct {
 	running           bool
 
 	// Storage batching
-	storageBatcher   *batcher.Batcher[protocol.CCVData]
-	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVData]
+	storageBatcher   *batcher.Batcher[CCVDataWithIdempotencyKey]
+	batchedCCVDataCh chan batcher.BatchResult[CCVDataWithIdempotencyKey]
 
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
@@ -292,7 +292,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.running = true
 
 	// Initialize storage batcher (will automatically flush when ctx is canceled)
-	vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
+	vc.batchedCCVDataCh = make(chan batcher.BatchResult[CCVDataWithIdempotencyKey], 10)
 	vc.storageBatcher = batcher.NewBatcher(
 		ctx,
 		vc.config.StorageBatchSize,
@@ -411,14 +411,24 @@ func (vc *Coordinator) run(ctx context.Context) {
 
 			// Write batch of CCVData to offchain storage
 			storageStart := time.Now()
-			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err != nil {
+
+			// Extract CCVData and idempotency keys from the batch
+			ccvDataList := make([]protocol.CCVData, len(ccvDataBatch.Items))
+			idempotencyKeys := make([]string, len(ccvDataBatch.Items))
+			for i, item := range ccvDataBatch.Items {
+				ccvDataList[i] = item.CCVData
+				idempotencyKeys[i] = item.IdempotencyKey
+			}
+
+			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataList, idempotencyKeys); err != nil {
 				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 				vc.lggr.Errorw("Error storing CCV data batch",
 					"error", err,
 					"batchSize", len(ccvDataBatch.Items),
 				)
 				// Log individual messageIDs in failed batch
-				for _, ccvData := range ccvDataBatch.Items {
+				for _, item := range ccvDataBatch.Items {
+					ccvData := item.CCVData
 					vc.lggr.Errorw("Failed to store CCV data in batch",
 						"messageID", ccvData.MessageID,
 						"nonce", ccvData.Nonce,
@@ -435,7 +445,8 @@ func (vc *Coordinator) run(ctx context.Context) {
 
 				// Calculate and record E2E latency for each message in the batch
 				vc.timestampsMu.Lock()
-				for _, ccvData := range ccvDataBatch.Items {
+				for _, item := range ccvDataBatch.Items {
+					ccvData := item.CCVData
 					if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
 						e2eDuration := time.Since(createdAt)
 						vc.monitoring.Metrics().

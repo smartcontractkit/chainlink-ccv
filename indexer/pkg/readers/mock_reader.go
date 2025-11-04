@@ -219,7 +219,7 @@ func (m *MockReader) generateResponses(messagesToEmit int, now time.Time) []prot
 
 		messageTime := m.calculateMessageTime(i, now)
 		ccvData := m.config.MessageGenerator(m.messagesEmitted)
-		timestamp := messageTime.Unix()
+		timestamp := messageTime.UnixMilli()
 
 		response := protocol.QueryResponse{
 			Timestamp: &timestamp,
@@ -334,7 +334,7 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 		CCVData:               []byte{},
 		BlobData:              []byte{},
 		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Timestamp:             time.Now().Unix(),
+		Timestamp:             time.Now(),
 	}
 }
 

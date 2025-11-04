@@ -97,24 +97,13 @@ type StorageType string
 const (
 	StorageTypeMemory     StorageType = "memory"
 	StorageTypePostgreSQL StorageType = "postgres"
-	StorageTypeDynamoDB   StorageType = "dynamodb"
 )
-
-type DynamoDBConfig struct {
-	CommitVerificationRecordTableName string `toml:"commitVerificationRecordTableName"`
-	FinalizedFeedTableName            string `toml:"finalizedFeedTableName"`
-	ChainStatusTableName              string `toml:"chainStatusTableName"`
-	Region                            string `toml:"region,omitempty"`
-	Endpoint                          string `toml:"endpoint,omitempty"`
-	ShardCount                        int    `toml:"shardCount"`
-}
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType   StorageType     `toml:"type"`
-	ConnectionURL string          `toml:"-"`
-	DynamoDB      *DynamoDBConfig `toml:"dynamoDB,omitempty"`
-	PageSize      int             `toml:"pageSize"`
+	StorageType   StorageType `toml:"type"`
+	ConnectionURL string      `toml:"-"`
+	PageSize      int         `toml:"pageSize"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -344,26 +333,30 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
-	Committees                       map[CommitteeID]*Committee `toml:"committees"`
-	Server                           ServerConfig               `toml:"server"`
-	Storage                          *StorageConfig             `toml:"storage"`
-	APIKeys                          APIKeyConfig               `toml:"-"`
-	ChainStatuses                    ChainStatusConfig          `toml:"chainStatuses"`
-	Aggregation                      AggregationConfig          `toml:"aggregation"`
-	OrphanRecovery                   OrphanRecoveryConfig       `toml:"orphanRecovery"`
-	RateLimiting                     RateLimitingConfig         `toml:"rateLimiting"`
-	HealthCheck                      HealthCheckConfig          `toml:"healthCheck"`
-	DisableValidation                bool                       `toml:"disableValidation"`
-	StubMode                         bool                       `toml:"stubQuorumValidation"`
-	Monitoring                       MonitoringConfig           `toml:"monitoring"`
-	PyroscopeURL                     string                     `toml:"pyroscope_url"`
-	MaxAnonymousGetMessageSinceRange int64                      `toml:"maxAnonymousGetMessageSinceRange"`
+	Committees     map[CommitteeID]*Committee `toml:"committees"`
+	Server         ServerConfig               `toml:"server"`
+	Storage        *StorageConfig             `toml:"storage"`
+	APIKeys        APIKeyConfig               `toml:"-"`
+	ChainStatuses  ChainStatusConfig          `toml:"chainStatuses"`
+	Aggregation    AggregationConfig          `toml:"aggregation"`
+	OrphanRecovery OrphanRecoveryConfig       `toml:"orphanRecovery"`
+	RateLimiting   RateLimitingConfig         `toml:"rateLimiting"`
+	HealthCheck    HealthCheckConfig          `toml:"healthCheck"`
+	StubMode       bool                       `toml:"stubQuorumValidation"`
+	Monitoring     MonitoringConfig           `toml:"monitoring"`
+	PyroscopeURL   string                     `toml:"pyroscope_url"`
+	// MaxMessageIDsPerBatch limits the number of message IDs per batch verifier result request
+	MaxMessageIDsPerBatch int `toml:"maxMessageIDsPerBatch"`
 }
 
 // SetDefaults sets default values for the configuration.
 func (c *AggregatorConfig) SetDefaults() {
 	if c.ChainStatuses.MaxChainStatusesPerRequest == 0 {
 		c.ChainStatuses.MaxChainStatusesPerRequest = 1000
+	}
+	// Batch verifier result defaults
+	if c.MaxMessageIDsPerBatch == 0 {
+		c.MaxMessageIDsPerBatch = 100
 	}
 	// Aggregation defaults
 	if c.Aggregation.ChannelBufferSize == 0 {
@@ -380,13 +373,6 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 	if c.Storage.PageSize == 0 {
 		c.Storage.PageSize = 100
-	}
-	// Initialize DynamoDB config if nil
-	if c.Storage.DynamoDB == nil {
-		c.Storage.DynamoDB = &DynamoDBConfig{}
-	}
-	if c.Storage.DynamoDB.ShardCount == 0 {
-		c.Storage.DynamoDB.ShardCount = 1
 	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
@@ -442,6 +428,18 @@ func (c *AggregatorConfig) ValidateChainStatusConfig() error {
 	return nil
 }
 
+// ValidateBatchConfig validates the batch verifier result configuration.
+func (c *AggregatorConfig) ValidateBatchConfig() error {
+	if c.MaxMessageIDsPerBatch <= 0 {
+		return errors.New("maxMessageIDsPerBatch must be greater than 0")
+	}
+	if c.MaxMessageIDsPerBatch > 1000 {
+		return errors.New("maxMessageIDsPerBatch cannot exceed 1000")
+	}
+
+	return nil
+}
+
 // ValidateAggregationConfig validates the aggregation configuration.
 func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	if c.Aggregation.ChannelBufferSize <= 0 {
@@ -472,21 +470,6 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	return nil
 }
 
-// ValidateDynamoDBConfig validates the DynamoDB configuration.
-func (c *AggregatorConfig) ValidateDynamoDBConfig() error {
-	// Only validate DynamoDB-specific settings if using DynamoDB storage
-	if c.Storage.StorageType == StorageTypeDynamoDB {
-		if c.Storage.DynamoDB.ShardCount <= 0 {
-			return errors.New("dynamoDB.shardCount must be greater than 0")
-		}
-		if c.Storage.DynamoDB.ShardCount > 100 {
-			return errors.New("dynamoDB.shardCount cannot exceed 100")
-		}
-	}
-
-	return nil
-}
-
 // Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
 	// Set defaults first
@@ -502,6 +485,11 @@ func (c *AggregatorConfig) Validate() error {
 		return fmt.Errorf("chain status configuration error: %w", err)
 	}
 
+	// Validate batch configuration
+	if err := c.ValidateBatchConfig(); err != nil {
+		return fmt.Errorf("batch configuration error: %w", err)
+	}
+
 	// Validate aggregation configuration
 	if err := c.ValidateAggregationConfig(); err != nil {
 		return fmt.Errorf("aggregation configuration error: %w", err)
@@ -510,11 +498,6 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate storage configuration
 	if err := c.ValidateStorageConfig(); err != nil {
 		return fmt.Errorf("storage configuration error: %w", err)
-	}
-
-	// Validate DynamoDB configuration
-	if err := c.ValidateDynamoDBConfig(); err != nil {
-		return fmt.Errorf("dynamoDB configuration error: %w", err)
 	}
 
 	// TODO: Add other validation logic
