@@ -223,7 +223,7 @@ func (r *SourceReaderService) ResetToBlock(ctx context.Context, block uint64) er
 	// Increment version to signal in-flight cycles that their read is stale
 	r.resetVersion.Add(1)
 
-	// Update to reset value
+	// Update to reset value (already holding lock from function entry)
 	r.lastProcessedBlock = resetBlock
 
 	return nil
@@ -526,14 +526,20 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 	}()
 
 	// Initialize start block on first run
-	if r.lastProcessedBlock == nil {
+	r.mu.RLock()
+	needsInit := r.lastProcessedBlock == nil
+	r.mu.RUnlock()
+
+	if needsInit {
 		startBlock, err := r.initializeStartBlock(ctx)
 		if err != nil {
 			r.logger.Errorw("Failed to initialize start block", "error", err)
 			// Use fallback
 			startBlock = big.NewInt(1)
 		}
+		r.mu.Lock()
 		r.lastProcessedBlock = startBlock
+		r.mu.Unlock()
 		r.logger.Infow("Initialized start block", "block", startBlock.String())
 	}
 
@@ -652,8 +658,8 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		highestLogBlock := findHighestBlockInTasks(tasks)
 		processedToBlock = new(big.Int).Set(highestLogBlock)
 	} else {
-		// No logs - use current position
-		processedToBlock = new(big.Int).Set(r.lastProcessedBlock)
+		// No logs - use current position (fromBlock was captured under lock at cycle start)
+		processedToBlock = new(big.Int).Set(fromBlock)
 	}
 
 	// Always advance at least to finalized (stable across all RPC nodes)
