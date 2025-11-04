@@ -76,7 +76,7 @@ type Result[R any] struct {
 
 func NewResult[R any](v R, err error) Result[R] {
 	return Result[R]{
-		v: v,
+		v:   v,
 		err: err,
 	}
 }

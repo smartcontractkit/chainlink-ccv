@@ -68,7 +68,7 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 //
 // ProcessMessage returns an error if the message cannot be added to the batch,
 // typically because the batcher has been closed or the context has been
-// cancelled.
+// canceled.
 func (v *verifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common.Result[protocol.CCVData], error) {
 	err := v.batcher.Add(messageID)
 	if err != nil {
@@ -79,7 +79,7 @@ func (v *verifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common
 }
 
 // Start begins processing batched verification requests in a background goroutine.
-// The goroutine runs until ctx is cancelled, at which point it stops processing
+// The goroutine runs until ctx is canceled, at which point it stops processing
 // new batches and returns.
 //
 // Start returns immediately after spawning the background goroutine. It does not
@@ -93,7 +93,7 @@ func (v *verifierReader) Start(ctx context.Context) error {
 	return nil
 }
 
-// run processes batches of verification requests until the context is cancelled.
+// run processes batches of verification requests until the context is canceled.
 // It receives batches from the batch channel, calls the verifier API, and
 // distributes results back to waiting callers via the demultiplexer.
 func (v *verifierReader) run(ctx context.Context) {
@@ -128,8 +128,8 @@ func (v *verifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 
 	if v.verifier == nil {
 		// If verifier is not set, return error for all items
-		for _, messageId := range batch {
-			respMap[messageId] = common.NewResult(protocol.CCVData{}, context.DeadlineExceeded)
+		for _, messageID := range batch {
+			respMap[messageID] = common.NewResult(protocol.CCVData{}, context.DeadlineExceeded)
 		}
 		return respMap
 	}
@@ -137,8 +137,8 @@ func (v *verifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 	response, err := v.verifier.GetVerifications(ctx, batch)
 
 	// Iterate over the batch of results, return both value and error (if any)
-	for _, messageId := range batch {
-		respMap[messageId] = common.NewResult(response[messageId], err)
+	for _, messageID := range batch {
+		respMap[messageID] = common.NewResult(response[messageID], err)
 	}
 
 	return respMap
