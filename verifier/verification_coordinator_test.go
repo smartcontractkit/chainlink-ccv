@@ -62,7 +62,7 @@ func setupMockSourceReader(t *testing.T) *mockSourceReaderSetup {
 	mockReader := verifier_mocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
 
-	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
+	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().UnixMilli()), nil).Maybe()
 
 	return &mockSourceReaderSetup{
 		reader:  mockReader,

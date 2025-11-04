@@ -166,7 +166,7 @@ func main() {
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
 			IndexerClient:   indexerClient,
-			LastQueryTime:   time.Now().Add(-1 * executorConfig.GetLookbackWindow()).Unix(),
+			LastQueryTime:   time.Now().Add(-1 * executorConfig.GetLookbackWindow()).UnixMilli(),
 			PollingInterval: executorConfig.GetPollingInterval(),
 			Backoff:         executorConfig.GetBackoffDuration(),
 			QueryLimit:      executorConfig.IndexerQueryLimit,

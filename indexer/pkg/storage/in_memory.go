@@ -126,8 +126,8 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	}
 
 	// Binary search for timestamp range
-	startIdx := i.findTimestampIndex(start, func(ts, target int64) bool { return ts >= target })
-	endIdx := i.findTimestampIndex(end, func(ts, target int64) bool { return ts > target })
+	startIdx := i.findTimestampIndex(time.UnixMilli(start), func(ts, target int64) bool { return ts >= target })
+	endIdx := i.findTimestampIndex(time.UnixMilli(end), func(ts, target int64) bool { return ts > target })
 	if startIdx >= endIdx {
 		return make(map[string][]protocol.CCVData), nil
 	}
@@ -274,9 +274,9 @@ func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 }
 
 // findTimestampIndex finds the first index where timestamp satisfies the condition.
-func (i *InMemoryStorage) findTimestampIndex(timestamp int64, condition func(int64, int64) bool) int {
+func (i *InMemoryStorage) findTimestampIndex(timestamp time.Time, condition func(int64, int64) bool) int {
 	return sort.Search(len(i.byTimestamp), func(idx int) bool {
-		return condition(i.byTimestamp[idx].Timestamp, timestamp)
+		return condition(i.byTimestamp[idx].Timestamp.UnixMilli(), timestamp.UnixMilli())
 	})
 }
 
@@ -381,11 +381,11 @@ func (i *InMemoryStorage) cleanup() {
 
 	// 1. Check for TTL-based eviction
 	if i.ttl > 0 {
-		cutoffTime := time.Now().Add(-i.ttl).Unix()
+		cutoffTime := time.Now().Add(-i.ttl).UnixMilli()
 		// Find the first index where timestamp is >= cutoffTime
 		expiredCount := 0
 		for _, data := range i.byTimestamp {
-			if data.Timestamp >= cutoffTime {
+			if data.Timestamp.UnixMilli() >= cutoffTime {
 				break // Since byTimestamp is sorted, we can stop here
 			}
 			expiredCount++

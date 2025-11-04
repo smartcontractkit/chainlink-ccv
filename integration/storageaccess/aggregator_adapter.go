@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -57,7 +58,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
 			CcvData:               ccvData.CCVData,
 			BlobData:              ccvData.BlobData,
-			Timestamp:             ccvData.Timestamp,
+			Timestamp:             ccvData.Timestamp.UnixMilli(),
 			Message: &pb.Message{
 				Version:              uint32(ccvData.Message.Version),
 				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
@@ -353,7 +354,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 				Nonce:               msg.Nonce,
 				SourceChainSelector: msg.SourceChainSelector,
 				DestChainSelector:   msg.DestChainSelector,
-				Timestamp:           result.Timestamp,
+				Timestamp:           time.UnixMilli(result.Timestamp),
 				MessageID:           messageID,
 			},
 		})

@@ -227,7 +227,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 				SpanID:            SpanID(msgID, "msg_sig"),
 				Name:              "msg_sig",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
-				EndTimeUnixNano:   uint64(msgSig.Timestamp) * 1_000_000_000, //nolint:gosec // conversion from int to uint64 is safe here
+				EndTimeUnixNano:   uint64(msgSig.Timestamp.Nanosecond()), //nolint:gosec // conversion from int to uint64 is safe here
 				Kind:              2,
 				Attributes: []Attribute{
 					{
