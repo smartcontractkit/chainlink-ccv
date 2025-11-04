@@ -6,16 +6,16 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/memory"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 )
 
 func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
@@ -256,7 +256,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
-		aggStore.EXPECT().GetCCVData(ctx, messageID, string(committeeID)).Return(nil, errors.New("boom"))
+		aggStore.EXPECT().GetCCVData(ctx, messageID, committeeID).Return(nil, errors.New("boom"))
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
 		a := NewCommitReportAggregator(memory.NewInMemoryStorage(), aggStore, memory.NewInMemoryStorage(), quorum, config, logger.Sugared(logger.Test(t)), monitoring)
@@ -328,7 +328,6 @@ func TestHealthCheck(t *testing.T) {
 }
 
 func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
-
 	t.Run("enqueues and records metric", func(t *testing.T) {
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -366,7 +365,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("list error", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, string(committeeID)).Return(nil, errors.New("boom"))
+		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, committeeID).Return(nil, errors.New("boom"))
 
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -379,7 +378,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum error", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, string(committeeID)).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, committeeID).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(false, errors.New("boom")).Maybe()
 
@@ -394,7 +393,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met submits and records metrics", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, string(committeeID)).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, committeeID).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
 		sink := aggregation_mocks.NewMockSink(t)
@@ -413,7 +412,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met submit error", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, string(committeeID)).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, committeeID).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
 		sink := aggregation_mocks.NewMockSink(t)
@@ -430,7 +429,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum not met", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, string(committeeID)).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByMessageID(ctx, msgID, committeeID).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(false, nil).Maybe()
 
@@ -445,10 +444,10 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 }
 
 func TestDeduplicateVerificationsByParticipant(t *testing.T) {
-	v1 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{Signer: model.Signer{ParticipantID: "A"}}, MessageWithCCVNodeData: pb.MessageWithCCVNodeData{Timestamp: 1}}
-	v2 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{Signer: model.Signer{ParticipantID: "A"}}, MessageWithCCVNodeData: pb.MessageWithCCVNodeData{Timestamp: 2}}
-	v3 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{Signer: model.Signer{ParticipantID: "B"}}, MessageWithCCVNodeData: pb.MessageWithCCVNodeData{Timestamp: 3}}
-	vNo := &model.CommitVerificationRecord{MessageWithCCVNodeData: pb.MessageWithCCVNodeData{Timestamp: 5}}
+	v1 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{Signer: model.Signer{ParticipantID: "A"}}, Timestamp: time.UnixMilli(1)}
+	v2 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{Signer: model.Signer{ParticipantID: "A"}}, Timestamp: time.UnixMilli(2)}
+	v3 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{Signer: model.Signer{ParticipantID: "B"}}, Timestamp: time.UnixMilli(3)}
+	vNo := &model.CommitVerificationRecord{Timestamp: time.UnixMilli(5)}
 
 	got := deduplicateVerificationsByParticipant([]*model.CommitVerificationRecord{v1, v2, v3, vNo})
 	assert.Len(t, got, 2)
@@ -456,15 +455,15 @@ func TestDeduplicateVerificationsByParticipant(t *testing.T) {
 	for _, v := range got {
 		if v.IdentifierSigner.ParticipantID == "A" {
 			aFound = true
-			assert.Equal(t, int64(2), v.GetTimestamp())
+			assert.True(t, v.GetTimestamp().Equal(time.UnixMilli(2)))
 		}
 		if v.IdentifierSigner.ParticipantID == "B" {
 			bFound = true
-			assert.Equal(t, int64(3), v.GetTimestamp())
+			assert.True(t, v.GetTimestamp().Equal(time.UnixMilli(3)))
 		}
 	}
 	assert.True(t, aFound && bFound)
 }
 
-// helpers
+// helpers.
 var _ = time.Duration(0)
