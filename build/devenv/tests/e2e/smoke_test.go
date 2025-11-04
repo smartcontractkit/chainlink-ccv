@@ -272,7 +272,7 @@ func TestE2ESmoke(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				receiver := mustGetEOAReceiverAddress(t, c, tc.dest)
 				// Sender is the chain deployer key used by the env
-				sender := protocol.UnknownAddress(common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").Bytes())
+				sender := protocol.UnknownAddress(e.BlockChains.EVMChains()[tc.src].DeployerKey.From.Bytes())
 
 				// Resolve token on src and dest chains
 				srcToken := getContractAddress(t, in, tc.src,
