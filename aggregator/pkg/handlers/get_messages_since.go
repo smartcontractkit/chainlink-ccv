@@ -29,6 +29,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 	h.logger(ctx).Tracef("Received GetMessagesSinceRequest, sinceSequence: %d, nextToken: %v", req.SinceSequence, req.NextToken)
 	storage, err := h.storage.QueryAggregatedReports(ctx, req.SinceSequence, committeeID, &req.NextToken)
 	if err != nil {
+		h.logger(ctx).Errorw("failed to query aggregated reports", "sinceSequence", req.SinceSequence, "error", err)
 		return nil, err
 	}
 
@@ -36,6 +37,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 	for _, report := range storage.Reports {
 		ccvData, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
 		if err != nil {
+			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
 			return nil, err
 		}
 		messageWithResult := &pb.MessageWithVerifierResult{
