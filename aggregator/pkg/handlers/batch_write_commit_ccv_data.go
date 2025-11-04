@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 
-	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status" //nolint:gci
 
@@ -27,7 +26,7 @@ func (h *BatchWriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.
 func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.BatchWriteCommitCCVNodeDataRequest) (*pb.BatchWriteCommitCCVNodeDataResponse, error) {
 	requests := req.GetRequests()
 	responses := make([]*pb.WriteCommitCCVNodeDataResponse, len(requests))
-	errors := make([]*status.Status, len(requests))
+	errors := NewBatchErrorArray(len(requests))
 
 	wg := sync.WaitGroup{}
 
@@ -40,13 +39,15 @@ func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb
 				statusErr, ok := grpcstatus.FromError(err)
 				if !ok {
 					h.logger(ctx).Errorf("unexpected error type: %v", err)
-					errors[i] = grpcstatus.New(codes.Unknown, "unexpected error").Proto()
+					SetBatchError(errors, i, codes.Unknown, "unexpected error")
 				} else {
+					h.logger(ctx).Errorw("failed to write commit CCV node data", "error", statusErr)
 					errors[i] = statusErr.Proto()
 				}
 			} else {
-				responses[i] = resp
+				SetBatchSuccess(errors, i)
 			}
+			responses[i] = resp
 		}(i, r)
 	}
 
