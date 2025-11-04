@@ -59,6 +59,7 @@ type reorgTestSetup struct {
 	storage          *common.InMemoryOffchainStorage
 	chainSelector    protocol.ChainSelector
 	lggr             logger.Logger
+	taskChannel      chan verifier.VerificationTask
 
 	// Block state for simulating chain progression
 	currentLatest    *protocol.BlockHeader
@@ -186,8 +187,10 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	lggr := logger.Test(t)
 
-	// Create mocks
-	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
+	// Create mocks using the test helper pattern
+	mockSetup := test.SetupMockSourceReader(t)
+	mockSetup.ExpectVerificationTask(false)
+
 	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 
 	// Initialize block state
@@ -208,7 +211,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 		t:                t,
 		ctx:              ctx,
 		cancel:           cancel,
-		mockSourceReader: mockSourceReader,
+		mockSourceReader: mockSetup.Reader,
 		mockHeadTracker:  mockHeadTracker,
 		chainSelector:    chainSelector,
 		lggr:             lggr,
@@ -216,6 +219,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 		currentFinalized: initialFinalized,
 		TestVerifier:     test.NewTestVerifier(),
 		storage:          common.NewInMemoryOffchainStorage(lggr),
+		taskChannel:      mockSetup.Channel,
 	}
 
 	// Setup mock head tracker to return current state
@@ -227,21 +231,13 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 		},
 	).Maybe()
 
-	// Setup mock source reader for VerificationTasks
-	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).
-		Return([]verifier.VerificationTask{}, nil).Maybe()
-
-	// Setup mock source reader for BlockTime
-	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).
-		Return(uint64(time.Now().Unix()), nil).Maybe()
-
 	// Create initial blocks for building tail
 	initialBlocks := createChainBlocks(100, 105)
 	setup.mockGetBlocksHeadersForBlocks(initialBlocks)
 
 	// Create reorg detector
 	reorgDetector, err := services.NewReorgDetectorService(
-		mockSourceReader,
+		setup.mockSourceReader,
 		mockHeadTracker,
 		services.ReorgDetectorConfig{
 			ChainSelector: chainSelector,
@@ -258,7 +254,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
 			chainSelector: {
 				VerifierAddress: protocol.UnknownAddress("0x1234"),
-				PollInterval:    100 * time.Millisecond,
+				PollInterval:    10 * time.Millisecond,
 			},
 		},
 		StorageBatchSize:    10,
@@ -272,7 +268,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 		verifier.WithLogger(lggr),
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
-			chainSelector: mockSourceReader,
+			chainSelector: setup.mockSourceReader,
 		}),
 		verifier.WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
 			chainSelector: mockHeadTracker,
@@ -281,7 +277,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 			chainSelector: reorgDetector,
 		}),
 		verifier.WithMonitoring(monitoring.NewNoopVerifierMonitoring()),
-		verifier.WithFinalityCheckInterval(100*time.Millisecond),
+		verifier.WithFinalityCheckInterval(50*time.Millisecond),
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator
@@ -342,15 +338,77 @@ func (s *reorgTestSetup) cleanup() {
 }
 
 // TestReorgDetection_NormalReorg tests that a normal reorg is detected and handled correctly.
+// This test validates that:
+//  1. Tasks below the finalized block (98, 99) are processed successfully
+//  2. Tasks above the finalized block (101, 102) are flushed when reorg occurs
+//  3. The coordinator continues operating normally after reorg
+//
+// Test setup:
+//   - Initial state: Finalized block 100, Latest block 105
+//   - Canonical chain: 95-110 (need blocks below 100 for finalized tasks)
+//   - Reorg: LCA at block 100 (finalized), diverges from block 101
+//   - Finalized tasks at 98, 99 (< 100) → should be processed
+//   - Pending tasks at 101, 102 (> 100) → should be flushed by reorg
 func TestReorgDetection_NormalReorg(t *testing.T) {
 	chainSelector := protocol.ChainSelector(1337)
 	setup := setupReorgTest(t, chainSelector)
 	defer setup.cleanup()
 
-	// Simulate canonical chain: blocks 100-105
-	canonicalBlocks := createChainBlocks(100, 105)
-	setup.mockGetBlocksHeadersForBlocks(canonicalBlocks)
-	setup.mockGetBlockHeaderByHashForBlocks(canonicalBlocks)
+	// Simulate canonical chain: blocks 95-110
+	// Need blocks 98, 99 (below finalized 100) and blocks beyond 105 for reorg
+	canonicalBlocks := createChainBlocks(95, 110)
+
+	// Also create reorged blocks in advance so we can set up all mocks before starting
+	// LCA at block 100 (finalized block), reorg starts from 101
+	reorgedBlocks := createReorgedChainBlocks(100, 101, 110)
+
+	// Set up mocks with ALL blocks (canonical + reorged) before starting
+	allBlocks := append(canonicalBlocks, reorgedBlocks...)
+	setup.mockGetBlocksHeadersForBlocks(allBlocks)
+	setup.mockGetBlockHeaderByHashForBlocks(allBlocks)
+
+	// Create tasks at two ranges:
+	// - Tasks at blocks 98, 99: BELOW finalized block (100), should be PROCESSED
+	// - Tasks at blocks 101, 102: ABOVE finalized block (100), should be FLUSHED by reorg
+	finalizedTasks := []verifier.VerificationTask{
+		{
+			Message:      test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			BlockNumber:  98,
+			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
+			CreatedAt:    time.Now(),
+		},
+		{
+			Message:      test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			BlockNumber:  99,
+			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
+			CreatedAt:    time.Now(),
+		},
+	}
+
+	pendingTasks := []verifier.VerificationTask{
+		{
+			Message:      test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
+			BlockNumber:  101,
+			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
+			CreatedAt:    time.Now(),
+		},
+		{
+			Message:      test.CreateTestMessage(t, 4, chainSelector, defaultDestChain, 0),
+			BlockNumber:  102,
+			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt4")}},
+			CreatedAt:    time.Now(),
+		},
+	}
+
+	// Send tasks via channel (like in verification_coordinator_test.go)
+	go func() {
+		for _, task := range append(finalizedTasks, pendingTasks...) {
+			setup.taskChannel <- task
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	t.Log("📋 Sending tasks to verification pipeline")
 
 	// Start coordinator
 	err := setup.coordinator.Start(setup.ctx)
@@ -358,83 +416,39 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 
 	t.Log("✅ Coordinator started with reorg detector")
 
-	// Create tasks at blocks 101, 102, 103 (above finalized block 100)
-	// These will be added to pending queue
-	// Since finalized is 100, these won't be processed yet
-	tasks := []verifier.VerificationTask{
-		{
-			Message:      test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // wait for finality
-			BlockNumber:  101,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
-			CreatedAt:    time.Now(),
-		},
-		{
-			Message:      test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
-			BlockNumber:  102,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
-			CreatedAt:    time.Now(),
-		},
-		{
-			Message:      test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
-			BlockNumber:  103,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
-			CreatedAt:    time.Now(),
-		},
-	}
+	// Wait a bit for finalized tasks (98, 99) to be processed
+	time.Sleep(200 * time.Millisecond)
 
-	callCount := 0
-	setup.mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, fromBlock, toBlock *big.Int) ([]verifier.VerificationTask, error) {
-			callCount++
-			if callCount == 1 {
-				t.Log("📋 Injecting tasks into verification pipeline")
-				return tasks, nil
-			}
-			return []verifier.VerificationTask{}, nil
-		},
-	).Maybe()
+	t.Log("📋 Finalized tasks should be processing, now triggering reorg")
 
-	// Wait for tasks to be queued
-	time.Sleep(300 * time.Millisecond)
-
-	t.Log("📋 Tasks added to pending queue")
-	//pendingTasks := setup.coordinator.GetPendingTasks(chainSelector)
-	//require.Len(t, pendingTasks, 3)
-
-	// Now simulate a reorg: new block 106 has parent that doesn't match block 105
-	// LCA will be at block 100 (finalized block)
-	reorgedBlocks := createReorgedChainBlocks(100, 101, 106)
-
-	// Setup mocks for reorged chain
-	setup.mockGetBlocksHeadersForBlocks(append(canonicalBlocks, reorgedBlocks...))
-	setup.mockGetBlockHeaderByHashForBlocks(append(canonicalBlocks, reorgedBlocks...))
-
-	// Update chain state to trigger reorg detection
+	// Now simulate a reorg: chain state shows latest block 110 with reorged hash
+	// The new chain has LCA at block 100 (finalized), diverges from block 101
+	// This affects blocks 101-110, so tasks at 101, 102 should be flushed
 	reorgedLatest := &reorgedBlocks[len(reorgedBlocks)-1]
 	setup.updateChainState(reorgedLatest, setup.currentFinalized)
 
-	t.Log("🔄 Simulating reorg: new chain diverges from block 101")
+	t.Log("🔄 Simulating reorg: new chain diverges from block 101 (LCA at 100)")
 
 	// Wait for reorg to be detected and handled
-	// The reorg detector polls every 50ms, and coordinator checks every 100ms
+	// The reorg detector polls every 50ms, and coordinator checks every 50ms now
 	time.Sleep(500 * time.Millisecond)
 
 	t.Log("⏳ Waiting for reorg detection and handling...")
 
-	// Verify that tasks from blocks > 100 were flushed
-	// We can't directly access pending queue, but we can verify that:
-	// 1. The reorg was detected (via logs)
-	// 2. The coordinator is still running
-	// 3. No tasks from reorged blocks were verified
+	// Verify behavior:
+	// - Tasks at blocks 98, 99 (below finalized) should have been PROCESSED
+	// - Tasks at blocks 101, 102 (in reorged range) should have been FLUSHED
+	processedTasks := setup.TestVerifier.GetProcessedTasks()
+	t.Logf("📊 Processed task count after reorg: %d", len(processedTasks))
 
-	processedCount := setup.TestVerifier.GetProcessedTaskCount()
-	t.Logf("📊 Processed task count after reorg: %d", processedCount)
+	// Should have processed the 2 finalized tasks (98, 99)
+	// Tasks at 101, 102 should have been flushed before processing
+	require.Equal(t, 2, len(processedTasks), "Only finalized tasks (98, 99) should be processed; tasks at 101, 102 should be flushed")
 
-	// Since all tasks were on blocks 101-103 and reorg happened with LCA at 100,
-	// all tasks should have been flushed, so processed count should be 0
-	assert.Equal(t, 0, processedCount, "No tasks should be processed after reorg flush")
+	require.Equal(t, uint64(98), processedTasks[0].BlockNumber)
+	require.Equal(t, uint64(99), processedTasks[1].BlockNumber)
 
-	t.Log("✅ Test completed: Normal reorg handled correctly")
+	t.Log("✅ Test completed: Normal reorg handled correctly - finalized tasks processed, reorged tasks flushed")
 }
 
 // TestReorgDetection_FinalityViolation tests that a finality violation stops the chain reader.
@@ -551,7 +565,7 @@ func TestReorgDetection_ReorgDuringProcessing(t *testing.T) {
 		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
 			chainSelector: {
 				VerifierAddress: protocol.UnknownAddress([]byte("0x1234")),
-				PollInterval:    100 * time.Millisecond,
+				PollInterval:    10 * time.Millisecond,
 			},
 		},
 		StorageBatchSize:    10,
