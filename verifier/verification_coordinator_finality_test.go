@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -26,67 +26,6 @@ const (
 	InitialLatestBlock    = 1000
 	InitialFinalizedBlock = 950
 )
-
-// testVerifier keeps track of all processed messages for testing.
-type testVerifier struct {
-	processedTasks []verifier.VerificationTask
-	mu             sync.RWMutex
-}
-
-func newTestVerifier() *testVerifier {
-	return &testVerifier{
-		processedTasks: make([]verifier.VerificationTask, 0),
-	}
-}
-
-func (t *testVerifier) VerifyMessages(
-	ctx context.Context,
-	tasks []verifier.VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.CCVData],
-) batcher.BatchResult[verifier.VerificationError] {
-	t.mu.Lock()
-	t.processedTasks = append(t.processedTasks, tasks...)
-	t.mu.Unlock()
-
-	// Create mock CCV data for each task
-	for _, verificationTask := range tasks {
-		messageID, _ := verificationTask.Message.MessageID()
-		ccvData := protocol.CCVData{
-			MessageID:             messageID,
-			Nonce:                 verificationTask.Message.Nonce,
-			SourceChainSelector:   verificationTask.Message.SourceChainSelector,
-			DestChainSelector:     verificationTask.Message.DestChainSelector,
-			SourceVerifierAddress: protocol.UnknownAddress{},
-			DestVerifierAddress:   protocol.UnknownAddress{},
-			CCVData:               []byte("mock-signature"),
-			BlobData:              []byte("mock-blob"),
-			Timestamp:             time.Now().UnixMicro(),
-			Message:               verificationTask.Message,
-			ReceiptBlobs:          verificationTask.ReceiptBlobs,
-		}
-
-		if err := ccvDataBatcher.Add(ccvData); err != nil {
-			// If context is canceled or batcher is closed, stop processing
-			return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
-		}
-	}
-
-	// No errors in this test implementation
-	return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
-}
-
-func (t *testVerifier) getProcessedTaskCount() int {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return len(t.processedTasks)
-}
-
-// testStorage for testing.
-type testStorage struct{}
-
-func (m *testStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData) error {
-	return nil
-}
 
 func TestFinality_FinalizedMessage(t *testing.T) {
 	t.Skip("Test is currently timing out intermittently, needs investigation")
@@ -123,7 +62,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the finalized message
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed the finalized message")
 }
 
@@ -163,7 +102,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the ready message
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed the ready message")
 }
 
@@ -211,7 +150,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Should NOT have processed the non-finalized message yet
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 0, processedCount, "Should not have processed the non-finalized message")
 
 	// Update the shared variable to simulate finalized block advancing
@@ -222,7 +161,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	processed := false
 	for time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
-		if setup.mockVerifier.getProcessedTaskCount() == 1 {
+		if setup.mockVerifier.GetProcessedTaskCount() == 1 {
 			processed = true
 			break
 		}
@@ -230,14 +169,14 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Should have processed the now-finalized message
 	require.True(t, processed, "Message should have been processed after finality reached")
-	processedCount = setup.mockVerifier.getProcessedTaskCount()
+	processedCount = setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed exactly 1 message")
 }
 
 type coordinatorTestSetup struct {
 	coordinator           *verifier.Coordinator
 	mockSourceReader      *verifier_mocks.MockSourceReader
-	mockVerifier          *testVerifier
+	mockVerifier          *test.TestVerifier
 	verificationTaskCh    chan verifier.VerificationTask
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
@@ -257,9 +196,9 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	})
 	require.NoError(t, err)
 
-	mockVerifier := newTestVerifier()
+	mockVerifier := test.NewTestVerifier()
 	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
-	mockStorage := &testStorage{}
+	mockStorage := &test.NoopStorage{}
 	verificationTaskCh := make(chan verifier.VerificationTask, 10)
 
 	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
