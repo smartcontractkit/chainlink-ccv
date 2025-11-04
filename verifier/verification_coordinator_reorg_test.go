@@ -257,7 +257,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 		VerifierID: "reorg-test-coordinator",
 		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
 			chainSelector: {
-				VerifierAddress: protocol.UnknownAddress([]byte("0x1234")),
+				VerifierAddress: protocol.UnknownAddress("0x1234"),
 				PollInterval:    100 * time.Millisecond,
 			},
 		},
@@ -266,7 +266,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector) *reorgTe
 	}
 
 	// Create coordinator with all components
-	coordinator, err := verifier.NewVerificationCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(setup.TestVerifier),
 		verifier.WithStorage(setup.storage),
 		verifier.WithLogger(lggr),
@@ -333,7 +333,10 @@ func (s *reorgTestSetup) updateChainState(latest, finalized *protocol.BlockHeade
 // cleanup tears down the test setup.
 func (s *reorgTestSetup) cleanup() {
 	if s.coordinator != nil {
-		s.coordinator.Close()
+		err := s.coordinator.Close()
+		if err != nil {
+			return
+		}
 	}
 	s.cancel()
 }
@@ -348,9 +351,6 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	err := setup.coordinator.Start(setup.ctx)
 	require.NoError(t, err)
 
-	// Wait for initial setup
-	time.Sleep(200 * time.Millisecond)
-
 	t.Log("✅ Coordinator started with reorg detector")
 
 	// Simulate canonical chain: blocks 100-105
@@ -363,19 +363,19 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	// Since finalized is 100, these won't be processed yet
 	tasks := []verifier.VerificationTask{
 		{
-			Message:      createTestMessage(t, 1, chainSelector, defaultDestChain, 50), // Custom finality - needs 50 blocks
+			Message:      test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // wait for finality
 			BlockNumber:  101,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
 			CreatedAt:    time.Now(),
 		},
 		{
-			Message:      createTestMessage(t, 2, chainSelector, defaultDestChain, 50),
+			Message:      test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
 			BlockNumber:  102,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
 			CreatedAt:    time.Now(),
 		},
 		{
-			Message:      createTestMessage(t, 3, chainSelector, defaultDestChain, 50),
+			Message:      test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
 			BlockNumber:  103,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
 			CreatedAt:    time.Now(),
@@ -447,9 +447,6 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	err := setup.coordinator.Start(setup.ctx)
 	require.NoError(t, err)
 
-	// Wait for initial setup
-	time.Sleep(200 * time.Millisecond)
-
 	t.Log("✅ Coordinator started with reorg detector")
 
 	// Simulate canonical chain
@@ -460,19 +457,19 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	// Create tasks at blocks 98, 99, 100 (around finalized block)
 	tasks := []verifier.VerificationTask{
 		{
-			Message:      createTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			Message:      test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
 			BlockNumber:  98,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
 			CreatedAt:    time.Now(),
 		},
 		{
-			Message:      createTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			Message:      test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
 			BlockNumber:  99,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
 			CreatedAt:    time.Now(),
 		},
 		{
-			Message:      createTestMessage(t, 3, chainSelector, defaultDestChain, 0),
+			Message:      test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
 			BlockNumber:  100,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
 			CreatedAt:    time.Now(),
@@ -561,7 +558,7 @@ func TestReorgDetection_ReorgDuringProcessing(t *testing.T) {
 		StorageBatchTimeout: 50 * time.Millisecond,
 	}
 
-	coordinator, err := verifier.NewVerificationCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(slowVerifier),
 		verifier.WithStorage(setup.storage),
 		verifier.WithLogger(setup.lggr),
@@ -585,9 +582,6 @@ func TestReorgDetection_ReorgDuringProcessing(t *testing.T) {
 	err = setup.coordinator.Start(setup.ctx)
 	require.NoError(t, err)
 
-	// Wait for initial setup
-	time.Sleep(200 * time.Millisecond)
-
 	t.Log("✅ Coordinator started with slow verifier")
 
 	// Simulate canonical chain
@@ -598,13 +592,13 @@ func TestReorgDetection_ReorgDuringProcessing(t *testing.T) {
 	// Create finalized tasks that will be processed
 	finalizedTasks := []verifier.VerificationTask{
 		{
-			Message:      createTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			Message:      test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
 			BlockNumber:  98,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
 			CreatedAt:    time.Now(),
 		},
 		{
-			Message:      createTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			Message:      test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
 			BlockNumber:  99,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
 			CreatedAt:    time.Now(),
@@ -614,13 +608,13 @@ func TestReorgDetection_ReorgDuringProcessing(t *testing.T) {
 	// And pending tasks that will be flushed by reorg
 	pendingTasks := []verifier.VerificationTask{
 		{
-			Message:      createTestMessage(t, 3, chainSelector, defaultDestChain, 50), // Needs 50 blocks
+			Message:      test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 50), // Needs 50 blocks
 			BlockNumber:  105,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
 			CreatedAt:    time.Now(),
 		},
 		{
-			Message:      createTestMessage(t, 4, chainSelector, defaultDestChain, 50),
+			Message:      test.CreateTestMessage(t, 4, chainSelector, defaultDestChain, 50),
 			BlockNumber:  106,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt4")}},
 			CreatedAt:    time.Now(),
@@ -724,7 +718,7 @@ func TestReorgDetection_MultipleChains(t *testing.T) {
 	sharedVerifier := test.NewTestVerifier()
 	sharedStorage := common.NewInMemoryOffchainStorage(setup1.lggr)
 
-	coordinator, err := verifier.NewVerificationCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(sharedVerifier),
 		verifier.WithStorage(sharedStorage),
 		verifier.WithLogger(setup1.lggr),
@@ -754,9 +748,6 @@ func TestReorgDetection_MultipleChains(t *testing.T) {
 	require.NoError(t, err)
 	defer coordinator.Close()
 
-	// Wait for initial setup
-	time.Sleep(200 * time.Millisecond)
-
 	t.Log("✅ Multi-chain coordinator started")
 
 	// Setup both chains with canonical blocks
@@ -771,13 +762,13 @@ func TestReorgDetection_MultipleChains(t *testing.T) {
 	// Create tasks for both chains
 	chain1Tasks := []verifier.VerificationTask{
 		{
-			Message:      createTestMessage(t, 1, chain1, defaultDestChain, 50),
+			Message:      test.CreateTestMessage(t, 1, chain1, defaultDestChain, 50),
 			BlockNumber:  101,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("chain1-receipt1")}},
 			CreatedAt:    time.Now(),
 		},
 		{
-			Message:      createTestMessage(t, 2, chain1, defaultDestChain, 50),
+			Message:      test.CreateTestMessage(t, 2, chain1, defaultDestChain, 50),
 			BlockNumber:  102,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("chain1-receipt2")}},
 			CreatedAt:    time.Now(),
@@ -786,13 +777,13 @@ func TestReorgDetection_MultipleChains(t *testing.T) {
 
 	chain2Tasks := []verifier.VerificationTask{
 		{
-			Message:      createTestMessage(t, 1, chain2, defaultDestChain, 0), // Default finality - will be processed
+			Message:      test.CreateTestMessage(t, 1, chain2, defaultDestChain, 0), // Default finality - will be processed
 			BlockNumber:  98,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("chain2-receipt1")}},
 			CreatedAt:    time.Now(),
 		},
 		{
-			Message:      createTestMessage(t, 2, chain2, defaultDestChain, 0),
+			Message:      test.CreateTestMessage(t, 2, chain2, defaultDestChain, 0),
 			BlockNumber:  99,
 			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("chain2-receipt2")}},
 			CreatedAt:    time.Now(),

@@ -245,6 +245,10 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			sourcePollInterval,
 		)
 
+		err := service.Start(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to start source reader for chain %d: %w", chainSelector, err)
+		}
 		// Create source state
 		state := &sourceState{
 			reader:             service,
@@ -283,13 +287,6 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		}
 
 		vc.sourceStates[chainSelector] = state
-	}
-
-	// Start all source reader services
-	for chainSelector, state := range vc.sourceStates {
-		if err := state.reader.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start source reader for chain %d: %w", chainSelector, err)
-		}
 	}
 
 	vc.running = true

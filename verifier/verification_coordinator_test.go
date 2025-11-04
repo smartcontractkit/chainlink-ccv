@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -142,54 +143,8 @@ func createTestSigner(t *testing.T) verifier.MessageSigner {
 	return signer
 }
 
-func createTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) protocol.Message {
-	// Determine the correct verifier address based on source chain
-	var verifierAddress string
-	switch sourceChainSelector {
-	case sourceChain1:
-		verifierAddress = "0x1234"
-	case sourceChain2:
-		verifierAddress = "0x5678"
-	default:
-		verifierAddress = "0x1234" // Default fallback
-	}
-
-	return createTestMessageWithVerifier(t, nonce, sourceChainSelector, destChainSelector, verifierAddress, finality)
-}
-
-func createTestMessageWithVerifier(t *testing.T,
-	nonce protocol.Nonce,
-	sourceChainSelector,
-	destChainSelector protocol.ChainSelector,
-	verifierAddress string, finality uint16,
-) protocol.Message {
-	// Create empty token transfer
-	tokenTransfer := protocol.NewEmptyTokenTransfer()
-
-	sender := protocol.UnknownAddress([]byte("sender_address"))
-	receiver := protocol.UnknownAddress([]byte("receiver_address"))
-	onRampAddr := protocol.UnknownAddress([]byte("onramp_address"))
-	offRampAddr := protocol.UnknownAddress([]byte("offramp_address"))
-
-	message, err := protocol.NewMessage(
-		sourceChainSelector,
-		destChainSelector,
-		nonce,
-		onRampAddr,
-		offRampAddr,
-		finality,
-		sender,
-		receiver,
-		[]byte("test data"), // dest blob
-		[]byte("test data"), // data
-		tokenTransfer,
-	)
-	require.NoError(t, err)
-	return *message
-}
-
 func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) verifier.VerificationTask {
-	message := createTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality)
+	message := test.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality)
 
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
