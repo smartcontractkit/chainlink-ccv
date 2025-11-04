@@ -1790,26 +1790,28 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 			},
 		}
 
-		batchResp, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReqWithMissing)
-		require.NoError(t, err, "BatchGetVerifierResultForMessage with missing should not error")
-		require.NotNil(t, batchResp, "batch response with missing should not be nil")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReqWithMissing)
+			require.NoError(collect, err, "BatchGetVerifierResultForMessage with missing should not error")
+			require.NotNil(collect, batchResp, "batch response with missing should not be nil")
 
-		// Should have 1 result and 2 errors (1:1 correspondence with requests)
-		require.Len(t, batchResp.Results, 1, "should have 1 result (existing message)")
-		require.Len(t, batchResp.Errors, 2, "should have 2 errors (1:1 with requests)")
+			// Should have 1 result and 2 errors (1:1 correspondence with requests)
+			require.Len(collect, batchResp.Results, 1, "should have 1 result (existing message)")
+			require.Len(collect, batchResp.Errors, 2, "should have 2 errors (1:1 with requests)")
 
-		// First request (existing) should have Status with Code 0
-		require.NotNil(t, batchResp.Errors[0], "existing message should have Status with Code 0")
-		require.Equal(t, int32(codes.OK), batchResp.Errors[0].Code, "existing message should have Code 0")
+			// First request (existing) should have Status with Code 0
+			require.NotNil(collect, batchResp.Errors[0], "existing message should have Status with Code 0")
+			require.Equal(collect, int32(codes.OK), batchResp.Errors[0].Code, "existing message should have Code 0")
 
-		// Second request (missing) should have NotFound error
-		require.NotNil(t, batchResp.Errors[1], "missing message should have error")
-		require.Equal(t, int32(codes.NotFound), batchResp.Errors[1].Code, "missing message should have NotFound error")
+			// Second request (missing) should have NotFound error
+			require.NotNil(collect, batchResp.Errors[1], "missing message should have error")
+			require.Equal(collect, int32(codes.NotFound), batchResp.Errors[1].Code, "missing message should have NotFound error")
 
-		// Verify the result is correct
-		result := batchResp.Results[0]
-		require.Equal(t, uint64(1001), result.GetMessage().GetNonce(), "nonce should match")
-		require.Equal(t, sourceVerifierAddress, result.SourceVerifierAddress, "source verifier address should match")
+			// Verify the result is correct
+			result := batchResp.Results[0]
+			require.Equal(collect, uint64(1001), result.GetMessage().GetNonce(), "nonce should match")
+			require.Equal(collect, sourceVerifierAddress, result.SourceVerifierAddress, "source verifier address should match")
+		}, 5*time.Second, 200*time.Millisecond, "batch result for existing message not ready in time")
 	}
 
 	for _, storageType := range storageTypes {
