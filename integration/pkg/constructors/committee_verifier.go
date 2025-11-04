@@ -112,12 +112,12 @@ func NewVerificationCoordinator(
 	}
 
 	// Create commit verifier (with ECDSA signer)
-	signer, err := commit.NewECDSAMessageSignerFromString(secrets.SigningKey)
+	signer, addr, err := commit.NewECDSAMessageSignerFromString(secrets.SigningKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		return nil, fmt.Errorf("failed to create message signer: %w", err)
 	}
-	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, addr, signer, lggr, verifierMonitoring)
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)

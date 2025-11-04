@@ -277,12 +277,12 @@ func main() {
 		lggr.Errorw("Failed to read private key from environment variable", "error", err)
 		os.Exit(1)
 	}
-	signer, err := commit.NewECDSAMessageSigner(privateKey)
+	signer, publicKey, err := commit.NewECDSAMessageSigner(privateKey)
 	if err != nil {
 		lggr.Errorw("Failed to create message signer", "error", err)
 		os.Exit(1)
 	}
-	lggr.Infow("Using signer address", "address", signer.GetSignerAddress().String())
+	lggr.Infow("Using signer address", "address", publicKey)
 
 	// Setup OTEL Monitoring (via beholder)
 	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
@@ -300,7 +300,7 @@ func main() {
 	}
 
 	// Create commit verifier
-	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, publicKey, signer, lggr, verifierMonitoring)
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		os.Exit(1)
