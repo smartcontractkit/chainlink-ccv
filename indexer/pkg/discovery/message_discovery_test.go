@@ -307,7 +307,7 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	defer ts.Cleanup()
 
 	// Configure mock to return one message
-	ccvData := createTestCCVData(1, time.Now().Unix(), 1, 2)
+	ccvData := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
 		MessageGenerator: func(messageNumber int) protocol.CCVData {
 			return ccvData
@@ -347,9 +347,9 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 
 	// Create multiple messages
 	messages := []protocol.CCVData{
-		createTestCCVData(1, time.Now().Unix(), 1, 2),
-		createTestCCVData(2, time.Now().Unix(), 1, 2),
-		createTestCCVData(3, time.Now().Unix(), 1, 2),
+		createTestCCVData(1, time.Now().UnixMilli(), 1, 2),
+		createTestCCVData(2, time.Now().UnixMilli(), 1, 2),
+		createTestCCVData(3, time.Now().UnixMilli(), 1, 2),
 	}
 
 	messageIndex := 0
@@ -441,7 +441,7 @@ func TestMessageDiscovery_ContinuesAfterEmptyResponse(t *testing.T) {
 			callCount++
 			// Return a message after a few empty calls
 			if callCount >= 3 {
-				return createTestCCVData(1, time.Now().Unix(), 1, 2)
+				return createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
 			}
 			return readers.DefaultMessageGenerator(messageNumber)
 		},
@@ -558,7 +558,7 @@ func TestConsumeReader_MultipleBatches(t *testing.T) {
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
 		EmitEmptyResponses: false,
 		MessageGenerator: func(messageNumber int) protocol.CCVData {
-			return createTestCCVData(messageNumber, time.Now().Unix(), 1, 2)
+			return createTestCCVData(messageNumber, time.Now().UnixMilli(), 1, 2)
 		},
 		MaxMessages: 6, // Return 6 messages total
 	})
@@ -622,7 +622,7 @@ func createTestCCVData(uniqueID int, timestamp int64, sourceChain, destChain pro
 
 	return protocol.CCVData{
 		MessageID:             messageID,
-		Timestamp:             timestamp,
+		Timestamp:             time.UnixMilli(timestamp),
 		SourceChainSelector:   sourceChain,
 		DestChainSelector:     destChain,
 		Nonce:                 protocol.Nonce(uniqueID),
@@ -642,7 +642,7 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	defer ts.Cleanup()
 
 	// Create a test message that will be discovered
-	ccvData := createTestCCVData(1, time.Now().Unix(), 1, 2)
+	ccvData := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
 
 	// Configure mock reader to return this message
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{

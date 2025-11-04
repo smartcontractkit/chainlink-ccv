@@ -2,14 +2,16 @@ package ccv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -79,12 +81,9 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 
 	blockchains := cldf_chain.NewBlockChainsFromSlice(providers)
 
-	lggr, err := logger.NewWith(func(config *zap.Config) {
-		config.Development = true
-		config.Encoding = "console"
-	})
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to create logger: %w", err)
 	}
 
 	e := deployment.Environment{

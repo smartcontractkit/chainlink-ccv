@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -230,12 +231,12 @@ func Test_orderCCVData(t *testing.T) {
 	otherAddr, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 
-	reqData1 := protocol.CCVData{DestVerifierAddress: reqAddr1, CCVData: []byte("req1"), Timestamp: 10}
-	reqData2 := protocol.CCVData{DestVerifierAddress: reqAddr2, CCVData: []byte("req2"), Timestamp: 20}
-	optData1 := protocol.CCVData{DestVerifierAddress: optAddr1, CCVData: []byte("opt1"), Timestamp: 5}
-	optData2 := protocol.CCVData{DestVerifierAddress: optAddr2, CCVData: []byte("opt2"), Timestamp: 25}
-	optData3 := protocol.CCVData{DestVerifierAddress: optAddr3, CCVData: []byte("opt3"), Timestamp: 15}
-	otherData := protocol.CCVData{DestVerifierAddress: otherAddr, CCVData: []byte("other"), Timestamp: 100}
+	reqData1 := protocol.CCVData{DestVerifierAddress: reqAddr1, CCVData: []byte("req1"), Timestamp: time.UnixMilli(10)}
+	reqData2 := protocol.CCVData{DestVerifierAddress: reqAddr2, CCVData: []byte("req2"), Timestamp: time.UnixMilli(20)}
+	optData1 := protocol.CCVData{DestVerifierAddress: optAddr1, CCVData: []byte("opt1"), Timestamp: time.UnixMilli(5)}
+	optData2 := protocol.CCVData{DestVerifierAddress: optAddr2, CCVData: []byte("opt2"), Timestamp: time.UnixMilli(25)}
+	optData3 := protocol.CCVData{DestVerifierAddress: optAddr3, CCVData: []byte("opt3"), Timestamp: time.UnixMilli(15)}
+	otherData := protocol.CCVData{DestVerifierAddress: otherAddr, CCVData: []byte("other"), Timestamp: time.UnixMilli(100)}
 
 	testcases := []struct {
 		name                string

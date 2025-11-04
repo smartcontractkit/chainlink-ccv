@@ -190,7 +190,7 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 		},
 		BlobData:  []byte("test blob data"),
 		CcvData:   []byte("test ccv data"),
-		Timestamp: time.Now().UnixMicro(),
+		Timestamp: time.Now().UnixMilli(),
 		ReceiptBlobs: []*pb.ReceiptBlob{
 			{
 				Issuer: sourceVerifierAddress,
