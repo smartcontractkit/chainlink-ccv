@@ -6,10 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"go.uber.org/zap/zapcore"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"go.uber.org/zap/zapcore"
 )
 
 type stubHealthyComponent struct{}

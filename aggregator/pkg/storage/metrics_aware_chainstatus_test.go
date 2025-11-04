@@ -5,9 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+
+	aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 )
 
 type fakeChainStatusStorage struct {
@@ -21,9 +23,11 @@ type fakeChainStatusStorage struct {
 func (f *fakeChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, chainStatuses map[uint64]*common.ChainStatus) error {
 	return f.storeErr
 }
+
 func (f *fakeChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*common.ChainStatus, error) {
 	return f.getMap, f.getErr
 }
+
 func (f *fakeChainStatusStorage) GetAllClients(ctx context.Context) ([]string, error) {
 	return f.clients, f.clientsErr
 }
