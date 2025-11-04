@@ -83,16 +83,6 @@ type reorgTestSetup struct {
 	blocksMu         sync.RWMutex
 }
 
-// createBlockHeader creates a block header with specified number, hash, and parent hash.
-func createBlockHeader(number uint64, hash, parentHash protocol.Bytes32) protocol.BlockHeader {
-	return protocol.BlockHeader{
-		Number:     number,
-		Hash:       hash,
-		ParentHash: parentHash,
-		Timestamp:  time.Now(),
-	}
-}
-
 // hashFromNumber creates a deterministic hash from block number for testing.
 //
 // This encodes the block number into the first 4 bytes of the hash using big-endian byte order.
@@ -324,7 +314,7 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 
 	// Wait for reorg handler goroutine to process the event
 	// With double-checked locking fix, we only need minimal time for goroutine scheduling
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify behavior:
 	// - Tasks at blocks 98, 99 (below finalized) should have been PROCESSED

@@ -131,19 +131,25 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 // Stop stops the reader and closes the messages channel.
 func (r *SourceReaderService) Stop() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if !r.isRunning {
+		r.mu.Unlock()
 		return nil // Already stopped
 	}
 
 	r.logger.Infow("🛑 Stopping SourceReaderService")
 
 	close(r.stopCh)
-	r.wg.Wait()
-	close(r.verificationTaskCh)
+	r.mu.Unlock()
 
+	// Wait for goroutine WITHOUT holding lock to avoid deadlock
+	// (event loop needs to acquire lock to finish its cycle)
+	r.wg.Wait()
+
+	// Re-acquire lock to update state
+	r.mu.Lock()
+	close(r.verificationTaskCh)
 	r.isRunning = false
+	r.mu.Unlock()
 
 	r.logger.Infow("✅ SourceReaderService stopped successfully")
 	return nil
