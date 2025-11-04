@@ -162,7 +162,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress.String(),
 	)
 
-	encodedSignature, err := cv.signer.Sign(ctx, cv.signerAddress.String(), messageID[:])
+	encodedSignature, err := cv.signer.Sign(messageID[:])
 	if err != nil {
 		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}

@@ -1,7 +1,6 @@
 package commit
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
@@ -53,19 +52,11 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, protocol.Unkno
 }
 
 // Sign signs some data with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) Sign(
-	_ context.Context,
-	account string,
-	data []byte,
-) ([]byte, error) {
+func (ecdsa *ECDSASigner) Sign(data []byte) ([]byte, error) {
 	// 1. Sign with v27 format.
 	r, s, signerAddress, err := protocol.SignV27(data, ecdsa.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
-	}
-
-	if signerAddress.String() != account {
-		return nil, fmt.Errorf("signer address %s does not match account %s", signerAddress.String(), account)
 	}
 
 	// 2. Create signature data with signer address.

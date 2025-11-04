@@ -14,7 +14,7 @@ import (
 type MessageSigner interface {
 	// Sign returns data signed by account.
 	// nil data can be used as a no-op to check for account existence.
-	Sign(ctx context.Context, account string, data []byte) (signed []byte, err error)
+	Sign(data []byte) (signed []byte, err error)
 }
 
 // Verifier defines the interface for message verification logic.
