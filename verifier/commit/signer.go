@@ -1,7 +1,6 @@
 package commit
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
@@ -51,53 +49,21 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
 
 	return &ECDSASigner{
 		privateKey: privateKey,
-		address:    protocol.UnknownAddress(address.Bytes()),
+		address:    address.Bytes(),
 	}, nil
 }
 
-// SignMessage signs a message event using ECDSA with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) SignMessage(
-	ctx context.Context,
-	verificationTask verifier.VerificationTask,
-	sourceVerifierAddress protocol.UnknownAddress,
-	defaultExecutorOnRampAddress protocol.UnknownAddress,
+// Sign signs some data with the new chain-agnostic format.
+func (ecdsa *ECDSASigner) Sign(
+	data []byte,
 ) ([]byte, error) {
-	message := verificationTask.Message
-
-	messageID, err := message.MessageID()
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute message ID: %w", err)
-	}
-
-	// TODO: this is the third place we do this kind of check, seems misplaced.
-	var (
-		foundVerifier        = false
-		foundDefaultExecutor = false
-	)
-	for _, receipt := range verificationTask.ReceiptBlobs {
-		if receipt.Issuer.String() == sourceVerifierAddress.String() {
-			foundVerifier = true
-		}
-		if receipt.Issuer.String() == defaultExecutorOnRampAddress.String() {
-			foundDefaultExecutor = true
-		}
-	}
-	if !foundVerifier && !foundDefaultExecutor {
-		return nil, fmt.Errorf(
-			"neither verifier (%s) nor default executor (%s) found as issuer in ReceiptBlobs (%+v)",
-			sourceVerifierAddress.String(),
-			defaultExecutorOnRampAddress.String(),
-			verificationTask.ReceiptBlobs,
-		)
-	}
-
-	// 3. Sign the signature hash with v=27 normalization
-	r, s, signerAddress, err := protocol.SignV27(messageID[:], ecdsa.privateKey)
+	// 1. Sign with v27 format.
+	r, s, signerAddress, err := protocol.SignV27(data, ecdsa.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// 4. Create signature data with signer address
+	// 2. Create signature data with signer address.
 	signatures := []protocol.Data{
 		{
 			R:      r,
@@ -106,7 +72,7 @@ func (ecdsa *ECDSASigner) SignMessage(
 		},
 	}
 
-	// 5. Encode signature using simple format
+	// 3. Encode signature using protocol format.
 	encodedSignature, err := protocol.EncodeSignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
