@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	verifier_mocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -20,6 +21,26 @@ const (
 	sourceChain2      = protocol.ChainSelector(84)
 	unconfiguredChain = protocol.ChainSelector(999)
 )
+
+// WaitForMessagesInStorage waits for the specified number of messages to be processed.
+// Since messages are batched, we can't rely on one notification per message.
+// Instead, we poll the storage to check if the expected count has been reached.
+func WaitForMessagesInStorage(t *testing.T, storage *common.InMemoryOffchainStorage, count int) {
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			require.FailNow(t, "Timeout waiting for messages", "expected %d messages, got %d", count, storage.GetTotalCount())
+		case <-ticker.C:
+			if storage.GetTotalCount() >= count {
+				return
+			}
+		}
+	}
+}
 
 func CreateTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) protocol.Message {
 	// Create empty token transfer

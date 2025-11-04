@@ -317,26 +317,6 @@ func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorCon
 	)
 }
 
-// waitForMessages waits for the specified number of messages to be processed.
-// Since messages are batched, we can't rely on one notification per message.
-// Instead, we poll the storage to check if the expected count has been reached.
-func waitForMessages(ts *testSetup, count int) {
-	timeout := time.After(30 * time.Second)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			require.FailNow(ts.t, "Timeout waiting for messages", "expected %d messages, got %d", count, ts.storage.GetTotalCount())
-		case <-ticker.C:
-			if ts.storage.GetTotalCount() >= count {
-				return
-			}
-		}
-	}
-}
-
 // sendTasksAsync sends verification tasks asynchronously with a delay.
 func sendTasksAsync(tasks []verifier.VerificationTask, channel chan<- verifier.VerificationTask, counter *atomic.Int32, delay time.Duration) {
 	go func() {
@@ -402,7 +382,7 @@ func TestVerifier(t *testing.T) {
 	sendTasksAsync(testTasks, mockSetup.Channel, &messagesSent, 10*time.Millisecond)
 
 	// Wait for processing and verify results
-	waitForMessages(ts, len(testTasks))
+	test.WaitForMessagesInStorage(ts.t, ts.storage, len(testTasks))
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -476,7 +456,7 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Wait for all messages to be processed
 	totalMessages := len(tasksSource1) + len(tasksSource2)
-	waitForMessages(ts, totalMessages)
+	test.WaitForMessagesInStorage(ts.t, ts.storage, totalMessages)
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -542,7 +522,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	}
 
 	sendTasksAsync(tasksSource1, mockSetup1.Channel, nil, 5*time.Millisecond)
-	waitForMessages(ts, len(tasksSource1))
+	test.WaitForMessagesInStorage(ts.t, ts.storage, len(tasksSource1))
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -719,7 +699,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	sendTasksAsync([]verifier.VerificationTask{invalidTask}, mockSetup2.Channel, nil, 10*time.Millisecond)
 
 	// Wait for valid task to be processed
-	waitForMessages(ts, 1)
+	test.WaitForMessagesInStorage(ts.t, ts.storage, 1)
 
 	// Give some time for error processing
 	time.Sleep(200 * time.Millisecond)
