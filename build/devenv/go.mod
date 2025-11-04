@@ -32,7 +32,7 @@ require (
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251030133409-21ff07fff5e9
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251031131659-8d662c845c1a
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 	google.golang.org/grpc v1.76.0
 )
@@ -62,7 +62,7 @@ require (
 	github.com/avast/retry-go/v4 v4.6.1 // indirect
 	github.com/awalterschulze/gographviz v2.0.3+incompatible // indirect
 	github.com/aws/aws-sdk-go v1.55.7 // indirect
-	github.com/aws/smithy-go v1.23.0 // indirect
+	github.com/aws/smithy-go v1.23.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bboreham/go-loser v0.0.0-20230920113527-fcc2c21820a3 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect

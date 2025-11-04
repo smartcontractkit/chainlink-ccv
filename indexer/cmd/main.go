@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/pressly/goose/v3"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -17,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
@@ -29,24 +31,16 @@ func main() {
 		panic(err)
 	}
 
-	// Setup logging
-	lggr, err := logger.NewWith(func(config *zap.Config) {
-		config.Development = false
-		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-		config.DisableStacktrace = true
-	})
-
-	lggr = logger.Named(lggr, "indexer")
-
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 
-	ctx := context.Background()
-
+	lggr = logger.Named(lggr, "indexer")
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
+
+	ctx := context.Background()
 
 	// Setup OTEL Monitoring (via beholder)
 	indexerMonitoring, err := monitoring.InitMonitoring(beholder.Config{

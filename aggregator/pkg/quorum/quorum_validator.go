@@ -12,8 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type EVMQuorumValidator struct {
@@ -44,7 +42,7 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 
 	participantIDs := make(map[string]struct{})
 	for _, verification := range aggregatedReport.Verifications {
-		signers, _, err := q.ValidateSignature(ctx, &verification.MessageWithCCVNodeData)
+		signers, _, err := q.ValidateSignature(ctx, verification)
 		if err != nil {
 			q.logger(ctx).Errorw("Failed to validate signature: %v", err)
 			continue
@@ -70,17 +68,14 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 
 // ValidateSignature validates the signature of a commit verification record and returns the signers and the quorum config used.
 // It can return multiple signers from the same participant if they have multiple addresses in the config.
-func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *pb.MessageWithCCVNodeData) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
 	q.logger(ctx).Debug("Validating signature for report")
-	ccvData := report.CcvData
-	if ccvData == nil {
+	if record.CcvData == nil {
 		q.logger(ctx).Error("Missing signature in report")
 		return nil, nil, fmt.Errorf("missing signature in report")
 	}
 
-	reportMessage := report.Message
-
-	message := model.MapProtoMessageToProtocolMessage(reportMessage)
+	message := record.Message
 
 	messageID, err := message.MessageID()
 	if err != nil {
@@ -88,7 +83,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *pb.M
 		return nil, nil, err
 	}
 
-	rs, ss, err := protocol.DecodeSignatures(ccvData)
+	rs, ss, err := protocol.DecodeSignatures(record.CcvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
 		return nil, nil, err
@@ -99,7 +94,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, report *pb.M
 		return nil, nil, fmt.Errorf("invalid signature format")
 	}
 
-	committeeName, quorumConfig, err := q.getQuorumConfig(protocol.ChainSelector(report.Message.SourceChainSelector), protocol.ChainSelector(report.Message.DestChainSelector), report.SourceVerifierAddress)
+	committeeName, quorumConfig, err := q.getQuorumConfig(record.Message.SourceChainSelector, record.Message.DestChainSelector, record.SourceVerifierAddress)
 	if err != nil {
 		q.logger(ctx).Errorf("Failed to get quorum config: %v", err)
 		return nil, nil, err

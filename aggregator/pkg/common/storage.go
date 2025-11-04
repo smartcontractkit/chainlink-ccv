@@ -25,6 +25,9 @@ type CommitVerificationAggregatedStore interface {
 	QueryAggregatedReports(ctx context.Context, start int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error)
 	// GetCCVData retrieves the aggregated CCV data for a specific message ID.
 	GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error)
+	// GetBatchCCVData retrieves the aggregated CCV data for multiple message IDs efficiently.
+	// Returns a map of messageID hex string to CommitAggregatedReport. Missing message IDs are not included in the map.
+	GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error)
 }
 
 // ChainStatus represents chain status data with finalized block height and disabled flag.

@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
@@ -70,17 +68,5 @@ func (c *NoopAggregatorMetricLabeler) IncrementStorageError(ctx context.Context)
 }
 
 func (c *NoopAggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, duration time.Duration) {
-	// No-op
-}
-
-func (c *NoopAggregatorMetricLabeler) RecordDynamoDBReadCapacityUnits(ctx context.Context, units float64) {
-	// No-op
-}
-
-func (c *NoopAggregatorMetricLabeler) RecordDynamoDBWriteCapacityUnits(ctx context.Context, units float64) {
-	// No-op
-}
-
-func (c *NoopAggregatorMetricLabeler) RecordCapacity(capacity *types.ConsumedCapacity) {
 	// No-op
 }

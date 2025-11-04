@@ -112,7 +112,7 @@ func deduplicateVerificationsByParticipant(verifications []*model.CommitVerifica
 		participantID := verification.IdentifierSigner.ParticipantID
 		existing, exists := participantMap[participantID]
 
-		if !exists || verification.GetTimestamp() > existing.GetTimestamp() {
+		if !exists || verification.GetTimestamp().After(existing.GetTimestamp()) {
 			participantMap[participantID] = verification
 		}
 	}

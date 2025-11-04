@@ -109,8 +109,8 @@ func (rc ReadCondition) shouldRead(queryStart, queryEnd *int64) bool {
 
 		// Calculate the time boundary for "recent" data
 		// Recent data is from (now - duration) to now
-		now := time.Now().Unix()
-		recentStart := now - int64(rc.LookbackWindowDuration.Seconds())
+		now := time.Now().UnixMilli() // Use milliseconds to match query timestamps
+		recentStart := now - rc.LookbackWindowDuration.Milliseconds()
 
 		// Check if the query time range overlaps with the recent period
 		// Query range: [queryStart, queryEnd]

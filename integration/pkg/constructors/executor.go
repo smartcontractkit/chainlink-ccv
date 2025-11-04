@@ -75,7 +75,7 @@ func NewExecutorCoordinator(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
 			IndexerClient:   indexerClient,
-			LastQueryTime:   time.Now().Add(-1 * cfg.GetLookbackWindow()).Unix(),
+			LastQueryTime:   time.Now().Add(-1 * cfg.GetLookbackWindow()).UnixMilli(),
 			PollingInterval: cfg.GetPollingInterval(),
 			Backoff:         cfg.GetBackoffDuration(),
 			QueryLimit:      cfg.IndexerQueryLimit,

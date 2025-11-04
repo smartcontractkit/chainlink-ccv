@@ -3,6 +3,7 @@ package aggregation
 import (
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 
@@ -200,12 +201,21 @@ func TestCreateReceiptBlobSetKey_OrderIndependence(t *testing.T) {
 // Helper functions
 
 func createTestVerification(timestamp int64, receiptBlobs []*pb.ReceiptBlob) *model.CommitVerificationRecord {
+	modelReceiptBlobs := make([]*model.ReceiptBlob, len(receiptBlobs))
+	for i, blob := range receiptBlobs {
+		modelReceiptBlobs[i] = &model.ReceiptBlob{
+			Issuer:            blob.Issuer,
+			Blob:              blob.Blob,
+			DestGasLimit:      blob.DestGasLimit,
+			DestBytesOverhead: blob.DestBytesOverhead,
+			ExtraArgs:         blob.ExtraArgs,
+		}
+	}
+
 	return &model.CommitVerificationRecord{
-		MessageWithCCVNodeData: pb.MessageWithCCVNodeData{
-			Timestamp:    timestamp,
-			ReceiptBlobs: receiptBlobs,
-		},
-		CommitteeID: "test-committee",
+		Timestamp:    time.UnixMilli(timestamp).UTC(),
+		ReceiptBlobs: modelReceiptBlobs,
+		CommitteeID:  "test-committee",
 	}
 }
 

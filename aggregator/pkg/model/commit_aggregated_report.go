@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"math"
 	"time"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -191,10 +190,10 @@ type CommitAggregatedReport struct {
 	CommitteeID   CommitteeID
 	Verifications []*CommitVerificationRecord
 	Sequence      int64
-	// WrittenAt represents when the aggregated report was written to storage (in Unix seconds).
+	// WrittenAt represents when the aggregated report was written to storage.
 	// This field is used for ordering in the GetMessagesSince API to return reports
 	// in the order they were finalized/stored, not the order of individual verifications.
-	WrittenAt int64
+	WrittenAt time.Time
 	// WinningReceiptBlobs contains the receipt blob set that achieved consensus during aggregation.
 	// This is computed once during aggregation and stored with the aggregated report.
 	WinningReceiptBlobs []*ReceiptBlob
@@ -205,24 +204,12 @@ type PaginatedAggregatedReports struct {
 	NextPageToken *string
 }
 
-func normalizeTimestampToSeconds(timestamp int64) int64 {
-	if timestamp <= 0 {
-		return timestamp
-	}
-	digits := int(math.Log10(float64(timestamp))) + 1
-	if digits > 10 {
-		divisor := int64(math.Pow10(digits - 10))
-		return timestamp / divisor
-	}
-	return timestamp
-}
-
-func (c *CommitAggregatedReport) GetMostRecentVerificationTimestamp() int64 {
-	var mostRecent int64
+func (c *CommitAggregatedReport) GetMostRecentVerificationTimestamp() time.Time {
+	var mostRecent time.Time
 	for _, v := range c.Verifications {
-		vTimestampSeconds := normalizeTimestampToSeconds(v.GetTimestamp())
-		if vTimestampSeconds > mostRecent {
-			mostRecent = vTimestampSeconds
+		vTimestamp := v.GetTimestamp()
+		if vTimestamp.After(mostRecent) {
+			mostRecent = vTimestamp
 		}
 	}
 	return mostRecent
@@ -233,13 +220,13 @@ func GetAggregatedReportID(messageID MessageID, committeeID CommitteeID) string 
 }
 
 func (c *CommitAggregatedReport) CalculateTimeToAggregation(aggregationTime time.Time) time.Duration {
-	var minTime int64
+	var minTime time.Time
 	for v := range c.Verifications {
-		if c.Verifications[v].GetTimestamp() < minTime || minTime == 0 {
+		if c.Verifications[v].GetTimestamp().Before(minTime) || minTime.IsZero() {
 			minTime = c.Verifications[v].GetTimestamp()
 		}
 	}
-	return aggregationTime.Sub(time.UnixMicro(minTime))
+	return aggregationTime.Sub(minTime)
 }
 
 func (c *CommitAggregatedReport) GetID() string {
@@ -248,21 +235,25 @@ func (c *CommitAggregatedReport) GetID() string {
 
 // GetDestinationSelector retrieves the destination chain selector from the first verification record.
 func (c *CommitAggregatedReport) GetDestinationSelector() uint64 {
-	return c.GetMessage().DestChainSelector
+	return c.GetProtoMessage().DestChainSelector
 }
 
 func (c *CommitAggregatedReport) GetSourceChainSelector() uint64 {
-	return c.GetMessage().SourceChainSelector
+	return c.GetProtoMessage().SourceChainSelector
 }
 
 func (c *CommitAggregatedReport) GetOffRampAddress() []byte {
-	return c.GetMessage().OffRampAddress
+	return c.GetProtoMessage().OffRampAddress
 }
 
 func (c *CommitAggregatedReport) GetSourceVerifierAddress() []byte {
 	return c.Verifications[0].SourceVerifierAddress
 }
 
-func (c *CommitAggregatedReport) GetMessage() *pb.Message {
-	return c.Verifications[0].Message
+// It is assumed that all verifications in the report have the same message since otherwise the message ID would not match.
+func (c *CommitAggregatedReport) GetProtoMessage() *pb.Message {
+	if len(c.Verifications) > 0 && c.Verifications[0].Message != nil {
+		return MapProtocolMessageToProtoMessage(c.Verifications[0].Message)
+	}
+	return nil
 }

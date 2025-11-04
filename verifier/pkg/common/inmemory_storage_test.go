@@ -66,7 +66,7 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature1"),
 			BlobData:              []byte("blob1"),
-			Timestamp:             time.Now().Unix(),
+			Timestamp:             time.Now(),
 			ReceiptBlobs: []protocol.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,
@@ -87,7 +87,7 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature2"),
 			BlobData:              []byte("blob2"),
-			Timestamp:             time.Now().Unix() + 1,
+			Timestamp:             time.Now().Add(1 * time.Millisecond),
 			ReceiptBlobs: []protocol.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,
@@ -110,8 +110,8 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, storedData, 2)
 
-	// Verify data is sorted by timestamp
-	require.True(t, storedData[0].Timestamp <= storedData[1].Timestamp)
+	// Verify data is sorted by timestamp (stored in insertion order)
+	require.True(t, storedData[1].Timestamp.After(storedData[0].Timestamp))
 
 	// Verify content
 	require.Equal(t, testData[0].MessageID, storedData[0].MessageID)
@@ -303,7 +303,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 			DestVerifierAddress:   []byte("0x4567"),
 			CCVData:               []byte("signature"),
 			BlobData:              []byte("blob"),
-			Timestamp:             time.Now().Unix(),
+			Timestamp:             time.Now(),
 			ReceiptBlobs: []protocol.ReceiptWithBlob{
 				{
 					Issuer:            verifierAddress,

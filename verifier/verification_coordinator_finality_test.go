@@ -9,11 +9,12 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -60,7 +61,7 @@ func (t *testVerifier) VerifyMessages(
 			DestVerifierAddress:   protocol.UnknownAddress{},
 			CCVData:               []byte("mock-signature"),
 			BlobData:              []byte("mock-blob"),
-			Timestamp:             time.Now().UnixMicro(),
+			Timestamp:             time.Now(),
 			Message:               verificationTask.Message,
 			ReceiptBlobs:          verificationTask.ReceiptBlobs,
 		}
@@ -257,10 +258,7 @@ func (s *coordinatorTestSetup) setFinalizedBlock(block uint64) {
 }
 
 func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetup {
-	lggr, err := logger.NewWith(func(config *zap.Config) {
-		config.Development = true
-		config.Encoding = "console"
-	})
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
 	require.NoError(t, err)
 
 	mockVerifier := newTestVerifier()
@@ -281,7 +279,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	})
 
 	// Mock BlockTime to return immediately during initialization
-	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
+	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().UnixMilli()), nil).Maybe()
 
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)

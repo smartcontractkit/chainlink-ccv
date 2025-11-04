@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -40,14 +41,14 @@ func (o *OffChainStorageAPI) AddMessages(responses []protocol.QueryResponse) {
 func (o *OffChainStorageAPI) Register() error {
 	err := fake.Func("GET", "/messages", func(ctx *gin.Context) {
 		sinceStr := ctx.Query("since")
-		since := int64(0)
+		since := time.Time{} // zero value for time.Time
 		if sinceStr != "" {
 			parsed, err := strconv.ParseInt(sinceStr, 10, 64)
 			if err != nil {
 				ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid since parameter"})
 				return
 			}
-			since = parsed
+			since = time.UnixMilli(parsed)
 		}
 
 		o.mu.RLock()
@@ -56,7 +57,7 @@ func (o *OffChainStorageAPI) Register() error {
 		// Filter messages by timestamp
 		var filtered []protocol.QueryResponse
 		for _, msg := range o.messages {
-			if msg.Data.Timestamp != 0 && msg.Data.Timestamp >= since {
+			if !msg.Data.Timestamp.IsZero() && !msg.Data.Timestamp.Before(since) {
 				filtered = append(filtered, msg)
 			}
 		}

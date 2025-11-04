@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"time"
 )
 
 // Constants for CCIP v1.7.
@@ -384,7 +385,7 @@ type CCVData struct {
 	Nonce                 Nonce             `json:"nonce"`
 	SourceChainSelector   ChainSelector     `json:"source_chain_selector"`
 	DestChainSelector     ChainSelector     `json:"dest_chain_selector"`
-	Timestamp             int64             `json:"timestamp"`
+	Timestamp             time.Time         `json:"timestamp"`
 	MessageID             Bytes32           `json:"message_id"`
 }
 

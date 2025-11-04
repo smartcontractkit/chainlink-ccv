@@ -75,7 +75,7 @@ func (i *IndexerLoadGun) Call(gen *wasp.Generator) *wasp.Response {
 	messageID := ccvData.MessageID
 
 	sentTime := time.Now()
-	timestamp := sentTime.Unix()
+	timestamp := sentTime.UnixMilli()
 
 	// Wrap CCVData in QueryResponse before marshaling
 	queryResponse := protocol.QueryResponse{
@@ -311,6 +311,6 @@ func defaultMessageGenerator(nonce uint64) protocol.CCVData {
 		CCVData:               []byte{},
 		BlobData:              []byte{},
 		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Timestamp:             time.Now().Unix(),
+		Timestamp:             time.Now(),
 	}
 }

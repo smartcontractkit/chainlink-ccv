@@ -67,7 +67,7 @@ func (h *MessagesV1Handler) Handle(c *gin.Context) {
 func (h *MessagesV1Handler) defaultRequestParams() MessagesV1Request {
 	return MessagesV1Request{
 		Start:                0,
-		End:                  time.Now().Unix(),
+		End:                  time.Now().UnixMilli(),
 		SourceChainSelectors: []protocol.ChainSelector{},
 		DestChainSelectors:   []protocol.ChainSelector{},
 		Limit:                100,
