@@ -10,10 +10,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"go.uber.org/zap/zapcore"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"go.uber.org/zap/zapcore"
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 )
