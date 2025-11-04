@@ -74,9 +74,7 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 	channel := make(chan verifier.VerificationTask, 10)
 
 	now := time.Now().Unix()
-	if now < 0 {
-		now = 0
-	}
+	//nolint:gosec // G115: This is a test setup.
 	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
 
 	return &MockSourceReaderSetup{
