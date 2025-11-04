@@ -1033,3 +1033,21 @@ func (vc *Coordinator) isMessageReadyForVerification(
 	}
 	return ready, nil
 }
+
+func (vc *Coordinator) GetPendingTasks(chainSelector protocol.ChainSelector) []VerificationTask {
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+
+	state, exists := vc.sourceStates[chainSelector]
+	if !exists {
+		return nil
+	}
+
+	state.pendingMu.Lock()
+	defer state.pendingMu.Unlock()
+
+	// Return a copy of the pending tasks slice
+	pendingCopy := make([]VerificationTask, len(state.pendingTasks))
+	copy(pendingCopy, state.pendingTasks)
+	return pendingCopy
+}

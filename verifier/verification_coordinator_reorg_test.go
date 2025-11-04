@@ -347,16 +347,16 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	setup := setupReorgTest(t, chainSelector)
 	defer setup.cleanup()
 
+	// Simulate canonical chain: blocks 100-105
+	canonicalBlocks := createChainBlocks(100, 105)
+	setup.mockGetBlocksHeadersForBlocks(canonicalBlocks)
+	setup.mockGetBlockHeaderByHashForBlocks(canonicalBlocks)
+
 	// Start coordinator
 	err := setup.coordinator.Start(setup.ctx)
 	require.NoError(t, err)
 
 	t.Log("✅ Coordinator started with reorg detector")
-
-	// Simulate canonical chain: blocks 100-105
-	canonicalBlocks := createChainBlocks(100, 105)
-	setup.mockGetBlocksHeadersForBlocks(canonicalBlocks)
-	setup.mockGetBlockHeaderByHashForBlocks(canonicalBlocks)
 
 	// Create tasks at blocks 101, 102, 103 (above finalized block 100)
 	// These will be added to pending queue
@@ -382,8 +382,6 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 		},
 	}
 
-	// Inject tasks via mock source reader
-	setup.mockSourceReader.ExpectedCalls = nil // Clear previous expectations
 	callCount := 0
 	setup.mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, fromBlock, toBlock *big.Int) ([]verifier.VerificationTask, error) {
@@ -400,6 +398,8 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	t.Log("📋 Tasks added to pending queue")
+	//pendingTasks := setup.coordinator.GetPendingTasks(chainSelector)
+	//require.Len(t, pendingTasks, 3)
 
 	// Now simulate a reorg: new block 106 has parent that doesn't match block 105
 	// LCA will be at block 100 (finalized block)
@@ -443,16 +443,16 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	setup := setupReorgTest(t, chainSelector)
 	defer setup.cleanup()
 
+	// Simulate canonical chain
+	canonicalBlocks := createChainBlocks(95, 105)
+	setup.mockGetBlocksHeadersForBlocks(canonicalBlocks)
+	setup.mockGetBlockHeaderByHashForBlocks(canonicalBlocks)
+
 	// Start coordinator
 	err := setup.coordinator.Start(setup.ctx)
 	require.NoError(t, err)
 
 	t.Log("✅ Coordinator started with reorg detector")
-
-	// Simulate canonical chain
-	canonicalBlocks := createChainBlocks(95, 105)
-	setup.mockGetBlocksHeadersForBlocks(canonicalBlocks)
-	setup.mockGetBlockHeaderByHashForBlocks(canonicalBlocks)
 
 	// Create tasks at blocks 98, 99, 100 (around finalized block)
 	tasks := []verifier.VerificationTask{
@@ -578,16 +578,16 @@ func TestReorgDetection_ReorgDuringProcessing(t *testing.T) {
 	require.NoError(t, err)
 	setup.coordinator = coordinator
 
+	// Simulate canonical chain
+	canonicalBlocks := createChainBlocks(100, 110)
+	setup.mockGetBlocksHeadersForBlocks(canonicalBlocks)
+	setup.mockGetBlockHeaderByHashForBlocks(canonicalBlocks)
+
 	// Start coordinator
 	err = setup.coordinator.Start(setup.ctx)
 	require.NoError(t, err)
 
 	t.Log("✅ Coordinator started with slow verifier")
-
-	// Simulate canonical chain
-	canonicalBlocks := createChainBlocks(100, 110)
-	setup.mockGetBlocksHeadersForBlocks(canonicalBlocks)
-	setup.mockGetBlockHeaderByHashForBlocks(canonicalBlocks)
 
 	// Create finalized tasks that will be processed
 	finalizedTasks := []verifier.VerificationTask{
