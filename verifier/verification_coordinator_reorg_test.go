@@ -22,8 +22,6 @@ package verifier_test
 
 import (
 	"context"
-	"fmt"
-	"math/big"
 	"sync"
 	"testing"
 	"time"
@@ -132,74 +130,6 @@ func hashFromNumber(n uint64) protocol.Bytes32 {
 	return h
 }
 
-// createChainBlocks creates a canonical chain of blocks from start to end.
-func createChainBlocks(start, end uint64) []protocol.BlockHeader {
-	blocks := make([]protocol.BlockHeader, 0, end-start+1)
-	for i := start; i <= end; i++ {
-		hash := hashFromNumber(i)
-		parentHash := hashFromNumber(i - 1)
-		blocks = append(blocks, createBlockHeader(i, hash, parentHash))
-	}
-	return blocks
-}
-
-// createReorgedChainBlocks creates a reorged chain starting at lcaBlock with different hashes.
-//
-// This simulates a blockchain reorg by creating blocks with different hashes than the canonical chain.
-// The Last Common Ancestor (LCA) block remains unchanged; blocks after it use a different hash pattern.
-//
-// Hash Pattern for Reorged Blocks:
-//   - h[0] = 0xFF (marker byte to distinguish from canonical chain)
-//   - h[1-4] = block number in big-endian (same as hashFromNumber, but shifted by 1)
-//
-// Examples:
-//
-//	Canonical Block 101: [0x00, 0x00, 0x00, 0x65, 0x00, ...]
-//	Reorged Block 101:   [0xFF, 0x00, 0x00, 0x00, 0x65, ...]  <- Note the 0xFF prefix
-//
-// Parameters:
-//   - lcaBlock: The last common ancestor block number (stays canonical)
-//   - startReorg: First block number that diverges (should be lcaBlock + 1)
-//   - end: Last block number in the reorged chain
-//
-// Parent Hash Logic:
-//   - First reorged block (startReorg) points to LCA's canonical hash
-//   - Subsequent blocks point to previous reorged block (with 0xFF pattern)
-//
-// Usage:
-//
-//	canonical := createChainBlocks(100, 105)         // [100, 101, 102, 103, 104, 105]
-//	reorged := createReorgedChainBlocks(100, 101, 105) // LCA=100, reorg from 101-105
-func createReorgedChainBlocks(lcaBlock, startReorg, end uint64) []protocol.BlockHeader {
-	blocks := make([]protocol.BlockHeader, 0, end-startReorg+1)
-
-	// LCA block stays the same
-	lcaHash := hashFromNumber(lcaBlock)
-
-	// After LCA, use different hash scheme to simulate reorg
-	for i := startReorg; i <= end; i++ {
-		var hash protocol.Bytes32
-		// Use different hash pattern: 0xFF prefix instead of normal pattern
-		hash[0] = 0xFF
-		hash[1] = byte(i >> 24)
-		hash[2] = byte(i >> 16)
-		hash[3] = byte(i >> 8)
-		hash[4] = byte(i)
-
-		parentHash := lcaHash
-		if i > startReorg {
-			parentHash[0] = 0xFF
-			parentHash[1] = byte((i - 1) >> 24)
-			parentHash[2] = byte((i - 1) >> 16)
-			parentHash[3] = byte((i - 1) >> 8)
-			parentHash[4] = byte(i - 1)
-		}
-
-		blocks = append(blocks, createBlockHeader(i, hash, parentHash))
-	}
-	return blocks
-}
-
 // setupReorgTest creates a complete test setup with coordinator and reorg detector.
 func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finalityCheckInterval time.Duration) *reorgTestSetup {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -289,39 +219,6 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	setup.coordinator = coordinator
 
 	return setup
-}
-
-// mockGetBlocksHeadersForBlocks sets up mock to return specified blocks.
-func (s *reorgTestSetup) mockGetBlocksHeadersForBlocks(blocks []protocol.BlockHeader) {
-	s.mockSourceReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-			result := make(map[*big.Int]protocol.BlockHeader)
-			for _, bn := range blockNumbers {
-				blockNum := bn.Uint64()
-				for _, b := range blocks {
-					if b.Number == blockNum {
-						result[bn] = b
-						break
-					}
-				}
-			}
-			return result, nil
-		},
-	).Maybe()
-}
-
-// mockGetBlockHeaderByHashForBlocks sets up mock to return blocks by hash.
-func (s *reorgTestSetup) mockGetBlockHeaderByHashForBlocks(blocks []protocol.BlockHeader) {
-	s.mockSourceReader.EXPECT().GetBlockHeaderByHash(mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error) {
-			for _, b := range blocks {
-				if b.Hash == hash {
-					return &b, nil
-				}
-			}
-			return nil, fmt.Errorf("block not found for hash %v", hash)
-		},
-	).Maybe()
 }
 
 // updateChainState updates the current chain state (used to simulate progression).

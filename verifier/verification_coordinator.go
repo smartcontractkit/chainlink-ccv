@@ -329,21 +329,24 @@ func (vc *Coordinator) Close() error {
 	}
 	vc.mu.Unlock()
 
-	// 1. Signal all goroutines to stop processing new work.
+	// Signal all goroutines to stop processing new work.
 	// This will also trigger the batcher to flush remaining items.
 	vc.cancel()
 
-	// 2. Wait for any in-flight verification tasks to complete.
+	// Wait for any in-flight verification tasks to complete.
 	vc.verifyingWg.Wait()
 
-	// 3. Wait for storage batcher goroutine to finish flushing
+	// Wait for storage batcher goroutine to finish flushing
 	if vc.storageBatcher != nil {
 		if err := vc.storageBatcher.Close(); err != nil {
 			vc.lggr.Errorw("Error closing storage batcher", "error", err)
 		}
 	}
 
-	// 4. Close reorg detectors
+	// Wait for background goroutines (run, finalityCheckingLoop, and processReorgUpdates) to finish.
+	vc.backgroundWg.Wait()
+
+	// Close reorg detectors
 	for chainSelector, state := range vc.sourceStates {
 		if state.reorgDetector != nil {
 			if err := state.reorgDetector.Close(); err != nil {
@@ -352,15 +355,12 @@ func (vc *Coordinator) Close() error {
 		}
 	}
 
-	// 5. Close source readers.
+	// Close source readers.
 	for chainSelector, state := range vc.sourceStates {
 		if err := state.reader.Stop(); err != nil {
 			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
 		}
 	}
-
-	// 6. Wait for background goroutines (run, finalityCheckingLoop, and processReorgUpdates) to finish.
-	vc.backgroundWg.Wait()
 
 	vc.mu.Lock()
 	vc.running = false
