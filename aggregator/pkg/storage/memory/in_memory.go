@@ -4,6 +4,7 @@ package memory
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"sync"
 
@@ -93,6 +94,24 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 		}
 	}
 	return nil, nil
+}
+
+// GetBatchCCVData retrieves commit verification data for multiple message IDs.
+func (s *InMemoryStorage) GetBatchCCVData(_ context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
+	results := make(map[string]*model.CommitAggregatedReport)
+
+	for _, messageID := range messageIDs {
+		id := model.GetAggregatedReportID(messageID, committeeID)
+		if value, ok := s.aggregatedReports.Load(id); ok {
+			if report, ok := value.(*model.CommitAggregatedReport); ok && report.CommitteeID == committeeID {
+				// Use hex encoding to match PostgreSQL implementation
+				messageIDHex := hex.EncodeToString(messageID)
+				results[messageIDHex] = report
+			}
+		}
+	}
+
+	return results, nil
 }
 
 // ListOrphanedMessageIDs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.

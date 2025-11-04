@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -573,6 +574,122 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 	}
 
 	return report, nil
+}
+
+func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
+	if len(messageIDs) == 0 {
+		return make(map[string]*model.CommitAggregatedReport), nil
+	}
+
+	// Convert message IDs to hex strings for the query
+	messageIDHexValues := make([]string, len(messageIDs))
+	for i, messageID := range messageIDs {
+		messageIDHexValues[i] = common.Bytes2Hex(messageID)
+	}
+
+	// Build parameterized query with placeholders for IN clause
+	placeholders := make([]string, len(messageIDHexValues))
+	args := make([]any, len(messageIDHexValues)+1)
+	for i, messageIDHex := range messageIDHexValues {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = messageIDHex
+	}
+	args[len(messageIDHexValues)] = committeeID
+
+	stmt := fmt.Sprintf(`
+		SELECT 
+			car.message_id,
+			car.committee_id,
+			car.created_at,
+			car.seq_num,
+			cvr.participant_id,
+			cvr.signer_address,
+			cvr.signature_r,
+			cvr.signature_s,
+			cvr.ccv_node_data
+		FROM commit_aggregated_reports car
+		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
+		LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
+		WHERE car.message_id IN (%s) AND car.committee_id = $%d
+		ORDER BY car.message_id, car.seq_num DESC, vid.ord
+	`, strings.Join(placeholders, ","), len(messageIDHexValues)+1)
+
+	type joinedRecord struct {
+		MessageID     string         `db:"message_id"`
+		CommitteeID   string         `db:"committee_id"`
+		CreatedAt     time.Time      `db:"created_at"`
+		SeqNum        int64          `db:"seq_num"`
+		ParticipantID sql.NullString `db:"participant_id"`
+		SignerAddress sql.NullString `db:"signer_address"`
+		SignatureR    []byte         `db:"signature_r"`
+		SignatureS    []byte         `db:"signature_s"`
+		CCVNodeData   []byte         `db:"ccv_node_data"`
+	}
+
+	rows, err := d.ds.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query batch aggregated reports: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	reports := make(map[string]*model.CommitAggregatedReport)
+
+	for rows.Next() {
+		var record joinedRecord
+		err := rows.Scan(
+			&record.MessageID,
+			&record.CommitteeID,
+			&record.CreatedAt,
+			&record.SeqNum,
+			&record.ParticipantID,
+			&record.SignerAddress,
+			&record.SignatureR,
+			&record.SignatureS,
+			&record.CCVNodeData,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Get or create report for this message ID
+		report, exists := reports[record.MessageID]
+		if !exists {
+			messageIDBytes := common.Hex2Bytes(record.MessageID)
+			report = &model.CommitAggregatedReport{
+				MessageID:     messageIDBytes,
+				CommitteeID:   record.CommitteeID,
+				Verifications: []*model.CommitVerificationRecord{},
+				Sequence:      record.SeqNum,
+				WrittenAt:     record.CreatedAt.Unix(),
+			}
+			reports[record.MessageID] = report
+		}
+
+		// Add verification record if it exists
+		if record.ParticipantID.Valid && record.SignerAddress.Valid && len(record.CCVNodeData) > 0 {
+			var msgWithCCV pb.MessageWithCCVNodeData
+			err = proto.Unmarshal(record.CCVNodeData, &msgWithCCV)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal ccv node data: %w", err)
+			}
+
+			verification := &model.CommitVerificationRecord{
+				MessageWithCCVNodeData: copyMessageWithCCVNodeData(&msgWithCCV),
+				IdentifierSigner:       reconstructIdentifierSigner(record.ParticipantID.String, record.SignerAddress.String, record.CommitteeID, record.SignatureR, record.SignatureS),
+				CommitteeID:            record.CommitteeID,
+			}
+
+			report.Verifications = append(report.Verifications, verification)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return reports, nil
 }
 
 func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.CommitAggregatedReport) error {
