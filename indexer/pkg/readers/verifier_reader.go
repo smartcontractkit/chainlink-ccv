@@ -27,9 +27,13 @@ func NewVerifierReader(ctx context.Context) common.VerifierReader {
 	}
 }
 
-func (v *verifierReader) ProcessMessage(messageID protocol.Bytes32) chan common.Result[protocol.CCVData] {
-	v.batcher.Add(messageID)
-	return v.demux.Create(messageID)
+func (v *verifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common.Result[protocol.CCVData], error) {
+	err := v.batcher.Add(messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.demux.Create(messageID), nil
 }
 
 func (v *verifierReader) Start(ctx context.Context) error {

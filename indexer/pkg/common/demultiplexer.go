@@ -7,7 +7,7 @@ import (
 // Demultiplexer manages the distribution of results from batched operations
 // to individual requesters identified by unique keys.
 //
-// It allows callers to register intrest in results for specific keys.
+// It allows callers to register interest in results for specific keys.
 // When results become available, they are delivered to the appropriate
 // registered channel. This is useful for implementing request batching where
 // results must be routed back to their originators.

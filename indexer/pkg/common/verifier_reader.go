@@ -13,5 +13,5 @@ type VerifierReader interface {
 	Close() error
 	// ProcessMessage enqueues a new message to be procssed by the verifier reader
 	// results are then demultiplex and sent back to the caller.
-	ProcessMessage(messageID protocol.Bytes32) chan Result[protocol.CCVData]
+	ProcessMessage(messageID protocol.Bytes32) (chan Result[protocol.CCVData], error)
 }
