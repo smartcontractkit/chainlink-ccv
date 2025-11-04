@@ -600,6 +600,16 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	state.pendingMu.Lock()
 	defer state.pendingMu.Unlock()
 
+	// Double-checked locking: Check if reorg started while we were waiting for lock
+	// The caller already checked reorgInProgress before calling, but reorg may have
+	// started between that check and acquiring this lock
+	if state.reorgInProgress.Load() {
+		vc.lggr.Debugw("Reorg started while acquiring lock, dropping task",
+			"chain", state.chainSelector,
+			"blockNumber", task.BlockNumber)
+		return
+	}
+
 	// Set QueuedAt timestamp for finality wait duration tracking
 	task.QueuedAt = time.Now()
 	state.pendingTasks = append(state.pendingTasks, task)
@@ -672,7 +682,7 @@ func (vc *Coordinator) cleanupOldTimestamps() {
 
 // processFinalityQueueForChain processes the pending queue for a single chain.
 func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *sourceState) {
-	// Skip if reorg is in progress for this chain
+	// Fast path: Skip if reorg is in progress (avoids lock contention)
 	if state.reorgInProgress.Load() {
 		vc.lggr.Debugw("Skipping finality check during reorg",
 			"chain", state.chainSelector)
@@ -681,6 +691,14 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 	state.pendingMu.Lock()
 	defer state.pendingMu.Unlock()
+
+	// Double-checked locking: Recheck after acquiring lock to handle TOCTOU race
+	// where reorg completed between first check and lock acquisition
+	if state.reorgInProgress.Load() {
+		vc.lggr.Debugw("Reorg started while acquiring lock, aborting finality check",
+			"chain", state.chainSelector)
+		return
+	}
 
 	if len(state.pendingTasks) == 0 {
 		return

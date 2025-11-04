@@ -357,7 +357,7 @@ func (s *reorgTestSetup) cleanup() {
 //   - Pending tasks at 101, 102 (> 100) → should be flushed by reorg
 func TestReorgDetection_NormalReorg(t *testing.T) {
 	chainSelector := protocol.ChainSelector(1337)
-	setup := setupReorgTest(t, chainSelector, 800*time.Millisecond)
+	setup := setupReorgTest(t, chainSelector, 500*time.Millisecond)
 	defer setup.cleanup()
 
 	// Create tasks at two ranges:
@@ -424,6 +424,10 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 		Type:         protocol.ReorgTypeNormal,
 		ResetToBlock: 100, // LCA at finalized block
 	}
+
+	// Wait for reorg handler goroutine to process the event
+	// With double-checked locking fix, we only need minimal time for goroutine scheduling
+	time.Sleep(50 * time.Millisecond)
 
 	// Verify behavior:
 	// - Tasks at blocks 98, 99 (below finalized) should have been PROCESSED
@@ -496,8 +500,9 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 		ResetToBlock: 0, // No safe reset point
 	}
 
-	// Give time for the coordinator to process the finality violation
-	time.Sleep(200 * time.Millisecond)
+	// Wait for finality violation handler goroutine to process the event
+	// With double-checked locking fix, we only need minimal time for goroutine scheduling
+	time.Sleep(50 * time.Millisecond)
 
 	// After finality violation:
 	// 1. All pending tasks should be flushed
