@@ -158,8 +158,8 @@ func TestMetricsAwareStorage_ListOrphanedMessageIDs_ProxiesAndRecordsLatency(t *
 	for id := range ids {
 		got = append(got, id)
 	}
-  // Allow deferred metric recording to run after goroutine exit
-  time.Sleep(10 * time.Millisecond)
+	// Allow deferred metric recording to run after goroutine exit
+	time.Sleep(10 * time.Millisecond)
 	select {
 	case <-errs:
 		// ignore; not expected but channel may have residual

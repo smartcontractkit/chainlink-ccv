@@ -1,7 +1,7 @@
 package model
 
 import (
-    "testing"
+	"testing"
 )
 
 func TestAggregatorConfig_Validate_ErrorScenarios(t *testing.T) {

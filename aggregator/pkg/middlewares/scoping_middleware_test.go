@@ -1,13 +1,13 @@
 package middlewares
 
 import (
-    "context"
-    "testing"
+	"context"
+	"testing"
 
-    "google.golang.org/grpc"
+	"google.golang.org/grpc"
 
-    aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
-    "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 )
 
 func TestScopingMiddleware_SetsAPINameInContext(t *testing.T) {

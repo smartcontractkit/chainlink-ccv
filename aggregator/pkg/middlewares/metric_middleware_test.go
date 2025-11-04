@@ -1,14 +1,14 @@
 package middlewares
 
 import (
-    "context"
-    "errors"
-    "testing"
+	"context"
+	"errors"
+	"testing"
 
-    "google.golang.org/grpc"
-    "github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc"
 
-    aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
+	aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 )
 
 func TestMetricMiddleware_RecordsSuccessAndDuration(t *testing.T) {
