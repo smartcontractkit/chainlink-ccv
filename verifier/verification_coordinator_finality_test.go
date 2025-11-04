@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -16,10 +15,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
-	verifier_mocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
+	verifiermocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 )
 
 const (
@@ -175,8 +175,8 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 type coordinatorTestSetup struct {
 	coordinator           *verifier.Coordinator
-	mockSourceReader      *verifier_mocks.MockSourceReader
-	mockVerifier          *test.TestVerifier
+	mockSourceReader      *verifiermocks.MockSourceReader
+	mockVerifier          *test.Verifier
 	verificationTaskCh    chan verifier.VerificationTask
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
@@ -196,8 +196,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	})
 	require.NoError(t, err)
 
-	mockVerifier := test.NewTestVerifier()
-	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
+	mockVerifier := test.NewVerifier()
+	mockSourceReader := verifiermocks.NewMockSourceReader(t)
 	mockStorage := &test.NoopStorage{}
 	verificationTaskCh := make(chan verifier.VerificationTask, 10)
 

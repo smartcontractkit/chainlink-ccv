@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -37,10 +36,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
-	verifier_mocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
+	verifiermocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 )
 
 // mockReorgDetector is a simple mock that returns a channel we can control in tests.
@@ -69,10 +69,10 @@ type reorgTestSetup struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
 	coordinator       *verifier.Coordinator
-	mockSourceReader  *verifier_mocks.MockSourceReader
+	mockSourceReader  *verifiermocks.MockSourceReader
 	mockHeadTracker   *protocol_mocks.MockHeadTracker
 	mockReorgDetector *mockReorgDetector
-	TestVerifier      *test.TestVerifier
+	testVerifier      *test.Verifier
 	storage           *common.InMemoryOffchainStorage
 	chainSelector     protocol.ChainSelector
 	lggr              logger.Logger
@@ -147,7 +147,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	}
 
 	// Create test verifier
-	testVerifier := test.NewTestVerifier()
+	testVer := test.NewVerifier()
 
 	setup := &reorgTestSetup{
 		t:                t,
@@ -159,7 +159,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 		lggr:             lggr,
 		currentLatest:    initialLatest,
 		currentFinalized: initialFinalized,
-		TestVerifier:     testVerifier,
+		testVerifier:     testVer,
 		storage:          common.NewInMemoryOffchainStorage(lggr),
 		taskChannel:      mockSetup.Channel,
 	}
@@ -190,7 +190,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 
 	// Create coordinator with all components
 	coordinator, err := verifier.NewCoordinator(
-		verifier.WithVerifier(setup.TestVerifier),
+		verifier.WithVerifier(setup.testVerifier),
 		verifier.WithStorage(setup.storage),
 		verifier.WithLogger(lggr),
 		verifier.WithConfig(coordinatorConfig),
@@ -210,14 +210,6 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	setup.coordinator = coordinator
 
 	return setup
-}
-
-// updateChainState updates the current chain state (used to simulate progression).
-func (s *reorgTestSetup) updateChainState(latest, finalized *protocol.BlockHeader) {
-	s.blocksMu.Lock()
-	defer s.blocksMu.Unlock()
-	s.currentLatest = latest
-	s.currentFinalized = finalized
 }
 
 // cleanup tears down the test setup.
@@ -324,7 +316,7 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	// Verify behavior:
 	// - Tasks at blocks 98, 99 (below finalized) should have been PROCESSED
 	// - Tasks at blocks 101, 102 (in reorged range) should have been FLUSHED
-	processedTasks := setup.TestVerifier.GetProcessedTasks()
+	processedTasks := setup.testVerifier.GetProcessedTasks()
 	t.Logf("📊 Processed task count after reorg: %d", len(processedTasks))
 
 	// Should have processed the 2 finalized tasks (98, 99)
@@ -404,7 +396,7 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	// 2. Source reader should be stopped
 	// 3. No new tasks should be processed
 
-	processedCount := setup.TestVerifier.GetProcessedTaskCount()
+	processedCount := setup.testVerifier.GetProcessedTaskCount()
 	t.Logf("📊 Processed task count after finality violation: %d", processedCount)
 
 	// All tasks should have been flushed, none processed

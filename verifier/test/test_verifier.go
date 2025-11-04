@@ -10,19 +10,19 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
-// TestVerifier keeps track of all processed messages for testing.
-type TestVerifier struct {
+// Verifier keeps track of all processed messages for testing.
+type Verifier struct {
 	processedTasks []verifier.VerificationTask
 	mu             sync.RWMutex
 }
 
-func NewTestVerifier() *TestVerifier {
-	return &TestVerifier{
+func NewVerifier() *Verifier {
+	return &Verifier{
 		processedTasks: make([]verifier.VerificationTask, 0),
 	}
 }
 
-func (t *TestVerifier) VerifyMessages(
+func (t *Verifier) VerifyMessages(
 	_ context.Context,
 	tasks []verifier.VerificationTask,
 	ccvDataBatcher *batcher.Batcher[verifier.CCVDataWithIdempotencyKey],
@@ -63,19 +63,19 @@ func (t *TestVerifier) VerifyMessages(
 	return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 }
 
-func (t *TestVerifier) GetProcessedTaskCount() int {
+func (t *Verifier) GetProcessedTaskCount() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return len(t.processedTasks)
 }
 
-func (t *TestVerifier) Reset() {
+func (t *Verifier) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.processedTasks = make([]verifier.VerificationTask, 0)
 }
 
-func (t *TestVerifier) GetProcessedTasks() []verifier.VerificationTask {
+func (t *Verifier) GetProcessedTasks() []verifier.VerificationTask {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return append([]verifier.VerificationTask(nil), t.processedTasks...)

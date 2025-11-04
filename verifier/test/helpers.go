@@ -6,20 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	verifier_mocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-)
 
-// Test constants.
-const (
-	defaultDestChain  = protocol.ChainSelector(100)
-	sourceChain1      = protocol.ChainSelector(42)
-	sourceChain2      = protocol.ChainSelector(84)
-	unconfiguredChain = protocol.ChainSelector(999)
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+
+	verifiermocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 )
 
 // WaitForMessagesInStorage waits for the specified number of messages to be processed.
@@ -70,16 +64,20 @@ func CreateTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, 
 
 // MockSourceReaderSetup contains a mock source Reader and its Channel.
 type MockSourceReaderSetup struct {
-	Reader  *verifier_mocks.MockSourceReader
+	Reader  *verifiermocks.MockSourceReader
 	Channel chan verifier.VerificationTask
 }
 
 // SetupMockSourceReader creates a mock source Reader with expectations.
 func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
-	mockReader := verifier_mocks.NewMockSourceReader(t)
+	mockReader := verifiermocks.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
 
-	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
+	now := time.Now().Unix()
+	if now < 0 {
+		now = 0
+	}
+	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
 
 	return &MockSourceReaderSetup{
 		Reader:  mockReader,
