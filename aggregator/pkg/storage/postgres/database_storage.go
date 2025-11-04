@@ -485,34 +485,36 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 	messageIDHex := common.Bytes2Hex(messageID)
 
 	stmt := `
-		SELECT 
-			car.message_id,
-			car.committee_id,
-			car.created_at,
-			car.seq_num,
-			cvr.participant_id,
-			cvr.signer_address,
-			cvr.signature_r,
-			cvr.signature_s,
-			cvr.ccv_node_data
-		FROM commit_aggregated_reports car
-		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
-		LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
-		WHERE car.message_id = $1 AND car.committee_id = $2
-		ORDER BY car.seq_num DESC, vid.ord
-		LIMIT 100
-	`
+        SELECT 
+            car.message_id,
+            car.committee_id,
+            car.created_at,
+            car.seq_num,
+            car.winning_receipt_blobs,
+            cvr.participant_id,
+            cvr.signer_address,
+            cvr.signature_r,
+            cvr.signature_s,
+            cvr.ccv_node_data
+        FROM commit_aggregated_reports car
+        LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
+        LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
+        WHERE car.message_id = $1 AND car.committee_id = $2
+        ORDER BY car.seq_num DESC, vid.ord
+        LIMIT 100
+    `
 
 	type joinedRecord struct {
-		MessageID     string         `db:"message_id"`
-		CommitteeID   string         `db:"committee_id"`
-		CreatedAt     time.Time      `db:"created_at"`
-		SeqNum        int64          `db:"seq_num"`
-		ParticipantID sql.NullString `db:"participant_id"`
-		SignerAddress sql.NullString `db:"signer_address"`
-		SignatureR    []byte         `db:"signature_r"`
-		SignatureS    []byte         `db:"signature_s"`
-		CCVNodeData   []byte         `db:"ccv_node_data"`
+		MessageID           string         `db:"message_id"`
+		CommitteeID         string         `db:"committee_id"`
+		CreatedAt           time.Time      `db:"created_at"`
+		SeqNum              int64          `db:"seq_num"`
+		WinningReceiptBlobs sql.NullString `db:"winning_receipt_blobs"`
+		ParticipantID       sql.NullString `db:"participant_id"`
+		SignerAddress       sql.NullString `db:"signer_address"`
+		SignatureR          []byte         `db:"signature_r"`
+		SignatureS          []byte         `db:"signature_s"`
+		CCVNodeData         []byte         `db:"ccv_node_data"`
 	}
 
 	rows, err := d.ds.QueryContext(ctx, stmt, messageIDHex, committeeID)
@@ -532,6 +534,7 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 			&record.CommitteeID,
 			&record.CreatedAt,
 			&record.SeqNum,
+			&record.WinningReceiptBlobs,
 			&record.ParticipantID,
 			&record.SignerAddress,
 			&record.SignatureR,
@@ -543,12 +546,23 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 		}
 
 		if report == nil {
+			// Deserialize winning receipt blobs from JSON if available
+			var winningReceiptBlobs []*model.ReceiptBlob
+			if record.WinningReceiptBlobs.Valid && record.WinningReceiptBlobs.String != "" {
+				var err error
+				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(record.WinningReceiptBlobs.String))
+				if err != nil {
+					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
+				}
+			}
+
 			report = &model.CommitAggregatedReport{
-				MessageID:     common.Hex2Bytes(record.MessageID),
-				CommitteeID:   record.CommitteeID,
-				Verifications: []*model.CommitVerificationRecord{},
-				Sequence:      record.SeqNum,
-				WrittenAt:     record.CreatedAt.Unix(),
+				MessageID:           common.Hex2Bytes(record.MessageID),
+				CommitteeID:         record.CommitteeID,
+				Verifications:       []*model.CommitVerificationRecord{},
+				Sequence:            record.SeqNum,
+				WrittenAt:           record.CreatedAt.Unix(),
+				WinningReceiptBlobs: winningReceiptBlobs,
 			}
 		}
 
@@ -602,6 +616,7 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 			car.committee_id,
 			car.created_at,
 			car.seq_num,
+			car.winning_receipt_blobs,
 			cvr.participant_id,
 			cvr.signer_address,
 			cvr.signature_r,
@@ -615,15 +630,16 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 	`, strings.Join(placeholders, ","), len(messageIDHexValues)+1)
 
 	type joinedRecord struct {
-		MessageID     string         `db:"message_id"`
-		CommitteeID   string         `db:"committee_id"`
-		CreatedAt     time.Time      `db:"created_at"`
-		SeqNum        int64          `db:"seq_num"`
-		ParticipantID sql.NullString `db:"participant_id"`
-		SignerAddress sql.NullString `db:"signer_address"`
-		SignatureR    []byte         `db:"signature_r"`
-		SignatureS    []byte         `db:"signature_s"`
-		CCVNodeData   []byte         `db:"ccv_node_data"`
+		MessageID           string         `db:"message_id"`
+		CommitteeID         string         `db:"committee_id"`
+		CreatedAt           time.Time      `db:"created_at"`
+		SeqNum              int64          `db:"seq_num"`
+		WinningReceiptBlobs sql.NullString `db:"winning_receipt_blobs"`
+		ParticipantID       sql.NullString `db:"participant_id"`
+		SignerAddress       sql.NullString `db:"signer_address"`
+		SignatureR          []byte         `db:"signature_r"`
+		SignatureS          []byte         `db:"signature_s"`
+		CCVNodeData         []byte         `db:"ccv_node_data"`
 	}
 
 	rows, err := d.ds.QueryContext(ctx, stmt, args...)
@@ -643,6 +659,7 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 			&record.CommitteeID,
 			&record.CreatedAt,
 			&record.SeqNum,
+			&record.WinningReceiptBlobs,
 			&record.ParticipantID,
 			&record.SignerAddress,
 			&record.SignatureR,
@@ -657,12 +674,22 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 		report, exists := reports[record.MessageID]
 		if !exists {
 			messageIDBytes := common.Hex2Bytes(record.MessageID)
+			// Deserialize winning receipt blobs if present
+			var winningReceiptBlobs []*model.ReceiptBlob
+			if record.WinningReceiptBlobs.Valid && record.WinningReceiptBlobs.String != "" {
+				var err error
+				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(record.WinningReceiptBlobs.String))
+				if err != nil {
+					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
+				}
+			}
 			report = &model.CommitAggregatedReport{
-				MessageID:     messageIDBytes,
-				CommitteeID:   record.CommitteeID,
-				Verifications: []*model.CommitVerificationRecord{},
-				Sequence:      record.SeqNum,
-				WrittenAt:     record.CreatedAt.Unix(),
+				MessageID:           messageIDBytes,
+				CommitteeID:         record.CommitteeID,
+				Verifications:       []*model.CommitVerificationRecord{},
+				Sequence:            record.SeqNum,
+				WrittenAt:           record.CreatedAt.Unix(),
+				WinningReceiptBlobs: winningReceiptBlobs,
 			}
 			reports[record.MessageID] = report
 		}

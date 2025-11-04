@@ -22,6 +22,7 @@ func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
 		OffRampAddressLength: uint8(m.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OffRampAddress:       m.OffRampAddress,
 		Finality:             uint16(m.Finality),    //nolint:gosec // G115: Protocol-defined conversion
+		GasLimit:             uint32(m.GasLimit),    //nolint:gosec // G115: Protocol-defined conversion
 		SenderLength:         uint8(m.SenderLength), //nolint:gosec // G115: Protocol-defined conversion
 		Sender:               m.Sender,
 		ReceiverLength:       uint8(m.ReceiverLength), //nolint:gosec // G115: Protocol-defined conversion

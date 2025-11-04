@@ -51,6 +51,29 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 	if err != nil {
 		return nil, err
 	}
+	msg := &pb.Message{
+		Version:              uint32(ccvData.Message.Version),
+		SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
+		DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
+		Nonce:                uint64(ccvData.Message.Nonce),
+		OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
+		OnRampAddress:        ccvData.Message.OnRampAddress[:],
+		OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
+		OffRampAddress:       ccvData.Message.OffRampAddress[:],
+		Finality:             uint32(ccvData.Message.Finality),
+		SenderLength:         uint32(ccvData.Message.SenderLength),
+		Sender:               ccvData.Message.Sender[:],
+		ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
+		Receiver:             ccvData.Message.Receiver[:],
+		DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
+		DestBlob:             ccvData.Message.DestBlob[:],
+		TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
+		TokenTransfer:        ccvData.Message.TokenTransfer[:],
+		DataLength:           uint32(ccvData.Message.DataLength),
+		Data:                 ccvData.Message.Data[:],
+		GasLimit:             uint32(ccvData.Message.GasLimit),
+	}
+
 	return &pb.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: &pb.MessageWithCCVNodeData{
 			MessageId:             ccvData.MessageID[:],
@@ -58,28 +81,8 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 			CcvData:               ccvData.CCVData,
 			BlobData:              ccvData.BlobData,
 			Timestamp:             ccvData.Timestamp,
-			Message: &pb.Message{
-				Version:              uint32(ccvData.Message.Version),
-				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
-				DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
-				Nonce:                uint64(ccvData.Message.Nonce),
-				OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
-				OnRampAddress:        ccvData.Message.OnRampAddress[:],
-				OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
-				OffRampAddress:       ccvData.Message.OffRampAddress[:],
-				Finality:             uint32(ccvData.Message.Finality),
-				SenderLength:         uint32(ccvData.Message.SenderLength),
-				Sender:               ccvData.Message.Sender[:],
-				ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
-				Receiver:             ccvData.Message.Receiver[:],
-				DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
-				DestBlob:             ccvData.Message.DestBlob[:],
-				TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
-				TokenTransfer:        ccvData.Message.TokenTransfer[:],
-				DataLength:           uint32(ccvData.Message.DataLength),
-				Data:                 ccvData.Message.Data[:],
-			},
-			ReceiptBlobs: receiptBlobs,
+			Message:               msg,
+			ReceiptBlobs:          receiptBlobs,
 		},
 		IdempotencyKey: idempotencyKey, // Use provided idempotency key
 	}, nil
@@ -267,6 +270,7 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 		DestBlob:            msg.DestBlob[:],
 		TokenTransfer:       msg.TokenTransfer[:],
 		Data:                msg.Data[:],
+		GasLimit:            uint32(msg.GasLimit),
 	}
 
 	if msg.Version > math.MaxUint8 {
