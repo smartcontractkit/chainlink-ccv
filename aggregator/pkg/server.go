@@ -274,8 +274,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	chainStatusStorage = storage.WrapChainStatusWithMetrics(chainStatusStorage, aggMonitoring)
 
 	// Initialize chain status handlers
-	writeChainStatusHandler := handlers.NewWriteChainStatusHandler(chainStatusStorage)
-	readChainStatusHandler := handlers.NewReadChainStatusHandler(chainStatusStorage)
+	writeChainStatusHandler := handlers.NewWriteChainStatusHandler(chainStatusStorage, l)
+	readChainStatusHandler := handlers.NewReadChainStatusHandler(chainStatusStorage, l)
 
 	// Initialize middlewares
 	loggingMiddleware := middlewares.NewLoggingMiddleware(l)
