@@ -222,6 +222,11 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
 	r.tailMu.RUnlock()
 
+	if latest.Number < finalized.Number {
+		r.lggr.Warnw("Latest block number is less than finalized block number")
+		r.sendFinalityViolation(*latest, finalized.Number)
+		return
+	}
 	// Check if chain has progressed
 	if latest.Number <= tailMax {
 		r.lggr.Debugw("No new blocks",
@@ -544,7 +549,7 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 		}
 	}
 
-	// Reorg is deeper than finalized block - finality violation
+	// If we reach here and didn't return in the above loop, it means the finalized block was reorged (finality violation)
 	r.tailMu.RLock()
 	ourFinalizedBlock, exists := r.tailBlocks[latestFinalizedBlock]
 	r.tailMu.RUnlock()
