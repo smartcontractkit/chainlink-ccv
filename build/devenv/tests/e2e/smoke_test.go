@@ -183,7 +183,7 @@ func TestE2ESmoke(t *testing.T) {
 		}
 	})
 
-	t.Run("extra args v3", func(t *testing.T) {
+	t.Run("extra args v3 messaging", func(t *testing.T) {
 		var tcs []testcase
 		src, dest := selectors[0], selectors[1]
 		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, c)
@@ -192,37 +192,6 @@ func TestE2ESmoke(t *testing.T) {
 		mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, c)
 		tcs = append(tcs, mvtcsDestToSrc[0])
 		tcs = append(tcs, dataSizeTestCases(t, src, dest, in, c)...)
-		tcs = append(tcs, []testcase{
-			{
-				name:        "EOA receiver and default committee verifier with token transfer",
-				srcSelector: src,
-				dstSelector: dest,
-				finality:    1,
-				receiver:    mustGetEOAReceiverAddress(t, c, dest),
-				ccvs: []protocol.CCV{
-					{
-						CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-				tokenTransfer: &tokenTransfer{
-					tokenAmount: cciptestinterfaces.TokenAmount{
-						Amount:       big.NewInt(1000),
-						TokenAddress: getContractAddress(t, in, src, datastore.ContractType(burn_mint_erc677.ContractType), burn_mint_erc677.Deploy.Version(), "TEST", "burn mint erc677"),
-					},
-					destTokenRef: datastore.AddressRef{
-						Type:      datastore.ContractType(burn_mint_erc677.ContractType),
-						Version:   semver.MustParse(burn_mint_erc677.Deploy.Version()),
-						Qualifier: "TEST",
-					},
-				},
-				// default verifier
-				numExpectedVerifications: 1,
-				// default executor, default committee verifier and the token contract
-				numExpectedReceipts: 3,
-			},
-		}...)
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				var receiverStartBalance *big.Int
@@ -283,7 +252,7 @@ func TestE2ESmoke(t *testing.T) {
 		}
 	})
 
-	t.Run("token transfer", func(t *testing.T) {
+	t.Run("extra args v3 token transfer", func(t *testing.T) {
 		tcs := []struct {
 			name    string
 			src     uint64
@@ -352,6 +321,7 @@ func TestE2ESmoke(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.NotNil(t, sendRes)
+				require.Len(t, sendRes.ReceiptIssuers, 3, "expected 3 receipt issuers (default executor, default committee verifier and token contract)")
 
 				sentEvt, err := c.WaitOneSentEventBySeqNo(ctx, tc.src, tc.dest, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
