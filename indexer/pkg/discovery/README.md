@@ -1,6 +1,8 @@
 # Discovery
 
-The discovery module provides components for discovering CCV messages and off-chain storage readers. It implements two discovery patterns: `MessageDiscovery` for discovering messages from a trusted source. 
+The discovery module provides components for discovering CCV messages and off-chain storage readers. 
+
+- `MessageDiscovery` for discovering messages from a trusted source. 
 
 ### MessageDiscovery
 
