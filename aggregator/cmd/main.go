@@ -4,28 +4,27 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"go.uber.org/zap"
-
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"go.uber.org/zap/zapcore"
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 )
 
 func main() {
-	// Setup logging - always debug level for now
-	lggr, err := logger.NewWith(func(config *zap.Config) {
-		config.Development = true
-		config.Encoding = "console"
-	})
+	// Debug level currently spams a lot of logs from middlewares.
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
+	lggr = logger.Named(lggr, "aggregator")
 
 	sugaredLggr := logger.Sugared(lggr)
 
