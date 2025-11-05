@@ -92,28 +92,11 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}
 
-	// To create the full ccvData, prepend encodedSignatures with the version of the source verifier
-	// The first 4 bytes of the source verifier's return data constitute the version
-	var ccvData []byte
-	for _, receipt := range report.WinningReceiptBlobs {
-		if bytes.Equal(receipt.Issuer, report.GetSourceVerifierAddress()) {
-			if receipt.Blob == nil {
-				return nil, fmt.Errorf("source verifier return data is missing")
-			}
-			blobLen := len(receipt.Blob)
-			if blobLen < 4 {
-				return nil, fmt.Errorf("source verifier return data is too short (expected at least 4 bytes, got %d)", blobLen)
-			}
-			ccvData = append(receipt.Blob[:4], encodedSignatures...)
-			break
-		}
-	}
-
 	return &pb.VerifierResult{
 		Message:               report.GetProtoMessage(),
 		SourceVerifierAddress: report.GetSourceVerifierAddress(),
 		DestVerifierAddress:   quorumConfig.GetDestVerifierAddressBytes(),
-		CcvData:               ccvData,
+		CcvData:               encodedSignatures,
 		Timestamp:             timeToTimestampMillis(report.WrittenAt),
 		Sequence:              report.Sequence,
 	}, nil
