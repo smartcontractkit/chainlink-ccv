@@ -38,7 +38,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.37.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc
-	golang.org/x/sync v0.16.0
+	golang.org/x/sync v0.17.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.9
 	modernc.org/sqlite v1.39.0 // indirect
@@ -47,6 +47,7 @@ require (
 require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
+	github.com/panjf2000/ants/v2 v2.11.3
 	github.com/redis/go-redis/v9 v9.0.4
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20250717121125-2350c82883e2
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
