@@ -157,6 +157,8 @@ func TestE2ESmoke(t *testing.T) {
 					TickInterval:            1 * time.Second,
 					Timeout:                 defaultExecTimeout,
 					ExpectedVerifierResults: tc.numExpectedVerifications,
+					AssertVerifierLogs:      false,
+					AssertExecutorLogs:      false,
 				})
 				require.NoError(t, err)
 				require.NotNil(t, result.AggregatedResult)
@@ -229,6 +231,8 @@ func TestE2ESmoke(t *testing.T) {
 					TickInterval:            1 * time.Second,
 					ExpectedVerifierResults: tc.numExpectedVerifications,
 					Timeout:                 defaultExecTimeout,
+					AssertVerifierLogs:      false,
+					AssertExecutorLogs:      false,
 				})
 				require.NoError(t, err)
 				require.NotNil(t, result.AggregatedResult)
@@ -333,6 +337,8 @@ func TestE2ESmoke(t *testing.T) {
 					TickInterval:            1 * time.Second,
 					Timeout:                 tc.timeout,
 					ExpectedVerifierResults: 1,
+					AssertVerifierLogs:      false,
+					AssertExecutorLogs:      false,
 				})
 				require.NoError(t, err)
 				require.NotNil(t, res.AggregatedResult)

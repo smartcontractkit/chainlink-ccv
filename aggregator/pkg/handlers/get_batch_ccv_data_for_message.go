@@ -3,15 +3,16 @@ package handlers
 import (
 	"context"
 
-	ethcommon "github.com/ethereum/go-ethereum/common" //nolint:gci
-	"google.golang.org/grpc/codes"                     //nolint:gci
-	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/grpc/codes" //nolint:gci
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"             //nolint:gci
+	"github.com/smartcontractkit/chainlink-common/pkg/logger" //nolint:gci
+
+	ethcommon "github.com/ethereum/go-ethereum/common"                    //nolint:gci
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1" //nolint:gci
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 // GetBatchCCVDataForMessageHandler handles batch requests to retrieve commit verification data for multiple message IDs.
