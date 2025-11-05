@@ -136,8 +136,8 @@ func TestBuildEntireTail(t *testing.T) {
 		err = service.buildEntireTail(ctx)
 		require.NoError(t, err)
 
-		assert.Equal(t, uint64(100), service.tailMinBlock)
-		assert.Equal(t, uint64(105), service.tailMaxBlock)
+		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
+		assert.Equal(t, uint64(105), service.latestBlock)
 		assert.Equal(t, 6, len(service.tailBlocks))
 	})
 
@@ -188,8 +188,8 @@ func TestBackfillBlocks(t *testing.T) {
 		require.NoError(t, err)
 
 		// Initialize tail state
-		service.tailMinBlock = 100
-		service.tailMaxBlock = 100
+		service.latestFinalizedBlock = 100
+		service.latestBlock = 100
 		service.tailBlocks = map[uint64]protocol.BlockHeader{
 			100: {Number: 100, Hash: protocol.Bytes32{0x64}},
 		}
@@ -201,8 +201,8 @@ func TestBackfillBlocks(t *testing.T) {
 		err = service.backfillBlocks(ctx, 101, 103, 100)
 		require.NoError(t, err)
 
-		assert.Equal(t, uint64(100), service.tailMinBlock)
-		assert.Equal(t, uint64(103), service.tailMaxBlock)
+		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
+		assert.Equal(t, uint64(103), service.latestBlock)
 		assert.Equal(t, 4, len(service.tailBlocks)) // 100-103
 	})
 
@@ -215,8 +215,8 @@ func TestBackfillBlocks(t *testing.T) {
 		require.NoError(t, err)
 
 		// Initialize tail with old blocks
-		service.tailMinBlock = 95
-		service.tailMaxBlock = 100
+		service.latestFinalizedBlock = 95
+		service.latestBlock = 100
 		service.tailBlocks = map[uint64]protocol.BlockHeader{
 			95:  {Number: 95},
 			96:  {Number: 96},
@@ -233,8 +233,8 @@ func TestBackfillBlocks(t *testing.T) {
 		err = service.backfillBlocks(ctx, 101, 103, 100)
 		require.NoError(t, err)
 
-		assert.Equal(t, uint64(100), service.tailMinBlock)
-		assert.Equal(t, uint64(103), service.tailMaxBlock)
+		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
+		assert.Equal(t, uint64(103), service.latestBlock)
 		assert.Equal(t, 4, len(service.tailBlocks)) // 100-103
 		_, exists := service.tailBlocks[95]
 		assert.False(t, exists)
@@ -265,7 +265,7 @@ func TestTrimOlderBlocks(t *testing.T) {
 		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
 		require.NoError(t, err)
 
-		service.tailMinBlock = 95
+		service.latestFinalizedBlock = 95
 		service.tailBlocks = map[uint64]protocol.BlockHeader{
 			95:  {Number: 95},
 			96:  {Number: 96},
@@ -277,7 +277,7 @@ func TestTrimOlderBlocks(t *testing.T) {
 
 		service.trimOlderBlocks(100)
 
-		assert.Equal(t, uint64(100), service.tailMinBlock)
+		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
 		assert.Equal(t, 1, len(service.tailBlocks))
 		_, exists := service.tailBlocks[100]
 		assert.True(t, exists)
@@ -291,7 +291,7 @@ func TestTrimOlderBlocks(t *testing.T) {
 		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
 		require.NoError(t, err)
 
-		service.tailMinBlock = 100
+		service.latestFinalizedBlock = 100
 		service.tailBlocks = map[uint64]protocol.BlockHeader{
 			100: {Number: 100},
 			101: {Number: 101},
@@ -299,7 +299,7 @@ func TestTrimOlderBlocks(t *testing.T) {
 
 		service.trimOlderBlocks(100)
 
-		assert.Equal(t, uint64(100), service.tailMinBlock)
+		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
 		assert.Equal(t, 2, len(service.tailBlocks))
 	})
 }
@@ -315,8 +315,8 @@ func TestAddBlockToTail(t *testing.T) {
 		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
 		require.NoError(t, err)
 
-		service.tailMinBlock = 100
-		service.tailMaxBlock = 100
+		service.latestFinalizedBlock = 100
+		service.latestBlock = 100
 		service.tailBlocks = map[uint64]protocol.BlockHeader{
 			100: {Number: 100},
 		}
@@ -328,7 +328,7 @@ func TestAddBlockToTail(t *testing.T) {
 
 		service.addBlockToTail(newBlock, 100)
 
-		assert.Equal(t, uint64(101), service.tailMaxBlock)
+		assert.Equal(t, uint64(101), service.latestBlock)
 		assert.Equal(t, 2, len(service.tailBlocks))
 		_, exists := service.tailBlocks[101]
 		assert.True(t, exists)
@@ -342,8 +342,8 @@ func TestAddBlockToTail(t *testing.T) {
 		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
 		require.NoError(t, err)
 
-		service.tailMinBlock = 95
-		service.tailMaxBlock = 100
+		service.latestFinalizedBlock = 95
+		service.latestBlock = 100
 		service.tailBlocks = map[uint64]protocol.BlockHeader{
 			95:  {Number: 95},
 			100: {Number: 100},
@@ -352,7 +352,7 @@ func TestAddBlockToTail(t *testing.T) {
 		newBlock := protocol.BlockHeader{Number: 101}
 		service.addBlockToTail(newBlock, 100) // Finalized is now 100
 
-		assert.Equal(t, uint64(100), service.tailMinBlock)
+		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
 		_, exists := service.tailBlocks[95]
 		assert.False(t, exists)
 	})
@@ -370,8 +370,8 @@ func TestSendNotifications(t *testing.T) {
 		require.NoError(t, err)
 
 		// Initialize state
-		service.tailMinBlock = 100
-		service.tailMaxBlock = 105
+		service.latestFinalizedBlock = 100
+		service.latestBlock = 105
 		service.tailBlocks = make(map[uint64]protocol.BlockHeader)
 		for i := uint64(100); i <= 105; i++ {
 			service.tailBlocks[i] = protocol.BlockHeader{Number: i}
@@ -464,8 +464,8 @@ func TestStartAndClose(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, statusCh)
 
-		assert.Equal(t, uint64(100), service.tailMinBlock)
-		assert.Equal(t, uint64(105), service.tailMaxBlock)
+		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
+		assert.Equal(t, uint64(105), service.latestBlock)
 
 		// Cleanup
 		service.Close()

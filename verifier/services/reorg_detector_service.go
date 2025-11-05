@@ -67,10 +67,14 @@ type ReorgDetectorService struct {
 	wg           sync.WaitGroup
 
 	// In-memory block tracking (keyed by block number for O(1) lookup)
-	tailBlocks   map[uint64]protocol.BlockHeader
-	tailMinBlock uint64 // Oldest block number in tail (finalized boundary)
-	tailMaxBlock uint64 // Newest block number in tail (current tip)
-	tailMu       sync.RWMutex
+	// Single-writer: only accessed by pollAndCheckForReorgs goroutine
+	tailBlocks           map[uint64]protocol.BlockHeader
+	latestFinalizedBlock uint64
+	latestBlock          uint64
+
+	// Lifecycle management
+	mu      sync.RWMutex
+	running bool
 
 	// Polling configuration
 	pollInterval time.Duration
@@ -144,7 +148,10 @@ func NewReorgDetectorService(
 // - Safe to call once per instance
 // - Subsequent calls will return an error.
 func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
-	if r.cancel != nil {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.running {
 		return nil, fmt.Errorf("reorg detector already started")
 	}
 
@@ -152,13 +159,18 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 		"chainSelector", r.config.ChainSelector,
 		"pollInterval", r.pollInterval)
 
-	// Build initial tail
-	if err := r.buildEntireTail(ctx); err != nil {
+	// Build initial tail (unlock during I/O-bound operation)
+	r.mu.Unlock()
+	err := r.buildEntireTail(ctx)
+	r.mu.Lock()
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to build initial tail: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
+	r.running = true
 
 	// Start polling goroutine
 	r.wg.Add(1)
@@ -169,8 +181,8 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 
 	r.lggr.Infow("Reorg detector service started successfully",
 		"chainSelector", r.config.ChainSelector,
-		"tailMinBlock", r.tailMinBlock,
-		"tailMaxBlock", r.tailMaxBlock)
+		"latestFinalizedBlock", r.latestFinalizedBlock,
+		"latestBlock", r.latestBlock)
 
 	return r.statusCh, nil
 }
@@ -217,10 +229,8 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	}
 
 	// Get expected parent and current tail state
-	r.tailMu.RLock()
-	tailMax := r.tailMaxBlock
+	tailMax := r.latestBlock
 	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
-	r.tailMu.RUnlock()
 
 	if latest.Number < finalized.Number {
 		r.lggr.Warnw("Latest block number is less than finalized block number")
@@ -292,9 +302,6 @@ func (r *ReorgDetectorService) backfillBlocks(ctx context.Context, startBlock, e
 	}
 
 	// Add blocks to tail and trim old ones
-	r.tailMu.Lock()
-	defer r.tailMu.Unlock()
-
 	for _, blockNum := range blockNumbers {
 		header, exists := headers[blockNum]
 		if !exists {
@@ -302,9 +309,9 @@ func (r *ReorgDetectorService) backfillBlocks(ctx context.Context, startBlock, e
 		}
 		r.tailBlocks[header.Number] = header
 
-		// Update tailMaxBlock as we go
-		if header.Number > r.tailMaxBlock {
-			r.tailMaxBlock = header.Number
+		// Update latestBlock as we go
+		if header.Number > r.latestBlock {
+			r.latestBlock = header.Number
 		}
 	}
 
@@ -313,8 +320,8 @@ func (r *ReorgDetectorService) backfillBlocks(ctx context.Context, startBlock, e
 
 	r.lggr.Debugw("Backfill completed",
 		"chainSelector", r.config.ChainSelector,
-		"tailMinBlock", r.tailMinBlock,
-		"tailMaxBlock", r.tailMaxBlock,
+		"latestFinalizedBlock", r.latestFinalizedBlock,
+		"latestBlock", r.latestBlock,
 		"tailSize", len(r.tailBlocks))
 
 	return nil
@@ -350,9 +357,6 @@ func (r *ReorgDetectorService) buildEntireTail(ctx context.Context) error {
 	}
 
 	// Replace tail completely
-	r.tailMu.Lock()
-	defer r.tailMu.Unlock()
-
 	r.tailBlocks = make(map[uint64]protocol.BlockHeader)
 	for _, blockNum := range blockNumbers {
 		header, exists := headers[blockNum]
@@ -362,37 +366,34 @@ func (r *ReorgDetectorService) buildEntireTail(ctx context.Context) error {
 		r.tailBlocks[header.Number] = header
 	}
 
-	r.tailMinBlock = finalizedBlockNum
-	r.tailMaxBlock = latestBlockNum
+	r.latestFinalizedBlock = finalizedBlockNum
+	r.latestBlock = latestBlockNum
 
 	r.lggr.Infow("Tail rebuilt successfully",
 		"chainSelector", r.config.ChainSelector,
-		"minBlock", r.tailMinBlock,
-		"maxBlock", r.tailMaxBlock,
+		"minBlock", r.latestFinalizedBlock,
+		"maxBlock", r.latestBlock,
 		"tailSize", len(r.tailBlocks))
 
 	return nil
 }
 
 // trimOlderBlocks removes blocks older than the finalized block from the tail.
-// Must be called with tailMu lock held.
+// Called only by the polling goroutine (single-writer).
 func (r *ReorgDetectorService) trimOlderBlocks(finalizedBlockNum uint64) {
-	if r.tailMinBlock < finalizedBlockNum {
-		for blockNum := r.tailMinBlock; blockNum < finalizedBlockNum; blockNum++ {
+	if r.latestFinalizedBlock < finalizedBlockNum {
+		for blockNum := r.latestFinalizedBlock; blockNum < finalizedBlockNum; blockNum++ {
 			delete(r.tailBlocks, blockNum)
 		}
-		r.tailMinBlock = finalizedBlockNum
+		r.latestFinalizedBlock = finalizedBlockNum
 	}
 }
 
 // addBlockToTail adds a new block to the tail and trims old blocks older than finalized.
 // The finalized block is determined by HeadTracker (by depth or finality tag per chain).
 func (r *ReorgDetectorService) addBlockToTail(block protocol.BlockHeader, finalizedBlockNum uint64) {
-	r.tailMu.Lock()
-	defer r.tailMu.Unlock()
-
 	r.tailBlocks[block.Number] = block
-	r.tailMaxBlock = block.Number
+	r.latestBlock = block.Number
 
 	// Trim blocks older than finalized
 	r.trimOlderBlocks(finalizedBlockNum)
@@ -446,9 +447,7 @@ func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, l
 	}
 
 	// Re-fetch parent after backfill
-	r.tailMu.RLock()
 	expectedParent, hasParent := r.tailBlocks[latestBlockNum-1]
-	r.tailMu.RUnlock()
 
 	if !hasParent {
 		r.lggr.Errorw("Parent block still missing after backfill",
@@ -469,7 +468,7 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 	r.lggr.Infow("Handling reorg",
 		"chainSelector", r.config.ChainSelector,
 		"newBlock", newBlock.Number,
-		"latestFinalized", finalizedBlockNum)
+		"latestFinalizedBlock", finalizedBlockNum)
 
 	// Find block after LCA by walking back the new chain
 	blockAfterLCA, err := r.findBlockAfterLCA(ctx, newBlock, finalizedBlockNum)
@@ -525,9 +524,7 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 	// Walk back until we find a matching block or hit finalized boundary
 	for parent.Number >= latestFinalizedBlock {
 		// Check if we have this block in our tail
-		r.tailMu.RLock()
 		ourBlock, exists := r.tailBlocks[parent.Number]
-		r.tailMu.RUnlock()
 
 		if exists && ourBlock.Hash == parent.Hash {
 			// Found LCA! Return blockAfterLCA
@@ -550,9 +547,7 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 	}
 
 	// If we reach here and didn't return in the above loop, it means the finalized block was reorged (finality violation)
-	r.tailMu.RLock()
 	ourFinalizedBlock, exists := r.tailBlocks[latestFinalizedBlock]
-	r.tailMu.RUnlock()
 
 	return blockAfterLCA, &finalityViolationError{
 		violatedBlock:              ourFinalizedBlock,
@@ -592,9 +587,6 @@ func (r *ReorgDetectorService) rebuildTailFromBlock(ctx context.Context, startBl
 	}
 
 	// Clear old tail and rebuild
-	r.tailMu.Lock()
-	defer r.tailMu.Unlock()
-
 	r.tailBlocks = make(map[uint64]protocol.BlockHeader)
 	for _, blockNum := range blockNumbers {
 		header, exists := headers[blockNum]
@@ -606,13 +598,13 @@ func (r *ReorgDetectorService) rebuildTailFromBlock(ctx context.Context, startBl
 		r.tailBlocks[header.Number] = header
 	}
 
-	r.tailMinBlock = startBlock.Number
-	r.tailMaxBlock = startBlock.Number + uint64(len(r.tailBlocks)) - 1
+	r.latestFinalizedBlock = startBlock.Number
+	r.latestBlock = startBlock.Number + uint64(len(r.tailBlocks)) - 1
 
 	r.lggr.Infow("Tail rebuilt successfully",
 		"chainSelector", r.config.ChainSelector,
-		"minBlock", r.tailMinBlock,
-		"maxBlock", r.tailMaxBlock,
+		"minBlock", r.latestFinalizedBlock,
+		"maxBlock", r.latestBlock,
 		"tailSize", len(r.tailBlocks))
 
 	return nil
@@ -689,11 +681,9 @@ func (e *finalityViolationError) Error() string {
 // - Safe to call multiple times (subsequent calls are no-ops)
 // - Blocks until monitoring goroutine exits.
 func (r *ReorgDetectorService) Close() error {
-	r.tailMu.Lock()
-	defer r.tailMu.Unlock()
-
-	// Check if already closed
-	if r.cancel == nil {
+	r.mu.Lock()
+	if !r.running {
+		r.mu.Unlock()
 		return nil // Already closed
 	}
 
@@ -701,14 +691,13 @@ func (r *ReorgDetectorService) Close() error {
 
 	// Signal cancellation
 	r.cancel()
-	r.cancel = nil // Mark as closed
+	r.running = false
+	r.mu.Unlock()
 
-	// Release lock while waiting for goroutines
-	r.tailMu.Unlock()
+	// Wait for goroutines without holding lock
 	r.wg.Wait()
-	r.tailMu.Lock()
 
-	// Close status channel (only once)
+	// Close status channel (safe - goroutine is stopped)
 	close(r.statusCh)
 
 	r.lggr.Infow("Reorg detector service closed", "chainSelector", r.config.ChainSelector)
