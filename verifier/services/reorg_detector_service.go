@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	MAX_GAP_BLOCKS = 10 // Maximum allowed gap in blocks before rebuilding entire tail
+	MAX_GAP_BLOCKS       = 10 // Maximum allowed gap in blocks before rebuilding entire tail
+	DEFULT_POLL_INTERVAL = 2000 * time.Millisecond
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -114,7 +115,7 @@ func NewReorgDetectorService(
 	pollInterval := config.PollInterval
 	// Default 2 seconds
 	if pollInterval == 0 {
-		pollInterval = 2000 * time.Millisecond
+		pollInterval = DEFULT_POLL_INTERVAL
 	}
 
 	return &ReorgDetectorService{
@@ -228,8 +229,6 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		return
 	}
 
-	// Get expected parent and current tail state
-	tailMax := r.latestBlock
 	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
 
 	if latest.Number < finalized.Number {
@@ -238,11 +237,11 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		return
 	}
 	// Check if chain has progressed
-	if latest.Number <= tailMax {
+	if latest.Number <= r.latestBlock {
 		r.lggr.Debugw("No new blocks",
 			"chainSelector", r.config.ChainSelector,
 			"latestBlock", latest.Number,
-			"tailMax", tailMax)
+			"latestBlock", r.latestBlock)
 		return
 	}
 
@@ -250,7 +249,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	// Ideally this should not happen unless pollInterval is misconfigured to be more than block time
 	if !hasParent {
 		var ok bool
-		expectedParent, ok = r.handleGapBackfill(ctx, tailMax, latest.Number, finalized.Number)
+		expectedParent, ok = r.handleGapBackfill(ctx, r.latestBlock, latest.Number, finalized.Number)
 		if !ok {
 			return
 		}
@@ -573,11 +572,8 @@ func (r *ReorgDetectorService) rebuildTailFromBlock(ctx context.Context, startBl
 		return fmt.Errorf("latest block is nil")
 	}
 
-	// Fetch blocks from startBlock to current latest
-	endBlock := latest.Number
-
 	var blockNumbers []*big.Int
-	for i := startBlock.Number; i <= endBlock; i++ {
+	for i := startBlock.Number; i <= latest.Number; i++ {
 		blockNumbers = append(blockNumbers, new(big.Int).SetUint64(i))
 	}
 
