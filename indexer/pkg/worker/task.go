@@ -43,9 +43,7 @@ func NewTask(ctx context.Context, logger logger.Logger, message protocol.Message
 	}, nil
 }
 
-// collectVerifierResults processes all verifier readers concurrently and collects
-// successful results. This replaces the previous fan-in pattern with a simpler
-// WaitGroup-based approach that directly collects results.
+// collectVerifierResults processes all verifier readers concurrently and collects successful results.
 func (t *Task) collectVerifierResults(verifierReaders []*readers.VerifierReader) []protocol.CCVData {
 	if len(verifierReaders) == 0 {
 		return nil
