@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -14,100 +13,34 @@ type BlockHeader struct {
 	FinalizedBlockNumber uint64 // Latest finalized block at time of this block
 }
 
-// ChainTail stores an ordered slice of block headers from stable tip to latest tip.
-type ChainTail struct {
-	blocks []BlockHeader // ordered from oldest (stable) to newest (tip)
-	// TODO: Add a map for O(1) lookups by number and hash over the blocks Slice
-}
+// ReorgType indicates the type of reorg detected.
+type ReorgType int
 
-// NewChainTail creates a new ChainTail from a slice of block headers.
-// It validates that the blocks form a contiguous chain (parent hashes match)
-// and that there are no duplicates.
-func NewChainTail(blocks []BlockHeader) (*ChainTail, error) {
-	if len(blocks) == 0 {
-		return nil, fmt.Errorf("chain tail cannot be empty")
+const (
+	// ReorgTypeNormal indicates a regular reorg within finalized boundaries.
+	ReorgTypeNormal ReorgType = iota
+	// ReorgTypeFinalityViolation indicates a finality violation (critical error).
+	ReorgTypeFinalityViolation
+)
+
+// String returns the string representation of ReorgType.
+func (r ReorgType) String() string {
+	switch r {
+	case ReorgTypeNormal:
+		return "Normal"
+	case ReorgTypeFinalityViolation:
+		return "FinalityViolation"
+	default:
+		return "Unknown"
 	}
-
-	// Check for contiguous parent hashes and block numbers
-	firstBlockNumber := blocks[0].Number
-	blocksLen := uint64(len(blocks))
-
-	for i := uint64(1); i < blocksLen; i++ {
-		// Check that all blocks are present and in order (also catches duplicates)
-		expectedNumber := firstBlockNumber + i
-		if blocks[i].Number != expectedNumber {
-			return nil, fmt.Errorf("non-contiguous blocks at index %d: block %d should be %d",
-				i, blocks[i].Number, expectedNumber)
-		}
-
-		// Check declared parent hashes match
-		if blocks[i].ParentHash != blocks[i-1].Hash {
-			return nil, fmt.Errorf("non-contiguous blocks at index %d: block %d parent hash %s does not match previous block %d hash %s",
-				i, blocks[i].Number, blocks[i].ParentHash, blocks[i-1].Number, blocks[i-1].Hash)
-		}
-	}
-
-	return &ChainTail{blocks: blocks}, nil
 }
 
-// StableTip returns the oldest (finalized/stable) block header in the tail.
-func (t *ChainTail) StableTip() BlockHeader {
-	if len(t.blocks) == 0 {
-		return BlockHeader{}
-	}
-	return t.blocks[0]
-}
-
-// Tip returns the newest (latest) block header in the tail.
-func (t *ChainTail) Tip() BlockHeader {
-	if len(t.blocks) == 0 {
-		return BlockHeader{}
-	}
-	return t.blocks[len(t.blocks)-1]
-}
-
-// Contains checks if a block header exists in the tail (by number and hash).
-func (t *ChainTail) Contains(block BlockHeader) bool {
-	for _, b := range t.blocks {
-		if b.Number == block.Number && b.Hash == block.Hash {
-			return true
-		}
-	}
-	return false
-}
-
-// BlockByNumber retrieves a block header by its block number.
-// Returns nil if not found.
-func (t *ChainTail) BlockByNumber(num uint64) *BlockHeader {
-	for i := range t.blocks {
-		if t.blocks[i].Number == num {
-			return &t.blocks[i]
-		}
-	}
-	return nil
-}
-
-// Len returns the number of blocks in the tail.
-func (t *ChainTail) Len() int {
-	return len(t.blocks)
-}
-
-// Blocks returns a copy of all blocks in the tail (ordered from oldest to newest).
-func (t *ChainTail) Blocks() []BlockHeader {
-	blocks := make([]BlockHeader, len(t.blocks))
-	copy(blocks, t.blocks)
-	return blocks
-}
-
-// ChainStatusReorg indicates a regular reorg was detected.
-type ChainStatusReorg struct {
-	NewTail             ChainTail
-	CommonAncestorBlock uint64 // Block number of common ancestor for recovery
-}
-
-// ChainStatusFinalityViolated indicates a finality violation was detected (critical error).
-type ChainStatusFinalityViolated struct {
-	ViolatedBlock    BlockHeader // The finalized block that was reorged
-	NewTail          ChainTail   // The new chain tail showing correct state
-	SafeRestartBlock uint64      // Last known good block to restart from
+// ChainStatus represents a reorg or finality violation event.
+//
+// ResetToBlock usage:
+// - ReorgTypeNormal: Block number to reset to (common ancestor)
+// - ReorgTypeFinalityViolation: Always 0 (no safe reset point - requires immediate stop).
+type ChainStatus struct {
+	Type         ReorgType
+	ResetToBlock uint64 // Block number to reset to (0 for finality violations)
 }

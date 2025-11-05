@@ -50,3 +50,18 @@ type Service interface {
 
 	HealthReporter
 }
+
+// ReorgDetector monitors a blockchain for reorgs and finality violations.
+type ReorgDetector interface {
+	// Start initializes the detector by building the initial chain tail and subscribing to new blocks.
+	// Blocks until the initial tail is ready and subscription is established.
+	// The returned channel only receives messages when problems occur:
+	// - ReorgTypeNormal: A regular reorg was detected
+	// - ReorgTypeFinalityViolation: A finality violation was detected (critical error)
+	// Returns error if initial tail cannot be fetched or subscription fails.
+	// The returned channel is closed when the detector stops.
+	Start(ctx context.Context) (<-chan ChainStatus, error)
+
+	// Close stops the detector and closes the status channel.
+	Close() error
+}

@@ -1,10 +1,9 @@
 with-expecter: true
 
-dir: internal/verifier_mocks
+dir: mocks
 outpkg: verifier_mocks
 
 packages:
     github.com/smartcontractkit/chainlink-ccv/verifier:
         interfaces:
             SourceReader:
-            ChainStatusManager:
