@@ -1,4 +1,4 @@
-package test
+package verifier
 
 import (
 	"context"
@@ -7,26 +7,25 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
-// Verifier keeps track of all processed messages for testing.
-type Verifier struct {
-	processedTasks []verifier.VerificationTask
+// TestVerifier keeps track of all processed messages for testing.
+type TestVerifier struct {
+	processedTasks []VerificationTask
 	mu             sync.RWMutex
 }
 
-func NewVerifier() *Verifier {
-	return &Verifier{
-		processedTasks: make([]verifier.VerificationTask, 0),
+func NewTestVerifier() *TestVerifier {
+	return &TestVerifier{
+		processedTasks: make([]VerificationTask, 0),
 	}
 }
 
-func (t *Verifier) VerifyMessages(
+func (t *TestVerifier) VerifyMessages(
 	_ context.Context,
-	tasks []verifier.VerificationTask,
-	ccvDataBatcher *batcher.Batcher[verifier.CCVDataWithIdempotencyKey],
-) batcher.BatchResult[verifier.VerificationError] {
+	tasks []VerificationTask,
+	ccvDataBatcher *batcher.Batcher[CCVDataWithIdempotencyKey],
+) batcher.BatchResult[VerificationError] {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
 	t.mu.Unlock()
@@ -48,37 +47,37 @@ func (t *Verifier) VerifyMessages(
 			ReceiptBlobs:          verificationTask.ReceiptBlobs,
 		}
 
-		ccvDataWithKey := verifier.CCVDataWithIdempotencyKey{
+		ccvDataWithKey := CCVDataWithIdempotencyKey{
 			CCVData:        ccvData,
 			IdempotencyKey: verificationTask.IdempotencyKey,
 		}
 
 		if err := ccvDataBatcher.Add(ccvDataWithKey); err != nil {
 			// If context is canceled or batcher is closed, stop processing
-			return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
+			return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
 		}
 	}
 
 	// No errors in this test implementation
-	return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
+	return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
 }
 
-func (t *Verifier) GetProcessedTaskCount() int {
+func (t *TestVerifier) GetProcessedTaskCount() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return len(t.processedTasks)
 }
 
-func (t *Verifier) Reset() {
+func (t *TestVerifier) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.processedTasks = make([]verifier.VerificationTask, 0)
+	t.processedTasks = make([]VerificationTask, 0)
 }
 
-func (t *Verifier) GetProcessedTasks() []verifier.VerificationTask {
+func (t *TestVerifier) GetProcessedTasks() []VerificationTask {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return append([]verifier.VerificationTask(nil), t.processedTasks...)
+	return append([]VerificationTask(nil), t.processedTasks...)
 }
 
 // NoopStorage for testing.

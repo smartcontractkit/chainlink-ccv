@@ -1,4 +1,4 @@
-package test
+package verifier
 
 import (
 	"context"
@@ -10,10 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
-
-	verifiermocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 )
 
 // WaitForMessagesInStorage waits for the specified number of messages to be processed.
@@ -64,14 +61,14 @@ func CreateTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, 
 
 // MockSourceReaderSetup contains a mock source Reader and its Channel.
 type MockSourceReaderSetup struct {
-	Reader  *verifiermocks.MockSourceReader
-	Channel chan verifier.VerificationTask
+	Reader  *MockSourceReader
+	Channel chan VerificationTask
 }
 
 // SetupMockSourceReader creates a mock source Reader with expectations.
 func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
-	mockReader := verifiermocks.NewMockSourceReader(t)
-	channel := make(chan verifier.VerificationTask, 10)
+	mockReader := NewMockSourceReader(t)
+	channel := make(chan VerificationTask, 10)
 
 	now := time.Now().Unix()
 	//nolint:gosec // G115: This is a test setup.
@@ -84,8 +81,8 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 }
 
 func (msrs *MockSourceReaderSetup) ExpectVerificationTask(maybeVerificationTask bool) {
-	call := msrs.Reader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
-		var tasks []verifier.VerificationTask
+	call := msrs.Reader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]VerificationTask, error) {
+		var tasks []VerificationTask
 		for {
 			select {
 			case task := <-msrs.Channel:
@@ -99,3 +96,49 @@ func (msrs *MockSourceReaderSetup) ExpectVerificationTask(maybeVerificationTask 
 		call.Maybe()
 	}
 }
+
+// Test constants.
+const (
+	defaultDestChain = protocol.ChainSelector(100)
+)
+
+// mockReorgDetector is a simple mock that returns a channel we can control in tests.
+type mockReorgDetector struct {
+	statusCh chan protocol.ChainStatus
+}
+
+func newMockReorgDetector() *mockReorgDetector {
+	return &mockReorgDetector{
+		statusCh: make(chan protocol.ChainStatus, 10),
+	}
+}
+
+func (m *mockReorgDetector) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
+	return m.statusCh, nil
+}
+
+func (m *mockReorgDetector) Close() error {
+	close(m.statusCh)
+	return nil
+}
+
+// noopMonitoring is a simple noop monitoring implementation for tests.
+type noopMonitoring struct{}
+
+func (m *noopMonitoring) Metrics() MetricLabeler { return &noopMetricLabeler{} }
+
+type noopMetricLabeler struct{}
+
+func (m *noopMetricLabeler) With(keyValues ...string) MetricLabeler                                 { return m }
+func (m *noopMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration)    {}
+func (m *noopMetricLabeler) IncrementMessagesProcessed(ctx context.Context)                         {}
+func (m *noopMetricLabeler) IncrementMessagesVerificationFailed(ctx context.Context)                {}
+func (m *noopMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {}
+func (m *noopMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
+}
+func (m *noopMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {}
+func (m *noopMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64)                {}
+func (m *noopMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64)               {}
+func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                        {}
+func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
+func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
