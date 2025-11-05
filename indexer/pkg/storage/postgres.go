@@ -103,8 +103,6 @@ func (d *PostgresStorage) QueryCCVData(
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	fmt.Printf("QueryCCVData called with start=%s, end=%s, sourceChainSelectors=%v, destChainSelectors=%v, limit=%d, offset=%d\n", start.Format(time.RFC3339), end.Format(time.RFC3339), sourceChainSelectors, destChainSelectors, limit, offset)
-
 	// Build dynamic query with filters
 	query := `
 		SELECT 
