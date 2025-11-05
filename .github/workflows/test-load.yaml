@@ -61,6 +61,8 @@ jobs:
           DOCKER_BUILDKIT: 1
 
       - name: Run CCV environment
+        env:
+          JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
           cd cmd/ccv && go install . && cd -
           ccv u env.toml && ccv obs up
