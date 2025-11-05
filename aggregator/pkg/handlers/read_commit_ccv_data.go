@@ -42,6 +42,7 @@ func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadC
 
 	record, err := h.storage.GetCommitVerification(ctx, id)
 	if err != nil {
+		h.logger(ctx).Errorw("failed to get commit verification record", "address", id.Address, "error", err)
 		return nil, err
 	}
 
