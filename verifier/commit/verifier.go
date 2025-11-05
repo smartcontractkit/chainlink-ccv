@@ -168,7 +168,6 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 
 	var verifierBlob []byte
 	for _, receipt := range verificationTask.ReceiptBlobs {
-		cv.lggr.Infow("Checking receipt blob for source verifier", "issuer", receipt.Issuer.String(), "sourceVerifierAddress", sourceConfig.VerifierAddress.String())
 		if bytes.Equal(receipt.Issuer.Bytes(), sourceConfig.VerifierAddress.Bytes()) {
 			verifierBlob = receipt.Blob
 			break

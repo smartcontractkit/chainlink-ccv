@@ -141,6 +141,7 @@ func MapProtocolMessageToProtoMessage(m *protocol.Message) *pb.Message {
 		OffRampAddressLength: uint32(m.OffRampAddressLength),
 		OffRampAddress:       m.OffRampAddress,
 		Finality:             uint32(m.Finality),
+		GasLimit:             uint32(m.GasLimit),
 		SenderLength:         uint32(m.SenderLength),
 		Sender:               m.Sender,
 		ReceiverLength:       uint32(m.ReceiverLength),
