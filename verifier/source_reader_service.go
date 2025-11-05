@@ -131,19 +131,25 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 // Stop stops the reader and closes the messages channel.
 func (r *SourceReaderService) Stop() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if !r.isRunning {
+		r.mu.Unlock()
 		return nil // Already stopped
 	}
 
 	r.logger.Infow("🛑 Stopping SourceReaderService")
 
 	close(r.stopCh)
-	r.wg.Wait()
-	close(r.verificationTaskCh)
+	r.mu.Unlock()
 
+	// Wait for goroutine WITHOUT holding lock to avoid deadlock
+	// (event loop needs to acquire lock to finish its cycle)
+	r.wg.Wait()
+
+	// Re-acquire lock to update state
+	r.mu.Lock()
+	close(r.verificationTaskCh)
 	r.isRunning = false
+	r.mu.Unlock()
 
 	r.logger.Infow("✅ SourceReaderService stopped successfully")
 	return nil
@@ -223,7 +229,7 @@ func (r *SourceReaderService) ResetToBlock(ctx context.Context, block uint64) er
 	// Increment version to signal in-flight cycles that their read is stale
 	r.resetVersion.Add(1)
 
-	// Update to reset value
+	// Update to reset value (already holding lock from function entry)
 	r.lastProcessedBlock = resetBlock
 
 	return nil
@@ -239,10 +245,20 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, _, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
+	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
 		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
 		return fmt.Errorf("connectivity test failed: %w", err)
+	}
+	if finalized == nil {
+		r.logger.Warnw("⚠️ Connectivity test failed: finalized block is nil")
+		return fmt.Errorf("connectivity test failed: finalized block is nil")
+	}
+
+	_, err = r.sourceReader.BlockTime(testCtx, new(big.Int).SetUint64(finalized.Number))
+	if err != nil {
+		r.logger.Warnw("⚠️ Connectivity test failed during BlockTime call", "error", err)
+		return fmt.Errorf("connectivity test failed during BlockTime call: %w", err)
 	}
 
 	return nil
@@ -516,14 +532,20 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 	}()
 
 	// Initialize start block on first run
-	if r.lastProcessedBlock == nil {
+	r.mu.RLock()
+	needsInit := r.lastProcessedBlock == nil
+	r.mu.RUnlock()
+
+	if needsInit {
 		startBlock, err := r.initializeStartBlock(ctx)
 		if err != nil {
 			r.logger.Errorw("Failed to initialize start block", "error", err)
 			// Use fallback
 			startBlock = big.NewInt(1)
 		}
+		r.mu.Lock()
 		r.lastProcessedBlock = startBlock
+		r.mu.Unlock()
 		r.logger.Infow("Initialized start block", "block", startBlock.String())
 	}
 
@@ -642,8 +664,8 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		highestLogBlock := findHighestBlockInTasks(tasks)
 		processedToBlock = new(big.Int).Set(highestLogBlock)
 	} else {
-		// No logs - use current position
-		processedToBlock = new(big.Int).Set(r.lastProcessedBlock)
+		// No logs - use current position (fromBlock was captured under lock at cycle start)
+		processedToBlock = new(big.Int).Set(fromBlock)
 	}
 
 	// Always advance at least to finalized (stable across all RPC nodes)

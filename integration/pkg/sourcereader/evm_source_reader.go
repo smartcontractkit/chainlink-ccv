@@ -87,8 +87,6 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 		return nil, fmt.Errorf("failed to get finalized block: %w", err)
 	}
 
-	// If safe block not supported, safeBlockNum remains 0
-
 	headers := make(map[*big.Int]protocol.BlockHeader)
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
@@ -112,12 +110,6 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 // GetBlockHeaderByHash returns a block header by its hash.
 // Required for walking back parent chain during LCA finding in reorg detection.
 func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error) {
-	// Get current finalized block to populate FinalizedBlockNumber field
-	_, finalizedHeader, err := r.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get finalized block: %w", err)
-	}
-
 	// Convert protocol.Bytes32 to common.Hash
 	var ethHash common.Hash
 	copy(ethHash[:], hash[:])
@@ -135,12 +127,17 @@ func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protoco
 		return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 	}
 
+	finalizedBlockNum := header.LatestFinalizedHead().BlockNumber()
+	if finalizedBlockNum < 0 {
+		return nil, fmt.Errorf("finalized block number cannot be negative: %d", finalizedBlockNum)
+	}
+
 	return &protocol.BlockHeader{
 		Number:               uint64(header.Number),
 		Hash:                 protocol.Bytes32(header.Hash),
 		ParentHash:           protocol.Bytes32(header.ParentHash),
 		Timestamp:            header.Timestamp,
-		FinalizedBlockNumber: finalizedHeader.Number,
+		FinalizedBlockNumber: uint64(finalizedBlockNum),
 	}, nil
 }
 
