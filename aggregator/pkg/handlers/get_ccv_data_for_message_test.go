@@ -41,7 +41,7 @@ func buildCommittee(sourceSel, destSel uint64, sourceVerifierAddr, destVerifierA
 
 func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr, sigAddr, participantID string) *model.CommitAggregatedReport {
 	// minimal protocol message
-	msg, _ := protocol.NewMessage(protocol.ChainSelector(srcSel), protocol.ChainSelector(dstSel), protocol.Nonce(1), nil, nil, 0, nil, nil, []byte{}, []byte{}, nil)
+	msg, _ := protocol.NewMessage(protocol.ChainSelector(srcSel), protocol.ChainSelector(dstSel), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	// create one verification
 	ver := &model.CommitVerificationRecord{
 		MessageID:             msgID,
@@ -71,7 +71,7 @@ func TestGetCCVDataForMessageHandler_Handle_Cases(t *testing.T) {
 		sourceSel = uint64(1)
 		destSel   = uint64(2)
 	)
-	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, nil, nil, []byte{}, []byte{}, nil)
+	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	msgID, _ := msg.MessageID()
 
 	participantID := "p1"

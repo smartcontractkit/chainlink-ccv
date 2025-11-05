@@ -53,9 +53,9 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 		destSel   = uint64(2)
 	)
 	// two messages
-	m1, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, nil, nil, []byte{}, []byte{}, nil)
+	m1, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	m1ID, _ := m1.MessageID()
-	m2, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(2), nil, nil, 0, nil, nil, []byte{0x1}, []byte{}, nil)
+	m2, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(2), nil, nil, 0, 500_000, nil, nil, []byte{0x1}, []byte{}, nil)
 	m2ID, _ := m2.MessageID()
 
 	participantID := "p1"

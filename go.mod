@@ -28,11 +28,11 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.72
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251103193049-9f70bcf47551
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251103193049-9f70bcf47551
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251103193049-9f70bcf47551
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251103193049-9f70bcf47551
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251103193049-9f70bcf47551
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251105152019-100cb6808f51
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251105152019-100cb6808f51
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251105152019-100cb6808f51
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251105152019-100cb6808f51
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251105152019-100cb6808f51
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.56.0
 	github.com/smartcontractkit/chainlink-evm v0.3.3
