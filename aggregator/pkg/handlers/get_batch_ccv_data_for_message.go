@@ -1,17 +1,18 @@
+//nolint:goimports // unclear why this is firing
 package handlers
 
 import (
 	"context"
 
-	"google.golang.org/grpc/codes" //nolint:gci
+	"google.golang.org/grpc/codes"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger" //nolint:gci
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	ethcommon "github.com/ethereum/go-ethereum/common"                    //nolint:gci
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1" //nolint:gci
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	grpcstatus "google.golang.org/grpc/status"
 )
 
