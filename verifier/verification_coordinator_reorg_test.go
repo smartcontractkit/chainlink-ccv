@@ -223,6 +223,46 @@ func (s *reorgTestSetup) cleanup() {
 	s.cancel()
 }
 
+// assertSourceReaderChannelState verifies the state of the source reader's verification task channel.
+// When expectOpen is true, it asserts the channel is open (not closed).
+// When expectOpen is false, it asserts the channel is closed.
+func assertSourceReaderChannelState(t *testing.T, coordinator *verifier.Coordinator, chainSelector protocol.ChainSelector, expectOpen bool) {
+	t.Helper()
+
+	sourceReaderService := coordinator.GetSourceReaderService(chainSelector)
+	require.NotNil(t, sourceReaderService, "Source reader service should exist")
+
+	verificationTaskCh := sourceReaderService.VerificationTaskChannel()
+
+	// Try non-blocking receive - if channel is closed, we'll get ok=false immediately
+	select {
+	case _, ok := <-verificationTaskCh:
+		// Check if channel state matches expectation
+		if !ok {
+			// Channel is closed (ok=false)
+			if !expectOpen {
+				t.Log("✅ Source reader channel is closed as expected")
+			} else {
+				t.Fatal("Source reader channel is closed but expected to be open")
+			}
+		} else {
+			// Channel is open with data (ok=true)
+			if expectOpen {
+				t.Log("✅ Source reader channel is open (has pending data)")
+			} else {
+				t.Fatal("Source reader channel is open (has data) but expected to be closed")
+			}
+		}
+	case <-time.After(200 * time.Millisecond):
+		// Timeout means channel is open and blocking (no data available)
+		if expectOpen {
+			t.Log("✅ Source reader channel is open (no data, no closure)")
+		} else {
+			t.Fatal("Source reader channel is still open and not closed (expected closed)")
+		}
+	}
+}
+
 // TestReorgDetection_NormalReorg tests that a normal reorg is detected and handled correctly.
 // This test validates that:
 //  1. Tasks below the finalized block (98, 99) are processed successfully
@@ -326,7 +366,11 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	require.Equal(t, uint64(98), processedTasks[0].BlockNumber)
 	require.Equal(t, uint64(99), processedTasks[1].BlockNumber)
 
-	t.Log("✅ Test completed: Normal reorg handled correctly - finalized tasks processed, reorged tasks flushed")
+	// Verify source reader is still running by checking that its channel is NOT closed
+	t.Log("🔍 Verifying source reader still running after normal reorg...")
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
+
+	t.Log("✅ Test completed: Normal reorg handled correctly - source reader continues running")
 }
 
 // TestReorgDetection_FinalityViolation tests that a finality violation stops the chain reader.
@@ -402,5 +446,14 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	// All tasks should have been flushed, none processed
 	assert.Equal(t, 0, processedCount, "No tasks should be processed after finality violation")
 
-	t.Log("✅ Test completed: Finality violation handled correctly")
+	// Verify source reader has stopped by checking that its channel IS closed
+	t.Log("🔍 Verifying source reader stopped after finality violation...")
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
+
+	// Additionally verify no messages were stored
+	storedMsgCount := setup.storage.GetTotalCount()
+	assert.Equal(t, 0, storedMsgCount,
+		"No messages should be stored after finality violation")
+
+	t.Log("✅ Test completed: Finality violation handled correctly - source reader stopped")
 }
