@@ -9,17 +9,15 @@ import (
 	"os"
 	"strings"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
-
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
