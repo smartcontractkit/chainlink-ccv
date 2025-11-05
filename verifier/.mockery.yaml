@@ -1,9 +1,9 @@
 with-expecter: true
-
-dir: mocks
-outpkg: verifier_mocks
+inpackage: true
 
 packages:
-    github.com/smartcontractkit/chainlink-ccv/verifier:
-        interfaces:
-            SourceReader:
+  github.com/smartcontractkit/chainlink-ccv/verifier:
+    config:
+      dir: "{{.InterfaceDir}}"
+    interfaces:
+      SourceReader: {}

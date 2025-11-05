@@ -1,4 +1,4 @@
-package verifier_test
+package verifier
 
 // Integration tests for reorg detector and verification coordinator.
 //
@@ -33,50 +33,26 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
-	verifiermocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 )
-
-// mockReorgDetector is a simple mock that returns a channel we can control in tests.
-type mockReorgDetector struct {
-	statusCh chan protocol.ChainStatus
-}
-
-func newMockReorgDetector() *mockReorgDetector {
-	return &mockReorgDetector{
-		statusCh: make(chan protocol.ChainStatus, 10),
-	}
-}
-
-func (m *mockReorgDetector) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
-	return m.statusCh, nil
-}
-
-func (m *mockReorgDetector) Close() error {
-	close(m.statusCh)
-	return nil
-}
 
 // reorgTestSetup contains the test fixtures for reorg integration tests.
 type reorgTestSetup struct {
 	t                 *testing.T
 	ctx               context.Context
 	cancel            context.CancelFunc
-	coordinator       *verifier.Coordinator
-	mockSourceReader  *verifiermocks.MockSourceReader
+	coordinator       *Coordinator
+	mockSourceReader  *MockSourceReader
 	mockHeadTracker   *protocol_mocks.MockHeadTracker
 	mockReorgDetector *mockReorgDetector
-	testVerifier      *test.Verifier
+	testVerifier      *TestVerifier
 	storage           *common.InMemoryOffchainStorage
 	chainSelector     protocol.ChainSelector
 	lggr              logger.Logger
-	taskChannel       chan verifier.VerificationTask
+	taskChannel       chan VerificationTask
 
 	// Block state for simulating chain progression
 	currentLatest    *protocol.BlockHeader
@@ -127,7 +103,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	lggr := logger.Test(t)
 
 	// Create mocks using the test helper pattern
-	mockSetup := test.SetupMockSourceReader(t)
+	mockSetup := SetupMockSourceReader(t)
 	mockSetup.ExpectVerificationTask(false)
 
 	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
@@ -147,7 +123,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	}
 
 	// Create test verifier
-	testVer := test.NewVerifier()
+	testVer := NewTestVerifier()
 
 	setup := &reorgTestSetup{
 		t:                t,
@@ -178,9 +154,9 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	setup.mockReorgDetector = mrd
 
 	// Create coordinator configuration
-	coordinatorConfig := verifier.CoordinatorConfig{
+	coordinatorConfig := CoordinatorConfig{
 		VerifierID: "reorg-test-coordinator",
-		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
+		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
 			chainSelector: {
 				VerifierAddress: protocol.UnknownAddress("0x1234"),
 				PollInterval:    10 * time.Millisecond,
@@ -189,22 +165,22 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	}
 
 	// Create coordinator with all components
-	coordinator, err := verifier.NewCoordinator(
-		verifier.WithVerifier(setup.testVerifier),
-		verifier.WithStorage(setup.storage),
-		verifier.WithLogger(lggr),
-		verifier.WithConfig(coordinatorConfig),
-		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
+	coordinator, err := NewCoordinator(
+		WithVerifier(setup.testVerifier),
+		WithStorage(setup.storage),
+		WithLogger(lggr),
+		WithConfig(coordinatorConfig),
+		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
 			chainSelector: setup.mockSourceReader,
 		}),
-		verifier.WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
+		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
 			chainSelector: mockHeadTracker,
 		}),
-		verifier.WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{
+		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{
 			chainSelector: mrd,
 		}),
-		verifier.WithMonitoring(monitoring.NewNoopVerifierMonitoring()),
-		verifier.WithFinalityCheckInterval(finalityCheckInterval),
+		WithMonitoring(&noopMonitoring{}),
+		WithFinalityCheckInterval(finalityCheckInterval),
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator
@@ -221,6 +197,40 @@ func (s *reorgTestSetup) cleanup() {
 		}
 	}
 	s.cancel()
+}
+
+// assertSourceReaderChannelState verifies the state of the source reader's verification task channel.
+// When expectOpen is true, it asserts the channel is open (not closed).
+// When expectOpen is false, it asserts the channel is closed.
+func assertSourceReaderChannelState(t *testing.T, coordinator *Coordinator, chainSelector protocol.ChainSelector, expectOpen bool) {
+	t.Helper()
+
+	// Access internal sourceReaders map directly (we're in the same package)
+	coordinator.mu.RLock()
+	sourceReaderService := coordinator.sourceStates[chainSelector].reader
+	coordinator.mu.RUnlock()
+
+	require.NotNil(t, sourceReaderService, "Source reader service should not be nil")
+
+	verificationTaskCh := sourceReaderService.VerificationTaskChannel()
+
+	// Try non-blocking receive - if channel is closed, we'll get ok=false immediately
+	select {
+	case _, ok := <-verificationTaskCh:
+		if !ok {
+			// Channel is closed
+			require.False(t, expectOpen, "Source reader channel is closed but expected to be open")
+			t.Log("✅ Source reader channel is closed as expected")
+		} else {
+			// Channel is open with data
+			require.True(t, expectOpen, "Source reader channel is open (has data) but expected to be closed")
+			t.Log("✅ Source reader channel is open (has pending data)")
+		}
+	case <-time.After(200 * time.Millisecond):
+		// Timeout means channel is open and blocking (no data available)
+		require.True(t, expectOpen, "Source reader channel is still open but expected to be closed")
+		t.Log("✅ Source reader channel is open (no data, no closure)")
+	}
 }
 
 // TestReorgDetection_NormalReorg tests that a normal reorg is detected and handled correctly.
@@ -243,16 +253,16 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	// Create tasks at two ranges:
 	// - Tasks at blocks 98, 99: BELOW finalized block (100), should be PROCESSED
 	// - Tasks at blocks 101, 102: ABOVE finalized block (100), should be FLUSHED by reorg
-	finalizedTasks := []verifier.VerificationTask{
+	finalizedTasks := []VerificationTask{
 		{
-			Message:        test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			Message:        CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
 			BlockNumber:    98,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
 			CreatedAt:      time.Now(),
 			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:        test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
 			BlockNumber:    99,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
 			CreatedAt:      time.Now(),
@@ -260,16 +270,16 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 		},
 	}
 
-	pendingTasks := []verifier.VerificationTask{
+	pendingTasks := []VerificationTask{
 		{
-			Message:        test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
 			BlockNumber:    101,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
 			CreatedAt:      time.Now(),
 			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:        test.CreateTestMessage(t, 4, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 4, chainSelector, defaultDestChain, 0),
 			BlockNumber:    102,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt4")}},
 			CreatedAt:      time.Now(),
@@ -297,7 +307,7 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	// Wait for finalized tasks to be processed before triggering reorg
 	// Tasks at blocks 98, 99 should be processed since they're below finalized block 100
 	t.Log("📋 Waiting for finalized tasks (98, 99) to be processed...")
-	test.WaitForMessagesInStorage(setup.t, setup.storage, 2)
+	WaitForMessagesInStorage(setup.t, setup.storage, 2)
 	t.Log("✅ Finalized tasks (98, 99) have been processed")
 
 	// Inject a reorg event directly (LCA at block 100)
@@ -326,6 +336,9 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	require.Equal(t, uint64(98), processedTasks[0].BlockNumber)
 	require.Equal(t, uint64(99), processedTasks[1].BlockNumber)
 
+	// Verify that the source reader is still running (channel should be open)
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
+
 	t.Log("✅ Test completed: Normal reorg handled correctly - finalized tasks processed, reorged tasks flushed")
 }
 
@@ -342,23 +355,23 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	t.Log("✅ Coordinator started with reorg detector")
 
 	// Create tasks at blocks 98, 99, 100 (around finalized block)
-	tasks := []verifier.VerificationTask{
+	tasks := []VerificationTask{
 		{
-			Message:        test.CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			Message:        CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
 			BlockNumber:    98,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
 			CreatedAt:      time.Now(),
 			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:        test.CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
 			BlockNumber:    99,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
 			CreatedAt:      time.Now(),
 			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:        test.CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
 			BlockNumber:    100,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
 			CreatedAt:      time.Now(),
@@ -401,6 +414,9 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 
 	// All tasks should have been flushed, none processed
 	assert.Equal(t, 0, processedCount, "No tasks should be processed after finality violation")
+
+	// Verify that the source reader has been stopped (channel should be closed)
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
 
 	t.Log("✅ Test completed: Finality violation handled correctly")
 }
