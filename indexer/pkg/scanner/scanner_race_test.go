@@ -49,7 +49,7 @@ func TestScanner_Race_MultipleReadersConcurrent(t *testing.T) {
 
 	// Verify messages were stored by querying all data
 	assert.Eventually(t, func() bool {
-		results, err := setup.Storage.QueryCCVData(context.Background(), 0, time.Now().UnixMilli()+1000000, nil, nil, 1000, 0)
+		results, err := setup.Storage.QueryCCVData(context.Background(), time.UnixMilli(0), time.UnixMilli(time.Now().UnixMilli()+1000000), nil, nil, 1000, 0)
 		if err != nil {
 			return false
 		}
@@ -113,7 +113,7 @@ func TestScanner_Race_StorageWriteConcurrency(t *testing.T) {
 	// If there's a race condition, the test will fail with -race flag
 	expectedMessages := numReaders * messagesPerReader
 	require.Eventually(t, func() bool {
-		results, err := setup.Storage.QueryCCVData(context.Background(), 0, time.Now().UnixMilli()+1000000, nil, nil, 1000, 0)
+		results, err := setup.Storage.QueryCCVData(context.Background(), time.UnixMilli(0), time.UnixMilli(time.Now().UnixMilli()+1000000), nil, nil, 1000, 0)
 		if err != nil {
 			return false
 		}
@@ -226,7 +226,7 @@ func TestScanner_Race_ChannelOperations(t *testing.T) {
 	// Wait for readers to start processing and produce messages
 	// Readers may disconnect quickly, so check for message storage instead
 	require.Eventually(t, func() bool {
-		results, err := setup.Storage.QueryCCVData(context.Background(), 0, time.Now().UnixMilli()+1000000, nil, nil, 100, 0)
+		results, err := setup.Storage.QueryCCVData(context.Background(), time.UnixMilli(0), time.UnixMilli(time.Now().UnixMilli()+1000000), nil, nil, 100, 0)
 		if err != nil {
 			return false
 		}
@@ -351,7 +351,7 @@ func TestScanner_Race_ContextCancellationDuringProcessing(t *testing.T) {
 	// Wait for readers to start processing and produce some messages
 	// (readers may disconnect quickly, so check for message storage)
 	require.Eventually(t, func() bool {
-		results, err := setup.Storage.QueryCCVData(context.Background(), 0, time.Now().UnixMilli()+1000000, nil, nil, 100, 0)
+		results, err := setup.Storage.QueryCCVData(context.Background(), time.UnixMilli(0), time.UnixMilli(time.Now().UnixMilli()+1000000), nil, nil, 100, 0)
 		if err != nil {
 			return false
 		}

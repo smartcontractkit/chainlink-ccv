@@ -44,7 +44,7 @@ func TestInMemoryStorage_Race_ConcurrentInserts(t *testing.T) {
 	wg.Wait()
 
 	// Verify all data was inserted correctly
-	results, err := storage.QueryCCVData(ctx, 0, 99999, nil, nil, 1000, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(99999), nil, nil, 1000, 0)
 	require.NoError(t, err)
 	assert.Equal(t, numGoroutines*insertsPerGoroutine, len(results))
 }
@@ -126,7 +126,7 @@ func TestInMemoryStorage_Race_ConcurrentQueries(t *testing.T) {
 					destChains = []protocol.ChainSelector{protocol.ChainSelector((goroutineID + 1) % 5)}
 				}
 
-				results, err := storage.QueryCCVData(ctx, start, end, sourceChains, destChains, 50, 0)
+				results, err := storage.QueryCCVData(ctx, time.UnixMilli(start), time.UnixMilli(end), sourceChains, destChains, 50, 0)
 				assert.NoError(t, err)
 				assert.NotNil(t, results)
 			}
@@ -167,7 +167,7 @@ func TestInMemoryStorage_Race_MixedReadsAndWrites(t *testing.T) {
 					assert.NoError(t, err)
 				} else {
 					// Read
-					results, err := storage.QueryCCVData(ctx, 0, 99999, nil, nil, 10, uint64(goroutineID%5))
+					results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(99999), nil, nil, 10, uint64(goroutineID%5))
 					assert.NoError(t, err)
 					assert.NotNil(t, results)
 				}
@@ -178,7 +178,7 @@ func TestInMemoryStorage_Race_MixedReadsAndWrites(t *testing.T) {
 	wg.Wait()
 
 	// Verify storage is still consistent
-	results, err := storage.QueryCCVData(ctx, 0, 99999, nil, nil, 1000, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(99999), nil, nil, 1000, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, results)
 }
@@ -224,7 +224,7 @@ func TestInMemoryStorage_Race_HeavyConcurrentLoad(t *testing.T) {
 					start := int64(1000 + readerID*50)
 					end := start + 5000
 					sourceChains := []protocol.ChainSelector{protocol.ChainSelector(readerID % 5)}
-					results, err := storage.QueryCCVData(ctx, start, end, sourceChains, nil, 20, 0)
+					results, err := storage.QueryCCVData(ctx, time.UnixMilli(start), time.UnixMilli(end), sourceChains, nil, 20, 0)
 					assert.NoError(t, err)
 					assert.NotNil(t, results)
 				} else {
@@ -241,7 +241,7 @@ func TestInMemoryStorage_Race_HeavyConcurrentLoad(t *testing.T) {
 	wg.Wait()
 
 	// Final verification
-	results, err := storage.QueryCCVData(ctx, 0, 99999, nil, nil, 1000, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(99999), nil, nil, 1000, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, results)
 }
@@ -345,7 +345,7 @@ func TestInMemoryStorage_Race_ChainSelectorIndexesUnderConcurrency(t *testing.T)
 	// Verify chain selector queries work correctly
 	for chainID := 0; chainID < 5; chainID++ {
 		sourceChains := []protocol.ChainSelector{protocol.ChainSelector(chainID)}
-		results, err := storage.QueryCCVData(ctx, 0, 99999, sourceChains, nil, 1000, 0)
+		results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(99999), sourceChains, nil, 1000, 0)
 		require.NoError(t, err)
 		assert.NotEmpty(t, results, "Should find results for chain selector %d", chainID)
 	}
@@ -386,7 +386,7 @@ func TestInMemoryStorage_Race_PaginationUnderConcurrency(t *testing.T) {
 				for j := 0; j < 10; j++ {
 					limit := uint64(5)
 					offset := uint64(j * 5)
-					results, err := storage.QueryCCVData(ctx, 0, 99999, nil, nil, limit, offset)
+					results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(99999), nil, nil, limit, offset)
 					assert.NoError(t, err)
 					assert.NotNil(t, results)
 					// Results can vary in size due to concurrent inserts, which is expected
@@ -432,7 +432,7 @@ func TestInMemoryStorage_Race_ContextCancellation(t *testing.T) {
 
 	// Verify storage is still in a consistent state
 	freshCtx := context.Background()
-	results, err := storage.QueryCCVData(freshCtx, 0, 99999, nil, nil, 1000, 0)
+	results, err := storage.QueryCCVData(freshCtx, time.UnixMilli(0), time.UnixMilli(99999), nil, nil, 1000, 0)
 	require.NoError(t, err)
 	assert.NotNil(t, results)
 }
