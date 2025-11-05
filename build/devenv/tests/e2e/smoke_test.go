@@ -257,54 +257,81 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
-		tcs := []struct {
-			name    string
-			src     uint64
-			dest    uint64
-			amount  *big.Int
-			timeout time.Duration
-		}{
+		type tokenTransferTestCase struct {
+			name                    string
+			src                     uint64
+			dest                    uint64
+			amount                  *big.Int
+			tokenQualifier          string
+			expectedReceiptIssuers  int
+			expectedVerifierResults int
+		}
+
+		tcs := []tokenTransferTestCase{
 			{
-				name:    "burn&mint EOA executes; receiver increases; sender decreases",
-				src:     selectors[0],
-				dest:    selectors[1],
-				amount:  big.NewInt(1000),
-				timeout: 45 * time.Second,
+				name:                    "burn&mint EOA executes; receiver increases; sender decreases (TEST)",
+				src:                     selectors[0],
+				dest:                    selectors[1],
+				amount:                  big.NewInt(1000),
+				tokenQualifier:          "TEST",
+				expectedReceiptIssuers:  3,
+				expectedVerifierResults: 1,
+			},
+			{
+				name:                    "burn&mint EOA executes; receiver increases; sender decreases; default is required (NOCCV)",
+				src:                     selectors[0],
+				dest:                    selectors[1],
+				amount:                  big.NewInt(1000),
+				tokenQualifier:          "NOCCV",
+				expectedReceiptIssuers:  3,
+				expectedVerifierResults: 1,
+			},
+			{
+				name:                    "burn&mint EOA executes; receiver increases; sender decreases; default and secondary are required (SECONDARY)",
+				src:                     selectors[0],
+				dest:                    selectors[1],
+				amount:                  big.NewInt(1000),
+				tokenQualifier:          "SECONDARY",
+				expectedReceiptIssuers:  4,
+				expectedVerifierResults: 2,
+			},
+			{
+				name:                    "burn&mint EOA executes; receiver increases; sender decreases (DUAL)",
+				src:                     selectors[0],
+				dest:                    selectors[1],
+				amount:                  big.NewInt(1000),
+				tokenQualifier:          "DUAL",
+				expectedReceiptIssuers:  4,
+				expectedVerifierResults: 2,
 			},
 		}
+
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				receiver := mustGetEOAReceiverAddress(t, c, tc.dest)
-				// Sender is the chain deployer key used by the env
 				sender := protocol.UnknownAddress(e.BlockChains.EVMChains()[tc.src].DeployerKey.From.Bytes())
 
-				// Resolve token on src and dest chains
-				srcToken := getContractAddress(t, in, tc.src,
-					datastore.ContractType(burn_mint_erc677.ContractType),
-					burn_mint_erc677.Deploy.Version(),
-					"TEST",
-					"burn mint erc677",
-				)
-				destToken := getContractAddress(t, in, tc.dest,
-					datastore.ContractType(burn_mint_erc677.ContractType),
-					burn_mint_erc677.Deploy.Version(),
-					"TEST",
-					"burn mint erc677",
-				)
+				srcToken := getTokenAddress(t, in, tc.src, tc.tokenQualifier)
+				destToken := getTokenAddress(t, in, tc.dest, tc.tokenQualifier)
 
-				// Record receiver start balance (dest) and sender start balance (src)
 				startBal, err := c.GetTokenBalance(ctx, tc.dest, receiver, destToken)
 				require.NoError(t, err)
-				l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Msg("receiver start balance")
+				l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", tc.tokenQualifier).Msg("receiver start balance")
+
 				srcStartBal, err := c.GetTokenBalance(ctx, tc.src, sender, srcToken)
 				require.NoError(t, err)
-				l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Msg("sender start balance")
+				l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", tc.tokenQualifier).Msg("sender start balance")
 
 				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.src, tc.dest)
 				require.NoError(t, err)
-				l.Info().Uint64("SeqNo", seqNo).Msg("expecting sequence number")
+				l.Info().Uint64("SeqNo", seqNo).Str("Token", tc.tokenQualifier).Msg("expecting sequence number")
 
-				// Send v3 message with one token amount
+				messageOptions := cciptestinterfaces.MessageOptions{
+					Version:        3,
+					FinalityConfig: 1,
+					Executor:       getContractAddress(t, in, tc.src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
+				}
+
 				sendRes, err := c.SendMessage(
 					ctx, tc.src, tc.dest,
 					cciptestinterfaces.MessageFields{
@@ -314,36 +341,28 @@ func TestE2ESmoke(t *testing.T) {
 							TokenAddress: srcToken,
 						}},
 					},
-					cciptestinterfaces.MessageOptions{
-						Version:        3,
-						FinalityConfig: 1, // finalized
-						Executor:       getContractAddress(t, in, tc.src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
-						CCVs: []protocol.CCV{{
-							CCVAddress: getContractAddress(t, in, tc.src, datastore.ContractType(committee_verifier.ProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-						}},
-					},
+					messageOptions,
 				)
 				require.NoError(t, err)
 				require.NotNil(t, sendRes)
-				require.Len(t, sendRes.ReceiptIssuers, 3, "expected 3 receipt issuers (default executor, default committee verifier and token contract)")
+				require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, tc.tokenQualifier)
 
 				sentEvt, err := c.WaitOneSentEventBySeqNo(ctx, tc.src, tc.dest, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
 				msgID := sentEvt.MessageID
 
-				// Assert verifier publishes within timeout and aggregation succeeds
 				testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
 				res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
-					Timeout:                 tc.timeout,
-					ExpectedVerifierResults: 1,
+					Timeout:                 45 * time.Second,
+					ExpectedVerifierResults: tc.expectedVerifierResults,
 					AssertVerifierLogs:      false,
 					AssertExecutorLogs:      false,
 				})
 				require.NoError(t, err)
 				require.NotNil(t, res.AggregatedResult)
 
-				execEvt, err := c.WaitOneExecEventBySeqNo(ctx, tc.src, tc.dest, seqNo, tc.timeout)
+				execEvt, err := c.WaitOneExecEventBySeqNo(ctx, tc.src, tc.dest, seqNo, 45*time.Second)
 				require.NoError(t, err)
 				require.NotNil(t, execEvt)
 				require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
@@ -351,12 +370,12 @@ func TestE2ESmoke(t *testing.T) {
 				endBal, err := c.GetTokenBalance(ctx, tc.dest, receiver, destToken)
 				require.NoError(t, err)
 				require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), tc.amount), endBal)
-				l.Info().Uint64("EndBalance", endBal.Uint64()).Msg("receiver end balance")
+				l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", tc.tokenQualifier).Msg("receiver end balance")
 
 				srcEndBal, err := c.GetTokenBalance(ctx, tc.src, sender, srcToken)
 				require.NoError(t, err)
 				require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.amount), srcEndBal)
-				l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Msg("sender end balance")
+				l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", tc.tokenQualifier).Msg("sender end balance")
 			})
 		}
 	})
@@ -375,6 +394,14 @@ func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, con
 	require.NoErrorf(t, err, "failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s",
 		contractName, chainSelector, contractType, version)
 	return protocol.UnknownAddress(common.HexToAddress(ref.Address).Bytes())
+}
+
+func getTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, qualifier string) protocol.UnknownAddress {
+	return getContractAddress(t, ccvCfg, chainSelector,
+		datastore.ContractType(burn_mint_erc677.ContractType),
+		burn_mint_erc677.Deploy.Version(),
+		qualifier,
+		"burn mint erc677")
 }
 
 func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvEvm.CCIP17EVM) []testcase {

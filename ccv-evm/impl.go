@@ -73,7 +73,31 @@ const (
 	QuaternaryReceiverQualifier = "quaternary"
 
 	CommitteeVerifierGasForVerification = 500_000
+
+	TokenPoolVersion    = "1.7.0"
+	RegistryVersion     = "1.5.0"
+	CommitteeVersion    = "1.7.0"
+	TokenAdapterVersion = "1.7.0"
+
+	TokenMaxSupply       = "100000000000000000000000000000"
+	TokenDeployerBalance = "1000000000000000000000000000"
+	RouterVersion        = "1.2.0"
+	DefaultDecimals      = 18
 )
+
+type TokenConfig struct {
+	Name          string
+	Symbol        string
+	Decimals      uint8
+	ccvQualifiers []string
+}
+
+var tokenConfigs = map[string]TokenConfig{
+	"TEST":      {Name: "Test Token", Symbol: "TEST", Decimals: DefaultDecimals, ccvQualifiers: []string{DefaultCommitteeVerifierQualifier}},
+	"DUAL":      {Name: "Dual Token", Symbol: "DUAL", Decimals: DefaultDecimals, ccvQualifiers: []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier}},
+	"NOCCV":     {Name: "No CCV", Symbol: "NOCCV", Decimals: DefaultDecimals, ccvQualifiers: []string{}},
+	"SECONDARY": {Name: "Secondary CCV", Symbol: "SECONDARY", Decimals: DefaultDecimals, ccvQualifiers: []string{SecondaryCommitteeVerifierQualifier}},
+}
 
 var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
@@ -531,7 +555,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get destination family: %w", err)
 	}
 
-	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse("1.2.0"), ""))
+	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(RouterVersion), ""))
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get router address: %w", err)
 	}
@@ -920,11 +944,6 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		return nil, errors.New("failed to parse USDPerWETH")
 	}
 
-	chain, ok := env.BlockChains.EVMChains()[selector]
-	if !ok {
-		return nil, fmt.Errorf("evm chain not found for selector %d", selector)
-	}
-
 	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
 	out, err := changesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployChainContractsCfg]{
 		Cfg: changesets.DeployChainContractsCfg{
@@ -1071,48 +1090,74 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	}
 	env.DataStore = runningDS.Seal()
 
-	// Deploy token & token pool, minting funds to the chain's deployer key.
-	maxSupply, ok := big.NewInt(0).SetString("100000000000000000000000000000", 10) // 100 billion tokens
-	if !ok {
-		return nil, errors.New("failed to parse max supply")
+	for symbol := range tokenConfigs {
+		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, symbol); err != nil {
+			return nil, fmt.Errorf("failed to deploy %s token: %w", symbol, err)
+		}
 	}
-	deployerBalance, ok := big.NewInt(0).SetString("1000000000000000000000000000", 10) // 1 billion tokens
-	if !ok {
-		return nil, errors.New("failed to parse deployer balance")
+
+	return runningDS.Seal(), nil
+}
+
+func (m *CCIP17EVM) deployTokenAndPool(
+	env *deployment.Environment,
+	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
+	runningDS *datastore.MemoryDataStore,
+	selector uint64,
+	tokenSymbol string,
+) error {
+	config, exists := tokenConfigs[tokenSymbol]
+	if !exists {
+		return fmt.Errorf("unknown token symbol: %s", tokenSymbol)
 	}
-	out, err = changesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployBurnMintTokenAndPoolCfg]{
+
+	chain, ok := env.BlockChains.EVMChains()[selector]
+	if !ok {
+		return fmt.Errorf("evm chain not found for selector %d", selector)
+	}
+
+	maxSupply, ok := big.NewInt(0).SetString(TokenMaxSupply, 10)
+	if !ok {
+		return errors.New("failed to parse max supply")
+	}
+	deployerBalance, ok := big.NewInt(0).SetString(TokenDeployerBalance, 10)
+	if !ok {
+		return errors.New("failed to parse deployer balance")
+	}
+
+	out, err := changesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployBurnMintTokenAndPoolCfg]{
 		Cfg: changesets.DeployBurnMintTokenAndPoolCfg{
 			Accounts: map[common.Address]*big.Int{
 				chain.DeployerKey.From: deployerBalance,
 			},
 			TokenInfo: tokens.TokenInfo{
-				Name:      "Test Token",
-				Decimals:  18,
+				Name:      config.Name,
+				Decimals:  config.Decimals,
 				MaxSupply: maxSupply,
 			},
 			DeployTokenPoolCfg: changesets.DeployTokenPoolCfg{
 				ChainSel:           selector,
 				TokenPoolType:      datastore.ContractType(burn_mint_token_pool.ContractType),
-				TokenPoolVersion:   semver.MustParse("1.7.0"),
-				TokenSymbol:        "TEST",
-				LocalTokenDecimals: 18,
+				TokenPoolVersion:   semver.MustParse(TokenPoolVersion),
+				TokenSymbol:        config.Symbol,
+				LocalTokenDecimals: config.Decimals,
 				Router: datastore.AddressRef{
 					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse("1.2.0"),
+					Version: semver.MustParse(RouterVersion),
 				},
 			},
 		},
 	})
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenSymbol, err)
 	}
+
 	err = runningDS.Merge(out.DataStore.Seal())
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to merge datastore for %s token: %w", tokenSymbol, err)
 	}
-	env.DataStore = runningDS.Seal()
 
-	return runningDS.Seal(), nil
+	return nil
 }
 
 func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error) {
@@ -1129,6 +1174,71 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 		return 0, fmt.Errorf("failed to get dest chain config: %w", err)
 	}
 	return destChainConfig.MaxDataBytes, nil
+}
+
+func (m *CCIP17EVM) configureTokenForTransfer(
+	e *deployment.Environment,
+	tokenAdapterRegistry *tokenscore.TokenAdapterRegistry,
+	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
+	selector uint64,
+	remoteSelectors []uint64,
+	tokenSymbol string,
+	ccvQualifiers []string,
+) error {
+	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
+	for _, rs := range remoteSelectors {
+		ccvRefs := make([]datastore.AddressRef, 0, len(ccvQualifiers))
+		for _, qualifier := range ccvQualifiers {
+			ccvRefs = append(ccvRefs, datastore.AddressRef{
+				Type:      datastore.ContractType(committee_verifier.ProxyType),
+				Version:   semver.MustParse(CommitteeVersion),
+				Qualifier: qualifier,
+			})
+		}
+
+		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
+			RemotePool: &datastore.AddressRef{
+				Type:      datastore.ContractType(burn_mint_token_pool.ContractType),
+				Version:   semver.MustParse(TokenPoolVersion),
+				Qualifier: tokenSymbol,
+			},
+			InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+				IsEnabled: false,
+				Capacity:  big.NewInt(0),
+				Rate:      big.NewInt(0),
+			},
+			OutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+				IsEnabled: false,
+				Capacity:  big.NewInt(0),
+				Rate:      big.NewInt(0),
+			},
+			OutboundCCVs: ccvRefs,
+			InboundCCVs:  ccvRefs,
+		}
+	}
+
+	_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+		Tokens: []tokenscore.TokenTransferConfig{
+			{
+				ChainSelector: selector,
+				TokenPoolRef: datastore.AddressRef{
+					Type:      datastore.ContractType(burn_mint_token_pool.ContractType),
+					Version:   semver.MustParse(TokenPoolVersion),
+					Qualifier: tokenSymbol,
+				},
+				RegistryRef: datastore.AddressRef{
+					Type:    datastore.ContractType(token_admin_registry.ContractType),
+					Version: semver.MustParse(RegistryVersion),
+				},
+				RemoteChains: tokensRemoteChains,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to configure %s tokens for transfers: %w", tokenSymbol, err)
+	}
+
+	return nil
 }
 
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
@@ -1226,60 +1336,14 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		return err
 	}
 
-	// Configure TEST token for transfer
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
-	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse("1.7.0"), &adapters.TokenAdapter{})
-	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
-	for _, rs := range remoteSelectors {
-		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-			RemotePool: &datastore.AddressRef{
-				Type:    datastore.ContractType(burn_mint_token_pool.ContractType),
-				Version: semver.MustParse("1.7.0"),
-			},
-			InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
-				IsEnabled: false,
-				Capacity:  big.NewInt(0),
-				Rate:      big.NewInt(0),
-			},
-			OutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
-				IsEnabled: false,
-				Capacity:  big.NewInt(0),
-				Rate:      big.NewInt(0),
-			},
-			OutboundCCVs: []datastore.AddressRef{
-				{
-					Type:      datastore.ContractType(committee_verifier.ProxyType),
-					Version:   semver.MustParse("1.7.0"),
-					Qualifier: DefaultCommitteeVerifierQualifier,
-				},
-			},
-			InboundCCVs: []datastore.AddressRef{
-				{
-					Type:      datastore.ContractType(committee_verifier.ProxyType),
-					Version:   semver.MustParse("1.7.0"),
-					Qualifier: DefaultCommitteeVerifierQualifier,
-				},
-			},
+	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(TokenAdapterVersion), &adapters.TokenAdapter{})
+
+	for symbol, config := range tokenConfigs {
+		l.Info().Str("Token", symbol).Msg("Configuring token for transfer")
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, symbol, config.ccvQualifiers); err != nil {
+			return fmt.Errorf("failed to configure %s tokens for transfers: %w", symbol, err)
 		}
-	}
-	_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-		Tokens: []tokenscore.TokenTransferConfig{
-			{
-				ChainSelector: selector,
-				TokenPoolRef: datastore.AddressRef{
-					Type:    datastore.ContractType(burn_mint_token_pool.ContractType),
-					Version: semver.MustParse("1.7.0"),
-				},
-				RegistryRef: datastore.AddressRef{
-					Type:    datastore.ContractType(token_admin_registry.ContractType),
-					Version: semver.MustParse("1.5.0"),
-				},
-				RemoteChains: tokensRemoteChains,
-			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to configure tokens for transfers: %w", err)
 	}
 
 	return nil
