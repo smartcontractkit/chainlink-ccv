@@ -15,6 +15,8 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
@@ -60,6 +62,7 @@ const (
 
 type Cfg struct {
 	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
+	JD                 *jd.Input                   `toml:"jd" validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
 	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
@@ -150,6 +153,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	_, err = services.NewIndexer(in.Indexer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
+	}
+	
+	
+	_, err = jd.NewJD(in.JD)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JD service: %w", err)
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")
