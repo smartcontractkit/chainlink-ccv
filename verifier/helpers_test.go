@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 )
 
@@ -73,7 +73,7 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 	channel := make(chan VerificationTask, 10)
 
 	now := time.Now().Unix()
-	//nolint:gosec // G115: This is a test setup.
+
 	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
 
 	return &MockSourceReaderSetup{

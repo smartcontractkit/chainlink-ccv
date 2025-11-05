@@ -217,29 +217,19 @@ func assertSourceReaderChannelState(t *testing.T, coordinator *Coordinator, chai
 	// Try non-blocking receive - if channel is closed, we'll get ok=false immediately
 	select {
 	case _, ok := <-verificationTaskCh:
-		// Check if channel state matches expectation
 		if !ok {
-			// Channel is closed (ok=false)
-			if !expectOpen {
-				t.Log("✅ Source reader channel is closed as expected")
-			} else {
-				t.Fatal("Source reader channel is closed but expected to be open")
-			}
+			// Channel is closed
+			require.False(t, expectOpen, "Source reader channel is closed but expected to be open")
+			t.Log("✅ Source reader channel is closed as expected")
 		} else {
-			// Channel is open with data (ok=true)
-			if expectOpen {
-				t.Log("✅ Source reader channel is open (has pending data)")
-			} else {
-				t.Fatal("Source reader channel is open (has data) but expected to be closed")
-			}
+			// Channel is open with data
+			require.True(t, expectOpen, "Source reader channel is open (has data) but expected to be closed")
+			t.Log("✅ Source reader channel is open (has pending data)")
 		}
 	case <-time.After(200 * time.Millisecond):
 		// Timeout means channel is open and blocking (no data available)
-		if expectOpen {
-			t.Log("✅ Source reader channel is open (no data, no closure)")
-		} else {
-			t.Fatal("Source reader channel is still open and not closed (expected closed)")
-		}
+		require.True(t, expectOpen, "Source reader channel is still open but expected to be closed")
+		t.Log("✅ Source reader channel is open (no data, no closure)")
 	}
 }
 
