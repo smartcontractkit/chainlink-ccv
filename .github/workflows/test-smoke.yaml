@@ -63,7 +63,7 @@ jobs:
       - name: Run CCV environment
         run: |
           cd cmd/ccv && go install . && cd -
-          ccv u env.toml,env-jd-ci.toml && ccv obs up
+          ccv u env.toml && ccv obs up
 
       - name: Run smoke tests
         id: smoke_test

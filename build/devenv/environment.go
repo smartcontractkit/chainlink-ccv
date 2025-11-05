@@ -155,7 +155,11 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 	
+	prodJDImage := os.Getenv("JD_IMAGE")
 	
+	if prodJDImage != "" {
+		in.JD.Image = prodJDImage
+	}
 	_, err = jd.NewJD(in.JD)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JD service: %w", err)
