@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	MAX_GAP_BLOCKS       = 10 // Maximum allowed gap in blocks before rebuilding entire tail
-	DEFULT_POLL_INTERVAL = 2000 * time.Millisecond
+	MAX_GAP_BLOCKS        = 10 // Maximum allowed gap in blocks before rebuilding entire tail
+	DEFAULT_POLL_INTERVAL = 2000 * time.Millisecond
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -115,7 +115,7 @@ func NewReorgDetectorService(
 	pollInterval := config.PollInterval
 	// Default 2 seconds
 	if pollInterval == 0 {
-		pollInterval = DEFULT_POLL_INTERVAL
+		pollInterval = DEFAULT_POLL_INTERVAL
 	}
 
 	return &ReorgDetectorService{
@@ -160,11 +160,7 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 		"chainSelector", r.config.ChainSelector,
 		"pollInterval", r.pollInterval)
 
-	// Build initial tail (unlock during I/O-bound operation)
-	r.mu.Unlock()
 	err := r.buildEntireTail(ctx)
-	r.mu.Lock()
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to build initial tail: %w", err)
 	}
@@ -688,6 +684,7 @@ func (r *ReorgDetectorService) Close() error {
 	// Signal cancellation
 	r.cancel()
 	r.running = false
+	// Unlock to prevent deadlock with goroutine if it tries to acquire lock
 	r.mu.Unlock()
 
 	// Wait for goroutines without holding lock
