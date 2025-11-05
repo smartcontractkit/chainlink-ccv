@@ -205,8 +205,12 @@ func (s *reorgTestSetup) cleanup() {
 func assertSourceReaderChannelState(t *testing.T, coordinator *Coordinator, chainSelector protocol.ChainSelector, expectOpen bool) {
 	t.Helper()
 
-	sourceReaderService := coordinator.GetSourceReaderService(chainSelector)
-	require.NotNil(t, sourceReaderService, "Source reader service should exist")
+	// Access internal sourceReaders map directly (we're in the same package)
+	coordinator.mu.RLock()
+	sourceReaderService := coordinator.sourceStates[chainSelector].reader
+	coordinator.mu.RUnlock()
+
+	require.NotNil(t, sourceReaderService, "Source reader service should not be nil")
 
 	verificationTaskCh := sourceReaderService.VerificationTaskChannel()
 
@@ -342,6 +346,9 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	require.Equal(t, uint64(98), processedTasks[0].BlockNumber)
 	require.Equal(t, uint64(99), processedTasks[1].BlockNumber)
 
+	// Verify that the source reader is still running (channel should be open)
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
+
 	t.Log("✅ Test completed: Normal reorg handled correctly - finalized tasks processed, reorged tasks flushed")
 }
 
@@ -417,6 +424,9 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 
 	// All tasks should have been flushed, none processed
 	assert.Equal(t, 0, processedCount, "No tasks should be processed after finality violation")
+
+	// Verify that the source reader has been stopped (channel should be closed)
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
 
 	t.Log("✅ Test completed: Finality violation handled correctly")
 }

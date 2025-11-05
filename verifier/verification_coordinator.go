@@ -1062,16 +1062,3 @@ func (vc *Coordinator) isMessageReadyForVerification(
 	}
 	return ready, nil
 }
-
-// GetSourceReaderService returns the SourceReaderService for a given chain selector.
-// This is a test helper method to allow tests to verify reader state.
-func (vc *Coordinator) GetSourceReaderService(chainSelector protocol.ChainSelector) *SourceReaderService {
-	vc.mu.RLock()
-	defer vc.mu.RUnlock()
-
-	state, exists := vc.sourceStates[chainSelector]
-	if !exists {
-		return nil
-	}
-	return state.reader
-}
