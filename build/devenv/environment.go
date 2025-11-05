@@ -62,7 +62,7 @@ const (
 
 type Cfg struct {
 	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
-	JD                 *jd.Input                   `toml:"jd" validate:"required"`
+	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
 	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
@@ -154,9 +154,9 @@ func NewEnvironment() (in *Cfg, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
-	
+
 	prodJDImage := os.Getenv("JD_IMAGE")
-	
+
 	if prodJDImage != "" {
 		in.JD.Image = prodJDImage
 	}
