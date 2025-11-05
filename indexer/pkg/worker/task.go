@@ -1,0 +1,144 @@
+package worker
+
+import (
+	"context"
+	"slices"
+	"sync"
+
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+type Task struct {
+	ctx       context.Context
+	logger    logger.Logger
+	messageID protocol.Bytes32
+	message   protocol.Message
+	registry  *registry.VerifierRegistry
+	storage   common.IndexerStorage
+}
+
+type TaskResult struct {
+	MissingVerifiers    int
+	SuccessfulVerifiers int
+	FailedVerifiers     int
+}
+
+func NewTask(ctx context.Context, logger logger.Logger, message protocol.Message, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Task, error) {
+	messageID, err := message.MessageID()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Task{
+		ctx:       ctx,
+		logger:    logger,
+		messageID: messageID,
+		message:   message,
+		registry:  registry,
+		storage:   storage,
+	}, nil
+}
+
+// collectVerifierResults processes all verifier readers concurrently and collects
+// successful results. This replaces the previous fan-in pattern with a simpler
+// WaitGroup-based approach that directly collects results.
+func (t *Task) collectVerifierResults(verifierReaders []*readers.VerifierReader) []protocol.CCVData {
+	if len(verifierReaders) == 0 {
+		return nil
+	}
+
+	var (
+		mu      sync.Mutex
+		results []protocol.CCVData
+		wg      sync.WaitGroup
+	)
+
+	wg.Add(len(verifierReaders))
+	for _, reader := range verifierReaders {
+		if reader == nil {
+			wg.Done()
+			continue
+		}
+
+		resultCh, err := reader.ProcessMessage(t.messageID)
+		if err != nil {
+			wg.Done()
+			continue
+		}
+
+		go func(ch <-chan common.Result[protocol.CCVData]) {
+			defer wg.Done()
+			select {
+			case result, ok := <-ch:
+				if !ok {
+					return
+				}
+				if result.Err() == nil {
+					mu.Lock()
+					t.logger.Debugf("Received result from %s for MessageID %s", reader.IssuerAddress(), t.messageID.String())
+					results = append(results, result.Value())
+					mu.Unlock()
+				}
+			case <-t.ctx.Done():
+				return
+			}
+		}(resultCh)
+	}
+
+	wg.Wait()
+	return results
+}
+
+func (t *Task) loadVerifierReaders(verifierAddresses []string) (readers []*readers.VerifierReader, missingReaders []string) {
+	for _, v := range verifierAddresses {
+		unknownAddress, err := protocol.NewUnknownAddressFromHex(v)
+		if err != nil {
+			missingReaders = append(missingReaders, v)
+			continue
+		}
+
+		reader := t.registry.GetVerifier(unknownAddress)
+		if reader == nil {
+			missingReaders = append(missingReaders, v)
+			continue
+		}
+
+		readers = append(readers, reader)
+	}
+	return readers, missingReaders
+}
+
+func (t *Task) getMissingVerifiers() (missing []string, err error) {
+	existing, err := t.getExistingVerifiers()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, v := range t.getVerifiers() {
+		if !slices.Contains(existing, v) {
+			missing = append(missing, v)
+		}
+	}
+	return missing, nil
+}
+
+func (t *Task) getExistingVerifiers() (existing []string, err error) {
+	results, err := t.storage.GetCCVData(t.ctx, t.messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, r := range results {
+		existing = append(existing, r.DestVerifierAddress.String())
+	}
+
+	return existing, nil
+}
+
+func (t *Task) getVerifiers() []string {
+	return []string{}
+}
