@@ -82,11 +82,11 @@ func NewExecutorCoordinator(
 		})
 
 	exec, err := executor.NewCoordinator(
-		executor.WithLogger(logger.With(lggr, "component", "Coordinator")),
-		executor.WithExecutor(ex),
-		executor.WithLeaderElector(le),
-		executor.WithMessageSubscriber(indexerStream),
-		executor.WithMonitoring(monitoring),
+		logger.With(lggr, "component", "Coordinator"),
+		ex,
+		indexerStream,
+		le,
+		monitoring,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)
