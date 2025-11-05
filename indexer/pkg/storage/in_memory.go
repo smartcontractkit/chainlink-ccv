@@ -111,7 +111,7 @@ func (i *InMemoryStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 }
 
 // QueryCCVData retrieves all CCVData that matches the filter set.
-func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]protocol.CCVData, error) {
+func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end time.Time, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]protocol.CCVData, error) {
 	startQueryMetric := time.Now()
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -126,8 +126,8 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	}
 
 	// Binary search for timestamp range
-	startIdx := i.findTimestampIndex(time.UnixMilli(start), func(ts, target int64) bool { return ts >= target })
-	endIdx := i.findTimestampIndex(time.UnixMilli(end), func(ts, target int64) bool { return ts > target })
+	startIdx := i.findTimestampIndex(start, func(ts, target int64) bool { return ts >= target })
+	endIdx := i.findTimestampIndex(end, func(ts, target int64) bool { return ts > target })
 	if startIdx >= endIdx {
 		return make(map[string][]protocol.CCVData), nil
 	}

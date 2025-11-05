@@ -88,7 +88,7 @@ func TestQueryCCVDataTimestampRange(t *testing.T) {
 	}
 
 	// Query for timestamp range 1500-3500
-	results, err := storage.QueryCCVData(ctx, 1500, 3500, nil, nil, 100, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(1500), time.UnixMilli(3500), nil, nil, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData2 and ccvData3
@@ -113,7 +113,7 @@ func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
 
 	// Query for source chain 1
 	sourceChains := []protocol.ChainSelector{1}
-	results, err := storage.QueryCCVData(ctx, 0, time.Now().UnixMilli(), sourceChains, []protocol.ChainSelector{}, 100, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(time.Now().UnixMilli()), sourceChains, []protocol.ChainSelector{}, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -138,7 +138,7 @@ func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
 
 	// Query for dest chain 2
 	destChains := []protocol.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, time.Now().UnixMilli(), []protocol.ChainSelector{}, destChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(time.Now().UnixMilli()), []protocol.ChainSelector{}, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData3
@@ -165,7 +165,7 @@ func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
 	// Query for source chain 1 AND dest chain 2
 	sourceChains := []protocol.ChainSelector{1}
 	destChains := []protocol.ChainSelector{2}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, sourceChains, destChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(9999), sourceChains, destChains, 100, 0)
 	require.NoError(t, err)
 
 	// Should return ccvData1 and ccvData4
@@ -186,7 +186,7 @@ func TestQueryCCVDataPagination(t *testing.T) {
 	}
 
 	// Test pagination: limit=2, offset=1
-	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, nil, 2, 1)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(9999), nil, nil, 2, 1)
 	require.NoError(t, err)
 
 	// Should return 2 records (indices 1 and 2)
@@ -198,7 +198,7 @@ func TestQueryCCVDataEmptyResult(t *testing.T) {
 	ctx := context.Background()
 
 	// Query with no data
-	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, nil, 100, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(9999), nil, nil, 100, 0)
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
@@ -213,7 +213,7 @@ func TestQueryCCVDataNoMatchingTimestamp(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query for timestamp range 2000-3000 (no matches)
-	results, err := storage.QueryCCVData(ctx, 2000, 3000, nil, nil, 100, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(2000), time.UnixMilli(3000), nil, nil, 100, 0)
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
@@ -229,7 +229,7 @@ func TestQueryCCVDataNoMatchingChainSelector(t *testing.T) {
 
 	// Query for source chain 5 (no matches)
 	sourceChains := []protocol.ChainSelector{5}
-	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, sourceChains, 100, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(9999), nil, sourceChains, 100, 0)
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
@@ -255,7 +255,7 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 
 	// Verify all data was inserted
-	results, err := storage.QueryCCVData(ctx, 0, 9999, nil, nil, 100, 0)
+	results, err := storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(9999), nil, nil, 100, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 10)
 }
@@ -351,7 +351,7 @@ func BenchmarkQueryCCVDataTimestampRange(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		storage.QueryCCVData(ctx, 1500, 2500, nil, nil, 100, 0)
+		storage.QueryCCVData(ctx, time.UnixMilli(1500), time.UnixMilli(2500), nil, nil, 100, 0)
 	}
 }
 
@@ -372,7 +372,7 @@ func BenchmarkQueryCCVDataWithChainFilter(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		storage.QueryCCVData(ctx, 0, 9999, destChains, sourceChains, 100, 0)
+		storage.QueryCCVData(ctx, time.UnixMilli(0), time.UnixMilli(9999), destChains, sourceChains, 100, 0)
 	}
 }
 

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -119,7 +120,7 @@ func (d *Sink) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]pr
 // overlaps with each storage's configured time range.
 func (d *Sink) QueryCCVData(
 	ctx context.Context,
-	start, end int64,
+	start, end time.Time,
 	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
 	limit, offset uint64,
 ) (map[string][]protocol.CCVData, error) {
@@ -179,7 +180,7 @@ func (d *Sink) QueryCCVData(
 
 	// If we didn't attempt any storages, return a specific error
 	if attemptedCount == 0 {
-		return nil, fmt.Errorf("no storages eligible for read based on conditions (query time range: %d-%d)", start, end)
+		return nil, fmt.Errorf("no storages eligible for read based on conditions (query time range: %s-%s)", start.Format(time.RFC3339), end.Format(time.RFC3339))
 	}
 
 	// All eligible storages failed, return the last error

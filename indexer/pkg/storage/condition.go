@@ -73,7 +73,7 @@ func RecentRead(duration time.Duration) ReadCondition {
 
 // shouldRead determines if this storage should be read based on the condition and query parameters.
 // For queries without time range (like GetCCVData), start and end should both be nil.
-func (rc ReadCondition) shouldRead(queryStart, queryEnd *int64) bool {
+func (rc ReadCondition) shouldRead(queryStart, queryEnd *time.Time) bool {
 	switch rc.Type {
 	case ReadAlways:
 		return true
@@ -90,12 +90,12 @@ func (rc ReadCondition) shouldRead(queryStart, queryEnd *int64) bool {
 		// Storage range: [rc.StartUnix, rc.EndUnix]
 
 		// If storage has a start time and query has an end time, check if query ends before storage starts
-		if rc.StartUnix != nil && queryEnd != nil && *queryEnd < *rc.StartUnix {
+		if rc.StartUnix != nil && queryEnd != nil && queryEnd.Before(time.UnixMilli(*rc.StartUnix)) {
 			return false
 		}
 
 		// If storage has an end time and query has a start time, check if query starts after storage ends
-		if rc.EndUnix != nil && queryStart != nil && *queryStart > *rc.EndUnix {
+		if rc.EndUnix != nil && queryStart != nil && queryStart.After(time.UnixMilli(*rc.EndUnix)) {
 			return false
 		}
 
@@ -117,12 +117,12 @@ func (rc ReadCondition) shouldRead(queryStart, queryEnd *int64) bool {
 		// Recent range: [recentStart, now]
 
 		// If query ends before recent period starts, skip this storage
-		if queryEnd != nil && *queryEnd < recentStart {
+		if queryEnd != nil && queryEnd.Before(time.UnixMilli(recentStart)) {
 			return false
 		}
 
 		// If query starts after now, skip this storage (querying future data)
-		if queryStart != nil && *queryStart > now {
+		if queryStart != nil && queryStart.After(time.UnixMilli(now)) {
 			return false
 		}
 

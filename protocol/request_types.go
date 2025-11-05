@@ -1,10 +1,12 @@
 package protocol
 
+import "time"
+
 type MessagesV1Request struct {
 	SourceChainSelectors []ChainSelector // Excluded from form due to gin parsing
 	DestChainSelectors   []ChainSelector // Excluded from form due to gin parsing
-	Start                int64           `form:"start"`
-	End                  int64           `form:"end"`
+	Start                time.Time       `form:"start"`
+	End                  time.Time       `form:"end"`
 	Limit                uint64          `form:"limit"`
 	Offset               uint64          `form:"offset"`
 }

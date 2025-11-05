@@ -40,8 +40,8 @@ func NewIndexerAPIReader(lggr logger.Logger, indexerURI string) *IndexerAPIReade
 type queryParams struct {
 	SourceChainSelectors []protocol.ChainSelector
 	DestChainSelectors   []protocol.ChainSelector
-	Start                int64
-	End                  int64
+	Start                time.Time
+	End                  time.Time
 	Limit                uint64
 	Offset               uint64
 }
@@ -60,11 +60,11 @@ func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, par
 	}
 
 	queryValues := url.Values{}
-	if params.Start != 0 {
-		queryValues.Add("start", strconv.FormatInt(params.Start, 10))
+	if !params.Start.IsZero() {
+		queryValues.Add("start", strconv.FormatInt(params.Start.UnixMilli(), 10))
 	}
-	if params.End != 0 {
-		queryValues.Add("end", strconv.FormatInt(params.End, 10))
+	if !params.End.IsZero() {
+		queryValues.Add("end", strconv.FormatInt(params.End.UnixMilli(), 10))
 	}
 	if params.Limit != 0 {
 		queryValues.Add("limit", strconv.FormatUint(params.Limit, 10))

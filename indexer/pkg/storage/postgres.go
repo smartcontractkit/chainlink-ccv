@@ -95,13 +95,15 @@ func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 // QueryCCVData retrieves all CCVData that matches the filter set with pagination.
 func (d *PostgresStorage) QueryCCVData(
 	ctx context.Context,
-	start, end int64,
+	start, end time.Time,
 	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
 	limit, offset uint64,
 ) (map[string][]protocol.CCVData, error) {
 	startQueryMetric := time.Now()
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+
+	fmt.Printf("QueryCCVData called with start=%s, end=%s, sourceChainSelectors=%v, destChainSelectors=%v, limit=%d, offset=%d\n", start.Format(time.RFC3339), end.Format(time.RFC3339), sourceChainSelectors, destChainSelectors, limit, offset)
 
 	// Build dynamic query with filters
 	query := `
@@ -121,7 +123,7 @@ func (d *PostgresStorage) QueryCCVData(
 		WHERE timestamp >= $1 AND timestamp <= $2
 	`
 
-	args := []any{time.UnixMilli(start), time.UnixMilli(end)}
+	args := []any{start, end}
 	argCounter := 3
 
 	// Add source chain selector filter if provided
