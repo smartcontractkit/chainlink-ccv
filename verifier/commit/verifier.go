@@ -1,6 +1,7 @@
 package commit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+const (
+	// The number of bytes in the CCV version.
+	ccvVersionLength = 4
 )
 
 // Verifier provides a basic verifier implementation using the new message format.
@@ -160,7 +166,28 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress.String(),
 	)
 
-	encodedSignature, err := cv.signer.Sign(messageID[:])
+	var verifierBlob []byte
+	for _, receipt := range verificationTask.ReceiptBlobs {
+		cv.lggr.Infow("Checking receipt blob for source verifier", "issuer", receipt.Issuer.String(), "sourceVerifierAddress", sourceConfig.VerifierAddress.String())
+		if bytes.Equal(receipt.Issuer.Bytes(), sourceConfig.VerifierAddress.Bytes()) {
+			verifierBlob = receipt.Blob
+			break
+		}
+	}
+	blobLen := len(verifierBlob)
+	if blobLen == 0 {
+		return fmt.Errorf("receipt blob not found for source verifier %s and message %s", sourceConfig.VerifierAddress.String(), messageID.String())
+	}
+	if blobLen < ccvVersionLength {
+		return fmt.Errorf("receipt blob too short for source verifier %s and message 0x%x (expected at least %d bytes, got %d)", sourceConfig.VerifierAddress, messageID, ccvVersionLength, blobLen)
+	}
+
+	var preImage []byte
+	preImage = append(preImage, verifierBlob[:ccvVersionLength]...)
+	preImage = append(preImage, messageID[:]...)
+	hashToSign := protocol.Keccak256(preImage)
+
+	encodedSignature, err := cv.signer.Sign(hashToSign[:])
 	if err != nil {
 		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}
@@ -172,7 +199,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	)
 
 	// 4. Create CCV data with all required fields
-	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, []byte{}, sourceConfig.VerifierAddress)
+	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, verifierBlob, sourceConfig.VerifierAddress)
 	if err != nil {
 		return fmt.Errorf("failed to create CCV data for message 0x%x: %w", messageID, err)
 	}

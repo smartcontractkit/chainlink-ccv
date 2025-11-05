@@ -14,6 +14,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const (
+	// The number of bytes in the CCV version.
+	ccvVersionLength = 4
+)
+
 type EVMQuorumValidator struct {
 	Committees map[string]*model.Committee
 	l          logger.SugaredLogger
@@ -83,6 +88,15 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, nil, err
 	}
 
+	if len(record.BlobData) < ccvVersionLength {
+		q.logger(ctx).Errorw("Blob data too short", "error", err)
+		return nil, nil, fmt.Errorf("blob data too short")
+	}
+	ccvVersion := record.BlobData[:ccvVersionLength]
+
+	preImage := append(ccvVersion, messageID[:]...)
+	hashToSign := protocol.Keccak256(preImage)
+
 	rs, ss, err := protocol.DecodeSignatures(record.CcvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
@@ -104,7 +118,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		for vValue := byte(0); vValue <= 1; vValue++ {
 			combined := append(rs[i][:], ss[i][:]...)
 			combined = append(combined, vValue)
-			address, err := q.ecrecover(combined, messageID[:])
+			address, err := q.ecrecover(combined, hashToSign[:])
 			if err != nil {
 				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
 				continue
