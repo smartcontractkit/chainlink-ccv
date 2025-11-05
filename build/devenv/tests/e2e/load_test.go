@@ -221,6 +221,8 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 					TickInterval:            2 * time.Second,
 					Timeout:                 1 * time.Minute,
 					ExpectedVerifierResults: 1,
+					AssertVerifierLogs:      true,
+					AssertExecutorLogs:      true,
 				})
 
 				countMu.Lock()
