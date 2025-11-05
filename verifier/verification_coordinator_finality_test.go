@@ -28,7 +28,6 @@ const (
 )
 
 func TestFinality_FinalizedMessage(t *testing.T) {
-	t.Skip("Test is currently timing out intermittently, needs investigation")
 	setup := initializeCoordinator(t, "test-finality-coordinator")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -67,7 +66,6 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 }
 
 func TestFinality_CustomFinality(t *testing.T) {
-	t.Skip("Test is currently timing out intermittently, needs investigation")
 	setup := initializeCoordinator(t, "test-custom-finality-coordinator")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -107,7 +105,6 @@ func TestFinality_CustomFinality(t *testing.T) {
 }
 
 func TestFinality_WaitingForFinality(t *testing.T) {
-	t.Skip("Test is currently timing out intermittently, needs investigation")
 	setup := initializeCoordinator(t, "test-finality-coordinator")
 
 	// Use a context with timeout to prevent hanging forever
