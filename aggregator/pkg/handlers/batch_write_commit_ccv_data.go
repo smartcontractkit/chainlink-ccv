@@ -1,4 +1,3 @@
-//nolint:goimports // unclear why this is firing
 package handlers
 
 import (
@@ -7,12 +6,12 @@ import (
 
 	"google.golang.org/grpc/codes"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/logger" //nolint:gci
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope" //nolint:gci
+	grpcstatus "google.golang.org/grpc/status"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 // WriteCommitCCVNodeDataHandler handles requests to write commit verification records.
