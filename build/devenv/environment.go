@@ -203,8 +203,10 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
-			return nil, err
+		if in.Mode == CL {
+			if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
+				return nil, err
+			}
 		}
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
@@ -255,7 +257,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	if in.Mode == "cl" { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
+	if in.Mode == CL { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
 		clChainConfigs := make([]string, 0)
 		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 		for i, impl := range impls {
@@ -302,6 +304,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	// What is BootstrapNode?
 	Plog.Info().Str("BootstrapNode", in.NodeSets[0].Out.CLNodes[0].Node.ExternalURL).Send()
 	for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
 		Plog.Info().Str("Node", n.Node.ExternalURL).Send()
