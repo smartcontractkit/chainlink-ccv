@@ -96,7 +96,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 			ctx,
 			message,
 		)
-		if err != nil && len(ccvInfo.RequiredCCVs) == 0 {
+		if err != nil && len(res.RequiredCCVs) == 0 {
 			return fmt.Errorf("failed to get CCV Offramp info for message %x: %w", messageID, err)
 		}
 		ccvInfo = res
