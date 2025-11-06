@@ -14,49 +14,45 @@ import (
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {
 	privateKey *ecdsa.PrivateKey
-	address    protocol.UnknownAddress
 }
 
 // NewECDSAMessageSignerFromString creates a new ECDSA message signer.
-func NewECDSAMessageSignerFromString(privateKeyString string) (*ECDSASigner, error) {
+func NewECDSAMessageSignerFromString(privateKeyString string) (*ECDSASigner, protocol.UnknownAddress, error) {
 	privateKey, err := ReadPrivateKeyFromString(privateKeyString)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read private key from environment variable: %w", err)
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("failed to read private key from environment variable: %w", err)
 	}
 	return NewECDSAMessageSigner(privateKey)
 }
 
 // NewECDSAMessageSigner creates a new ECDSA message signer.
-func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, error) {
+func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, protocol.UnknownAddress, error) {
 	if len(privateKeyBytes) == 0 {
-		return nil, fmt.Errorf("private key cannot be empty")
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("private key cannot be empty")
 	}
 
 	// Convert bytes to ECDSA private key
 	privateKey, err := crypto.ToECDSA(privateKeyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert bytes to ECDSA private key: %w", err)
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("failed to convert bytes to ECDSA private key: %w", err)
 	}
 
 	// Derive the address from the private key
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
-		return nil, fmt.Errorf("failed to cast public key to ECDSA")
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("failed to cast public key to ECDSA")
 	}
 
 	address := crypto.PubkeyToAddress(*publicKeyECDSA)
 
 	return &ECDSASigner{
 		privateKey: privateKey,
-		address:    address.Bytes(),
-	}, nil
+	}, address[:], nil
 }
 
 // Sign signs some data with the new chain-agnostic format.
-func (ecdsa *ECDSASigner) Sign(
-	data []byte,
-) ([]byte, error) {
+func (ecdsa *ECDSASigner) Sign(data []byte) ([]byte, error) {
 	// 1. Sign with v27 format.
 	r, s, signerAddress, err := protocol.SignV27(data, ecdsa.privateKey)
 	if err != nil {
@@ -79,11 +75,6 @@ func (ecdsa *ECDSASigner) Sign(
 	}
 
 	return encodedSignature, nil
-}
-
-// GetSignerAddress returns the address of the signer.
-func (ecdsa *ECDSASigner) GetSignerAddress() protocol.UnknownAddress {
-	return ecdsa.address
 }
 
 // ReadPrivateKeyFromString reads a private key from a string and returns the bytes.

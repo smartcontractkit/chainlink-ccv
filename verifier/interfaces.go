@@ -9,11 +9,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
-// MessageSigner defines the interface for signing data using the new chain-agnostic format.
+// MessageSigner defines the interface for signing data.
+// Note: currently the only valid implementations use an EDCSA V27 normalized format.
 type MessageSigner interface {
-	// Sign signs arbitrary data and returns the signature. Must be encoded using the
-	// new chain-agnostic V27 normalized format.
-	Sign(data []byte) ([]byte, error)
+	// Sign returns data signed by account.
+	// nil data can be used as a no-op to check for account existence.
+	Sign(data []byte) (signed []byte, err error)
 }
 
 // Verifier defines the interface for message verification logic.

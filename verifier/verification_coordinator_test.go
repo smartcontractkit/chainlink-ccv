@@ -37,12 +37,13 @@ const (
 
 // testSetup contains common test dependencies.
 type testSetup struct {
-	t       *testing.T
-	ctx     context.Context
-	cancel  context.CancelFunc
-	logger  logger.Logger
-	storage *common.InMemoryOffchainStorage
-	signer  verifier.MessageSigner
+	t          *testing.T
+	ctx        context.Context
+	cancel     context.CancelFunc
+	logger     logger.Logger
+	storage    *common.InMemoryOffchainStorage
+	signerAddr protocol.UnknownAddress
+	signer     verifier.MessageSigner
 }
 
 const (
@@ -78,15 +79,16 @@ func newTestSetup(t *testing.T) *testSetup {
 	ctx, cancel := context.WithCancel(context.Background())
 	lggr := logger.Test(t)
 	storage := common.NewInMemoryOffchainStorage(lggr)
-	signer := createTestSigner(t)
+	signer, addr := createTestSigner(t)
 
 	return &testSetup{
-		t:       t,
-		ctx:     ctx,
-		cancel:  cancel,
-		logger:  lggr,
-		storage: storage,
-		signer:  signer,
+		t:          t,
+		ctx:        ctx,
+		cancel:     cancel,
+		logger:     lggr,
+		storage:    storage,
+		signerAddr: addr,
+		signer:     signer,
 	}
 }
 
@@ -96,13 +98,14 @@ func (ts *testSetup) cleanup() {
 }
 
 // createTestSigner generates a test ECDSA message signer.
-func createTestSigner(t *testing.T) verifier.MessageSigner {
+func createTestSigner(t *testing.T) (verifier.MessageSigner, protocol.UnknownAddress) {
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+	signer, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 	require.NoError(t, err)
-	return signer
+
+	return signer, addr
 }
 
 func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) verifier.VerificationTask {
@@ -173,7 +176,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	ts := newTestSetup(t)
 
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(t, err)
 
 	testcases := []struct {
@@ -301,7 +304,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader, headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(ts.t, err)
 
 	return verifier.NewCoordinator(
