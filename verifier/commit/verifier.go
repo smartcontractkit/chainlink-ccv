@@ -1,12 +1,14 @@
 package commit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -15,20 +17,22 @@ import (
 
 // Verifier provides a basic verifier implementation using the new message format.
 type Verifier struct {
-	signer     verifier.MessageSigner
-	lggr       logger.Logger
-	monitoring verifier.Monitoring
+	signerAddress protocol.UnknownAddress
+	signer        verifier.MessageSigner
+	lggr          logger.Logger
+	monitoring    verifier.Monitoring
 	// TODO: Use a separate config
 	config verifier.CoordinatorConfig
 }
 
 // NewCommitVerifier creates a new commit verifier.
-func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring verifier.Monitoring) (verifier.Verifier, error) {
+func NewCommitVerifier(config verifier.CoordinatorConfig, signerAddress protocol.UnknownAddress, signer verifier.MessageSigner, lggr logger.Logger, monitoring verifier.Monitoring) (verifier.Verifier, error) {
 	cv := &Verifier{
-		config:     config,
-		signer:     signer,
-		lggr:       lggr,
-		monitoring: monitoring,
+		config:        config,
+		signerAddress: signerAddress,
+		signer:        signer,
+		lggr:          lggr,
+		monitoring:    monitoring,
 	}
 
 	if err := cv.validate(); err != nil {
@@ -160,19 +164,31 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress.String(),
 	)
 
-	encodedSignature, err := cv.signer.Sign(messageID[:])
+	var verifierBlob []byte
+	for _, receipt := range verificationTask.ReceiptBlobs {
+		if bytes.Equal(receipt.Issuer.Bytes(), sourceConfig.VerifierAddress.Bytes()) {
+			verifierBlob = receipt.Blob
+			break
+		}
+	}
+	hash, err := committee.NewSignableHash(messageID, verifierBlob)
+	if err != nil {
+		return fmt.Errorf("failed to create signable hash for message %s: %w", messageID.String(), err)
+	}
+
+	encodedSignature, err := cv.signer.Sign(hash[:])
 	if err != nil {
 		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}
 
 	cv.lggr.Infow("Message signed successfully",
 		"messageID", messageID,
-		"signer", cv.config.VerifierID,
+		"signer", cv.signerAddress.String(),
 		"signatureLength", len(encodedSignature),
 	)
 
 	// 4. Create CCV data with all required fields
-	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, []byte{}, sourceConfig.VerifierAddress)
+	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, verifierBlob, sourceConfig.VerifierAddress)
 	if err != nil {
 		return fmt.Errorf("failed to create CCV data for message 0x%x: %w", messageID, err)
 	}

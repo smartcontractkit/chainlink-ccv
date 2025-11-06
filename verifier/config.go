@@ -16,6 +16,8 @@ type Config struct {
 	// TODO: Move to a separate secrets config file.
 	AggregatorSecretKey string `toml:"aggregator_secret_key"`
 
+	SignerAddress string `toml:"signer_address"`
+
 	// TODO: remove from verifier config, readers need to be initialized separately.
 	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	PyroscopeURL    string                              `toml:"pyroscope_url"`

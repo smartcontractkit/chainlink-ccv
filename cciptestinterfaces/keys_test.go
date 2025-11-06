@@ -14,9 +14,9 @@ func TestXXXNewVerifierPrivateKey(t *testing.T) {
 			privKeyString := XXXNewVerifierPrivateKey(committeeName, nodeIndex)
 			privateKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyString)
 			require.NoError(t, err)
-			signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+			_, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 			require.NoError(t, err)
-			t.Logf("committeeName: %s, nodeIndex: %d, key: %x, signerAddress: %s", committeeName, nodeIndex, privateKeyBytes, signer.GetSignerAddress().String())
+			t.Logf("committeeName: %s, nodeIndex: %d, key: %x, signerAddress: %s", committeeName, nodeIndex, privateKeyBytes, addr.String())
 		}
 	}
 }

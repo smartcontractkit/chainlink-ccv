@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -333,7 +334,8 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	// Decode the signature data
-	rs, ss, err := protocol.DecodeSignatures(ccvData)
+	// We need to exclude the verifier version to get the simple signature data (i.e. length + sigs)
+	rs, ss, err := protocol.DecodeSignatures(ccvData[committee.VerifierVersionLength:])
 	require.NoError(t, err, "failed to decode CCV signature data")
 	require.Equal(t, len(rs), len(ss), "rs and ss arrays should have the same length")
 
@@ -347,7 +349,9 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	// Recover signer addresses from the aggregated signatures
-	recoveredAddresses, err := protocol.RecoverSigners(messageId, rs, ss)
+	hash, err := committee.NewSignableHash(messageId, ccvData)
+	require.NoError(t, err, "failed to create signed hash")
+	recoveredAddresses, err := protocol.RecoverSigners(hash, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
@@ -1067,13 +1071,16 @@ func TestReceiptBlobMajorityConsensus(t *testing.T) {
 		messageId, err := message.MessageID()
 		require.NoError(t, err, "failed to compute message ID")
 
+		majorityBlobData := []byte{0x01, 0x02, 0x03, 0x04}
+		minorityBlobData := []byte{0x05, 0x06, 0x07, 0x08}
+
 		// Create different receipt blobs - signer1 has a different blob than signer2 and signer3
 		minorityReceiptBlob := []*pb.ReceiptBlob{
 			{
 				Issuer:            sourceVerifierAddress,
 				DestGasLimit:      100000,
 				DestBytesOverhead: 1000,
-				Blob:              []byte("minority-blob-data"),
+				Blob:              minorityBlobData,
 				ExtraArgs:         []byte("minority-args"),
 			},
 		}
@@ -1083,7 +1090,7 @@ func TestReceiptBlobMajorityConsensus(t *testing.T) {
 				Issuer:            sourceVerifierAddress,
 				DestGasLimit:      200000,
 				DestBytesOverhead: 2000,
-				Blob:              []byte("majority-blob-data"),
+				Blob:              majorityBlobData,
 				ExtraArgs:         []byte("majority-args"),
 			},
 		}

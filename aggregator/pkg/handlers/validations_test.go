@@ -13,7 +13,7 @@ import (
 )
 
 func makeValidWriteReq(idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest {
-	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, nil, nil, []byte{}, []byte{}, nil)
+	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	id, _ := msg.MessageID()
 	return &pb.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: &pb.MessageWithCCVNodeData{

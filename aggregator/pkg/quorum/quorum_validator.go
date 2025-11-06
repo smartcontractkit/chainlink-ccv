@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -83,6 +84,12 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, nil, err
 	}
 
+	hash, err := committee.NewSignableHash(messageID, record.BlobData)
+	if err != nil {
+		q.logger(ctx).Errorw("Failed to produce signed hash", "error", err)
+		return nil, nil, err
+	}
+
 	rs, ss, err := protocol.DecodeSignatures(record.CcvData)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
@@ -104,7 +111,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		for vValue := byte(0); vValue <= 1; vValue++ {
 			combined := append(rs[i][:], ss[i][:]...)
 			combined = append(combined, vValue)
-			address, err := q.ecrecover(combined, messageID[:])
+			address, err := q.ecrecover(combined, hash[:])
 			if err != nil {
 				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
 				continue

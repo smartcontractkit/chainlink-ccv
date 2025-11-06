@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -63,8 +63,9 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 	// Try to get CCV info from cache first
 	// TODO: Do we need custom cache eviction logic beyond ttl?
+	// TODO: We need to find a way to cache token transfer CCV info as well
 	ccvInfo, found := dr.ccvCache.Get(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()})
-	if found {
+	if found && message.TokenTransferLength == 0 {
 		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s on source chain %d",
 			receiverAddress.String(), sourceSelector)
 		return ccvInfo, nil

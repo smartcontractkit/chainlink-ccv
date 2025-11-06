@@ -37,12 +37,13 @@ const (
 
 // testSetup contains common test dependencies.
 type testSetup struct {
-	t       *testing.T
-	ctx     context.Context
-	cancel  context.CancelFunc
-	logger  logger.Logger
-	storage *common.InMemoryOffchainStorage
-	signer  verifier.MessageSigner
+	t          *testing.T
+	ctx        context.Context
+	cancel     context.CancelFunc
+	logger     logger.Logger
+	storage    *common.InMemoryOffchainStorage
+	signerAddr protocol.UnknownAddress
+	signer     verifier.MessageSigner
 }
 
 const (
@@ -78,15 +79,16 @@ func newTestSetup(t *testing.T) *testSetup {
 	ctx, cancel := context.WithCancel(context.Background())
 	lggr := logger.Test(t)
 	storage := common.NewInMemoryOffchainStorage(lggr)
-	signer := createTestSigner(t)
+	signer, addr := createTestSigner(t)
 
 	return &testSetup{
-		t:       t,
-		ctx:     ctx,
-		cancel:  cancel,
-		logger:  lggr,
-		storage: storage,
-		signer:  signer,
+		t:          t,
+		ctx:        ctx,
+		cancel:     cancel,
+		logger:     lggr,
+		storage:    storage,
+		signerAddr: addr,
+		signer:     signer,
 	}
 }
 
@@ -96,17 +98,18 @@ func (ts *testSetup) cleanup() {
 }
 
 // createTestSigner generates a test ECDSA message signer.
-func createTestSigner(t *testing.T) verifier.MessageSigner {
+func createTestSigner(t *testing.T) (verifier.MessageSigner, protocol.UnknownAddress) {
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+	signer, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 	require.NoError(t, err)
-	return signer
+
+	return signer, addr
 }
 
-func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) verifier.VerificationTask {
-	message := verifier.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality)
+func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32) verifier.VerificationTask {
+	message := verifier.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality, gasLimit)
 
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
@@ -173,7 +176,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	ts := newTestSetup(t)
 
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(t, err)
 
 	testcases := []struct {
@@ -301,7 +304,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader, headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(ts.t, err)
 
 	return verifier.NewCoordinator(
@@ -372,8 +375,8 @@ func TestVerifier(t *testing.T) {
 
 	// Create and send test tasks
 	testTasks := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 
 	var messagesSent atomic.Int32
@@ -439,12 +442,12 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Create test tasks for both sources
 	tasksSource1 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 	tasksSource2 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain, 0),
-		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain, 0),
+		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain, 0, 300_000),
 	}
 
 	// Send tasks from both sources
@@ -515,8 +518,8 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 
 	// Send verification tasks only to source 1
 	tasksSource1 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 
 	sendTasksAsync(tasksSource1, mockSetup1.Channel, nil, 5*time.Millisecond)
@@ -689,8 +692,8 @@ func TestVerificationErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test verification tasks
-	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0)
-	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain, 0)
+	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000)
+	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain, 0, 300_000)
 
 	// Send tasks
 	sendTasksAsync([]verifier.VerificationTask{validTask}, mockSetup1.Channel, nil, 10*time.Millisecond)
