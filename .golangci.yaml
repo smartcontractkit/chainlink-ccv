@@ -426,20 +426,10 @@ linters:
 # https://golangci-lint.run/usage/configuration/#formatters-configuration
 formatters:
   enable:
-    - gci
     - gofmt
     - gofumpt
     - goimports
   settings:
-    # https://golangci-lint.run/usage/formatters/#gci
-    gci:
-      sections:
-        - standard
-        - default
-        - prefix(github.com/smartcontractkit/chainlink)
-        - blank
-        - dot
-        - alias
     # https://golangci-lint.run/usage/formatters/#gofmt
     gofmt:
       simplify: true
@@ -450,12 +440,12 @@ formatters:
           replacement: 'a[b:]'
     # https://golangci-lint.run/usage/formatters/#gofumpt
     gofumpt:
-      module-path: github.com/smartcontractkit/chainlink
+      module-path: github.com/smartcontractkit/chainlink-ccv
       extra-rules: true
     # https://golangci-lint.run/usage/formatters/#goimports
     goimports:
       local-prefixes:
-        - github.com/smartcontractkit/chainlink
+        - github.com/smartcontractkit/chainlink-ccv
         - github.com/smartcontractkit
 
   exclusions:
