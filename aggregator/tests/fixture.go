@@ -177,7 +177,7 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 			OffRampAddressLength: uint32(message.OffRampAddressLength),
 			OffRampAddress:       message.OffRampAddress[:],
 			Finality:             uint32(message.Finality),
-			GasLimit:             uint32(message.GasLimit),
+			GasLimit:             message.GasLimit,
 			SenderLength:         uint32(message.SenderLength),
 			Sender:               message.Sender[:],
 			ReceiverLength:       uint32(message.ReceiverLength),

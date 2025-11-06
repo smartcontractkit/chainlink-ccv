@@ -80,7 +80,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 				TokenTransfer:        ccvData.Message.TokenTransfer[:],
 				DataLength:           uint32(ccvData.Message.DataLength),
 				Data:                 ccvData.Message.Data[:],
-				GasLimit:             uint32(ccvData.Message.GasLimit),
+				GasLimit:             ccvData.Message.GasLimit,
 			},
 			ReceiptBlobs: receiptBlobs,
 		},
@@ -270,7 +270,7 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 		DestBlob:            msg.DestBlob[:],
 		TokenTransfer:       msg.TokenTransfer[:],
 		Data:                msg.Data[:],
-		GasLimit:            uint32(msg.GasLimit),
+		GasLimit:            msg.GasLimit,
 	}
 
 	if msg.Version > math.MaxUint8 {

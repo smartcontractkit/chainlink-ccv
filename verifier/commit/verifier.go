@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	// The number of bytes in the CCV version.
-	ccvVersionLength = 4
+	// The number of bytes used to represent the verifier version.
+	verifierVersionLength = 4
 )
 
 // Verifier provides a basic verifier implementation using the new message format.
@@ -177,12 +177,12 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	if blobLen == 0 {
 		return fmt.Errorf("receipt blob not found for source verifier %s and message %s", sourceConfig.VerifierAddress.String(), messageID.String())
 	}
-	if blobLen < ccvVersionLength {
-		return fmt.Errorf("receipt blob too short for source verifier %s and message 0x%x (expected at least %d bytes, got %d)", sourceConfig.VerifierAddress, messageID, ccvVersionLength, blobLen)
+	if blobLen < verifierVersionLength {
+		return fmt.Errorf("receipt blob too short for source verifier %s and message 0x%x (expected at least %d bytes, got %d)", sourceConfig.VerifierAddress, messageID, verifierVersionLength, blobLen)
 	}
 
 	var preImage []byte
-	preImage = append(preImage, verifierBlob[:ccvVersionLength]...)
+	preImage = append(preImage, verifierBlob[:verifierVersionLength]...)
 	preImage = append(preImage, messageID[:]...)
 	hashToSign := protocol.Keccak256(preImage)
 

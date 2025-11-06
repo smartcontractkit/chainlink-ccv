@@ -12,6 +12,11 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
+const (
+	// The number of bytes used to represent the verifier version.
+	verifierVersionLength = 4
+)
+
 func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
 	return &protocol.Message{
 		Version:              uint8(m.Version), //nolint:gosec // G115: Protocol-defined conversion
@@ -22,8 +27,8 @@ func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
 		OnRampAddress:        m.OnRampAddress,
 		OffRampAddressLength: uint8(m.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OffRampAddress:       m.OffRampAddress,
-		Finality:             uint16(m.Finality),    //nolint:gosec // G115: Protocol-defined conversion
-		GasLimit:             uint32(m.GasLimit),    //nolint:gosec // G115: Protocol-defined conversion
+		Finality:             uint16(m.Finality), //nolint:gosec // G115: Protocol-defined conversion
+		GasLimit:             m.GasLimit,
 		SenderLength:         uint8(m.SenderLength), //nolint:gosec // G115: Protocol-defined conversion
 		Sender:               m.Sender,
 		ReceiverLength:       uint8(m.ReceiverLength), //nolint:gosec // G115: Protocol-defined conversion
@@ -93,20 +98,23 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	}
 
 	// To create the full ccvData, prepend encodedSignatures with the version of the source verifier
-	// The first 4 bytes of the source verifier's return data constitute the version
+	// The first CCV_VERSION_BYTES bytes of the source verifier's return data constitute the version
 	var ccvData []byte
 	for _, receipt := range report.WinningReceiptBlobs {
 		if bytes.Equal(receipt.Issuer, report.GetSourceVerifierAddress()) {
 			if receipt.Blob == nil {
-				return nil, fmt.Errorf("source verifier return data is missing")
+				return nil, fmt.Errorf("source verifier return blob is missing from receipt")
 			}
 			blobLen := len(receipt.Blob)
-			if blobLen < 4 {
-				return nil, fmt.Errorf("source verifier return data is too short (expected at least 4 bytes, got %d)", blobLen)
+			if blobLen < verifierVersionLength {
+				return nil, fmt.Errorf("source verifier return blob is too short (expected at least %d bytes, got %d)", verifierVersionLength, blobLen)
 			}
-			ccvData = append(receipt.Blob[:4], encodedSignatures...)
+			ccvData = append(receipt.Blob[:verifierVersionLength], encodedSignatures...)
 			break
 		}
+	}
+	if len(ccvData) == 0 {
+		return nil, fmt.Errorf("source verifier receipt not found in winning receipts, unable to create CCV data")
 	}
 
 	return &pb.VerifierResult{
@@ -141,7 +149,7 @@ func MapProtocolMessageToProtoMessage(m *protocol.Message) *pb.Message {
 		OffRampAddressLength: uint32(m.OffRampAddressLength),
 		OffRampAddress:       m.OffRampAddress,
 		Finality:             uint32(m.Finality),
-		GasLimit:             uint32(m.GasLimit),
+		GasLimit:             m.GasLimit,
 		SenderLength:         uint32(m.SenderLength),
 		Sender:               m.Sender,
 		ReceiverLength:       uint32(m.ReceiverLength),

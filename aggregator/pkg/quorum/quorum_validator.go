@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	// The number of bytes in the CCV version.
-	ccvVersionLength = 4
+	// The number of bytes used to represent the verifier version.
+	verifierVersionLength = 4
 )
 
 type EVMQuorumValidator struct {
@@ -88,11 +88,12 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, nil, err
 	}
 
-	if len(record.BlobData) < ccvVersionLength {
-		q.logger(ctx).Errorw("Blob data too short", "error", err)
-		return nil, nil, fmt.Errorf("blob data too short")
+	blobLen := len(record.BlobData)
+	if blobLen < verifierVersionLength {
+		q.logger(ctx).Errorw("Source verifier return blob is too short", "expectedLength", verifierVersionLength, "actualLength", blobLen)
+		return nil, nil, fmt.Errorf("source verifier return blob is too short (expected at least %d bytes, got %d)", verifierVersionLength, blobLen)
 	}
-	ccvVersion := record.BlobData[:ccvVersionLength]
+	ccvVersion := record.BlobData[:verifierVersionLength]
 
 	preImage := append(ccvVersion, messageID[:]...)
 	hashToSign := protocol.Keccak256(preImage)

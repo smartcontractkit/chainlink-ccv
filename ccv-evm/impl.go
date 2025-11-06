@@ -19,8 +19,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
-	evm_adapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	evm_changesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -35,6 +33,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -49,6 +48,8 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
+	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
@@ -56,7 +57,6 @@ import (
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 )
 
 const (
@@ -928,8 +928,8 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	}
 
 	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
-	out, err := evm_changesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evm_changesets.DeployChainContractsCfg]{
-		Cfg: evm_changesets.DeployChainContractsCfg{
+	out, err := evmchangesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployChainContractsCfg]{
+		Cfg: evmchangesets.DeployChainContractsCfg{
 			ChainSel: selector,
 			Params: sequences.ContractParams{
 				// TODO: Router contract implementation is missing
@@ -1087,8 +1087,8 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	if !ok {
 		return nil, errors.New("failed to parse deployer balance")
 	}
-	out, err = evm_changesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evm_changesets.DeployBurnMintTokenAndPoolCfg]{
-		Cfg: evm_changesets.DeployBurnMintTokenAndPoolCfg{
+	out, err = evmchangesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployBurnMintTokenAndPoolCfg]{
+		Cfg: evmchangesets.DeployBurnMintTokenAndPoolCfg{
 			Accounts: map[common.Address]*big.Int{
 				chain.DeployerKey.From: deployerBalance,
 			},
@@ -1097,7 +1097,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				Decimals:  18,
 				MaxSupply: maxSupply,
 			},
-			DeployTokenPoolCfg: evm_changesets.DeployTokenPoolCfg{
+			DeployTokenPoolCfg: evmchangesets.DeployTokenPoolCfg{
 				ChainSel:           selector,
 				TokenPoolType:      datastore.ContractType(burn_mint_token_pool.ContractType),
 				TokenPoolVersion:   semver.MustParse("1.7.0"),
@@ -1212,7 +1212,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 
 	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry()
 	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
-	chainFamilyRegistry.RegisterChainFamily("evm", &evm_adapters.ChainFamilyAdapter{})
+	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
 	_, err := changesets.ConfigureChainsForLanes(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, changesets.ConfigureChainsForLanesConfig{
 		Chains: []changesets.ChainConfig{
 			{
@@ -1287,7 +1287,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 
 	// Configure TEST token for transfer
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
-	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse("1.7.0"), &evm_adapters.TokenAdapter{})
+	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse("1.7.0"), &evmadapters.TokenAdapter{})
 	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
 	for _, rs := range remoteSelectors {
 		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
