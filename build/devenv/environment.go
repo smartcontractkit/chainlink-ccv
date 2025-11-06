@@ -124,10 +124,25 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
+	///////////////////////////////
+	// Start: Initialize Configs //
+	///////////////////////////////
 	// Override the default config to "cl"...
 	if in.Mode == "" {
 		in.Mode = Standalone
 	}
+
+	// Verifier configs...
+	for _, ver := range in.Verifier {
+		// deterministic key generation algorithm.
+		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
+		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+	}
+
+	/////////////////////////////
+	// End: Initialize Configs //
+	/////////////////////////////
+
 	if err = checkKeys(in); err != nil {
 		return nil, err
 	}
@@ -152,29 +167,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		_, err = impl.DeployLocalNetwork(ctx, in.Blockchains[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
-		}
-	}
-
-	// Start standalone executor if in standalone mode.
-	if in.Mode == Standalone {
-		_, err = services.NewExecutor(in.Executor)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create executor service: %w", err)
-		}
-	}
-
-	// Generate verifier keys, and start the verifier if in standalone mode.
-	for _, ver := range in.Verifier {
-		// deterministic key generation algorithm.
-		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
-		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-
-		// Start verifiers only if not in CL mode
-		if in.Mode == Standalone {
-			_, err = services.NewVerifier(ver)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create verifier service: %w", err)
-			}
 		}
 	}
 
@@ -258,7 +250,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	if in.Mode == CL { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
+	if in.Mode == CL || len(in.NodeSets) > 0 { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
 		clChainConfigs := make([]string, 0)
 		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 		for i, impl := range impls {
@@ -288,6 +280,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			}
 		}
 
+		// Configured keys on CL nodes
 		clClients, err := clclient.New(in.NodeSets[0].Out.CLNodes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect CL node clients")
@@ -315,6 +308,21 @@ func NewEnvironment() (in *Cfg, err error) {
 		Plog.Info().Str("BootstrapNode", in.NodeSets[0].Out.CLNodes[0].Node.ExternalURL).Send()
 		for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
 			Plog.Info().Str("Node", n.Node.ExternalURL).Send()
+		}
+	}
+
+	// Start standalone executor/verifiers if in standalone mode.
+	if in.Mode == Standalone {
+		_, err = services.NewExecutor(in.Executor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create executor service: %w", err)
+		}
+
+		for _, ver := range in.Verifier {
+			_, err = services.NewVerifier(ver)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			}
 		}
 	}
 
