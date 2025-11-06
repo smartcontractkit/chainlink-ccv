@@ -60,8 +60,15 @@ const (
 `
 )
 
+type Mode string
+
+const (
+	Standalone Mode = "standalone"
+	CL         Mode = "cl"
+)
+
 type Cfg struct {
-	Mode               string                      `toml:mode"`
+	Mode               Mode                        `toml:"mode"`
 	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
@@ -119,7 +126,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Override the default config to "cl"...
 	if in.Mode == "" {
-		in.Mode = "standalone"
+		in.Mode = Standalone
 	}
 	if err = checkKeys(in); err != nil {
 		return nil, err
@@ -130,7 +137,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	if in.Mode == "standalone" {
+	if in.Mode == Standalone {
 		_, err = services.NewExecutor(in.Executor)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create executor service: %w", err)
@@ -143,7 +150,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
 
 		// Start verifiers only if not in CL mode
-		if in.Mode == "standalone" {
+		if in.Mode == Standalone {
 			_, err = services.NewVerifier(ver)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)
@@ -248,8 +255,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	if in.Mode == "cl" {
-
+	if in.Mode == "cl" { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
 		clChainConfigs := make([]string, 0)
 		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 		for i, impl := range impls {
