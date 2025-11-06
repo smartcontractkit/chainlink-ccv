@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -224,4 +225,28 @@ type NoopStorage struct{}
 
 func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData, idempotencyKeys []string) error {
 	return nil
+}
+
+// createTestVerificationTasks creates a batch of verification tasks for testing.
+// Each task will have a sequential message ID starting from startSeqNum and uses the provided block numbers.
+func createTestVerificationTasks(
+	t *testing.T,
+	startNonce uint64,
+	chainSelector, destChain protocol.ChainSelector,
+	blockNumbers []uint64,
+) []VerificationTask {
+	t.Helper()
+
+	tasks := make([]VerificationTask, len(blockNumbers))
+	for i, blockNum := range blockNumbers {
+		nonce := startNonce + uint64(i)
+		tasks[i] = VerificationTask{
+			Message:        CreateTestMessage(t, protocol.Nonce(nonce), chainSelector, destChain, 0),
+			BlockNumber:    blockNum,
+			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
+			CreatedAt:      time.Now(),
+			IdempotencyKey: uuid.NewString(),
+		}
+	}
+	return tasks
 }
