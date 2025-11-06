@@ -209,11 +209,6 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		if in.Mode == CL {
-			if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
-				return nil, err
-			}
-		}
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
 		if err != nil {
@@ -284,6 +279,13 @@ func NewEnvironment() (in *Cfg, err error) {
 		_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
+		}
+
+		// Fund nodes...
+		for i, impl := range impls {
+			if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
+				return nil, err
+			}
 		}
 
 		clClients, err := clclient.New(in.NodeSets[0].Out.CLNodes)
