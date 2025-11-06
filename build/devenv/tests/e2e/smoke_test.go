@@ -309,7 +309,7 @@ func TestE2ESmoke(t *testing.T) {
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				receiver := mustGetEOAReceiverAddress(t, c, tc.dest)
-				sender := protocol.UnknownAddress(e.BlockChains.EVMChains()[tc.src].DeployerKey.From.Bytes())
+				sender := mustGetSenderAddress(t, c, tc.src)
 
 				srcToken := getTokenAddress(t, in, tc.src, tc.tokenQualifier)
 				destToken := getTokenAddress(t, in, tc.dest, tc.tokenQualifier)
@@ -385,6 +385,12 @@ func mustGetEOAReceiverAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector 
 	receiver, err := c.GetEOAReceiverAddress(chainSelector)
 	require.NoError(t, err)
 	return receiver
+}
+
+func mustGetSenderAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector uint64) protocol.UnknownAddress {
+	sender, err := c.GetSenderAddress(chainSelector)
+	require.NoError(t, err)
+	return sender
 }
 
 func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, contractType datastore.ContractType, version, qualifier, contractName string) protocol.UnknownAddress {

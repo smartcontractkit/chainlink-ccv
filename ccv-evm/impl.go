@@ -75,13 +75,10 @@ const (
 	CommitteeVerifierGasForVerification = 500_000
 
 	TokenPoolVersion    = "1.7.0"
-	RegistryVersion     = "1.5.0"
-	CommitteeVersion    = "1.7.0"
 	TokenAdapterVersion = "1.7.0"
 
-	TokenMaxSupply       = "100000000000000000000000000000"
-	TokenDeployerBalance = "1000000000000000000000000000"
-	RouterVersion        = "1.2.0"
+	TokenMaxSupply       = "100000000000000000000000000000" // 100 billion in 18 decimals
+	TokenDeployerBalance = "1000000000000000000000000000"   // 1 billion in 18 decimals
 	DefaultDecimals      = 18
 )
 
@@ -429,6 +426,21 @@ func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.Unknow
 	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
 }
 
+func (m *CCIP17EVM) GetSenderAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
+	chains := m.e.BlockChains.EVMChains()
+	if chains == nil {
+		return protocol.UnknownAddress{}, errors.New("no EVM chains found")
+	}
+
+	chain, ok := chains[chainSelector]
+	if !ok {
+		return protocol.UnknownAddress{}, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, chains)
+	}
+
+	// Return the chain deployer key address
+	return protocol.UnknownAddress(chain.DeployerKey.From.Bytes()), nil
+}
+
 func (m *CCIP17EVM) GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
 	chain, ok := m.e.BlockChains.EVMChains()[chainSelector]
 	if !ok {
@@ -555,7 +567,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get destination family: %w", err)
 	}
 
-	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(RouterVersion), ""))
+	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()), ""))
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get router address: %w", err)
 	}
@@ -1143,7 +1155,7 @@ func (m *CCIP17EVM) deployTokenAndPool(
 				LocalTokenDecimals: config.Decimals,
 				Router: datastore.AddressRef{
 					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(RouterVersion),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
 			},
 		},
@@ -1191,7 +1203,7 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 		for _, qualifier := range ccvQualifiers {
 			ccvRefs = append(ccvRefs, datastore.AddressRef{
 				Type:      datastore.ContractType(committee_verifier.ProxyType),
-				Version:   semver.MustParse(CommitteeVersion),
+				Version:   semver.MustParse(committee_verifier.Deploy.Version()),
 				Qualifier: qualifier,
 			})
 		}
@@ -1228,7 +1240,7 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 				},
 				RegistryRef: datastore.AddressRef{
 					Type:    datastore.ContractType(token_admin_registry.ContractType),
-					Version: semver.MustParse(RegistryVersion),
+					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
 				},
 				RemoteChains: tokensRemoteChains,
 			},
