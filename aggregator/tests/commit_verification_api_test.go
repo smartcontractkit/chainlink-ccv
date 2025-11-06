@@ -333,7 +333,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	// Decode the signature data
-	rs, ss, err := protocol.DecodeSignatures(ccvData)
+	rs, ss, err := protocol.DecodeSignatures(ccvData[4:])
 	require.NoError(t, err, "failed to decode CCV signature data")
 	require.Equal(t, len(rs), len(ss), "rs and ss arrays should have the same length")
 
@@ -347,7 +347,9 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	// Recover signer addresses from the aggregated signatures
-	recoveredAddresses, err := protocol.RecoverSigners(messageId, rs, ss)
+	preImage := append(ccvData[:4], messageId[:]...)
+	signedHash := protocol.Keccak256(preImage)
+	recoveredAddresses, err := protocol.RecoverSigners(signedHash, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
