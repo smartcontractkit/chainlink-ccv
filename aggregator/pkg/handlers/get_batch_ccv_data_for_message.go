@@ -1,4 +1,3 @@
-//nolint:goimports // unclear why this is firing
 package handlers
 
 import (
@@ -12,8 +11,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	grpcstatus "google.golang.org/grpc/status"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // GetBatchCCVDataForMessageHandler handles batch requests to retrieve commit verification data for multiple message IDs.

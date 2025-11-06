@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
