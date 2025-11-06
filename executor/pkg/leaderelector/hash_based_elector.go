@@ -99,17 +99,3 @@ func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
 	}
 	return int64(selectedIndex - startIndex)
 }
-
-// hexNibble converts an ASCII hex char to its 0..15 value.
-func hexNibble(b byte) (int, bool) {
-	switch {
-	case b >= '0' && b <= '9':
-		return int(b - '0'), true
-	case b >= 'a' && b <= 'f':
-		return int(b-'a') + 10, true
-	case b >= 'A' && b <= 'F':
-		return int(b-'A') + 10, true
-	default:
-		return 0, false
-	}
-}

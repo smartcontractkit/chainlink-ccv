@@ -2,8 +2,8 @@ package contracttransmitter
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/cockroachdb/errors"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
+
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 	txmgrcommon "github.com/smartcontractkit/chainlink-framework/chains/txmgr"
 )
@@ -55,7 +56,7 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 	}
 	roundRobinFromAddress, err := ct.keys.GetNextAddress(ctx, ct.fromAddresses...)
 	if err != nil {
-		return errors.Wrap(err, "skipping transmit, error getting round-robin from address")
+		return fmt.Errorf("skipping transmit, error getting round-robin from address: %w", err)
 	}
 	messageID, _ := report.Message.MessageID()
 
@@ -68,7 +69,7 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
 	})
 	if err != nil {
-		return errors.Wrap(err, "failed to create txmtransaction")
+		return fmt.Errorf("failed to create txm transaction: %w", err)
 	}
 
 	ct.lggr.Infow("submitted tx to txm", "messageID", messageID, "txm key", tx.IdempotencyKey)
