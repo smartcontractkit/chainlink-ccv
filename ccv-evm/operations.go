@@ -9,11 +9,10 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -88,7 +87,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 }
 
 // NewV3ExtraArgs encodes v3 extra args params.
-func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
 	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
     [
@@ -107,8 +106,10 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
                             ]
                         },
                         {"name": "finalityConfig", "type": "uint16"},
+                        {"name": "gasLimit", "type": "uint32"},
                         {"name": "executor", "type": "address"},
                         {"name": "executorArgs", "type": "bytes"},
+						{"name": "tokenReceiver", "type": "bytes"},
                         {"name": "tokenArgs", "type": "bytes"}
                     ],
                     "name": "extraArgs",
@@ -149,14 +150,18 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
 			Args       []byte
 		}
 		FinalityConfig uint16
+		GasLimit       uint32
 		Executor       common.Address
 		ExecutorArgs   []byte
+		TokenReceiver  []byte
 		TokenArgs      []byte
 	}{
 		Ccvs:           ccvStructs,
 		FinalityConfig: finalityConfig,
+		GasLimit:       gasLimit,
 		Executor:       common.HexToAddress(execAddr),
 		ExecutorArgs:   execArgs,
+		TokenReceiver:  []byte{},
 		TokenArgs:      tokenArgs,
 	}
 
@@ -207,7 +212,6 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 			sel,
 			committee_verifier.ConstructorArgs{
 				DynamicConfig: committee_verifier.DynamicConfig{
-					FeeQuoter:      MustGetContractAddressForSelector(addresses, sel, fee_quoter.ContractType),
 					FeeAggregator:  e.BlockChains.EVMChains()[sel].DeployerKey.From,
 					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
 				},

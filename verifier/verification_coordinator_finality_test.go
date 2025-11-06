@@ -38,7 +38,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	}()
 
 	// Message at block 940 (< finalized 950) should be processed immediately
-	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0)
+	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	finalizedTask := VerificationTask{
 		Message: finalizedMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
@@ -76,8 +76,9 @@ func TestFinality_CustomFinality(t *testing.T) {
 	}()
 
 	customFinality := uint16(15)
+	customGasLimit := uint32(300_000)
 
-	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality)
+	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
 	readyTask := VerificationTask{
 		Message: readyMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
@@ -116,7 +117,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 		}
 	}()
 
-	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0)
+	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
 	nonFinalizedTask := VerificationTask{
 		Message: nonFinalizedMessage,

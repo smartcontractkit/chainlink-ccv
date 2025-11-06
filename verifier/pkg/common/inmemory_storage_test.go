@@ -37,7 +37,8 @@ func createTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, 
 		nonce,
 		onRampAddr,
 		offRampAddr,
-		0, // finality
+		0,       // finality
+		300_000, // gas limit
 		sender,
 		receiver,
 		[]byte("test data"), // dest blob

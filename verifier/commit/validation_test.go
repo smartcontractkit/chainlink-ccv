@@ -90,6 +90,7 @@ func TestValidateMessage(t *testing.T) {
 		onRampAddr,
 		offRampAddr,
 		10,
+		300_000,
 		sender,
 		receiver,
 		[]byte("test data"),

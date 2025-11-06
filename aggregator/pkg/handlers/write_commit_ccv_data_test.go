@@ -21,7 +21,7 @@ import (
 )
 
 func makeValidProtoRequest(idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest {
-	msg, _ := protocol.NewMessage(1, 2, 1, nil, nil, 0, nil, nil, []byte{}, []byte{}, nil)
+	msg, _ := protocol.NewMessage(1, 2, 1, nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	id, _ := msg.MessageID()
 	pbMsg := model.MapProtocolMessageToProtoMessage(msg)
 	return &pb.WriteCommitCCVNodeDataRequest{

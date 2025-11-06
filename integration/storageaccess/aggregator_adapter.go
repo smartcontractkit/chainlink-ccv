@@ -52,6 +52,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 	if err != nil {
 		return nil, err
 	}
+
 	return &pb.WriteCommitCCVNodeDataRequest{
 		CcvNodeData: &pb.MessageWithCCVNodeData{
 			MessageId:             ccvData.MessageID[:],
@@ -79,6 +80,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 				TokenTransfer:        ccvData.Message.TokenTransfer[:],
 				DataLength:           uint32(ccvData.Message.DataLength),
 				Data:                 ccvData.Message.Data[:],
+				GasLimit:             ccvData.Message.GasLimit,
 			},
 			ReceiptBlobs: receiptBlobs,
 		},
@@ -268,6 +270,7 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 		DestBlob:            msg.DestBlob[:],
 		TokenTransfer:       msg.TokenTransfer[:],
 		Data:                msg.Data[:],
+		GasLimit:            msg.GasLimit,
 	}
 
 	if msg.Version > math.MaxUint8 {
