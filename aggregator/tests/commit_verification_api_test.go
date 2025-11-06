@@ -15,15 +15,10 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/committee"
+	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
-)
-
-const (
-	// The number of bytes used to represent the verifier version.
-	verifierVersionLength = 4
 )
 
 func TestAggregationHappyPath(t *testing.T) {
@@ -340,7 +335,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 
 	// Decode the signature data
 	// We need to exclude the verifier version to get the simple signature data (i.e. length + sigs)
-	rs, ss, err := protocol.DecodeSignatures(ccvData[verifierVersionLength:])
+	rs, ss, err := protocol.DecodeSignatures(ccvData[committee.VerifierVersionLength:])
 	require.NoError(t, err, "failed to decode CCV signature data")
 	require.Equal(t, len(rs), len(ss), "rs and ss arrays should have the same length")
 

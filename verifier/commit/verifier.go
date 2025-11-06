@@ -8,16 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/committee"
+	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-)
-
-const (
-	// The number of bytes used to represent the verifier version.
-	verifierVersionLength = 4
 )
 
 // Verifier provides a basic verifier implementation using the new message format.

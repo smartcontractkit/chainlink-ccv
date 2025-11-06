@@ -1,4 +1,4 @@
-package committee
+package common
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ const (
 )
 
 // NewSignableHash creates a new hash from the given message ID and verifier blob data.
-// This hash is signed by each committee verifier.
+// This hash is ultimately signed by each committee verifier.
 func NewSignableHash(messageID protocol.Bytes32, verifierBlobData []byte) ([32]byte, error) {
 	blobLen := len(verifierBlobData)
 	if blobLen == 0 {

@@ -7,14 +7,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
-)
-
-const (
-	// The number of bytes used to represent the verifier version.
-	verifierVersionLength = 4
 )
 
 func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
@@ -106,10 +102,10 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 				return nil, fmt.Errorf("source verifier return blob is missing from receipt")
 			}
 			blobLen := len(receipt.Blob)
-			if blobLen < verifierVersionLength {
-				return nil, fmt.Errorf("source verifier return blob is too short (expected at least %d bytes, got %d)", verifierVersionLength, blobLen)
+			if blobLen < committee.VerifierVersionLength {
+				return nil, fmt.Errorf("source verifier return blob is too short (expected at least %d bytes, got %d)", committee.VerifierVersionLength, blobLen)
 			}
-			ccvData = append(receipt.Blob[:verifierVersionLength], encodedSignatures...)
+			ccvData = append(receipt.Blob[:committee.VerifierVersionLength], encodedSignatures...)
 			break
 		}
 	}
