@@ -242,7 +242,7 @@ func createTestVerificationTasks(
 	for i, blockNum := range blockNumbers {
 		nonce := startNonce + uint64(i)
 		tasks[i] = VerificationTask{
-			Message:        CreateTestMessage(t, protocol.Nonce(nonce), chainSelector, destChain, 0),
+			Message:        CreateTestMessage(t, protocol.Nonce(nonce), chainSelector, destChain, 0, 300_000),
 			BlockNumber:    blockNum,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
 			CreatedAt:      time.Now(),
