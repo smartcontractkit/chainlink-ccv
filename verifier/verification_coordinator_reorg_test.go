@@ -212,7 +212,6 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	setup := setupReorgTest(t, chainSelector, 500*time.Millisecond)
 	defer setup.cleanup()
 
-	// Create tasks at two ranges:
 	// - Tasks at blocks 98, 99: BELOW finalized block (100), should be PROCESSED
 	// - Tasks at blocks 101, 102: ABOVE finalized block (100), should be FLUSHED by reorg
 	finalizedTasks := createTestVerificationTasks(t, 1, chainSelector, defaultDestChain, []uint64{98, 99})
@@ -272,10 +271,6 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	tasks := createTestVerificationTasks(t, 1, chainSelector, defaultDestChain, []uint64{98, 99, 100})
 
 	sendTasksToChannel(t, setup, tasks)
-	// Wait for tasks to be queued
-	time.Sleep(80 * time.Millisecond)
-
-	t.Log("📋 Tasks queued")
 
 	// Inject a finality violation event directly
 	// This simulates a reorg deeper than the finalized block
@@ -284,7 +279,6 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 		Type:         protocol.ReorgTypeFinalityViolation,
 		ResetToBlock: 0, // No safe reset point
 	}
-
 	// Wait for finality violation handler goroutine to process the event
 	// With double-checked locking fix, we only need minimal time for goroutine scheduling
 	time.Sleep(50 * time.Millisecond)
@@ -293,7 +287,6 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	// 1. All pending tasks should be flushed
 	// 2. Source reader should be stopped
 	// 3. No new tasks should be processed
-
 	processedCount := setup.testVerifier.GetProcessedTaskCount()
 	t.Logf("📊 Processed task count after finality violation: %d", processedCount)
 
@@ -326,7 +319,8 @@ func sendTasksToChannel(t *testing.T, setup *reorgTestSetup, tasks []Verificatio
 	go func() {
 		for _, task := range tasks {
 			setup.taskChannel <- task
-			//time.Sleep(10 * time.Millisecond)
 		}
 	}()
+	time.Sleep(20 * time.Millisecond)
+	t.Log("📋 Tasks queued")
 }

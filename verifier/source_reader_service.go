@@ -195,42 +195,18 @@ func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
 // so no chainStatus write is needed - periodic chain status chain statuses will naturally advance.
 // For finality violations, the reset block falls below the last chain status, so we must
 // immediately persist the new chain status to ensure safe restart.
-func (r *SourceReaderService) ResetToBlock(ctx context.Context, block uint64) error {
+func (r *SourceReaderService) ResetToBlock(block uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	resetBlock := new(big.Int).SetUint64(block)
-
-	// Check if we need to write chain status (resetBlock < lastChainStatusBlock)
-	// This only happens during finality violations where we reset below finalized range
-	needsChainStatusWrite := r.lastChainStatusBlock != nil && resetBlock.Cmp(r.lastChainStatusBlock) < 0
 
 	r.logger.Infow("Resetting source reader to block",
 		"chainSelector", r.chainSelector,
 		"fromBlock", r.lastProcessedBlock,
 		"toBlock", resetBlock,
 		"lastChainStatus", r.lastChainStatusBlock,
-		"needsChainStatusWrite", needsChainStatusWrite,
 		"resetVersion", r.resetVersion.Load()+1)
-
-	// Write chain status FIRST if needed (before updating in-memory state)
-	// This ensures restart safety for finality violations
-	if needsChainStatusWrite && r.chainStatusManager != nil {
-		if err := r.chainStatusManager.WriteChainStatus(ctx, []protocol.ChainStatusInfo{
-			{
-				ChainSelector: r.chainSelector,
-				BlockHeight:   resetBlock,
-				Disabled:      false,
-			},
-		}); err != nil {
-			return fmt.Errorf("failed to persist reset chainStatus: %w", err)
-		}
-		r.logger.Infow("Reset chainStatus persisted successfully",
-			"chainSelector", r.chainSelector,
-			"chainStatusBlock", resetBlock.String())
-		r.lastChainStatusBlock = new(big.Int).Set(resetBlock)
-		r.lastChainStatusTime = time.Now()
-	}
 
 	// Increment version to signal in-flight cycles that their read is stale
 	r.resetVersion.Add(1)

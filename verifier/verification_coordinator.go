@@ -979,10 +979,8 @@ func (vc *Coordinator) handleReorg(
 	// Note: For regular reorgs, the common ancestor is always >= last chain status,
 	// so ResetToBlock will update in-memory position without writing chain status.
 	// Periodic chain status chain statuses will naturally advance from this point.
-	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 
-	if err := state.reader.ResetToBlock(resetCtx, commonAncestor); err != nil {
+	if err := state.reader.ResetToBlock(commonAncestor); err != nil {
 		vc.lggr.Errorw("Failed to reset source reader after reorg",
 			"error", err,
 			"chain", chainSelector,
@@ -1013,6 +1011,9 @@ func (vc *Coordinator) handleFinalityViolation(
 	state *sourceState,
 	violationStatus protocol.ChainStatus,
 ) {
+	// Set reorgInProgress flag to stop new tasks from being added
+	state.reorgInProgress.Store(true)
+	defer state.reorgInProgress.Store(false)
 	chainSelector := state.chainSelector
 
 	vc.lggr.Errorw("FINALITY VIOLATION DETECTED - stopping chain reader immediately",
