@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/committee"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -173,20 +174,12 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 			break
 		}
 	}
-	blobLen := len(verifierBlob)
-	if blobLen == 0 {
-		return fmt.Errorf("receipt blob not found for source verifier %s and message %s", sourceConfig.VerifierAddress.String(), messageID.String())
-	}
-	if blobLen < verifierVersionLength {
-		return fmt.Errorf("receipt blob too short for source verifier %s and message %s (expected at least %d bytes, got %d)", sourceConfig.VerifierAddress, messageID.String(), verifierVersionLength, blobLen)
+	hash, err := committee.NewSignableHash(messageID, verifierBlob)
+	if err != nil {
+		return fmt.Errorf("failed to create signable hash for message %s: %w", messageID.String(), err)
 	}
 
-	var preImage []byte
-	preImage = append(preImage, verifierBlob[:verifierVersionLength]...)
-	preImage = append(preImage, messageID[:]...)
-	hashToSign := protocol.Keccak256(preImage)
-
-	encodedSignature, err := cv.signer.Sign(hashToSign[:])
+	encodedSignature, err := cv.signer.Sign(hash[:])
 	if err != nil {
 		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}

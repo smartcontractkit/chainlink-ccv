@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/committee"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -142,9 +143,9 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 
 		// Use SignV27 for proper signature creation and normalization
 		require.Len(t, m.BlobData, 4, "blob data must be at least 4 bytes to account for version")
-		preImage := append(m.BlobData, messageID[:]...)
-		hashToSign := protocol.Keccak256(preImage)
-		r32, s32, signerAddr, err := protocol.SignV27(hashToSign[:], signer.key)
+		hash, err := committee.NewSignableHash(messageID, m.BlobData)
+		require.NoError(t, err, "failed to create signed hash")
+		r32, s32, signerAddr, err := protocol.SignV27(hash[:], signer.key)
 		require.NoError(t, err, "failed to sign message")
 
 		// Create signature data with actual signer address

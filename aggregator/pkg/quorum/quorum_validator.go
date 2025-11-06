@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/committee"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -88,15 +89,11 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, nil, err
 	}
 
-	blobLen := len(record.BlobData)
-	if blobLen < verifierVersionLength {
-		q.logger(ctx).Errorw("Source verifier return blob is too short", "expectedLength", verifierVersionLength, "actualLength", blobLen)
-		return nil, nil, fmt.Errorf("source verifier return blob is too short (expected at least %d bytes, got %d)", verifierVersionLength, blobLen)
+	hash, err := committee.NewSignableHash(messageID, record.BlobData)
+	if err != nil {
+		q.logger(ctx).Errorw("Failed to produce signed hash", "error", err)
+		return nil, nil, err
 	}
-	ccvVersion := record.BlobData[:verifierVersionLength]
-
-	preImage := append(ccvVersion, messageID[:]...)
-	hashToSign := protocol.Keccak256(preImage)
 
 	rs, ss, err := protocol.DecodeSignatures(record.CcvData)
 	if err != nil {
@@ -119,7 +116,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		for vValue := byte(0); vValue <= 1; vValue++ {
 			combined := append(rs[i][:], ss[i][:]...)
 			combined = append(combined, vValue)
-			address, err := q.ecrecover(combined, hashToSign[:])
+			address, err := q.ecrecover(combined, hash[:])
 			if err != nil {
 				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
 				continue

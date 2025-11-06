@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/committee"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -353,9 +354,9 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	// Recover signer addresses from the aggregated signatures
-	preImage := append(ccvData[:verifierVersionLength], messageId[:]...)
-	signedHash := protocol.Keccak256(preImage)
-	recoveredAddresses, err := protocol.RecoverSigners(signedHash, rs, ss)
+	hash, err := committee.NewSignableHash(messageId, ccvData)
+	require.NoError(t, err, "failed to create signed hash")
+	recoveredAddresses, err := protocol.RecoverSigners(hash, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
