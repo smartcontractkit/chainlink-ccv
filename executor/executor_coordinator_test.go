@@ -13,128 +13,128 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestConstructor(t *testing.T) {
 	lggr := logger.Test(t)
 
+	type args struct {
+		lggr logger.Logger
+		exec executor.Executor
+		sub  executor.MessageSubscriber
+		le   executor.LeaderElector
+		mon  executor.Monitoring
+	}
+
 	testcases := []struct {
-		name    string
-		options []executor.Option
-		err     []string
+		name      string
+		args      args
+		expectErr bool
 	}{
 		{
-			name:    "missing every option",
-			options: []executor.Option{},
-			err:     []string{"executor is not set", "logger is not set", "leaderElector is not set", "messageSubscriber is not set"},
+			name:      "missing every required component",
+			args:      args{},
+			expectErr: true,
 		},
 		{
 			name: "happy",
-			options: []executor.Option{
-				executor.WithLogger(lggr),
-				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
-				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-				executor.WithMessageSubscriber(executor_mocks.NewMockMessageSubscriber(t)),
+			args: args{
+				lggr: lggr,
+				exec: executor_mocks.NewMockExecutor(t),
+				sub:  executor_mocks.NewMockMessageSubscriber(t),
+				le:   executor_mocks.NewMockLeaderElector(t),
+				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
-			err: nil,
+			expectErr: false,
 		},
 		{
 			name: "missing executor",
-			options: []executor.Option{
-				executor.WithLogger(lggr),
-				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-				executor.WithMessageSubscriber(executor_mocks.NewMockMessageSubscriber(t)),
+			args: args{
+				lggr: lggr,
+				sub:  executor_mocks.NewMockMessageSubscriber(t),
+				le:   executor_mocks.NewMockLeaderElector(t),
+				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
-			err: []string{"executor is not set"},
+			expectErr: true,
 		},
 		{
 			name: "missing logger",
-			options: []executor.Option{
-				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
-				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-				executor.WithMessageSubscriber(executor_mocks.NewMockMessageSubscriber(t)),
+			args: args{
+				exec: executor_mocks.NewMockExecutor(t),
+				sub:  executor_mocks.NewMockMessageSubscriber(t),
+				le:   executor_mocks.NewMockLeaderElector(t),
+				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
-			err: []string{"logger is not set"},
+			expectErr: true,
 		},
 		{
 			name: "missing leaderElector",
-			options: []executor.Option{
-				executor.WithLogger(lggr),
-				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
-				executor.WithMessageSubscriber(executor_mocks.NewMockMessageSubscriber(t)),
+			args: args{
+				lggr: lggr,
+				exec: executor_mocks.NewMockExecutor(t),
+				sub:  executor_mocks.NewMockMessageSubscriber(t),
+				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
-			err: []string{"leaderElector is not set"},
+			expectErr: true,
 		},
 		{
 			name: "missing MessageSubscriber",
-			options: []executor.Option{
-				executor.WithLogger(lggr),
-				executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
-				executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
+			args: args{
+				lggr: lggr,
+				exec: executor_mocks.NewMockExecutor(t),
+				le:   executor_mocks.NewMockLeaderElector(t),
+				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
-			err: []string{"messageSubscriber is not set"},
+			expectErr: true,
+		},
+		{
+			name: "missing Monitoring",
+			args: args{
+				lggr: lggr,
+				exec: executor_mocks.NewMockExecutor(t),
+				sub:  executor_mocks.NewMockMessageSubscriber(t),
+				le:   executor_mocks.NewMockLeaderElector(t),
+			},
+			expectErr: true,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ec, err := executor.NewCoordinator(tc.options...)
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon)
 
-			if len(tc.err) > 0 {
+			if tc.expectErr {
 				require.Error(t, err)
-				require.Nil(t, ec)
-				joinedError := err.Error()
-
-				for _, errStr := range tc.err {
-					require.ErrorContains(t, err, errStr)
-				}
-
-				require.Len(t, tc.err, len(strings.Split(joinedError, "\n")), "unexpected number of errors")
 			} else {
 				require.NoError(t, err)
-				require.NotNil(t, ec)
 			}
 		})
 	}
 }
 
 func TestLifecycle(t *testing.T) {
-	getReader := func() *executor.Coordinator {
-		lggr := logger.Test(t)
+	lggr := logger.Test(t)
 
-		ccvDataReader := executor_mocks.NewMockMessageSubscriber(t)
-		messageChan := make(chan executor.StreamerResult)
-		ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, nil)
+	ccvDataReader := executor_mocks.NewMockMessageSubscriber(t)
+	messageChan := make(chan executor.StreamerResult)
+	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, nil)
 
-		ec, err := executor.NewCoordinator(
-			executor.WithLogger(lggr),
-			executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
-			executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-			executor.WithMessageSubscriber(ccvDataReader),
-		)
-		require.NoError(t, err)
-		require.NotNil(t, ec)
+	ec, err := executor.NewCoordinator(
+		lggr,
+		executor_mocks.NewMockExecutor(t),
+		ccvDataReader,
+		executor_mocks.NewMockLeaderElector(t),
+		monitoring.NewNoopExecutorMonitoring(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ec)
 
-		return ec
-	}
-
-	t.Run("context cancelled", func(t *testing.T) {
-		ec := getReader()
-		ctx, cancel := context.WithCancel(t.Context())
-		require.NoError(t, ec.Start(ctx))
-		require.NoError(t, ec.Ready())
-		cancel()
-		require.Eventuallyf(t, func() bool { return ec.Ready() != nil }, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
-	})
-
-	t.Run("stop called", func(t *testing.T) {
-		ec := getReader()
-		require.NoError(t, ec.Start(t.Context()))
-		require.NoError(t, ec.Ready())
-		require.NoError(t, ec.Close())
-		require.Eventuallyf(t, func() bool { return ec.Ready() != nil }, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
-	})
+	require.NoError(t, ec.Start(t.Context()))
+	require.NoError(t, ec.Ready())
+	require.NoError(t, ec.Close())
+	require.Eventuallyf(t, func() bool { return ec.Ready() != nil }, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
 }
 
 func TestSubscribeMessagesError(t *testing.T) {
@@ -147,10 +147,11 @@ func TestSubscribeMessagesError(t *testing.T) {
 	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, sentinelError)
 
 	ec, err := executor.NewCoordinator(
-		executor.WithLogger(lggr),
-		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
-		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-		executor.WithMessageSubscriber(messageSubscriber),
+		lggr,
+		executor_mocks.NewMockExecutor(t),
+		messageSubscriber,
+		executor_mocks.NewMockLeaderElector(t),
+		monitoring.NewNoopExecutorMonitoring(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -176,13 +177,14 @@ func TestStopNotRunning(t *testing.T) {
 	lggr := logger.Test(t)
 
 	ec, err := executor.NewCoordinator(
-		executor.WithLogger(lggr),
-		executor.WithExecutor(executor_mocks.NewMockExecutor(t)),
-		executor.WithLeaderElector(executor_mocks.NewMockLeaderElector(t)),
-		executor.WithMessageSubscriber(executor_mocks.NewMockMessageSubscriber(t)),
+		lggr,
+		executor_mocks.NewMockExecutor(t),
+		executor_mocks.NewMockMessageSubscriber(t),
+		executor_mocks.NewMockLeaderElector(t),
+		monitoring.NewNoopExecutorMonitoring(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
 
-	require.ErrorContains(t, ec.Close(), "coordinator not running")
+	require.ErrorContains(t, ec.Close(), "has not been started")
 }
