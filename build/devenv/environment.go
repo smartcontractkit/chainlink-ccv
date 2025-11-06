@@ -132,6 +132,12 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
+	// Start fake data provider. This isn't really used, but may be useful in the future.
+	_, err = services.NewFake(in.Fake)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
+	}
+
 	// Start blockchains, the services crash if the RPC is not available.
 	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
@@ -147,12 +153,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
 		}
-	}
-
-	// Start fake data provider. This isn't really used, but may be useful in the future.
-	_, err = services.NewFake(in.Fake)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
 	// Start standalone executor if in standalone mode.
