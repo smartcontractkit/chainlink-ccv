@@ -18,14 +18,20 @@ import (
 )
 
 // NewVerificationCoordinator starts the Committee Verifier with evm chains.
+// Signing is passed in because it's managed differently in the CL node vs standalone modes.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg verifier.Config,
-	secrets VerifierSecrets,
+	signingAddress protocol.UnknownAddress,
+	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 ) (*verifier.Coordinator, error) {
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
+	}
+
+	if signingAddress.String() != cfg.SignerAddress {
+		return nil, fmt.Errorf("signing address does not match configuration: config %s vs provided %s", cfg.SignerAddress, signingAddress.String())
 	}
 
 	onRampAddrs, err := mapAddresses(cfg.OnRampAddresses)
@@ -112,12 +118,7 @@ func NewVerificationCoordinator(
 	}
 
 	// Create commit verifier (with ECDSA signer)
-	signer, err := commit.NewECDSAMessageSignerFromString(secrets.SigningKey)
-	if err != nil {
-		lggr.Errorw("Failed to create message signer", "error", err)
-		return nil, fmt.Errorf("failed to create message signer: %w", err)
-	}
-	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signer, lggr, verifierMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signingAddress, signer, lggr, verifierMonitoring)
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)

@@ -924,11 +924,11 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 		if err != nil {
 			panic(fmt.Sprintf("failed to read private key: %v", err))
 		}
-		signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+		_, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("failed to create ECDSA message signer: %v", err))
 		}
-		signerAddresses = append(signerAddresses, common.HexToAddress(signer.GetSignerAddress().String()))
+		signerAddresses = append(signerAddresses, common.BytesToAddress(addr[:]))
 	}
 	return committee_verifier.SetSignatureConfigArgs{
 		Threshold: uint8(numNodes), //nolint:gosec
