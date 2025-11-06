@@ -40,43 +40,6 @@ type reorgTestSetup struct {
 	blocksMu         sync.RWMutex
 }
 
-// hashFromNumber creates a deterministic hash from block number for testing.
-//
-// This encodes the block number into the first 4 bytes of the hash using big-endian byte order.
-// The remaining 28 bytes are left as zeros.
-//
-// Encoding (Big-Endian):
-//   - h[0] = most significant byte  (bits 24-31)
-//   - h[1] = second byte            (bits 16-23)
-//   - h[2] = third byte             (bits 8-15)
-//   - h[3] = least significant byte (bits 0-7)
-//
-// Examples:
-//
-//	Block 0:   [0x00, 0x00, 0x00, 0x00, 0x00, ...] (all zeros)
-//	Block 100: [0x00, 0x00, 0x00, 0x64, 0x00, ...] (0x64 = 100 in hex)
-//	Block 255: [0x00, 0x00, 0x00, 0xFF, 0x00, ...] (0xFF = 255 in hex)
-//	Block 256: [0x00, 0x00, 0x01, 0x00, 0x00, ...] (0x0100 = 256 in hex)
-//	Block 1000: [0x00, 0x00, 0x03, 0xE8, 0x00, ...] (0x03E8 = 1000 in hex)
-//
-// To decode a hash back to block number:
-//
-//	blockNum = (h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]
-//
-// Why not use SHA256?
-//   - Debuggability: You can visually decode block numbers from hex dumps
-//   - Simplicity: Test intent is clear - we just need unique, predictable hashes
-//   - Performance: Faster test execution
-//   - Relevance: We're testing reorg logic, not cryptographic properties
-func hashFromNumber(n uint64) protocol.Bytes32 {
-	var h protocol.Bytes32
-	h[0] = byte(n >> 24) // MSB
-	h[1] = byte(n >> 16)
-	h[2] = byte(n >> 8)
-	h[3] = byte(n) // LSB
-	return h
-}
-
 // setupReorgTest creates a complete test setup with coordinator and reorg detector.
 func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finalityCheckInterval time.Duration) *reorgTestSetup {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -181,6 +144,23 @@ func (s *reorgTestSetup) cleanup() {
 	s.cancel()
 }
 
+func (s *reorgTestSetup) mustStartCoordinator() {
+	err := s.coordinator.Start(s.ctx)
+	require.NoError(s.t, err)
+	s.t.Log("✅ Coordinator started")
+}
+
+func (s *reorgTestSetup) mustRestartCoordinator() {
+	err := s.coordinator.Close()
+	require.NoError(s.t, err)
+	s.t.Log("✅ Coordinator closed")
+
+	// Restart the same coordinator - disabled chain should be skipped
+	err = s.coordinator.Start(s.ctx)
+	require.NoError(s.t, err)
+	s.t.Log("✅ Coordinator restarted")
+}
+
 // assertSourceReaderChannelState verifies the state of the source reader's verification task channel.
 // When expectOpen is true, it asserts the channel is open (not closed).
 // When expectOpen is false, it asserts the channel is closed.
@@ -238,23 +218,9 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	finalizedTasks := createTestVerificationTasks(t, 1, chainSelector, defaultDestChain, []uint64{98, 99})
 	pendingTasks := createTestVerificationTasks(t, 3, chainSelector, defaultDestChain, []uint64{101, 102})
 
-	t.Log("📋 Starting coordinator")
-
-	// Start coordinator FIRST
-	err := setup.coordinator.Start(setup.ctx)
-	require.NoError(t, err)
-	t.Log("✅ Coordinator started with reorg detector")
-
+	setup.mustStartCoordinator()
 	// THEN send tasks via channel (like in verification_coordinator_test.go)
-	go func() {
-		for _, task := range append(finalizedTasks, pendingTasks...) {
-			setup.taskChannel <- task
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-
-	t.Log("📋 Sending tasks to verification pipeline")
-
+	sendTasksToChannel(t, setup, append(finalizedTasks, pendingTasks...))
 	// Wait for finalized tasks to be processed before triggering reorg
 	// Tasks at blocks 98, 99 should be processed since they're below finalized block 100
 	t.Log("📋 Waiting for finalized tasks (98, 99) to be processed...")
@@ -264,7 +230,6 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	// Inject a reorg event directly (LCA at block 100)
 	// This simulates the reorg detector finding a reorg with LCA at finalized block 100
 	t.Log("🔄 Injecting reorg event: LCA at block 100")
-
 	setup.mockReorgDetector.statusCh <- protocol.ChainStatus{
 		Type:         protocol.ReorgTypeNormal,
 		ResetToBlock: 100, // LCA at finalized block
@@ -289,6 +254,9 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 
 	// Verify that the source reader is still running (channel should be open)
 	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
+	// Verify reader still open after restart
+	setup.mustRestartCoordinator()
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
 
 	t.Log("✅ Test completed: Normal reorg handled correctly - finalized tasks processed, reorged tasks flushed")
 }
@@ -299,23 +267,11 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	setup := setupReorgTest(t, chainSelector, 10*time.Second) // high finality check interval to avoid processing before sending the violation notification
 	defer setup.cleanup()
 
-	// Start coordinator
-	err := setup.coordinator.Start(setup.ctx)
-	require.NoError(t, err)
-
-	t.Log("✅ Coordinator started with reorg detector")
-
+	setup.mustStartCoordinator()
 	// Create tasks at blocks 98, 99, 100 (around finalized block)
 	tasks := createTestVerificationTasks(t, 1, chainSelector, defaultDestChain, []uint64{98, 99, 100})
 
-	// Send tasks via channel
-	go func() {
-		for _, task := range tasks {
-			setup.taskChannel <- task
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-
+	sendTasksToChannel(t, setup, tasks)
 	// Wait for tasks to be queued
 	time.Sleep(80 * time.Millisecond)
 
@@ -349,27 +305,28 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 
 	t.Log("✅ Test completed: Finality violation handled correctly")
 
-	// Test restart behavior - chain should remain disabled
-	t.Log("🔄 Testing coordinator restart with disabled chain")
-
-	// Verify chain status was written as disabled
 	statusMap, err := setup.chainStatusManager.ReadChainStatus(setup.ctx, []protocol.ChainSelector{chainSelector})
 	require.NoError(t, err)
 	require.Len(t, statusMap, 1)
 	require.True(t, statusMap[chainSelector].Disabled, "Chain should be marked as disabled")
 	t.Log("✅ Chain marked as disabled in chain status manager")
 
-	// Close coordinator
-	err = setup.coordinator.Close()
-	require.NoError(t, err)
-	t.Log("✅ Coordinator closed")
-
-	// Restart the same coordinator - disabled chain should be skipped
-	err = setup.coordinator.Start(setup.ctx)
-	require.NoError(t, err)
-	t.Log("✅ Coordinator restarted")
-
+	t.Log("🔄 Testing coordinator restart with disabled chain - should remain stopped")
+	setup.mustRestartCoordinator()
 	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
 
 	t.Log("✅ Test completed: Disabled chain correctly skipped on restart")
+}
+
+func sendTasksToChannel(t *testing.T, setup *reorgTestSetup, tasks []VerificationTask) {
+	t.Helper()
+	t.Log("📋 Sending tasks to verification pipeline")
+
+	// Send tasks via channel
+	go func() {
+		for _, task := range tasks {
+			setup.taskChannel <- task
+			//time.Sleep(10 * time.Millisecond)
+		}
+	}()
 }

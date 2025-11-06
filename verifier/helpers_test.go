@@ -250,3 +250,40 @@ func createTestVerificationTasks(
 	}
 	return tasks
 }
+
+// hashFromNumber creates a deterministic hash from block number for testing.
+//
+// This encodes the block number into the first 4 bytes of the hash using big-endian byte order.
+// The remaining 28 bytes are left as zeros.
+//
+// Encoding (Big-Endian):
+//   - h[0] = most significant byte  (bits 24-31)
+//   - h[1] = second byte            (bits 16-23)
+//   - h[2] = third byte             (bits 8-15)
+//   - h[3] = least significant byte (bits 0-7)
+//
+// Examples:
+//
+//	Block 0:   [0x00, 0x00, 0x00, 0x00, 0x00, ...] (all zeros)
+//	Block 100: [0x00, 0x00, 0x00, 0x64, 0x00, ...] (0x64 = 100 in hex)
+//	Block 255: [0x00, 0x00, 0x00, 0xFF, 0x00, ...] (0xFF = 255 in hex)
+//	Block 256: [0x00, 0x00, 0x01, 0x00, 0x00, ...] (0x0100 = 256 in hex)
+//	Block 1000: [0x00, 0x00, 0x03, 0xE8, 0x00, ...] (0x03E8 = 1000 in hex)
+//
+// To decode a hash back to block number:
+//
+//	blockNum = (h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]
+//
+// Why not use SHA256?
+//   - Debuggability: You can visually decode block numbers from hex dumps
+//   - Simplicity: Test intent is clear - we just need unique, predictable hashes
+//   - Performance: Faster test execution
+//   - Relevance: We're testing reorg logic, not cryptographic properties
+func hashFromNumber(n uint64) protocol.Bytes32 {
+	var h protocol.Bytes32
+	h[0] = byte(n >> 24) // MSB
+	h[1] = byte(n >> 16)
+	h[2] = byte(n >> 8)
+	h[3] = byte(n) // LSB
+	return h
+}
