@@ -41,18 +41,19 @@ import (
 
 // reorgTestSetup contains the test fixtures for reorg integration tests.
 type reorgTestSetup struct {
-	t                 *testing.T
-	ctx               context.Context
-	cancel            context.CancelFunc
-	coordinator       *Coordinator
-	mockSourceReader  *MockSourceReader
-	mockHeadTracker   *protocol_mocks.MockHeadTracker
-	mockReorgDetector *mockReorgDetector
-	testVerifier      *TestVerifier
-	storage           *common.InMemoryOffchainStorage
-	chainSelector     protocol.ChainSelector
-	lggr              logger.Logger
-	taskChannel       chan VerificationTask
+	t                  *testing.T
+	ctx                context.Context
+	cancel             context.CancelFunc
+	coordinator        *Coordinator
+	mockSourceReader   *MockSourceReader
+	mockHeadTracker    *protocol_mocks.MockHeadTracker
+	mockReorgDetector  *mockReorgDetector
+	chainStatusManager *InMemoryChainStatusManager
+	testVerifier       *TestVerifier
+	storage            *common.InMemoryOffchainStorage
+	chainSelector      protocol.ChainSelector
+	lggr               logger.Logger
+	taskChannel        chan VerificationTask
 
 	// Block state for simulating chain progression
 	currentLatest    *protocol.BlockHeader
@@ -164,12 +165,14 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 		},
 	}
 
+	chainStatusManager := NewInMemoryChainStatusManager()
 	// Create coordinator with all components
 	coordinator, err := NewCoordinator(
 		WithVerifier(setup.testVerifier),
 		WithStorage(setup.storage),
 		WithLogger(lggr),
 		WithConfig(coordinatorConfig),
+		WithChainStatusManager(chainStatusManager),
 		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
 			chainSelector: setup.mockSourceReader,
 		}),
@@ -419,4 +422,28 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
 
 	t.Log("✅ Test completed: Finality violation handled correctly")
+
+	// Test restart behavior - chain should remain disabled
+	t.Log("🔄 Testing coordinator restart with disabled chain")
+
+	// Verify chain status was written as disabled
+	statusMap, err := setup.coordinator.chainStatusManager.ReadChainStatus(setup.ctx, []protocol.ChainSelector{chainSelector})
+	require.NoError(t, err)
+	require.Len(t, statusMap, 1)
+	require.True(t, statusMap[chainSelector].Disabled, "Chain should be marked as disabled")
+	t.Log("✅ Chain marked as disabled in chain status manager")
+
+	// Close coordinator
+	err = setup.coordinator.Close()
+	require.NoError(t, err)
+	t.Log("✅ Coordinator closed")
+
+	// Restart the same coordinator - disabled chain should be skipped
+	err = setup.coordinator.Start(setup.ctx)
+	require.NoError(t, err)
+	t.Log("✅ Coordinator restarted")
+
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
+
+	t.Log("✅ Test completed: Disabled chain correctly skipped on restart")
 }

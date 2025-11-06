@@ -126,19 +126,22 @@ func (a *AggregatorWriter) Close() error {
 	return nil
 }
 
-// WriteChainStatus writes a chain status to the aggregator.
-func (a *AggregatorWriter) WriteChainStatus(ctx context.Context, chainSelector protocol.ChainSelector, blockHeight *big.Int, disabled bool) error {
+// WriteChainStatus writes chain statuses to the aggregator.
+func (a *AggregatorWriter) WriteChainStatus(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
 	// HMAC authentication is automatically handled by the client interceptor
 
-	// Convert chain status to protobuf format
+	// Convert chain statuses to protobuf format
+	pbStatuses := make([]*pb.ChainStatus, 0, len(statuses))
+	for _, status := range statuses {
+		pbStatuses = append(pbStatuses, &pb.ChainStatus{
+			ChainSelector:        uint64(status.ChainSelector),
+			FinalizedBlockHeight: status.BlockHeight.Uint64(),
+			Disabled:             status.Disabled,
+		})
+	}
+
 	req := &pb.WriteChainStatusRequest{
-		Statuses: []*pb.ChainStatus{
-			{
-				ChainSelector:        uint64(chainSelector),
-				FinalizedBlockHeight: blockHeight.Uint64(),
-				Disabled:             disabled,
-			},
-		},
+		Statuses: pbStatuses,
 	}
 
 	// Make the gRPC call
@@ -151,10 +154,7 @@ func (a *AggregatorWriter) WriteChainStatus(ctx context.Context, chainSelector p
 		return fmt.Errorf("chain status write failed with status: %s", resp.Status.String())
 	}
 
-	a.lggr.Debugw("Successfully wrote chain status",
-		"chainSelector", chainSelector,
-		"blockHeight", blockHeight.String(),
-		"disabled", disabled)
+	a.lggr.Debugw("Successfully wrote chain statuses", "count", len(statuses))
 
 	return nil
 }
@@ -228,8 +228,9 @@ func (a *AggregatorReader) Close() error {
 	return nil
 }
 
-// ReadChainStatus reads a chain status from the aggregator.
-func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
+// ReadChainStatus reads chain statuses from the aggregator.
+// Returns map of chainSelector -> ChainStatusInfo. Missing chains are not included in the map.
+func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
 	// Create read request
 	req := &pb.ReadChainStatusRequest{}
 
@@ -242,15 +243,26 @@ func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelector pr
 		return nil, fmt.Errorf("failed to read chain status: %w", err)
 	}
 
-	// Find chain status for our chain selector (ignore disabled chains)
+	// Build a map of all statuses from response for quick lookup
+	allStatuses := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 	for _, chainStatus := range resp.Statuses {
-		if chainStatus.ChainSelector == uint64(chainSelector) && !chainStatus.Disabled {
-			return new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight), nil
+		selector := protocol.ChainSelector(chainStatus.ChainSelector)
+		allStatuses[selector] = &protocol.ChainStatusInfo{
+			ChainSelector: selector,
+			BlockHeight:   new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight),
+			Disabled:      chainStatus.Disabled,
 		}
 	}
 
-	// No active chain status found for this chain selector
-	return nil, nil
+	// Filter to only requested chain selectors
+	result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
+	for _, selector := range chainSelectors {
+		if status, ok := allStatuses[selector]; ok {
+			result[selector] = status
+		}
+	}
+
+	return result, nil
 }
 
 func mapMessage(msg *pb.Message) (protocol.Message, error) {

@@ -216,7 +216,13 @@ func (r *SourceReaderService) ResetToBlock(ctx context.Context, block uint64) er
 	// Write chain status FIRST if needed (before updating in-memory state)
 	// This ensures restart safety for finality violations
 	if needsChainStatusWrite && r.chainStatusManager != nil {
-		if err := r.chainStatusManager.WriteChainStatus(ctx, r.chainSelector, resetBlock); err != nil {
+		if err := r.chainStatusManager.WriteChainStatus(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector: r.chainSelector,
+				BlockHeight:   resetBlock,
+				Disabled:      false,
+			},
+		}); err != nil {
 			return fmt.Errorf("failed to persist reset chainStatus: %w", err)
 		}
 		r.logger.Infow("Reset chainStatus persisted successfully",
@@ -265,7 +271,7 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 }
 
 // readChainStatusWithRetries tries to read chain status from aggregator with exponential backoff.
-func (r *SourceReaderService) readChainStatusWithRetries(ctx context.Context, maxAttempts int) (*big.Int, error) {
+func (r *SourceReaderService) readChainStatusWithRetries(ctx context.Context, maxAttempts int) (*protocol.ChainStatusInfo, error) {
 	if r.chainStatusManager == nil {
 		r.logger.Debugw("No chainStatus manager available for chainStatus reading")
 		return nil, nil
@@ -273,8 +279,10 @@ func (r *SourceReaderService) readChainStatusWithRetries(ctx context.Context, ma
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		chainStatus, err := r.chainStatusManager.ReadChainStatus(ctx, r.chainSelector)
+		statusMap, err := r.chainStatusManager.ReadChainStatus(ctx, []protocol.ChainSelector{r.chainSelector})
 		if err == nil {
+			// Extract status for this chain from the map
+			chainStatus := statusMap[r.chainSelector]
 			return chainStatus, nil
 		}
 
@@ -405,9 +413,10 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 	}
 
 	// Resume from chain status + 1
-	startBlock := new(big.Int).Add(chainStatus, big.NewInt(1))
+	startBlock := new(big.Int).Add(chainStatus.BlockHeight, big.NewInt(1))
 	r.logger.Infow("Resuming from chainStatus",
-		"chainStatusBlock", chainStatus.String(),
+		"chainStatusBlock", chainStatus.BlockHeight.String(),
+		"disabled", chainStatus.Disabled,
 		"startBlock", startBlock.String())
 
 	return startBlock, nil
@@ -505,7 +514,13 @@ func (r *SourceReaderService) updateChainStatus(ctx context.Context, lastProcess
 	}
 
 	// Write chain status (fire-and-forget, just log errors)
-	err = r.chainStatusManager.WriteChainStatus(ctx, r.chainSelector, chainStatusBlock)
+	err = r.chainStatusManager.WriteChainStatus(ctx, []protocol.ChainStatusInfo{
+		{
+			ChainSelector: r.chainSelector,
+			BlockHeight:   chainStatusBlock,
+			Disabled:      false,
+		},
+	})
 	if err != nil {
 		r.logger.Errorw("Failed to write chainStatus",
 			"error", err,

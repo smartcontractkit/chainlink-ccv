@@ -31,17 +31,26 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_HappyPath(t *testing.T) {
 
 	ctx := context.Background()
 	expectedBlock := big.NewInt(12345)
+	chainSelector := protocol.ChainSelector(1337)
 
 	// Mock successful chain status read on first attempt
+	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+		chainSelector: {
+			ChainSelector: chainSelector,
+			BlockHeight:   expectedBlock,
+			Disabled:      false,
+		},
+	}
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, protocol.ChainSelector(1337)).
-		Return(expectedBlock, nil).
+		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		Return(statusMap, nil).
 		Once()
 
 	result, err := reader.readChainStatusWithRetries(ctx, ChainStatusRetryAttempts)
 
 	require.NoError(t, err)
-	require.Equal(t, expectedBlock, result)
+	require.NotNil(t, result)
+	require.Equal(t, expectedBlock, result.BlockHeight)
 }
 
 func TestEVMSourceReader_ReadChainStatusWithRetries_NoChainStatusManager(t *testing.T) {
@@ -60,11 +69,13 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_NoChainStatusFound(t *testin
 	reader := createTestSourceReader(t, mockChainStatusManager)
 
 	ctx := context.Background()
+	chainSelector := protocol.ChainSelector(1337)
 
-	// Mock chain status not found (returns nil)
+	// Mock chain status not found (returns empty map)
+	statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, protocol.ChainSelector(1337)).
-		Return(nil, nil).
+		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		Return(statusMap, nil).
 		Once()
 
 	result, err := reader.readChainStatusWithRetries(ctx, ChainStatusRetryAttempts)
@@ -79,22 +90,30 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_RetryLogic(t *testing.T) {
 
 	ctx := context.Background()
 	expectedBlock := big.NewInt(54321)
+	chainSelector := protocol.ChainSelector(1337)
 
 	// Mock failure on first two attempts, success on third
 	testErr := errors.New("chainStatus read failed")
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, protocol.ChainSelector(1337)).
+		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(nil, testErr). // First failure
 		Once()
 
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, protocol.ChainSelector(1337)).
+		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(nil, testErr). // Second failure
 		Once()
 
+	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+		chainSelector: {
+			ChainSelector: chainSelector,
+			BlockHeight:   expectedBlock,
+			Disabled:      false,
+		},
+	}
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, protocol.ChainSelector(1337)).
-		Return(expectedBlock, nil). // Success on third attempt
+		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		Return(statusMap, nil). // Success on third attempt
 		Once()
 
 	start := time.Now()
@@ -102,7 +121,8 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_RetryLogic(t *testing.T) {
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
-	require.Equal(t, expectedBlock, result)
+	require.NotNil(t, result)
+	require.Equal(t, expectedBlock, result.BlockHeight)
 	// Should have some backoff delay (1s + 2s = 3s minimum)
 	require.Greater(t, elapsed, 3*time.Second)
 }
@@ -112,11 +132,12 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_AllRetriesFail(t *testing.T)
 	reader := createTestSourceReader(t, mockChainStatusManager)
 
 	ctx := context.Background()
+	chainSelector := protocol.ChainSelector(1337)
 
 	// Mock failure on all attempts
 	testErr := errors.New("chainStatus read failed")
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, protocol.ChainSelector(1337)).
+		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(nil, testErr).
 		Times(3)
 
@@ -132,11 +153,12 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_ContextCancellation(t *testi
 	reader := createTestSourceReader(t, mockChainStatusManager)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	chainSelector := protocol.ChainSelector(1337)
 
 	// Mock failure on first attempt
 	testErr := errors.New("chainStatus read failed")
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, protocol.ChainSelector(1337)).
+		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(nil, testErr).
 		Once()
 
@@ -159,11 +181,19 @@ func TestEVMSourceReader_InitializeStartBlock_WithChainStatus(t *testing.T) {
 
 	ctx := context.Background()
 	chainStatusBlock := big.NewInt(1000)
+	chainSelector := protocol.ChainSelector(1337)
 
 	// Mock successful chain status read
+	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+		chainSelector: {
+			ChainSelector: chainSelector,
+			BlockHeight:   chainStatusBlock,
+			Disabled:      false,
+		},
+	}
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, protocol.ChainSelector(1337)).
-		Return(chainStatusBlock, nil).
+		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		Return(statusMap, nil).
 		Once()
 
 	result, err := reader.initializeStartBlock(ctx)
@@ -211,10 +241,18 @@ func TestSourceReaderService_ResetToBlock_WithChainStatusWrite(t *testing.T) {
 
 	// Reset to block 500 (finality violation scenario)
 	resetBlock := uint64(500)
+	chainSelector := protocol.ChainSelector(1337)
 
 	// Expect chain status write since 500 < 1980
+	expectedStatuses := []protocol.ChainStatusInfo{
+		{
+			ChainSelector: chainSelector,
+			BlockHeight:   big.NewInt(int64(resetBlock)),
+			Disabled:      false,
+		},
+	}
 	mockChainStatusManager.EXPECT().
-		WriteChainStatus(ctx, protocol.ChainSelector(1337), big.NewInt(int64(resetBlock))).
+		WriteChainStatus(ctx, expectedStatuses).
 		Return(nil).
 		Once()
 
@@ -265,11 +303,19 @@ func TestSourceReaderService_ResetToBlock_ChainStatusWriteError(t *testing.T) {
 
 	// Reset to block 500 (finality violation scenario)
 	resetBlock := uint64(500)
+	chainSelector := protocol.ChainSelector(1337)
 
 	// ChainStatus write fails
 	chainStatusErr := errors.New("chainStatus write failed")
+	expectedStatuses := []protocol.ChainStatusInfo{
+		{
+			ChainSelector: chainSelector,
+			BlockHeight:   big.NewInt(int64(resetBlock)),
+			Disabled:      false,
+		},
+	}
 	mockChainStatusManager.EXPECT().
-		WriteChainStatus(ctx, protocol.ChainSelector(1337), big.NewInt(int64(resetBlock))).
+		WriteChainStatus(ctx, expectedStatuses).
 		Return(chainStatusErr).
 		Once()
 

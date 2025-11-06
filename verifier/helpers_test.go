@@ -106,7 +106,8 @@ const (
 
 // mockReorgDetector is a simple mock that returns a channel we can control in tests.
 type mockReorgDetector struct {
-	statusCh chan protocol.ChainStatus
+	statusCh  chan protocol.ChainStatus
+	closeOnce sync.Once
 }
 
 func newMockReorgDetector() *mockReorgDetector {
@@ -120,7 +121,9 @@ func (m *mockReorgDetector) Start(ctx context.Context) (<-chan protocol.ChainSta
 }
 
 func (m *mockReorgDetector) Close() error {
-	close(m.statusCh)
+	m.closeOnce.Do(func() {
+		close(m.statusCh)
+	})
 	return nil
 }
 
