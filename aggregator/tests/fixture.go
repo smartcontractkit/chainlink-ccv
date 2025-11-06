@@ -141,7 +141,10 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		binary.BigEndian.PutUint64(ccvArgs, 123) // dummy nonce
 
 		// Use SignV27 for proper signature creation and normalization
-		r32, s32, signerAddr, err := protocol.SignV27(messageID[:], signer.key)
+		require.Len(t, m.BlobData, 4, "blob data must be at least 4 bytes to account for version")
+		preImage := append(m.BlobData, messageID[:]...)
+		hashToSign := protocol.Keccak256(preImage)
+		r32, s32, signerAddr, err := protocol.SignV27(hashToSign[:], signer.key)
 		require.NoError(t, err, "failed to sign message")
 
 		// Create signature data with actual signer address
@@ -189,13 +192,13 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 			DataLength:           uint32(message.DataLength),
 			Data:                 message.Data[:],
 		},
-		BlobData:  []byte("test blob data"),
+		BlobData:  []byte{0x01, 0x02, 0x03, 0x04}, // must be at least 4 bytes to account for version
 		CcvData:   []byte("test ccv data"),
 		Timestamp: time.Now().UnixMilli(),
 		ReceiptBlobs: []*pb.ReceiptBlob{
 			{
 				Issuer: sourceVerifierAddress,
-				Blob:   []byte("test blob data"),
+				Blob:   []byte{0x01, 0x02, 0x03, 0x04},
 			},
 		},
 	}

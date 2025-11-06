@@ -52,6 +52,13 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 			Signer:  model.Signer{ParticipantID: participantID, Addresses: []string{sigAddr}},
 			Address: common.HexToAddress(sigAddr).Bytes(),
 		},
+		BlobData: []byte{0x01, 0x02, 0x03, 0x04},
+		ReceiptBlobs: []*model.ReceiptBlob{
+			{
+				Issuer: common.HexToAddress(srcAddr).Bytes(),
+				Blob:   []byte{0x01, 0x02, 0x03, 0x04},
+			},
+		},
 	}
 	return &model.CommitAggregatedReport{
 		MessageID:     msgID,
@@ -59,6 +66,12 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 		Verifications: []*model.CommitVerificationRecord{ver},
 		Sequence:      1,
 		WrittenAt:     time.Now(),
+		WinningReceiptBlobs: []*model.ReceiptBlob{
+			{
+				Issuer: common.HexToAddress(srcAddr).Bytes(),
+				Blob:   []byte{0x01, 0x02, 0x03, 0x04},
+			},
+		},
 	}
 }
 

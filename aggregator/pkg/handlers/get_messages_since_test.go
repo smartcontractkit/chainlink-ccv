@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -42,7 +41,6 @@ func TestGetMessagesSinceHandler_Success_NoNextToken(t *testing.T) {
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	msgID, _ := msg.MessageID()
 	report := makeAggregatedReport(msgID[:], sourceSel, destSel, sourceVerifierAddr, signerAddr, participantID)
-	report.WinningReceiptBlobs = []*model.ReceiptBlob{{Issuer: common.HexToAddress(signerAddr).Bytes(), DestGasLimit: 1, DestBytesOverhead: 1, Blob: []byte{0x1}, ExtraArgs: []byte{}}}
 
 	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&model.PaginatedAggregatedReports{Reports: []*model.CommitAggregatedReport{report}, NextPageToken: nil}, nil)
 	labeler.EXPECT().RecordMessageSinceNumberOfRecordsReturned(mock.Anything, 1)
