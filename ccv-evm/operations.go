@@ -87,7 +87,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 }
 
 // NewV3ExtraArgs encodes v3 extra args params.
-func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
 	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
 	const clientABI = `
     [
@@ -106,8 +106,10 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
                             ]
                         },
                         {"name": "finalityConfig", "type": "uint16"},
+                        {"name": "gasLimit", "type": "uint32"},
                         {"name": "executor", "type": "address"},
                         {"name": "executorArgs", "type": "bytes"},
+						{"name": "tokenReceiver", "type": "bytes"},
                         {"name": "tokenArgs", "type": "bytes"}
                     ],
                     "name": "extraArgs",
@@ -148,14 +150,18 @@ func NewV3ExtraArgs(finalityConfig uint16, execAddr string, execArgs, tokenArgs 
 			Args       []byte
 		}
 		FinalityConfig uint16
+		GasLimit       uint32
 		Executor       common.Address
 		ExecutorArgs   []byte
+		TokenReceiver  []byte
 		TokenArgs      []byte
 	}{
 		Ccvs:           ccvStructs,
 		FinalityConfig: finalityConfig,
+		GasLimit:       gasLimit,
 		Executor:       common.HexToAddress(execAddr),
 		ExecutorArgs:   execArgs,
+		TokenReceiver:  []byte{},
 		TokenArgs:      tokenArgs,
 	}
 

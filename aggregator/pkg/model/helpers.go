@@ -98,7 +98,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	}
 
 	// To create the full ccvData, prepend encodedSignatures with the version of the source verifier
-	// The first CCV_VERSION_BYTES bytes of the source verifier's return data constitute the version
+	// The first verifierVersionLength bytes of the source verifier's return data constitute the version
 	var ccvData []byte
 	for _, receipt := range report.WinningReceiptBlobs {
 		if bytes.Equal(receipt.Issuer, report.GetSourceVerifierAddress()) {

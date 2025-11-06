@@ -216,6 +216,7 @@ func TestE2ESmoke(t *testing.T) {
 						TokenAmounts: tokenAmounts,
 					}, cciptestinterfaces.MessageOptions{
 						Version:        3,
+						GasLimit:       200_000,
 						FinalityConfig: tc.finality,
 						Executor:       getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
 						CCVs:           tc.ccvs,
@@ -316,6 +317,7 @@ func TestE2ESmoke(t *testing.T) {
 					},
 					cciptestinterfaces.MessageOptions{
 						Version:        3,
+						GasLimit:       200_000,
 						FinalityConfig: 1, // finalized
 						Executor:       getContractAddress(t, in, tc.src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
 						CCVs: []protocol.CCV{{
@@ -451,12 +453,23 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvE
 					Args:    []byte{},
 					ArgsLen: 0,
 				},
+				// still include default verifier, because the default aggregator client gets queried in this test.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ResolverProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.DefaultCommitteeVerifierQualifier,
+						"default committee verifier proxy",
+					),
+				},
 			},
 			// default verifier and secondary verifier will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor and secondary committee verifier
-			// default verifier does NOT show up onchain because it is only a default and not lane mandated.
-			numExpectedReceipts: 2,
+			// default executor, default verifier and secondary committee verifier.
+			numExpectedReceipts: 3,
 		},
 		{
 			name:        "receiver w/ secondary verifier required",
@@ -486,12 +499,23 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvE
 					Args:    []byte{},
 					ArgsLen: 0,
 				},
+				// still include default verifier, because the default aggregator client gets queried in this test.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ResolverProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.DefaultCommitteeVerifierQualifier,
+						"default committee verifier proxy",
+					),
+				},
 			},
 			// default verifier and secondary verifier will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor and secondary committee verifier
-			// default verifier does NOT show up onchain because it is only a default and not lane mandated.
-			numExpectedReceipts: 2,
+			// default executor, default verifier and secondary committee verifier.
+			numExpectedReceipts: 3,
 		},
 		{
 			name:        "receiver w/ secondary required and tertiary optional threshold=1",
@@ -527,12 +551,23 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvE
 					Args:    []byte{},
 					ArgsLen: 0,
 				},
+				// still include default verifier, because the default aggregator client gets queried in this test.
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ResolverProxyType),
+						committee_verifier.Deploy.Version(),
+						ccvEvm.DefaultCommitteeVerifierQualifier,
+						"default committee verifier proxy",
+					),
+				},
 			},
 			// default, secondary and tertiary verifiers will verify so should be three verifications.
 			numExpectedVerifications: 3,
-			// default executor and secondary and tertiary committee verifiers
-			// default verifier does NOT show up onchain because it is only a default and not lane mandated.
-			numExpectedReceipts: 3,
+			// default executor, default verifier, secondary and tertiary committee verifiers.
+			numExpectedReceipts: 4,
 		},
 		{
 			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies all three",
