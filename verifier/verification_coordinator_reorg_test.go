@@ -1,25 +1,5 @@
 package verifier
 
-// Integration tests for reorg detector and verification coordinator.
-//
-// These tests verify that the coordinator correctly handles blockchain reorganizations
-// by integrating the ReorgDetectorService with the Coordinator's reorg handling logic.
-//
-// Test Strategy:
-//   - Use real ReorgDetectorService instances (not mocked) for authentic reorg detection
-//   - Mock HeadTracker and SourceReader for controlled chain state simulation
-//   - Use deterministic hash generation (hashFromNumber) for easy debugging
-//
-// Hash Encoding Quick Reference:
-//   Canonical blocks:  [0x00, 0x00, 0x00, BLOCK_NUM, ...] (first 4 bytes = block number)
-//   Reorged blocks:    [0xFF, 0x00, 0x00, 0x00, BLOCK_NUM, ...] (0xFF marker + block number)
-//
-// Example: Block 105 (0x69 in hex)
-//   Canonical: [0x00, 0x00, 0x00, 0x69, 0x00, ...]
-//   Reorged:   [0xFF, 0x00, 0x00, 0x00, 0x69, ...]
-//
-// See hashFromNumber() and createReorgedChainBlocks() for detailed documentation.
-
 import (
 	"context"
 	"sync"
@@ -127,18 +107,19 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	testVer := NewTestVerifier()
 
 	setup := &reorgTestSetup{
-		t:                t,
-		ctx:              ctx,
-		cancel:           cancel,
-		mockSourceReader: mockSetup.Reader,
-		mockHeadTracker:  mockHeadTracker,
-		chainSelector:    chainSelector,
-		lggr:             lggr,
-		currentLatest:    initialLatest,
-		currentFinalized: initialFinalized,
-		testVerifier:     testVer,
-		storage:          common.NewInMemoryOffchainStorage(lggr),
-		taskChannel:      mockSetup.Channel,
+		t:                  t,
+		ctx:                ctx,
+		cancel:             cancel,
+		mockSourceReader:   mockSetup.Reader,
+		mockHeadTracker:    mockHeadTracker,
+		chainStatusManager: NewInMemoryChainStatusManager(),
+		chainSelector:      chainSelector,
+		lggr:               lggr,
+		currentLatest:      initialLatest,
+		currentFinalized:   initialFinalized,
+		testVerifier:       testVer,
+		storage:            common.NewInMemoryOffchainStorage(lggr),
+		taskChannel:        mockSetup.Channel,
 	}
 
 	// Setup mock head tracker to return current state
@@ -165,14 +146,13 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 		},
 	}
 
-	chainStatusManager := NewInMemoryChainStatusManager()
 	// Create coordinator with all components
 	coordinator, err := NewCoordinator(
 		WithVerifier(setup.testVerifier),
 		WithStorage(setup.storage),
 		WithLogger(lggr),
 		WithConfig(coordinatorConfig),
-		WithChainStatusManager(chainStatusManager),
+		WithChainStatusManager(setup.chainStatusManager),
 		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
 			chainSelector: setup.mockSourceReader,
 		}),
@@ -427,7 +407,7 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	t.Log("🔄 Testing coordinator restart with disabled chain")
 
 	// Verify chain status was written as disabled
-	statusMap, err := setup.coordinator.chainStatusManager.ReadChainStatus(setup.ctx, []protocol.ChainSelector{chainSelector})
+	statusMap, err := setup.chainStatusManager.ReadChainStatus(setup.ctx, []protocol.ChainSelector{chainSelector})
 	require.NoError(t, err)
 	require.Len(t, statusMap, 1)
 	require.True(t, statusMap[chainSelector].Disabled, "Chain should be marked as disabled")
