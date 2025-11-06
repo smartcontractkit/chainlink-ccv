@@ -302,12 +302,12 @@ func NewEnvironment() (in *Cfg, err error) {
 				}
 			}
 		}
-	}
 
-	// What is BootstrapNode?
-	Plog.Info().Str("BootstrapNode", in.NodeSets[0].Out.CLNodes[0].Node.ExternalURL).Send()
-	for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
-		Plog.Info().Str("Node", n.Node.ExternalURL).Send()
+		// What is BootstrapNode?
+		Plog.Info().Str("BootstrapNode", in.NodeSets[0].Out.CLNodes[0].Node.ExternalURL).Send()
+		for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
+			Plog.Info().Str("Node", n.Node.ExternalURL).Send()
+		}
 	}
 
 	timeTrack.Print()
