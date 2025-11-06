@@ -144,6 +144,19 @@ func (s *reorgTestSetup) cleanup() {
 	s.cancel()
 }
 
+// getLastProcessedBlockSafe safely reads the lastProcessedBlock from a SourceReaderService.
+// Thread-safe: acquires read lock to prevent data races with background updates.
+func getLastProcessedBlockSafe(reader *SourceReaderService) uint64 {
+	reader.mu.RLock()
+	defer reader.mu.RUnlock()
+
+	if reader.lastProcessedBlock == nil {
+		return 0
+	}
+
+	return reader.lastProcessedBlock.Uint64()
+}
+
 func (s *reorgTestSetup) mustStartCoordinator() {
 	err := s.coordinator.Start(s.ctx)
 	require.NoError(s.t, err)
@@ -226,7 +239,7 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	WaitForMessagesInStorage(setup.t, setup.storage, 2)
 	t.Log("✅ Finalized tasks (98, 99) have been processed")
 	sourceReaderService := setup.coordinator.sourceStates[chainSelector].reader
-	require.Equal(t, sourceReaderService.lastProcessedBlock.Uint64(), uint64(102), "Source reader should have read up to block 102")
+	require.Equal(t, getLastProcessedBlockSafe(sourceReaderService), uint64(102), "Source reader should have read up to block 102")
 
 	lca := setup.currentFinalized.Number
 	// Inject a reorg event directly (LCA at block 100)
@@ -238,7 +251,6 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	}
 
 	// Wait for reorg handler goroutine to process the event
-	// With double-checked locking fix, we only need minimal time for goroutine scheduling
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify behavior:
@@ -255,7 +267,7 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	require.Equal(t, uint64(99), processedTasks[1].BlockNumber)
 
 	// Verify that the source reader has reset to LCA (block 100)
-	require.Equal(t, sourceReaderService.lastProcessedBlock.Uint64(), lca, "Source reader should have read up to block 100")
+	require.Equal(t, getLastProcessedBlockSafe(sourceReaderService), lca, "Source reader should have read up to block 100")
 	// Verify that the source reader is still running (channel should be open)
 	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
 	// Verify reader still open after restart
@@ -285,7 +297,6 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 		ResetToBlock: 0, // No safe reset point
 	}
 	// Wait for finality violation handler goroutine to process the event
-	// With double-checked locking fix, we only need minimal time for goroutine scheduling
 	time.Sleep(50 * time.Millisecond)
 
 	// After finality violation:
@@ -326,6 +337,7 @@ func sendTasksToChannel(t *testing.T, setup *reorgTestSetup, tasks []Verificatio
 			setup.taskChannel <- task
 		}
 	}()
+	// Give some time for tasks to be queued
 	time.Sleep(20 * time.Millisecond)
 	t.Log("📋 Tasks queued")
 }
