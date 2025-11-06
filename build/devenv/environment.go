@@ -132,32 +132,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
-	_, err = services.NewFake(in.Fake)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
-	}
-
-	if in.Mode == Standalone {
-		_, err = services.NewExecutor(in.Executor)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create executor service: %w", err)
-		}
-	}
-
-	for _, ver := range in.Verifier {
-		// deterministic key generation algorithm.
-		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
-		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-
-		// Start verifiers only if not in CL mode
-		if in.Mode == Standalone {
-			_, err = services.NewVerifier(ver)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create verifier service: %w", err)
-			}
-		}
-	}
-
+	// Start blockchains, the services crash if the RPC is not available.
 	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17ProductConfiguration
@@ -174,6 +149,36 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	// Start fake data provider. This isn't really used, but may be useful in the future.
+	_, err = services.NewFake(in.Fake)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
+	}
+
+	// Start standalone executor if in standalone mode.
+	if in.Mode == Standalone {
+		_, err = services.NewExecutor(in.Executor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create executor service: %w", err)
+		}
+	}
+
+	// Generate verifier keys, and start the verifier if in standalone mode.
+	for _, ver := range in.Verifier {
+		// deterministic key generation algorithm.
+		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
+		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+
+		// Start verifiers only if not in CL mode
+		if in.Mode == Standalone {
+			_, err = services.NewVerifier(ver)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			}
+		}
+	}
+
+	// Start aggregators.
 	for _, aggregatorInput := range in.Aggregator {
 		_, err = services.NewAggregator(aggregatorInput)
 		if err != nil {
@@ -181,6 +186,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	// Start indexer.
 	// start up the indexer after the aggregators are up to avoid spamming of errors
 	// in the logs when it starts before the aggregators are up.
 	_, err = services.NewIndexer(in.Indexer)
