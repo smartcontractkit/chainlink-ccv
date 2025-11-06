@@ -63,12 +63,15 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return fmt.Errorf("failed to get message ID: %w", err)
 	}
 
-	// Check if the message is already executed so as to not waste gas and time.
+	// Check if the message is already executed to not waste gas and time.
 	destinationChain := message.DestChainSelector
 	executed, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
 		ctx,
 		message,
 	)
+	// todo: Check confirmed/finalized. If message is confirmed but not finalized, skip message but put back in heap
+	// if message is finalized, skip message entirely. If neither, proceed as normal. Avoid caching on IsMessageExecuted
+	// Maybe using logpoller to track finalized blocks?
 	if err != nil {
 		return fmt.Errorf("failed to check IsMessageExecuted: %w", err)
 	}

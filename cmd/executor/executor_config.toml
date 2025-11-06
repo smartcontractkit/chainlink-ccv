@@ -1,5 +1,5 @@
 indexer_address="http://indexer:8100"
-source_polling_interval="5s"
+source_polling_interval="1s"
 source_backoff_duration="15s"
 startup_lookback_window="1h"
 indexer_query_limit=20
