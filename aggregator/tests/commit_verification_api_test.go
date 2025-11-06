@@ -1069,13 +1069,16 @@ func TestReceiptBlobMajorityConsensus(t *testing.T) {
 		messageId, err := message.MessageID()
 		require.NoError(t, err, "failed to compute message ID")
 
+		majorityBlobData := []byte{0x01, 0x02, 0x03, 0x04}
+		minorityBlobData := []byte{0x05, 0x06, 0x07, 0x08}
+
 		// Create different receipt blobs - signer1 has a different blob than signer2 and signer3
 		minorityReceiptBlob := []*pb.ReceiptBlob{
 			{
 				Issuer:            sourceVerifierAddress,
 				DestGasLimit:      100000,
 				DestBytesOverhead: 1000,
-				Blob:              []byte("minority-blob-data"),
+				Blob:              minorityBlobData,
 				ExtraArgs:         []byte("minority-args"),
 			},
 		}
@@ -1085,7 +1088,7 @@ func TestReceiptBlobMajorityConsensus(t *testing.T) {
 				Issuer:            sourceVerifierAddress,
 				DestGasLimit:      200000,
 				DestBytesOverhead: 2000,
-				Blob:              []byte("majority-blob-data"),
+				Blob:              majorityBlobData,
 				ExtraArgs:         []byte("majority-args"),
 			},
 		}
