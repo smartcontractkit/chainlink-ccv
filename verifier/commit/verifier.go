@@ -15,20 +15,22 @@ import (
 
 // Verifier provides a basic verifier implementation using the new message format.
 type Verifier struct {
-	signer     verifier.MessageSigner
-	lggr       logger.Logger
-	monitoring verifier.Monitoring
+	signerAddress protocol.UnknownAddress
+	signer        verifier.MessageSigner
+	lggr          logger.Logger
+	monitoring    verifier.Monitoring
 	// TODO: Use a separate config
 	config verifier.CoordinatorConfig
 }
 
 // NewCommitVerifier creates a new commit verifier.
-func NewCommitVerifier(config verifier.CoordinatorConfig, signer verifier.MessageSigner, lggr logger.Logger, monitoring verifier.Monitoring) (verifier.Verifier, error) {
+func NewCommitVerifier(config verifier.CoordinatorConfig, signerAddress protocol.UnknownAddress, signer verifier.MessageSigner, lggr logger.Logger, monitoring verifier.Monitoring) (verifier.Verifier, error) {
 	cv := &Verifier{
-		config:     config,
-		signer:     signer,
-		lggr:       lggr,
-		monitoring: monitoring,
+		config:        config,
+		signerAddress: signerAddress,
+		signer:        signer,
+		lggr:          lggr,
+		monitoring:    monitoring,
 	}
 
 	if err := cv.validate(); err != nil {
@@ -167,7 +169,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 
 	cv.lggr.Infow("Message signed successfully",
 		"messageID", messageID,
-		"signer", cv.config.VerifierID,
+		"signer", cv.signerAddress.String(),
 		"signatureLength", len(encodedSignature),
 	)
 
