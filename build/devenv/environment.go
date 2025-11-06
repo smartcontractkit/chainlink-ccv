@@ -2,6 +2,7 @@ package ccv
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -59,6 +61,7 @@ const (
 )
 
 type Cfg struct {
+	Mode               string                      `toml:mode"`
 	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
@@ -113,6 +116,11 @@ func NewEnvironment() (in *Cfg, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
+
+	// Override the default config to "cl"...
+	if in.Mode == "" {
+		in.Mode = "standalone"
+	}
 	if err = checkKeys(in); err != nil {
 		return nil, err
 	}
@@ -120,6 +128,27 @@ func NewEnvironment() (in *Cfg, err error) {
 	_, err = services.NewFake(in.Fake)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
+	}
+
+	if in.Mode == "standalone" {
+		_, err = services.NewExecutor(in.Executor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create executor service: %w", err)
+		}
+	}
+
+	for _, ver := range in.Verifier {
+		// deterministic key generation algorithm.
+		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
+		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+
+		// Start verifiers only if not in CL mode
+		if in.Mode == "standalone" {
+			_, err = services.NewVerifier(ver)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			}
+		}
 	}
 
 	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
@@ -153,28 +182,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")
-
-	clChainConfigs := make([]string, 0)
-	clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
-	for i, impl := range impls {
-		var clChainConfig string
-		clChainConfig, err = impl.ConfigureNodes(ctx, in.Blockchains[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
-		}
-		clChainConfigs = append(clChainConfigs, clChainConfig)
-	}
-	allConfigs := strings.Join(clChainConfigs, "\n")
-	for _, nodeSpec := range in.NodeSets[0].NodeSpecs {
-		nodeSpec.Node.TestConfigOverrides = allConfigs
-	}
-	Plog.Info().Msg("Nodes network configuration is generated")
-
-	timeTrack.Record("[changeset] configured nodes network")
-	_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
-	}
 
 	var selectors []uint64
 	var e *deployment.Environment
@@ -241,17 +248,51 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	_, err = services.NewExecutor(in.Executor)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create executor service: %w", err)
-	}
+	if in.Mode == "cl" {
 
-	for _, ver := range in.Verifier {
-		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
-		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-		_, err = services.NewVerifier(ver)
+		clChainConfigs := make([]string, 0)
+		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
+		for i, impl := range impls {
+			var clChainConfig string
+			clChainConfig, err = impl.ConfigureNodes(ctx, in.Blockchains[i])
+			if err != nil {
+				return nil, fmt.Errorf("failed to deploy local networks: %w", err)
+			}
+			clChainConfigs = append(clChainConfigs, clChainConfig)
+		}
+		allConfigs := strings.Join(clChainConfigs, "\n")
+		for _, nodeSpec := range in.NodeSets[0].NodeSpecs {
+			nodeSpec.Node.TestConfigOverrides = allConfigs
+		}
+		Plog.Info().Msg("Nodes network configuration is generated")
+
+		timeTrack.Record("[changeset] configured nodes network")
+		_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
+		}
+
+		clClients, err := clclient.New(in.NodeSets[0].Out.CLNodes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect CL node clients")
+		}
+
+		// transforming Executor and Verifier configs to Jobs
+		for _, cc := range clClients {
+			// TODO: generate keys instead of hard coding them
+			// TODO: generation could be done by devenv, and imported into CL nodes here, or they could be
+			// generated on the CL node and exported for use in the config files for verifier/executor.
+
+			// import hard coded keys into the CL node keystore
+			for _, ver := range in.Verifier {
+				if len(ver.SigningKey) != 0 {
+					pk, err := hex.DecodeString(ver.SigningKey)
+					if err != nil {
+						return nil, fmt.Errorf("decoding verifier signing key (%s): %w", ver.ContainerName, err)
+					}
+					cc.ImportEVMKey(pk, ver.CommitteeName)
+				}
+			}
 		}
 	}
 
