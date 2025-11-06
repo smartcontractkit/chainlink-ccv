@@ -63,8 +63,9 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 	// Try to get CCV info from cache first
 	// TODO: Do we need custom cache eviction logic beyond ttl?
+	// TODO: We need to find a way to cache token transfer CCV info as well
 	ccvInfo, found := dr.ccvCache.Get(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()})
-	if found {
+	if found && message.TokenTransferLength == 0 {
 		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s on source chain %d",
 			receiverAddress.String(), sourceSelector)
 		return ccvInfo, nil

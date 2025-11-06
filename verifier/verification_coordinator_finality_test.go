@@ -1,4 +1,4 @@
-package verifier_test
+package verifier
 
 import (
 	"context"
@@ -9,15 +9,10 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
@@ -28,75 +23,7 @@ const (
 	InitialFinalizedBlock = 950
 )
 
-// testVerifier keeps track of all processed messages for testing.
-type testVerifier struct {
-	processedTasks []verifier.VerificationTask
-	mu             sync.RWMutex
-}
-
-func newTestVerifier() *testVerifier {
-	return &testVerifier{
-		processedTasks: make([]verifier.VerificationTask, 0),
-	}
-}
-
-func (t *testVerifier) VerifyMessages(
-	ctx context.Context,
-	tasks []verifier.VerificationTask,
-	ccvDataBatcher *batcher.Batcher[verifier.CCVDataWithIdempotencyKey],
-) batcher.BatchResult[verifier.VerificationError] {
-	t.mu.Lock()
-	t.processedTasks = append(t.processedTasks, tasks...)
-	t.mu.Unlock()
-
-	// Create mock CCV data for each task
-	for _, verificationTask := range tasks {
-		messageID, _ := verificationTask.Message.MessageID()
-		ccvData := protocol.CCVData{
-			MessageID:             messageID,
-			Nonce:                 verificationTask.Message.Nonce,
-			SourceChainSelector:   verificationTask.Message.SourceChainSelector,
-			DestChainSelector:     verificationTask.Message.DestChainSelector,
-			SourceVerifierAddress: protocol.UnknownAddress{},
-			DestVerifierAddress:   protocol.UnknownAddress{},
-			CCVData:               []byte("mock-signature"),
-			BlobData:              []byte("mock-blob"),
-			Timestamp:             time.Now(),
-			Message:               verificationTask.Message,
-			ReceiptBlobs:          verificationTask.ReceiptBlobs,
-		}
-
-		// Create the paired struct with idempotency key
-		ccvDataWithKey := verifier.CCVDataWithIdempotencyKey{
-			CCVData:        ccvData,
-			IdempotencyKey: verificationTask.IdempotencyKey,
-		}
-
-		if err := ccvDataBatcher.Add(ccvDataWithKey); err != nil {
-			// If context is canceled or batcher is closed, stop processing
-			return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
-		}
-	}
-
-	// No errors in this test implementation
-	return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
-}
-
-func (t *testVerifier) getProcessedTaskCount() int {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return len(t.processedTasks)
-}
-
-// testStorage for testing.
-type testStorage struct{}
-
-func (m *testStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData, idempotencyKeys []string) error {
-	return nil
-}
-
 func TestFinality_FinalizedMessage(t *testing.T) {
-	t.Skip("Test is currently timing out intermittently, needs investigation")
 	setup := initializeCoordinator(t, "test-finality-coordinator")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -111,8 +38,8 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	}()
 
 	// Message at block 940 (< finalized 950) should be processed immediately
-	finalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
-	finalizedTask := verifier.VerificationTask{
+	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0)
+	finalizedTask := VerificationTask{
 		Message: finalizedMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -130,12 +57,11 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the finalized message
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed the finalized message")
 }
 
 func TestFinality_CustomFinality(t *testing.T) {
-	t.Skip("Test is currently timing out intermittently, needs investigation")
 	setup := initializeCoordinator(t, "test-custom-finality-coordinator")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -151,8 +77,8 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	customFinality := uint16(15)
 
-	readyMessage := createTestMessage(t, 1, 1337, 2337, customFinality)
-	readyTask := verifier.VerificationTask{
+	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality)
+	readyTask := VerificationTask{
 		Message: readyMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -170,12 +96,11 @@ func TestFinality_CustomFinality(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the ready message
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed the ready message")
 }
 
 func TestFinality_WaitingForFinality(t *testing.T) {
-	t.Skip("Test is currently timing out intermittently, needs investigation")
 	setup := initializeCoordinator(t, "test-finality-coordinator")
 
 	// Use a context with timeout to prevent hanging forever
@@ -191,9 +116,9 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 		}
 	}()
 
-	nonFinalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
+	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
-	nonFinalizedTask := verifier.VerificationTask{
+	nonFinalizedTask := VerificationTask{
 		Message: nonFinalizedMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -218,7 +143,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Should NOT have processed the non-finalized message yet
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 0, processedCount, "Should not have processed the non-finalized message")
 
 	// Update the shared variable to simulate finalized block advancing
@@ -229,7 +154,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	processed := false
 	for time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
-		if setup.mockVerifier.getProcessedTaskCount() == 1 {
+		if setup.mockVerifier.GetProcessedTaskCount() == 1 {
 			processed = true
 			break
 		}
@@ -237,15 +162,15 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Should have processed the now-finalized message
 	require.True(t, processed, "Message should have been processed after finality reached")
-	processedCount = setup.mockVerifier.getProcessedTaskCount()
+	processedCount = setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed exactly 1 message")
 }
 
 type coordinatorTestSetup struct {
-	coordinator           *verifier.Coordinator
-	mockSourceReader      *verifier_mocks.MockSourceReader
-	mockVerifier          *testVerifier
-	verificationTaskCh    chan verifier.VerificationTask
+	coordinator           *Coordinator
+	mockSourceReader      *MockSourceReader
+	mockVerifier          *TestVerifier
+	verificationTaskCh    chan VerificationTask
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
@@ -258,16 +183,19 @@ func (s *coordinatorTestSetup) setFinalizedBlock(block uint64) {
 }
 
 func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetup {
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
+	lggr, err := logger.NewWith(func(config *zap.Config) {
+		config.Development = true
+		config.Encoding = "console"
+	})
 	require.NoError(t, err)
 
-	mockVerifier := newTestVerifier()
-	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
-	mockStorage := &testStorage{}
-	verificationTaskCh := make(chan verifier.VerificationTask, 10)
+	mockVerifier := NewTestVerifier()
+	mockSourceReader := NewMockSourceReader(t)
+	mockStorage := &NoopStorage{}
+	verificationTaskCh := make(chan VerificationTask, 10)
 
-	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
-		var tasks []verifier.VerificationTask
+	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]VerificationTask, error) {
+		var tasks []VerificationTask
 		for {
 			select {
 			case task := <-verificationTaskCh:
@@ -279,7 +207,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	})
 
 	// Mock BlockTime to return immediately during initialization
-	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().UnixMilli()), nil).Maybe()
+	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
 
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
@@ -315,8 +243,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		return latest, finalized, nil
 	}).Maybe()
 
-	config := verifier.CoordinatorConfig{
-		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
+	config := CoordinatorConfig{
+		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
 			1337: {
 				VerifierAddress: protocol.UnknownAddress([]byte("verifier-1337")),
 				PollInterval:    50 * time.Millisecond, // Fast polling for tests
@@ -325,21 +253,21 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		VerifierID: verifierID,
 	}
 
-	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	coordinator, err := verifier.NewCoordinator(
-		verifier.WithVerifier(mockVerifier),
-		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
+	noopMonitoring := &noopMonitoring{}
+	coordinator, err := NewCoordinator(
+		WithVerifier(mockVerifier),
+		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
 			1337: mockSourceReader,
 		}),
-		verifier.WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
+		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
 			1337: mockHeadTracker,
 		}),
-		verifier.WithStorage(mockStorage),
-		verifier.WithChainStatusManager(mockChainStatusManager),
-		verifier.WithConfig(config),
-		verifier.WithLogger(lggr),
-		verifier.WithMonitoring(noopMonitoring),
-		verifier.WithFinalityCheckInterval(10*time.Millisecond),
+		WithStorage(mockStorage),
+		WithChainStatusManager(mockChainStatusManager),
+		WithConfig(config),
+		WithLogger(lggr),
+		WithMonitoring(noopMonitoring),
+		WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
 

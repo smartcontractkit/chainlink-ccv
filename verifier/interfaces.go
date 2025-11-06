@@ -30,6 +30,7 @@ type Verifier interface {
 // Thread-safety: All methods must be safe for concurrent calls.
 type SourceReader interface {
 	// VerificationTasks returns tasks in the given block range
+	// TODO: Might be better to return protocol level []MessageSentEvents directly and have converter for VerificationTask in verifier.
 	VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]VerificationTask, error)
 
 	// BlockTime returns the timestamp of a given block.
