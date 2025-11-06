@@ -167,7 +167,7 @@ func (s *reorgTestSetup) mustRestartCoordinator() {
 func assertSourceReaderChannelState(t *testing.T, coordinator *Coordinator, chainSelector protocol.ChainSelector, expectOpen bool) {
 	t.Helper()
 
-	// Access internal sourceReaders map directly (we're in the same package)
+	// Access internal sourceReaders map directly
 	coordinator.mu.RLock()
 	sourceReaderService := coordinator.sourceStates[chainSelector].reader
 	coordinator.mu.RUnlock()
@@ -225,13 +225,16 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	t.Log("📋 Waiting for finalized tasks (98, 99) to be processed...")
 	WaitForMessagesInStorage(setup.t, setup.storage, 2)
 	t.Log("✅ Finalized tasks (98, 99) have been processed")
+	sourceReaderService := setup.coordinator.sourceStates[chainSelector].reader
+	require.Equal(t, sourceReaderService.lastProcessedBlock.Uint64(), uint64(102), "Source reader should have read up to block 102")
 
+	lca := setup.currentFinalized.Number
 	// Inject a reorg event directly (LCA at block 100)
 	// This simulates the reorg detector finding a reorg with LCA at finalized block 100
 	t.Log("🔄 Injecting reorg event: LCA at block 100")
 	setup.mockReorgDetector.statusCh <- protocol.ChainStatus{
 		Type:         protocol.ReorgTypeNormal,
-		ResetToBlock: 100, // LCA at finalized block
+		ResetToBlock: lca,
 	}
 
 	// Wait for reorg handler goroutine to process the event
@@ -251,6 +254,8 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	require.Equal(t, uint64(98), processedTasks[0].BlockNumber)
 	require.Equal(t, uint64(99), processedTasks[1].BlockNumber)
 
+	// Verify that the source reader has reset to LCA (block 100)
+	require.Equal(t, sourceReaderService.lastProcessedBlock.Uint64(), lca, "Source reader should have read up to block 100")
 	// Verify that the source reader is still running (channel should be open)
 	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
 	// Verify reader still open after restart
