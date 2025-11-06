@@ -20,6 +20,11 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
+const (
+	// The number of bytes used to represent the verifier version.
+	verifierVersionLength = 4
+)
+
 func TestAggregationHappyPath(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
@@ -333,7 +338,8 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	// Decode the signature data
-	rs, ss, err := protocol.DecodeSignatures(ccvData[4:])
+	// We need to exclude the verifier version to get the simple signature data (i.e. length + sigs)
+	rs, ss, err := protocol.DecodeSignatures(ccvData[verifierVersionLength:])
 	require.NoError(t, err, "failed to decode CCV signature data")
 	require.Equal(t, len(rs), len(ss), "rs and ss arrays should have the same length")
 
@@ -347,7 +353,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	// Recover signer addresses from the aggregated signatures
-	preImage := append(ccvData[:4], messageId[:]...)
+	preImage := append(ccvData[:verifierVersionLength], messageId[:]...)
 	signedHash := protocol.Keccak256(preImage)
 	recoveredAddresses, err := protocol.RecoverSigners(signedHash, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")

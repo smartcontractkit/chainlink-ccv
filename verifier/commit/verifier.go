@@ -178,7 +178,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		return fmt.Errorf("receipt blob not found for source verifier %s and message %s", sourceConfig.VerifierAddress.String(), messageID.String())
 	}
 	if blobLen < verifierVersionLength {
-		return fmt.Errorf("receipt blob too short for source verifier %s and message 0x%x (expected at least %d bytes, got %d)", sourceConfig.VerifierAddress, messageID, verifierVersionLength, blobLen)
+		return fmt.Errorf("receipt blob too short for source verifier %s and message %s (expected at least %d bytes, got %d)", sourceConfig.VerifierAddress, messageID.String(), verifierVersionLength, blobLen)
 	}
 
 	var preImage []byte

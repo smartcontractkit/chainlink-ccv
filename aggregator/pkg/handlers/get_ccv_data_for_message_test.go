@@ -42,6 +42,8 @@ func buildCommittee(sourceSel, destSel uint64, sourceVerifierAddr, destVerifierA
 func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr, sigAddr, participantID string) *model.CommitAggregatedReport {
 	// minimal protocol message
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(srcSel), protocol.ChainSelector(dstSel), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
+	// blob data must be at least 4 bytes to account for version
+	blobData := []byte{0x01, 0x02, 0x03, 0x04}
 	// create one verification
 	ver := &model.CommitVerificationRecord{
 		MessageID:             msgID,
@@ -52,11 +54,11 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 			Signer:  model.Signer{ParticipantID: participantID, Addresses: []string{sigAddr}},
 			Address: common.HexToAddress(sigAddr).Bytes(),
 		},
-		BlobData: []byte{0x01, 0x02, 0x03, 0x04},
+		BlobData: blobData,
 		ReceiptBlobs: []*model.ReceiptBlob{
 			{
 				Issuer: common.HexToAddress(srcAddr).Bytes(),
-				Blob:   []byte{0x01, 0x02, 0x03, 0x04},
+				Blob:   blobData,
 			},
 		},
 	}
@@ -69,7 +71,7 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 		WinningReceiptBlobs: []*model.ReceiptBlob{
 			{
 				Issuer: common.HexToAddress(srcAddr).Bytes(),
-				Blob:   []byte{0x01, 0x02, 0x03, 0x04},
+				Blob:   blobData,
 			},
 		},
 	}

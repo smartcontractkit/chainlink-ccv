@@ -167,6 +167,9 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 
+	// blob data must be at least 4 bytes to account for version
+	blobData := []byte{0x01, 0x02, 0x03, 0x04}
+
 	ccvNodeData := &pb.MessageWithCCVNodeData{
 		MessageId:             messageID[:],
 		SourceVerifierAddress: sourceVerifierAddress,
@@ -192,13 +195,13 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 			DataLength:           uint32(message.DataLength),
 			Data:                 message.Data[:],
 		},
-		BlobData:  []byte{0x01, 0x02, 0x03, 0x04}, // must be at least 4 bytes to account for version
+		BlobData:  blobData,
 		CcvData:   []byte("test ccv data"),
 		Timestamp: time.Now().UnixMilli(),
 		ReceiptBlobs: []*pb.ReceiptBlob{
 			{
 				Issuer: sourceVerifierAddress,
-				Blob:   []byte{0x01, 0x02, 0x03, 0x04},
+				Blob:   blobData,
 			},
 		},
 	}
