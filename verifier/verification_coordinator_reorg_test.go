@@ -255,14 +255,14 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	// - Tasks at blocks 101, 102: ABOVE finalized block (100), should be FLUSHED by reorg
 	finalizedTasks := []VerificationTask{
 		{
-			Message:        CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			Message:        CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0, 500_000), // Default finality
 			BlockNumber:    98,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
 			CreatedAt:      time.Now(),
 			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:        CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0, 500_000),
 			BlockNumber:    99,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
 			CreatedAt:      time.Now(),
@@ -272,14 +272,14 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 
 	pendingTasks := []VerificationTask{
 		{
-			Message:        CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0, 500_000),
 			BlockNumber:    101,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
 			CreatedAt:      time.Now(),
 			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:        CreateTestMessage(t, 4, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 4, chainSelector, defaultDestChain, 0, 500_000),
 			BlockNumber:    102,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt4")}},
 			CreatedAt:      time.Now(),
@@ -357,21 +357,21 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	// Create tasks at blocks 98, 99, 100 (around finalized block)
 	tasks := []VerificationTask{
 		{
-			Message:        CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0), // Default finality
+			Message:        CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0, 500_000), // Default finality
 			BlockNumber:    98,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
 			CreatedAt:      time.Now(),
 			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:        CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0, 500_000),
 			BlockNumber:    99,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
 			CreatedAt:      time.Now(),
 			IdempotencyKey: uuid.NewString(),
 		},
 		{
-			Message:        CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0),
+			Message:        CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0, 500_000),
 			BlockNumber:    100,
 			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
 			CreatedAt:      time.Now(),

@@ -14,8 +14,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
@@ -136,7 +136,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			srcChain.ChainSelector,
-			datastore.ContractType(committee_verifier.ProxyType),
+			datastore.ContractType(committee_verifier.ResolverProxyType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
 			ccvEvm.DefaultCommitteeVerifierQualifier))
 	if err != nil {

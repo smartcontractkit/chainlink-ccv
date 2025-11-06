@@ -1,12 +1,14 @@
 package commit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -162,7 +164,19 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress.String(),
 	)
 
-	encodedSignature, err := cv.signer.Sign(messageID[:])
+	var verifierBlob []byte
+	for _, receipt := range verificationTask.ReceiptBlobs {
+		if bytes.Equal(receipt.Issuer.Bytes(), sourceConfig.VerifierAddress.Bytes()) {
+			verifierBlob = receipt.Blob
+			break
+		}
+	}
+	hash, err := committee.NewSignableHash(messageID, verifierBlob)
+	if err != nil {
+		return fmt.Errorf("failed to create signable hash for message %s: %w", messageID.String(), err)
+	}
+
+	encodedSignature, err := cv.signer.Sign(hash[:])
 	if err != nil {
 		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
 	}
@@ -174,7 +188,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	)
 
 	// 4. Create CCV data with all required fields
-	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, []byte{}, sourceConfig.VerifierAddress)
+	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, verifierBlob, sourceConfig.VerifierAddress)
 	if err != nil {
 		return fmt.Errorf("failed to create CCV data for message 0x%x: %w", messageID, err)
 	}

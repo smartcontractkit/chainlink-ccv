@@ -82,6 +82,7 @@ func createComprehensiveMessage(t *testing.T) *protocol.Message {
 		onRamp,
 		offRamp,
 		25,
+		300_000,
 		sender,
 		receiver,
 		destBlob,

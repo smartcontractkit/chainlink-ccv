@@ -35,7 +35,7 @@ func WaitForMessagesInStorage(t *testing.T, storage *common.InMemoryOffchainStor
 	}
 }
 
-func CreateTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) protocol.Message {
+func CreateTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32) protocol.Message {
 	// Create empty token transfer
 	tokenTransfer := protocol.NewEmptyTokenTransfer()
 
@@ -51,6 +51,7 @@ func CreateTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, 
 		onRampAddr,
 		offRampAddr,
 		finality,
+		gasLimit,
 		sender,
 		receiver,
 		[]byte("test data"), // dest blob

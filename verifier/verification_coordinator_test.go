@@ -108,8 +108,8 @@ func createTestSigner(t *testing.T) (verifier.MessageSigner, protocol.UnknownAdd
 	return signer, addr
 }
 
-func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) verifier.VerificationTask {
-	message := verifier.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality)
+func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32) verifier.VerificationTask {
+	message := verifier.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality, gasLimit)
 
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
@@ -375,8 +375,8 @@ func TestVerifier(t *testing.T) {
 
 	// Create and send test tasks
 	testTasks := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 
 	var messagesSent atomic.Int32
@@ -442,12 +442,12 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Create test tasks for both sources
 	tasksSource1 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 	tasksSource2 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain, 0),
-		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain, 0),
+		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain, 0, 300_000),
 	}
 
 	// Send tasks from both sources
@@ -518,8 +518,8 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 
 	// Send verification tasks only to source 1
 	tasksSource1 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 
 	sendTasksAsync(tasksSource1, mockSetup1.Channel, nil, 5*time.Millisecond)
@@ -692,8 +692,8 @@ func TestVerificationErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test verification tasks
-	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0)
-	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain, 0)
+	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000)
+	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain, 0, 300_000)
 
 	// Send tasks
 	sendTasksAsync([]verifier.VerificationTask{validTask}, mockSetup1.Channel, nil, 10*time.Millisecond)
