@@ -117,6 +117,8 @@ type ExecutionStateChangedEvent struct {
 type Chains interface {
 	// GetEOAReceiverAddress gets an EOA receiver address for the provided chain selector.
 	GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error)
+	// GetSenderAddress gets the sender address for the provided chain selector.
+	GetSenderAddress(chainSelector uint64) (protocol.UnknownAddress, error)
 	// SendMessage sends a CCIP message from src to dest with the specified message options.
 	SendMessage(ctx context.Context, src, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
