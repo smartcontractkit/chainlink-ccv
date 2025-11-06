@@ -1,114 +1,80 @@
 package committee
 
 import (
-	"encoding/hex"
+	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+const (
+	validMessageID = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+)
+
+var validBlob = []byte{0x01, 0x02, 0x03, 0x04}
+
+// keccak256(0x010203041234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef)
+var expectedHashForValidBlob = [32]uint8{0x5f, 0x64, 0xd6, 0x3a, 0x61, 0x92, 0xd6, 0xf6, 0x38, 0xe9, 0xa5, 0x9c, 0x73, 0x20, 0xa8, 0x5d, 0x56, 0xc5, 0x8, 0xb5, 0x10, 0x2f, 0xf2, 0x56, 0x88, 0x50, 0x2d, 0xbf, 0xab, 0xc8, 0xdd, 0x3b}
+
+func validMessageIDBytes32(t *testing.T) protocol.Bytes32 {
+	messageID, err := protocol.NewBytes32FromString(validMessageID)
+	require.NoError(t, err)
+	return messageID
+}
+
 func TestNewHash(t *testing.T) {
 	t.Run("valid input with minimum verifier blob data", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+		hash, err := NewSignableHash(validMessageIDBytes32(t), validBlob)
 		require.NoError(t, err)
-
-		// Exactly 4 bytes (minimum valid length)
-		verifierBlobData := []byte{0x01, 0x02, 0x03, 0x04}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.NoError(t, err)
-		assert.NotEqual(t, [32]byte{}, hash, "hash should not be empty")
+		require.Equal(t, expectedHashForValidBlob, hash, "hash should match expected value")
 	})
 
 	t.Run("valid input with verifier blob data longer than version", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
+		longVerifierBlobData := make([]byte, len(validBlob))
+		copy(longVerifierBlobData, validBlob)
+		longVerifierBlobData = append(longVerifierBlobData, 0x05, 0x06, 0x07, 0x08)
 
-		// More than 4 bytes - only first 4 should be used in hash
-		verifierBlobData := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+		fmt.Println("longVerifierBlobData", longVerifierBlobData)
 
-		hash, err := NewSignableHash(messageID, verifierBlobData)
+		hash, err := NewSignableHash(validMessageIDBytes32(t), longVerifierBlobData)
 		require.NoError(t, err)
-		assert.NotEqual(t, [32]byte{}, hash, "hash should not be empty")
+		require.Equal(t, expectedHashForValidBlob, hash, "hash should match expected value")
 	})
 
 	t.Run("empty verifier blob data returns error", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
+		hash, err := NewSignableHash(validMessageIDBytes32(t), []byte{})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "verifier blob data not found")
-		assert.Equal(t, [32]byte{}, hash, "hash should be empty on error")
+		require.Contains(t, err.Error(), "verifier blob data not found")
+		require.Equal(t, [32]byte{}, hash, "hash should be empty on error")
 	})
 
 	t.Run("nil verifier blob data returns error", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		hash, err := NewSignableHash(messageID, nil)
+		hash, err := NewSignableHash(validMessageIDBytes32(t), nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "verifier blob data not found")
-		assert.Equal(t, [32]byte{}, hash, "hash should be empty on error")
+		require.Contains(t, err.Error(), "verifier blob data not found")
+		require.Equal(t, [32]byte{}, hash, "hash should be empty on error")
 	})
 
-	t.Run("verifier blob data with 1 byte returns error", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{0x01}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
+	t.Run("verifier blob data with insufficient length returns error", func(t *testing.T) {
+		oneByteVerifierBlobData := []byte{0x01}
+		hash, err := NewSignableHash(validMessageIDBytes32(t), oneByteVerifierBlobData)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "verifier blob data too short")
-		assert.Contains(t, err.Error(), "expected at least 4 bytes, got 1")
-		assert.Equal(t, [32]byte{}, hash, "hash should be empty on error")
-	})
-
-	t.Run("verifier blob data with 2 bytes returns error", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{0x01, 0x02}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "verifier blob data too short")
-		assert.Contains(t, err.Error(), "expected at least 4 bytes, got 2")
-		assert.Equal(t, [32]byte{}, hash, "hash should be empty on error")
-	})
-
-	t.Run("verifier blob data with 3 bytes returns error", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{0x01, 0x02, 0x03}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "verifier blob data too short")
-		assert.Contains(t, err.Error(), "expected at least 4 bytes, got 3")
-		assert.Equal(t, [32]byte{}, hash, "hash should be empty on error")
+		require.Contains(t, err.Error(), "verifier blob data too short")
+		require.Contains(t, err.Error(), "expected at least 4 bytes, got 1")
+		require.Equal(t, [32]byte{}, hash, "hash should be empty on error")
 	})
 
 	t.Run("deterministic - same inputs produce same hash", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-
-		hash1, err1 := NewSignableHash(messageID, verifierBlobData)
+		hash1, err1 := NewSignableHash(validMessageIDBytes32(t), validBlob)
 		require.NoError(t, err1)
 
-		hash2, err2 := NewSignableHash(messageID, verifierBlobData)
+		hash2, err2 := NewSignableHash(validMessageIDBytes32(t), validBlob)
 		require.NoError(t, err2)
 
-		assert.Equal(t, hash1, hash2, "same inputs should produce identical hashes")
+		require.Equal(t, hash1, hash2, "same inputs should produce identical hashes")
+		require.Equal(t, expectedHashForValidBlob, hash1, "hash should match expected value")
 	})
 
 	t.Run("different message IDs produce different hashes", func(t *testing.T) {
@@ -118,15 +84,13 @@ func TestNewHash(t *testing.T) {
 		messageID2, err := protocol.NewBytes32FromString("0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321")
 		require.NoError(t, err)
 
-		verifierBlobData := []byte{0x01, 0x02, 0x03, 0x04}
-
-		hash1, err1 := NewSignableHash(messageID1, verifierBlobData)
+		hash1, err1 := NewSignableHash(messageID1, validBlob)
 		require.NoError(t, err1)
 
-		hash2, err2 := NewSignableHash(messageID2, verifierBlobData)
+		hash2, err2 := NewSignableHash(messageID2, validBlob)
 		require.NoError(t, err2)
 
-		assert.NotEqual(t, hash1, hash2, "different message IDs should produce different hashes")
+		require.NotEqual(t, hash1, hash2, "different message IDs should produce different hashes")
 	})
 
 	t.Run("different verifier versions produce different hashes", func(t *testing.T) {
@@ -142,134 +106,7 @@ func TestNewHash(t *testing.T) {
 		hash2, err2 := NewSignableHash(messageID, verifierBlobData2)
 		require.NoError(t, err2)
 
-		assert.NotEqual(t, hash1, hash2, "different verifier versions should produce different hashes")
-	})
-
-	t.Run("only first 4 bytes of verifier blob data are used", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		// Same first 4 bytes, different remaining bytes
-		verifierBlobData1 := []byte{0x01, 0x02, 0x03, 0x04, 0xAA, 0xBB}
-		verifierBlobData2 := []byte{0x01, 0x02, 0x03, 0x04, 0xCC, 0xDD}
-
-		hash1, err1 := NewSignableHash(messageID, verifierBlobData1)
-		require.NoError(t, err1)
-
-		hash2, err2 := NewSignableHash(messageID, verifierBlobData2)
-		require.NoError(t, err2)
-
-		assert.Equal(t, hash1, hash2, "only first 4 bytes should be used in hash, rest should be ignored")
-	})
-
-	t.Run("empty message ID produces valid hash", func(t *testing.T) {
-		// Empty/zero message ID should still work
-		messageID := protocol.Bytes32{}
-
-		verifierBlobData := []byte{0x01, 0x02, 0x03, 0x04}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.NoError(t, err)
-		assert.NotEqual(t, [32]byte{}, hash, "hash should be produced even with zero message ID")
-	})
-
-	t.Run("all zeros verifier version produces valid hash", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{0x00, 0x00, 0x00, 0x00}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.NoError(t, err)
-		assert.NotEqual(t, [32]byte{}, hash, "hash should be produced with all-zero version")
-	})
-
-	t.Run("all max bytes verifier version produces valid hash", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{0xFF, 0xFF, 0xFF, 0xFF}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.NoError(t, err)
-		assert.NotEqual(t, [32]byte{}, hash, "hash should be produced with max byte version")
-	})
-
-	t.Run("hash structure is correct - 32 bytes", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{0x01, 0x02, 0x03, 0x04}
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.NoError(t, err)
-
-		// Hash should be exactly 32 bytes
-		assert.Len(t, hash, 32, "hash should be exactly 32 bytes")
-	})
-
-	t.Run("known input produces expected hash", func(t *testing.T) {
-		// Test with known values to ensure the hash calculation is correct
-		messageID, err := protocol.NewBytes32FromString("0x0000000000000000000000000000000000000000000000000000000000000001")
-		require.NoError(t, err)
-
-		verifierBlobData := []byte{0x00, 0x00, 0x00, 0x01, 0x99, 0x99} // version 1, extra bytes ignored
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.NoError(t, err)
-
-		// The preImage should be: [0x00, 0x00, 0x00, 0x01] + messageID (32 bytes)
-		// Total: 36 bytes
-		// This produces a deterministic keccak256 hash
-		hashHex := hex.EncodeToString(hash[:])
-
-		// Verify it's not empty and is deterministic
-		assert.NotEmpty(t, hashHex)
-
-		// Run again to verify determinism
-		hash2, err := NewSignableHash(messageID, verifierBlobData)
-		require.NoError(t, err)
-		assert.Equal(t, hash, hash2)
-	})
-
-	t.Run("large verifier blob data works correctly", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		// Large blob - only first 4 bytes matter
-		verifierBlobData := make([]byte, 1000)
-		verifierBlobData[0] = 0x01
-		verifierBlobData[1] = 0x02
-		verifierBlobData[2] = 0x03
-		verifierBlobData[3] = 0x04
-
-		hash, err := NewSignableHash(messageID, verifierBlobData)
-		require.NoError(t, err)
-		assert.NotEqual(t, [32]byte{}, hash)
-
-		// Compare with minimal blob having same first 4 bytes
-		minimalBlobData := []byte{0x01, 0x02, 0x03, 0x04}
-		hash2, err := NewSignableHash(messageID, minimalBlobData)
-		require.NoError(t, err)
-
-		assert.Equal(t, hash, hash2, "large blob should produce same hash as minimal blob with same version")
-	})
-
-	t.Run("different byte orders in version produce different hashes", func(t *testing.T) {
-		messageID, err := protocol.NewBytes32FromString("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		require.NoError(t, err)
-
-		// Test that byte order matters
-		verifierBlobData1 := []byte{0x01, 0x02, 0x03, 0x04}
-		verifierBlobData2 := []byte{0x04, 0x03, 0x02, 0x01} // reversed
-
-		hash1, err1 := NewSignableHash(messageID, verifierBlobData1)
-		require.NoError(t, err1)
-
-		hash2, err2 := NewSignableHash(messageID, verifierBlobData2)
-		require.NoError(t, err2)
-
-		assert.NotEqual(t, hash1, hash2, "byte order in version should matter")
+		require.NotEqual(t, hash1, hash2, "different verifier versions should produce different hashes")
 	})
 
 	t.Run("error message includes message ID", func(t *testing.T) {
@@ -279,11 +116,11 @@ func TestNewHash(t *testing.T) {
 		// Test empty blob error message
 		_, err = NewSignableHash(messageID, []byte{})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+		require.Contains(t, err.Error(), "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
 
 		// Test too short blob error message
 		_, err = NewSignableHash(messageID, []byte{0x01})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+		require.Contains(t, err.Error(), "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
 	})
 }
