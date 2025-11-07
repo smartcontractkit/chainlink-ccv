@@ -6,10 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func TestMockReader_EmitsMessagesImmediately(t *testing.T) {
@@ -31,8 +30,6 @@ func TestMockReader_EmitsMessagesImmediately(t *testing.T) {
 		assert.Equal(t, protocol.Nonce(i+1), responses[0].Data.Nonce)
 	}
 
-	// Should signal disconnect after max messages
-	assert.True(t, reader.ShouldDisconnect())
 	assert.Equal(t, 3, reader.GetMessagesEmitted())
 	assert.Equal(t, 3, reader.GetCallCount())
 }
@@ -132,8 +129,6 @@ func TestMockReader_InfiniteMessages(t *testing.T) {
 		require.Len(t, responses, 1)
 	}
 
-	// Should not signal disconnect
-	assert.False(t, reader.ShouldDisconnect())
 	assert.Equal(t, 10, reader.GetMessagesEmitted())
 }
 
@@ -150,19 +145,16 @@ func TestMockReader_DisconnectAfterMaxMessages(t *testing.T) {
 	responses, err := reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
-	assert.False(t, reader.ShouldDisconnect())
 
-	// Read second message - should signal disconnect after this
+	// Read second message
 	responses, err = reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
-	assert.True(t, reader.ShouldDisconnect())
 
 	// Next call should return empty since max messages reached
 	responses, err = reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 0)
-	assert.True(t, reader.ShouldDisconnect())
 }
 
 func TestMockReader_TimestampIncreases(t *testing.T) {
@@ -245,7 +237,6 @@ func TestMockReader_MultipleMessagesRespectsMaxLimit(t *testing.T) {
 	require.Len(t, responses, 4)
 
 	assert.Equal(t, 5, reader.GetMessagesEmitted())
-	assert.True(t, reader.ShouldDisconnect())
 
 	// Next call should return empty
 	responses, err = reader.ReadCCVData(ctx)

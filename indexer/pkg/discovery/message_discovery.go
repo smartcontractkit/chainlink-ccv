@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
-
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"

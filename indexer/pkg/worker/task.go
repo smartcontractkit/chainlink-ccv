@@ -16,7 +16,7 @@ type Task struct {
 	ctx       context.Context
 	logger    logger.Logger
 	messageID protocol.Bytes32
-	message   protocol.Message
+	message   protocol.CCVData
 	registry  *registry.VerifierRegistry
 	storage   common.IndexerStorage
 }
@@ -27,16 +27,11 @@ type TaskResult struct {
 	FailedVerifiers     int
 }
 
-func NewTask(ctx context.Context, logger logger.Logger, message protocol.Message, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Task, error) {
-	messageID, err := message.MessageID()
-	if err != nil {
-		return nil, err
-	}
-
+func NewTask(ctx context.Context, lggr logger.Logger, message protocol.CCVData, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Task, error) {
 	return &Task{
 		ctx:       ctx,
-		logger:    logger,
-		messageID: messageID,
+		logger:    logger.Named(logger.With(lggr, "messageID", message.MessageID), "Task"),
+		messageID: message.MessageID,
 		message:   message,
 		registry:  registry,
 		storage:   storage,
@@ -138,5 +133,11 @@ func (t *Task) getExistingVerifiers() (existing []string, err error) {
 }
 
 func (t *Task) getVerifiers() []string {
-	return []string{}
+	verifiers := []string{}
+	blobsExcludingExecutor := t.message.ReceiptBlobs[:len(t.message.ReceiptBlobs)-1]
+	for _, receipt := range blobsExcludingExecutor {
+		verifiers = append(verifiers, receipt.Issuer.String())
+	}
+
+	return verifiers
 }

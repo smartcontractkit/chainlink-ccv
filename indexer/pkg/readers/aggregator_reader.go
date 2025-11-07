@@ -16,8 +16,8 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*Resi
 	}
 
 	config := DefaultResilienceConfig()
-	config.RetryPolicyErrorHandler = aggregatorRetryPolicyErrorHandler
-	config.CircuitBreakerErrorHandler = aggregatorCircuitBreakerErrorHandler
+	config.DiscoveryRetryPolicyErrorHandler = aggregatorRetryPolicyErrorHandler
+	config.DiscoveryCircuitBreakerErrorHandler = aggregatorCircuitBreakerErrorHandler
 
 	return NewResilientReader(reader, lggr, config), nil
 }
