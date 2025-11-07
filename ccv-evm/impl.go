@@ -1309,7 +1309,8 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
 	selector uint64,
 	remoteSelectors []uint64,
-	tokenSymbol string,
+	localRef datastore.AddressRef,
+	remoteRef datastore.AddressRef,
 	ccvQualifiers []string,
 ) error {
 	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
@@ -1324,11 +1325,7 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 		}
 
 		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-			RemotePool: &datastore.AddressRef{
-				Type:      datastore.ContractType(burn_mint_token_pool.ContractType),
-				Version:   semver.MustParse(TokenPoolVersion),
-				Qualifier: tokenSymbol,
-			},
+			RemotePool: &remoteRef,
 			InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
 				IsEnabled: false,
 				Capacity:  big.NewInt(0),
@@ -1348,11 +1345,7 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 		Tokens: []tokenscore.TokenTransferConfig{
 			{
 				ChainSelector: selector,
-				TokenPoolRef: datastore.AddressRef{
-					Type:      datastore.ContractType(burn_mint_token_pool.ContractType),
-					Version:   semver.MustParse(TokenPoolVersion),
-					Qualifier: tokenSymbol,
-				},
+				TokenPoolRef:  localRef,
 				RegistryRef: datastore.AddressRef{
 					Type:    datastore.ContractType(token_admin_registry.ContractType),
 					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
@@ -1362,7 +1355,7 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to configure %s tokens for transfers: %w", tokenSymbol, err)
+		return fmt.Errorf("failed to configure %s token for transfers: %w", localRef.Qualifier, err)
 	}
 
 	return nil
@@ -1521,11 +1514,11 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	for _, combo := range AllTokenCombinations() {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		l.Info().Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("Configuring source token for transfer")
-		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef().Qualifier, combo.SourcePoolCCVQualifiers()); err != nil {
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()); err != nil {
 			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.SourcePoolAddressRef().Qualifier, err)
 		}
 		l.Info().Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("Configuring destination token for transfer")
-		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef().Qualifier, combo.DestPoolCCVQualifiers()); err != nil {
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()); err != nil {
 			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
 	}
