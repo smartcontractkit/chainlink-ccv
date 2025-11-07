@@ -43,12 +43,13 @@ func (m *mockRoundRobin) GetNextAddress(ctx context.Context, addresses ...common
 }
 
 func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
+	testKey := "test-key"
 	testCases := []struct {
 		name              string
 		report            executor.AbstractAggregatedReport
 		setupMocks        func(*mockTxManager, *mockRoundRobin)
 		expectedError     string
-		expectedLogFields map[string]interface{}
+		expectedLogFields map[string]any
 	}{
 		{
 			name: "successful transmission",
@@ -68,7 +69,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				rr.On("GetNextAddress", mock.Anything, mock.Anything).Return(fromAddr, nil)
 
 				expectedTx := txmgr.Tx{
-					IdempotencyKey: func() *string { s := "test-key"; return &s }(),
+					IdempotencyKey: &testKey,
 				}
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
@@ -129,7 +130,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				rr.On("GetNextAddress", mock.Anything, mock.Anything).Return(fromAddr, nil)
 
 				expectedTx := txmgr.Tx{
-					IdempotencyKey: func() *string { s := "test-key"; return &s }(),
+					IdempotencyKey: &testKey,
 				}
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
@@ -160,7 +161,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				rr.On("GetNextAddress", mock.Anything, mock.Anything).Return(fromAddr, nil)
 
 				expectedTx := txmgr.Tx{
-					IdempotencyKey: func() *string { s := "test-key"; return &s }(),
+					IdempotencyKey: &testKey,
 				}
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
@@ -279,6 +280,7 @@ func TestNewEVMContractTransmitterFromTxm(t *testing.T) {
 }
 
 func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
+	testKey := "test-key"
 	testCases := []struct {
 		name          string
 		report        executor.AbstractAggregatedReport
@@ -314,7 +316,7 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 
 			var capturedPayload []byte
 			expectedTx := txmgr.Tx{
-				IdempotencyKey: func() *string { s := "test-key"; return &s }(),
+				IdempotencyKey: &testKey,
 			}
 
 			mockTxm.On("CreateTransaction", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
