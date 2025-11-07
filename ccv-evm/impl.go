@@ -76,9 +76,6 @@ const (
 
 	CommitteeVerifierGasForVerification = 500_000
 
-	TokenPoolVersion    = "1.7.0"
-	TokenAdapterVersion = "1.7.0"
-
 	TokenMaxSupply       = "100000000000000000000000000000" // 100 billion in 18 decimals
 	TokenDeployerBalance = "1000000000000000000000000000"   // 1 billion in 18 decimals
 	DefaultDecimals      = 18
@@ -93,6 +90,11 @@ var (
 		DefaultCommitteeVerifierQualifier:   2,
 		SecondaryCommitteeVerifierQualifier: 2,
 		TertiaryCommitteeVerifierQualifier:  2,
+	}
+
+	tokenPoolVersions = []string{
+		"1.6.1",
+		"1.7.0",
 	}
 )
 
@@ -1509,7 +1511,9 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	}
 
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
-	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(TokenAdapterVersion), &evmadapters.TokenAdapter{})
+	for _, poolVersion := range tokenPoolVersions {
+		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), &evmadapters.TokenAdapter{})
+	}
 
 	for _, combo := range AllTokenCombinations() {
 		// For any given token combination, every chain needs to support the source and destination pools.
