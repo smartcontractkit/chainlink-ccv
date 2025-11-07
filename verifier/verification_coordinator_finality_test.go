@@ -212,10 +212,10 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
-	// Return nil to indicate no prior chain status (forces fallback to lookback calculation)
-	mockChainStatusManager.EXPECT().ReadChainStatus(mock.Anything, protocol.ChainSelector(1337)).Return(nil, nil).Maybe()
+	// Return empty map to indicate no prior chain status (forces fallback to lookback calculation)
+	mockChainStatusManager.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil).Maybe()
 	// Allow writes for chain status updates
-	mockChainStatusManager.EXPECT().WriteChainStatus(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockChainStatusManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)

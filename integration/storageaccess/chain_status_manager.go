@@ -2,7 +2,6 @@ package storageaccess
 
 import (
 	"context"
-	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -21,14 +20,15 @@ func NewAggregatorChainStatusManager(writer *AggregatorWriter, reader *Aggregato
 	}
 }
 
-// WriteChainStatus writes a chain status using the aggregator writer.
-func (cm *AggregatorChainStatusManager) WriteChainStatus(ctx context.Context, chainSelector protocol.ChainSelector, blockHeight *big.Int) error {
-	return cm.writer.WriteChainStatus(ctx, chainSelector, blockHeight, false) // Default to not disabled
+// WriteChainStatuses writes chain statuses for multiple chains atomically using the aggregator writer.
+func (cm *AggregatorChainStatusManager) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
+	return cm.writer.WriteChainStatus(ctx, statuses)
 }
 
-// ReadChainStatus reads a chain status using the aggregator reader.
-func (cm *AggregatorChainStatusManager) ReadChainStatus(ctx context.Context, chainSelector protocol.ChainSelector) (*big.Int, error) {
-	return cm.reader.ReadChainStatus(ctx, chainSelector)
+// ReadChainStatuses reads chain statuses for multiple chains using the aggregator reader.
+// Returns map of chainSelector -> ChainStatusInfo. Missing chains are not included in the map.
+func (cm *AggregatorChainStatusManager) ReadChainStatuses(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+	return cm.reader.ReadChainStatus(ctx, chainSelectors)
 }
 
 // Close closes both the writer and reader connections.
