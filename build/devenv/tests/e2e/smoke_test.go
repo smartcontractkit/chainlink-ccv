@@ -281,7 +281,7 @@ func TestE2ESmoke(t *testing.T) {
 				messageOptions := cciptestinterfaces.MessageOptions{
 					Version:        3,
 					GasLimit:       200_000,
-					FinalityConfig: 1,
+					FinalityConfig: combo.FinalityConfig(),
 					Executor:       getContractAddress(t, in, selectors[0], datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
 				}
 

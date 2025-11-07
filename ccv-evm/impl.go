@@ -148,6 +148,13 @@ func (s TokenCombination) ExpectedVerifierResults() int {
 	return s.expectedVerifierResults
 }
 
+func (s TokenCombination) FinalityConfig() uint16 {
+	if semver.MustParse(s.sourcePoolVersion).GreaterThanEqual(semver.MustParse("1.7.0")) {
+		return 1 // We can use fast-finality if source pool is 1.7.0 or higher
+	}
+	return 0 // Otherwise use default finality
+}
+
 // allTokenCombinations returns all possible token combinations.
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
