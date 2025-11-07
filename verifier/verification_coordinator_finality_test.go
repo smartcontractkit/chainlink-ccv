@@ -1,4 +1,4 @@
-package verifier_test
+package verifier
 
 import (
 	"context"
@@ -12,11 +12,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/verifier_mocks"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
 
 const (
@@ -24,80 +23,23 @@ const (
 	InitialFinalizedBlock = 950
 )
 
-// testVerifier keeps track of all processed messages for testing.
-type testVerifier struct {
-	processedTasks []verifier.VerificationTask
-	mu             sync.RWMutex
-}
-
-func newTestVerifier() *testVerifier {
-	return &testVerifier{
-		processedTasks: make([]verifier.VerificationTask, 0),
-	}
-}
-
-func (t *testVerifier) VerifyMessages(
-	ctx context.Context,
-	tasks []verifier.VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.CCVData],
-) batcher.BatchResult[verifier.VerificationError] {
-	t.mu.Lock()
-	t.processedTasks = append(t.processedTasks, tasks...)
-	t.mu.Unlock()
-
-	// Create mock CCV data for each task
-	for _, verificationTask := range tasks {
-		messageID, _ := verificationTask.Message.MessageID()
-		ccvData := protocol.CCVData{
-			MessageID:             messageID,
-			Nonce:                 verificationTask.Message.Nonce,
-			SourceChainSelector:   verificationTask.Message.SourceChainSelector,
-			DestChainSelector:     verificationTask.Message.DestChainSelector,
-			SourceVerifierAddress: protocol.UnknownAddress{},
-			DestVerifierAddress:   protocol.UnknownAddress{},
-			CCVData:               []byte("mock-signature"),
-			BlobData:              []byte("mock-blob"),
-			Timestamp:             time.Now().UnixMicro(),
-			Message:               verificationTask.Message,
-			ReceiptBlobs:          verificationTask.ReceiptBlobs,
-		}
-
-		if err := ccvDataBatcher.Add(ccvData); err != nil {
-			// If context is canceled or batcher is closed, stop processing
-			return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
-		}
-	}
-
-	// No errors in this test implementation
-	return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
-}
-
-func (t *testVerifier) getProcessedTaskCount() int {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return len(t.processedTasks)
-}
-
-// testStorage for testing.
-type testStorage struct{}
-
-func (m *testStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData) error {
-	return nil
-}
-
 func TestFinality_FinalizedMessage(t *testing.T) {
 	setup := initializeCoordinator(t, "test-finality-coordinator")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	err := setup.coordinator.Start(ctx)
 	require.NoError(t, err)
-	defer setup.coordinator.Close()
+	defer func() {
+		if err := setup.coordinator.Close(); err != nil {
+			t.Logf("Error closing coordinator: %v", err)
+		}
+	}()
 
 	// Message at block 940 (< finalized 950) should be processed immediately
-	finalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
-	finalizedTask := verifier.VerificationTask{
+	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
+	finalizedTask := VerificationTask{
 		Message: finalizedMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -115,24 +57,29 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the finalized message
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed the finalized message")
 }
 
 func TestFinality_CustomFinality(t *testing.T) {
 	setup := initializeCoordinator(t, "test-custom-finality-coordinator")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	err := setup.coordinator.Start(ctx)
 	require.NoError(t, err)
-	defer setup.coordinator.Close()
+	defer func() {
+		if err := setup.coordinator.Close(); err != nil {
+			t.Logf("Error closing coordinator: %v", err)
+		}
+	}()
 
 	customFinality := uint16(15)
+	customGasLimit := uint32(300_000)
 
-	readyMessage := createTestMessage(t, 1, 1337, 2337, customFinality)
-	readyTask := verifier.VerificationTask{
+	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
+	readyTask := VerificationTask{
 		Message: readyMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -150,23 +97,29 @@ func TestFinality_CustomFinality(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Should have processed the ready message
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 1, processedCount, "Should have processed the ready message")
 }
 
 func TestFinality_WaitingForFinality(t *testing.T) {
 	setup := initializeCoordinator(t, "test-finality-coordinator")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use a context with timeout to prevent hanging forever
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	err := setup.coordinator.Start(ctx)
 	require.NoError(t, err)
-	defer setup.coordinator.Close()
+	defer func() {
+		// Ensure coordinator is stopped and all goroutines are cleaned up
+		if err := setup.coordinator.Close(); err != nil {
+			t.Logf("Error closing coordinator: %v", err)
+		}
+	}()
 
-	nonFinalizedMessage := createTestMessage(t, 1, 1337, 2337, 0)
+	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
-	nonFinalizedTask := verifier.VerificationTask{
+	nonFinalizedTask := VerificationTask{
 		Message: nonFinalizedMessage,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
@@ -178,36 +131,56 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 		BlockNumber: uint64(nonFinalizedBlock), // should be waiting for finality
 	}
 
-	// Send message
-	setup.verificationTaskCh <- nonFinalizedTask
+	// Send message with timeout
+	select {
+	case setup.verificationTaskCh <- nonFinalizedTask:
+		// Successfully sent
+	case <-ctx.Done():
+		t.Fatal("Timeout sending task to verification channel")
+	}
 
-	// Wait for processing (poll interval is 100ms, add some buffer)
-	time.Sleep(200 * time.Millisecond)
+	// Wait for task to be added to finality queue (poll interval is 50ms)
+	// Give it enough time to be picked up but not processed
+	time.Sleep(150 * time.Millisecond)
 
 	// Should NOT have processed the non-finalized message yet
-	processedCount := setup.mockVerifier.getProcessedTaskCount()
+	processedCount := setup.mockVerifier.GetProcessedTaskCount()
 	require.Equal(t, 0, processedCount, "Should not have processed the non-finalized message")
 
 	// Update the shared variable to simulate finalized block advancing
-	setup.finalizedBlockMu.Lock()
-	setup.currentFinalizedBlock.SetInt64(int64(nonFinalizedBlock))
-	setup.finalizedBlockMu.Unlock()
+	setup.setFinalizedBlock(uint64(nonFinalizedBlock))
 
-	// Wait for the finality check to run (finality check interval is 10ms)
-	time.Sleep(50 * time.Millisecond)
+	// Poll until message is processed or timeout
+	deadline := time.Now().Add(2 * time.Second)
+	processed := false
+	for time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+		if setup.mockVerifier.GetProcessedTaskCount() == 1 {
+			processed = true
+			break
+		}
+	}
 
 	// Should have processed the now-finalized message
-	processedCount = setup.mockVerifier.getProcessedTaskCount()
-	require.Equal(t, 1, processedCount, "Should have processed the now finalized message")
+	require.True(t, processed, "Message should have been processed after finality reached")
+	processedCount = setup.mockVerifier.GetProcessedTaskCount()
+	require.Equal(t, 1, processedCount, "Should have processed exactly 1 message")
 }
 
 type coordinatorTestSetup struct {
-	coordinator           *verifier.Coordinator
-	mockSourceReader      *verifier_mocks.MockSourceReader
-	mockVerifier          *testVerifier
-	verificationTaskCh    chan verifier.VerificationTask
+	coordinator           *Coordinator
+	mockSourceReader      *MockSourceReader
+	mockVerifier          *TestVerifier
+	verificationTaskCh    chan VerificationTask
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
+}
+
+// Helper to safely update finalized block.
+func (s *coordinatorTestSetup) setFinalizedBlock(block uint64) {
+	s.finalizedBlockMu.Lock()
+	defer s.finalizedBlockMu.Unlock()
+	s.currentFinalizedBlock.SetUint64(block)
 }
 
 func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetup {
@@ -217,13 +190,13 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	})
 	require.NoError(t, err)
 
-	mockVerifier := newTestVerifier()
-	mockSourceReader := verifier_mocks.NewMockSourceReader(t)
-	mockStorage := &testStorage{}
-	verificationTaskCh := make(chan verifier.VerificationTask, 10)
+	mockVerifier := NewTestVerifier()
+	mockSourceReader := NewMockSourceReader(t)
+	mockStorage := &NoopStorage{}
+	verificationTaskCh := make(chan VerificationTask, 10)
 
-	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
-		var tasks []verifier.VerificationTask
+	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]VerificationTask, error) {
+		var tasks []VerificationTask
 		for {
 			select {
 			case task := <-verificationTaskCh:
@@ -234,20 +207,45 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		}
 	})
 
+	// Mock BlockTime to return immediately during initialization
 	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
 
+	// Mock ChainStatusManager to prevent initialization hangs
+	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
+	// Return nil to indicate no prior chain status (forces fallback to lookback calculation)
+	mockChainStatusManager.EXPECT().ReadChainStatus(mock.Anything, protocol.ChainSelector(1337)).Return(nil, nil).Maybe()
+	// Allow writes for chain status updates
+	mockChainStatusManager.EXPECT().WriteChainStatus(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockSourceReader.EXPECT().LatestBlockHeight(mock.Anything).Return(big.NewInt(InitialLatestBlock), nil).Maybe()
-	mockSourceReader.EXPECT().LatestFinalizedBlockHeight(mock.Anything).RunAndReturn(func(ctx context.Context) (*big.Int, error) {
-		// Return a copy with proper synchronization to avoid data races
+	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+		// Return latest and finalized headers with proper synchronization
+		// Must lock before accessing big.Int to avoid concurrent access issues
 		finalizedBlockMu.RLock()
-		defer finalizedBlockMu.RUnlock()
-		return new(big.Int).Set(currentFinalizedBlock), nil
+		finalizedNum := currentFinalizedBlock.Uint64()
+		finalizedBlockMu.RUnlock()
+
+		latest := &protocol.BlockHeader{
+			Number:               InitialLatestBlock,
+			Hash:                 protocol.Bytes32{byte(InitialLatestBlock % 256)},
+			ParentHash:           protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
+			Timestamp:            time.Now(),
+			FinalizedBlockNumber: finalizedNum,
+		}
+		finalized := &protocol.BlockHeader{
+			Number:               finalizedNum,
+			Hash:                 protocol.Bytes32{byte(finalizedNum % 256)},
+			ParentHash:           protocol.Bytes32{byte((finalizedNum - 1) % 256)},
+			Timestamp:            time.Now(),
+			FinalizedBlockNumber: finalizedNum,
+		}
+		return latest, finalized, nil
 	}).Maybe()
 
-	config := verifier.CoordinatorConfig{
-		SourceConfigs: map[protocol.ChainSelector]verifier.SourceConfig{
+	config := CoordinatorConfig{
+		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
 			1337: {
 				VerifierAddress: protocol.UnknownAddress([]byte("verifier-1337")),
 				PollInterval:    50 * time.Millisecond, // Fast polling for tests
@@ -256,17 +254,21 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		VerifierID: verifierID,
 	}
 
-	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	coordinator, err := verifier.NewVerificationCoordinator(
-		verifier.WithVerifier(mockVerifier),
-		verifier.WithSourceReaders(map[protocol.ChainSelector]verifier.SourceReader{
+	noopMonitoring := &noopMonitoring{}
+	coordinator, err := NewCoordinator(
+		WithVerifier(mockVerifier),
+		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
 			1337: mockSourceReader,
 		}),
-		verifier.WithStorage(mockStorage),
-		verifier.WithConfig(config),
-		verifier.WithLogger(lggr),
-		verifier.WithMonitoring(noopMonitoring),
-		verifier.WithFinalityCheckInterval(10*time.Millisecond),
+		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
+			1337: mockHeadTracker,
+		}),
+		WithStorage(mockStorage),
+		WithChainStatusManager(mockChainStatusManager),
+		WithConfig(config),
+		WithLogger(lggr),
+		WithMonitoring(noopMonitoring),
+		WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
 

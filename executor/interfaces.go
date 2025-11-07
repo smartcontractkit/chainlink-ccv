@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -17,6 +18,7 @@ type StreamerResult struct {
 type MessageSubscriber interface {
 	// Start a streamer as a background process, it should send data to the
 	// message channel as it becomes available.
+	// TODO: this function signature is really odd, we shouldn't be passing in a pointer to a waitgroup.
 	Start(
 		ctx context.Context,
 		wg *sync.WaitGroup,
@@ -63,7 +65,25 @@ type LeaderElector interface {
 // When integrating with non-evms, the implementer only needs to add support for a single chain.
 type DestinationReader interface {
 	// GetCCVSForMessage return cross-chain verifications for selected message
-	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CcvAddressInfo, error)
+	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
 	// IsMessageExecuted returns true if message is executed
 	IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error)
+}
+
+// Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.
+type Monitoring interface {
+	// Metrics returns the metrics labeler for the executor.
+	Metrics() MetricLabeler
+}
+
+// MetricLabeler provides all metric recording functionality for the indexer.
+type MetricLabeler interface {
+	// With returns a new metrics labeler with the given key-value pairs.
+	With(keyValues ...string) MetricLabeler
+	// RecordMessageExecutionLatency records the duration of the full ExecuteMessage operation.
+	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration)
+	// IncrementMessagesProcessed increments the counter for successfully processed messages.
+	IncrementMessagesProcessed(ctx context.Context)
+	// IncrementMessagesProcessingFailed increments the counter for failed message executions.
+	IncrementMessagesProcessingFailed(ctx context.Context)
 }

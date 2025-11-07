@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  e2e:
+  e2e-smoke:
     permissions:
       id-token: write
       contents: read
@@ -69,9 +69,31 @@ jobs:
         id: smoke_test
         working-directory: build/devenv/tests/e2e
         run: |
-          go install github.com/mfridman/tparse@latest
           set -o pipefail
-          go test -v -timeout 15m -count=1 -run 'TestE2ESmoke' -json | tee test-results.json | tparse
+          go test -v -timeout 15m -count=1 -run 'TestE2ESmoke' -json \
+            | tee test-results.json \
+            | jq -r '
+              select(.Action != null) |
+              if .Action=="run" and .Test then
+                "=== RUN   \(.Test)"
+              elif .Action=="pause" and .Test then
+                "=== PAUSE \(.Test)"
+              elif .Action=="cont" and .Test then
+                "=== CONT  \(.Test)"
+              elif .Action=="output" and .Test then
+                (.Output | rtrimstr("\n") | "    " + .)
+              elif (.Action=="pass" or .Action=="fail" or .Action=="skip") and .Test then
+                ("--- \(.Action | ascii_upcase): \(.Test)" + (if .Elapsed then " (\(.Elapsed)s)" else "" end))
+              elif .Action=="output" and (.Test|not) then
+                (.Output | rtrimstr("\n"))
+              elif (.Action=="pass" or .Action=="fail") and (.Test|not) then
+                if .Action=="pass" then
+                  "PASS\nok  \(.Package) \(.Elapsed)s"
+                else
+                  "FAIL\nFAIL\t\(.Package) \(.Elapsed)s"
+                end
+              else empty end
+            '
         continue-on-error: true
 
       - name: Create test summary

@@ -5,10 +5,11 @@ import (
 	"sync"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	grpcstatus "google.golang.org/grpc/status"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
@@ -26,7 +27,7 @@ func (h *BatchWriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.
 func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.BatchWriteCommitCCVNodeDataRequest) (*pb.BatchWriteCommitCCVNodeDataResponse, error) {
 	requests := req.GetRequests()
 	responses := make([]*pb.WriteCommitCCVNodeDataResponse, len(requests))
-	errors := make([]error, len(requests))
+	errors := NewBatchErrorArray(len(requests))
 
 	wg := sync.WaitGroup{}
 
@@ -36,12 +37,16 @@ func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb
 			defer wg.Done()
 			resp, err := h.handler.Handle(ctx, r)
 			if err != nil {
-				statusErr, ok := status.FromError(err)
+				statusErr, ok := grpcstatus.FromError(err)
 				if !ok {
 					h.logger(ctx).Errorf("unexpected error type: %v", err)
-					errors[i] = status.Error(codes.Unknown, "unexpected error")
+					SetBatchError(errors, i, codes.Unknown, "unexpected error")
+				} else {
+					h.logger(ctx).Errorw("failed to write commit CCV node data", "error", statusErr)
+					errors[i] = statusErr.Proto()
 				}
-				errors[i] = statusErr.Err()
+			} else {
+				SetBatchSuccess(errors, i)
 			}
 			responses[i] = resp
 		}(i, r)
@@ -50,6 +55,7 @@ func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb
 	wg.Wait()
 	return &pb.BatchWriteCommitCCVNodeDataResponse{
 		Responses: responses,
+		Errors:    errors,
 	}, nil
 }
 

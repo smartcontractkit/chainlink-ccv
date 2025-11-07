@@ -30,7 +30,7 @@ func NewCCVDataV1Handler(storage common.IndexerStorage, lggr logger.Logger, moni
 func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 	req := storageaccess.VerifierResultsRequest{
 		Start:                0,
-		End:                  time.Now().Unix(),
+		End:                  time.Now().UnixMilli(),
 		SourceChainSelectors: []protocol.ChainSelector{},
 		DestChainSelectors:   []protocol.ChainSelector{},
 		Limit:                100,

@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/lib/pq"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
@@ -20,20 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
-
-func copyMessageWithCCVNodeData(src *pb.MessageWithCCVNodeData) pb.MessageWithCCVNodeData {
-	return pb.MessageWithCCVNodeData{
-		MessageId:             src.MessageId,
-		SourceVerifierAddress: src.SourceVerifierAddress,
-		Message:               src.Message,
-		BlobData:              src.BlobData,
-		CcvData:               src.CcvData,
-		Timestamp:             src.Timestamp,
-		ReceiptBlobs:          src.ReceiptBlobs,
-	}
-}
 
 func reconstructIdentifierSigner(participantID, signerAddressHex, committeeID string, signatureR, signatureS []byte) *model.IdentifierSigner {
 	signerAddrBytes := common.HexToAddress(signerAddressHex).Bytes()
@@ -142,21 +129,21 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 
 	stmt := `INSERT INTO commit_verification_records 
 		(message_id, committee_id, participant_id, signer_address, source_chain_selector, dest_chain_selector, 
-		 onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, verification_timestamp) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		ON CONFLICT (message_id, committee_id, signer_address, verification_timestamp) 
+		 onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, verification_timestamp, idempotency_key) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		ON CONFLICT (message_id, committee_id, signer_address, idempotency_key) 
 		DO NOTHING`
 
-	ccvNodeData, err := proto.Marshal(&record.MessageWithCCVNodeData)
+	ccvNodeData, err := json.Marshal(record)
 	if err != nil {
-		return fmt.Errorf("failed to marshal ccv node data: %w", err)
+		return fmt.Errorf("failed to marshal ccv node data to JSON: %w", err)
 	}
 
 	var sourceChainSelector, destChainSelector, onrampAddress, offrampAddress string
 
 	if record.Message != nil {
-		sourceChainSelector = strconv.FormatUint(record.Message.SourceChainSelector, 10)
-		destChainSelector = strconv.FormatUint(record.Message.DestChainSelector, 10)
+		sourceChainSelector = strconv.FormatUint(uint64(record.Message.SourceChainSelector), 10)
+		destChainSelector = strconv.FormatUint(uint64(record.Message.DestChainSelector), 10)
 		onrampAddress = common.BytesToAddress(record.Message.OnRampAddress).Hex()
 		offrampAddress = common.BytesToAddress(record.Message.OffRampAddress).Hex()
 	}
@@ -172,8 +159,9 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		offrampAddress,
 		record.IdentifierSigner.SignatureR[:],
 		record.IdentifierSigner.SignatureS[:],
-		ccvNodeData,
+		string(ccvNodeData),
 		record.Timestamp,
+		record.IdempotencyKey,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save commit verification record: %w", err)
@@ -184,24 +172,25 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 
 func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
 	stmt := `SELECT message_id, committee_id, participant_id, signer_address, source_chain_selector, dest_chain_selector,
-		onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, created_at
+		onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, verification_timestamp, created_at
 		FROM commit_verification_records 
 		WHERE message_id = $1 AND committee_id = $2 AND signer_address = $3
 		ORDER BY seq_num DESC LIMIT 1`
 
 	var record struct {
-		MessageID           string       `db:"message_id"`
-		CommitteeID         string       `db:"committee_id"`
-		ParticipantID       string       `db:"participant_id"`
-		SignerAddress       string       `db:"signer_address"`
-		SourceChainSelector string       `db:"source_chain_selector"`
-		DestChainSelector   string       `db:"dest_chain_selector"`
-		OnrampAddress       string       `db:"onramp_address"`
-		OfframpAddress      string       `db:"offramp_address"`
-		SignatureR          []byte       `db:"signature_r"`
-		SignatureS          []byte       `db:"signature_s"`
-		CCVNodeData         []byte       `db:"ccv_node_data"`
-		CreatedAt           sql.NullTime `db:"created_at"`
+		MessageID             string       `db:"message_id"`
+		CommitteeID           string       `db:"committee_id"`
+		ParticipantID         string       `db:"participant_id"`
+		SignerAddress         string       `db:"signer_address"`
+		SourceChainSelector   string       `db:"source_chain_selector"`
+		DestChainSelector     string       `db:"dest_chain_selector"`
+		OnrampAddress         string       `db:"onramp_address"`
+		OfframpAddress        string       `db:"offramp_address"`
+		SignatureR            []byte       `db:"signature_r"`
+		SignatureS            []byte       `db:"signature_s"`
+		CCVNodeData           string       `db:"ccv_node_data"`
+		VerificationTimestamp time.Time    `db:"verification_timestamp"`
+		CreatedAt             sql.NullTime `db:"created_at"`
 	}
 
 	messageIDHex := common.Bytes2Hex(id.MessageID)
@@ -215,42 +204,44 @@ func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.Co
 		return nil, fmt.Errorf("failed to get commit verification record: %w", err)
 	}
 
-	var msgWithCCV pb.MessageWithCCVNodeData
-	err = proto.Unmarshal(record.CCVNodeData, &msgWithCCV)
+	var msgWithCCV model.CommitVerificationRecord
+	err = json.Unmarshal([]byte(record.CCVNodeData), &msgWithCCV)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ccv node data: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal ccv node data from JSON: %w", err)
 	}
 
-	result := model.CommitVerificationRecord{
-		MessageWithCCVNodeData: copyMessageWithCCVNodeData(&msgWithCCV),
-		IdentifierSigner:       reconstructIdentifierSigner(record.ParticipantID, record.SignerAddress, record.CommitteeID, record.SignatureR, record.SignatureS),
-		CommitteeID:            record.CommitteeID,
-	}
+	// Use the unmarshaled record as base and override specific fields from database
+	result := &msgWithCCV
+	result.IdentifierSigner = reconstructIdentifierSigner(record.ParticipantID, record.SignerAddress, record.CommitteeID, record.SignatureR, record.SignatureS)
+	result.CommitteeID = record.CommitteeID
+	// Use the database timestamp instead of the JSON timestamp
+	result.Timestamp = record.VerificationTimestamp
 
-	return &result, nil
+	return result, nil
 }
 
 func (d *DatabaseStorage) ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
 	stmt := `SELECT DISTINCT ON (signer_address) message_id, committee_id, participant_id, signer_address, 
 		source_chain_selector, dest_chain_selector, onramp_address, offramp_address, 
-		signature_r, signature_s, ccv_node_data, created_at
+		signature_r, signature_s, ccv_node_data, verification_timestamp, created_at
 		FROM commit_verification_records 
 		WHERE message_id = $1 AND committee_id = $2
 		ORDER BY signer_address, seq_num DESC`
 
 	type dbRecord struct {
-		MessageID           string       `db:"message_id"`
-		CommitteeID         string       `db:"committee_id"`
-		ParticipantID       string       `db:"participant_id"`
-		SignerAddress       string       `db:"signer_address"`
-		SourceChainSelector string       `db:"source_chain_selector"`
-		DestChainSelector   string       `db:"dest_chain_selector"`
-		OnrampAddress       string       `db:"onramp_address"`
-		OfframpAddress      string       `db:"offramp_address"`
-		SignatureR          []byte       `db:"signature_r"`
-		SignatureS          []byte       `db:"signature_s"`
-		CCVNodeData         []byte       `db:"ccv_node_data"`
-		CreatedAt           sql.NullTime `db:"created_at"`
+		MessageID             string       `db:"message_id"`
+		CommitteeID           string       `db:"committee_id"`
+		ParticipantID         string       `db:"participant_id"`
+		SignerAddress         string       `db:"signer_address"`
+		SourceChainSelector   string       `db:"source_chain_selector"`
+		DestChainSelector     string       `db:"dest_chain_selector"`
+		OnrampAddress         string       `db:"onramp_address"`
+		OfframpAddress        string       `db:"offramp_address"`
+		SignatureR            []byte       `db:"signature_r"`
+		SignatureS            []byte       `db:"signature_s"`
+		CCVNodeData           string       `db:"ccv_node_data"`
+		VerificationTimestamp time.Time    `db:"verification_timestamp"`
+		CreatedAt             sql.NullTime `db:"created_at"`
 	}
 
 	messageIDHex := common.Bytes2Hex(messageID)
@@ -263,19 +254,20 @@ func (d *DatabaseStorage) ListCommitVerificationByMessageID(ctx context.Context,
 
 	records := make([]*model.CommitVerificationRecord, 0, len(dbRecords))
 	for _, dbRec := range dbRecords {
-		var msgWithCCV pb.MessageWithCCVNodeData
-		err = proto.Unmarshal(dbRec.CCVNodeData, &msgWithCCV)
+		var msgWithCCV model.CommitVerificationRecord
+		err = json.Unmarshal([]byte(dbRec.CCVNodeData), &msgWithCCV)
 		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal ccv node data: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal ccv node data from JSON: %w", err)
 		}
 
-		record := model.CommitVerificationRecord{
-			MessageWithCCVNodeData: copyMessageWithCCVNodeData(&msgWithCCV),
-			IdentifierSigner:       reconstructIdentifierSigner(dbRec.ParticipantID, dbRec.SignerAddress, dbRec.CommitteeID, dbRec.SignatureR, dbRec.SignatureS),
-			CommitteeID:            dbRec.CommitteeID,
-		}
+		// Use the unmarshaled record as base and override specific fields from database
+		record := &msgWithCCV
+		record.IdentifierSigner = reconstructIdentifierSigner(dbRec.ParticipantID, dbRec.SignerAddress, dbRec.CommitteeID, dbRec.SignatureR, dbRec.SignatureS)
+		record.CommitteeID = dbRec.CommitteeID
+		// Use the database timestamp instead of the JSON timestamp
+		record.Timestamp = dbRec.VerificationTimestamp
 
-		records = append(records, &record)
+		records = append(records, record)
 	}
 
 	return records, nil
@@ -335,6 +327,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			car.committee_id,
 			car.created_at,
 			car.seq_num,
+			car.winning_receipt_blobs,
 			cvr.participant_id,
 			cvr.signer_address,
 			cvr.signature_r,
@@ -348,15 +341,16 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 	`
 
 	type joinedRecord struct {
-		MessageID     string         `db:"message_id"`
-		CommitteeID   string         `db:"committee_id"`
-		CreatedAt     time.Time      `db:"created_at"`
-		SeqNum        int64          `db:"seq_num"`
-		ParticipantID sql.NullString `db:"participant_id"`
-		SignerAddress sql.NullString `db:"signer_address"`
-		SignatureR    []byte         `db:"signature_r"`
-		SignatureS    []byte         `db:"signature_s"`
-		CCVNodeData   []byte         `db:"ccv_node_data"`
+		MessageID           string         `db:"message_id"`
+		CommitteeID         string         `db:"committee_id"`
+		CreatedAt           time.Time      `db:"created_at"`
+		SeqNum              int64          `db:"seq_num"`
+		WinningReceiptBlobs sql.NullString `db:"winning_receipt_blobs"`
+		ParticipantID       sql.NullString `db:"participant_id"`
+		SignerAddress       sql.NullString `db:"signer_address"`
+		SignatureR          []byte         `db:"signature_r"`
+		SignatureS          []byte         `db:"signature_s"`
+		CCVNodeData         []byte         `db:"ccv_node_data"`
 	}
 
 	rows, err := d.ds.QueryContext(ctx, stmt, committeeID, effectiveSequence)
@@ -378,6 +372,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			&record.CommitteeID,
 			&record.CreatedAt,
 			&record.SeqNum,
+			&record.WinningReceiptBlobs,
 			&record.ParticipantID,
 			&record.SignerAddress,
 			&record.SignatureR,
@@ -396,12 +391,23 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 				break
 			}
 
+			// Deserialize winning receipt blobs from JSON
+			var winningReceiptBlobs []*model.ReceiptBlob
+			if record.WinningReceiptBlobs.Valid && record.WinningReceiptBlobs.String != "" {
+				var err error
+				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(record.WinningReceiptBlobs.String))
+				if err != nil {
+					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
+				}
+			}
+
 			report = &model.CommitAggregatedReport{
-				MessageID:     common.Hex2Bytes(record.MessageID),
-				CommitteeID:   record.CommitteeID,
-				Verifications: []*model.CommitVerificationRecord{},
-				Sequence:      record.SeqNum,
-				WrittenAt:     record.CreatedAt.Unix(),
+				MessageID:           common.Hex2Bytes(record.MessageID),
+				CommitteeID:         record.CommitteeID,
+				Verifications:       []*model.CommitVerificationRecord{},
+				Sequence:            record.SeqNum,
+				WrittenAt:           record.CreatedAt,
+				WinningReceiptBlobs: winningReceiptBlobs,
 			}
 			reportsMap[reportKey] = report
 			reportOrder = append(reportOrder, reportKey)
@@ -409,17 +415,16 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		}
 
 		if record.ParticipantID.Valid && record.SignerAddress.Valid && len(record.CCVNodeData) > 0 {
-			var msgWithCCV pb.MessageWithCCVNodeData
-			err = proto.Unmarshal(record.CCVNodeData, &msgWithCCV)
+			var msgWithCCV model.CommitVerificationRecord
+			err = json.Unmarshal(record.CCVNodeData, &msgWithCCV)
 			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal ccv node data: %w", err)
+				return nil, fmt.Errorf("failed to unmarshal ccv node data from JSON: %w", err)
 			}
 
-			verification := &model.CommitVerificationRecord{
-				MessageWithCCVNodeData: copyMessageWithCCVNodeData(&msgWithCCV),
-				IdentifierSigner:       reconstructIdentifierSigner(record.ParticipantID.String, record.SignerAddress.String, record.CommitteeID, record.SignatureR, record.SignatureS),
-				CommitteeID:            record.CommitteeID,
-			}
+			// Use the unmarshaled record as base and override specific fields from database
+			verification := &msgWithCCV
+			verification.IdentifierSigner = reconstructIdentifierSigner(record.ParticipantID.String, record.SignerAddress.String, record.CommitteeID, record.SignatureR, record.SignatureS)
+			verification.CommitteeID = record.CommitteeID
 
 			report.Verifications = append(report.Verifications, verification)
 		}
@@ -469,34 +474,36 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 	messageIDHex := common.Bytes2Hex(messageID)
 
 	stmt := `
-		SELECT 
-			car.message_id,
-			car.committee_id,
-			car.created_at,
-			car.seq_num,
-			cvr.participant_id,
-			cvr.signer_address,
-			cvr.signature_r,
-			cvr.signature_s,
-			cvr.ccv_node_data
-		FROM commit_aggregated_reports car
-		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
-		LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
-		WHERE car.message_id = $1 AND car.committee_id = $2
-		ORDER BY car.seq_num DESC, vid.ord
-		LIMIT 100
-	`
+        SELECT 
+            car.message_id,
+            car.committee_id,
+            car.created_at,
+            car.seq_num,
+            car.winning_receipt_blobs,
+            cvr.participant_id,
+            cvr.signer_address,
+            cvr.signature_r,
+            cvr.signature_s,
+            cvr.ccv_node_data
+        FROM commit_aggregated_reports car
+        LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
+        LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
+        WHERE car.message_id = $1 AND car.committee_id = $2
+        ORDER BY car.seq_num DESC, vid.ord
+        LIMIT 100
+    `
 
 	type joinedRecord struct {
-		MessageID     string         `db:"message_id"`
-		CommitteeID   string         `db:"committee_id"`
-		CreatedAt     time.Time      `db:"created_at"`
-		SeqNum        int64          `db:"seq_num"`
-		ParticipantID sql.NullString `db:"participant_id"`
-		SignerAddress sql.NullString `db:"signer_address"`
-		SignatureR    []byte         `db:"signature_r"`
-		SignatureS    []byte         `db:"signature_s"`
-		CCVNodeData   []byte         `db:"ccv_node_data"`
+		MessageID           string         `db:"message_id"`
+		CommitteeID         string         `db:"committee_id"`
+		CreatedAt           time.Time      `db:"created_at"`
+		SeqNum              int64          `db:"seq_num"`
+		WinningReceiptBlobs sql.NullString `db:"winning_receipt_blobs"`
+		ParticipantID       sql.NullString `db:"participant_id"`
+		SignerAddress       sql.NullString `db:"signer_address"`
+		SignatureR          []byte         `db:"signature_r"`
+		SignatureS          []byte         `db:"signature_s"`
+		CCVNodeData         []byte         `db:"ccv_node_data"`
 	}
 
 	rows, err := d.ds.QueryContext(ctx, stmt, messageIDHex, committeeID)
@@ -516,6 +523,7 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 			&record.CommitteeID,
 			&record.CreatedAt,
 			&record.SeqNum,
+			&record.WinningReceiptBlobs,
 			&record.ParticipantID,
 			&record.SignerAddress,
 			&record.SignatureR,
@@ -527,27 +535,37 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 		}
 
 		if report == nil {
+			// Deserialize winning receipt blobs from JSON if available
+			var winningReceiptBlobs []*model.ReceiptBlob
+			if record.WinningReceiptBlobs.Valid && record.WinningReceiptBlobs.String != "" {
+				var err error
+				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(record.WinningReceiptBlobs.String))
+				if err != nil {
+					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
+				}
+			}
+
 			report = &model.CommitAggregatedReport{
-				MessageID:     common.Hex2Bytes(record.MessageID),
-				CommitteeID:   record.CommitteeID,
-				Verifications: []*model.CommitVerificationRecord{},
-				Sequence:      record.SeqNum,
-				WrittenAt:     record.CreatedAt.Unix(),
+				MessageID:           common.Hex2Bytes(record.MessageID),
+				CommitteeID:         record.CommitteeID,
+				Verifications:       []*model.CommitVerificationRecord{},
+				Sequence:            record.SeqNum,
+				WrittenAt:           record.CreatedAt,
+				WinningReceiptBlobs: winningReceiptBlobs,
 			}
 		}
 
 		if record.ParticipantID.Valid && record.SignerAddress.Valid && len(record.CCVNodeData) > 0 {
-			var msgWithCCV pb.MessageWithCCVNodeData
-			err = proto.Unmarshal(record.CCVNodeData, &msgWithCCV)
+			var msgWithCCV model.CommitVerificationRecord
+			err = json.Unmarshal(record.CCVNodeData, &msgWithCCV)
 			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal ccv node data: %w", err)
+				return nil, fmt.Errorf("failed to unmarshal ccv node data from JSON: %w", err)
 			}
 
-			verification := &model.CommitVerificationRecord{
-				MessageWithCCVNodeData: copyMessageWithCCVNodeData(&msgWithCCV),
-				IdentifierSigner:       reconstructIdentifierSigner(record.ParticipantID.String, record.SignerAddress.String, record.CommitteeID, record.SignatureR, record.SignatureS),
-				CommitteeID:            record.CommitteeID,
-			}
+			// Use the unmarshaled record as base and override specific fields from database
+			verification := &msgWithCCV
+			verification.IdentifierSigner = reconstructIdentifierSigner(record.ParticipantID.String, record.SignerAddress.String, record.CommitteeID, record.SignatureR, record.SignatureS)
+			verification.CommitteeID = record.CommitteeID
 
 			report.Verifications = append(report.Verifications, verification)
 		}
@@ -560,12 +578,138 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 	return report, nil
 }
 
+func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
+	if len(messageIDs) == 0 {
+		return make(map[string]*model.CommitAggregatedReport), nil
+	}
+
+	// Convert message IDs to hex strings for the query
+	messageIDHexValues := make([]string, len(messageIDs))
+	for i, messageID := range messageIDs {
+		messageIDHexValues[i] = common.Bytes2Hex(messageID)
+	}
+
+	// Build parameterized query with placeholders for IN clause
+	placeholders := make([]string, len(messageIDHexValues))
+	args := make([]any, len(messageIDHexValues)+1)
+	for i, messageIDHex := range messageIDHexValues {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = messageIDHex
+	}
+	args[len(messageIDHexValues)] = committeeID
+
+	stmt := fmt.Sprintf(`
+		SELECT 
+			car.message_id,
+			car.committee_id,
+			car.created_at,
+			car.seq_num,
+			car.winning_receipt_blobs,
+			cvr.participant_id,
+			cvr.signer_address,
+			cvr.signature_r,
+			cvr.signature_s,
+			cvr.ccv_node_data
+		FROM commit_aggregated_reports car
+		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
+		LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
+		WHERE car.message_id IN (%s) AND car.committee_id = $%d
+		ORDER BY car.message_id, car.seq_num DESC, vid.ord
+	`, strings.Join(placeholders, ","), len(messageIDHexValues)+1)
+
+	type joinedRecord struct {
+		MessageID           string         `db:"message_id"`
+		CommitteeID         string         `db:"committee_id"`
+		CreatedAt           time.Time      `db:"created_at"`
+		SeqNum              int64          `db:"seq_num"`
+		WinningReceiptBlobs sql.NullString `db:"winning_receipt_blobs"`
+		ParticipantID       sql.NullString `db:"participant_id"`
+		SignerAddress       sql.NullString `db:"signer_address"`
+		SignatureR          []byte         `db:"signature_r"`
+		SignatureS          []byte         `db:"signature_s"`
+		CCVNodeData         []byte         `db:"ccv_node_data"`
+	}
+
+	rows, err := d.ds.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query batch aggregated reports: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	reports := make(map[string]*model.CommitAggregatedReport)
+
+	for rows.Next() {
+		var record joinedRecord
+		err := rows.Scan(
+			&record.MessageID,
+			&record.CommitteeID,
+			&record.CreatedAt,
+			&record.SeqNum,
+			&record.WinningReceiptBlobs,
+			&record.ParticipantID,
+			&record.SignerAddress,
+			&record.SignatureR,
+			&record.SignatureS,
+			&record.CCVNodeData,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Get or create report for this message ID
+		report, exists := reports[record.MessageID]
+		if !exists {
+			messageIDBytes := common.Hex2Bytes(record.MessageID)
+			// Deserialize winning receipt blobs if present
+			var winningReceiptBlobs []*model.ReceiptBlob
+			if record.WinningReceiptBlobs.Valid && record.WinningReceiptBlobs.String != "" {
+				var err error
+				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(record.WinningReceiptBlobs.String))
+				if err != nil {
+					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
+				}
+			}
+			report = &model.CommitAggregatedReport{
+				MessageID:           messageIDBytes,
+				CommitteeID:         record.CommitteeID,
+				Verifications:       []*model.CommitVerificationRecord{},
+				Sequence:            record.SeqNum,
+				WrittenAt:           record.CreatedAt,
+				WinningReceiptBlobs: winningReceiptBlobs,
+			}
+			reports[record.MessageID] = report
+		}
+
+		// Add verification record if it exists
+		if record.ParticipantID.Valid && record.SignerAddress.Valid && len(record.CCVNodeData) > 0 {
+			var msgWithCCV model.CommitVerificationRecord
+			err = json.Unmarshal(record.CCVNodeData, &msgWithCCV)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal ccv node data from JSON: %w", err)
+			}
+
+			// Use the unmarshaled record as base and override specific fields from database
+			verification := &msgWithCCV
+			verification.IdentifierSigner = reconstructIdentifierSigner(record.ParticipantID.String, record.SignerAddress.String, record.CommitteeID, record.SignatureR, record.SignatureS)
+			verification.CommitteeID = record.CommitteeID
+
+			report.Verifications = append(report.Verifications, verification)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return reports, nil
+}
+
 func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.CommitAggregatedReport) error {
 	if report == nil {
 		return fmt.Errorf("aggregated report cannot be nil")
 	}
-
-	report.Sequence = time.Now().Unix()
 
 	verificationRecordIDs := make([]int64, 0, len(report.Verifications))
 	messageIDHex := common.Bytes2Hex(report.MessageID)
@@ -594,10 +738,19 @@ func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return verificationRecordIDs[i] < verificationRecordIDs[j]
 	})
 
-	reportData := []byte(fmt.Sprintf("verification_count:%d", len(report.Verifications)))
+	// Serialize winning receipt blobs using JSON for better debugging visibility
+	var winningReceiptBlobsData any
+	if len(report.WinningReceiptBlobs) > 0 {
+		jsonBytes, err := model.SerializeReceiptBlobsJSON(report.WinningReceiptBlobs)
+		if err != nil {
+			return fmt.Errorf("failed to serialize winning receipt blobs to JSON: %w", err)
+		}
+		// Convert to string for JSONB column
+		winningReceiptBlobsData = string(jsonBytes)
+	}
 
 	stmt := `INSERT INTO commit_aggregated_reports 
-		(message_id, committee_id, verification_record_ids, report_data) 
+		(message_id, committee_id, verification_record_ids, winning_receipt_blobs) 
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (message_id, committee_id, verification_record_ids) DO NOTHING`
 
@@ -605,7 +758,7 @@ func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.Commit
 		messageIDHex,
 		report.CommitteeID,
 		pq.Array(verificationRecordIDs),
-		reportData,
+		winningReceiptBlobsData,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to submit aggregated report: %w", err)

@@ -12,8 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
@@ -30,11 +31,11 @@ type EVMContractTransmitter struct {
 	Client        *ethclient.Client
 	Pk            *ecdsa.PrivateKey
 	OffRamp       offramp.OffRamp
-	chainSelector uint64
+	chainSelector protocol.ChainSelector
 	mu            sync.Mutex
 }
 
-func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector uint64, client txmgr.TxManager) *EVMContractTransmitter {
+func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager) *EVMContractTransmitter {
 	return &EVMContractTransmitter{
 		lggr:          lggr,
 		chainSelector: chainSelector,
@@ -43,7 +44,7 @@ func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector uint64, 
 }
 
 // todo: this is a stub before we use real txm
-func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, chainSelector uint64, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
+func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, chainSelector protocol.ChainSelector, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
 	// create a client for the off ramp contract
 	client, err := ethclient.Dial(rpc)
 	if err != nil {
@@ -55,7 +56,7 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 		return nil, err
 	}
 
-	id, err := chainselectors.GetChainIDFromSelector(chainSelector)
+	id, err := chainselectors.GetChainIDFromSelector(uint64(chainSelector))
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +116,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 
 	contractCcvs := make([]common.Address, 0)
 	for _, ccv := range report.CCVS {
-		contractCcvs = append(contractCcvs, common.HexToAddress(string(ccv)))
+		contractCcvs = append(contractCcvs, common.HexToAddress(ccv.String()))
 	}
 	opts, err := ct.GetTransactOpts()
 	if err != nil {
@@ -130,7 +131,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 
 	messageID, _ := report.Message.MessageID()
 
-	ct.lggr.Infow("submitted tx to chain", "tx hash", tx.Hash().Hex(), "messageID", messageID)
+	ct.lggr.Infow("submitted tx to chain", "txHash", tx.Hash().Hex(), "messageID", messageID)
 
 	return nil
 }

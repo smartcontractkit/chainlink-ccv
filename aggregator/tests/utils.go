@@ -7,15 +7,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/ddb"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	agg "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
@@ -53,40 +55,9 @@ func WithStorageType(storageType string) ConfigOption {
 	}
 }
 
-func WithStubMode(stub bool) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.StubMode = stub
-		return cfg, clientCfg
-	}
-}
-
 func WithPaginationConfig(pageSize int) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.Storage.PageSize = pageSize
-		return cfg, clientCfg
-	}
-}
-
-func WithShardCount(shardCount int) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		if cfg.Storage.DynamoDB == nil {
-			cfg.Storage.DynamoDB = &model.DynamoDBConfig{}
-		}
-		cfg.Storage.DynamoDB.ShardCount = shardCount
-		return cfg, clientCfg
-	}
-}
-
-func WithAPIKeyAuth(apiKey, secret string) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.APIKeys.Clients[apiKey] = &model.APIClient{
-			ClientID:    apiKey,
-			Description: "Custom test client",
-			Enabled:     true,
-			Secrets: map[string]string{
-				"current": secret,
-			},
-		}
 		return cfg, clientCfg
 	}
 }
@@ -108,7 +79,7 @@ func WithoutClientAuth() ConfigOption {
 }
 
 // CreateServerAndClient creates a test server and client for functional testing.
-// Uses DynamoDB storage by default, but can be overridden with options.
+// Uses PostgreSQL storage by default, but can be overridden with options.
 func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.VerifierResultAPIClient, func(), error) {
 	// Create server
 	listener, serverCleanup, err := CreateServerOnly(t, options...)
@@ -123,9 +94,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 	}
 
 	dummyConfig := &model.AggregatorConfig{
-		Storage: &model.StorageConfig{
-			DynamoDB: &model.DynamoDBConfig{},
-		},
+		Storage: &model.StorageConfig{},
 		APIKeys: model.APIKeyConfig{
 			Clients: make(map[string]*model.APIClient),
 		},
@@ -151,26 +120,19 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 // CreateServerOnly creates and starts a test gRPC server using bufconn for in-memory communication.
 func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener, func(), error) {
 	buf := bufconn.Listen(bufSize)
-	// Setup logging - always debug level for now
-	lggr, err := logger.NewWith(func(logConfig *zap.Config) {
-		logConfig.Development = true
-		logConfig.Encoding = "console"
-		logConfig.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	})
-	if err != nil {
-		panic(err)
-	}
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
+	require.NoError(t, err)
 
 	// Use SugaredLogger for better API
 	sugaredLggr := logger.Sugared(lggr)
 
-	// Create base config with DynamoDB storage as default
+	// Create base config with PostgreSQL storage as default
 	config := &model.AggregatorConfig{
 		Server: model.ServerConfig{
 			Address: ":50051",
 		},
 		Storage: &model.StorageConfig{
-			StorageType: model.StorageTypeDynamoDB, // Default to DynamoDB
+			StorageType: model.StorageTypePostgreSQL, // Default to PostgreSQL
 		},
 		Monitoring: model.MonitoringConfig{
 			Enabled: false,
@@ -185,13 +147,14 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			},
 			DefaultLimits: map[string]model.RateLimitConfig{
 				// Generous defaults for tests - 10000 requests per minute
-				pb.VerifierResultAPI_GetMessagesSince_FullMethodName:            {LimitPerMinute: 10000},
-				pb.VerifierResultAPI_GetVerifierResultForMessage_FullMethodName: {LimitPerMinute: 10000},
-				pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:             {LimitPerMinute: 10000},
-				pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName:        {LimitPerMinute: 10000},
-				pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:              {LimitPerMinute: 10000},
-				pb.Aggregator_WriteBlockCheckpoint_FullMethodName:               {LimitPerMinute: 10000},
-				pb.Aggregator_ReadBlockCheckpoint_FullMethodName:                {LimitPerMinute: 10000},
+				pb.VerifierResultAPI_GetMessagesSince_FullMethodName:                 {LimitPerMinute: 10000},
+				pb.VerifierResultAPI_GetVerifierResultForMessage_FullMethodName:      {LimitPerMinute: 10000},
+				pb.VerifierResultAPI_BatchGetVerifierResultForMessage_FullMethodName: {LimitPerMinute: 10000},
+				pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:                  {LimitPerMinute: 10000},
+				pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName:             {LimitPerMinute: 10000},
+				pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:                   {LimitPerMinute: 10000},
+				pb.Aggregator_WriteChainStatus_FullMethodName:                        {LimitPerMinute: 10000},
+				pb.Aggregator_ReadChainStatus_FullMethodName:                         {LimitPerMinute: 10000},
 			},
 		},
 	}
@@ -219,13 +182,6 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	var cleanupStorage func()
 
 	switch config.Storage.StorageType {
-	case model.StorageTypeDynamoDB:
-		storageConfig, cleanup, err := setupDynamoDBStorage(t, config.Storage)
-		if err != nil {
-			return nil, nil, err
-		}
-		config.Storage = storageConfig
-		cleanupStorage = cleanup
 	case model.StorageTypeMemory:
 		// No setup needed for memory storage
 		cleanupStorage = func() {}
@@ -262,9 +218,7 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 	}
 
 	dummyConfig := &model.AggregatorConfig{
-		Storage: &model.StorageConfig{
-			DynamoDB: &model.DynamoDBConfig{},
-		},
+		Storage: &model.StorageConfig{},
 		APIKeys: model.APIKeyConfig{
 			Clients: make(map[string]*model.APIClient),
 		},
@@ -314,22 +268,59 @@ func createSimpleHMACClientInterceptor(config *hmacutil.ClientConfig) grpc.Unary
 	return hmacutil.NewClientInterceptor(config)
 }
 
-func setupDynamoDBStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
-	// Start DynamoDB Local container
-	_, connectionString, cleanup := ddb.SetupTestDynamoDB(t)
+// createAdminHMACClientInterceptor creates an HMAC client interceptor with admin header support.
+func createAdminHMACClientInterceptor(config *hmacutil.ClientConfig, onBehalfOfClientID string) grpc.UnaryClientInterceptor {
+	hmacInterceptor := hmacutil.NewClientInterceptor(config)
 
-	// Preserve existing storage config and only update DynamoDB-specific fields
-	if existingConfig.DynamoDB == nil {
-		existingConfig.DynamoDB = &model.DynamoDBConfig{}
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		// Add admin header if specified
+		if onBehalfOfClientID != "" {
+			md := metadata.New(map[string]string{
+				"x-admin-client-id": onBehalfOfClientID,
+			})
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+
+		// Call the HMAC interceptor with the modified context
+		return hmacInterceptor(ctx, method, req, reply, cc, invoker, opts...)
+	}
+}
+
+// CreateAdminAuthenticatedClient creates a gRPC client with admin authentication and optional on-behalf-of functionality.
+func CreateAdminAuthenticatedClient(t *testing.T, listener *bufconn.Listener, adminClientID, adminSecret, onBehalfOfClientID string) (pb.AggregatorClient, pb.VerifierResultAPIClient, func()) {
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	hmacConfig := &hmacutil.ClientConfig{
+		APIKey: adminClientID,
+		Secret: adminSecret,
 	}
 
-	existingConfig.DynamoDB.CommitVerificationRecordTableName = ddb.TestCommitVerificationRecordTableName
-	existingConfig.DynamoDB.FinalizedFeedTableName = ddb.TestFinalizedFeedTableName
-	existingConfig.DynamoDB.CheckpointTableName = ddb.TestCheckpointTableName
-	existingConfig.DynamoDB.Region = "us-east-1"
-	existingConfig.DynamoDB.Endpoint = "http://" + connectionString
+	clientOptions := []grpc.DialOption{
+		grpc.WithUnaryInterceptor(createAdminHMACClientInterceptor(hmacConfig, onBehalfOfClientID)),
+	}
 
-	return existingConfig, cleanup, nil
+	aggregatorClient, aggregatorConn, err := createAggregatorClient(ctx, listener, clientOptions...)
+	if err != nil {
+		t.Fatalf("failed to create admin aggregator client: %v", err)
+	}
+
+	ccvDataClient, ccvDataConn, err := createCCVDataClient(ctx, listener, clientOptions...)
+	if err != nil {
+		t.Fatalf("failed to create admin CCV data client: %v", err)
+	}
+
+	cleanup := func() {
+		if err := aggregatorConn.Close(); err != nil {
+			t.Errorf("failed to close admin aggregator connection: %v", err)
+		}
+		if err := ccvDataConn.Close(); err != nil {
+			t.Errorf("failed to close admin ccv data connection: %v", err)
+		}
+	}
+
+	return aggregatorClient, ccvDataClient, cleanup
 }
 
 func setupPostgresStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {

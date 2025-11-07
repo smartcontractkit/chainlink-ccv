@@ -11,7 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -42,7 +42,7 @@ type Coordinator struct {
 	verifier              Verifier
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
-	monitoring            common.VerifierMonitoring
+	monitoring            Monitoring
 	sourceStates          map[protocol.ChainSelector]*sourceState
 	cancel                context.CancelFunc
 	config                CoordinatorConfig
@@ -56,13 +56,14 @@ type Coordinator struct {
 	running           bool
 
 	// Storage batching
-	storageBatcher   *batcher.Batcher[protocol.CCVData]
-	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVData]
+	storageBatcher   *batcher.Batcher[CCVDataWithIdempotencyKey]
+	batchedCCVDataCh chan batcher.BatchResult[CCVDataWithIdempotencyKey]
 
 	// Configuration
-	checkpointManager protocol.CheckpointManager
-	sourceReaders     map[protocol.ChainSelector]SourceReader
-	reorgDetectors    map[protocol.ChainSelector]protocol.ReorgDetector
+	chainStatusManager protocol.ChainStatusManager
+	sourceReaders      map[protocol.ChainSelector]SourceReader
+	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
+	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
 }
 
 // Option is the functional option type for Coordinator.
@@ -75,10 +76,10 @@ func WithVerifier(verifier Verifier) Option {
 	}
 }
 
-// WithCheckpointManager sets the checkpoint manager.
-func WithCheckpointManager(manager protocol.CheckpointManager) Option {
+// WithChainStatusManager sets the chain status manager.
+func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
 	return func(vc *Coordinator) {
-		vc.checkpointManager = manager
+		vc.chainStatusManager = manager
 	}
 }
 
@@ -98,6 +99,24 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Op
 // AddSourceReader adds a single source reader to the existing map.
 func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
 	return WithSourceReaders(map[protocol.ChainSelector]SourceReader{chainSelector: sourceReader})
+}
+
+// WithHeadTrackers sets multiple head trackers.
+func WithHeadTrackers(headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) Option {
+	return func(vc *Coordinator) {
+		if vc.headTrackers == nil {
+			vc.headTrackers = make(map[protocol.ChainSelector]chainaccess.HeadTracker)
+		}
+
+		for chainSelector, tracker := range headTrackers {
+			vc.headTrackers[chainSelector] = tracker
+		}
+	}
+}
+
+// AddHeadTracker adds a single head tracker to the existing map.
+func AddHeadTracker(chainSelector protocol.ChainSelector, headTracker chainaccess.HeadTracker) Option {
+	return WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{chainSelector: headTracker})
 }
 
 // WithStorage sets the storage writer.
@@ -129,7 +148,7 @@ func WithFinalityCheckInterval(interval time.Duration) Option {
 }
 
 // WithMonitoring sets the monitoring implementation.
-func WithMonitoring(monitoring common.VerifierMonitoring) Option {
+func WithMonitoring(monitoring Monitoring) Option {
 	return func(vc *Coordinator) {
 		vc.monitoring = monitoring
 	}
@@ -152,8 +171,8 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 	return WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{chainSelector: detector})
 }
 
-// NewVerificationCoordinator creates a new verification coordinator.
-func NewVerificationCoordinator(opts ...Option) (*Coordinator, error) {
+// NewCoordinator creates a new verification coordinator.
+func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		messageTimestamps:     make(map[protocol.Bytes32]time.Time),
@@ -210,14 +229,26 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			sourcePollInterval = sourceCfg.PollInterval
 		}
 
+		// Get the corresponding HeadTracker for this chain
+		headTracker, ok := vc.headTrackers[chainSelector]
+		if !ok {
+			vc.lggr.Errorw("skipping source reader: no head tracker found for chain selector", "chainSelector", chainSelector)
+			continue
+		}
+
 		service := NewSourceReaderService(
 			sourceReader,
+			headTracker,
 			chainSelector,
-			vc.checkpointManager,
+			vc.chainStatusManager,
 			vc.lggr,
 			sourcePollInterval,
 		)
 
+		err := service.Start(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to start source reader for chain %d: %w", chainSelector, err)
+		}
 		// Create source state
 		state := &sourceState{
 			reader:             service,
@@ -258,17 +289,10 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		vc.sourceStates[chainSelector] = state
 	}
 
-	// Start all source reader services
-	for chainSelector, state := range vc.sourceStates {
-		if err := state.reader.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start source reader for chain %d: %w", chainSelector, err)
-		}
-	}
-
 	vc.running = true
 
 	// Initialize storage batcher (will automatically flush when ctx is canceled)
-	vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
+	vc.batchedCCVDataCh = make(chan batcher.BatchResult[CCVDataWithIdempotencyKey], 10)
 	vc.storageBatcher = batcher.NewBatcher(
 		ctx,
 		vc.config.StorageBatchSize,
@@ -305,21 +329,24 @@ func (vc *Coordinator) Close() error {
 	}
 	vc.mu.Unlock()
 
-	// 1. Signal all goroutines to stop processing new work.
+	// Signal all goroutines to stop processing new work.
 	// This will also trigger the batcher to flush remaining items.
 	vc.cancel()
 
-	// 2. Wait for any in-flight verification tasks to complete.
+	// Wait for any in-flight verification tasks to complete.
 	vc.verifyingWg.Wait()
 
-	// 3. Wait for storage batcher goroutine to finish flushing
+	// Wait for storage batcher goroutine to finish flushing
 	if vc.storageBatcher != nil {
 		if err := vc.storageBatcher.Close(); err != nil {
 			vc.lggr.Errorw("Error closing storage batcher", "error", err)
 		}
 	}
 
-	// 4. Close reorg detectors
+	// Wait for background goroutines (run, finalityCheckingLoop, and processReorgUpdates) to finish.
+	vc.backgroundWg.Wait()
+
+	// Close reorg detectors
 	for chainSelector, state := range vc.sourceStates {
 		if state.reorgDetector != nil {
 			if err := state.reorgDetector.Close(); err != nil {
@@ -328,15 +355,12 @@ func (vc *Coordinator) Close() error {
 		}
 	}
 
-	// 5. Close source readers.
+	// Close source readers.
 	for chainSelector, state := range vc.sourceStates {
 		if err := state.reader.Stop(); err != nil {
 			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
 		}
 	}
-
-	// 6. Wait for background goroutines (run, finalityCheckingLoop, and processReorgUpdates) to finish.
-	vc.backgroundWg.Wait()
 
 	vc.mu.Lock()
 	vc.running = false
@@ -387,14 +411,24 @@ func (vc *Coordinator) run(ctx context.Context) {
 
 			// Write batch of CCVData to offchain storage
 			storageStart := time.Now()
-			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err != nil {
+
+			// Extract CCVData and idempotency keys from the batch
+			ccvDataList := make([]protocol.CCVData, len(ccvDataBatch.Items))
+			idempotencyKeys := make([]string, len(ccvDataBatch.Items))
+			for i, item := range ccvDataBatch.Items {
+				ccvDataList[i] = item.CCVData
+				idempotencyKeys[i] = item.IdempotencyKey
+			}
+
+			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataList, idempotencyKeys); err != nil {
 				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 				vc.lggr.Errorw("Error storing CCV data batch",
 					"error", err,
 					"batchSize", len(ccvDataBatch.Items),
 				)
 				// Log individual messageIDs in failed batch
-				for _, ccvData := range ccvDataBatch.Items {
+				for _, item := range ccvDataBatch.Items {
+					ccvData := item.CCVData
 					vc.lggr.Errorw("Failed to store CCV data in batch",
 						"messageID", ccvData.MessageID,
 						"nonce", ccvData.Nonce,
@@ -411,7 +445,8 @@ func (vc *Coordinator) run(ctx context.Context) {
 
 				// Calculate and record E2E latency for each message in the batch
 				vc.timestampsMu.Lock()
-				for _, ccvData := range ccvDataBatch.Items {
+				for _, item := range ccvDataBatch.Items {
+					ccvData := item.CCVData
 					if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
 						e2eDuration := time.Since(createdAt)
 						vc.monitoring.Metrics().
@@ -523,7 +558,7 @@ func (vc *Coordinator) validate() error {
 	appendIfNil(vc.storage, "storage")
 	appendIfNil(vc.lggr, "logger")
 	appendIfNil(vc.monitoring, "monitoring")
-	// checkpointManager is optional, not required
+	// chain statusManager is optional, not required
 
 	if len(vc.sourceReaders) == 0 {
 		errs = append(errs, fmt.Errorf("at least one source reader is required"))
@@ -575,6 +610,16 @@ func (vc *Coordinator) Name() string {
 func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceState) {
 	state.pendingMu.Lock()
 	defer state.pendingMu.Unlock()
+
+	// Double-checked locking: Check if reorg started while we were waiting for lock
+	// The caller already checked reorgInProgress before calling, but reorg may have
+	// started between that check and acquiring this lock
+	if state.reorgInProgress.Load() {
+		vc.lggr.Debugw("Reorg started while acquiring lock, dropping task",
+			"chain", state.chainSelector,
+			"blockNumber", task.BlockNumber)
+		return
+	}
 
 	// Set QueuedAt timestamp for finality wait duration tracking
 	task.QueuedAt = time.Now()
@@ -648,7 +693,7 @@ func (vc *Coordinator) cleanupOldTimestamps() {
 
 // processFinalityQueueForChain processes the pending queue for a single chain.
 func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *sourceState) {
-	// Skip if reorg is in progress for this chain
+	// Fast path: Skip if reorg is in progress (avoids lock contention)
 	if state.reorgInProgress.Load() {
 		vc.lggr.Debugw("Skipping finality check during reorg",
 			"chain", state.chainSelector)
@@ -657,6 +702,14 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 	state.pendingMu.Lock()
 	defer state.pendingMu.Unlock()
+
+	// Double-checked locking: Recheck after acquiring lock to handle TOCTOU race
+	// where reorg completed between first check and lock acquisition
+	if state.reorgInProgress.Load() {
+		vc.lggr.Debugw("Reorg started while acquiring lock, aborting finality check",
+			"chain", state.chainSelector)
+		return
+	}
 
 	if len(state.pendingTasks) == 0 {
 		return
@@ -672,18 +725,19 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	var readyTasks []VerificationTask
 	var remainingTasks []VerificationTask
 
-	// Get latest and finalized block heights for this chain
-	latestBlock, err := state.reader.GetSourceReader().LatestBlockHeight(ctx)
+	// Get latest and finalized block headers for this chain
+	latest, finalized, err := state.reader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
-		vc.lggr.Errorw("Failed to get latest block", "error", err, "chain", chainSelector)
+		vc.lggr.Errorw("Failed to get latest and finalized blocks", "error", err, "chain", chainSelector)
+		return
+	}
+	if latest == nil || finalized == nil {
+		vc.lggr.Errorw("Received nil block headers", "chain", chainSelector)
 		return
 	}
 
-	latestFinalizedBlock, err := state.reader.GetSourceReader().LatestFinalizedBlockHeight(ctx)
-	if err != nil {
-		vc.lggr.Errorw("Failed to get latest finalized block", "error", err, "chain", chainSelector)
-		return
-	}
+	latestBlock := new(big.Int).SetUint64(latest.Number)
+	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
 
 	// Record chain state metrics
 	vc.monitoring.Metrics().
@@ -765,7 +819,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 		// Check chain status before processing
 		state.chainStatusMu.RLock()
-		_, isFinalityViolated := state.chainStatus.(protocol.ChainStatusFinalityViolated)
+		isFinalityViolated := state.chainStatus.Type == protocol.ReorgTypeFinalityViolation
 		state.chainStatusMu.RUnlock()
 
 		if isFinalityViolated {
@@ -844,17 +898,17 @@ func (vc *Coordinator) processReorgUpdates(ctx context.Context, state *sourceSta
 			state.chainStatusMu.Unlock()
 
 			// Handle based on type (only receive problem events)
-			switch status := newStatus.(type) {
-			case protocol.ChainStatusReorg:
-				vc.handleReorg(ctx, state, status)
+			switch newStatus.Type {
+			case protocol.ReorgTypeNormal:
+				vc.handleReorg(ctx, state, newStatus)
 
-			case protocol.ChainStatusFinalityViolated:
-				vc.handleFinalityViolation(ctx, state, status)
+			case protocol.ReorgTypeFinalityViolation:
+				vc.handleFinalityViolation(ctx, state, newStatus)
 
 			default:
 				vc.lggr.Warnw("Received unknown chain status type",
 					"chain", state.chainSelector,
-					"statusType", fmt.Sprintf("%T", status))
+					"statusType", newStatus.Type)
 			}
 		}
 	}
@@ -865,12 +919,10 @@ func (vc *Coordinator) processReorgUpdates(ctx context.Context, state *sourceSta
 func (vc *Coordinator) handleReorg(
 	ctx context.Context,
 	state *sourceState,
-	reorgStatus protocol.ChainStatusReorg,
+	reorgStatus protocol.ChainStatus,
 ) {
 	chainSelector := state.chainSelector
-	commonAncestor := reorgStatus.CommonAncestorBlock
-	newTip := reorgStatus.NewTail.Tip().Number
-	depth := newTip - commonAncestor
+	commonAncestor := reorgStatus.ResetToBlock
 
 	// Set reorgInProgress flag to stop new tasks from being added
 	state.reorgInProgress.Store(true)
@@ -878,7 +930,7 @@ func (vc *Coordinator) handleReorg(
 
 	vc.lggr.Infow("Handling reorg",
 		"chain", chainSelector,
-		"depth", depth,
+		"type", reorgStatus.Type.String(),
 		"commonAncestor", commonAncestor)
 
 	// 1. Flush pending tasks from reorged blocks (per-chain queue)
@@ -896,9 +948,9 @@ func (vc *Coordinator) handleReorg(
 	state.pendingMu.Unlock()
 
 	// 2. Reset SourceReaderService synchronously
-	// Note: For regular reorgs, the common ancestor is always >= last checkpoint,
-	// so ResetToBlock will update in-memory position without writing checkpoint.
-	// Periodic checkpointing will naturally advance from this point.
+	// Note: For regular reorgs, the common ancestor is always >= last chain status,
+	// so ResetToBlock will update in-memory position without writing chain status.
+	// Periodic chain status chain statuses will naturally advance from this point.
 	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -916,7 +968,6 @@ func (vc *Coordinator) handleReorg(
 
 	vc.lggr.Infow("Reorg handled successfully",
 		"chain", chainSelector,
-		"depth", depth,
 		"commonAncestor", commonAncestor,
 		"flushedTasks", flushedCount)
 
@@ -927,18 +978,18 @@ func (vc *Coordinator) handleReorg(
 }
 
 // handleFinalityViolation handles a finality violation event.
+// Finality violations indicate the chain's security model is broken.
+// We immediately stop the reader and require manual intervention - no safe reset point exists.
 func (vc *Coordinator) handleFinalityViolation(
 	ctx context.Context,
 	state *sourceState,
-	violationStatus protocol.ChainStatusFinalityViolated,
+	violationStatus protocol.ChainStatus,
 ) {
 	chainSelector := state.chainSelector
 
-	vc.lggr.Errorw("FINALITY VIOLATION DETECTED",
+	vc.lggr.Errorw("FINALITY VIOLATION DETECTED - stopping chain reader immediately",
 		"chain", chainSelector,
-		"violatedBlock", violationStatus.ViolatedBlock.Number,
-		"violatedHash", violationStatus.ViolatedBlock.Hash,
-		"safeRestartBlock", violationStatus.SafeRestartBlock)
+		"type", violationStatus.Type.String())
 
 	// 1. Flush ALL pending tasks for this chain (per-chain queue)
 	state.pendingMu.Lock()
@@ -950,34 +1001,18 @@ func (vc *Coordinator) handleFinalityViolation(
 		"chain", chainSelector,
 		"flushedCount", flushedCount)
 
-	// 2. Reset SourceReaderService to safe restart block
-	// Note: For finality violations, SafeRestartBlock < last checkpoint,
-	// so ResetToBlock will automatically persist the checkpoint to ensure safe restart.
-	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if err := state.reader.ResetToBlock(resetCtx, violationStatus.SafeRestartBlock); err != nil {
-		vc.lggr.Errorw("Failed to reset source reader after finality violation",
-			"error", err,
-			"chain", chainSelector,
-			"resetBlock", violationStatus.SafeRestartBlock)
-		// Critical error - continue with stop anyway
-	} else {
-		vc.lggr.Infow("Source reader reset successfully with checkpoint persisted",
-			"chain", chainSelector,
-			"resetBlock", violationStatus.SafeRestartBlock)
-	}
-
-	// 3. Stop SourceReaderService completely for finality violations
+	// Stop SourceReaderService immediately
+	// No reset - finality violation means there's no safe block to reset to
 	if err := state.reader.Stop(); err != nil {
-		// TODO: Logging only might not be enough in this case.
 		vc.lggr.Errorw("Failed to stop source reader after finality violation",
 			"error", err,
+			"chain", chainSelector)
+	} else {
+		vc.lggr.Errorw("Source reader stopped due to finality violation - manual intervention required",
 			"chain", chainSelector)
 	}
 	// TODO: Use Pause() instead of Stop() when implemented (separate PR)
 
-	// 4. Record metrics
 	// TODO: These methods need to be added to the monitoring interface
 	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).IncrementFinalityViolation(ctx)
 	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).AddTasksFlushedDueToReorg(ctx, int64(flushedCount))

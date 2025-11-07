@@ -6,71 +6,48 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 // BackoffDuration is the duration to backoff when there is an error reading from the ccv data reader.
 const BackoffDuration = 5 * time.Second
 
 type Coordinator struct {
-	executor            Executor
-	messageSubscriber   MessageSubscriber
-	leaderElector       LeaderElector
-	lggr                logger.Logger
-	monitoring          common.ExecutorMonitoring
-	ccvDataCh           chan MessageWithCCVData
-	executableMessageCh chan MessageWithCCVData
-	doneCh              chan struct{}
-	cancel              context.CancelFunc
-	delayedMessageHeap  *message_heap.MessageHeap
-	mu                  sync.RWMutex
-	running             bool
+	services.StateMachine
+	wg                 sync.WaitGroup
+	executor           Executor
+	messageSubscriber  MessageSubscriber
+	leaderElector      LeaderElector
+	lggr               logger.Logger
+	monitoring         Monitoring
+	ccvDataCh          chan MessageWithCCVData
+	cancel             context.CancelFunc
+	delayedMessageHeap *message_heap.MessageHeap
+	running            atomic.Bool
 }
 
-type Option func(*Coordinator)
-
-func WithLogger(lggr logger.Logger) Option {
-	return func(ec *Coordinator) {
-		ec.lggr = lggr
-	}
-}
-
-func WithExecutor(executor Executor) Option {
-	return func(ec *Coordinator) {
-		ec.executor = executor
-	}
-}
-
-func WithMessageSubscriber(sub MessageSubscriber) Option {
-	return func(ec *Coordinator) {
-		ec.messageSubscriber = sub
-	}
-}
-
-func WithMonitoring(monitoring common.ExecutorMonitoring) Option {
-	return func(ec *Coordinator) {
-		ec.monitoring = monitoring
-	}
-}
-
-func WithLeaderElector(leaderElector LeaderElector) Option {
-	return func(ec *Coordinator) {
-		ec.leaderElector = leaderElector
-	}
-}
-
-func NewCoordinator(options ...Option) (*Coordinator, error) {
+// NewCoordinator creates a new executor coordinator.
+func NewCoordinator(
+	lggr logger.Logger,
+	executor Executor,
+	messageSubscriber MessageSubscriber,
+	leaderElector LeaderElector,
+	monitoring Monitoring,
+) (*Coordinator, error) {
 	ec := &Coordinator{
-		ccvDataCh: make(chan MessageWithCCVData, 100),
-		doneCh:    make(chan struct{}),
-	}
-
-	for _, opt := range options {
-		opt(ec)
+		lggr:              lggr,
+		executor:          executor,
+		messageSubscriber: messageSubscriber,
+		leaderElector:     leaderElector,
+		monitoring:        monitoring,
+		ccvDataCh:         make(chan MessageWithCCVData, 100),
+		// cancel and delayedMessageHeap are initialized in Start()
+		// running, wg, and services.StateMachine default initialization is fine.
 	}
 
 	if err := ec.validate(); err != nil {
@@ -81,61 +58,46 @@ func NewCoordinator(options ...Option) (*Coordinator, error) {
 }
 
 func (ec *Coordinator) Start(ctx context.Context) error {
-	ec.mu.Lock()
-	defer ec.mu.Unlock()
-	if ec.running {
-		return fmt.Errorf("coordinator already running")
-	}
+	return ec.StartOnce("executor.Coordinator", func() error {
+		ctx, cancel := context.WithCancel(context.Background())
+		ec.cancel = cancel
+		ec.delayedMessageHeap = &message_heap.MessageHeap{}
+		heap.Init(ec.delayedMessageHeap)
 
-	ec.running = true
-	ctx, cancel := context.WithCancel(ctx)
-	ec.cancel = cancel
-	ec.delayedMessageHeap = &message_heap.MessageHeap{}
-	heap.Init(ec.delayedMessageHeap)
+		ec.running.Store(true)
+		ec.wg.Go(func() {
+			ec.run(ctx)
+		})
 
-	go ec.run(ctx)
+		ec.lggr.Infow("Coordinator started")
 
-	ec.lggr.Infow("Coordinator started")
-
-	return nil
+		return nil
+	})
 }
 
 func (ec *Coordinator) Close() error {
-	ec.mu.RLock()
-	if !ec.running {
-		ec.mu.RUnlock()
-		return fmt.Errorf("coordinator not running")
-	}
-	ec.mu.RUnlock()
+	return ec.StopOnce("executor.Coordinator", func() error {
+		ec.lggr.Infow("Coordinator stopping")
 
-	ec.lggr.Infow("Coordinator stopping")
-	ec.cancel()
-	<-ec.doneCh
+		// cancel the .run() goroutine and wait for it to exit.
+		ec.cancel()
+		ec.wg.Wait()
 
-	// Close all channels
-	close(ec.ccvDataCh)
-	if ec.executableMessageCh != nil {
-		close(ec.executableMessageCh)
-	}
+		// Close all channels
+		close(ec.ccvDataCh)
 
-	ec.mu.Lock()
-	ec.running = false
-	ec.mu.Unlock()
+		// Update running state to reflect in healthcheck and readiness.
+		ec.running.Store(false)
 
-	ec.lggr.Infow("Coordinator stopped")
+		ec.lggr.Infow("Coordinator stopped")
 
-	return nil
+		return nil
+	})
 }
 
 func (ec *Coordinator) run(ctx context.Context) {
-	defer close(ec.doneCh)
-	defer func() {
-		ec.lggr.Infow("Coordinator run loop exited")
-		ec.mu.Lock()
-		defer ec.mu.Unlock()
-		ec.running = false
-	}()
-
+	// TODO: this waitgroup is not waited on anywhere right now, will have to fix this up
+	// in a follow up.
 	var wg sync.WaitGroup
 	streamerResults, err := ec.messageSubscriber.Start(ctx, &wg)
 	if err != nil {
@@ -198,7 +160,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 						ec.lggr.Infow("message already executed, skipping", "messageID", id)
 						return
 					} else if errors.Is(err, ErrInsufficientVerifiers) {
-						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id)
+						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
 						return
 					} else if err != nil {
 						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
@@ -225,16 +187,14 @@ func (ec *Coordinator) validate() error {
 	appendIfNil(ec.leaderElector, "leaderElector")
 	appendIfNil(ec.lggr, "logger")
 	appendIfNil(ec.messageSubscriber, "messageSubscriber")
+	appendIfNil(ec.monitoring, "monitoring")
 
 	return errors.Join(errs...)
 }
 
 // Ready returns nil if the coordinator is ready, or an error otherwise.
 func (ec *Coordinator) Ready() error {
-	ec.mu.RLock()
-	defer ec.mu.RUnlock()
-
-	if !ec.running {
+	if !ec.running.Load() {
 		return errors.New("coordinator not running")
 	}
 
@@ -243,9 +203,6 @@ func (ec *Coordinator) Ready() error {
 
 // HealthReport returns a full health report of the coordinator and its dependencies.
 func (ec *Coordinator) HealthReport() map[string]error {
-	ec.mu.RLock()
-	defer ec.mu.RUnlock()
-
 	report := make(map[string]error)
 	report[ec.Name()] = ec.Ready()
 

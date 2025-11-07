@@ -214,7 +214,7 @@ func TestMockReader_EmitsMultipleMessagesWhenTimeHasPassed(t *testing.T) {
 	assert.Equal(t, protocol.Nonce(3), responses[1].Data.Nonce)
 
 	// Verify timestamps are spaced correctly (100ms = 0.1 seconds in Unix timestamp)
-	// Since we're using Unix() which gives seconds, the difference should be at least 0
+	// Since we're using UnixMilli() which gives seconds, the difference should be at least 0
 	// The timestamps should be increasing
 	assert.GreaterOrEqual(t, *responses[1].Timestamp, *responses[0].Timestamp)
 

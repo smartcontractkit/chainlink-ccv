@@ -13,19 +13,20 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
-	executor_operations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
@@ -581,6 +582,7 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to get mock receiver address: %w", err)
 		}
 		// Use V3 if finality config is provided, otherwise use V2
+		var result cciptestinterfaces.MessageSentEvent
 		if len(sels) == 3 {
 			// V3 format with finality config
 			finality, err := strconv.ParseUint(sels[2], 10, 32)
@@ -591,7 +593,7 @@ var sendCmd = &cobra.Command{
 			committeeVerifierProxyRef, err := in.CLDF.DataStore.Addresses().Get(
 				datastore.NewAddressRefKey(
 					src,
-					datastore.ContractType(committee_verifier.ProxyType),
+					datastore.ContractType(committee_verifier.ResolverProxyType),
 					semver.MustParse(committee_verifier.Deploy.Version()),
 					ccvEvm.DefaultCommitteeVerifierQualifier))
 			if err != nil {
@@ -606,7 +608,7 @@ var sendCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to get executor address: %w", err)
 			}
-			return impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
+			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
@@ -623,9 +625,12 @@ var sendCmd = &cobra.Command{
 					},
 				},
 			})
+			if err != nil {
+				return fmt.Errorf("failed to send message: %w", err)
+			}
 		} else {
 			// V2 format - use the dedicated V2 function
-			return impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
+			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
@@ -633,7 +638,13 @@ var sendCmd = &cobra.Command{
 				GasLimit:            200_000,
 				OutOfOrderExecution: true,
 			})
+			if err != nil {
+				return fmt.Errorf("failed to send message: %w", err)
+			}
 		}
+		ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
+		ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
+		return nil
 	},
 }
 

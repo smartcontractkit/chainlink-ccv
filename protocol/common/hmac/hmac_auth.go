@@ -53,7 +53,7 @@ func ComputeBodyHash(body []byte) string {
 //
 // Example:
 //
-//	stringToSign := GenerateStringToSign("POST", "/Aggregator/ReadBlockCheckpoint", "abc123...", "api-key-uuid", "1234567890")
+//	stringToSign := GenerateStringToSign("POST", "/Aggregator/ReadChainStatus", "abc123...", "api-key-uuid", "1234567890")
 func GenerateStringToSign(method, fullPath, bodyHash, apiKey, timestamp string) string {
 	return fmt.Sprintf("%s %s %s %s %s", method, fullPath, bodyHash, apiKey, timestamp)
 }
@@ -104,7 +104,7 @@ func ValidateSignature(stringToSign, providedSig string, secrets map[string]stri
 //
 // Parameters:
 //   - secret: The HMAC secret key
-//   - method: The gRPC method name (e.g., "/Aggregator/ReadBlockCheckpoint")
+//   - method: The gRPC method name (e.g., "/Aggregator/ReadChainStatus")
 //   - req: The protobuf request message
 //   - apiKey: The API key
 //   - timestampMs: The timestamp in milliseconds since Unix epoch

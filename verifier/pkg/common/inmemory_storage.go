@@ -56,7 +56,7 @@ type InMemoryOffchainStorage struct {
 
 // NewInMemoryOffchainStorage creates a new in-memory offchain storage with some default parameters.
 func NewInMemoryOffchainStorage(lggr logger.Logger) *InMemoryOffchainStorage {
-	return NewInMemoryOffchainStorageWithTimeProvider(lggr, DefaultTimeProvider, nil, nil, 10, 0, time.Now().Unix())
+	return NewInMemoryOffchainStorageWithTimeProvider(lggr, DefaultTimeProvider, nil, nil, 10, 0, time.Now().UnixMilli())
 }
 
 // NewInMemoryOffchainStorageWithTimeProvider creates a new in-memory offchain storage with custom time provider.
@@ -104,7 +104,7 @@ func (s *InMemoryOffchainStorage) WaitForStore(ctx context.Context) error {
 }
 
 // WriteCCVNodeData stores multiple CCV data entries in the offchain storage.
-func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData, idempotencyKeys []string) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -385,5 +385,7 @@ type WriterOnlyView struct {
 }
 
 func (w *WriterOnlyView) WriteCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
-	return w.storage.WriteCCVNodeData(ctx, ccvDataList)
+	// Generate empty idempotency keys for in-memory storage (they are not used)
+	idempotencyKeys := make([]string, len(ccvDataList))
+	return w.storage.WriteCCVNodeData(ctx, ccvDataList, idempotencyKeys)
 }

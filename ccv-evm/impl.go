@@ -19,22 +19,22 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences/tokens"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/fee_quoter"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/sequences/tokens"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -48,9 +48,12 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
+	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
+	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/offramp"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/onramp"
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
@@ -72,6 +75,13 @@ const (
 	QuaternaryReceiverQualifier = "quaternary"
 
 	CommitteeVerifierGasForVerification = 500_000
+
+	TokenPoolVersion    = "1.7.0"
+	TokenAdapterVersion = "1.7.0"
+
+	TokenMaxSupply       = "100000000000000000000000000000" // 100 billion in 18 decimals
+	TokenDeployerBalance = "1000000000000000000000000000"   // 1 billion in 18 decimals
+	DefaultDecimals      = 18
 )
 
 var (
@@ -86,58 +96,126 @@ var (
 	}
 )
 
-// TokenCombination represents a combination of token pools on a local and remote chain.
+// TokenCombination represents a source and destination pool combination.
 type TokenCombination struct {
-	localPoolType     string
-	localPoolVersion  string
-	remotePoolType    string
-	remotePoolVersion string
+	sourcePoolType          string
+	sourcePoolVersion       string
+	sourcePoolCCVQualifiers []string
+	destPoolType            string
+	destPoolVersion         string
+	destPoolCCVQualifiers   []string
+	expectedReceiptIssuers  int
+	expectedVerifierResults int
 }
 
-// LocalAddressRef returns the address ref for the local token pool that can be used to query the datastore.
-func (s TokenCombination) LocalPoolAddressRef() datastore.AddressRef {
+// SourcePoolAddressRef returns the address ref for the source token pool that can be used to query the datastore.
+func (s TokenCombination) SourcePoolAddressRef() datastore.AddressRef {
 	return datastore.AddressRef{
-		Type:      datastore.ContractType(s.localPoolType),
-		Version:   semver.MustParse(s.localPoolVersion),
-		Qualifier: fmt.Sprintf("TEST (%s %s to %s %s)", s.localPoolType, s.localPoolVersion, s.remotePoolType, s.remotePoolVersion),
+		Type:      datastore.ContractType(s.sourcePoolType),
+		Version:   semver.MustParse(s.sourcePoolVersion),
+		Qualifier: fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers, s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers),
 	}
 }
 
-// RemoteAddressRef returns the address ref for the remote token pool that can be used to query the datastore.
-func (s TokenCombination) RemotePoolAddressRef() datastore.AddressRef {
+// DestPoolAddressRef returns the address ref for the destination token pool that can be used to query the datastore.
+func (s TokenCombination) DestPoolAddressRef() datastore.AddressRef {
 	return datastore.AddressRef{
-		Type:      datastore.ContractType(s.remotePoolType),
-		Version:   semver.MustParse(s.remotePoolVersion),
-		Qualifier: fmt.Sprintf("TEST (%s %s to %s %s)", s.remotePoolType, s.remotePoolVersion, s.localPoolType, s.localPoolVersion),
+		Type:      datastore.ContractType(s.destPoolType),
+		Version:   semver.MustParse(s.destPoolVersion),
+		Qualifier: fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers, s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers),
 	}
+}
+
+// SourcePoolCCVQualifiers returns the CCV qualifiers for the source token pool.
+func (s TokenCombination) SourcePoolCCVQualifiers() []string {
+	return s.sourcePoolCCVQualifiers
+}
+
+// DestPoolCCVQualifiers returns the CCV qualifiers for the destination token pool.
+func (s TokenCombination) DestPoolCCVQualifiers() []string {
+	return s.destPoolCCVQualifiers
+}
+
+// ExpectedReceiptIssuers returns the expected number of receipt issuers for the token combination.
+func (s TokenCombination) ExpectedReceiptIssuers() int {
+	return s.expectedReceiptIssuers
+}
+
+// ExpectedVerifierResults returns the expected number of verifier results for the token combination.
+func (s TokenCombination) ExpectedVerifierResults() int {
+	return s.expectedVerifierResults
 }
 
 // allTokenCombinations returns all possible token combinations.
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
 		{ // 1.6.1 burn -> 1.6.1 mint
-			localPoolType:     string(burn_mint_token_pool.ContractType),
-			localPoolVersion:  "1.6.1",
-			remotePoolType:    string(burn_mint_token_pool.ContractType),
-			remotePoolVersion: "1.6.1",
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.6.1",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.6.1",
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
 		},
 		{ // 1.7.0 burn -> 1.7.0 mint
-			localPoolType:     string(burn_mint_token_pool.ContractType),
-			localPoolVersion:  "1.7.0",
-			remotePoolType:    string(burn_mint_token_pool.ContractType),
-			remotePoolVersion: "1.7.0",
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
 		},
 		{ // 1.6.1 burn -> 1.7.0 mint
-			localPoolType:     string(burn_mint_token_pool.ContractType),
-			localPoolVersion:  "1.6.1",
-			remotePoolType:    string(burn_mint_token_pool.ContractType),
-			remotePoolVersion: "1.7.0",
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.6.1",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
 		},
 		{ // 1.7.0 burn -> 1.6.1 mint
-			localPoolType:     string(burn_mint_token_pool.ContractType),
-			localPoolVersion:  "1.7.0",
-			remotePoolType:    string(burn_mint_token_pool.ContractType),
-			remotePoolVersion: "1.6.1",
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.6.1",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 burn -> 1.7.0 mint (Default and Secondary CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  4, // default CCV, secondary CCV, token pool, executor
+			expectedVerifierResults: 2, // default CCV, secondary CCV
+		},
+		{ // 1.7.0 burn -> 1.7.0 mint (No CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{},
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 burn -> 1.7.0 mint (Secondary CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{SecondaryCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{SecondaryCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  4, // default CCV, secondary CCV, token pool, executor
+			expectedVerifierResults: 2, // default CCV, secondary CCV
 		},
 	}
 }
@@ -313,7 +391,7 @@ func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, from, to 
 }
 
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector.
-func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error) {
+func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -321,7 +399,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 	defer ticker.Stop()
 	onRamp, ok := m.onRampBySelector[from]
 	if !ok {
-		return nil, fmt.Errorf("no onRamp for selector %d", from)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("no onRamp for selector %d", from)
 	}
 
 	l.Info().Msg("Awaiting CCIPMessageSent event")
@@ -329,7 +407,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return cciptestinterfaces.MessageSentEvent{}, ctx.Err()
 		case <-ticker.C:
 			filter, err := onRamp.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
 			if err != nil {
@@ -345,7 +423,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 					if err := filter.Close(); err != nil {
 						l.Warn().Err(err).Msg("Failed to close filter")
 					}
-					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
+					return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("received multiple events for the same sequence number and selector")
 				}
 				eventFound = filter.Event
 				l.Info().
@@ -361,14 +439,28 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 				l.Warn().Err(err).Msg("Failed to close filter")
 			}
 			if eventFound != nil {
-				return eventFound, nil
+				message, err := protocol.DecodeMessage(eventFound.EncodedMessage)
+				if err != nil {
+					return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to decode message: %w", err)
+				}
+				ev := cciptestinterfaces.MessageSentEvent{
+					MessageID:      eventFound.MessageId,
+					SequenceNumber: eventFound.SequenceNumber,
+					Message:        message,
+					ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(eventFound.Receipts)),
+					VerifierBlobs:  eventFound.VerifierBlobs,
+				}
+				for _, receipt := range eventFound.Receipts {
+					ev.ReceiptIssuers = append(ev.ReceiptIssuers, protocol.UnknownAddress(receipt.Issuer.Bytes()))
+				}
+				return ev, nil
 			}
 		}
 	}
 }
 
 // WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector.
-func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (any, error) {
+func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	l := m.logger
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -378,7 +470,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 
 	offRamp, ok := m.offRampBySelector[to]
 	if !ok {
-		return nil, fmt.Errorf("no off ramp for selector %d", to)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("no off ramp for selector %d", to)
 	}
 
 	l.Info().Msg("Awaiting ExecutionStateChanged event")
@@ -386,7 +478,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return cciptestinterfaces.ExecutionStateChangedEvent{}, ctx.Err()
 		case <-ticker.C:
 			filter, err := offRamp.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{from}, []uint64{seq}, nil)
 			if err != nil {
@@ -403,7 +495,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 					if err := filter.Close(); err != nil {
 						l.Warn().Err(err).Msg("Failed to close filter")
 					}
-					return nil, fmt.Errorf("received multiple events for the same sequence number and selector")
+					return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("received multiple events for the same sequence number and selector")
 				}
 
 				eventFound = filter.Event
@@ -424,7 +516,12 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 			}
 
 			if eventFound != nil {
-				return eventFound, nil
+				return cciptestinterfaces.ExecutionStateChangedEvent{
+					MessageID:      eventFound.MessageId,
+					SequenceNumber: eventFound.SequenceNumber,
+					State:          cciptestinterfaces.MessageExecutionState(eventFound.State),
+					ReturnData:     eventFound.ReturnData,
+				}, nil
 			}
 		}
 	}
@@ -439,6 +536,21 @@ func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.Unknow
 	// returns the same address for each chain for now - we might need to extend this in the future if we'd ever
 	// need to access any funds on the EOA itself.
 	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
+}
+
+func (m *CCIP17EVM) GetSenderAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
+	chains := m.e.BlockChains.EVMChains()
+	if chains == nil {
+		return protocol.UnknownAddress{}, errors.New("no EVM chains found")
+	}
+
+	chain, ok := chains[chainSelector]
+	if !ok {
+		return protocol.UnknownAddress{}, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, chains)
+	}
+
+	// Return the chain deployer key address
+	return protocol.UnknownAddress(chain.DeployerKey.From.Bytes()), nil
 }
 
 func (m *CCIP17EVM) GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
@@ -550,32 +662,32 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 	}
 }
 
-func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) error {
+func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
 	chains := m.e.BlockChains.EVMChains()
 	if chains == nil {
-		return errors.New("no EVM chains found")
+		return cciptestinterfaces.MessageSentEvent{}, errors.New("no EVM chains found")
 	}
 
 	srcChain, ok := chains[src]
 	if !ok {
-		return fmt.Errorf("source chain %d not found in environment chains %v", src, chains)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain %d not found in environment chains %v", src, chains)
 	}
 
 	destFamily, err := chainsel.GetSelectorFamily(dest)
 	if err != nil {
-		return fmt.Errorf("failed to get destination family: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get destination family: %w", err)
 	}
 
-	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse("1.2.0"), ""))
+	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()), ""))
 	if err != nil {
-		return fmt.Errorf("failed to get router address: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get router address: %w", err)
 	}
 
 	routerAddress := common.HexToAddress(routerRef.Address)
 	rout, err := routerwrapper.NewRouter(routerAddress, srcChain.Client)
 	if err != nil {
-		return fmt.Errorf("create router wrapper: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("create router wrapper: %w", err)
 	}
 
 	bundle := operations.NewBundle(
@@ -592,7 +704,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		})
 	}
 	if len(tokenAmounts) > 1 {
-		return fmt.Errorf("only one token amount is supported")
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("only one token amount is supported")
 	}
 
 	extraArgs := serializeExtraArgs(opts, destFamily)
@@ -610,24 +722,24 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		msg,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to get fee: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get fee: %w", err)
 	}
 
 	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
 	if err != nil {
-		return fmt.Errorf("failed to check if have enough tokens: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to check if have enough tokens: %w", err)
 	}
 	if !haveEnoughFeeTokens {
-		return fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
 	}
 
 	if len(tokenAmounts) > 0 {
 		haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
 		if err != nil {
-			return fmt.Errorf("failed to check if have enough tokens: %w", err)
+			return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to check if have enough tokens: %w", err)
 		}
 		if !haveEnoughTransferTokens {
-			return fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
+			return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
 		}
 	}
 
@@ -650,42 +762,68 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		Args:          ccipSendArgs,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
 
 	// get the receipt so that we can log the message ID.
 	receipt, err := srcChain.Client.TransactionReceipt(ctx, common.HexToHash(sendReport.Output.ExecInfo.Hash))
 	if err != nil {
-		return fmt.Errorf("failed to get transaction receipt: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 
-	var messageID [32]byte
-	var seqNo uint64
-	var receipts []onramp.OnRampReceipt
+	var messageSentEvent *onramp.OnRampCCIPMessageSent
 	for _, log := range receipt.Logs {
 		if log.Topics[0] == ccipMessageSentTopic {
-			parsed, err := m.onRampBySelector[src].ParseCCIPMessageSent(*log)
+			var err error
+			messageSentEvent, err = m.onRampBySelector[src].ParseCCIPMessageSent(*log)
 			if err != nil {
 				// Don't fail the entire test just because of this but do log a warning.
 				l.Warn().Err(err).Msg("Failed to parse CCIPMessageSent event")
 				continue
 			}
-			copy(messageID[:], parsed.MessageId[:])
-			seqNo = parsed.SequenceNumber
-			receipts = append(receipts, parsed.Receipts...)
 			break
 		}
 	}
-	l.Info().Bool("Executed", sendReport.Output.Executed()).
+	dcc, err := m.onRampBySelector[src].GetDestChainConfig(&bind.CallOpts{
+		Context: ctx,
+	}, dest)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get dest chain config: %w", err)
+	}
+
+	message, err := protocol.DecodeMessage(messageSentEvent.EncodedMessage)
+	if err != nil {
+		// Fail here - indicates a bug in the decoder which is critical.
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to decode message: %w", err)
+	}
+	result := cciptestinterfaces.MessageSentEvent{
+		MessageID:      messageSentEvent.MessageId,
+		SequenceNumber: messageSentEvent.SequenceNumber,
+		Message:        message,
+		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(messageSentEvent.Receipts)),
+		VerifierBlobs:  messageSentEvent.VerifierBlobs,
+	}
+	for _, receipt := range messageSentEvent.Receipts {
+		result.ReceiptIssuers = append(result.ReceiptIssuers, protocol.UnknownAddress(receipt.Issuer.Bytes()))
+	}
+
+	l.Info().
+		Bool("Executed", sendReport.Output.Executed()).
 		Uint64("SrcChainSelector", sendReport.Output.ChainSelector).
 		Uint64("DestChainSelector", dest).
 		Str("SrcRouter", sendReport.Output.Tx.To).
-		Str("MessageID", hexutil.Encode(messageID[:])).
-		Any("Receipts", receipts).
-		Uint64("SeqNo", seqNo).
+		Str("MessageID", hexutil.Encode(result.MessageID[:])).
+		Any("DefaultCCVs", dcc.DefaultCCVs).
+		Any("LaneMandatedCCVs", dcc.LaneMandatedCCVs).
+		Any("DefaultExecutor", dcc.DefaultExecutor).
+		Any("OffRamp", hexutil.Encode(dcc.OffRamp)).
+		Int("NumReceipts", len(result.ReceiptIssuers)).
+		Int("NumVerifierBlobs", len(result.VerifierBlobs)).
+		Any("ReceiptIssuers", result.ReceiptIssuers).
+		Uint64("SeqNo", result.SequenceNumber).
 		Msg("CCIP message sent")
 
-	return nil
+	return result, nil
 }
 
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
@@ -777,6 +915,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
 		opts.FinalityConfig,
+		opts.GasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
 		opts.TokenArgs,
@@ -895,11 +1034,11 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 		if err != nil {
 			panic(fmt.Sprintf("failed to read private key: %v", err))
 		}
-		signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+		_, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("failed to create ECDSA message signer: %v", err))
 		}
-		signerAddresses = append(signerAddresses, common.HexToAddress(signer.GetSignerAddress().String()))
+		signerAddresses = append(signerAddresses, common.BytesToAddress(addr[:]))
 	}
 	return committee_verifier.SetSignatureConfigArgs{
 		Threshold: uint8(numNodes), //nolint:gosec
@@ -930,14 +1069,9 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		return nil, errors.New("failed to parse USDPerWETH")
 	}
 
-	chain, ok := env.BlockChains.EVMChains()[selector]
-	if !ok {
-		return nil, fmt.Errorf("evm chain not found for selector %d", selector)
-	}
-
 	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
-	out, err := changesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployChainContractsCfg]{
-		Cfg: changesets.DeployChainContractsCfg{
+	out, err := evmchangesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployChainContractsCfg]{
+		Cfg: evmchangesets.DeployChainContractsCfg{
 			ChainSel: selector,
 			Params: sequences.ContractParams{
 				// TODO: Router contract implementation is missing
@@ -980,6 +1114,11 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				Executor: sequences.ExecutorParams{
 					Version:       semver.MustParse(executor.Deploy.Version()),
 					MaxCCVsPerMsg: 10,
+					DynamicConfig: executor.SetDynamicConfigArgs{
+						FeeAggregator:         common.HexToAddress("0x01"),
+						MinBlockConfirmations: 0,
+						CcvAllowlistEnabled:   false,
+					},
 				},
 				FeeQuoter: sequences.FeeQuoterParams{
 					Version: semver.MustParse(fee_quoter.Deploy.Version()),
@@ -996,7 +1135,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 						Version: semver.MustParse(mock_receiver.Deploy.Version()),
 						RequiredVerifiers: []datastore.AddressRef{
 							{
-								Type:          datastore.ContractType(committee_verifier.ProxyType),
+								Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 								ChainSelector: selector,
 								Qualifier:     DefaultCommitteeVerifierQualifier,
@@ -1009,7 +1148,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 						Version: semver.MustParse(mock_receiver.Deploy.Version()),
 						RequiredVerifiers: []datastore.AddressRef{
 							{
-								Type:          datastore.ContractType(committee_verifier.ProxyType),
+								Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 								ChainSelector: selector,
 								Qualifier:     SecondaryCommitteeVerifierQualifier,
@@ -1024,7 +1163,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 						Version: semver.MustParse(mock_receiver.Deploy.Version()),
 						RequiredVerifiers: []datastore.AddressRef{
 							{
-								Type:          datastore.ContractType(committee_verifier.ProxyType),
+								Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 								ChainSelector: selector,
 								Qualifier:     SecondaryCommitteeVerifierQualifier,
@@ -1032,7 +1171,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 						},
 						OptionalVerifiers: []datastore.AddressRef{
 							{
-								Type:          datastore.ContractType(committee_verifier.ProxyType),
+								Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 								ChainSelector: selector,
 								Qualifier:     TertiaryCommitteeVerifierQualifier,
@@ -1045,7 +1184,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 						Version: semver.MustParse(mock_receiver.Deploy.Version()),
 						RequiredVerifiers: []datastore.AddressRef{
 							{
-								Type:          datastore.ContractType(committee_verifier.ProxyType),
+								Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 								ChainSelector: selector,
 								Qualifier:     DefaultCommitteeVerifierQualifier,
@@ -1053,13 +1192,13 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 						},
 						OptionalVerifiers: []datastore.AddressRef{
 							{
-								Type:          datastore.ContractType(committee_verifier.ProxyType),
+								Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 								ChainSelector: selector,
 								Qualifier:     SecondaryCommitteeVerifierQualifier,
 							},
 							{
-								Type:          datastore.ContractType(committee_verifier.ProxyType),
+								Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 								ChainSelector: selector,
 								Qualifier:     TertiaryCommitteeVerifierQualifier,
@@ -1081,51 +1220,154 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	}
 	env.DataStore = runningDS.Seal()
 
-	// Deploy token & token pools, minting funds to the chain's deployer key.
-	maxSupply, ok := big.NewInt(0).SetString("100000000000000000000000000000", 10) // 100 billion tokens
-	if !ok {
-		return nil, errors.New("failed to parse max supply")
-	}
-	deployerBalance, ok := big.NewInt(0).SetString("1000000000000000000000000000", 10) // 1 billion tokens
-	if !ok {
-		return nil, errors.New("failed to parse deployer balance")
+	for _, combo := range AllTokenCombinations() {
+		// For any given token combination, every chain needs to support the source and destination pools.
+		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef().Qualifier); err != nil {
+			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.SourcePoolAddressRef().Qualifier, err)
+		}
+		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.DestPoolAddressRef().Qualifier); err != nil {
+			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.DestPoolAddressRef().Qualifier, err)
+		}
 	}
 
-	for _, combo := range AllTokenCombinations() {
-		out, err = changesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets.DeployBurnMintTokenAndPoolCfg]{
-			Cfg: changesets.DeployBurnMintTokenAndPoolCfg{
-				Accounts: map[common.Address]*big.Int{
-					chain.DeployerKey.From: deployerBalance,
-				},
-				TokenInfo: tokens.TokenInfo{
-					Name:      "Test Token",
-					Decimals:  18,
-					MaxSupply: maxSupply,
-				},
-				DeployTokenPoolCfg: changesets.DeployTokenPoolCfg{
-					ChainSel:           selector,
-					TokenPoolType:      combo.LocalPoolAddressRef().Type,
-					TokenPoolVersion:   combo.LocalPoolAddressRef().Version,
-					TokenSymbol:        combo.LocalPoolAddressRef().Qualifier,
-					LocalTokenDecimals: 18,
-					Router: datastore.AddressRef{
-						Type:    datastore.ContractType(routeroperations.ContractType),
-						Version: semver.MustParse("1.2.0"),
-					},
+	return runningDS.Seal(), nil
+}
+
+func (m *CCIP17EVM) deployTokenAndPool(
+	env *deployment.Environment,
+	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
+	runningDS *datastore.MemoryDataStore,
+	selector uint64,
+	tokenSymbol string,
+) error {
+	chain, ok := env.BlockChains.EVMChains()[selector]
+	if !ok {
+		return fmt.Errorf("evm chain not found for selector %d", selector)
+	}
+
+	maxSupply, ok := big.NewInt(0).SetString(TokenMaxSupply, 10)
+	if !ok {
+		return errors.New("failed to parse max supply")
+	}
+	deployerBalance, ok := big.NewInt(0).SetString(TokenDeployerBalance, 10)
+	if !ok {
+		return errors.New("failed to parse deployer balance")
+	}
+
+	out, err := evmchangesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployBurnMintTokenAndPoolCfg]{
+		Cfg: evmchangesets.DeployBurnMintTokenAndPoolCfg{
+			Accounts: map[common.Address]*big.Int{
+				chain.DeployerKey.From: deployerBalance,
+			},
+			TokenInfo: tokens.TokenInfo{
+				Name:      tokenSymbol,
+				Decimals:  DefaultDecimals,
+				MaxSupply: maxSupply,
+			},
+			DeployTokenPoolCfg: evmchangesets.DeployTokenPoolCfg{
+				ChainSel:           selector,
+				TokenPoolType:      datastore.ContractType(burn_mint_token_pool.ContractType),
+				TokenPoolVersion:   semver.MustParse(TokenPoolVersion),
+				TokenSymbol:        tokenSymbol,
+				LocalTokenDecimals: DefaultDecimals,
+				Router: datastore.AddressRef{
+					Type:    datastore.ContractType(routeroperations.ContractType),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
 			},
-		})
-		if err != nil {
-			return nil, err
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenSymbol, err)
+	}
+
+	err = runningDS.Merge(out.DataStore.Seal())
+	if err != nil {
+		return fmt.Errorf("failed to merge datastore for %s token: %w", tokenSymbol, err)
+	}
+
+	return nil
+}
+
+func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error) {
+	feeQuoterRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(remoteChainSelector, datastore.ContractType(fee_quoter.ContractType), semver.MustParse(fee_quoter.Deploy.Version()), ""))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get fee quoter address: %w", err)
+	}
+	feeQuoter, err := feequoterwrapper.NewFeeQuoter(common.HexToAddress(feeQuoterRef.Address), m.ethClients[remoteChainSelector])
+	if err != nil {
+		return 0, fmt.Errorf("failed to new fee quoter contract: %w", err)
+	}
+	destChainConfig, err := feeQuoter.GetDestChainConfig(&bind.CallOpts{Context: ctx}, remoteChainSelector)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get dest chain config: %w", err)
+	}
+	return destChainConfig.MaxDataBytes, nil
+}
+
+func (m *CCIP17EVM) configureTokenForTransfer(
+	e *deployment.Environment,
+	tokenAdapterRegistry *tokenscore.TokenAdapterRegistry,
+	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
+	selector uint64,
+	remoteSelectors []uint64,
+	tokenSymbol string,
+	ccvQualifiers []string,
+) error {
+	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
+	for _, rs := range remoteSelectors {
+		ccvRefs := make([]datastore.AddressRef, 0, len(ccvQualifiers))
+		for _, qualifier := range ccvQualifiers {
+			ccvRefs = append(ccvRefs, datastore.AddressRef{
+				Type:      datastore.ContractType(committee_verifier.ResolverProxyType),
+				Version:   semver.MustParse(committee_verifier.Deploy.Version()),
+				Qualifier: qualifier,
+			})
 		}
-		err = runningDS.Merge(out.DataStore.Seal())
-		if err != nil {
-			return nil, err
+
+		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
+			RemotePool: &datastore.AddressRef{
+				Type:      datastore.ContractType(burn_mint_token_pool.ContractType),
+				Version:   semver.MustParse(TokenPoolVersion),
+				Qualifier: tokenSymbol,
+			},
+			InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+				IsEnabled: false,
+				Capacity:  big.NewInt(0),
+				Rate:      big.NewInt(0),
+			},
+			OutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+				IsEnabled: false,
+				Capacity:  big.NewInt(0),
+				Rate:      big.NewInt(0),
+			},
+			OutboundCCVs: ccvRefs,
+			InboundCCVs:  ccvRefs,
 		}
 	}
 
-	env.DataStore = runningDS.Seal()
-	return env.DataStore, nil
+	_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+		Tokens: []tokenscore.TokenTransferConfig{
+			{
+				ChainSelector: selector,
+				TokenPoolRef: datastore.AddressRef{
+					Type:      datastore.ContractType(burn_mint_token_pool.ContractType),
+					Version:   semver.MustParse(TokenPoolVersion),
+					Qualifier: tokenSymbol,
+				},
+				RegistryRef: datastore.AddressRef{
+					Type:    datastore.ContractType(token_admin_registry.ContractType),
+					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
+				},
+				RemoteChains: tokensRemoteChains,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to configure %s tokens for transfers: %w", tokenSymbol, err)
+	}
+
+	return nil
 }
 
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
@@ -1138,22 +1380,22 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	)
 	e.OperationsBundle = bundle
 
-	remoteChains := make(map[uint64]changesets.RemoteChainConfig)
+	remoteChains := make(map[uint64]adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef])
 
 	for _, rs := range remoteSelectors {
-		remoteChains[rs] = changesets.RemoteChainConfig{
+		remoteChains[rs] = adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
 			AllowTrafficFrom: true,
-			CCIPMessageSource: datastore.AddressRef{
+			OnRamp: datastore.AddressRef{
 				Type:    datastore.ContractType(onrampoperations.ContractType),
 				Version: semver.MustParse(onrampoperations.Deploy.Version()),
 			},
-			CCIPMessageDest: datastore.AddressRef{
+			OffRamp: datastore.AddressRef{
 				Type:    datastore.ContractType(offrampoperations.ContractType),
 				Version: semver.MustParse(offrampoperations.Deploy.Version()),
 			},
 			DefaultInboundCCVs: []datastore.AddressRef{
 				{
-					Type:          datastore.ContractType(committee_verifier.ProxyType),
+					Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
 					Qualifier:     DefaultCommitteeVerifierQualifier,
@@ -1162,7 +1404,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
 			DefaultOutboundCCVs: []datastore.AddressRef{
 				{
-					Type:          datastore.ContractType(committee_verifier.ProxyType),
+					Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
 					Qualifier:     DefaultCommitteeVerifierQualifier,
@@ -1173,11 +1415,13 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				Type:    datastore.ContractType(executor.ContractType),
 				Version: semver.MustParse(executor.Deploy.Version()),
 			},
-			CommitteeVerifierDestChainConfig: sequences.CommitteeVerifierDestChainConfig{
+			CommitteeVerifierDestChainConfig: adapters.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled:   false,
 				GasForVerification: CommitteeVerifierGasForVerification,
+				FeeUSDCents:        0, // TODO: set proper fee
+				PayloadSizeBytes:   0, // TODO: set proper payload size
 			},
-			FeeQuoterDestChainConfig: fee_quoter.DestChainConfig{
+			FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{
 				IsEnabled:                   true,
 				MaxDataBytes:                30_000,
 				MaxPerMsgGasLimit:           3_000_000,
@@ -1189,32 +1433,82 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				NetworkFeeUSDCents:          10,
 				ChainFamilySelector:         [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
 			},
+			ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
+				Enabled:     true,
+				USDCentsFee: 0, // TODO: set proper fee
+			},
+			AddressBytesLength:   20,      // TODO: set proper address bytes length, should be evm-agnostic
+			BaseExecutionGasCost: 150_000, // TODO: set proper base execution gas cost
 		}
 	}
 
-	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
-	_, err := changesets.ConfigureChainForLanes(mcmsReaderRegistry).Apply(*e, changesetscore.WithMCMS[changesets.ConfigureChainForLanesCfg]{
-		Cfg: changesets.ConfigureChainForLanesCfg{
-			ChainSel:     selector,
-			RemoteChains: remoteChains,
-			CommitteeVerifiers: []datastore.AddressRef{
-				{
-					Type:          datastore.ContractType(committee_verifier.ContractType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier,
+	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry()
+	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
+	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
+	_, err := changesets.ConfigureChainsForLanes(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, changesets.ConfigureChainsForLanesConfig{
+		Chains: []changesets.ChainConfig{
+			{
+				ChainSelector: selector,
+				RemoteChains:  remoteChains,
+				FeeQuoter: datastore.AddressRef{
+					Type:    datastore.ContractType(fee_quoter.ContractType),
+					Version: semver.MustParse(fee_quoter.Deploy.Version()),
 				},
-				{
-					Type:          datastore.ContractType(committee_verifier.ContractType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-					ChainSelector: selector,
-					Qualifier:     SecondaryCommitteeVerifierQualifier,
+				OnRamp: datastore.AddressRef{
+					Type:    datastore.ContractType(onrampoperations.ContractType),
+					Version: semver.MustParse(onrampoperations.Deploy.Version()),
 				},
-				{
-					Type:          datastore.ContractType(committee_verifier.ContractType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-					ChainSelector: selector,
-					Qualifier:     TertiaryCommitteeVerifierQualifier,
+				OffRamp: datastore.AddressRef{
+					Type:    datastore.ContractType(offrampoperations.ContractType),
+					Version: semver.MustParse(offrampoperations.Deploy.Version()),
+				},
+				Router: datastore.AddressRef{
+					Type:    datastore.ContractType(routeroperations.ContractType),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				},
+				CommitteeVerifiers: []adapters.CommitteeVerifier[datastore.AddressRef]{
+					{
+						Implementation: datastore.AddressRef{
+							Type:          datastore.ContractType(committee_verifier.ContractType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     DefaultCommitteeVerifierQualifier,
+						},
+						Resolver: datastore.AddressRef{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     DefaultCommitteeVerifierQualifier,
+						},
+					},
+					{
+						Implementation: datastore.AddressRef{
+							Type:          datastore.ContractType(committee_verifier.ContractType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     SecondaryCommitteeVerifierQualifier,
+						},
+						Resolver: datastore.AddressRef{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     SecondaryCommitteeVerifierQualifier,
+						},
+					},
+					{
+						Implementation: datastore.AddressRef{
+							Type:          datastore.ContractType(committee_verifier.ContractType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     TertiaryCommitteeVerifierQualifier,
+						},
+						Resolver: datastore.AddressRef{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     TertiaryCommitteeVerifierQualifier,
+						},
+					},
 				},
 			},
 		},
@@ -1223,61 +1517,18 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		return err
 	}
 
-	// Configure TEST tokens for transfer
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
-	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse("1.7.0"), &adapters.TokenAdapter{})
-	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse("1.6.1"), &adapters.TokenAdapter{})
+	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(TokenAdapterVersion), &evmadapters.TokenAdapter{})
 
 	for _, combo := range AllTokenCombinations() {
-		tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
-		for _, rs := range remoteSelectors {
-			remoteRef := combo.RemotePoolAddressRef()
-			rc := tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-				RemotePool: &remoteRef,
-				InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
-					IsEnabled: false,
-					Capacity:  big.NewInt(0),
-					Rate:      big.NewInt(0),
-				},
-				OutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
-					IsEnabled: false,
-					Capacity:  big.NewInt(0),
-					Rate:      big.NewInt(0),
-				},
-			}
-			if combo.LocalPoolAddressRef().Version.Equal(semver.MustParse("1.7.0")) {
-				rc.OutboundCCVs = []datastore.AddressRef{
-					{
-						Type:      datastore.ContractType(committee_verifier.ProxyType),
-						Version:   semver.MustParse("1.7.0"),
-						Qualifier: DefaultCommitteeVerifierQualifier,
-					},
-				}
-				rc.InboundCCVs = []datastore.AddressRef{
-					{
-						Type:      datastore.ContractType(committee_verifier.ProxyType),
-						Version:   semver.MustParse("1.7.0"),
-						Qualifier: DefaultCommitteeVerifierQualifier,
-					},
-				}
-			}
-			tokensRemoteChains[rs] = rc
+		// For any given token combination, every chain needs to support the source and destination pools.
+		l.Info().Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("Configuring source token for transfer")
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef().Qualifier, combo.SourcePoolCCVQualifiers()); err != nil {
+			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.SourcePoolAddressRef().Qualifier, err)
 		}
-		_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-			Tokens: []tokenscore.TokenTransferConfig{
-				{
-					ChainSelector: selector,
-					TokenPoolRef:  combo.LocalPoolAddressRef(),
-					RegistryRef: datastore.AddressRef{
-						Type:    datastore.ContractType(token_admin_registry.ContractType),
-						Version: semver.MustParse("1.5.0"),
-					},
-					RemoteChains: tokensRemoteChains,
-				},
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to configure tokens for transfers: %w", err)
+		l.Info().Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("Configuring destination token for transfer")
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef().Qualifier, combo.DestPoolCCVQualifiers()); err != nil {
+			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
 	}
 

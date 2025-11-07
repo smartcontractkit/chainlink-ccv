@@ -183,7 +183,7 @@ sink, err := NewSink(lggr,
     WithCondition{
         Storage:   postgresStorage,
         Condition: TimeRangeRead(
-            ptr(time.Now().AddDate(0, 0, -30).Unix()),
+            ptr(time.Now().AddDate(0, 0, -30).UnixMilli()),
             nil, // no upper bound
         ),
     },
@@ -192,7 +192,7 @@ sink, err := NewSink(lggr,
         Storage:   archiveStorage,
         Condition: TimeRangeRead(
             nil, // no lower bound
-            ptr(time.Now().AddDate(0, 0, -30).Unix()),
+            ptr(time.Now().AddDate(0, 0, -30).UnixMilli()),
         ),
     },
 )
@@ -293,8 +293,8 @@ warmStorage, _ := NewPostgresStorage(ctx, lggr, monitoring, warmDBURI, "postgres
 // Cold: Archive PostgreSQL, older than 30 days, rarely accessed
 coldStorage, _ := NewPostgresStorage(ctx, lggr, monitoring, coldDBURI, "postgres", pg.DBConfig{})
 
-now := time.Now().Unix()
-thirtyDaysAgo := time.Now().AddDate(0, 0, -30).Unix()
+now := time.Now().UnixMilli()
+thirtyDaysAgo := time.Now().AddDate(0, 0, -30).UnixMilli()
 
 sink, _ := NewStorageSink(lggr,
     WithCondition{
@@ -499,7 +499,7 @@ func main() {
     _ = sink.InsertCCVData(ctx, ccvData)
     
     // Reads use cache for recent queries, database for older queries
-    recent, _ := sink.QueryCCVData(ctx, time.Now().Unix()-3600, time.Now().Unix(), nil, nil, 100, 0)
+    recent, _ := sink.QueryCCVData(ctx, time.Now().UnixMilli()-3600, time.Now().UnixMilli(), nil, nil, 100, 0)
     historical, _ := sink.QueryCCVData(ctx, oldStart, oldEnd, nil, nil, 100, 0)
 }
 ```

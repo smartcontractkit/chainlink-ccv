@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
@@ -11,7 +12,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
@@ -22,10 +23,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	executorcommon "github.com/smartcontractkit/chainlink-ccv/executor/pkg/common"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
@@ -47,14 +48,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup logging - always debug level for now
-	lggr, err := logger.NewWith(func(config *zap.Config) {
-		config.Development = true
-		config.Encoding = "console"
-	})
+	// Keeping it at info level because debug will spam the logs with a lot of RPC caller related
+	// logs.
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
+	lggr = logger.Named(lggr, "executor")
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
@@ -77,7 +77,7 @@ func main() {
 	lggr.Infow("Executor configuration", "config", executorConfig)
 
 	// Setup OTEL Monitoring (via beholder)
-	var executorMonitoring executorcommon.ExecutorMonitoring
+	var executorMonitoring executor.Monitoring
 	if executorConfig.Monitoring.Enabled && executorConfig.Monitoring.Type == "beholder" {
 		executorMonitoring, err = monitoring.InitMonitoring(beholder.Config{
 			InsecureConnection:       executorConfig.Monitoring.Beholder.InsecureConnection,
@@ -118,7 +118,7 @@ func main() {
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		dr := destinationreader.NewEvmDestinationReader(
 			lggr,
-			selector,
+			protocol.ChainSelector(selector),
 			chainClient,
 			executorConfig.OffRampAddresses[strSel],
 			executorConfig.GetCCVInfoCacheExpiry(),
@@ -133,7 +133,7 @@ func main() {
 		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
 			ctx,
 			lggr,
-			selector,
+			protocol.ChainSelector(selector),
 			chain.Nodes[0].InternalHTTPUrl,
 			pk,
 			common.HexToAddress(executorConfig.OffRampAddresses[strSel]),
@@ -166,7 +166,7 @@ func main() {
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
 			IndexerClient:   indexerClient,
-			LastQueryTime:   time.Now().Add(-1 * executorConfig.GetLookbackWindow()).Unix(),
+			LastQueryTime:   time.Now().Add(-1 * executorConfig.GetLookbackWindow()).UnixMilli(),
 			PollingInterval: executorConfig.GetPollingInterval(),
 			Backoff:         executorConfig.GetBackoffDuration(),
 			QueryLimit:      executorConfig.IndexerQueryLimit,
@@ -174,11 +174,11 @@ func main() {
 
 	// Create executor coordinator
 	coordinator, err := executor.NewCoordinator(
-		executor.WithLogger(lggr),
-		executor.WithExecutor(ex),
-		executor.WithLeaderElector(le),
-		executor.WithMessageSubscriber(indexerStream),
-		executor.WithMonitoring(executorMonitoring),
+		lggr,
+		ex,
+		indexerStream,
+		le,
+		executorMonitoring,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)

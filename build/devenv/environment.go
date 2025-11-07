@@ -9,13 +9,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
@@ -58,16 +59,16 @@ const (
 )
 
 type Cfg struct {
-	CLDF               CLDF                      `toml:"cldf"                  validate:"required"`
-	Fake               *services.FakeInput       `toml:"fake"                  validate:"required"`
-	Verifier           []*services.VerifierInput `toml:"verifier"              validate:"required"`
-	Executor           *services.ExecutorInput   `toml:"executor"              validate:"required"`
-	Indexer            *services.IndexerInput    `toml:"indexer"               validate:"required"`
-	Aggregator         *services.AggregatorInput `toml:"aggregator"            validate:"required"`
-	Blockchains        []*blockchain.Input       `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input               `toml:"nodesets"              validate:"required"`
-	CLNodesFundingETH  float64                   `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                   `toml:"cl_nodes_funding_link"`
+	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
+	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
+	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
+	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
+	Indexer            *services.IndexerInput      `toml:"indexer"               validate:"required"`
+	Aggregator         []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
+	Blockchains        []*blockchain.Input         `toml:"blockchains"           validate:"required"`
+	NodeSets           []*ns.Input                 `toml:"nodesets"              validate:"required"`
+	CLNodesFundingETH  float64                     `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64                     `toml:"cl_nodes_funding_link"`
 }
 
 func checkKeys(in *Cfg) error {
@@ -93,19 +94,26 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Pr
 }
 
 // NewEnvironment creates a new CCIP CCV environment either locally in Docker or remotely in K8s.
-func NewEnvironment() (*Cfg, error) {
+func NewEnvironment() (in *Cfg, err error) {
 	ctx := context.Background()
-	track := NewTimeTracker(Plog)
+	timeTrack := NewTimeTracker(Plog)
+
+	// track environment startup result and time using getDX app
+	defer func() {
+		dxTracker := initDxTracker()
+		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
+	}()
+
 	ctx = L.WithContext(ctx)
-	if err := framework.DefaultNetwork(nil); err != nil {
+	if err = framework.DefaultNetwork(nil); err != nil {
 		return nil, err
 	}
 
-	in, err := Load[Cfg](strings.Split(os.Getenv(EnvVarTestConfigs), ","))
+	in, err = Load[Cfg](strings.Split(os.Getenv(EnvVarTestConfigs), ","))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
-	if err := checkKeys(in); err != nil {
+	if err = checkKeys(in); err != nil {
 		return nil, err
 	}
 
@@ -116,35 +124,41 @@ func NewEnvironment() (*Cfg, error) {
 
 	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
-		impl, err := NewProductConfigurationFromNetwork(bc.Type)
+		var impl cciptestinterfaces.CCIP17ProductConfiguration
+		impl, err = NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return nil, err
 		}
 		impls = append(impls, impl)
 	}
 	for i, impl := range impls {
-		_, err := impl.DeployLocalNetwork(ctx, in.Blockchains[i])
+		_, err = impl.DeployLocalNetwork(ctx, in.Blockchains[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
 		}
 	}
 
+	for _, aggregatorInput := range in.Aggregator {
+		_, err = services.NewAggregator(aggregatorInput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
+		}
+	}
+
+	// start up the indexer after the aggregators are up to avoid spamming of errors
+	// in the logs when it starts before the aggregators are up.
 	_, err = services.NewIndexer(in.Indexer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 
-	_, err = services.NewAggregator(in.Aggregator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create aggregator service: %w", err)
-	}
-
-	track.Record("[infra] deploying blockchains")
+	timeTrack.Record("[infra] deploying blockchains")
 
 	clChainConfigs := make([]string, 0)
 	clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 	for i, impl := range impls {
-		clChainConfig, err := impl.ConfigureNodes(ctx, in.Blockchains[i])
+		var clChainConfig string
+		clChainConfig, err = impl.ConfigureNodes(ctx, in.Blockchains[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
 		}
@@ -156,16 +170,18 @@ func NewEnvironment() (*Cfg, error) {
 	}
 	Plog.Info().Msg("Nodes network configuration is generated")
 
-	track.Record("[changeset] configured nodes network")
+	timeTrack.Record("[changeset] configured nodes network")
 	_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
 	}
 
+	var selectors []uint64
+	var e *deployment.Environment
 	// the CLDF datastore is not initialized at this point because contracts are not deployed yet.
 	// it will get populated in the loop below.
 	in.CLDF.Init()
-	selectors, e, err := NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	selectors, e, err = NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	if err != nil {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
@@ -173,35 +189,40 @@ func NewEnvironment() (*Cfg, error) {
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		if err := impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
+		if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
 			return nil, err
 		}
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
+		var networkInfo chainsel.ChainDetails
+		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
 		if err != nil {
 			return nil, err
 		}
 		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deployed chain selector")
-		dsi, err := impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector)
+		var dsi datastore.DataStore
+		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector)
 		if err != nil {
 			return nil, err
 		}
-		addresses, err := dsi.Addresses().Fetch()
+		var addresses []datastore.AddressRef
+		addresses, err = dsi.Addresses().Fetch()
 		if err != nil {
 			return nil, err
 		}
-		a, err := json.Marshal(addresses)
+		var a []byte
+		a, err = json.Marshal(addresses)
 		if err != nil {
 			return nil, err
 		}
 		in.CLDF.AddAddresses(string(a))
-		if err := ds.Merge(dsi); err != nil {
+		if err = ds.Merge(dsi); err != nil {
 			return nil, err
 		}
 	}
 	e.DataStore = ds.Seal()
 
 	for i, impl := range impls {
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
+		var networkInfo chainsel.ChainDetails
+		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
 		if err != nil {
 			return nil, err
 		}
@@ -217,8 +238,8 @@ func NewEnvironment() (*Cfg, error) {
 		}
 	}
 
-	track.Record("[infra] deployed CL nodes")
-	track.Record("[changeset] deployed product contracts")
+	timeTrack.Record("[infra] deployed CL nodes")
+	timeTrack.Record("[changeset] deployed product contracts")
 
 	_, err = services.NewExecutor(in.Executor)
 	if err != nil {
@@ -239,9 +260,10 @@ func NewEnvironment() (*Cfg, error) {
 		Plog.Info().Str("Node", n.Node.ExternalURL).Send()
 	}
 
-	track.Print()
-	if err := PrintCLDFAddresses(in); err != nil {
+	timeTrack.Print()
+	if err = PrintCLDFAddresses(in); err != nil {
 		return nil, err
 	}
+
 	return in, Store(in)
 }

@@ -4,6 +4,12 @@ import './tools/lib/utils.justfile'
 default:
     just --list
 
+# Coverage exclusion regex for mockery-generated files
+# - mock_*.go files
+# - *_mocks directories
+# - mocks directories
+COVERAGE_EXCLUDE_REGEX := '(/mock_.*\.go:|/_mocks/.*:|/mocks/.*:)'
+
 install-protoc:
     sudo ./tools/bin/install-protoc.sh $VERSION_PROTOC
 
@@ -47,17 +53,25 @@ test: ensure-go
 test-coverage coverage_file="coverage.out":
     # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')
     go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
+    # Filter mockery-generated files (mock_*.go) from coverage profile
+    { head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E '{{COVERAGE_EXCLUDE_REGEX}}' || true; } > {{coverage_file}}.filtered
+    mv {{coverage_file}}.filtered {{coverage_file}}
 
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."
     go get github.com/smartcontractkit/chainlink-ccip@{{sha}}
     go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}}
     go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}}
+    go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment@{{sha}}
+    go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm@{{sha}}
 
     @echo "Bumping chainlink-ccip dependencies in build/devenv..."
-    (cd build/devenv && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}})
+    (cd build/devenv && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm@{{sha}})
 
     @just tidy
-
+    
 sh:
-    cd ./build/devenv && go run ./cmd/ccv sh
+    @just ccv sh
+
+ccv args="sh":
+    cd ./build/devenv && go run ./cmd/ccv {{args}}

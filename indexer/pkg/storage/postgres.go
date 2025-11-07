@@ -121,7 +121,7 @@ func (d *PostgresStorage) QueryCCVData(
 		WHERE timestamp >= $1 AND timestamp <= $2
 	`
 
-	args := []any{start, end}
+	args := []any{time.UnixMilli(start), time.UnixMilli(end)}
 	argCounter := 3
 
 	// Add source chain selector filter if provided
@@ -468,7 +468,7 @@ func (d *PostgresStorage) scanCCVData(row interface {
 		MessageID:             messageID,
 		SourceVerifierAddress: sourceVerifierAddress,
 		DestVerifierAddress:   destVerifierAddress,
-		Timestamp:             timestamp,
+		Timestamp:             time.UnixMilli(timestamp),
 		SourceChainSelector:   protocol.ChainSelector(sourceChainSelector),
 		DestChainSelector:     protocol.ChainSelector(destChainSelector),
 		Nonce:                 protocol.Nonce(nonce),

@@ -14,10 +14,11 @@ CREATE TABLE IF NOT EXISTS commit_verification_records (
     offramp_address TEXT NOT NULL,
     signature_r BYTEA NOT NULL DEFAULT '',
     signature_s BYTEA NOT NULL DEFAULT '',
-    ccv_node_data BYTEA NOT NULL,
-    verification_timestamp BIGINT NOT NULL,
+    ccv_node_data JSONB NOT NULL,
+    verification_timestamp TIMESTAMPTZ NOT NULL,
+    idempotency_key UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_verification UNIQUE (message_id, committee_id, signer_address, verification_timestamp)
+    CONSTRAINT unique_verification UNIQUE (message_id, committee_id, signer_address, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS commit_aggregated_reports (
@@ -26,16 +27,17 @@ CREATE TABLE IF NOT EXISTS commit_aggregated_reports (
     message_id TEXT NOT NULL,
     committee_id TEXT NOT NULL,
     verification_record_ids BIGINT[] NOT NULL,
-    report_data BYTEA NOT NULL,
+    winning_receipt_blobs JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unique_aggregated_report_sequence UNIQUE (message_id, committee_id, verification_record_ids)
 );
 
-CREATE TABLE IF NOT EXISTS block_checkpoints (
+CREATE TABLE IF NOT EXISTS chain_statuses (
     id BIGSERIAL PRIMARY KEY,
     client_id TEXT NOT NULL,
     chain_selector TEXT NOT NULL,
     finalized_block_height TEXT NOT NULL,
+    disabled BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     
@@ -52,8 +54,8 @@ END;
 $$ LANGUAGE plpgsql;
 -- +goose StatementEnd
 
-CREATE TRIGGER set_timestamp_block_checkpoints
-    BEFORE UPDATE ON block_checkpoints
+CREATE TRIGGER set_timestamp_chain_statuses
+    BEFORE UPDATE ON chain_statuses
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
@@ -66,23 +68,23 @@ CREATE INDEX IF NOT EXISTS idx_aggregated_latest ON commit_aggregated_reports(me
 -- Used by QueryAggregatedReports with time range
 CREATE INDEX IF NOT EXISTS idx_aggregated_reports_time_query ON commit_aggregated_reports(committee_id, created_at, message_id, seq_num DESC);
 
--- Used by Checkpoint APIs
-CREATE INDEX IF NOT EXISTS idx_block_checkpoints_client_id ON block_checkpoints(client_id);
-CREATE INDEX IF NOT EXISTS idx_block_checkpoints_chain_selector ON block_checkpoints(chain_selector);
-CREATE INDEX IF NOT EXISTS idx_block_checkpoints_updated_at ON block_checkpoints(updated_at);
+-- Used by Chain Status APIs
+CREATE INDEX IF NOT EXISTS idx_chain_statuses_client_id ON chain_statuses(client_id);
+CREATE INDEX IF NOT EXISTS idx_chain_statuses_chain_selector ON chain_statuses(chain_selector);
+CREATE INDEX IF NOT EXISTS idx_chain_statuses_updated_at ON chain_statuses(updated_at);
 
 
 
 -- +goose Down
-DROP INDEX IF EXISTS idx_block_checkpoints_updated_at;
-DROP INDEX IF EXISTS idx_block_checkpoints_chain_selector;
-DROP INDEX IF EXISTS idx_block_checkpoints_client_id;
+DROP INDEX IF EXISTS idx_chain_statuses_updated_at;
+DROP INDEX IF EXISTS idx_chain_statuses_chain_selector;
+DROP INDEX IF EXISTS idx_chain_statuses_client_id;
 DROP INDEX IF EXISTS idx_aggregated_latest;
 DROP INDEX IF EXISTS idx_verification_by_id;
 DROP INDEX IF EXISTS idx_verification_latest;
 DROP INDEX IF EXISTS idx_aggregated_reports_time_query;
 
-DROP TABLE IF EXISTS block_checkpoints;
+DROP TABLE IF EXISTS chain_statuses;
 DROP TABLE IF EXISTS commit_aggregated_reports;
 DROP TABLE IF EXISTS commit_verification_records;
 

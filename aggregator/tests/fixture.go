@@ -2,18 +2,43 @@ package tests
 
 import (
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"encoding/binary"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
+
+// DeriveUUIDFromString creates a deterministic UUID from a string for testing.
+func DeriveUUIDFromString(input string) string {
+	hash := sha256.Sum256([]byte(input))
+	// Use first 16 bytes to create a UUID
+	return uuid.UUID(hash[:16]).String()
+}
+
+// DeriveUUIDFromTimestamp creates a deterministic UUID from a timestamp for testing.
+func DeriveUUIDFromTimestamp(timestamp int64) string {
+	buf := make([]byte, 8)
+	// Safe conversion: use absolute value to avoid issues with negative timestamps
+	var ts uint64
+	if timestamp < 0 {
+		ts = uint64(-timestamp)
+	} else {
+		ts = uint64(timestamp)
+	}
+	binary.LittleEndian.PutUint64(buf, ts)
+	hash := sha256.Sum256(buf)
+	return uuid.UUID(hash[:16]).String()
+}
 
 func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
 	// Generate valid Ethereum addresses using private keys
@@ -97,6 +122,13 @@ func WithCustomTimestamp(timestamp int64) MessageWithCCVNodeDataOption {
 	}
 }
 
+func WithReceiptBlobs(receiptBlobs []*pb.ReceiptBlob) MessageWithCCVNodeDataOption {
+	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
+		m.ReceiptBlobs = receiptBlobs
+		return m
+	}
+}
+
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
 	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
@@ -110,7 +142,10 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		binary.BigEndian.PutUint64(ccvArgs, 123) // dummy nonce
 
 		// Use SignV27 for proper signature creation and normalization
-		r32, s32, signerAddr, err := protocol.SignV27(messageID[:], signer.key)
+		require.Len(t, m.BlobData, 4, "blob data must be at least 4 bytes to account for version")
+		hash, err := committee.NewSignableHash(messageID, m.BlobData)
+		require.NoError(t, err, "failed to create signed hash")
+		r32, s32, signerAddr, err := protocol.SignV27(hash[:], signer.key)
 		require.NoError(t, err, "failed to sign message")
 
 		// Create signature data with actual signer address
@@ -133,6 +168,9 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 
+	// blob data must be at least 4 bytes to account for version
+	blobData := []byte{0x01, 0x02, 0x03, 0x04}
+
 	ccvNodeData := &pb.MessageWithCCVNodeData{
 		MessageId:             messageID[:],
 		SourceVerifierAddress: sourceVerifierAddress,
@@ -146,6 +184,7 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 			OffRampAddressLength: uint32(message.OffRampAddressLength),
 			OffRampAddress:       message.OffRampAddress[:],
 			Finality:             uint32(message.Finality),
+			GasLimit:             message.GasLimit,
 			SenderLength:         uint32(message.SenderLength),
 			Sender:               message.Sender[:],
 			ReceiverLength:       uint32(message.ReceiverLength),
@@ -157,13 +196,13 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 			DataLength:           uint32(message.DataLength),
 			Data:                 message.Data[:],
 		},
-		BlobData:  []byte("test blob data"),
+		BlobData:  blobData,
 		CcvData:   []byte("test ccv data"),
-		Timestamp: time.Now().UnixMicro(),
+		Timestamp: time.Now().UnixMilli(),
 		ReceiptBlobs: []*pb.ReceiptBlob{
 			{
 				Issuer: sourceVerifierAddress,
-				Blob:   []byte("test blob data"),
+				Blob:   blobData,
 			},
 		},
 	}
@@ -171,4 +210,20 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 		ccvNodeData = opt(ccvNodeData)
 	}
 	return ccvNodeData
+}
+
+// NewWriteCommitCCVNodeDataRequest creates a new WriteCommitCCVNodeDataRequest with a generated idempotency key.
+func NewWriteCommitCCVNodeDataRequest(ccvNodeData *pb.MessageWithCCVNodeData) *pb.WriteCommitCCVNodeDataRequest {
+	return &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData:    ccvNodeData,
+		IdempotencyKey: uuid.New().String(),
+	}
+}
+
+// NewWriteCommitCCVNodeDataRequestWithKey creates a new WriteCommitCCVNodeDataRequest with a specific idempotency key.
+func NewWriteCommitCCVNodeDataRequestWithKey(ccvNodeData *pb.MessageWithCCVNodeData, idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest {
+	return &pb.WriteCommitCCVNodeDataRequest{
+		CcvNodeData:    ccvNodeData,
+		IdempotencyKey: idempotencyKey,
+	}
 }

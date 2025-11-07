@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"time"
 )
 
 // Constants for CCIP v1.7.
@@ -154,6 +155,7 @@ type Message struct {
 	DestChainSelector    ChainSelector  `json:"dest_chain_selector"`
 	Nonce                Nonce          `json:"nonce"`
 	Finality             uint16         `json:"finality"`
+	GasLimit             uint32         `json:"gas_limit"`
 	DestBlobLength       uint16         `json:"dest_blob_length"`
 	TokenTransferLength  uint16         `json:"token_transfer_length"`
 	DataLength           uint16         `json:"data_length"`
@@ -192,6 +194,9 @@ func (m *Message) Encode() ([]byte, error) {
 
 	// User provided data
 	if err := binary.Write(&buf, binary.BigEndian, m.Finality); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, m.GasLimit); err != nil {
 		return nil, err
 	}
 
@@ -281,6 +286,11 @@ func DecodeMessage(data []byte) (*Message, error) {
 	// Read finality
 	if err := binary.Read(reader, binary.BigEndian, &msg.Finality); err != nil {
 		return nil, fmt.Errorf("failed to read finality: %w", err)
+	}
+
+	// Read gas limit
+	if err := binary.Read(reader, binary.BigEndian, &msg.GasLimit); err != nil {
+		return nil, fmt.Errorf("failed to read gas limit: %w", err)
 	}
 
 	// Read sender
@@ -384,7 +394,7 @@ type CCVData struct {
 	Nonce                 Nonce             `json:"nonce"`
 	SourceChainSelector   ChainSelector     `json:"source_chain_selector"`
 	DestChainSelector     ChainSelector     `json:"dest_chain_selector"`
-	Timestamp             int64             `json:"timestamp"`
+	Timestamp             time.Time         `json:"timestamp"`
 	MessageID             Bytes32           `json:"message_id"`
 }
 
@@ -397,7 +407,8 @@ type QueryResponse struct {
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
 type CCVNodeDataWriter interface {
 	// WriteCCVNodeData stores multiple CCV node data entries in the offchain storage
-	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData) error
+	// idempotencyKeys should have the same length as ccvDataList, with each key corresponding to the CCVData at the same index
+	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData, idempotencyKeys []string) error
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.
@@ -421,6 +432,16 @@ type DisconnectableReader interface {
 	// ShouldDisconnect returns true if this reader should be disconnected or no longer used.
 	// This method should be called after each ReadCCVData call to check the readers validity.
 	ShouldDisconnect() bool
+}
+
+// VerifierResultsAPI defines the interface for the public API to interact with verifiers
+// It provides a singular API for offchain storage lookups by providing a batch endpoint
+//
+// Different transport layers (REST, S3) might not support batch lookups however this
+// responsibility should be delegated to the underlying implementation.
+type VerifierResultsAPI interface {
+	// GetVerifications retrieves verifications for a set of provided messages.
+	GetVerifications(ctx context.Context, messageIDs []Bytes32) (map[Bytes32]CCVData, error)
 }
 
 // Helper functions for creating empty/default values
@@ -447,13 +468,11 @@ func NewMessage(
 	nonce Nonce,
 	onRampAddress, offRampAddress UnknownAddress,
 	finality uint16,
+	gasLimit uint32,
 	sender, receiver UnknownAddress,
 	destBlob, data []byte,
 	tokenTransfer *TokenTransfer,
 ) (*Message, error) {
-	if tokenTransfer == nil {
-		tokenTransfer = NewEmptyTokenTransfer()
-	}
 	if len(onRampAddress) > math.MaxUint8 {
 		return nil, fmt.Errorf("onRampAddress length exceeds maximum value")
 	}
@@ -466,7 +485,10 @@ func NewMessage(
 	if len(receiver) > math.MaxUint8 {
 		return nil, fmt.Errorf("receiver length exceeds maximum value")
 	}
-	tokenTransferBytes := tokenTransfer.Encode()
+	tokenTransferBytes := make([]byte, 0)
+	if tokenTransfer != nil {
+		tokenTransferBytes = tokenTransfer.Encode()
+	}
 	if len(tokenTransferBytes) > math.MaxUint8 {
 		return nil, fmt.Errorf("tokenTransferBytes length exceeds maximum value")
 	}
@@ -484,6 +506,7 @@ func NewMessage(
 		OffRampAddressLength: uint8(len(offRampAddress)),
 		OffRampAddress:       offRampAddress.Bytes(),
 		Finality:             finality,
+		GasLimit:             gasLimit,
 		SenderLength:         uint8(len(sender)),
 		Sender:               sender.Bytes(),
 		ReceiverLength:       uint8(len(receiver)),
