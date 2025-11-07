@@ -535,7 +535,15 @@ var sendCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		ctx = ccv.Plog.WithContext(ctx)
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+
+		// Read the env flag, default to "out"
+		envName, err := cmd.Flags().GetString("env")
+		if err != nil {
+			return fmt.Errorf("failed to parse 'env' flag: %w", err)
+		}
+		envFile := fmt.Sprintf("env-%s.toml", envName)
+
+		in, err := ccv.LoadOutput[ccv.Cfg](envFile)
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
@@ -676,6 +684,7 @@ func init() {
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
 	rootCmd.AddCommand(sendCmd)
+	sendCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)

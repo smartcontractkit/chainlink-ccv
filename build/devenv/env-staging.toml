@@ -1,0 +1,39 @@
+[cldf]
+addresses = ['[{"address":"0x8B3d9019F5D749dF0c861a6f85bB9A0AEA89626F","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"WETH","version":"1.0.0"},{"address":"0x3AAF354026bB0dA99713033EC53d6C768a279473","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"LINK","version":"1.0.0"},{"address":"0xAe2Bef43D07214D335C5889F9C540AED06bdfbBa","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"RMNRemote","version":"1.6.0"},{"address":"0x7E9Ba2Ec09b0673208F8D25ec1C04d7e1f8aC779","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"RMNProxy","version":"1.0.0"},{"address":"0x08eBABEdB6c8294b64ed82fe4Cc7deF23547A876","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"Router","version":"1.2.0"},{"address":"0xFa5f24a06AC986964ce7838C0639055e58468201","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"TokenAdminRegistry","version":"1.5.0"},{"address":"0x571CF0d013e1e52e2aA1835DAC299bfD149E8334","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"FeeQuoter","version":"1.7.0"},{"address":"0x790A1c1D476F5E87CC585f30d9f637734CDBE054","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"OffRamp","version":"1.7.0"},{"address":"0x710651Fc58f7D868b513af0114CA655ACA447Fef","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"OnRamp","version":"1.7.0"},{"address":"0x76924d7205Bd5979B32bc286F13982D86e738c93","chainSelector":3676871237479449268,"labels":[],"qualifier":"CLL","type":"CommitteeVerifier","version":"1.7.0"},{"address":"0x7d4b7c2461C6611aEa20b9b48b09e5c949a46960","chainSelector":3676871237479449268,"labels":[],"qualifier":"CLL","type":"CommitteeVerifierResolver","version":"1.7.0"},{"address":"0x28b3d462006b9F067EE6E78FFd05bF4Aac8f7b0b","chainSelector":3676871237479449268,"labels":[],"qualifier":"CLL","type":"CommitteeVerifierResolverProxy","version":"1.7.0"},{"address":"0xe86DdF190E8B1aBDc936085b36c27A38f2070502","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"Executor","version":"1.7.0"},{"address":"0x9C75fA5cF7e884d4534Ac5f2fb911b8c6D26f56F","chainSelector":3676871237479449268,"labels":[],"qualifier":"","type":"ExecutorProxy","version":"1.7.0"},{"address":"0x35A674BA8A77bF41d5Caf53784F214FdEb2175a7","chainSelector":3676871237479449268,"labels":[],"qualifier":"default","type":"MockReceiver","version":"1.7.0"},{"address":"0x5EDF2b918379976A3fa580456CE035cca9a2786a","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"WETH","version":"1.0.0"},{"address":"0x73376f8B21e0aB140D78Fa9786dA5Fd9ba805C31","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"LINK","version":"1.0.0"},{"address":"0x286b34623860f702eb5AddD3d0050897ce29Ed48","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"RMNRemote","version":"1.6.0"},{"address":"0xd1f0cCCaEd19737719B11E2fEfEb1D7D508deb96","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"RMNProxy","version":"1.0.0"},{"address":"0xC69De81dc144A2dE7BD717B03916D701DD1FD89B","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"Router","version":"1.2.0"},{"address":"0x6250c3c9a0699c5B121257e66008607812d5F650","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"TokenAdminRegistry","version":"1.5.0"},{"address":"0xFA819A58325F1CEB042719A60E35a8829EFB3167","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"FeeQuoter","version":"1.7.0"},{"address":"0xF1784B97dcf1Aa38BE26B91B034E19B116cEc937","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"OffRamp","version":"1.7.0"},{"address":"0x3C23F82100763e583D4D8f7D18299AB21ed74edF","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"OnRamp","version":"1.7.0"},{"address":"0xe8e4af3ABF41E9d134c1445b8dd7fF6354091df5","chainSelector":14767482510784806043,"labels":[],"qualifier":"CLL","type":"CommitteeVerifier","version":"1.7.0"},{"address":"0x5a2c78986b11445c1c747C8f991d862BaDd2eF9b","chainSelector":14767482510784806043,"labels":[],"qualifier":"CLL","type":"CommitteeVerifierResolver","version":"1.7.0"},{"address":"0x24564430Ec89b80Aa836Bf16F833eDd6F205B7f4","chainSelector":14767482510784806043,"labels":[],"qualifier":"CLL","type":"CommitteeVerifierResolverProxy","version":"1.7.0"},{"address":"0x7a57b1fEb548917B8484396F2A331E184f80e06e","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"Executor","version":"1.7.0"},{"address":"0x4fB839a3097fBA05437732d9CDa3705e663991De","chainSelector":14767482510784806043,"labels":[],"qualifier":"","type":"ExecutorProxy","version":"1.7.0"},{"address":"0x5891cff87f8FD96Eb16B8a2DCfE40f931640a06D","chainSelector":14767482510784806043,"labels":[],"qualifier":"default","type":"MockReceiver","version":"1.7.0"}]']
+
+
+[[blockchains]]
+container_name = "blockchain-src"
+chain_id = "43113"
+type = "anvil"
+
+[blockchains.out]
+type = "anvil"
+use_cache = true
+chain_id = "43113"
+family = 'evm'
+container_name = 'fuji'
+
+[[blockchains.out.nodes]]
+http_url = "https://rpcs.cldev.sh/avalanche/fuji"
+internal_http_url = "https://rpcs.cldev.sh/avalanche/fuji"
+internal_ws_url = "wss://rpcs.cldev.sh/avalanche/fuji"
+ws_url = "wss://rpcs.cldev.sh/avalanche/fuji"
+
+[[blockchains]]
+container_name = "blockchain-dst"
+chain_id = "57054"
+type = "anvil"
+
+[blockchains.out]
+type = "anvil"
+use_cache = true
+chain_id = "57054"
+family = 'evm'
+container_name = 'fuji'
+
+[[blockchains.out.nodes]]
+http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+internal_http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+internal_ws_url = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+ws_url = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
