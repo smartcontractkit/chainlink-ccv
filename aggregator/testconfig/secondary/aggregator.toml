@@ -47,7 +47,7 @@ pyroscope_url = "http://pyroscope:4040"
   [committees.default]
     [committees.default.quorumConfigs]
       [committees.default.quorumConfigs.12922642891491394802]
-        committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
         threshold = 2
 
         [[committees.default.quorumConfigs.12922642891491394802.signers]]
@@ -58,7 +58,7 @@ pyroscope_url = "http://pyroscope:4040"
           participantID = "default-participant2"
           addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
       [committees.default.quorumConfigs.3379446385462418246]
-        committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
         threshold = 2
 
         [[committees.default.quorumConfigs.3379446385462418246.signers]]
@@ -69,7 +69,7 @@ pyroscope_url = "http://pyroscope:4040"
           participantID = "default-participant2"
           addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
       [committees.default.quorumConfigs.4793464827907405086]
-        committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
         threshold = 2
 
         [[committees.default.quorumConfigs.4793464827907405086.signers]]
@@ -80,9 +80,9 @@ pyroscope_url = "http://pyroscope:4040"
           participantID = "default-participant2"
           addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
     [committees.default.sourceVerifierAddresses]
-      12922642891491394802 = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-      3379446385462418246 = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-      4793464827907405086 = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+      12922642891491394802 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+      3379446385462418246 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+      4793464827907405086 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
 
 [Monitoring]
 Enabled = true

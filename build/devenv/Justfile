@@ -70,6 +70,9 @@ rebuild-all:
     @just build-docker-dev
     ccv u
 
+smoke-test:
+    cd tests/e2e && go test -v -run TestE2ESmoke
+
 # Install and authenticate with GH CLI
 setup-gh:
     #!/usr/bin/env bash
