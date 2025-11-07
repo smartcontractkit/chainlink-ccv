@@ -23,12 +23,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
+	burn_mint_erc677_ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
@@ -42,6 +44,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/burn_mint_erc677"
 	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/erc20"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -163,6 +166,16 @@ func AllTokenCombinations() []TokenCombination {
 			sourcePoolVersion:       "1.6.1",
 			destPoolType:            string(burn_mint_token_pool.ContractType),
 			destPoolVersion:         "1.6.1",
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 lock -> 1.7.0 release
+			sourcePoolType:          string(lock_release_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			destPoolType:            string(lock_release_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  3, // default CCV, token pool, executor
 			expectedVerifierResults: 1, // default CCV
 		},
@@ -1245,7 +1258,7 @@ func (m *CCIP17EVM) deployTokenAndPool(
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
 	runningDS *datastore.MemoryDataStore,
 	selector uint64,
-	tokenRef datastore.AddressRef,
+	tokenPoolRef datastore.AddressRef,
 ) error {
 	chain, ok := env.BlockChains.EVMChains()[selector]
 	if !ok {
@@ -1267,15 +1280,15 @@ func (m *CCIP17EVM) deployTokenAndPool(
 				chain.DeployerKey.From: deployerBalance,
 			},
 			TokenInfo: tokens.TokenInfo{
-				Name:      tokenRef.Qualifier,
+				Name:      tokenPoolRef.Qualifier,
 				Decimals:  DefaultDecimals,
 				MaxSupply: maxSupply,
 			},
 			DeployTokenPoolCfg: evmchangesets.DeployTokenPoolCfg{
 				ChainSel:           selector,
-				TokenPoolType:      tokenRef.Type,
-				TokenPoolVersion:   tokenRef.Version,
-				TokenSymbol:        tokenRef.Qualifier,
+				TokenPoolType:      tokenPoolRef.Type,
+				TokenPoolVersion:   tokenPoolRef.Version,
+				TokenSymbol:        tokenPoolRef.Qualifier,
 				LocalTokenDecimals: DefaultDecimals,
 				Router: datastore.AddressRef{
 					Type:    datastore.ContractType(routeroperations.ContractType),
@@ -1285,12 +1298,30 @@ func (m *CCIP17EVM) deployTokenAndPool(
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenRef.Qualifier, err)
+		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenPoolRef.Qualifier, err)
 	}
 
 	err = runningDS.Merge(out.DataStore.Seal())
 	if err != nil {
-		return fmt.Errorf("failed to merge datastore for %s token: %w", tokenRef.Qualifier, err)
+		return fmt.Errorf("failed to merge datastore for %s token: %w", tokenPoolRef.Qualifier, err)
+	}
+
+	tokenPoolRef, err = runningDS.Addresses().Get(datastore.NewAddressRefKey(selector, tokenPoolRef.Type, tokenPoolRef.Version, tokenPoolRef.Qualifier))
+	if err != nil {
+		return fmt.Errorf("failed to get deployed token pool ref for %s token: %w", tokenPoolRef.Qualifier, err)
+	}
+
+	if tokenPoolRef.Type == datastore.ContractType(lock_release_token_pool.ContractType) {
+		err = m.fundLockReleaseTokenPool(
+			env,
+			selector,
+			tokenPoolRef,
+			new(big.Int).Mul(deployerBalance, big.NewInt(10)),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fund lock-release token pool for %s token: %w", tokenPoolRef.Qualifier, err)
+		}
+		return nil
 	}
 
 	return nil
@@ -1588,4 +1619,62 @@ func GetContractAddrForSelector(addresses []string, selector uint64, contractTyp
 		}
 	}
 	return contractAddr, nil
+}
+
+// fundLockReleaseTokenPool funds a lock/release token pool by granting mint role and minting tokens
+func (m *CCIP17EVM) fundLockReleaseTokenPool(
+	env *deployment.Environment,
+	selector uint64,
+	tokenPoolRef datastore.AddressRef,
+	amount *big.Int,
+) error {
+	poolType := datastore.ContractType(lock_release_token_pool.ContractType)
+	qualifier := tokenPoolRef.Qualifier
+	// Get token address reference
+	tokenRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(burn_mint_erc677_ops.ContractType), semver.MustParse(burn_mint_erc677_ops.Deploy.Version()), qualifier))
+	if err != nil {
+		return fmt.Errorf("failed to get token address for %s %s pool: %w", qualifier, poolType, err)
+	}
+
+	txOps := env.BlockChains.EVMChains()[selector].DeployerKey
+	client := env.BlockChains.EVMChains()[selector].Client
+
+	// Create token contract instance
+	tokenAddress := common.HexToAddress(tokenRef.Address)
+	token, err := burn_mint_erc677.NewBurnMintERC677(tokenAddress, client)
+	if err != nil {
+		return fmt.Errorf("failed to create ERC20 token instance: %w", err)
+	}
+
+	// Grant mint role to deployer
+	tx, err := token.GrantMintRole(txOps, txOps.From)
+	if err != nil {
+		return fmt.Errorf("failed to create grant mint role transaction: %w", err)
+	}
+
+	// Wait for grant mint role transaction to be mined
+	receipt, err := bind.WaitMined(context.Background(), client, tx.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to wait for grant mint role transaction to be mined: %w", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("grant mint role transaction failed with status: %d", receipt.Status)
+	}
+
+	// Mint tokens to the token pool
+	tx, err = token.Mint(txOps, common.HexToAddress(tokenPoolRef.Address), amount)
+	if err != nil {
+		return fmt.Errorf("failed to create mint transaction: %w", err)
+	}
+
+	// Wait for mint transaction to be mined
+	receipt, err = bind.WaitMined(context.Background(), client, tx.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to wait for mint transaction to be mined: %w", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("mint transaction failed with status: %d", receipt.Status)
+	}
+
+	return nil
 }
