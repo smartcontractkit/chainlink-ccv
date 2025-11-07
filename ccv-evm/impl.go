@@ -170,7 +170,6 @@ func AllTokenCombinations() []TokenCombination {
 		{ // 1.6.1 burn -> 1.7.0 mint
 			sourcePoolType:          string(burn_mint_token_pool.ContractType),
 			sourcePoolVersion:       "1.6.1",
-			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
 			destPoolType:            string(burn_mint_token_pool.ContractType),
 			destPoolVersion:         "1.7.0",
 			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
@@ -183,7 +182,6 @@ func AllTokenCombinations() []TokenCombination {
 			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
 			destPoolType:            string(burn_mint_token_pool.ContractType),
 			destPoolVersion:         "1.6.1",
-			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  3, // default CCV, token pool, executor
 			expectedVerifierResults: 1, // default CCV
 		},
