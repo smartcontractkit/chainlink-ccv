@@ -1220,10 +1220,10 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 
 	for _, combo := range AllTokenCombinations() {
 		// For any given token combination, every chain needs to support the source and destination pools.
-		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef().Qualifier); err != nil {
+		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef()); err != nil {
 			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.SourcePoolAddressRef().Qualifier, err)
 		}
-		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.DestPoolAddressRef().Qualifier); err != nil {
+		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.DestPoolAddressRef()); err != nil {
 			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
 	}
@@ -1236,7 +1236,7 @@ func (m *CCIP17EVM) deployTokenAndPool(
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
 	runningDS *datastore.MemoryDataStore,
 	selector uint64,
-	tokenSymbol string,
+	tokenRef datastore.AddressRef,
 ) error {
 	chain, ok := env.BlockChains.EVMChains()[selector]
 	if !ok {
@@ -1258,15 +1258,15 @@ func (m *CCIP17EVM) deployTokenAndPool(
 				chain.DeployerKey.From: deployerBalance,
 			},
 			TokenInfo: tokens.TokenInfo{
-				Name:      tokenSymbol,
+				Name:      tokenRef.Qualifier,
 				Decimals:  DefaultDecimals,
 				MaxSupply: maxSupply,
 			},
 			DeployTokenPoolCfg: evmchangesets.DeployTokenPoolCfg{
 				ChainSel:           selector,
-				TokenPoolType:      datastore.ContractType(burn_mint_token_pool.ContractType),
-				TokenPoolVersion:   semver.MustParse(TokenPoolVersion),
-				TokenSymbol:        tokenSymbol,
+				TokenPoolType:      tokenRef.Type,
+				TokenPoolVersion:   tokenRef.Version,
+				TokenSymbol:        tokenRef.Qualifier,
 				LocalTokenDecimals: DefaultDecimals,
 				Router: datastore.AddressRef{
 					Type:    datastore.ContractType(routeroperations.ContractType),
@@ -1276,12 +1276,12 @@ func (m *CCIP17EVM) deployTokenAndPool(
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenSymbol, err)
+		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenRef.Qualifier, err)
 	}
 
 	err = runningDS.Merge(out.DataStore.Seal())
 	if err != nil {
-		return fmt.Errorf("failed to merge datastore for %s token: %w", tokenSymbol, err)
+		return fmt.Errorf("failed to merge datastore for %s token: %w", tokenRef.Qualifier, err)
 	}
 
 	return nil
