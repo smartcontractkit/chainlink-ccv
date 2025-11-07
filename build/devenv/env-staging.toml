@@ -33,7 +33,7 @@ family = 'evm'
 container_name = 'fuji'
 
 [[blockchains.out.nodes]]
-http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
-internal_http_url = "https://sonic-testnet-cll.public.linkpool.io/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
-internal_ws_url = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
-ws_url = "wss://sonic-testnet-cll.public.linkpool.io/ws/3owejyXFgcEuRNLU0XVOVhsFKX7etCOC"
+http_url = "https://rpcs.cldev.sh/sonic/blaze"
+internal_http_url = "https://rpcs.cldev.sh/sonic/blaze"
+internal_ws_url = "wss://rpcs.cldev.sh/sonic/blaze"
+ws_url = "wss://rpcs.cldev.sh/sonic/blaze"
