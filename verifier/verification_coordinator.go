@@ -204,6 +204,7 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
+	// TODO: If aggregator is not healthy don't start verifier
 
 	if vc.running {
 		return fmt.Errorf("coordinator already running")
@@ -212,9 +213,36 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	vc.cancel = cancel
 
+	// Check for disabled chains before initialization
+	statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
+
+	if vc.chainStatusManager != nil {
+		// Gather all configured chain selectors
+		allSelectors := make([]protocol.ChainSelector, 0, len(vc.sourceReaders))
+		for selector := range vc.sourceReaders {
+			allSelectors = append(allSelectors, selector)
+		}
+
+		// Make single batch call to read all chain statuses
+		var err error
+		statusMap, err = vc.chainStatusManager.ReadChainStatuses(ctx, allSelectors)
+		if err != nil {
+			vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains",
+				"error", err)
+		}
+	}
+
 	// Initialize source states with reorg detection
 	for chainSelector, sourceReader := range vc.sourceReaders {
 		if sourceReader == nil {
+			continue
+		}
+
+		// Check if chain is disabled
+		if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
+			vc.lggr.Warnw("⚠️ Chain is disabled in aggregator DB, skipping initialization",
+				"chain", chainSelector,
+				"blockHeight", chainStatus.BlockNumber)
 			continue
 		}
 
@@ -951,10 +979,8 @@ func (vc *Coordinator) handleReorg(
 	// Note: For regular reorgs, the common ancestor is always >= last chain status,
 	// so ResetToBlock will update in-memory position without writing chain status.
 	// Periodic chain status chain statuses will naturally advance from this point.
-	resetCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 
-	if err := state.reader.ResetToBlock(resetCtx, commonAncestor); err != nil {
+	if err := state.reader.ResetToBlock(commonAncestor); err != nil {
 		vc.lggr.Errorw("Failed to reset source reader after reorg",
 			"error", err,
 			"chain", chainSelector,
@@ -985,13 +1011,16 @@ func (vc *Coordinator) handleFinalityViolation(
 	state *sourceState,
 	violationStatus protocol.ChainStatus,
 ) {
+	// Set reorgInProgress flag to stop new tasks from being added
+	state.reorgInProgress.Store(true)
+	defer state.reorgInProgress.Store(false)
 	chainSelector := state.chainSelector
 
 	vc.lggr.Errorw("FINALITY VIOLATION DETECTED - stopping chain reader immediately",
 		"chain", chainSelector,
 		"type", violationStatus.Type.String())
 
-	// 1. Flush ALL pending tasks for this chain (per-chain queue)
+	// Flush ALL pending tasks for this chain (per-chain queue)
 	state.pendingMu.Lock()
 	flushedCount := len(state.pendingTasks)
 	state.pendingTasks = nil // Clear entire queue
@@ -1011,6 +1040,29 @@ func (vc *Coordinator) handleFinalityViolation(
 		vc.lggr.Errorw("Source reader stopped due to finality violation - manual intervention required",
 			"chain", chainSelector)
 	}
+
+	// Write disabled chain status to aggregator DB
+	// Use blockHeight 0 since there's no safe block to reset to
+	if vc.chainStatusManager != nil {
+		blockHeight := big.NewInt(0)
+		err := vc.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector: chainSelector,
+				BlockNumber:   blockHeight,
+				Disabled:      true,
+			},
+		})
+		if err != nil {
+			vc.lggr.Errorw("Failed to write disabled chain status",
+				"error", err,
+				"chain", chainSelector)
+		} else {
+			vc.lggr.Infow("Wrote disabled chain status to aggregator DB due to finality violation",
+				"chain", chainSelector,
+				"blockHeight", blockHeight)
+		}
+	}
+
 	// TODO: Use Pause() instead of Stop() when implemented (separate PR)
 
 	// TODO: These methods need to be added to the monitoring interface
