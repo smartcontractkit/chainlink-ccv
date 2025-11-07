@@ -195,36 +195,18 @@ func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
 // so no chainStatus write is needed - periodic chain status chain statuses will naturally advance.
 // For finality violations, the reset block falls below the last chain status, so we must
 // immediately persist the new chain status to ensure safe restart.
-func (r *SourceReaderService) ResetToBlock(ctx context.Context, block uint64) error {
+func (r *SourceReaderService) ResetToBlock(block uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	resetBlock := new(big.Int).SetUint64(block)
-
-	// Check if we need to write chain status (resetBlock < lastChainStatusBlock)
-	// This only happens during finality violations where we reset below finalized range
-	needsChainStatusWrite := r.lastChainStatusBlock != nil && resetBlock.Cmp(r.lastChainStatusBlock) < 0
 
 	r.logger.Infow("Resetting source reader to block",
 		"chainSelector", r.chainSelector,
 		"fromBlock", r.lastProcessedBlock,
 		"toBlock", resetBlock,
 		"lastChainStatus", r.lastChainStatusBlock,
-		"needsChainStatusWrite", needsChainStatusWrite,
 		"resetVersion", r.resetVersion.Load()+1)
-
-	// Write chain status FIRST if needed (before updating in-memory state)
-	// This ensures restart safety for finality violations
-	if needsChainStatusWrite && r.chainStatusManager != nil {
-		if err := r.chainStatusManager.WriteChainStatus(ctx, r.chainSelector, resetBlock); err != nil {
-			return fmt.Errorf("failed to persist reset chainStatus: %w", err)
-		}
-		r.logger.Infow("Reset chainStatus persisted successfully",
-			"chainSelector", r.chainSelector,
-			"chainStatusBlock", resetBlock.String())
-		r.lastChainStatusBlock = new(big.Int).Set(resetBlock)
-		r.lastChainStatusTime = time.Now()
-	}
 
 	// Increment version to signal in-flight cycles that their read is stale
 	r.resetVersion.Add(1)
@@ -265,7 +247,7 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 }
 
 // readChainStatusWithRetries tries to read chain status from aggregator with exponential backoff.
-func (r *SourceReaderService) readChainStatusWithRetries(ctx context.Context, maxAttempts int) (*big.Int, error) {
+func (r *SourceReaderService) readChainStatusWithRetries(ctx context.Context, maxAttempts int) (*protocol.ChainStatusInfo, error) {
 	if r.chainStatusManager == nil {
 		r.logger.Debugw("No chainStatus manager available for chainStatus reading")
 		return nil, nil
@@ -273,8 +255,10 @@ func (r *SourceReaderService) readChainStatusWithRetries(ctx context.Context, ma
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		chainStatus, err := r.chainStatusManager.ReadChainStatus(ctx, r.chainSelector)
+		statusMap, err := r.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{r.chainSelector})
 		if err == nil {
+			// Extract status for this chain from the map
+			chainStatus := statusMap[r.chainSelector]
 			return chainStatus, nil
 		}
 
@@ -405,9 +389,10 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 	}
 
 	// Resume from chain status + 1
-	startBlock := new(big.Int).Add(chainStatus, big.NewInt(1))
+	startBlock := new(big.Int).Add(chainStatus.BlockNumber, big.NewInt(1))
 	r.logger.Infow("Resuming from chainStatus",
-		"chainStatusBlock", chainStatus.String(),
+		"chainStatusBlock", chainStatus.BlockNumber.String(),
+		"disabled", chainStatus.Disabled,
 		"startBlock", startBlock.String())
 
 	return startBlock, nil
@@ -505,7 +490,13 @@ func (r *SourceReaderService) updateChainStatus(ctx context.Context, lastProcess
 	}
 
 	// Write chain status (fire-and-forget, just log errors)
-	err = r.chainStatusManager.WriteChainStatus(ctx, r.chainSelector, chainStatusBlock)
+	err = r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+		{
+			ChainSelector: r.chainSelector,
+			BlockNumber:   chainStatusBlock,
+			Disabled:      false,
+		},
+	})
 	if err != nil {
 		r.logger.Errorw("Failed to write chainStatus",
 			"error", err,
