@@ -61,7 +61,7 @@ func (c *Configuration) GetBackoffDuration() time.Duration {
 func (c *Configuration) GetPollingInterval() time.Duration {
 	d, err := time.ParseDuration(c.PollingInterval)
 	if err != nil {
-		return 5 * time.Second
+		return 1 * time.Second
 	}
 	return d
 }

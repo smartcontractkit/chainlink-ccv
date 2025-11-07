@@ -64,18 +64,21 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	}
 
 	// Convert first 8 bytes of hash to uint64 for consistent ordering
+	// todo: Use a real sha256 hash based on messsageID and node set
 	hashValue := binary.BigEndian.Uint64(messageID[:8])
 
 	// Calculate position in execution order for this message
 	// This creates a message-specific ordering of executors
 	startIndex := int(hashValue % uint64(len(h.executorIDs))) //nolint:gosec // G115: modulo will result in positive
 
+	// todo: this will result in a static relative order, we can remap against the sorted array if necessary
 	delayMultiplier := getSliceIncreasingDistance(len(h.executorIDs), startIndex, h.executorIndex)
 
 	// Calculate ready timestamp: baseTimestamp + (arrayIndex * executionInterval) + minWaitPeriod
 	delaySeconds := delayMultiplier*int64(h.executionInterval.Seconds()) + int64(h.minWaitPeriod.Seconds())
 
 	h.lggr.Debugf("using delay of minWait(%d) + indexDistance(%d) * executionMultipler(%s) = %d seconds", h.minWaitPeriod, delayMultiplier, h.executionInterval, delaySeconds)
+	// todo: base timestamp comes from the indexer, is it safe to use here?
 	return baseTimestamp + delaySeconds
 }
 
