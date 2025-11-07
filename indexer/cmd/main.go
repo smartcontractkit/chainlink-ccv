@@ -7,21 +7,21 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
-	"go.uber.org/zap/zapcore"
-
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/worker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
+	"go.uber.org/zap/zapcore"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 
-	lggr = logger.Named(lggr, "indexer")
+	lggr = logger.Named(lggr, "Indexer")
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
@@ -60,73 +60,43 @@ func main() {
 	// Initialize the indexer storage & create a reader discovery, which will discover the off-chain storage readers
 	// Storage Discovery allows the indexer to add new off-chain storage readers without needing a restart
 	// Currently, this uses the static discovery method, which reads the off-chain storage readers from the configuration passed to it.
-	readerDiscovery := createReaderDiscovery(lggr, config)
+	// readerDiscovery := createReaderDiscovery(lggr, config)
 
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
 
-	// Create a scanner, which will poll the off-chain storage(s) for CCV data
-	scanner := scanner.NewScanner(
-		scanner.WithReaderDiscovery(readerDiscovery),
-		scanner.WithConfig(scanner.Config{
-			ScanInterval:   time.Duration(config.Scanner.ScanInterval) * time.Second,
-			MetricInterval: time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
-			ReaderTimeout:  time.Duration(config.Scanner.ReaderTimeout) * time.Second,
-		}),
-		scanner.WithStorageWriter(indexerStorage),
-		scanner.WithMonitoring(indexerMonitoring),
-		scanner.WithLogger(lggr),
-	)
+	aggregatorReader, err := readers.NewAggregatorReader("default-aggregator:50051", lggr, 0)
+	if err != nil {
+		lggr.Fatalf("Failed to initalize aggregator reader: %v", err)
+	}
 
-	// Start the Scanner processing
-	scanner.Start(ctx)
+	verifierRegistry := registry.NewVerifierRegistry()
+	address, _ := protocol.NewUnknownAddressFromHex("0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae")
+	aggregatorVerifierReader := readers.NewVerifierReader(ctx, address, aggregatorReader, readers.VerifierReaderConfig{})
+	verifierRegistry.AddVerifier(address, aggregatorVerifierReader)
+
+	// Start MessageDiscovery
+	messageDiscovery, err := discovery.NewAggregatorMessageDiscovery(
+		discovery.WithAggregator(aggregatorReader),
+		discovery.WithLogger(lggr),
+		discovery.WithMonitoring(indexerMonitoring),
+		discovery.WithStorage(indexerStorage),
+		discovery.WithConfig(discovery.Config{
+			PollInterval:       time.Second * 1,
+			Timeout:            time.Second * 2,
+			MessageChannelSize: 100,
+		}),
+	)
+	if err != nil {
+		lggr.Fatalf("Failed to initialize message discovery: %v", err)
+	}
+
+	discoveryCh := messageDiscovery.Start(ctx)
+	pool := worker.NewWorkerPool(lggr, worker.Config{WorkerTimeout: time.Minute * 5}, discoveryCh, verifierRegistry, indexerStorage)
+	pool.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
 	api.Serve(v1, 8100)
-}
-
-// createReaderDiscovery creates the appropriate reader discovery based on the configuration.
-func createReaderDiscovery(lggr logger.Logger, cfg *config.Config) common.ReaderDiscovery {
-	// Determine the appropriate reader discovery based on the configuration
-	switch cfg.Discovery.Type {
-	case config.DiscoveryTypeStatic:
-		return discovery.NewStaticDiscovery(createStaticReaders(lggr, cfg))
-	default:
-		lggr.Fatalf("Unsupported discovery type: %s", cfg.Discovery.Type)
-	}
-
-	return nil
-}
-
-// createStaticReaders creates the static readers based on the configuration.
-func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.OffchainStorageReader {
-	readerSlice := []protocol.OffchainStorageReader{}
-
-	// Iterate over the readers and create the appropriate reader
-	for _, reader := range cfg.Discovery.Static.Readers {
-		switch reader.Type {
-		case config.ReaderTypeAggregator:
-			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since)
-			if err != nil {
-				lggr.Fatalf("Failed to create aggregator reader: %v", err)
-			}
-			readerSlice = append(readerSlice, aggReader)
-		case config.ReaderTypeRest:
-			restReader := readers.NewRestReader(readers.RestReaderConfig{
-				BaseURL:        reader.Rest.BaseURL,
-				Since:          reader.Rest.Since,
-				RequestTimeout: time.Duration(reader.Rest.RequestTimeout) * time.Second,
-				Logger:         lggr,
-			})
-			readerSlice = append(readerSlice, restReader)
-		default:
-			lggr.Fatalf("Unsupported reader type: %s", reader.Type)
-		}
-	}
-
-	lggr.Infof("Created %d readers", len(readerSlice))
-	// Return the readers
-	return readerSlice
 }
 
 // createStorage creates the storage backend connection based on the configuration.
