@@ -258,88 +258,39 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
-		type tokenTransferTestCase struct {
-			name                    string
-			src                     uint64
-			dest                    uint64
-			amount                  *big.Int
-			tokenQualifier          string
-			expectedReceiptIssuers  int
-			expectedVerifierResults int
-		}
+		for _, combo := range ccvEvm.AllTokenCombinations() {
+			t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer (%s)", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
+				receiver := mustGetEOAReceiverAddress(t, c, selectors[1])
+				sender := mustGetSenderAddress(t, c, selectors[0])
 
-		tcs := []tokenTransferTestCase{
-			{
-				name:                    "burn&mint EOA executes; receiver increases; sender decreases (TEST)",
-				src:                     selectors[0],
-				dest:                    selectors[1],
-				amount:                  big.NewInt(1000),
-				tokenQualifier:          "TEST",
-				expectedReceiptIssuers:  3,
-				expectedVerifierResults: 1,
-			},
-			{
-				name:                    "burn&mint EOA executes; receiver increases; sender decreases; default is required (NOCCV)",
-				src:                     selectors[0],
-				dest:                    selectors[1],
-				amount:                  big.NewInt(1000),
-				tokenQualifier:          "NOCCV",
-				expectedReceiptIssuers:  3,
-				expectedVerifierResults: 1,
-			},
-			{
-				name:                    "burn&mint EOA executes; receiver increases; sender decreases; default and secondary are required (SECONDARY)",
-				src:                     selectors[0],
-				dest:                    selectors[1],
-				amount:                  big.NewInt(1000),
-				tokenQualifier:          "SECONDARY",
-				expectedReceiptIssuers:  4,
-				expectedVerifierResults: 2,
-			},
-			{
-				name:                    "burn&mint EOA executes; receiver increases; sender decreases (DUAL)",
-				src:                     selectors[0],
-				dest:                    selectors[1],
-				amount:                  big.NewInt(1000),
-				tokenQualifier:          "DUAL",
-				expectedReceiptIssuers:  4,
-				expectedVerifierResults: 2,
-			},
-		}
+				srcToken := getTokenAddress(t, in, selectors[0], combo.SourcePoolAddressRef().Qualifier)
+				destToken := getTokenAddress(t, in, selectors[1], combo.DestPoolAddressRef().Qualifier)
 
-		for _, tc := range tcs {
-			t.Run(tc.name, func(t *testing.T) {
-				receiver := mustGetEOAReceiverAddress(t, c, tc.dest)
-				sender := mustGetSenderAddress(t, c, tc.src)
-
-				srcToken := getTokenAddress(t, in, tc.src, tc.tokenQualifier)
-				destToken := getTokenAddress(t, in, tc.dest, tc.tokenQualifier)
-
-				startBal, err := c.GetTokenBalance(ctx, tc.dest, receiver, destToken)
+				startBal, err := c.GetTokenBalance(ctx, selectors[1], receiver, destToken)
 				require.NoError(t, err)
-				l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", tc.tokenQualifier).Msg("receiver start balance")
+				l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver start balance")
 
-				srcStartBal, err := c.GetTokenBalance(ctx, tc.src, sender, srcToken)
+				srcStartBal, err := c.GetTokenBalance(ctx, selectors[0], sender, srcToken)
 				require.NoError(t, err)
-				l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", tc.tokenQualifier).Msg("sender start balance")
+				l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender start balance")
 
-				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, tc.src, tc.dest)
+				seqNo, err := c.GetExpectedNextSequenceNumber(ctx, selectors[0], selectors[1])
 				require.NoError(t, err)
-				l.Info().Uint64("SeqNo", seqNo).Str("Token", tc.tokenQualifier).Msg("expecting sequence number")
+				l.Info().Uint64("SeqNo", seqNo).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("expecting sequence number")
 
 				messageOptions := cciptestinterfaces.MessageOptions{
 					Version:        3,
 					GasLimit:       200_000,
-					FinalityConfig: 1,
-					Executor:       getContractAddress(t, in, tc.src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
+					FinalityConfig: combo.FinalityConfig(),
+					Executor:       getContractAddress(t, in, selectors[0], datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
 				}
 
 				sendRes, err := c.SendMessage(
-					ctx, tc.src, tc.dest,
+					ctx, selectors[0], selectors[1],
 					cciptestinterfaces.MessageFields{
 						Receiver: receiver,
 						TokenAmounts: []cciptestinterfaces.TokenAmount{{
-							Amount:       tc.amount,
+							Amount:       big.NewInt(1000),
 							TokenAddress: srcToken,
 						}},
 					},
@@ -347,37 +298,39 @@ func TestE2ESmoke(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.NotNil(t, sendRes)
-				require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, tc.tokenQualifier)
+				require.Len(t, sendRes.ReceiptIssuers, combo.ExpectedReceiptIssuers(), "expected %d receipt issuers for %s token", combo.ExpectedReceiptIssuers(), combo.SourcePoolAddressRef().Qualifier)
 
-				sentEvt, err := c.WaitOneSentEventBySeqNo(ctx, tc.src, tc.dest, seqNo, defaultSentTimeout)
+				sentEvt, err := c.WaitOneSentEventBySeqNo(ctx, selectors[0], selectors[1], seqNo, defaultSentTimeout)
 				require.NoError(t, err)
 				msgID := sentEvt.MessageID
 
 				testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
+
 				res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
 					Timeout:                 45 * time.Second,
-					ExpectedVerifierResults: tc.expectedVerifierResults,
+					ExpectedVerifierResults: combo.ExpectedVerifierResults(),
 					AssertVerifierLogs:      false,
 					AssertExecutorLogs:      false,
 				})
+
 				require.NoError(t, err)
 				require.NotNil(t, res.AggregatedResult)
 
-				execEvt, err := c.WaitOneExecEventBySeqNo(ctx, tc.src, tc.dest, seqNo, 45*time.Second)
+				execEvt, err := c.WaitOneExecEventBySeqNo(ctx, selectors[0], selectors[1], seqNo, 45*time.Second)
 				require.NoError(t, err)
 				require.NotNil(t, execEvt)
 				require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
 
-				endBal, err := c.GetTokenBalance(ctx, tc.dest, receiver, destToken)
+				endBal, err := c.GetTokenBalance(ctx, selectors[1], receiver, destToken)
 				require.NoError(t, err)
-				require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), tc.amount), endBal)
-				l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", tc.tokenQualifier).Msg("receiver end balance")
+				require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1000)), endBal)
+				l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
 
-				srcEndBal, err := c.GetTokenBalance(ctx, tc.src, sender, srcToken)
+				srcEndBal, err := c.GetTokenBalance(ctx, selectors[0], sender, srcToken)
 				require.NoError(t, err)
-				require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.amount), srcEndBal)
-				l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", tc.tokenQualifier).Msg("sender end balance")
+				require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
+				l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
 			})
 		}
 	})
