@@ -76,27 +76,10 @@ const (
 
 	CommitteeVerifierGasForVerification = 500_000
 
-	TokenPoolVersion    = "1.7.0"
-	TokenAdapterVersion = "1.7.0"
-
 	TokenMaxSupply       = "100000000000000000000000000000" // 100 billion in 18 decimals
 	TokenDeployerBalance = "1000000000000000000000000000"   // 1 billion in 18 decimals
 	DefaultDecimals      = 18
 )
-
-type TokenConfig struct {
-	Name          string
-	Symbol        string
-	Decimals      uint8
-	ccvQualifiers []string
-}
-
-var tokenConfigs = map[string]TokenConfig{
-	"TEST":      {Name: "Test Token", Symbol: "TEST", Decimals: DefaultDecimals, ccvQualifiers: []string{DefaultCommitteeVerifierQualifier}},
-	"DUAL":      {Name: "Dual Token", Symbol: "DUAL", Decimals: DefaultDecimals, ccvQualifiers: []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier}},
-	"NOCCV":     {Name: "No CCV", Symbol: "NOCCV", Decimals: DefaultDecimals, ccvQualifiers: []string{}},
-	"SECONDARY": {Name: "Secondary CCV", Symbol: "SECONDARY", Decimals: DefaultDecimals, ccvQualifiers: []string{SecondaryCommitteeVerifierQualifier}},
-}
 
 var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
@@ -108,7 +91,141 @@ var (
 		SecondaryCommitteeVerifierQualifier: 2,
 		TertiaryCommitteeVerifierQualifier:  2,
 	}
+
+	tokenPoolVersions = []string{
+		"1.6.1",
+		"1.7.0",
+	}
 )
+
+// TokenCombination represents a source and destination pool combination.
+type TokenCombination struct {
+	sourcePoolType          string
+	sourcePoolVersion       string
+	sourcePoolCCVQualifiers []string
+	destPoolType            string
+	destPoolVersion         string
+	destPoolCCVQualifiers   []string
+	expectedReceiptIssuers  int
+	expectedVerifierResults int
+}
+
+// SourcePoolAddressRef returns the address ref for the source token pool that can be used to query the datastore.
+func (s TokenCombination) SourcePoolAddressRef() datastore.AddressRef {
+	return datastore.AddressRef{
+		Type:      datastore.ContractType(s.sourcePoolType),
+		Version:   semver.MustParse(s.sourcePoolVersion),
+		Qualifier: fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers, s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers),
+	}
+}
+
+// DestPoolAddressRef returns the address ref for the destination token pool that can be used to query the datastore.
+func (s TokenCombination) DestPoolAddressRef() datastore.AddressRef {
+	return datastore.AddressRef{
+		Type:      datastore.ContractType(s.destPoolType),
+		Version:   semver.MustParse(s.destPoolVersion),
+		Qualifier: fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers, s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers),
+	}
+}
+
+// SourcePoolCCVQualifiers returns the CCV qualifiers for the source token pool.
+func (s TokenCombination) SourcePoolCCVQualifiers() []string {
+	return s.sourcePoolCCVQualifiers
+}
+
+// DestPoolCCVQualifiers returns the CCV qualifiers for the destination token pool.
+func (s TokenCombination) DestPoolCCVQualifiers() []string {
+	return s.destPoolCCVQualifiers
+}
+
+// ExpectedReceiptIssuers returns the expected number of receipt issuers for the token combination.
+func (s TokenCombination) ExpectedReceiptIssuers() int {
+	return s.expectedReceiptIssuers
+}
+
+// ExpectedVerifierResults returns the expected number of verifier results for the token combination.
+func (s TokenCombination) ExpectedVerifierResults() int {
+	return s.expectedVerifierResults
+}
+
+func (s TokenCombination) FinalityConfig() uint16 {
+	if semver.MustParse(s.sourcePoolVersion).GreaterThanEqual(semver.MustParse("1.7.0")) {
+		return 1 // We can use fast-finality if source pool is 1.7.0 or higher
+	}
+	return 0 // Otherwise use default finality
+}
+
+// allTokenCombinations returns all possible token combinations.
+func AllTokenCombinations() []TokenCombination {
+	return []TokenCombination{
+		{ // 1.6.1 burn -> 1.6.1 mint
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.6.1",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.6.1",
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 burn -> 1.7.0 mint
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.6.1 burn -> 1.7.0 mint
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.6.1",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 burn -> 1.6.1 mint
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.6.1",
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 burn -> 1.7.0 mint (Default and Secondary CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  4, // default CCV, secondary CCV, token pool, executor
+			expectedVerifierResults: 2, // default CCV, secondary CCV
+		},
+		{ // 1.7.0 burn -> 1.7.0 mint (No CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{},
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 burn -> 1.7.0 mint (Secondary CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{SecondaryCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{SecondaryCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  4, // default CCV, secondary CCV, token pool, executor
+			expectedVerifierResults: 2, // default CCV, secondary CCV
+		},
+	}
+}
 
 type CCIP17EVM struct {
 	e                      *deployment.Environment
@@ -1110,9 +1227,13 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	}
 	env.DataStore = runningDS.Seal()
 
-	for symbol := range tokenConfigs {
-		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, symbol); err != nil {
-			return nil, fmt.Errorf("failed to deploy %s token: %w", symbol, err)
+	for _, combo := range AllTokenCombinations() {
+		// For any given token combination, every chain needs to support the source and destination pools.
+		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef()); err != nil {
+			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.SourcePoolAddressRef().Qualifier, err)
+		}
+		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.DestPoolAddressRef()); err != nil {
+			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
 	}
 
@@ -1124,13 +1245,8 @@ func (m *CCIP17EVM) deployTokenAndPool(
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
 	runningDS *datastore.MemoryDataStore,
 	selector uint64,
-	tokenSymbol string,
+	tokenRef datastore.AddressRef,
 ) error {
-	config, exists := tokenConfigs[tokenSymbol]
-	if !exists {
-		return fmt.Errorf("unknown token symbol: %s", tokenSymbol)
-	}
-
 	chain, ok := env.BlockChains.EVMChains()[selector]
 	if !ok {
 		return fmt.Errorf("evm chain not found for selector %d", selector)
@@ -1151,16 +1267,16 @@ func (m *CCIP17EVM) deployTokenAndPool(
 				chain.DeployerKey.From: deployerBalance,
 			},
 			TokenInfo: tokens.TokenInfo{
-				Name:      config.Name,
-				Decimals:  config.Decimals,
+				Name:      tokenRef.Qualifier,
+				Decimals:  DefaultDecimals,
 				MaxSupply: maxSupply,
 			},
 			DeployTokenPoolCfg: evmchangesets.DeployTokenPoolCfg{
 				ChainSel:           selector,
-				TokenPoolType:      datastore.ContractType(burn_mint_token_pool.ContractType),
-				TokenPoolVersion:   semver.MustParse(TokenPoolVersion),
-				TokenSymbol:        config.Symbol,
-				LocalTokenDecimals: config.Decimals,
+				TokenPoolType:      tokenRef.Type,
+				TokenPoolVersion:   tokenRef.Version,
+				TokenSymbol:        tokenRef.Qualifier,
+				LocalTokenDecimals: DefaultDecimals,
 				Router: datastore.AddressRef{
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
@@ -1169,12 +1285,12 @@ func (m *CCIP17EVM) deployTokenAndPool(
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenSymbol, err)
+		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenRef.Qualifier, err)
 	}
 
 	err = runningDS.Merge(out.DataStore.Seal())
 	if err != nil {
-		return fmt.Errorf("failed to merge datastore for %s token: %w", tokenSymbol, err)
+		return fmt.Errorf("failed to merge datastore for %s token: %w", tokenRef.Qualifier, err)
 	}
 
 	return nil
@@ -1202,7 +1318,8 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
 	selector uint64,
 	remoteSelectors []uint64,
-	tokenSymbol string,
+	localRef datastore.AddressRef,
+	remoteRef datastore.AddressRef,
 	ccvQualifiers []string,
 ) error {
 	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
@@ -1217,11 +1334,7 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 		}
 
 		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-			RemotePool: &datastore.AddressRef{
-				Type:      datastore.ContractType(burn_mint_token_pool.ContractType),
-				Version:   semver.MustParse(TokenPoolVersion),
-				Qualifier: tokenSymbol,
-			},
+			RemotePool: &remoteRef,
 			InboundRateLimiterConfig: tokenscore.RateLimiterConfig{
 				IsEnabled: false,
 				Capacity:  big.NewInt(0),
@@ -1241,11 +1354,7 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 		Tokens: []tokenscore.TokenTransferConfig{
 			{
 				ChainSelector: selector,
-				TokenPoolRef: datastore.AddressRef{
-					Type:      datastore.ContractType(burn_mint_token_pool.ContractType),
-					Version:   semver.MustParse(TokenPoolVersion),
-					Qualifier: tokenSymbol,
-				},
+				TokenPoolRef:  localRef,
 				RegistryRef: datastore.AddressRef{
 					Type:    datastore.ContractType(token_admin_registry.ContractType),
 					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
@@ -1255,7 +1364,7 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to configure %s tokens for transfers: %w", tokenSymbol, err)
+		return fmt.Errorf("failed to configure %s token for transfers: %w", localRef.Qualifier, err)
 	}
 
 	return nil
@@ -1409,12 +1518,19 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	}
 
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
-	tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(TokenAdapterVersion), &evmadapters.TokenAdapter{})
+	for _, poolVersion := range tokenPoolVersions {
+		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), &evmadapters.TokenAdapter{})
+	}
 
-	for symbol, config := range tokenConfigs {
-		l.Info().Str("Token", symbol).Msg("Configuring token for transfer")
-		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, symbol, config.ccvQualifiers); err != nil {
-			return fmt.Errorf("failed to configure %s tokens for transfers: %w", symbol, err)
+	for _, combo := range AllTokenCombinations() {
+		// For any given token combination, every chain needs to support the source and destination pools.
+		l.Info().Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("Configuring source token for transfer")
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()); err != nil {
+			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.SourcePoolAddressRef().Qualifier, err)
+		}
+		l.Info().Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("Configuring destination token for transfer")
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()); err != nil {
+			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
 	}
 
