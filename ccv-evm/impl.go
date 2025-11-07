@@ -1316,7 +1316,7 @@ func (m *CCIP17EVM) deployTokenAndPool(
 			env,
 			selector,
 			tokenPoolRef,
-			new(big.Int).Mul(deployerBalance, big.NewInt(10)),
+			new(big.Int).Div(deployerBalance, big.NewInt(10)),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to fund lock-release token pool for %s token: %w", tokenPoolRef.Qualifier, err)
@@ -1621,7 +1621,7 @@ func GetContractAddrForSelector(addresses []string, selector uint64, contractTyp
 	return contractAddr, nil
 }
 
-// fundLockReleaseTokenPool funds a lock/release token pool by granting mint role and minting tokens.
+// fundLockReleaseTokenPool funds a lock/release token pool by transferring tokens from deployer.
 func (m *CCIP17EVM) fundLockReleaseTokenPool(
 	env *deployment.Environment,
 	selector uint64,
@@ -1646,34 +1646,19 @@ func (m *CCIP17EVM) fundLockReleaseTokenPool(
 		return fmt.Errorf("failed to create ERC20 token instance: %w", err)
 	}
 
-	// Grant mint role to deployer
-	tx, err := token.GrantMintRole(txOps, txOps.From)
+	// Transfer tokens from deployer to the token pool
+	tx, err := token.Transfer(txOps, common.HexToAddress(tokenPoolRef.Address), amount)
 	if err != nil {
-		return fmt.Errorf("failed to create grant mint role transaction: %w", err)
+		return fmt.Errorf("failed to create transfer transaction: %w", err)
 	}
 
-	// Wait for grant mint role transaction to be mined
+	// Wait for transfer transaction to be mined
 	receipt, err := bind.WaitMined(context.Background(), client, tx.Hash())
 	if err != nil {
-		return fmt.Errorf("failed to wait for grant mint role transaction to be mined: %w", err)
+		return fmt.Errorf("failed to wait for transfer transaction to be mined: %w", err)
 	}
 	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("grant mint role transaction failed with status: %d", receipt.Status)
-	}
-
-	// Mint tokens to the token pool
-	tx, err = token.Mint(txOps, common.HexToAddress(tokenPoolRef.Address), amount)
-	if err != nil {
-		return fmt.Errorf("failed to create mint transaction: %w", err)
-	}
-
-	// Wait for mint transaction to be mined
-	receipt, err = bind.WaitMined(context.Background(), client, tx.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to wait for mint transaction to be mined: %w", err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("mint transaction failed with status: %d", receipt.Status)
+		return fmt.Errorf("transfer transaction failed with status: %d", receipt.Status)
 	}
 
 	return nil
