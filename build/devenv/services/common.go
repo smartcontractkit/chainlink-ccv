@@ -9,6 +9,13 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 )
 
+type Mode string
+
+const (
+	Standalone Mode = "standalone"
+	CL         Mode = "cl"
+)
+
 const (
 	AppPathInsideContainer = "/app"
 )

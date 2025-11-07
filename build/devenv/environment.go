@@ -61,15 +61,8 @@ const (
 `
 )
 
-type Mode string
-
-const (
-	Standalone Mode = "standalone"
-	CL         Mode = "cl"
-)
-
 type Cfg struct {
-	Mode               Mode                        `toml:"mode"`
+	Mode               services.Mode               `toml:"mode"`
 	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
 	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
@@ -129,16 +122,29 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////
 	// Start: Initialize Configs //
 	///////////////////////////////
+
+	var hasCLNodeService bool
+
 	// Override the default config to "cl"...
 	if in.Mode == "" {
-		in.Mode = Standalone
+		in.Mode = services.Standalone
 	}
 
 	// Verifier configs...
-	for _, ver := range in.Verifier {
+	for i, ver := range in.Verifier {
+		services.ApplyVerifierDefaults(ver)
 		// deterministic key generation algorithm.
 		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
 		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+		in.Verifier[i] = ver // technically not needed because it's a pointer.
+
+		hasCLNodeService = hasCLNodeService || (ver.Mode == services.CL)
+	}
+
+	// Executor config...
+	if in.Executor != nil {
+		services.ApplyExecutorDefaults(in.Executor)
+		hasCLNodeService = hasCLNodeService || (in.Executor.Mode == services.CL)
 	}
 
 	/////////////////////////////
@@ -262,7 +268,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	if in.Mode == CL { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
+	if hasCLNodeService { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
 		clChainConfigs := make([]string, 0)
 		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 		for i, impl := range impls {
@@ -311,23 +317,31 @@ func NewEnvironment() (in *Cfg, err error) {
 					if err != nil {
 						return nil, fmt.Errorf("decoding verifier signing key (%s): %w", ver.ContainerName, err)
 					}
-					cc.ImportEVMKey(pk, ver.CommitteeName)
+					cc.ImportEVMKey(pk, ver.ContainerName)
 				}
 			}
 		}
 	}
 
-	// Start standalone executor/verifiers if in standalone mode.
-	if in.Mode == Standalone {
-		_, err = services.NewExecutor(in.Executor)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create executor service: %w", err)
+	// TODO: remove this if condition once configuration is injected into the node.
+	// For now, if the core node is started, assume that it will launch all services.
+	// TODO: Maybe it starts with just the verifiers.
+	if !hasCLNodeService {
+		// Start standalone executor if in standalone mode.
+		if in.Executor != nil && in.Executor.Mode == services.Standalone {
+			_, err = services.NewExecutor(in.Executor)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create executor service: %w", err)
+			}
 		}
 
+		// Start standalone verifiers if in standalone mode.
 		for _, ver := range in.Verifier {
-			_, err = services.NewVerifier(ver)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			if ver.Mode == services.Standalone {
+				_, err = services.NewVerifier(ver)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create verifier service: %w", err)
+				}
 			}
 		}
 	}
