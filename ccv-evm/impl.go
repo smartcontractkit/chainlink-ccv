@@ -30,7 +30,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
-	burn_mint_erc677_ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
+	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
@@ -1621,7 +1621,7 @@ func GetContractAddrForSelector(addresses []string, selector uint64, contractTyp
 	return contractAddr, nil
 }
 
-// fundLockReleaseTokenPool funds a lock/release token pool by granting mint role and minting tokens
+// fundLockReleaseTokenPool funds a lock/release token pool by granting mint role and minting tokens.
 func (m *CCIP17EVM) fundLockReleaseTokenPool(
 	env *deployment.Environment,
 	selector uint64,
@@ -1631,7 +1631,7 @@ func (m *CCIP17EVM) fundLockReleaseTokenPool(
 	poolType := datastore.ContractType(lock_release_token_pool.ContractType)
 	qualifier := tokenPoolRef.Qualifier
 	// Get token address reference
-	tokenRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(burn_mint_erc677_ops.ContractType), semver.MustParse(burn_mint_erc677_ops.Deploy.Version()), qualifier))
+	tokenRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(burnminterc677ops.ContractType), semver.MustParse(burnminterc677ops.Deploy.Version()), qualifier))
 	if err != nil {
 		return fmt.Errorf("failed to get token address for %s %s pool: %w", qualifier, poolType, err)
 	}
