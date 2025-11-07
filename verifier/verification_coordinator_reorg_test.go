@@ -1,32 +1,11 @@
 package verifier
 
-// Integration tests for reorg detector and verification coordinator.
-//
-// These tests verify that the coordinator correctly handles blockchain reorganizations
-// by integrating the ReorgDetectorService with the Coordinator's reorg handling logic.
-//
-// Test Strategy:
-//   - Use real ReorgDetectorService instances (not mocked) for authentic reorg detection
-//   - Mock HeadTracker and SourceReader for controlled chain state simulation
-//   - Use deterministic hash generation (hashFromNumber) for easy debugging
-//
-// Hash Encoding Quick Reference:
-//   Canonical blocks:  [0x00, 0x00, 0x00, BLOCK_NUM, ...] (first 4 bytes = block number)
-//   Reorged blocks:    [0xFF, 0x00, 0x00, 0x00, BLOCK_NUM, ...] (0xFF marker + block number)
-//
-// Example: Block 105 (0x69 in hex)
-//   Canonical: [0x00, 0x00, 0x00, 0x69, 0x00, ...]
-//   Reorged:   [0xFF, 0x00, 0x00, 0x00, 0x69, ...]
-//
-// See hashFromNumber() and createReorgedChainBlocks() for detailed documentation.
-
 import (
 	"context"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -41,60 +20,24 @@ import (
 
 // reorgTestSetup contains the test fixtures for reorg integration tests.
 type reorgTestSetup struct {
-	t                 *testing.T
-	ctx               context.Context
-	cancel            context.CancelFunc
-	coordinator       *Coordinator
-	mockSourceReader  *MockSourceReader
-	mockHeadTracker   *protocol_mocks.MockHeadTracker
-	mockReorgDetector *mockReorgDetector
-	testVerifier      *TestVerifier
-	storage           *common.InMemoryOffchainStorage
-	chainSelector     protocol.ChainSelector
-	lggr              logger.Logger
-	taskChannel       chan VerificationTask
+	t                  *testing.T
+	ctx                context.Context
+	cancel             context.CancelFunc
+	coordinator        *Coordinator
+	mockSourceReader   *MockSourceReader
+	mockHeadTracker    *protocol_mocks.MockHeadTracker
+	mockReorgDetector  *mockReorgDetector
+	chainStatusManager *InMemoryChainStatusManager
+	testVerifier       *TestVerifier
+	storage            *common.InMemoryOffchainStorage
+	chainSelector      protocol.ChainSelector
+	lggr               logger.Logger
+	taskChannel        chan VerificationTask
 
 	// Block state for simulating chain progression
 	currentLatest    *protocol.BlockHeader
 	currentFinalized *protocol.BlockHeader
 	blocksMu         sync.RWMutex
-}
-
-// hashFromNumber creates a deterministic hash from block number for testing.
-//
-// This encodes the block number into the first 4 bytes of the hash using big-endian byte order.
-// The remaining 28 bytes are left as zeros.
-//
-// Encoding (Big-Endian):
-//   - h[0] = most significant byte  (bits 24-31)
-//   - h[1] = second byte            (bits 16-23)
-//   - h[2] = third byte             (bits 8-15)
-//   - h[3] = least significant byte (bits 0-7)
-//
-// Examples:
-//
-//	Block 0:   [0x00, 0x00, 0x00, 0x00, 0x00, ...] (all zeros)
-//	Block 100: [0x00, 0x00, 0x00, 0x64, 0x00, ...] (0x64 = 100 in hex)
-//	Block 255: [0x00, 0x00, 0x00, 0xFF, 0x00, ...] (0xFF = 255 in hex)
-//	Block 256: [0x00, 0x00, 0x01, 0x00, 0x00, ...] (0x0100 = 256 in hex)
-//	Block 1000: [0x00, 0x00, 0x03, 0xE8, 0x00, ...] (0x03E8 = 1000 in hex)
-//
-// To decode a hash back to block number:
-//
-//	blockNum = (h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]
-//
-// Why not use SHA256?
-//   - Debuggability: You can visually decode block numbers from hex dumps
-//   - Simplicity: Test intent is clear - we just need unique, predictable hashes
-//   - Performance: Faster test execution
-//   - Relevance: We're testing reorg logic, not cryptographic properties
-func hashFromNumber(n uint64) protocol.Bytes32 {
-	var h protocol.Bytes32
-	h[0] = byte(n >> 24) // MSB
-	h[1] = byte(n >> 16)
-	h[2] = byte(n >> 8)
-	h[3] = byte(n) // LSB
-	return h
 }
 
 // setupReorgTest creates a complete test setup with coordinator and reorg detector.
@@ -126,18 +69,19 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	testVer := NewTestVerifier()
 
 	setup := &reorgTestSetup{
-		t:                t,
-		ctx:              ctx,
-		cancel:           cancel,
-		mockSourceReader: mockSetup.Reader,
-		mockHeadTracker:  mockHeadTracker,
-		chainSelector:    chainSelector,
-		lggr:             lggr,
-		currentLatest:    initialLatest,
-		currentFinalized: initialFinalized,
-		testVerifier:     testVer,
-		storage:          common.NewInMemoryOffchainStorage(lggr),
-		taskChannel:      mockSetup.Channel,
+		t:                  t,
+		ctx:                ctx,
+		cancel:             cancel,
+		mockSourceReader:   mockSetup.Reader,
+		mockHeadTracker:    mockHeadTracker,
+		chainStatusManager: NewInMemoryChainStatusManager(),
+		chainSelector:      chainSelector,
+		lggr:               lggr,
+		currentLatest:      initialLatest,
+		currentFinalized:   initialFinalized,
+		testVerifier:       testVer,
+		storage:            common.NewInMemoryOffchainStorage(lggr),
+		taskChannel:        mockSetup.Channel,
 	}
 
 	// Setup mock head tracker to return current state
@@ -170,6 +114,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 		WithStorage(setup.storage),
 		WithLogger(lggr),
 		WithConfig(coordinatorConfig),
+		WithChainStatusManager(setup.chainStatusManager),
 		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
 			chainSelector: setup.mockSourceReader,
 		}),
@@ -199,13 +144,43 @@ func (s *reorgTestSetup) cleanup() {
 	s.cancel()
 }
 
+// getLastProcessedBlockSafe safely reads the lastProcessedBlock from a SourceReaderService.
+// Thread-safe: acquires read lock to prevent data races with background updates.
+func getLastProcessedBlockSafe(reader *SourceReaderService) uint64 {
+	reader.mu.RLock()
+	defer reader.mu.RUnlock()
+
+	if reader.lastProcessedBlock == nil {
+		return 0
+	}
+
+	return reader.lastProcessedBlock.Uint64()
+}
+
+func (s *reorgTestSetup) mustStartCoordinator() {
+	err := s.coordinator.Start(s.ctx)
+	require.NoError(s.t, err)
+	s.t.Log("✅ Coordinator started")
+}
+
+func (s *reorgTestSetup) mustRestartCoordinator() {
+	err := s.coordinator.Close()
+	require.NoError(s.t, err)
+	s.t.Log("✅ Coordinator closed")
+
+	// Restart the same coordinator - disabled chain should be skipped
+	err = s.coordinator.Start(s.ctx)
+	require.NoError(s.t, err)
+	s.t.Log("✅ Coordinator restarted")
+}
+
 // assertSourceReaderChannelState verifies the state of the source reader's verification task channel.
 // When expectOpen is true, it asserts the channel is open (not closed).
 // When expectOpen is false, it asserts the channel is closed.
 func assertSourceReaderChannelState(t *testing.T, coordinator *Coordinator, chainSelector protocol.ChainSelector, expectOpen bool) {
 	t.Helper()
 
-	// Access internal sourceReaders map directly (we're in the same package)
+	// Access internal sourceReaders map directly
 	coordinator.mu.RLock()
 	sourceReaderService := coordinator.sourceStates[chainSelector].reader
 	coordinator.mu.RUnlock()
@@ -250,77 +225,32 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	setup := setupReorgTest(t, chainSelector, 500*time.Millisecond)
 	defer setup.cleanup()
 
-	// Create tasks at two ranges:
 	// - Tasks at blocks 98, 99: BELOW finalized block (100), should be PROCESSED
 	// - Tasks at blocks 101, 102: ABOVE finalized block (100), should be FLUSHED by reorg
-	finalizedTasks := []VerificationTask{
-		{
-			Message:        CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0, 500_000), // Default finality
-			BlockNumber:    98,
-			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
-			CreatedAt:      time.Now(),
-			IdempotencyKey: uuid.NewString(),
-		},
-		{
-			Message:        CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0, 500_000),
-			BlockNumber:    99,
-			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
-			CreatedAt:      time.Now(),
-			IdempotencyKey: uuid.NewString(),
-		},
-	}
+	finalizedTasks := createTestVerificationTasks(t, 1, chainSelector, defaultDestChain, []uint64{98, 99})
+	pendingTasks := createTestVerificationTasks(t, 3, chainSelector, defaultDestChain, []uint64{101, 102})
 
-	pendingTasks := []VerificationTask{
-		{
-			Message:        CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0, 500_000),
-			BlockNumber:    101,
-			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
-			CreatedAt:      time.Now(),
-			IdempotencyKey: uuid.NewString(),
-		},
-		{
-			Message:        CreateTestMessage(t, 4, chainSelector, defaultDestChain, 0, 500_000),
-			BlockNumber:    102,
-			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt4")}},
-			CreatedAt:      time.Now(),
-			IdempotencyKey: uuid.NewString(),
-		},
-	}
-
-	t.Log("📋 Starting coordinator")
-
-	// Start coordinator FIRST
-	err := setup.coordinator.Start(setup.ctx)
-	require.NoError(t, err)
-	t.Log("✅ Coordinator started with reorg detector")
-
+	setup.mustStartCoordinator()
 	// THEN send tasks via channel (like in verification_coordinator_test.go)
-	go func() {
-		for _, task := range append(finalizedTasks, pendingTasks...) {
-			setup.taskChannel <- task
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-
-	t.Log("📋 Sending tasks to verification pipeline")
-
+	sendTasksToChannel(t, setup, append(finalizedTasks, pendingTasks...))
 	// Wait for finalized tasks to be processed before triggering reorg
 	// Tasks at blocks 98, 99 should be processed since they're below finalized block 100
 	t.Log("📋 Waiting for finalized tasks (98, 99) to be processed...")
 	WaitForMessagesInStorage(setup.t, setup.storage, 2)
 	t.Log("✅ Finalized tasks (98, 99) have been processed")
+	sourceReaderService := setup.coordinator.sourceStates[chainSelector].reader
+	require.Equal(t, getLastProcessedBlockSafe(sourceReaderService), uint64(102), "Source reader should have read up to block 102")
 
+	lca := setup.currentFinalized.Number
 	// Inject a reorg event directly (LCA at block 100)
 	// This simulates the reorg detector finding a reorg with LCA at finalized block 100
 	t.Log("🔄 Injecting reorg event: LCA at block 100")
-
 	setup.mockReorgDetector.statusCh <- protocol.ChainStatus{
 		Type:         protocol.ReorgTypeNormal,
-		ResetToBlock: 100, // LCA at finalized block
+		ResetToBlock: lca,
 	}
 
 	// Wait for reorg handler goroutine to process the event
-	// With double-checked locking fix, we only need minimal time for goroutine scheduling
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify behavior:
@@ -336,7 +266,12 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	require.Equal(t, uint64(98), processedTasks[0].BlockNumber)
 	require.Equal(t, uint64(99), processedTasks[1].BlockNumber)
 
+	// Verify that the source reader has reset to LCA (block 100)
+	require.Equal(t, getLastProcessedBlockSafe(sourceReaderService), lca, "Source reader should have read up to block 100")
 	// Verify that the source reader is still running (channel should be open)
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
+	// Verify reader still open after restart
+	setup.mustRestartCoordinator()
 	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, true)
 
 	t.Log("✅ Test completed: Normal reorg handled correctly - finalized tasks processed, reorged tasks flushed")
@@ -348,49 +283,11 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	setup := setupReorgTest(t, chainSelector, 10*time.Second) // high finality check interval to avoid processing before sending the violation notification
 	defer setup.cleanup()
 
-	// Start coordinator
-	err := setup.coordinator.Start(setup.ctx)
-	require.NoError(t, err)
-
-	t.Log("✅ Coordinator started with reorg detector")
-
+	setup.mustStartCoordinator()
 	// Create tasks at blocks 98, 99, 100 (around finalized block)
-	tasks := []VerificationTask{
-		{
-			Message:        CreateTestMessage(t, 1, chainSelector, defaultDestChain, 0, 500_000), // Default finality
-			BlockNumber:    98,
-			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
-			CreatedAt:      time.Now(),
-			IdempotencyKey: uuid.NewString(),
-		},
-		{
-			Message:        CreateTestMessage(t, 2, chainSelector, defaultDestChain, 0, 500_000),
-			BlockNumber:    99,
-			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt2")}},
-			CreatedAt:      time.Now(),
-			IdempotencyKey: uuid.NewString(),
-		},
-		{
-			Message:        CreateTestMessage(t, 3, chainSelector, defaultDestChain, 0, 500_000),
-			BlockNumber:    100,
-			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt3")}},
-			CreatedAt:      time.Now(),
-			IdempotencyKey: uuid.NewString(),
-		},
-	}
+	tasks := createTestVerificationTasks(t, 1, chainSelector, defaultDestChain, []uint64{98, 99, 100})
 
-	// Send tasks via channel
-	go func() {
-		for _, task := range tasks {
-			setup.taskChannel <- task
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-
-	// Wait for tasks to be queued
-	time.Sleep(80 * time.Millisecond)
-
-	t.Log("📋 Tasks queued")
+	sendTasksToChannel(t, setup, tasks)
 
 	// Inject a finality violation event directly
 	// This simulates a reorg deeper than the finalized block
@@ -399,16 +296,13 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 		Type:         protocol.ReorgTypeFinalityViolation,
 		ResetToBlock: 0, // No safe reset point
 	}
-
 	// Wait for finality violation handler goroutine to process the event
-	// With double-checked locking fix, we only need minimal time for goroutine scheduling
 	time.Sleep(50 * time.Millisecond)
 
 	// After finality violation:
 	// 1. All pending tasks should be flushed
 	// 2. Source reader should be stopped
 	// 3. No new tasks should be processed
-
 	processedCount := setup.testVerifier.GetProcessedTaskCount()
 	t.Logf("📊 Processed task count after finality violation: %d", processedCount)
 
@@ -419,4 +313,31 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
 
 	t.Log("✅ Test completed: Finality violation handled correctly")
+
+	statusMap, err := setup.chainStatusManager.ReadChainStatuses(setup.ctx, []protocol.ChainSelector{chainSelector})
+	require.NoError(t, err)
+	require.Len(t, statusMap, 1)
+	require.True(t, statusMap[chainSelector].Disabled, "Chain should be marked as disabled")
+	t.Log("✅ Chain marked as disabled in chain status manager")
+
+	t.Log("🔄 Testing coordinator restart with disabled chain - should remain stopped")
+	setup.mustRestartCoordinator()
+	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
+
+	t.Log("✅ Test completed: Disabled chain correctly skipped on restart")
+}
+
+func sendTasksToChannel(t *testing.T, setup *reorgTestSetup, tasks []VerificationTask) {
+	t.Helper()
+	t.Log("📋 Sending tasks to verification pipeline")
+
+	// Send tasks via channel
+	go func() {
+		for _, task := range tasks {
+			setup.taskChannel <- task
+		}
+	}()
+	// Give some time for tasks to be queued
+	time.Sleep(20 * time.Millisecond)
+	t.Log("📋 Tasks queued")
 }
