@@ -20,14 +20,14 @@ func NewAggregatorChainStatusManager(writer *AggregatorWriter, reader *Aggregato
 	}
 }
 
-// WriteChainStatus writes chain statuses for multiple chains atomically using the aggregator writer.
-func (cm *AggregatorChainStatusManager) WriteChainStatus(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
+// WriteChainStatuses writes chain statuses for multiple chains atomically using the aggregator writer.
+func (cm *AggregatorChainStatusManager) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
 	return cm.writer.WriteChainStatus(ctx, statuses)
 }
 
-// ReadChainStatus reads chain statuses for multiple chains using the aggregator reader.
+// ReadChainStatuses reads chain statuses for multiple chains using the aggregator reader.
 // Returns map of chainSelector -> ChainStatusInfo. Missing chains are not included in the map.
-func (cm *AggregatorChainStatusManager) ReadChainStatus(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+func (cm *AggregatorChainStatusManager) ReadChainStatuses(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
 	return cm.reader.ReadChainStatus(ctx, chainSelectors)
 }
 

@@ -8,19 +8,19 @@ import (
 // ChainStatusInfo represents chain status with selector, block height and disabled state.
 type ChainStatusInfo struct {
 	ChainSelector ChainSelector
-	BlockHeight   *big.Int
+	BlockNumber   *big.Int
 	Disabled      bool
 }
 
 // ChainStatusManager defines the interface for chain status operations.
 type ChainStatusManager interface {
-	// WriteChainStatus writes chain statuses for multiple chains atomically
-	WriteChainStatus(ctx context.Context, statuses []ChainStatusInfo) error
+	// WriteChainStatuses writes chain statuses for multiple chains atomically
+	WriteChainStatuses(ctx context.Context, statuses []ChainStatusInfo) error
 
-	// ReadChainStatus reads chain statuses for multiple chains
+	// ReadChainStatuses reads chain statuses for multiple chains
 	// Returns map of chainSelector -> ChainStatusInfo
 	// Missing chains are not included in the map
-	ReadChainStatus(ctx context.Context, chainSelectors []ChainSelector) (map[ChainSelector]*ChainStatusInfo, error)
+	ReadChainStatuses(ctx context.Context, chainSelectors []ChainSelector) (map[ChainSelector]*ChainStatusInfo, error)
 }
 
 // HealthReporter should be implemented by any type requiring health checks.

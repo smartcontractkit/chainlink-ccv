@@ -22,12 +22,12 @@ func (_m *MockChainStatusManager) EXPECT() *MockChainStatusManager_Expecter {
 	return &MockChainStatusManager_Expecter{mock: &_m.Mock}
 }
 
-// ReadChainStatus provides a mock function with given fields: ctx, chainSelectors
-func (_m *MockChainStatusManager) ReadChainStatus(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+// ReadChainStatuses provides a mock function with given fields: ctx, chainSelectors
+func (_m *MockChainStatusManager) ReadChainStatuses(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
 	ret := _m.Called(ctx, chainSelectors)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ReadChainStatus")
+		panic("no return value specified for ReadChainStatuses")
 	}
 
 	var r0 map[protocol.ChainSelector]*protocol.ChainStatusInfo
@@ -52,41 +52,41 @@ func (_m *MockChainStatusManager) ReadChainStatus(ctx context.Context, chainSele
 	return r0, r1
 }
 
-// MockChainStatusManager_ReadChainStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadChainStatus'
-type MockChainStatusManager_ReadChainStatus_Call struct {
+// MockChainStatusManager_ReadChainStatuses_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadChainStatuses'
+type MockChainStatusManager_ReadChainStatuses_Call struct {
 	*mock.Call
 }
 
-// ReadChainStatus is a helper method to define mock.On call
+// ReadChainStatuses is a helper method to define mock.On call
 //   - ctx context.Context
 //   - chainSelectors []protocol.ChainSelector
-func (_e *MockChainStatusManager_Expecter) ReadChainStatus(ctx interface{}, chainSelectors interface{}) *MockChainStatusManager_ReadChainStatus_Call {
-	return &MockChainStatusManager_ReadChainStatus_Call{Call: _e.mock.On("ReadChainStatus", ctx, chainSelectors)}
+func (_e *MockChainStatusManager_Expecter) ReadChainStatuses(ctx interface{}, chainSelectors interface{}) *MockChainStatusManager_ReadChainStatuses_Call {
+	return &MockChainStatusManager_ReadChainStatuses_Call{Call: _e.mock.On("ReadChainStatuses", ctx, chainSelectors)}
 }
 
-func (_c *MockChainStatusManager_ReadChainStatus_Call) Run(run func(ctx context.Context, chainSelectors []protocol.ChainSelector)) *MockChainStatusManager_ReadChainStatus_Call {
+func (_c *MockChainStatusManager_ReadChainStatuses_Call) Run(run func(ctx context.Context, chainSelectors []protocol.ChainSelector)) *MockChainStatusManager_ReadChainStatuses_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].([]protocol.ChainSelector))
 	})
 	return _c
 }
 
-func (_c *MockChainStatusManager_ReadChainStatus_Call) Return(_a0 map[protocol.ChainSelector]*protocol.ChainStatusInfo, _a1 error) *MockChainStatusManager_ReadChainStatus_Call {
+func (_c *MockChainStatusManager_ReadChainStatuses_Call) Return(_a0 map[protocol.ChainSelector]*protocol.ChainStatusInfo, _a1 error) *MockChainStatusManager_ReadChainStatuses_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockChainStatusManager_ReadChainStatus_Call) RunAndReturn(run func(context.Context, []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error)) *MockChainStatusManager_ReadChainStatus_Call {
+func (_c *MockChainStatusManager_ReadChainStatuses_Call) RunAndReturn(run func(context.Context, []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error)) *MockChainStatusManager_ReadChainStatuses_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// WriteChainStatus provides a mock function with given fields: ctx, statuses
-func (_m *MockChainStatusManager) WriteChainStatus(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
+// WriteChainStatuses provides a mock function with given fields: ctx, statuses
+func (_m *MockChainStatusManager) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
 	ret := _m.Called(ctx, statuses)
 
 	if len(ret) == 0 {
-		panic("no return value specified for WriteChainStatus")
+		panic("no return value specified for WriteChainStatuses")
 	}
 
 	var r0 error
@@ -99,31 +99,31 @@ func (_m *MockChainStatusManager) WriteChainStatus(ctx context.Context, statuses
 	return r0
 }
 
-// MockChainStatusManager_WriteChainStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WriteChainStatus'
-type MockChainStatusManager_WriteChainStatus_Call struct {
+// MockChainStatusManager_WriteChainStatuses_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WriteChainStatuses'
+type MockChainStatusManager_WriteChainStatuses_Call struct {
 	*mock.Call
 }
 
-// WriteChainStatus is a helper method to define mock.On call
+// WriteChainStatuses is a helper method to define mock.On call
 //   - ctx context.Context
 //   - statuses []protocol.ChainStatusInfo
-func (_e *MockChainStatusManager_Expecter) WriteChainStatus(ctx interface{}, statuses interface{}) *MockChainStatusManager_WriteChainStatus_Call {
-	return &MockChainStatusManager_WriteChainStatus_Call{Call: _e.mock.On("WriteChainStatus", ctx, statuses)}
+func (_e *MockChainStatusManager_Expecter) WriteChainStatuses(ctx interface{}, statuses interface{}) *MockChainStatusManager_WriteChainStatuses_Call {
+	return &MockChainStatusManager_WriteChainStatuses_Call{Call: _e.mock.On("WriteChainStatuses", ctx, statuses)}
 }
 
-func (_c *MockChainStatusManager_WriteChainStatus_Call) Run(run func(ctx context.Context, statuses []protocol.ChainStatusInfo)) *MockChainStatusManager_WriteChainStatus_Call {
+func (_c *MockChainStatusManager_WriteChainStatuses_Call) Run(run func(ctx context.Context, statuses []protocol.ChainStatusInfo)) *MockChainStatusManager_WriteChainStatuses_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].([]protocol.ChainStatusInfo))
 	})
 	return _c
 }
 
-func (_c *MockChainStatusManager_WriteChainStatus_Call) Return(_a0 error) *MockChainStatusManager_WriteChainStatus_Call {
+func (_c *MockChainStatusManager_WriteChainStatuses_Call) Return(_a0 error) *MockChainStatusManager_WriteChainStatuses_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockChainStatusManager_WriteChainStatus_Call) RunAndReturn(run func(context.Context, []protocol.ChainStatusInfo) error) *MockChainStatusManager_WriteChainStatus_Call {
+func (_c *MockChainStatusManager_WriteChainStatuses_Call) RunAndReturn(run func(context.Context, []protocol.ChainStatusInfo) error) *MockChainStatusManager_WriteChainStatuses_Call {
 	_c.Call.Return(run)
 	return _c
 }

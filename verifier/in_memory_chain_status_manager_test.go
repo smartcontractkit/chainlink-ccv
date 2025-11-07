@@ -22,20 +22,20 @@ func NewInMemoryChainStatusManager() *InMemoryChainStatusManager {
 }
 
 // WriteChainStatus writes chain statuses for multiple chains atomically.
-func (m *InMemoryChainStatusManager) WriteChainStatus(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
+func (m *InMemoryChainStatusManager) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for _, status := range statuses {
-		// Make a copy of the BlockHeight to avoid sharing pointers
+		// Make a copy of the BlockNumber to avoid sharing pointers
 		blockHeight := new(big.Int)
-		if status.BlockHeight != nil {
-			blockHeight.Set(status.BlockHeight)
+		if status.BlockNumber != nil {
+			blockHeight.Set(status.BlockNumber)
 		}
 
 		m.statuses[status.ChainSelector] = &protocol.ChainStatusInfo{
 			ChainSelector: status.ChainSelector,
-			BlockHeight:   blockHeight,
+			BlockNumber:   blockHeight,
 			Disabled:      status.Disabled,
 		}
 	}
@@ -44,7 +44,7 @@ func (m *InMemoryChainStatusManager) WriteChainStatus(ctx context.Context, statu
 
 // ReadChainStatus reads chain statuses for multiple chains.
 // Returns map of chainSelector -> ChainStatusInfo. Missing chains are not included in the map.
-func (m *InMemoryChainStatusManager) ReadChainStatus(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+func (m *InMemoryChainStatusManager) ReadChainStatuses(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -53,13 +53,13 @@ func (m *InMemoryChainStatusManager) ReadChainStatus(ctx context.Context, chainS
 		if status, ok := m.statuses[selector]; ok {
 			// Return a copy to prevent external modification
 			blockHeight := new(big.Int)
-			if status.BlockHeight != nil {
-				blockHeight.Set(status.BlockHeight)
+			if status.BlockNumber != nil {
+				blockHeight.Set(status.BlockNumber)
 			}
 
 			result[selector] = &protocol.ChainStatusInfo{
 				ChainSelector: status.ChainSelector,
-				BlockHeight:   blockHeight,
+				BlockNumber:   blockHeight,
 				Disabled:      status.Disabled,
 			}
 		}

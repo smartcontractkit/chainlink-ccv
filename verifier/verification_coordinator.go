@@ -225,7 +225,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 		// Make single batch call to read all chain statuses
 		var err error
-		statusMap, err = vc.chainStatusManager.ReadChainStatus(ctx, allSelectors)
+		statusMap, err = vc.chainStatusManager.ReadChainStatuses(ctx, allSelectors)
 		if err != nil {
 			vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains",
 				"error", err)
@@ -242,7 +242,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
 			vc.lggr.Warnw("⚠️ Chain is disabled in aggregator DB, skipping initialization",
 				"chain", chainSelector,
-				"blockHeight", chainStatus.BlockHeight)
+				"blockHeight", chainStatus.BlockNumber)
 			continue
 		}
 
@@ -1020,7 +1020,7 @@ func (vc *Coordinator) handleFinalityViolation(
 		"chain", chainSelector,
 		"type", violationStatus.Type.String())
 
-	// 1. Flush ALL pending tasks for this chain (per-chain queue)
+	// Flush ALL pending tasks for this chain (per-chain queue)
 	state.pendingMu.Lock()
 	flushedCount := len(state.pendingTasks)
 	state.pendingTasks = nil // Clear entire queue
@@ -1030,14 +1030,25 @@ func (vc *Coordinator) handleFinalityViolation(
 		"chain", chainSelector,
 		"flushedCount", flushedCount)
 
-	// 2. Write disabled chain status to aggregator DB
+	// Stop SourceReaderService immediately
+	// No reset - finality violation means there's no safe block to reset to
+	if err := state.reader.Stop(); err != nil {
+		vc.lggr.Errorw("Failed to stop source reader after finality violation",
+			"error", err,
+			"chain", chainSelector)
+	} else {
+		vc.lggr.Errorw("Source reader stopped due to finality violation - manual intervention required",
+			"chain", chainSelector)
+	}
+
+	// Write disabled chain status to aggregator DB
 	// Use blockHeight 0 since there's no safe block to reset to
 	if vc.chainStatusManager != nil {
 		blockHeight := big.NewInt(0)
-		err := vc.chainStatusManager.WriteChainStatus(ctx, []protocol.ChainStatusInfo{
+		err := vc.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 			{
 				ChainSelector: chainSelector,
-				BlockHeight:   blockHeight,
+				BlockNumber:   blockHeight,
 				Disabled:      true,
 			},
 		})
@@ -1052,16 +1063,6 @@ func (vc *Coordinator) handleFinalityViolation(
 		}
 	}
 
-	// 3. Stop SourceReaderService immediately
-	// No reset - finality violation means there's no safe block to reset to
-	if err := state.reader.Stop(); err != nil {
-		vc.lggr.Errorw("Failed to stop source reader after finality violation",
-			"error", err,
-			"chain", chainSelector)
-	} else {
-		vc.lggr.Errorw("Source reader stopped due to finality violation - manual intervention required",
-			"chain", chainSelector)
-	}
 	// TODO: Use Pause() instead of Stop() when implemented (separate PR)
 
 	// TODO: These methods need to be added to the monitoring interface

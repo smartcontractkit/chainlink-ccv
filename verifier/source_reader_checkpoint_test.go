@@ -37,12 +37,12 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_HappyPath(t *testing.T) {
 	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
 		chainSelector: {
 			ChainSelector: chainSelector,
-			BlockHeight:   expectedBlock,
+			BlockNumber:   expectedBlock,
 			Disabled:      false,
 		},
 	}
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(statusMap, nil).
 		Once()
 
@@ -50,7 +50,7 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_HappyPath(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, expectedBlock, result.BlockHeight)
+	require.Equal(t, expectedBlock, result.BlockNumber)
 }
 
 func TestEVMSourceReader_ReadChainStatusWithRetries_NoChainStatusManager(t *testing.T) {
@@ -74,7 +74,7 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_NoChainStatusFound(t *testin
 	// Mock chain status not found (returns empty map)
 	statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(statusMap, nil).
 		Once()
 
@@ -95,24 +95,24 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_RetryLogic(t *testing.T) {
 	// Mock failure on first two attempts, success on third
 	testErr := errors.New("chainStatus read failed")
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(nil, testErr). // First failure
 		Once()
 
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(nil, testErr). // Second failure
 		Once()
 
 	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
 		chainSelector: {
 			ChainSelector: chainSelector,
-			BlockHeight:   expectedBlock,
+			BlockNumber:   expectedBlock,
 			Disabled:      false,
 		},
 	}
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(statusMap, nil). // Success on third attempt
 		Once()
 
@@ -122,7 +122,7 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_RetryLogic(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, expectedBlock, result.BlockHeight)
+	require.Equal(t, expectedBlock, result.BlockNumber)
 	// Should have some backoff delay (1s + 2s = 3s minimum)
 	require.Greater(t, elapsed, 3*time.Second)
 }
@@ -137,7 +137,7 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_AllRetriesFail(t *testing.T)
 	// Mock failure on all attempts
 	testErr := errors.New("chainStatus read failed")
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(nil, testErr).
 		Times(3)
 
@@ -158,7 +158,7 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_ContextCancellation(t *testi
 	// Mock failure on first attempt
 	testErr := errors.New("chainStatus read failed")
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(nil, testErr).
 		Once()
 
@@ -187,12 +187,12 @@ func TestEVMSourceReader_InitializeStartBlock_WithChainStatus(t *testing.T) {
 	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
 		chainSelector: {
 			ChainSelector: chainSelector,
-			BlockHeight:   chainStatusBlock,
+			BlockNumber:   chainStatusBlock,
 			Disabled:      false,
 		},
 	}
 	mockChainStatusManager.EXPECT().
-		ReadChainStatus(ctx, []protocol.ChainSelector{chainSelector}).
+		ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector}).
 		Return(statusMap, nil).
 		Once()
 
@@ -215,7 +215,7 @@ func TestEVMSourceReader_UpdateChainStatus_TooFrequent(t *testing.T) {
 	reader.updateChainStatus(ctx, big.NewInt(2000))
 
 	// Verify no calls were made
-	mockChainStatusManager.AssertNotCalled(t, "WriteChainStatus")
+	mockChainStatusManager.AssertNotCalled(t, "WriteChainStatuses")
 }
 
 // TestEVMSourceReader_ConstructorWithChainStatusManager verifies the constructor properly sets up chain status manager.
@@ -249,7 +249,7 @@ func TestSourceReaderService_ResetToBlock_WithoutChainStatusWrite(t *testing.T) 
 	require.Equal(t, big.NewInt(int64(resetBlock)), reader.lastProcessedBlock)
 	// lastChainStatusBlock should remain unchanged
 	require.Equal(t, big.NewInt(1980), reader.lastChainStatusBlock)
-	mockChainStatusManager.AssertNotCalled(t, "WriteChainStatus")
+	mockChainStatusManager.AssertNotCalled(t, "WriteChainStatuses")
 }
 
 // TestSourceReaderService_ResetToBlock_NoChainStatusManager tests reset when no chain status manager is configured.

@@ -314,7 +314,7 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 
 	t.Log("✅ Test completed: Finality violation handled correctly")
 
-	statusMap, err := setup.chainStatusManager.ReadChainStatus(setup.ctx, []protocol.ChainSelector{chainSelector})
+	statusMap, err := setup.chainStatusManager.ReadChainStatuses(setup.ctx, []protocol.ChainSelector{chainSelector})
 	require.NoError(t, err)
 	require.Len(t, statusMap, 1)
 	require.True(t, statusMap[chainSelector].Disabled, "Chain should be marked as disabled")

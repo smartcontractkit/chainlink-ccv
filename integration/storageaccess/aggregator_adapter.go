@@ -137,7 +137,7 @@ func (a *AggregatorWriter) WriteChainStatus(ctx context.Context, statuses []prot
 	for _, status := range statuses {
 		pbStatuses = append(pbStatuses, &pb.ChainStatus{
 			ChainSelector:        uint64(status.ChainSelector),
-			FinalizedBlockHeight: status.BlockHeight.Uint64(),
+			FinalizedBlockHeight: status.BlockNumber.Uint64(),
 			Disabled:             status.Disabled,
 		})
 	}
@@ -251,7 +251,7 @@ func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors [
 		selector := protocol.ChainSelector(chainStatus.ChainSelector)
 		allStatuses[selector] = &protocol.ChainStatusInfo{
 			ChainSelector: selector,
-			BlockHeight:   new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight),
+			BlockNumber:   new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight),
 			Disabled:      chainStatus.Disabled,
 		}
 	}
