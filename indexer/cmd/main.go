@@ -15,7 +15,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -64,22 +63,6 @@ func main() {
 
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
-
-	// Create a scanner, which will poll the off-chain storage(s) for CCV data
-	scanner := scanner.NewScanner(
-		scanner.WithReaderDiscovery(readerDiscovery),
-		scanner.WithConfig(scanner.Config{
-			ScanInterval:   time.Duration(config.Scanner.ScanInterval) * time.Second,
-			MetricInterval: time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
-			ReaderTimeout:  time.Duration(config.Scanner.ReaderTimeout) * time.Second,
-		}),
-		scanner.WithStorageWriter(indexerStorage),
-		scanner.WithMonitoring(indexerMonitoring),
-		scanner.WithLogger(lggr),
-	)
-
-	// Start the Scanner processing
-	scanner.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
 	api.Serve(v1, 8100)

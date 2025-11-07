@@ -1,7 +1,5 @@
 package worker
 
-import "fmt"
-
 // Execute processes a task by finding missing verifiers, loading verifier readers,
 // enqueueing verifier calls, and storing the results.
 func Execute(task *Task) (*TaskResult, error) {
@@ -12,11 +10,16 @@ func Execute(task *Task) (*TaskResult, error) {
 	// The storage uses a write-through cache so this should be
 	// a low cost call.
 	missing, err := task.getMissingVerifiers()
+	totalVerifiers := task.getVerifiers()
 	if err != nil {
 		// If we're unable to query the storage, we'll return the error
 		// such that we can retry the task later.
 		return nil, err
 	}
+
+	task.logger.Infof("Attempting to retrieve %d verifications for the message. Total Verifiers: %d", len(missing), len(totalVerifiers))
+	task.logger.Debugf("All Verifiers %s", totalVerifiers)
+	task.logger.Debugf("Missing Verifiers %s", missing)
 
 	// Load all missing verifier readers from the registry
 	//
@@ -25,9 +28,7 @@ func Execute(task *Task) (*TaskResult, error) {
 	// for further tasks. However for this task they will be excluded.
 	verifierReaders, missingReaders := task.loadVerifierReaders(missing)
 	if len(missingReaders) != 0 {
-		task.logger.Infow(
-			fmt.Sprintf("Detected %d unknown verifiers within the message, ignoring them for this run.", len(missingReaders)),
-			"messageID", task.messageID.String())
+		task.logger.Infof("Detected %d unknown verifiers within the message, ignoring them for this run.", len(missingReaders))
 	}
 
 	// Process all verifier calls concurrently and collect successful results.

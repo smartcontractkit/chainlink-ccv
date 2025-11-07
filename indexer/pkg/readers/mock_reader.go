@@ -9,10 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var (
-	_ protocol.OffchainStorageReader = (*MockReader)(nil)
-	_ protocol.DisconnectableReader  = (*MockReader)(nil)
-)
+var _ protocol.OffchainStorageReader = (*MockReader)(nil)
 
 // MockReaderConfig configures the behavior of the mock reader.
 type MockReaderConfig struct {
@@ -59,13 +56,12 @@ type MockReaderConfig struct {
 // after a certain number of messages. When EmitInterval is set, it will emit multiple
 // messages in a single call if enough time has passed since the last call.
 type MockReader struct {
-	config           MockReaderConfig
-	mu               sync.Mutex
-	callCount        int
-	messagesEmitted  int
-	lastEmitTime     time.Time
-	lastCallTime     time.Time
-	disconnectSignal bool
+	config          MockReaderConfig
+	mu              sync.Mutex
+	callCount       int
+	messagesEmitted int
+	lastEmitTime    time.Time
+	lastCallTime    time.Time
 }
 
 // NewMockReader creates a new mock reader with the given configuration.
@@ -126,7 +122,6 @@ func (m *MockReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse,
 
 	// Update tracking state
 	m.updateLastEmitTime(messagesToEmit, updatedNow)
-	m.checkAndSetDisconnectSignal()
 
 	// Apply latency simulation if configured
 	m.addLatency()
@@ -153,14 +148,7 @@ func (m *MockReader) shouldReturnError() error {
 
 // hasReachedMaxMessages checks if the maximum message limit has been reached.
 func (m *MockReader) hasReachedMaxMessages() bool {
-	maxMessagesReached := m.config.MaxMessages > 0 && m.messagesEmitted >= m.config.MaxMessages
-
-	if maxMessagesReached {
-		m.disconnectSignal = true
-		return true
-	}
-
-	return false
+	return m.config.MaxMessages > 0 && m.messagesEmitted >= m.config.MaxMessages
 }
 
 // calculateMessagesToEmit determines how many messages should be emitted based on time elapsed.
@@ -254,21 +242,6 @@ func (m *MockReader) updateLastEmitTime(messagesToEmit int, now time.Time) {
 	} else {
 		m.lastEmitTime = now
 	}
-}
-
-// checkAndSetDisconnectSignal checks if max messages has been reached and sets disconnect signal.
-func (m *MockReader) checkAndSetDisconnectSignal() {
-	if m.config.MaxMessages > 0 && m.messagesEmitted >= m.config.MaxMessages {
-		m.disconnectSignal = true
-	}
-}
-
-// ShouldDisconnect implements the DisconnectableReader interface.
-// Returns true when the reader has emitted the maximum number of messages.
-func (m *MockReader) ShouldDisconnect() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.disconnectSignal
 }
 
 // GetCallCount returns the number of times ReadCCVData has been called.
