@@ -582,7 +582,7 @@ var sendCmd = &cobra.Command{
 
 		mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
 			datastore.NewAddressRefKey(
-				src,
+				dest,
 				datastore.ContractType(mock_receiver.ContractType),
 				semver.MustParse(mock_receiver.Deploy.Version()),
 				ccvEvm.DefaultReceiverQualifier))
