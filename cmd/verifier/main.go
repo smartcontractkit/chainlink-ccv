@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
@@ -219,6 +220,10 @@ func main() {
 			lggr.Errorw("On ramp address is not set", "chainSelector", selector)
 			continue
 		}
+		if config.RMNRemoteAddresses[strSelector] == "" {
+			lggr.Errorw("RMN Remote address is not set", "chainSelector", selector)
+			continue
+		}
 
 		// Create mock head tracker for this chain
 		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr)
@@ -227,6 +232,7 @@ func main() {
 			chainClients[selector],
 			headTracker,
 			common.HexToAddress(config.OnRampAddresses[strSelector]),
+			common.HexToAddress(config.RMNRemoteAddresses[strSelector]),
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			selector,
 			lggr,
@@ -250,6 +256,16 @@ func main() {
 
 	// Create coordinator configuration
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
+	for selector, address := range config.RMNRemoteAddresses {
+		addr, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			lggr.Errorw("Failed to create RMN Remote address", "error", err, "selector", selector)
+			os.Exit(1)
+		}
+		rmnRemoteAddresses[selector] = addr
+	}
+
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 		sourceConfigs[selector] = verifier.SourceConfig{
@@ -257,6 +273,7 @@ func main() {
 			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
 			PollInterval:           1 * time.Second,
 			ChainSelector:          selector,
+			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
 		}
 	}
 
@@ -306,6 +323,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create curse detector service
+	// Build map of chain selector -> RMNCurseReader (which are the source readers)
+	rmnReaders := make(map[protocol.ChainSelector]cursedetector.RMNCurseReader)
+	for chainSelector, sourceReader := range sourceReaders {
+		// SourceReader automatically satisfies RMNCurseReader interface
+		rmnReaders[chainSelector] = sourceReader
+	}
+
+	curseDetectorSvc, err := cursedetector.NewCurseDetectorService(
+		rmnReaders,
+		2*time.Second, // Default poll interval for curse detection
+		lggr,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create curse detector service", "error", err)
+		os.Exit(1)
+	}
+	lggr.Infow("✅ Created curse detector service", "chainCount", len(rmnReaders))
+
 	// Create verification coordinator
 	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(commitVerifier),
@@ -316,6 +352,7 @@ func main() {
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(verifierMonitoring),
+		verifier.WithCurseDetector(curseDetectorSvc),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

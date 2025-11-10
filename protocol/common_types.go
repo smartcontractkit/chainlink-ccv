@@ -146,6 +146,8 @@ func (h ByteSlice) String() string {
 	return "0x" + hex.EncodeToString(h)
 }
 
+type Bytes16 [16]byte
+
 type Bytes32 [32]byte
 
 // NewBytes32FromString creates 32-sized bytes array from hex-encoded string or returns an error.

@@ -29,6 +29,7 @@ type SourceConfig struct {
 	DefaultExecutorAddress protocol.UnknownAddress `json:"default_executor_address"`
 	ChainSelector          protocol.ChainSelector  `json:"chain_selector"`
 	PollInterval           time.Duration           `json:"poll_interval"`
+	RMNRemoteAddress       protocol.UnknownAddress `json:"rmn_remote_address"` // RMN Remote contract address for curse detection
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator.

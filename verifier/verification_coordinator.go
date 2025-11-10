@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
@@ -64,6 +65,7 @@ type Coordinator struct {
 	sourceReaders      map[protocol.ChainSelector]SourceReader
 	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
+	curseDetector      cursedetector.CurseDetector
 }
 
 // Option is the functional option type for Coordinator.
@@ -169,6 +171,13 @@ func WithReorgDetectors(reorgDetectors map[protocol.ChainSelector]protocol.Reorg
 // AddReorgDetector adds a single reorg detector for a specific chain.
 func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.ReorgDetector) Option {
 	return WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{chainSelector: detector})
+}
+
+// WithCurseDetector sets the curse detector for monitoring RMN Remote contracts.
+func WithCurseDetector(detector cursedetector.CurseDetector) Option {
+	return func(vc *Coordinator) {
+		vc.curseDetector = detector
+	}
 }
 
 // NewCoordinator creates a new verification coordinator.
@@ -319,6 +328,15 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 	vc.running = true
 
+	// Start curse detector if configured
+	if vc.curseDetector != nil {
+		if err := vc.curseDetector.Start(ctx); err != nil {
+			vc.lggr.Errorw("Failed to start curse detector", "error", err)
+			return fmt.Errorf("failed to start curse detector: %w", err)
+		}
+		vc.lggr.Infow("Curse detector started")
+	}
+
 	// Initialize storage batcher (will automatically flush when ctx is canceled)
 	vc.batchedCCVDataCh = make(chan batcher.BatchResult[CCVDataWithIdempotencyKey], 10)
 	vc.storageBatcher = batcher.NewBatcher(
@@ -373,6 +391,13 @@ func (vc *Coordinator) Close() error {
 
 	// Wait for background goroutines (run, finalityCheckingLoop, and processReorgUpdates) to finish.
 	vc.backgroundWg.Wait()
+
+	// Close curse detector
+	if vc.curseDetector != nil {
+		if err := vc.curseDetector.Close(); err != nil {
+			vc.lggr.Errorw("Error closing curse detector", "error", err)
+		}
+	}
 
 	// Close reorg detectors
 	for chainSelector, state := range vc.sourceStates {
@@ -649,6 +674,20 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 		return
 	}
 
+	// Check if lane is cursed (source -> dest)
+	if vc.curseDetector != nil && vc.curseDetector.IsRemoteChainCursed(
+		task.Message.SourceChainSelector,
+		task.Message.DestChainSelector,
+	) {
+		messageID, _ := task.Message.MessageID()
+		vc.lggr.Warnw("Dropping task - lane is cursed",
+			"source", task.Message.SourceChainSelector,
+			"dest", task.Message.DestChainSelector,
+			"messageID", messageID,
+			"blockNumber", task.BlockNumber)
+		return
+	}
+
 	// Set QueuedAt timestamp for finality wait duration tracking
 	task.QueuedAt = time.Now()
 	state.pendingTasks = append(state.pendingTasks, task)
@@ -777,6 +816,21 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 	// Check finality for each task
 	for _, task := range state.pendingTasks {
+		// Check if lane is cursed before processing finalized tasks
+		if vc.curseDetector != nil && vc.curseDetector.IsRemoteChainCursed(
+			task.Message.SourceChainSelector,
+			task.Message.DestChainSelector,
+		) {
+			messageID, _ := task.Message.MessageID()
+			vc.lggr.Warnw("Dropping finalized task - lane is cursed",
+				"source", task.Message.SourceChainSelector,
+				"dest", task.Message.DestChainSelector,
+				"messageID", messageID,
+				"chain", chainSelector)
+			// Drop the task (don't add to remainingTasks or readyTasks)
+			continue
+		}
+
 		ready, err := vc.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock)
 		if err != nil {
 			messageID, _ := task.Message.MessageID()

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -31,6 +32,7 @@ type EVMSourceReader struct {
 	chainClient          client.Client
 	headTracker          heads.Tracker
 	contractAddress      common.Address
+	rmnRemoteAddress     common.Address
 	ccipMessageSentTopic string
 	chainSelector        protocol.ChainSelector
 	lggr                 logger.Logger
@@ -40,6 +42,7 @@ func NewEVMSourceReader(
 	chainClient client.Client,
 	headTracker heads.Tracker,
 	contractAddress common.Address,
+	rmnRemoteAddress common.Address,
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
@@ -58,6 +61,9 @@ func NewEVMSourceReader(
 	if contractAddress == (common.Address{}) {
 		errs = append(errs, fmt.Errorf("contractAddress is not set"))
 	}
+	if rmnRemoteAddress == (common.Address{}) {
+		errs = append(errs, fmt.Errorf("rmnRemoteAddress is not set"))
+	}
 	if ccipMessageSentTopic == "" {
 		errs = append(errs, fmt.Errorf("ccipMessageSentTopic is not set"))
 	}
@@ -73,6 +79,7 @@ func NewEVMSourceReader(
 		chainClient:          chainClient,
 		headTracker:          headTracker,
 		contractAddress:      contractAddress,
+		rmnRemoteAddress:     rmnRemoteAddress,
 		ccipMessageSentTopic: ccipMessageSentTopic,
 		chainSelector:        chainSelector,
 		lggr:                 lggr,
@@ -345,4 +352,12 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 	}
 
 	return latest, finalized, nil
+}
+
+// GetRMNCursedSubjects queries this source chain's RMN Remote contract.
+// Implements SourceReader and cursedetector.RMNCurseReader interfaces.
+func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+	// Use the common helper function from cursedetector package
+	// This avoids code duplication with EVMDestinationReader
+	return cursedetector.ReadRMNCursedSubjects(ctx, r.chainClient, r.rmnRemoteAddress)
 }

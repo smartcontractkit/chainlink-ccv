@@ -140,6 +140,64 @@ func (_c *MockSourceReader_GetBlockHeaderByHash_Call) RunAndReturn(run func(cont
 	return _c
 }
 
+// GetRMNCursedSubjects provides a mock function with given fields: ctx
+func (_m *MockSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRMNCursedSubjects")
+	}
+
+	var r0 []protocol.Bytes16
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]protocol.Bytes16, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []protocol.Bytes16); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]protocol.Bytes16)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSourceReader_GetRMNCursedSubjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRMNCursedSubjects'
+type MockSourceReader_GetRMNCursedSubjects_Call struct {
+	*mock.Call
+}
+
+// GetRMNCursedSubjects is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockSourceReader_Expecter) GetRMNCursedSubjects(ctx interface{}) *MockSourceReader_GetRMNCursedSubjects_Call {
+	return &MockSourceReader_GetRMNCursedSubjects_Call{Call: _e.mock.On("GetRMNCursedSubjects", ctx)}
+}
+
+func (_c *MockSourceReader_GetRMNCursedSubjects_Call) Run(run func(ctx context.Context)) *MockSourceReader_GetRMNCursedSubjects_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockSourceReader_GetRMNCursedSubjects_Call) Return(_a0 []protocol.Bytes16, _a1 error) *MockSourceReader_GetRMNCursedSubjects_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSourceReader_GetRMNCursedSubjects_Call) RunAndReturn(run func(context.Context) ([]protocol.Bytes16, error)) *MockSourceReader_GetRMNCursedSubjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetBlocksHeaders provides a mock function with given fields: ctx, blockNumber
 func (_m *MockSourceReader) GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
 	ret := _m.Called(ctx, blockNumber)

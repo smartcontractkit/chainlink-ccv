@@ -45,6 +45,13 @@ type SourceReader interface {
 	// Required for walking back parent chain during LCA finding in reorg detection.
 	// Returns nil if block doesn't exist, error for RPC failures.
 	GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error)
+
+	// GetRMNCursedSubjects queries this source chain's RMN Remote contract.
+	// Returns cursed subjects as bytes16, which can be:
+	// - Global curse constant (0x0100000000000000000000000000000001)
+	// - Chain selector (last 8 bytes) of a cursed destination chain
+	// Makes SourceReader satisfy cursedetector.RMNCurseReader interface.
+	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }
 
 // Monitoring provides all core monitoring functionality for the verifier.
