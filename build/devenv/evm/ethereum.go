@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	// DefaultAnvilKey that's the first Anvil and Geth private key, serves as a fallback for local testing if not overridden
+	// DefaultAnvilKey that's the first Anvil and Geth private key, serves as a fallback for local testing if not overridden.
 	DefaultAnvilKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 )
 

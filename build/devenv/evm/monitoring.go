@@ -227,7 +227,7 @@ func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Sp
 				SpanID:            SpanID(msgID, "msg_sig"),
 				Name:              "msg_sig",
 				StartTimeUnixNano: msgSent.Raw.BlockTimestamp * 1_000_000_000,
-				EndTimeUnixNano:   uint64(msgSig.Timestamp.Nanosecond()), //nolint:gosec // conversion from int to uint64 is safe here
+				EndTimeUnixNano:   uint64(msgSig.Timestamp.Nanosecond()), // conversion from int to uint64 is safe here
 				Kind:              2,
 				Attributes: []Attribute{
 					{
@@ -347,8 +347,8 @@ func TraceIDFromMessage(msgID [32]byte) string {
 // If key == nil or empty, falls back to plain SHA-256.
 func SpanID(msgID [32]byte, spanName string) string {
 	h := sha256.New()
-	h.Write(msgID[:])         //nolint // SHA-256 doesn't return an error here
-	h.Write([]byte(spanName)) //nolint // SHA-256 doesn't return an error here
+	h.Write(msgID[:])         // SHA-256 doesn't return an error here
+	h.Write([]byte(spanName)) // SHA-256 doesn't return an error here
 	sum := h.Sum(nil)
 	span := sum[len(sum)-8:] // take last 8 bytes
 

@@ -1071,7 +1071,7 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 		signerAddresses = append(signerAddresses, common.BytesToAddress(addr[:]))
 	}
 	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(numNodes), //nolint:gosec
+		Threshold: uint8(numNodes),
 		Signers:   signerAddresses,
 	}
 }
