@@ -43,6 +43,14 @@ jobs:
           role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
           aws-region: us-east-1
           registry-type: public
+      
+      - name: Authenticate to AWS ECR (JD)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          aws-region: us-west-2
+          registry-type: private
+          registries: ${{ secrets.JD_REGISTRY }}
 
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
@@ -61,6 +69,8 @@ jobs:
           DOCKER_BUILDKIT: 1
 
       - name: Run CCV environment
+        env:
+          JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
           cd cmd/ccv && go install . && cd -
           ccv u env.toml && ccv obs up
