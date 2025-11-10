@@ -589,16 +589,7 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 		messageIDHexValues[i] = common.Bytes2Hex(messageID)
 	}
 
-	// Build parameterized query with placeholders for IN clause
-	placeholders := make([]string, len(messageIDHexValues))
-	args := make([]any, len(messageIDHexValues)+1)
-	for i, messageIDHex := range messageIDHexValues {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = messageIDHex
-	}
-	args[len(messageIDHexValues)] = committeeID
-
-	stmt := fmt.Sprintf(`
+	stmt := `
 		SELECT 
 			car.message_id,
 			car.committee_id,
@@ -613,9 +604,9 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 		FROM commit_aggregated_reports car
 		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
 		LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
-		WHERE car.message_id IN (%s) AND car.committee_id = $%d
+		WHERE car.message_id IN ($1) AND car.committee_id = $2
 		ORDER BY car.message_id, car.seq_num DESC, vid.ord
-	`, strings.Join(placeholders, ","), len(messageIDHexValues)+1)
+	`
 
 	type joinedRecord struct {
 		MessageID           string         `db:"message_id"`
@@ -630,7 +621,7 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 		CCVNodeData         []byte         `db:"ccv_node_data"`
 	}
 
-	rows, err := d.ds.QueryContext(ctx, stmt, args...)
+	rows, err := d.ds.QueryContext(ctx, stmt, strings.Join(messageIDHexValues, ","), committeeID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query batch aggregated reports: %w", err)
 	}

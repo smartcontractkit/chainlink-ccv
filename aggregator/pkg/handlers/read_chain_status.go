@@ -49,7 +49,7 @@ func (h *ReadChainStatusHandler) Handle(ctx context.Context, req *pb.ReadChainSt
 	}
 
 	// Retrieve chain statuses using the effective caller ID (handles admin on-behalf-of automatically)
-	chainStatusMap, err := h.storage.GetClientChainStatus(ctx, identity.EffectiveCallerID)
+	chainStatusMap, err := h.storage.GetClientChainStatus(ctx, identity.EffectiveCallerID, req.ChainSelectors)
 	if err != nil {
 		h.logger(ctx).Errorw("failed to retrieve chain statuses", "clientID", identity.EffectiveCallerID, "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to retrieve chain statuses: %v", err)
