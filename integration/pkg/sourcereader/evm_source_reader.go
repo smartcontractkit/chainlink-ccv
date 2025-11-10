@@ -31,7 +31,7 @@ var (
 type EVMSourceReader struct {
 	chainClient          client.Client
 	headTracker          heads.Tracker
-	contractAddress      common.Address
+	onRampAddress        common.Address
 	rmnRemoteAddress     common.Address
 	ccipMessageSentTopic string
 	chainSelector        protocol.ChainSelector
@@ -41,7 +41,7 @@ type EVMSourceReader struct {
 func NewEVMSourceReader(
 	chainClient client.Client,
 	headTracker heads.Tracker,
-	contractAddress common.Address,
+	onRampAddress common.Address,
 	rmnRemoteAddress common.Address,
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
@@ -58,8 +58,8 @@ func NewEVMSourceReader(
 	appendIfNil(headTracker, "headTracker")
 	appendIfNil(lggr, "logger")
 
-	if contractAddress == (common.Address{}) {
-		errs = append(errs, fmt.Errorf("contractAddress is not set"))
+	if onRampAddress == (common.Address{}) {
+		errs = append(errs, fmt.Errorf("onRampAddress is not set"))
 	}
 	if rmnRemoteAddress == (common.Address{}) {
 		errs = append(errs, fmt.Errorf("rmnRemoteAddress is not set"))
@@ -78,7 +78,7 @@ func NewEVMSourceReader(
 	return &EVMSourceReader{
 		chainClient:          chainClient,
 		headTracker:          headTracker,
-		contractAddress:      contractAddress,
+		onRampAddress:        onRampAddress,
 		rmnRemoteAddress:     rmnRemoteAddress,
 		ccipMessageSentTopic: ccipMessageSentTopic,
 		chainSelector:        chainSelector,
@@ -162,7 +162,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
-		Addresses: []common.Address{r.contractAddress},
+		Addresses: []common.Address{r.onRampAddress},
 		Topics:    [][]common.Hash{{common.HexToHash(r.ccipMessageSentTopic)}},
 	}
 	logs, err := r.chainClient.FilterLogs(ctx, rangeQuery)
