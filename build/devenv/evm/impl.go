@@ -1,4 +1,4 @@
-package ccv_evm
+package evm
 
 import (
 	"context"

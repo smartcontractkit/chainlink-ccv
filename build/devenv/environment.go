@@ -20,7 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
@@ -96,7 +96,7 @@ func checkKeys(in *Cfg) error {
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
-		return &ccvEvm.CCIP17EVM{}, nil
+		return &evm.CCIP17EVM{}, nil
 	case "canton":
 		// see devenv-evm implementation and add Canton
 		return nil, nil
