@@ -196,12 +196,20 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	prodJDImage := os.Getenv("JD_IMAGE")
 
-	if prodJDImage != "" {
-		in.JD.Image = prodJDImage
-	}
-	_, err = jd.NewJD(in.JD)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create JD service: %w", err)
+	if in.JD != nil {
+		if prodJDImage != "" {
+			in.JD.Image = prodJDImage
+		}
+		if len(in.JD.Image) == 0 {
+			Plog.Warn().Msg("No JD image provided, skipping JD service startup")
+		} else {
+			_, err = jd.NewJD(in.JD)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create JD service: %w", err)
+			}
+		}
+	} else {
+		Plog.Warn().Msg("No JD configuration provided, skipping JD service startup")
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")
@@ -268,7 +276,8 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	if hasCLNodeService { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
+	// TODO: don't hard code for CL node
+	if hasCLNodeService || true { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
 		clChainConfigs := make([]string, 0)
 		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 		for i, impl := range impls {
@@ -323,6 +332,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	/*  // TODO: don't hard code for CL node
 	// TODO: remove this if condition once configuration is injected into the node.
 	// For now, if the core node is started, assume that it will launch all services.
 	// TODO: Maybe it starts with just the verifiers.
@@ -345,6 +355,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			}
 		}
 	}
+	*/
 
 	timeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
