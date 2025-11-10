@@ -240,6 +240,16 @@ func AllTokenCombinations() []TokenCombination {
 	}
 }
 
+func All17TokenCombinations() []TokenCombination {
+	combinations := []TokenCombination{}
+	for _, tc := range AllTokenCombinations() {
+		if semver.MustParse(tc.sourcePoolVersion).Equal(semver.MustParse("1.7.0")) && semver.MustParse(tc.destPoolVersion).Equal(semver.MustParse("1.7.0")) {
+			combinations = append(combinations, tc)
+		}
+	}
+	return combinations
+}
+
 type CCIP17EVM struct {
 	e                      *deployment.Environment
 	logger                 zerolog.Logger
