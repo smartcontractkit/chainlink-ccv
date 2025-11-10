@@ -18,7 +18,6 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
@@ -282,6 +281,7 @@ func main() {
 		SourceConfigs:       sourceConfigs,
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
+		CursePollInterval:   2 * time.Second, // Poll RMN Remotes for curse status every 2s
 	}
 
 	pk := os.Getenv(PK_ENV_VAR)
@@ -323,25 +323,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create curse detector service
-	// Build map of chain selector -> RMNCurseReader (which are the source readers)
-	rmnReaders := make(map[protocol.ChainSelector]cursedetector.RMNCurseReader)
-	for chainSelector, sourceReader := range sourceReaders {
-		// SourceReader automatically satisfies RMNCurseReader interface
-		rmnReaders[chainSelector] = sourceReader
-	}
-
-	curseDetectorSvc, err := cursedetector.NewCurseDetectorService(
-		rmnReaders,
-		2*time.Second, // Default poll interval for curse detection
-		lggr,
-	)
-	if err != nil {
-		lggr.Errorw("Failed to create curse detector service", "error", err)
-		os.Exit(1)
-	}
-	lggr.Infow("✅ Created curse detector service", "chainCount", len(rmnReaders))
-
 	// Create verification coordinator
 	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(commitVerifier),
@@ -352,7 +333,6 @@ func main() {
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(verifierMonitoring),
-		verifier.WithCurseDetector(curseDetectorSvc),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

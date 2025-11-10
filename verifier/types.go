@@ -38,6 +38,7 @@ type CoordinatorConfig struct {
 	VerifierID          string                                  `json:"verifier_id"`
 	StorageBatchSize    int                                     `json:"storage_batch_size"`    // Maximum number of CCVData items to batch before writing to storage (default: 50)
 	StorageBatchTimeout time.Duration                           `json:"storage_batch_timeout"` // Maximum duration to wait before flushing incomplete storage batch (default: 100ms)
+	CursePollInterval   time.Duration                           `json:"curse_poll_interval"`   // How often to poll RMN Remote contracts for curse status (default: 2s)
 }
 
 // VerificationError represents an error that occurred during message verification.

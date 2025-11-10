@@ -173,13 +173,6 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 	return WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{chainSelector: detector})
 }
 
-// WithCurseDetector sets the curse detector for monitoring RMN Remote contracts.
-func WithCurseDetector(detector cursedetector.CurseDetector) Option {
-	return func(vc *Coordinator) {
-		vc.curseDetector = detector
-	}
-}
-
 // NewCoordinator creates a new verification coordinator.
 func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
@@ -242,6 +235,9 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	}
 
 	// Initialize source states with reorg detection
+	// Also collect RMN curse readers for curse detector
+	rmnReaders := make(map[protocol.ChainSelector]cursedetector.RMNCurseReader)
+
 	for chainSelector, sourceReader := range vc.sourceReaders {
 		if sourceReader == nil {
 			continue
@@ -260,6 +256,9 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			vc.lggr.Warnw("skipping source reader: no source config found for chain selector", "chainSelector", chainSelector)
 			continue
 		}
+
+		// SourceReader automatically satisfies RMNCurseReader interface
+		rmnReaders[chainSelector] = sourceReader
 
 		sourcePollInterval := DefaultSourceReaderPollInterval
 		if sourceCfg.PollInterval > 0 {
@@ -294,6 +293,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		}
 
 		// Setup ReorgDetector (if provided)
+		// TODO: Initialize reorgDetectorService like the sourceReaderService - we can keep the WithReorgDetector option and create them if they're not present
 		if detector, hasDetector := vc.reorgDetectors[chainSelector]; hasDetector {
 			// Start detector (blocks until initial tail is built and subscription is established)
 			reorgStatusCh, err := detector.Start(ctx)
@@ -328,13 +328,11 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 	vc.running = true
 
-	// Start curse detector if configured
-	if vc.curseDetector != nil {
-		if err := vc.curseDetector.Start(ctx); err != nil {
-			vc.lggr.Errorw("Failed to start curse detector", "error", err)
-			return fmt.Errorf("failed to start curse detector: %w", err)
+	// Create and start curse detector from RMN readers if not already set
+	if vc.curseDetector == nil && len(rmnReaders) > 0 {
+		if err := vc.createAndStartCurseDetector(ctx, rmnReaders); err != nil {
+			return fmt.Errorf("failed to create and start curse detector: %w", err)
 		}
-		vc.lggr.Infow("Curse detector started")
 	}
 
 	// Initialize storage batcher (will automatically flush when ctx is canceled)
@@ -1167,4 +1165,36 @@ func (vc *Coordinator) isMessageReadyForVerification(
 		}
 	}
 	return ready, nil
+}
+
+// createAndStartCurseDetector creates, configures, and starts a curse detector service from RMN readers.
+// Uses CursePollInterval from config, defaulting to 2s if not set.
+func (vc *Coordinator) createAndStartCurseDetector(
+	ctx context.Context,
+	rmnReaders map[protocol.ChainSelector]cursedetector.RMNCurseReader,
+) error {
+	cursePollInterval := vc.config.CursePollInterval
+	if cursePollInterval <= 0 {
+		cursePollInterval = 2 * time.Second // Default
+	}
+
+	curseDetectorSvc, err := cursedetector.NewCurseDetectorService(
+		rmnReaders,
+		cursePollInterval,
+		vc.lggr,
+	)
+	if err != nil {
+		vc.lggr.Errorw("Failed to create curse detector service", "error", err)
+		return fmt.Errorf("failed to create curse detector: %w", err)
+	}
+
+	if err := curseDetectorSvc.Start(ctx); err != nil {
+		vc.lggr.Errorw("Failed to start curse detector", "error", err)
+		return fmt.Errorf("failed to start curse detector: %w", err)
+	}
+
+	vc.curseDetector = curseDetectorSvc
+	vc.lggr.Infow("Curse detector started", "chainCount", len(rmnReaders))
+
+	return nil
 }
