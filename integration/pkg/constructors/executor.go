@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
@@ -13,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
+	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
 
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
@@ -22,6 +25,8 @@ func NewExecutorCoordinator(
 	lggr logger.Logger,
 	cfg executor.Configuration,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
+	keys keys.RoundRobin,
+	fromAddresses []common.Address,
 ) (*executor.Coordinator, error) {
 	offRampAddresses, err := mapAddresses(cfg.OffRampAddresses)
 	if err != nil {
@@ -40,7 +45,11 @@ func NewExecutorCoordinator(
 		transmitters[sel] = contracttransmitter.NewEVMContractTransmitterFromTxm(
 			logger.With(lggr, "component", "ContractTransmitter"),
 			sel,
-			chain.TxManager())
+			chain.TxManager(),
+			common.HexToAddress(offRampAddresses[sel].String()),
+			keys,
+			fromAddresses,
+		)
 
 		destReaders[sel] = destinationreader.NewEvmDestinationReader(
 			logger.With(lggr, "component", "DestinationReader"),
@@ -82,11 +91,11 @@ func NewExecutorCoordinator(
 		})
 
 	exec, err := executor.NewCoordinator(
-		executor.WithLogger(logger.With(lggr, "component", "Coordinator")),
-		executor.WithExecutor(ex),
-		executor.WithLeaderElector(le),
-		executor.WithMessageSubscriber(indexerStream),
-		executor.WithMonitoring(monitoring),
+		logger.With(lggr, "component", "Coordinator"),
+		ex,
+		indexerStream,
+		le,
+		monitoring,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)

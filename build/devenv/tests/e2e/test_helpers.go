@@ -85,6 +85,10 @@ type AssertMessageOptions struct {
 	TickInterval            time.Duration
 	Timeout                 time.Duration
 	ExpectedVerifierResults int
+
+	// Optional log verification, since its slower.
+	AssertVerifierLogs bool
+	AssertExecutorLogs bool
 }
 
 func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOptions) (AssertionResult, error) {
@@ -93,27 +97,30 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 
 	result := AssertionResult{}
 
-	_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageReachedVerifier())
-	if err != nil {
-		return result, fmt.Errorf("verifier reached log assertion failed: %w", err)
+	if opts.AssertVerifierLogs {
+		_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageReachedVerifier())
+		if err != nil {
+			return result, fmt.Errorf("verifier reached log assertion failed: %w", err)
+		}
+
+		tc.logger.Info().
+			Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+			Msg("found message reached verifier in logs")
+
+		result.VerifierReached = true
+
+		_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageSigned())
+		if err != nil {
+			return result, fmt.Errorf("verifier signed log assertion failed: %w", err)
+		}
+
+		tc.logger.Info().
+			Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+			Msg("found verifier signature in logs")
+
+		result.VerifierSigned = true
 	}
 
-	tc.logger.Info().
-		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
-		Msg("found message reached verifier in logs")
-
-	result.VerifierReached = true
-
-	_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageSigned())
-	if err != nil {
-		return result, fmt.Errorf("verifier signed log assertion failed: %w", err)
-	}
-
-	tc.logger.Info().
-		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
-		Msg("found verifier signature in logs")
-
-	result.VerifierSigned = true
 	aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
 		ctx,
 		messageID,
@@ -137,27 +144,29 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	result.IndexedVerifications = indexedVerifications
 	result.IndexerFound = true
 
-	_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
-	if err != nil {
-		return result, fmt.Errorf("executor log assertion failed: %w", err)
+	if opts.AssertExecutorLogs {
+		_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
+		if err != nil {
+			return result, fmt.Errorf("executor log assertion failed: %w", err)
+		}
+
+		tc.logger.Info().
+			Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+			Msg("found verifications for messageID in executor logs")
+
+		result.ExecutorLogFound = true
+
+		_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.SentToChainInExecutor())
+		if err != nil {
+			return result, fmt.Errorf("executor sent to chain log assertion failed: %w", err)
+		}
+
+		tc.logger.Info().
+			Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+			Msg("found sent to chain log for messageID in executor logs")
+
+		result.SentToChainFound = true
 	}
-
-	tc.logger.Info().
-		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
-		Msg("found verifications for messageID in executor logs")
-
-	result.ExecutorLogFound = true
-
-	_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.SentToChainInExecutor())
-	if err != nil {
-		return result, fmt.Errorf("executor sent to chain log assertion failed: %w", err)
-	}
-
-	tc.logger.Info().
-		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
-		Msg("found sent to chain log for messageID in executor logs")
-
-	result.SentToChainFound = true
 
 	return result, nil
 }

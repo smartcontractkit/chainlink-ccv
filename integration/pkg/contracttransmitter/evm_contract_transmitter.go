@@ -12,11 +12,10 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
 )
@@ -26,21 +25,12 @@ var _ executor.ContractTransmitter = &EVMContractTransmitter{}
 type EVMContractTransmitter struct {
 	ctx           context.Context
 	lggr          logger.Logger
-	TxmClient     txmgr.TxManager
 	TransactOpts  *bind.TransactOpts
 	Client        *ethclient.Client
 	Pk            *ecdsa.PrivateKey
 	OffRamp       offramp.OffRamp
 	chainSelector protocol.ChainSelector
 	mu            sync.Mutex
-}
-
-func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager) *EVMContractTransmitter {
-	return &EVMContractTransmitter{
-		lggr:          lggr,
-		chainSelector: chainSelector,
-		TxmClient:     client,
-	}
 }
 
 // todo: this is a stub before we use real txm

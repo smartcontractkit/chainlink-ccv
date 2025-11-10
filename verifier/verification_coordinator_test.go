@@ -22,11 +22,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/test"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
-	verifiermocks "github.com/smartcontractkit/chainlink-ccv/verifier/mocks"
 )
 
 // Test constants.
@@ -39,12 +37,13 @@ const (
 
 // testSetup contains common test dependencies.
 type testSetup struct {
-	t       *testing.T
-	ctx     context.Context
-	cancel  context.CancelFunc
-	logger  logger.Logger
-	storage *common.InMemoryOffchainStorage
-	signer  verifier.MessageSigner
+	t          *testing.T
+	ctx        context.Context
+	cancel     context.CancelFunc
+	logger     logger.Logger
+	storage    *common.InMemoryOffchainStorage
+	signerAddr protocol.UnknownAddress
+	signer     verifier.MessageSigner
 }
 
 const (
@@ -80,15 +79,16 @@ func newTestSetup(t *testing.T) *testSetup {
 	ctx, cancel := context.WithCancel(context.Background())
 	lggr := logger.Test(t)
 	storage := common.NewInMemoryOffchainStorage(lggr)
-	signer := createTestSigner(t)
+	signer, addr := createTestSigner(t)
 
 	return &testSetup{
-		t:       t,
-		ctx:     ctx,
-		cancel:  cancel,
-		logger:  lggr,
-		storage: storage,
-		signer:  signer,
+		t:          t,
+		ctx:        ctx,
+		cancel:     cancel,
+		logger:     lggr,
+		storage:    storage,
+		signerAddr: addr,
+		signer:     signer,
 	}
 }
 
@@ -98,17 +98,18 @@ func (ts *testSetup) cleanup() {
 }
 
 // createTestSigner generates a test ECDSA message signer.
-func createTestSigner(t *testing.T) verifier.MessageSigner {
+func createTestSigner(t *testing.T) (verifier.MessageSigner, protocol.UnknownAddress) {
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	signer, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+	signer, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 	require.NoError(t, err)
-	return signer
+
+	return signer, addr
 }
 
-func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16) verifier.VerificationTask {
-	message := test.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality)
+func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32) verifier.VerificationTask {
+	message := verifier.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality, gasLimit)
 
 	// Determine the correct verifier address based on source chain
 	var verifierAddress string
@@ -155,7 +156,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 		sourceChain1: "0x1234",
 	})
 
-	mockReader := verifiermocks.NewMockSourceReader(t)
+	mockReader := verifier.NewMockSourceReader(t)
 	channel := make(chan verifier.VerificationTask, 10)
 	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
 		var tasks []verifier.VerificationTask
@@ -175,7 +176,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	ts := newTestSetup(t)
 
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(t, err)
 
 	testcases := []struct {
@@ -303,7 +304,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]verifier.SourceReader, headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signer, ts.logger, noopMonitoring)
+	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(ts.t, err)
 
 	return verifier.NewCoordinator(
@@ -353,7 +354,7 @@ func TestVerifier(t *testing.T) {
 	})
 
 	// Set up mock source reader
-	mockSetup := test.SetupMockSourceReader(t)
+	mockSetup := verifier.SetupMockSourceReader(t)
 	mockSetup.ExpectVerificationTask(false)
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup.Reader,
@@ -374,15 +375,15 @@ func TestVerifier(t *testing.T) {
 
 	// Create and send test tasks
 	testTasks := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 
 	var messagesSent atomic.Int32
 	sendTasksAsync(testTasks, mockSetup.Channel, &messagesSent, 10*time.Millisecond)
 
 	// Wait for processing and verify results
-	test.WaitForMessagesInStorage(ts.t, ts.storage, len(testTasks))
+	verifier.WaitForMessagesInStorage(ts.t, ts.storage, len(testTasks))
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -415,9 +416,9 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	})
 
 	// Set up mock source readers
-	mockSetup1 := test.SetupMockSourceReader(t)
+	mockSetup1 := verifier.SetupMockSourceReader(t)
 	mockSetup1.ExpectVerificationTask(false)
-	mockSetup2 := test.SetupMockSourceReader(t)
+	mockSetup2 := verifier.SetupMockSourceReader(t)
 	mockSetup2.ExpectVerificationTask(false)
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
 		sourceChain1: mockSetup1.Reader,
@@ -441,12 +442,12 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Create test tasks for both sources
 	tasksSource1 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 	tasksSource2 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain, 0),
-		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain, 0),
+		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain, 0, 300_000),
 	}
 
 	// Send tasks from both sources
@@ -456,7 +457,7 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Wait for all messages to be processed
 	totalMessages := len(tasksSource1) + len(tasksSource2)
-	test.WaitForMessagesInStorage(ts.t, ts.storage, totalMessages)
+	verifier.WaitForMessagesInStorage(ts.t, ts.storage, totalMessages)
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -487,11 +488,11 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	})
 
 	// Set up mock source readers.
-	mockSetup1 := test.SetupMockSourceReader(t)
+	mockSetup1 := verifier.SetupMockSourceReader(t)
 	mockSetup1.ExpectVerificationTask(false)
 
 	// Generate an error on source 2.
-	mockSetup2 := test.SetupMockSourceReader(t)
+	mockSetup2 := verifier.SetupMockSourceReader(t)
 	sentinelError := errors.New("The Terminator")
 	mockSetup2.Reader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).Return(nil, sentinelError)
 
@@ -517,12 +518,12 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 
 	// Send verification tasks only to source 1
 	tasksSource1 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0),
-		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0),
+		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
+		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0, 300_000),
 	}
 
 	sendTasksAsync(tasksSource1, mockSetup1.Channel, nil, 5*time.Millisecond)
-	test.WaitForMessagesInStorage(ts.t, ts.storage, len(tasksSource1))
+	verifier.WaitForMessagesInStorage(ts.t, ts.storage, len(tasksSource1))
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -561,7 +562,7 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 			}),
 			readers: func() map[protocol.ChainSelector]verifier.SourceReader {
 				// Create a mock that only expects VerificationTaskChannel call
-				mockReader := verifiermocks.NewMockSourceReader(t)
+				mockReader := verifier.NewMockSourceReader(t)
 				mockCh := make(chan verifier.VerificationTask)
 				mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
 					var tasks []verifier.VerificationTask
@@ -604,9 +605,9 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	})
 
 	// Create mock source readers
-	mockSetup1 := test.SetupMockSourceReader(t)
+	mockSetup1 := verifier.SetupMockSourceReader(t)
 	mockSetup1.ExpectVerificationTask(true)
-	mockSetup2 := test.SetupMockSourceReader(t)
+	mockSetup2 := verifier.SetupMockSourceReader(t)
 	mockSetup2.ExpectVerificationTask(true)
 
 	sourceReaders := map[protocol.ChainSelector]verifier.SourceReader{
@@ -664,9 +665,9 @@ func TestVerificationErrorHandling(t *testing.T) {
 	})
 
 	// Set up mock source readers for both chains.
-	mockSetup1 := test.SetupMockSourceReader(t)
+	mockSetup1 := verifier.SetupMockSourceReader(t)
 	mockSetup1.ExpectVerificationTask(false)
-	mockSetup2 := test.SetupMockSourceReader(t)
+	mockSetup2 := verifier.SetupMockSourceReader(t)
 	mockSetup2.ExpectVerificationTask(true)
 
 	// Create source readers map that includes the unconfigured chain
@@ -691,15 +692,15 @@ func TestVerificationErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test verification tasks
-	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0)
-	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain, 0)
+	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000)
+	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain, 0, 300_000)
 
 	// Send tasks
 	sendTasksAsync([]verifier.VerificationTask{validTask}, mockSetup1.Channel, nil, 10*time.Millisecond)
 	sendTasksAsync([]verifier.VerificationTask{invalidTask}, mockSetup2.Channel, nil, 10*time.Millisecond)
 
 	// Wait for valid task to be processed
-	test.WaitForMessagesInStorage(ts.t, ts.storage, 1)
+	verifier.WaitForMessagesInStorage(ts.t, ts.storage, 1)
 
 	// Give some time for error processing
 	time.Sleep(200 * time.Millisecond)

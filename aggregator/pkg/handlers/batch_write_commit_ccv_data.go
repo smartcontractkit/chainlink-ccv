@@ -5,12 +5,13 @@ import (
 	"sync"
 
 	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status" //nolint:gci
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1" //nolint:gci
+	grpcstatus "google.golang.org/grpc/status"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 // WriteCommitCCVNodeDataHandler handles requests to write commit verification records.

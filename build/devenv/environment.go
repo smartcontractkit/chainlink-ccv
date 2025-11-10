@@ -2,6 +2,7 @@ package ccv
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,15 +10,16 @@ import (
 	"os"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
@@ -59,7 +61,15 @@ const (
 `
 )
 
+type Mode string
+
+const (
+	Standalone Mode = "standalone"
+	CL         Mode = "cl"
+)
+
 type Cfg struct {
+	Mode               Mode                        `toml:"mode"`
 	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
 	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
@@ -115,15 +125,37 @@ func NewEnvironment() (in *Cfg, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
+
+	///////////////////////////////
+	// Start: Initialize Configs //
+	///////////////////////////////
+	// Override the default config to "cl"...
+	if in.Mode == "" {
+		in.Mode = Standalone
+	}
+
+	// Verifier configs...
+	for _, ver := range in.Verifier {
+		// deterministic key generation algorithm.
+		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
+		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+	}
+
+	/////////////////////////////
+	// End: Initialize Configs //
+	/////////////////////////////
+
 	if err = checkKeys(in); err != nil {
 		return nil, err
 	}
 
+	// Start fake data provider. This isn't really used, but may be useful in the future.
 	_, err = services.NewFake(in.Fake)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
+	// Start blockchains, the services crash if the RPC is not available.
 	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17ProductConfiguration
@@ -140,6 +172,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	// Start aggregators.
 	for _, aggregatorInput := range in.Aggregator {
 		_, err = services.NewAggregator(aggregatorInput)
 		if err != nil {
@@ -147,6 +180,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	// Start indexer.
 	// start up the indexer after the aggregators are up to avoid spamming of errors
 	// in the logs when it starts before the aggregators are up.
 	_, err = services.NewIndexer(in.Indexer)
@@ -166,28 +200,6 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	timeTrack.Record("[infra] deploying blockchains")
 
-	clChainConfigs := make([]string, 0)
-	clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
-	for i, impl := range impls {
-		var clChainConfig string
-		clChainConfig, err = impl.ConfigureNodes(ctx, in.Blockchains[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
-		}
-		clChainConfigs = append(clChainConfigs, clChainConfig)
-	}
-	allConfigs := strings.Join(clChainConfigs, "\n")
-	for _, nodeSpec := range in.NodeSets[0].NodeSpecs {
-		nodeSpec.Node.TestConfigOverrides = allConfigs
-	}
-	Plog.Info().Msg("Nodes network configuration is generated")
-
-	timeTrack.Record("[changeset] configured nodes network")
-	_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
-	}
-
 	var selectors []uint64
 	var e *deployment.Environment
 	// the CLDF datastore is not initialized at this point because contracts are not deployed yet.
@@ -201,9 +213,6 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
-			return nil, err
-		}
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
 		if err != nil {
@@ -253,23 +262,74 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	_, err = services.NewExecutor(in.Executor)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create executor service: %w", err)
-	}
+	if in.Mode == CL { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
+		clChainConfigs := make([]string, 0)
+		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
+		for i, impl := range impls {
+			var clChainConfig string
+			clChainConfig, err = impl.ConfigureNodes(ctx, in.Blockchains[i])
+			if err != nil {
+				return nil, fmt.Errorf("failed to deploy local networks: %w", err)
+			}
+			clChainConfigs = append(clChainConfigs, clChainConfig)
+		}
+		allConfigs := strings.Join(clChainConfigs, "\n")
+		for _, nodeSpec := range in.NodeSets[0].NodeSpecs {
+			nodeSpec.Node.TestConfigOverrides = allConfigs
+		}
+		Plog.Info().Msg("Nodes network configuration is generated")
 
-	for _, ver := range in.Verifier {
-		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
-		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-		_, err = services.NewVerifier(ver)
+		timeTrack.Record("[changeset] configured nodes network")
+		_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
+		}
+
+		// Fund nodes...
+		for i, impl := range impls {
+			if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
+				return nil, err
+			}
+		}
+
+		// Configured keys on CL nodes
+		clClients, err := clclient.New(in.NodeSets[0].Out.CLNodes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect CL node clients")
+		}
+
+		// transforming Executor and Verifier configs to Jobs
+		for _, cc := range clClients {
+			// TODO: generate keys instead of hard coding them
+			// TODO: generation could be done by devenv, and imported into CL nodes here, or they could be
+			// generated on the CL node and exported for use in the config files for verifier/executor.
+
+			// import hard coded keys into the CL node keystore
+			for _, ver := range in.Verifier {
+				if len(ver.SigningKey) != 0 {
+					pk, err := hex.DecodeString(ver.SigningKey)
+					if err != nil {
+						return nil, fmt.Errorf("decoding verifier signing key (%s): %w", ver.ContainerName, err)
+					}
+					cc.ImportEVMKey(pk, ver.CommitteeName)
+				}
+			}
 		}
 	}
 
-	Plog.Info().Str("BootstrapNode", in.NodeSets[0].Out.CLNodes[0].Node.ExternalURL).Send()
-	for _, n := range in.NodeSets[0].Out.CLNodes[1:] {
-		Plog.Info().Str("Node", n.Node.ExternalURL).Send()
+	// Start standalone executor/verifiers if in standalone mode.
+	if in.Mode == Standalone {
+		_, err = services.NewExecutor(in.Executor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create executor service: %w", err)
+		}
+
+		for _, ver := range in.Verifier {
+			_, err = services.NewVerifier(ver)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			}
+		}
 	}
 
 	timeTrack.Print()

@@ -18,6 +18,7 @@ type StreamerResult struct {
 type MessageSubscriber interface {
 	// Start a streamer as a background process, it should send data to the
 	// message channel as it becomes available.
+	// TODO: this function signature is really odd, we shouldn't be passing in a pointer to a waitgroup.
 	Start(
 		ctx context.Context,
 		wg *sync.WaitGroup,
@@ -69,9 +70,9 @@ type DestinationReader interface {
 	IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error)
 }
 
-// Monitoring provides all core monitoring functionality for the indexer. Also can be implemented as a no-op.
+// Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.
 type Monitoring interface {
-	// Metrics returns the metrics labeler for the indexer.
+	// Metrics returns the metrics labeler for the executor.
 	Metrics() MetricLabeler
 }
 
@@ -79,10 +80,10 @@ type Monitoring interface {
 type MetricLabeler interface {
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) MetricLabeler
-	// RecordMessageExecutionLatency increments the HTTP request counter.
+	// RecordMessageExecutionLatency records the duration of the full ExecuteMessage operation.
 	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration)
-	// IncrementMessagesProcessed increments the active requests counter.
+	// IncrementMessagesProcessed increments the counter for successfully processed messages.
 	IncrementMessagesProcessed(ctx context.Context)
-	// IncrementMessagesProcessingFailed decrements the active requests counter.
+	// IncrementMessagesProcessingFailed increments the counter for failed message executions.
 	IncrementMessagesProcessingFailed(ctx context.Context)
 }

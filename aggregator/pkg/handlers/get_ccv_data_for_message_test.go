@@ -41,7 +41,9 @@ func buildCommittee(sourceSel, destSel uint64, sourceVerifierAddr, destVerifierA
 
 func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr, sigAddr, participantID string) *model.CommitAggregatedReport {
 	// minimal protocol message
-	msg, _ := protocol.NewMessage(protocol.ChainSelector(srcSel), protocol.ChainSelector(dstSel), protocol.Nonce(1), nil, nil, 0, nil, nil, []byte{}, []byte{}, nil)
+	msg, _ := protocol.NewMessage(protocol.ChainSelector(srcSel), protocol.ChainSelector(dstSel), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
+	// blob data must be at least 4 bytes to account for version
+	blobData := []byte{0x01, 0x02, 0x03, 0x04}
 	// create one verification
 	ver := &model.CommitVerificationRecord{
 		MessageID:             msgID,
@@ -52,6 +54,13 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 			Signer:  model.Signer{ParticipantID: participantID, Addresses: []string{sigAddr}},
 			Address: common.HexToAddress(sigAddr).Bytes(),
 		},
+		BlobData: blobData,
+		ReceiptBlobs: []*model.ReceiptBlob{
+			{
+				Issuer: common.HexToAddress(srcAddr).Bytes(),
+				Blob:   blobData,
+			},
+		},
 	}
 	return &model.CommitAggregatedReport{
 		MessageID:     msgID,
@@ -59,6 +68,12 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 		Verifications: []*model.CommitVerificationRecord{ver},
 		Sequence:      1,
 		WrittenAt:     time.Now(),
+		WinningReceiptBlobs: []*model.ReceiptBlob{
+			{
+				Issuer: common.HexToAddress(srcAddr).Bytes(),
+				Blob:   blobData,
+			},
+		},
 	}
 }
 
@@ -71,7 +86,7 @@ func TestGetCCVDataForMessageHandler_Handle_Cases(t *testing.T) {
 		sourceSel = uint64(1)
 		destSel   = uint64(2)
 	)
-	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, nil, nil, []byte{}, []byte{}, nil)
+	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	msgID, _ := msg.MessageID()
 
 	participantID := "p1"

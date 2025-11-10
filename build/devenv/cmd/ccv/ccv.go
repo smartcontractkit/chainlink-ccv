@@ -18,15 +18,15 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
-	executor_operations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_7_0/operations/executor"
+	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 )
@@ -339,9 +339,9 @@ var testCmd = &cobra.Command{
 		case "smoke":
 			testPattern = "TestE2ESmoke"
 		case "smoke-v2":
-			testPattern = "TestE2ESmoke/test_argsv2_messages"
+			testPattern = "TestE2ESmoke/test_extra_args_v2_messages"
 		case "smoke-v3":
-			testPattern = "TestE2ESmoke/test_argsv3_messages"
+			testPattern = "TestE2ESmoke/test_extra_args_v3_messages"
 		case "load":
 			testPattern = "TestE2ELoad/clean"
 		case "rpc-latency":
@@ -535,7 +535,15 @@ var sendCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		ctx = ccv.Plog.WithContext(ctx)
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+
+		// Read the env flag, default to "out"
+		envName, err := cmd.Flags().GetString("env")
+		if err != nil {
+			return fmt.Errorf("failed to parse 'env' flag: %w", err)
+		}
+		envFile := fmt.Sprintf("env-%s.toml", envName)
+
+		in, err := ccv.LoadOutput[ccv.Cfg](envFile)
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
@@ -574,7 +582,7 @@ var sendCmd = &cobra.Command{
 
 		mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
 			datastore.NewAddressRefKey(
-				src,
+				dest,
 				datastore.ContractType(mock_receiver.ContractType),
 				semver.MustParse(mock_receiver.Deploy.Version()),
 				ccvEvm.DefaultReceiverQualifier))
@@ -593,7 +601,7 @@ var sendCmd = &cobra.Command{
 			committeeVerifierProxyRef, err := in.CLDF.DataStore.Addresses().Get(
 				datastore.NewAddressRefKey(
 					src,
-					datastore.ContractType(committee_verifier.ProxyType),
+					datastore.ContractType(committee_verifier.ResolverProxyType),
 					semver.MustParse(committee_verifier.Deploy.Version()),
 					ccvEvm.DefaultCommitteeVerifierQualifier))
 			if err != nil {
@@ -676,6 +684,7 @@ func init() {
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
 	rootCmd.AddCommand(sendCmd)
+	sendCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)

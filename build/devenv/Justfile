@@ -90,6 +90,8 @@ build-jd-docker:
         rm -rf job-distributor/
     fi
     echo "Done!"
+smoke-test:
+    cd tests/e2e && go test -v -run TestE2ESmoke
 
 # Install and authenticate with GH CLI
 setup-gh:
