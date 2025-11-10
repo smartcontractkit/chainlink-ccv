@@ -19,14 +19,24 @@ type InMemoryStorage struct {
 	timeProvider      common.TimeProvider
 }
 
+type recordWithAggregationKey struct {
+	record         *model.CommitVerificationRecord
+	aggregationKey model.AggregationKey
+}
+
 // SaveCommitVerification persists a commit verification record.
-func (s *InMemoryStorage) SaveCommitVerification(_ context.Context, record *model.CommitVerificationRecord) error {
+func (s *InMemoryStorage) SaveCommitVerification(_ context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {
 	id, err := record.GetID()
 	if err != nil {
 		return err
 	}
 
-	s.records.Store(id.ToIdentifier(), record)
+	r := recordWithAggregationKey{
+		record,
+		aggregationKey,
+	}
+
+	s.records.Store(id.ToIdentifier(), &r)
 	return nil
 }
 
@@ -37,20 +47,33 @@ func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.Comm
 		return nil, errors.New("record not found")
 	}
 
-	castRecord, ok := record.(*model.CommitVerificationRecord)
+	castRecord, ok := record.(*recordWithAggregationKey)
 	if !ok {
 		return nil, errors.New("type assertion failed")
 	}
 
-	return castRecord, nil
+	return castRecord.record, nil
 }
 
-// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID.
-func (s *InMemoryStorage) ListCommitVerificationByMessageID(_ context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
+// ListCommitVerificationByAggregationKey retrieves all commit verification records for a specific message ID.
+func (s *InMemoryStorage) ListCommitVerificationByAggregationKey(_ context.Context, messageID model.MessageID, aggreationKey model.AggregationKey, committee string) ([]*model.CommitVerificationRecord, error) {
+	recordMatch := func(r *recordWithAggregationKey) bool {
+		if !bytes.Equal(r.record.MessageID, messageID) {
+			return false
+		}
+		if r.record.CommitteeID != committee {
+			return false
+		}
+		if r.aggregationKey != aggreationKey {
+			return false
+		}
+		return true
+	}
+
 	var results []*model.CommitVerificationRecord
 	s.records.Range(func(key, value any) bool {
-		if record, ok := value.(*model.CommitVerificationRecord); ok && bytes.Equal(record.MessageID, messageID) && record.CommitteeID == committee {
-			results = append(results, record)
+		if recordWithAgg, ok := value.(*recordWithAggregationKey); ok && recordMatch(recordWithAgg) {
+			results = append(results, recordWithAgg.record)
 		}
 		return true
 	})
@@ -116,8 +139,8 @@ func (s *InMemoryStorage) GetBatchCCVData(_ context.Context, messageIDs []model.
 
 // ListOrphanedMessageIDs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
 // Returns a channel for pairs and a channel for errors. Both channels will be closed when iteration is complete.
-func (s *InMemoryStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
-	pairCh := make(chan model.MessageID, 10) // Buffered for performance
+func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context, committeeID model.CommitteeID) (<-chan model.OrphanedKey, <-chan error) {
+	pairCh := make(chan model.OrphanedKey, 10) // Buffered for performance
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -132,8 +155,15 @@ func (s *InMemoryStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 			default:
 			}
 
-			if record, ok := value.(*model.CommitVerificationRecord); ok {
-				pairCh <- record.MessageID
+			if record, ok := value.(*recordWithAggregationKey); ok {
+				_, found := s.aggregatedReports.Load(model.GetAggregatedReportID(record.record.MessageID, committeeID))
+				if !found {
+					pairCh <- model.OrphanedKey{
+						AggregationKey: record.aggregationKey,
+						MessageID:      record.record.MessageID,
+						CommitteeID:    committeeID,
+					}
+				}
 			}
 			return true
 		})

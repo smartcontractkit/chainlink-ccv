@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"database/sql"
 	"encoding/binary"
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -227,7 +228,9 @@ func TestSaveCommitVerification_HappyPath(t *testing.T) {
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	record := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
 
-	err := storage.SaveCommitVerification(ctx, record)
+	aggregationKey := hex.EncodeToString(msgWithCCV.MessageId)
+
+	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
 
 	id, err := record.GetID()
@@ -245,7 +248,7 @@ func TestSaveCommitVerification_NilRecord(t *testing.T) {
 
 	ctx := context.Background()
 
-	err := storage.SaveCommitVerification(ctx, nil)
+	err := storage.SaveCommitVerification(ctx, nil, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "commit verification record cannot be nil")
 }
@@ -259,14 +262,15 @@ func TestSaveCommitVerification_Idempotency(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	record := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
+	aggregationKey := hex.EncodeToString(msgWithCCV.MessageId)
 
-	err := storage.SaveCommitVerification(ctx, record)
+	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
 
-	err = storage.SaveCommitVerification(ctx, record)
+	err = storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
 
-	err = storage.SaveCommitVerification(ctx, record)
+	err = storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
 
 	id, err := record.GetID()
@@ -280,7 +284,7 @@ func TestSaveCommitVerification_Idempotency(t *testing.T) {
 	messageID, err := message.MessageID()
 	require.NoError(t, err)
 
-	records, err := storage.ListCommitVerificationByMessageID(ctx, messageID[:], "test-committee")
+	records, err := storage.ListCommitVerificationByAggregationKey(ctx, messageID[:], aggregationKey, "test-committee")
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should have exactly 1 record after multiple saves")
 }
@@ -311,15 +315,17 @@ func TestGetCommitVerification_MultipleVersions(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 
+	aggregationKey := hex.EncodeToString(msgWithCCV.MessageId)
+
 	record1 := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
-	err := storage.SaveCommitVerification(ctx, record1)
+	err := storage.SaveCommitVerification(ctx, record1, aggregationKey)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
 
 	record2 := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
 	record2.SetTimestampFromMillis(time.Now().UnixMilli())
-	err = storage.SaveCommitVerification(ctx, record2)
+	err = storage.SaveCommitVerification(ctx, record2, aggregationKey)
 	require.NoError(t, err)
 
 	id, err := record1.GetID()
@@ -332,29 +338,31 @@ func TestGetCommitVerification_MultipleVersions(t *testing.T) {
 	assertCommitVerificationRecordEqual(t, record2, retrieved, "GetCommitVerification_MultipleVersions")
 }
 
-func TestListCommitVerificationByMessageID(t *testing.T) {
+func TestListCommitVerificationByAggregationKey(t *testing.T) {
 	storage, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	message := createTestProtocolMessage()
 	messageID, err := message.MessageID()
+	aggregationKey := hex.EncodeToString(messageID[:])
 	require.NoError(t, err)
 
 	signer1 := newTestSigner(t, "node-1")
 	signer2 := newTestSigner(t, "node-2")
 
 	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
+
 	record1 := createTestCommitVerificationRecord(msgWithCCV1, signer1, "test-committee")
-	err = storage.SaveCommitVerification(ctx, record1)
+	err = storage.SaveCommitVerification(ctx, record1, aggregationKey)
 	require.NoError(t, err)
 
 	msgWithCCV2 := createTestMessageWithCCV(t, message, signer2)
 	record2 := createTestCommitVerificationRecord(msgWithCCV2, signer2, "test-committee")
-	err = storage.SaveCommitVerification(ctx, record2)
+	err = storage.SaveCommitVerification(ctx, record2, aggregationKey)
 	require.NoError(t, err)
 
-	records, err := storage.ListCommitVerificationByMessageID(ctx, messageID[:], "test-committee")
+	records, err := storage.ListCommitVerificationByAggregationKey(ctx, messageID[:], aggregationKey, "test-committee")
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 
@@ -374,13 +382,78 @@ func TestListCommitVerificationByMessageID(t *testing.T) {
 	require.True(t, foundSigner2, "Should find record from signer2")
 }
 
+func TestListCommitVerificationByAggregationKey_DifferentAggregationKey(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+	messageID, err := message.MessageID()
+	require.NoError(t, err)
+
+	signer1 := newTestSigner(t, "node-1")
+	signer2 := newTestSigner(t, "node-2")
+
+	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
+
+	record1 := createTestCommitVerificationRecord(msgWithCCV1, signer1, "test-committee")
+	aggregationKey1 := "aggregationKey1"
+	err = storage.SaveCommitVerification(ctx, record1, aggregationKey1)
+	require.NoError(t, err)
+
+	msgWithCCV2 := createTestMessageWithCCV(t, message, signer2)
+	aggregationKey2 := "aggregationKey2"
+	record2 := createTestCommitVerificationRecord(msgWithCCV2, signer2, "test-committee")
+	err = storage.SaveCommitVerification(ctx, record2, aggregationKey2)
+	require.NoError(t, err)
+
+	records, err := storage.ListCommitVerificationByAggregationKey(ctx, messageID[:], aggregationKey1, "test-committee")
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	records, err = storage.ListCommitVerificationByAggregationKey(ctx, messageID[:], aggregationKey2, "test-committee")
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+}
+
+func TestListCommitVerificationByAggregationKey_DifferentAggregationKey_SameSigner(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+	messageID, err := message.MessageID()
+	require.NoError(t, err)
+
+	signer1 := newTestSigner(t, "node-1")
+
+	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
+
+	record1 := createTestCommitVerificationRecord(msgWithCCV1, signer1, "test-committee")
+	aggregationKey1 := "aggregationKey1"
+	err = storage.SaveCommitVerification(ctx, record1, aggregationKey1)
+	require.NoError(t, err)
+
+	aggregationKey2 := "aggregationKey2"
+	err = storage.SaveCommitVerification(ctx, record1, aggregationKey2)
+	require.NoError(t, err)
+
+	records, err := storage.ListCommitVerificationByAggregationKey(ctx, messageID[:], aggregationKey1, "test-committee")
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	records, err = storage.ListCommitVerificationByAggregationKey(ctx, messageID[:], aggregationKey2, "test-committee")
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+}
+
 func TestListCommitVerificationByMessageID_EmptyResults(t *testing.T) {
 	storage, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
-	records, err := storage.ListCommitVerificationByMessageID(ctx, []byte("nonexistent"), "test-committee")
+	records, err := storage.ListCommitVerificationByAggregationKey(ctx, []byte("nonexistent"), "", "test-committee")
 	require.NoError(t, err)
 	require.Empty(t, records)
 }
@@ -411,9 +484,10 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 		message := createTestProtocolMessage()
 		message.Nonce = protocol.Nonce(uint64(i))
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		aggregationKey := hex.EncodeToString(msgWithCCV.GetMessageId())
 		record := createTestCommitVerificationRecord(msgWithCCV, signer, committeeID)
 
-		err := storage.SaveCommitVerification(ctx, record)
+		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
 
 		messageID, err := message.MessageID()
@@ -489,9 +563,10 @@ func TestGetCCVData_Found(t *testing.T) {
 	require.NoError(t, err)
 
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
+	aggregationKey := hex.EncodeToString(msgWithCCV.GetMessageId())
 	record := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
 
-	err = storage.SaveCommitVerification(ctx, record)
+	err = storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
 
 	report := &model.CommitAggregatedReport{
@@ -534,9 +609,10 @@ func TestSubmitReport_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
+	aggregationKey := hex.EncodeToString(msgWithCCV.GetMessageId())
 	record := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
 
-	err = storage.SaveCommitVerification(ctx, record)
+	err = storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
 
 	report := &model.CommitAggregatedReport{
@@ -568,9 +644,10 @@ func TestSubmitReport_DuplicateHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
+	aggregationKey := hex.EncodeToString(msgWithCCV.GetMessageId())
 	record := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
 
-	err = storage.SaveCommitVerification(ctx, record)
+	err = storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
 
 	report := &model.CommitAggregatedReport{
@@ -591,7 +668,7 @@ func TestSubmitReport_DuplicateHandling(t *testing.T) {
 	require.Equal(t, messageID[:], result.Reports[0].MessageID)
 }
 
-func TestListOrphanedMessageIDs(t *testing.T) {
+func TestListOrphanedKeys(t *testing.T) {
 	storage, cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -605,8 +682,13 @@ func TestListOrphanedMessageIDs(t *testing.T) {
 	messageID1, err := message1.MessageID()
 	require.NoError(t, err)
 	msgWithCCV1 := createTestMessageWithCCV(t, message1, signer)
+	aggregationKey1 := hex.EncodeToString(msgWithCCV1.GetMessageId())
 	orphanRecord := createTestCommitVerificationRecord(msgWithCCV1, signer, committeeID)
-	err = storage.SaveCommitVerification(ctx, orphanRecord)
+	err = storage.SaveCommitVerification(ctx, orphanRecord, aggregationKey1)
+	require.NoError(t, err)
+
+	aggregationKey1a := "different"
+	err = storage.SaveCommitVerification(ctx, orphanRecord, aggregationKey1a)
 	require.NoError(t, err)
 
 	message2 := createTestProtocolMessage()
@@ -614,8 +696,13 @@ func TestListOrphanedMessageIDs(t *testing.T) {
 	messageID2, err := message2.MessageID()
 	require.NoError(t, err)
 	msgWithCCV2 := createTestMessageWithCCV(t, message2, signer)
+	aggregationKey2 := hex.EncodeToString(msgWithCCV2.GetMessageId())
 	aggregatedRecord := createTestCommitVerificationRecord(msgWithCCV2, signer, committeeID)
-	err = storage.SaveCommitVerification(ctx, aggregatedRecord)
+	err = storage.SaveCommitVerification(ctx, aggregatedRecord, aggregationKey2)
+	require.NoError(t, err)
+
+	aggregationKey2a := "different"
+	err = storage.SaveCommitVerification(ctx, aggregatedRecord, aggregationKey2a)
 	require.NoError(t, err)
 
 	report := &model.CommitAggregatedReport{
@@ -626,21 +713,25 @@ func TestListOrphanedMessageIDs(t *testing.T) {
 	err = storage.SubmitReport(ctx, report)
 	require.NoError(t, err)
 
-	messageIDCh, errCh := storage.ListOrphanedMessageIDs(ctx, committeeID)
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, committeeID)
 
-	orphanedIDs := []model.MessageID{}
-	for messageID := range messageIDCh {
-		orphanedIDs = append(orphanedIDs, messageID)
+	orphanedKeys := []model.OrphanedKey{}
+	for keys := range orphanKeysCh {
+		orphanedKeys = append(orphanedKeys, keys)
 	}
 
 	err = <-errCh
 	require.NoError(t, err)
 
-	require.Len(t, orphanedIDs, 1)
-	require.Equal(t, messageID1[:], orphanedIDs[0])
+	require.Len(t, orphanedKeys, 2)
+	require.Equal(t, messageID1[:], orphanedKeys[0].MessageID)
+	require.Equal(t, aggregationKey1, orphanedKeys[0].AggregationKey)
+
+	require.Equal(t, messageID1[:], orphanedKeys[1].MessageID)
+	require.Equal(t, aggregationKey1a, orphanedKeys[1].AggregationKey)
 }
 
-func TestListOrphanedMessageIDs_ContextCancellation(t *testing.T) {
+func TestListOrphanedKeys_ContextCancellation(t *testing.T) {
 	storage, cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -648,7 +739,7 @@ func TestListOrphanedMessageIDs_ContextCancellation(t *testing.T) {
 	cancel()
 
 	committeeID := testCommitteeID
-	messageIDCh, errCh := storage.ListOrphanedMessageIDs(ctx, committeeID)
+	messageIDCh, errCh := storage.ListOrphanedKeys(ctx, committeeID)
 
 	for range messageIDCh {
 	}
@@ -675,8 +766,9 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 	records := []*model.CommitVerificationRecord{}
 	for _, signer := range signers {
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		aggregationKey := hex.EncodeToString(msgWithCCV.GetMessageId())
 		record := createTestCommitVerificationRecord(msgWithCCV, signer, "test-committee")
-		err := storage.SaveCommitVerification(ctx, record)
+		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
 		records = append(records, record)
 	}
@@ -735,9 +827,10 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 		message := createTestProtocolMessage()
 		message.Nonce = protocol.Nonce(uint64(i))
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		aggregationKey := hex.EncodeToString(msgWithCCV.GetMessageId())
 		record := createTestCommitVerificationRecord(msgWithCCV, signer, committeeID)
 
-		err := storage.SaveCommitVerification(ctx, record)
+		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
 
 		messageID, err := message.MessageID()
@@ -808,13 +901,14 @@ func TestDatabaseStorage_PageSize(t *testing.T) {
 	require.Equal(t, customPageSize, storage.pageSize)
 }
 
-func TestListCommitVerificationByMessageID_DistinctOnSigner(t *testing.T) {
+func TestListCommitVerificationByAggregationKey_DistinctOnSigner(t *testing.T) {
 	storage, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	message := createTestProtocolMessage()
 	messageID, err := message.MessageID()
+	aggregationKey := hex.EncodeToString(messageID[:])
 	require.NoError(t, err)
 
 	signer := newTestSigner(t, "node-1")
@@ -822,7 +916,7 @@ func TestListCommitVerificationByMessageID_DistinctOnSigner(t *testing.T) {
 	msgWithCCV1 := createTestMessageWithCCV(t, message, signer)
 	record1 := createTestCommitVerificationRecord(msgWithCCV1, signer, "test-committee")
 	record1.SetTimestampFromMillis(time.Now().UnixMilli())
-	err = storage.SaveCommitVerification(ctx, record1)
+	err = storage.SaveCommitVerification(ctx, record1, aggregationKey)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -830,10 +924,10 @@ func TestListCommitVerificationByMessageID_DistinctOnSigner(t *testing.T) {
 	msgWithCCV2 := createTestMessageWithCCV(t, message, signer)
 	record2 := createTestCommitVerificationRecord(msgWithCCV2, signer, "test-committee")
 	record2.SetTimestampFromMillis(time.Now().UnixMilli())
-	err = storage.SaveCommitVerification(ctx, record2)
+	err = storage.SaveCommitVerification(ctx, record2, aggregationKey)
 	require.NoError(t, err)
 
-	records, err := storage.ListCommitVerificationByMessageID(ctx, messageID[:], "test-committee")
+	records, err := storage.ListCommitVerificationByAggregationKey(ctx, messageID[:], aggregationKey, "test-committee")
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should return only latest version")
 	require.Equal(t, record2.Timestamp, records[0].Timestamp, "Should be the second (latest) record")

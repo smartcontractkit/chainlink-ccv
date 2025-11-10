@@ -18,12 +18,14 @@ import (
 type SignatureValidator interface {
 	// ValidateSignature validates a signature for a CommitVerificationRecord and returns the signers.
 	ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error)
+	// DeriveAggregationKey produce the key on which this verification record should be aggregated on
+	DeriveAggregationKey(ctx context.Context, record *model.CommitVerificationRecord) (model.AggregationKey, error)
 }
 
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
-	// CheckAggregation triggers the aggregation process for the specified message ID.
-	CheckAggregation(model.MessageID, model.CommitteeID) error
+	// CheckAggregation triggers the aggregation process for the specified aggregation key.
+	CheckAggregation(model.MessageID, model.AggregationKey, model.CommitteeID) error
 }
 
 // WriteCommitCCVNodeDataHandler handles requests to write commit verification records.
@@ -64,6 +66,15 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 	reqLogger = reqLogger.With("NumSigners", len(signers))
 	reqLogger.Infof("Signature validated successfully")
 
+	aggregationKey, err := h.signatureValidator.DeriveAggregationKey(ctx, record)
+	if err != nil {
+		reqLogger.Errorw("failed to derive aggregation key", err)
+		return &pb.WriteCommitCCVNodeDataResponse{
+			Status: pb.WriteStatus_FAILED,
+		}, status.Errorf(codes.Internal, "failed to derive aggregation key: %v", err)
+	}
+	ctx = scope.WithAggregationKey(ctx, aggregationKey)
+
 	for _, signer := range signers {
 		signerCtx := scope.WithAddress(ctx, signer.Address)
 		signerCtx = scope.WithParticipantID(signerCtx, signer.ParticipantID)
@@ -83,7 +94,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 		record.CommitteeID = signer.CommitteeID
 		record.IdempotencyKey = idempotencyUUID
 
-		err = h.storage.SaveCommitVerification(signerCtx, record)
+		err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
 		if err != nil {
 			h.logger(signerCtx).Errorw("failed to save commit verification record", "error", err)
 			return &pb.WriteCommitCCVNodeDataResponse{
@@ -93,7 +104,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 		h.logger(signerCtx).Infof("Successfully saved commit verification record")
 	}
 
-	if err := h.aggregator.CheckAggregation(req.CcvNodeData.GetMessageId(), signers[0].CommitteeID); err != nil {
+	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey, signers[0].CommitteeID); err != nil {
 		if err == common.ErrAggregationChannelFull {
 			reqLogger.Errorf("Aggregation channel is full")
 			return &pb.WriteCommitCCVNodeDataResponse{
