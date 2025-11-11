@@ -9,6 +9,7 @@ import (
 type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
+	SignerPubKeyHex   string `toml:"signer_pub_key_hex"`
 
 	// TODO: Move to a separate secrets config file.
 	AggregatorAPIKey string `toml:"aggregator_api_key"`
