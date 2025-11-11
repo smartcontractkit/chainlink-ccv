@@ -1,4 +1,4 @@
-package cursedetector
+package pkg
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 //
 // Returns cursed subjects as bytes16, which can be:
 // - Global curse constant (0x0100000000000000000000000000000001)
-// - Chain selector (last 8 bytes) of a cursed remote chain
+// - Chain selector (last 8 bytes) of a cursed remote chain.
 func ReadRMNCursedSubjects(
 	ctx context.Context,
 	chainClient client.Client,

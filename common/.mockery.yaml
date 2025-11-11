@@ -1,0 +1,10 @@
+with-expecter: true
+inpackage: true
+
+packages:
+    github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector:
+        config:
+            dir: "{{.InterfaceDir}}"
+        interfaces:
+            CurseDetector: {}
+

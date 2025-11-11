@@ -11,14 +11,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var (
-	// GlobalCurseSubject is the constant from RMN specification representing a global curse.
-	// If this subject is present in cursed subjects, all lanes involving this chain are cursed.
-	GlobalCurseSubject = protocol.Bytes16{
-		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-	}
-)
+// GlobalCurseSubject is the constant from RMN specification representing a global curse.
+// If this subject is present in cursed subjects, all lanes involving this chain are cursed.
+var GlobalCurseSubject = protocol.Bytes16{
+	0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+}
 
 // ChainCurseState holds curse state for one chain's RMN Remote.
 type ChainCurseState struct {
@@ -26,9 +24,9 @@ type ChainCurseState struct {
 	hasGlobalCurse     bool
 }
 
-// CurseDetectorService monitors RMN Remote contracts for curse status.
+// Service monitors RMN Remote contracts for curse status.
 // It polls configured RMN readers at regular intervals and maintains curse state.
-type CurseDetectorService struct {
+type Service struct {
 	rmnReaders       map[protocol.ChainSelector]RMNCurseReader
 	chainCurseStates map[protocol.ChainSelector]*ChainCurseState
 	mutex            sync.RWMutex
@@ -49,7 +47,7 @@ func NewCurseDetectorService(
 	rmnReaders map[protocol.ChainSelector]RMNCurseReader,
 	pollInterval time.Duration,
 	lggr logger.Logger,
-) (*CurseDetectorService, error) {
+) (*Service, error) {
 	if len(rmnReaders) == 0 {
 		return nil, fmt.Errorf("at least one RMN reader required")
 	}
@@ -60,7 +58,7 @@ func NewCurseDetectorService(
 		pollInterval = 2 * time.Second // Default
 	}
 
-	return &CurseDetectorService{
+	return &Service{
 		rmnReaders:       rmnReaders,
 		chainCurseStates: make(map[protocol.ChainSelector]*ChainCurseState),
 		pollInterval:     pollInterval,
@@ -69,7 +67,7 @@ func NewCurseDetectorService(
 }
 
 // Start begins polling RMN Remote contracts for curse updates.
-func (s *CurseDetectorService) Start(ctx context.Context) error {
+func (s *Service) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 
@@ -87,7 +85,7 @@ func (s *CurseDetectorService) Start(ctx context.Context) error {
 }
 
 // Close stops the curse detector and waits for background goroutines to finish.
-func (s *CurseDetectorService) Close() error {
+func (s *Service) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -102,7 +100,7 @@ func (s *CurseDetectorService) Close() error {
 //   - localChain has a global curse
 //
 // Thread-safe: uses read lock for concurrent access.
-func (s *CurseDetectorService) IsRemoteChainCursed(localChain, remoteChain protocol.ChainSelector) bool {
+func (s *Service) IsRemoteChainCursed(localChain, remoteChain protocol.ChainSelector) bool {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -116,7 +114,7 @@ func (s *CurseDetectorService) IsRemoteChainCursed(localChain, remoteChain proto
 }
 
 // pollLoop runs the periodic polling loop for curse updates.
-func (s *CurseDetectorService) pollLoop(ctx context.Context) {
+func (s *Service) pollLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
 
@@ -135,7 +133,7 @@ func (s *CurseDetectorService) pollLoop(ctx context.Context) {
 
 // PollAllChains queries all configured RMN Remotes and updates curse state.
 // Exported for testing - allows tests to trigger synchronous updates without waiting for poll interval.
-func (s *CurseDetectorService) PollAllChains(ctx context.Context) {
+func (s *Service) PollAllChains(ctx context.Context) {
 	for chainSelector, reader := range s.rmnReaders {
 		subjects, err := reader.GetRMNCursedSubjects(ctx)
 		if err != nil {

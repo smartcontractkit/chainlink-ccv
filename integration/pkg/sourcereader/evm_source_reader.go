@@ -11,8 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
+
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -359,5 +360,5 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Use the common helper function from cursedetector package
 	// This avoids code duplication with EVMDestinationReader
-	return cursedetector.ReadRMNCursedSubjects(ctx, r.chainClient, r.rmnRemoteAddress)
+	return pkg.ReadRMNCursedSubjects(ctx, r.chainClient, r.rmnRemoteAddress)
 }
