@@ -1,7 +1,7 @@
 verifier_id = "tertiary-verifier-2"
 aggregator_address = "tertiary-aggregator:50051"
 pyroscope_url = "http://pyroscope:4040"
-signer_pub_key_hex = "0x313624Fd004760c40323476003Ac7789dd534f94"
+signer_address = "0x313624Fd004760c40323476003Ac7789dd534f94"
 
 [Monitoring]
 Enabled = true

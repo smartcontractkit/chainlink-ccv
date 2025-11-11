@@ -1,6 +1,8 @@
 package constructors
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -30,8 +32,14 @@ func NewVerificationCoordinator(
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 	}
 
-	if signingAddress.String() != cfg.SignerAddress {
-		return nil, fmt.Errorf("signing address does not match configuration: config %s vs provided %s", cfg.SignerAddress, signingAddress.String())
+	signerAddressBytes, err := hex.DecodeString(cfg.SignerAddress)
+	if err != nil {
+		lggr.Errorw("Invalid CCV configuration, failed to decode signer address.", "error", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to decode signer address: %w", err)
+	}
+
+	if !bytes.Equal(signingAddress.Bytes(), signerAddressBytes) {
+		return nil, fmt.Errorf("signing address does not match configuration: config %x vs provided %x", signerAddressBytes, signingAddress.Bytes())
 	}
 
 	onRampAddrs, err := mapAddresses(cfg.OnRampAddresses)
