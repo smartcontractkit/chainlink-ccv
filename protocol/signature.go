@@ -62,6 +62,35 @@ func NormalizeToV27(sig65 []byte) (r32, s32 [32]byte, err error) {
 	return r32, s32, nil
 }
 
+type KeystoreSigner interface {
+	Sign(data []byte) ([]byte, error)
+}
+
+// TODO: duplication with the SignV27 function, should be refactored.
+func SignV27WithKeystoreSigner(hash []byte, keystoreSigner KeystoreSigner) (r32, s32 [32]byte, addr common.Address, err error) {
+	sig, err := keystoreSigner.Sign(hash)
+	if err != nil {
+		return r32, s32, common.Address{}, err
+	}
+	r32, s32, err = NormalizeToV27(sig)
+	if err != nil {
+		return r32, s32, common.Address{}, err
+	}
+
+	// Optional: verify our normalization actually recovers the expected address on-chain semantics.
+	// We emulate ecrecover(hash,27,r,s) by reconstructing a 65B sig with v=0 and running SigToPub.
+	check := make([]byte, 65)
+	copy(check[0:32], r32[:])
+	copy(check[32:64], s32[:])
+	check[64] = 0 // SigToPub expects 0/1, not 27/28
+
+	pub, err := crypto.SigToPub(hash, check)
+	if err != nil {
+		return r32, s32, common.Address{}, err
+	}
+	return r32, s32, crypto.PubkeyToAddress(*pub), nil
+}
+
 // SignV27 signs hash with priv and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
 // This is equivalent to signing normally, then applying NormalizeToV27.
 func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, addr common.Address, err error) {
