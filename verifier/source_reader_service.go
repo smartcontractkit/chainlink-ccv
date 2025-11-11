@@ -686,7 +686,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		r.updateChainStatus(ctx, processedToBlock)
 	}
 
-	r.logger.Infow("📈 Processed block range",
+	r.logger.Debugw("📈 Processed block range",
 		"fromBlock", fromBlock.String(),
 		"toBlock", "latest",
 		"advancedTo", processedToBlock.String(),
