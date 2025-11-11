@@ -73,7 +73,7 @@ jobs:
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
           cd cmd/ccv && go install . && cd -
-          ccv u env.toml && ccv obs up
+          ccv u env.toml && ccv obs up -m loki
 
       - name: Run smoke tests
         id: smoke_test
