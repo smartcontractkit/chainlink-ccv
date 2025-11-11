@@ -19,7 +19,7 @@ const (
 	getCCVDataOp             = "GetCCVData"
 	getBatchCCVDataOp        = "GetBatchCCVData"
 	submitReportOp           = "SubmitReport"
-	ListOrphanedMessageIDsOp = "ListOrphanedMessageIDs"
+	ListOrphanedKeysOp       = "ListOrphanedKeys"
 )
 
 type MetricsAwareStorage struct {
@@ -43,9 +43,9 @@ func WrapWithMetrics(inner CommitVerificationStorage, m common.AggregatorMonitor
 	return NewMetricsAwareStorage(inner, m)
 }
 
-func (s *MetricsAwareStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error {
+func (s *MetricsAwareStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {
 	return captureMetricsNoReturn(ctx, s.metrics(ctx, saveOp), func() error {
-		return s.inner.SaveCommitVerification(ctx, record)
+		return s.inner.SaveCommitVerification(ctx, record, aggregationKey)
 	})
 }
 
@@ -55,9 +55,9 @@ func (s *MetricsAwareStorage) GetCommitVerification(ctx context.Context, id mode
 	})
 }
 
-func (s *MetricsAwareStorage) ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
+func (s *MetricsAwareStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, committee string) ([]*model.CommitVerificationRecord, error) {
 	return captureMetrics(ctx, s.metrics(ctx, listByMsgIDOp), func() ([]*model.CommitVerificationRecord, error) {
-		return s.inner.ListCommitVerificationByMessageID(ctx, messageID, committee)
+		return s.inner.ListCommitVerificationByAggregationKey(ctx, messageID, aggregationKey, committee)
 	})
 }
 
@@ -85,12 +85,12 @@ func (s *MetricsAwareStorage) SubmitReport(ctx context.Context, report *model.Co
 	})
 }
 
-func (s *MetricsAwareStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
-	metrics := s.metrics(ctx, ListOrphanedMessageIDsOp)
-	resultChan := make(chan model.MessageID, 100)
+func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context, committeeID model.CommitteeID) (<-chan model.OrphanedKey, <-chan error) {
+	metrics := s.metrics(ctx, ListOrphanedKeysOp)
+	resultChan := make(chan model.OrphanedKey, 100)
 	errorChan := make(chan error, 1)
 
-	innerResultChan, innerErrorChan := s.inner.ListOrphanedMessageIDs(ctx, committeeID)
+	innerResultChan, innerErrorChan := s.inner.ListOrphanedKeys(ctx, committeeID)
 
 	go func() {
 		now := time.Now()
