@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -52,6 +53,7 @@ func NewVerificationCoordinator(
 	// Initialize chain components.
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 	for sel, chain := range relayers {
 		if _, ok := onRampAddrs[sel]; !ok {
 			lggr.Warnw("No onramp address for chain, skipping.", "chainID", sel)
@@ -75,6 +77,14 @@ func NewVerificationCoordinator(
 			lggr.Errorw("Failed to create source reader.", "error", err, "chainID", sel)
 			return nil, fmt.Errorf("failed to create source reader: %w", err)
 		}
+
+		// TODO: this seems wacky
+		headTracker, ok := sourceReader.(chainaccess.HeadTracker)
+		if !ok {
+			lggr.Errorw("Source reader does not implement HeadTracker interface", "chainID", sel)
+			return nil, fmt.Errorf("source reader does not implement HeadTracker interface: %w", err)
+		}
+		headTrackers[sel] = headTracker
 		sourceReaders[sel] = sourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress: verifierAddrs[sel],
@@ -150,6 +160,7 @@ func NewVerificationCoordinator(
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithMonitoring(verifierMonitoring),
+		verifier.WithHeadTrackers(headTrackers),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
