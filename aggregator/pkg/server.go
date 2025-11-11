@@ -244,13 +244,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	}
 
 	store = storage.WrapWithMetrics(store, aggMonitoring)
-
-	var validator SignatureAndQuorumValidator
-	if config.StubMode {
-		validator = quorum.NewStubQuorumValidator()
-	} else {
-		validator = quorum.NewQuorumValidator(config, l)
-	}
+	validator := quorum.NewQuorumValidator(config, l)
 
 	agg, err := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 	if err != nil {

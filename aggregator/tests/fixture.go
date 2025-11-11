@@ -164,6 +164,13 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 	}
 }
 
+func WithBlobData(blobData []byte) MessageWithCCVNodeDataOption {
+	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
+		m.BlobData = blobData
+		return m
+	}
+}
+
 func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *pb.MessageWithCCVNodeData {
 	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")

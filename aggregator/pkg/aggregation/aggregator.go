@@ -24,7 +24,7 @@ type CommitReportAggregator struct {
 	storage                      common.CommitVerificationStore
 	aggregatedStore              common.CommitVerificationAggregatedStore
 	sink                         common.Sink
-	messageIDChan                chan aggregationRequest
+	aggregationKeyChan           chan aggregationRequest
 	backgroundWorkerCount        int
 	quorum                       QuorumValidator
 	l                            logger.SugaredLogger
@@ -35,8 +35,9 @@ type CommitReportAggregator struct {
 
 type aggregationRequest struct {
 	// CommitteeID is the ID of the committee for the aggregation request.
-	CommitteeID model.CommitteeID
-	MessageID   model.MessageID
+	CommitteeID    model.CommitteeID
+	AggregationKey model.AggregationKey
+	MessageID      model.MessageID
 }
 
 func (c *CommitReportAggregator) HealthCheck(ctx context.Context) *common.ComponentHealth {
@@ -53,8 +54,8 @@ func (c *CommitReportAggregator) HealthCheck(ctx context.Context) *common.Compon
 	default:
 	}
 
-	pending := len(c.messageIDChan)
-	capacity := cap(c.messageIDChan)
+	pending := len(c.aggregationKeyChan)
+	capacity := cap(c.aggregationKeyChan)
 
 	if pending >= capacity {
 		result.Status = common.HealthStatusDegraded
@@ -74,13 +75,14 @@ func (c *CommitReportAggregator) HealthCheck(ctx context.Context) *common.Compon
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, committeeID model.CommitteeID) error {
+func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey, committeeID model.CommitteeID) error {
 	request := aggregationRequest{
-		MessageID:   messageID,
-		CommitteeID: committeeID,
+		MessageID:      messageID,
+		CommitteeID:    committeeID,
+		AggregationKey: aggregationKey,
 	}
 	select {
-	case c.messageIDChan <- request:
+	case c.aggregationKeyChan <- request:
 		c.monitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
 	default:
 		return common.ErrAggregationChannelFull
@@ -175,13 +177,14 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 	return false, nil
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (*model.CommitAggregatedReport, error) {
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
-	lggr.Infof("Checking aggregation for message", messageID, committeeID)
+	lggr.Infof("Checking aggregation for message", request.MessageID, request.CommitteeID, request.AggregationKey)
 
 	// Check if we should skip aggregation due to existing quorum (only if reaggregation is disabled)
+	// If there is already an aggregation that reached quorum for this message we will skip even if the aggregationKey (signed hash is different)
 	if !c.enableAggregationAfterQuorum {
-		shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID, request.CommitteeID)
 		if err != nil {
 			lggr.Errorw("Error checking existing quorum", "error", err)
 			// Continue with aggregation on error
@@ -191,7 +194,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		}
 	}
 
-	verifications, err := c.storage.ListCommitVerificationByMessageID(ctx, messageID, committeeID)
+	verifications, err := c.storage.ListCommitVerificationByAggregationKey(ctx, request.MessageID, request.AggregationKey, request.CommitteeID)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
 		return nil, err
@@ -211,8 +214,8 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	}
 
 	aggregatedReport := &model.CommitAggregatedReport{
-		MessageID:           messageID,
-		CommitteeID:         committeeID,
+		MessageID:           request.MessageID,
+		CommitteeID:         request.CommitteeID,
 		Verifications:       dedupedVerifications,
 		WinningReceiptBlobs: winningReceiptBlobs,
 	}
@@ -250,12 +253,13 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	go func() {
 		for {
 			select {
-			case request := <-c.messageIDChan:
+			case request := <-c.aggregationKeyChan:
 				p.Go(func(poolCtx context.Context) error {
 					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
-					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
 					poolCtx = scope.WithCommitteeID(poolCtx, request.CommitteeID)
-					_, err := c.checkAggregationAndSubmitComplete(poolCtx, request.MessageID, request.CommitteeID)
+					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
+					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
+					_, err := c.checkAggregationAndSubmitComplete(poolCtx, request)
 					return err
 				})
 			case <-ctx.Done():
@@ -285,7 +289,7 @@ func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregate
 		storage:                      storage,
 		aggregatedStore:              aggregatedStore,
 		sink:                         sink,
-		messageIDChan:                make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
+		aggregationKeyChan:           make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
 		backgroundWorkerCount:        config.Aggregation.BackgroundWorkerCount,
 		quorum:                       quorum,
 		monitoring:                   monitoring,
