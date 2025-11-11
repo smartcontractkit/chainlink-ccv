@@ -112,6 +112,7 @@ func NewVerificationCoordinator(
 	}
 
 	// Checkpoint manager
+	// TODO: these are secrets, probably shouldn't be in config.
 	hmacConfig := &hmac.ClientConfig{
 		APIKey: cfg.AggregatorAPIKey,
 		Secret: cfg.AggregatorSecretKey,

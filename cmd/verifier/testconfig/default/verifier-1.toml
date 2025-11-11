@@ -2,6 +2,8 @@ verifier_id = "default-verifier-1"
 aggregator_address = "default-aggregator:50051"
 pyroscope_url = "http://pyroscope:4040"
 signer_address = "0x2C127E1eea67C6EC6945652183d4f043141705B2"
+aggregator_api_key = "dev-api-key-verifier-1"
+aggregator_secret_key = "dev-secret-verifier-1"
 
 [Monitoring]
 Enabled = true
