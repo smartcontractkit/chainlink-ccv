@@ -82,10 +82,10 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 
 	// Fetch CCV data from the indexer and CCV info from the destination reader
 	// concurrently.
-	g, ctx := errgroup.WithContext(ctx)
+	g, errGroupCtx := errgroup.WithContext(ctx)
 	ccvData := make([]protocol.CCVData, 0)
 	g.Go(func() error {
-		res, err := cle.verifierResultsReader.GetVerifierResults(ctx, messageID)
+		res, err := cle.verifierResultsReader.GetVerifierResults(errGroupCtx, messageID)
 		if err != nil {
 			return fmt.Errorf("failed to get CCV data for message %x: %w", messageID, err)
 		}
@@ -96,7 +96,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	var ccvInfo executor.CCVAddressInfo
 	g.Go(func() error {
 		res, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
-			ctx,
+			errGroupCtx,
 			message,
 		)
 		if err != nil && len(res.RequiredCCVs) == 0 {
@@ -138,7 +138,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	)
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
 	if err != nil {
-		return fmt.Errorf("failed to transmit message %x to chain %d: %w", messageID, destinationChain, err)
+		return fmt.Errorf("failed to transmit message %s to chain %d: %w", messageID.String(), destinationChain, err)
 	}
 
 	// Record the message execution latency.
