@@ -20,8 +20,8 @@ var GlobalCurseSubject = protocol.Bytes16{
 
 // ChainCurseState holds curse state for one chain's RMN Remote.
 type ChainCurseState struct {
-	cursedRemoteChains map[protocol.ChainSelector]bool
-	hasGlobalCurse     bool
+	CursedRemoteChains map[protocol.ChainSelector]bool
+	HasGlobalCurse     bool
 }
 
 // Service monitors RMN Remote contracts for curse status.
@@ -47,7 +47,7 @@ func NewCurseDetectorService(
 	rmnReaders map[protocol.ChainSelector]RMNCurseReader,
 	pollInterval time.Duration,
 	lggr logger.Logger,
-) (*Service, error) {
+) (CurseDetector, error) {
 	if len(rmnReaders) == 0 {
 		return nil, fmt.Errorf("at least one RMN reader required")
 	}
@@ -70,6 +70,9 @@ func NewCurseDetectorService(
 func (s *Service) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
+
+	// Initial poll
+	s.PollAllChains(ctx)
 
 	s.wg.Add(1)
 	go func() {
@@ -110,16 +113,13 @@ func (s *Service) IsRemoteChainCursed(localChain, remoteChain protocol.ChainSele
 	}
 
 	// Match RMN contract logic: contains(remoteChain) || contains(GLOBAL_CURSE)
-	return state.cursedRemoteChains[remoteChain] || state.hasGlobalCurse
+	return state.CursedRemoteChains[remoteChain] || state.HasGlobalCurse
 }
 
 // pollLoop runs the periodic polling loop for curse updates.
 func (s *Service) pollLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
-
-	// Initial poll
-	s.PollAllChains(ctx)
 
 	for {
 		select {
@@ -144,20 +144,20 @@ func (s *Service) PollAllChains(ctx context.Context) {
 		}
 
 		state := &ChainCurseState{
-			cursedRemoteChains: make(map[protocol.ChainSelector]bool),
-			hasGlobalCurse:     false,
+			CursedRemoteChains: make(map[protocol.ChainSelector]bool),
+			HasGlobalCurse:     false,
 		}
 
 		for _, subject := range subjects {
 			if subject == GlobalCurseSubject {
-				state.hasGlobalCurse = true
+				state.HasGlobalCurse = true
 				s.lggr.Warnw("Global curse detected",
 					"chain", chainSelector)
 			} else {
 				// Extract chain selector from last 8 bytes (big-endian)
 				remoteChain := protocol.ChainSelector(
 					binary.BigEndian.Uint64(subject[8:]))
-				state.cursedRemoteChains[remoteChain] = true
+				state.CursedRemoteChains[remoteChain] = true
 			}
 		}
 
@@ -167,7 +167,7 @@ func (s *Service) PollAllChains(ctx context.Context) {
 
 		s.lggr.Debugw("Updated curse state",
 			"chain", chainSelector,
-			"globalCurse", state.hasGlobalCurse,
-			"cursedRemoteChains", len(state.cursedRemoteChains))
+			"globalCurse", state.HasGlobalCurse,
+			"cursedRemoteChains", len(state.CursedRemoteChains))
 	}
 }

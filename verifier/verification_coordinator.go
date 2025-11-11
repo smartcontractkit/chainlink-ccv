@@ -173,6 +173,14 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 	return WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{chainSelector: detector})
 }
 
+// WithCurseDetector sets the curse detector for monitoring RMN Remote contracts.
+// This is primarily for testing - in production, the coordinator creates its own curse detector.
+func WithCurseDetector(detector cursedetector.CurseDetector) Option {
+	return func(vc *Coordinator) {
+		vc.curseDetector = detector
+	}
+}
+
 // NewCoordinator creates a new verification coordinator.
 func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
@@ -328,11 +336,8 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 	vc.running = true
 
-	// Create and start curse detector from RMN readers if not already set
-	if vc.curseDetector == nil && len(rmnReaders) > 0 {
-		if err := vc.createAndStartCurseDetector(ctx, rmnReaders); err != nil {
-			return fmt.Errorf("failed to create and start curse detector: %w", err)
-		}
+	if err := vc.startCurseDetector(ctx, rmnReaders); err != nil {
+		return fmt.Errorf("failed to create and start curse detector: %w", err)
 	}
 
 	// Initialize storage batcher (will automatically flush when ctx is canceled)
@@ -1167,25 +1172,33 @@ func (vc *Coordinator) isMessageReadyForVerification(
 	return ready, nil
 }
 
-// createAndStartCurseDetector creates, configures, and starts a curse detector service from RMN readers.
+// startCurseDetector creates, configures, and starts a curse detector service from RMN readers.
 // Uses CursePollInterval from config, defaulting to 2s if not set.
-func (vc *Coordinator) createAndStartCurseDetector(
+func (vc *Coordinator) startCurseDetector(
 	ctx context.Context,
 	rmnReaders map[protocol.ChainSelector]cursedetector.RMNCurseReader,
 ) error {
+	if len(rmnReaders) == 0 {
+		return fmt.Errorf("no RMN readers provided for curse detector")
+	}
 	cursePollInterval := vc.config.CursePollInterval
 	if cursePollInterval <= 0 {
 		cursePollInterval = 2 * time.Second // Default
 	}
 
-	curseDetectorSvc, err := cursedetector.NewCurseDetectorService(
-		rmnReaders,
-		cursePollInterval,
-		vc.lggr,
-	)
-	if err != nil {
-		vc.lggr.Errorw("Failed to create curse detector service", "error", err)
-		return fmt.Errorf("failed to create curse detector: %w", err)
+	// if a curse detector service is already set, use it; otherwise create a new one
+	curseDetectorSvc := vc.curseDetector
+	if curseDetectorSvc == nil {
+		cd, err := cursedetector.NewCurseDetectorService(
+			rmnReaders,
+			cursePollInterval,
+			vc.lggr,
+		)
+		if err != nil {
+			vc.lggr.Errorw("Failed to create curse detector service", "error", err)
+			return fmt.Errorf("failed to create curse detector: %w", err)
+		}
+		curseDetectorSvc = cd
 	}
 
 	if err := curseDetectorSvc.Start(ctx); err != nil {
