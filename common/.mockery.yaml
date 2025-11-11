@@ -7,4 +7,5 @@ packages:
             dir: "{{.InterfaceDir}}"
         interfaces:
             CurseDetector: {}
+            RMNCurseReader: {}
 

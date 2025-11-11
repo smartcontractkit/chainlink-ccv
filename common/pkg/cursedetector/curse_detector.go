@@ -13,10 +13,7 @@ import (
 
 // GlobalCurseSubject is the constant from RMN specification representing a global curse.
 // If this subject is present in cursed subjects, all lanes involving this chain are cursed.
-var GlobalCurseSubject = protocol.Bytes16{
-	0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-}
+var GlobalCurseSubject = [16]byte{0: 0x01, 15: 0x01}
 
 // ChainCurseState holds curse state for one chain's RMN Remote.
 type ChainCurseState struct {
@@ -101,8 +98,6 @@ func (s *Service) Close() error {
 // Returns true if:
 //   - remoteChain appears in localChain's cursed subjects, OR
 //   - localChain has a global curse
-//
-// Thread-safe: uses read lock for concurrent access.
 func (s *Service) IsRemoteChainCursed(localChain, remoteChain protocol.ChainSelector) bool {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
@@ -170,4 +165,11 @@ func (s *Service) PollAllChains(ctx context.Context) {
 			"globalCurse", state.HasGlobalCurse,
 			"cursedRemoteChains", len(state.CursedRemoteChains))
 	}
+}
+
+func chainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
+	var result [16]byte
+	// Convert the uint64 to bytes and place it in the last 8 bytes of the array
+	binary.BigEndian.PutUint64(result[8:], uint64(chainSel))
+	return result
 }
