@@ -14,6 +14,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
@@ -83,8 +85,21 @@ func NewVerificationCoordinator(
 
 	// Initialize other required services and configs.
 
-	// TODO: monitoring
-	var verifierMonitoring verifier.Monitoring
+	// TODO: monitoring config home
+	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
+		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
+		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
+		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
+		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
+		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
+		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
+	})
+	if err != nil {
+		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
+		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
+	}
 
 	// Checkpoint manager
 	hmacConfig := &hmac.ClientConfig{
@@ -134,7 +149,6 @@ func NewVerificationCoordinator(
 		verifier.WithChainStatusManager(chainStatusManager),
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
-		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(verifierMonitoring),
 	)
 	if err != nil {
