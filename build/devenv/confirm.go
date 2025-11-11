@@ -12,13 +12,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/ethereum/go-ethereum/core/types"
+
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 )
 
-// NewConfirmFunctorAnvil specific confirmer for Anvil instant blocks
-func NewConfirmFunctorAnvil(tickInterval time.Duration, waitMinedTimeout time.Duration) cldf_evm_provider.ConfirmFunctor {
+// NewConfirmFunctorAnvil specific confirmer for Anvil instant blocks.
+func NewConfirmFunctorAnvil(tickInterval, waitMinedTimeout time.Duration) cldf_evm_provider.ConfirmFunctor {
 	return &confirmAnvil{
 		WaitMinedTimeout: waitMinedTimeout,
 	}
