@@ -83,6 +83,10 @@ func NewMockReader(config MockReaderConfig) *MockReader {
 	}
 }
 
+func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+	return nil, nil
+}
+
 // ReadCCVData implements the OffchainStorageReader interface.
 // It returns CCVData based on the configured emit interval and max messages.
 // If EmitInterval is set and enough time has passed since the last call,

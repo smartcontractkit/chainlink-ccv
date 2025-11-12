@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
@@ -13,12 +14,15 @@ import (
 )
 
 type Task struct {
-	ctx       context.Context
 	logger    logger.Logger
 	messageID protocol.Bytes32
 	message   protocol.CCVData
 	registry  *registry.VerifierRegistry
 	storage   common.IndexerStorage
+	attempt   int // 1-indexed
+	runAt     time.Time
+	index     int // heap index
+	lastErr   error
 }
 
 type TaskResult struct {
@@ -27,19 +31,20 @@ type TaskResult struct {
 	FailedVerifiers     int
 }
 
-func NewTask(ctx context.Context, lggr logger.Logger, message protocol.CCVData, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Task, error) {
+func NewTask(lggr logger.Logger, message protocol.CCVData, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Task, error) {
 	return &Task{
-		ctx:       ctx,
 		logger:    logger.Named(logger.With(lggr, "messageID", message.MessageID), "Task"),
 		messageID: message.MessageID,
 		message:   message,
 		registry:  registry,
 		storage:   storage,
+		attempt:   0,
+		lastErr:   nil,
 	}, nil
 }
 
 // collectVerifierResults processes all verifier readers concurrently and collects successful results.
-func (t *Task) collectVerifierResults(verifierReaders []*readers.VerifierReader) []protocol.CCVData {
+func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*readers.VerifierReader) []protocol.CCVData {
 	if len(verifierReaders) == 0 {
 		return nil
 	}
@@ -76,7 +81,7 @@ func (t *Task) collectVerifierResults(verifierReaders []*readers.VerifierReader)
 					results = append(results, result.Value())
 					mu.Unlock()
 				}
-			case <-t.ctx.Done():
+			case <-ctx.Done():
 				return
 			}
 		}(resultCh)
@@ -105,8 +110,8 @@ func (t *Task) loadVerifierReaders(verifierAddresses []string) (readers []*reade
 	return readers, missingReaders
 }
 
-func (t *Task) getMissingVerifiers() (missing []string, err error) {
-	existing, err := t.getExistingVerifiers()
+func (t *Task) getMissingVerifiers(ctx context.Context) (missing []string, err error) {
+	existing, err := t.getExistingVerifiers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +124,8 @@ func (t *Task) getMissingVerifiers() (missing []string, err error) {
 	return missing, nil
 }
 
-func (t *Task) getExistingVerifiers() (existing []string, err error) {
-	results, err := t.storage.GetCCVData(t.ctx, t.messageID)
+func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err error) {
+	results, err := t.storage.GetCCVData(ctx, t.messageID)
 	if err != nil {
 		return nil, err
 	}

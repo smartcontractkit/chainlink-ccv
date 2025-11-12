@@ -15,7 +15,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/worker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -63,6 +65,56 @@ func main() {
 
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
+
+	aggregatorReader, err := readers.NewAggregatorReader("default-aggregator:50051", lggr, 0)
+	if err != nil {
+		lggr.Fatalf("Failed to initalize aggregator reader: %v", err)
+	}
+
+	verifierRegistry := registry.NewVerifierRegistry()
+	address, err := protocol.NewUnknownAddressFromHex("0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae")
+	if err != nil {
+		lggr.Fatalf("Failed to convert hex: %v", err)
+	}
+	aggregatorVerifierReader := readers.NewVerifierReader(ctx, address, aggregatorReader, readers.VerifierReaderConfig{})
+	err = verifierRegistry.AddVerifier(address, aggregatorVerifierReader)
+	if err != nil {
+		lggr.Fatalf("Failed to add verifier to registry: %v", err)
+	}
+
+	// Start MessageDiscovery
+	messageDiscovery, err := discovery.NewAggregatorMessageDiscovery(
+		discovery.WithAggregator(aggregatorReader),
+		discovery.WithLogger(lggr),
+		discovery.WithMonitoring(indexerMonitoring),
+		discovery.WithStorage(indexerStorage),
+		discovery.WithConfig(discovery.Config{
+			PollInterval:       time.Second * 1,
+			Timeout:            time.Second * 2,
+			MessageChannelSize: 100,
+		}),
+	)
+	if err != nil {
+		lggr.Fatalf("Failed to initialize message discovery: %v", err)
+	}
+
+	scheduler, err := worker.NewScheduler(lggr, worker.SchedulerConfig{
+		TickerInterval: time.Millisecond * 50,
+		MaxAttempts:    960, // 8 Hours, assuming 30 second delay
+		BaseDelay:      time.Millisecond * 100,
+		MaxDelay:       time.Second * 30,
+		ReadyQueueSize: 1000,
+		DLQSize:        1000,
+		JitterFrac:     0.02,
+	})
+	if err != nil {
+		lggr.Fatalf("Failed to initalize scheduler: %v", err)
+	}
+	scheduler.Start(ctx)
+
+	discoveryCh := messageDiscovery.Start(ctx)
+	pool := worker.NewWorkerPool(lggr, worker.Config{WorkerTimeout: time.Minute * 5}, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	pool.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
 	api.Serve(v1, 8100)
