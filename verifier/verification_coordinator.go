@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
@@ -52,7 +53,7 @@ type Coordinator struct {
 	timestampsMu      sync.RWMutex
 	mu                sync.RWMutex
 	verifyingWg       sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
-	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and finalityCheckingLoop() (must complete after error channels closed)
+	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
 	running           bool
 
 	// Storage batching
@@ -64,6 +65,7 @@ type Coordinator struct {
 	sourceReaders      map[protocol.ChainSelector]SourceReader
 	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
+	curseDetector      cursedetector.CurseDetector
 }
 
 // Option is the functional option type for Coordinator.
@@ -171,6 +173,14 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 	return WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{chainSelector: detector})
 }
 
+// WithCurseDetector sets the curse detector for monitoring RMN Remote contracts.
+// This is primarily for testing - in production, the coordinator creates its own curse detector.
+func WithCurseDetector(detector cursedetector.CurseDetector) Option {
+	return func(vc *Coordinator) {
+		vc.curseDetector = detector
+	}
+}
+
 // NewCoordinator creates a new verification coordinator.
 func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
@@ -233,6 +243,9 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	}
 
 	// Initialize source states with reorg detection
+	// Also collect RMN curse readers for curse detector
+	rmnReaders := make(map[protocol.ChainSelector]cursedetector.RMNCurseReader)
+
 	for chainSelector, sourceReader := range vc.sourceReaders {
 		if sourceReader == nil {
 			continue
@@ -251,6 +264,9 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			vc.lggr.Warnw("skipping source reader: no source config found for chain selector", "chainSelector", chainSelector)
 			continue
 		}
+
+		// SourceReader automatically satisfies RMNCurseReader interface
+		rmnReaders[chainSelector] = sourceReader
 
 		sourcePollInterval := DefaultSourceReaderPollInterval
 		if sourceCfg.PollInterval > 0 {
@@ -285,6 +301,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		}
 
 		// Setup ReorgDetector (if provided)
+		// TODO: Initialize reorgDetectorService like the sourceReaderService - we can keep the WithReorgDetector option and create them if they're not present
 		if detector, hasDetector := vc.reorgDetectors[chainSelector]; hasDetector {
 			// Start detector (blocks until initial tail is built and subscription is established)
 			reorgStatusCh, err := detector.Start(ctx)
@@ -317,7 +334,18 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		vc.sourceStates[chainSelector] = state
 	}
 
+	// If all chains are disabled, there are no source states and no RMN readers
+	// In this case, we should not start the coordinator as there's nothing to coordinate
+	if len(vc.sourceStates) == 0 {
+		vc.lggr.Warnw("No enabled chains found, coordinator cannot start")
+		return fmt.Errorf("no enabled chains to coordinate")
+	}
+
 	vc.running = true
+
+	if err := vc.startCurseDetector(ctx, rmnReaders); err != nil {
+		return fmt.Errorf("failed to create and start curse detector: %w", err)
+	}
 
 	// Initialize storage batcher (will automatically flush when ctx is canceled)
 	vc.batchedCCVDataCh = make(chan batcher.BatchResult[CCVDataWithIdempotencyKey], 10)
@@ -338,7 +366,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.backgroundWg.Add(1)
 	go func() {
 		defer vc.backgroundWg.Done()
-		vc.finalityCheckingLoop(ctx)
+		vc.readyMessagesCheckingLoop(ctx)
 	}()
 
 	vc.lggr.Infow("Coordinator started with finality checking and reorg detection",
@@ -371,8 +399,15 @@ func (vc *Coordinator) Close() error {
 		}
 	}
 
-	// Wait for background goroutines (run, finalityCheckingLoop, and processReorgUpdates) to finish.
+	// Wait for background goroutines (run, readyMessagesCheckingLoop, and processReorgUpdates) to finish.
 	vc.backgroundWg.Wait()
+
+	// Close curse detector
+	if vc.curseDetector != nil {
+		if err := vc.curseDetector.Close(); err != nil {
+			vc.lggr.Errorw("Error closing curse detector", "error", err)
+		}
+	}
 
 	// Close reorg detectors
 	for chainSelector, state := range vc.sourceStates {
@@ -649,6 +684,20 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 		return
 	}
 
+	// Check if lane is cursed (source -> dest)
+	if vc.curseDetector.IsRemoteChainCursed(
+		task.Message.SourceChainSelector,
+		task.Message.DestChainSelector,
+	) {
+		messageID, _ := task.Message.MessageID()
+		vc.lggr.Warnw("Dropping task - lane is cursed",
+			"source", task.Message.SourceChainSelector,
+			"dest", task.Message.DestChainSelector,
+			"messageID", messageID,
+			"blockNumber", task.BlockNumber)
+		return
+	}
+
 	// Set QueuedAt timestamp for finality wait duration tracking
 	task.QueuedAt = time.Now()
 	state.pendingTasks = append(state.pendingTasks, task)
@@ -677,8 +726,8 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	)
 }
 
-// finalityCheckingLoop runs the finality checking loop for all chains.
-func (vc *Coordinator) finalityCheckingLoop(ctx context.Context) {
+// readyMessagesCheckingLoop runs the finality checking loop for all chains.
+func (vc *Coordinator) readyMessagesCheckingLoop(ctx context.Context) {
 	ticker := time.NewTicker(vc.finalityCheckInterval)
 	defer ticker.Stop()
 
@@ -777,6 +826,21 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 	// Check finality for each task
 	for _, task := range state.pendingTasks {
+		// Check if lane is cursed before processing finalized tasks
+		if vc.curseDetector.IsRemoteChainCursed(
+			task.Message.SourceChainSelector,
+			task.Message.DestChainSelector,
+		) {
+			messageID, _ := task.Message.MessageID()
+			vc.lggr.Warnw("Dropping finalized task - lane is cursed",
+				"source", task.Message.SourceChainSelector,
+				"dest", task.Message.DestChainSelector,
+				"messageID", messageID,
+				"chain", chainSelector)
+			// Drop the task (don't add to remainingTasks or readyTasks)
+			continue
+		}
+
 		ready, err := vc.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock)
 		if err != nil {
 			messageID, _ := task.Message.MessageID()
@@ -1113,4 +1177,40 @@ func (vc *Coordinator) isMessageReadyForVerification(
 		}
 	}
 	return ready, nil
+}
+
+// startCurseDetector creates, configures, and starts a curse detector service from RMN readers.
+// Uses CursePollInterval from config, defaulting to 2s if not set.
+func (vc *Coordinator) startCurseDetector(
+	ctx context.Context,
+	rmnReaders map[protocol.ChainSelector]cursedetector.RMNCurseReader,
+) error {
+	if len(rmnReaders) == 0 {
+		return fmt.Errorf("no RMN readers provided for curse detector")
+	}
+
+	// if a curse detector service is already set, use it; otherwise create a new one
+	curseDetectorSvc := vc.curseDetector
+	if curseDetectorSvc == nil {
+		cd, err := cursedetector.NewCurseDetectorService(
+			rmnReaders,
+			vc.config.CursePollInterval,
+			vc.lggr,
+		)
+		if err != nil {
+			vc.lggr.Errorw("Failed to create curse detector service", "error", err)
+			return fmt.Errorf("failed to create curse detector: %w", err)
+		}
+		curseDetectorSvc = cd
+	}
+
+	if err := curseDetectorSvc.Start(ctx); err != nil {
+		vc.lggr.Errorw("Failed to start curse detector", "error", err)
+		return fmt.Errorf("failed to start curse detector: %w", err)
+	}
+
+	vc.curseDetector = curseDetectorSvc
+	vc.lggr.Infow("Curse detector started", "chainCount", len(rmnReaders))
+
+	return nil
 }

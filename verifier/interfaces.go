@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
@@ -44,6 +45,8 @@ type SourceReader interface {
 	// Required for walking back parent chain during LCA finding in reorg detection.
 	// Returns nil if block doesn't exist, error for RPC failures.
 	GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error)
+
+	cursedetector.RMNCurseReader
 }
 
 // Monitoring provides all core monitoring functionality for the verifier.
