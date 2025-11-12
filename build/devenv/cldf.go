@@ -70,7 +70,7 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 						PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 					},
 				},
-				ConfirmFunctor: cldf_evm_provider.ConfirmFuncGeth(1 * time.Minute),
+				ConfirmFunctor: NewConfirmFunctorAnvil(10*time.Millisecond, 30*time.Second),
 			},
 		).Initialize(context.Background())
 		if err != nil {

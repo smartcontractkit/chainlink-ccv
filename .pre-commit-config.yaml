@@ -11,9 +11,9 @@ repos:
         verbose: true
 
       - id: go-mod-tidy
-        name: go mod tidy
-        entry: just
-        args: ["mod-tidy-all"]
+        name: gomods tidy 
+        entry: just 
+        args: ["tidy"]
         language: system
         pass_filenames: false
         verbose: true
