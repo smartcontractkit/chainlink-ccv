@@ -22,6 +22,7 @@ type Configuration struct {
 	MinWait            string                              `toml:"min_wait"`
 	Monitoring         MonitoringConfig                    `toml:"Monitoring"`
 	CcvInfoCacheExpiry string                              `toml:"ccv_info_cache_expiry"`
+	MaxRetryDuration   string                              `toml:"max_retry_duration"`
 }
 
 func (c *Configuration) Validate() error {
@@ -86,6 +87,14 @@ func (c *Configuration) GetMinWaitPeriod() time.Duration {
 	d, err := time.ParseDuration(c.MinWait)
 	if err != nil {
 		return 10 * time.Second
+	}
+	return d
+}
+
+func (c *Configuration) GetMaxRetryDuration() time.Duration {
+	d, err := time.ParseDuration(c.MaxRetryDuration)
+	if err != nil {
+		return 8 * time.Hour
 	}
 	return d
 }

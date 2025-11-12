@@ -23,9 +23,9 @@ func (_m *MockStatusChecker) EXPECT() *MockStatusChecker_Expecter {
 	return &MockStatusChecker_Expecter{mock: &_m.Mock}
 }
 
-// GetMessageStatus provides a mock function with given fields: ctx, message
-func (_m *MockStatusChecker) GetMessageStatus(ctx context.Context, message protocol.Message) (bool, bool, error) {
-	ret := _m.Called(ctx, message)
+// GetMessageStatus provides a mock function with given fields: ctx, message, currentTime
+func (_m *MockStatusChecker) GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (bool, bool, error) {
+	ret := _m.Called(ctx, message, currentTime)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetMessageStatus")
@@ -34,23 +34,23 @@ func (_m *MockStatusChecker) GetMessageStatus(ctx context.Context, message proto
 	var r0 bool
 	var r1 bool
 	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (bool, bool, error)); ok {
-		return rf(ctx, message)
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, int64) (bool, bool, error)); ok {
+		return rf(ctx, message, currentTime)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) bool); ok {
-		r0 = rf(ctx, message)
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, int64) bool); ok {
+		r0 = rf(ctx, message, currentTime)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) bool); ok {
-		r1 = rf(ctx, message)
+	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message, int64) bool); ok {
+		r1 = rf(ctx, message, currentTime)
 	} else {
 		r1 = ret.Get(1).(bool)
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, protocol.Message) error); ok {
-		r2 = rf(ctx, message)
+	if rf, ok := ret.Get(2).(func(context.Context, protocol.Message, int64) error); ok {
+		r2 = rf(ctx, message, currentTime)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -66,13 +66,14 @@ type MockStatusChecker_GetMessageStatus_Call struct {
 // GetMessageStatus is a helper method to define mock.On call
 //   - ctx context.Context
 //   - message protocol.Message
-func (_e *MockStatusChecker_Expecter) GetMessageStatus(ctx interface{}, message interface{}) *MockStatusChecker_GetMessageStatus_Call {
-	return &MockStatusChecker_GetMessageStatus_Call{Call: _e.mock.On("GetMessageStatus", ctx, message)}
+//   - currentTime int64
+func (_e *MockStatusChecker_Expecter) GetMessageStatus(ctx interface{}, message interface{}, currentTime interface{}) *MockStatusChecker_GetMessageStatus_Call {
+	return &MockStatusChecker_GetMessageStatus_Call{Call: _e.mock.On("GetMessageStatus", ctx, message, currentTime)}
 }
 
-func (_c *MockStatusChecker_GetMessageStatus_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockStatusChecker_GetMessageStatus_Call {
+func (_c *MockStatusChecker_GetMessageStatus_Call) Run(run func(ctx context.Context, message protocol.Message, currentTime int64)) *MockStatusChecker_GetMessageStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(protocol.Message))
+		run(args[0].(context.Context), args[1].(protocol.Message), args[2].(int64))
 	})
 	return _c
 }
@@ -82,7 +83,7 @@ func (_c *MockStatusChecker_GetMessageStatus_Call) Return(_a0 bool, _a1 bool, _a
 	return _c
 }
 
-func (_c *MockStatusChecker_GetMessageStatus_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, bool, error)) *MockStatusChecker_GetMessageStatus_Call {
+func (_c *MockStatusChecker_GetMessageStatus_Call) RunAndReturn(run func(context.Context, protocol.Message, int64) (bool, bool, error)) *MockStatusChecker_GetMessageStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

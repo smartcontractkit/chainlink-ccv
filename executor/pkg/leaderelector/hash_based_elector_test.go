@@ -387,6 +387,7 @@ func Test_getSliceIncreasingDistance(t *testing.T) {
 		})
 	}
 }
+
 func TestHashBasedLeaderElector_GetRetryDelay(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -416,7 +417,6 @@ func TestHashBasedLeaderElector_GetRetryDelay(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc // capture
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// Pick the first executor as thisExecutorId for simplicity
