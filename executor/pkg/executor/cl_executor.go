@@ -58,26 +58,10 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 // AttemptExecuteMessage will try to get all supplementary information for a message required for execution, then attempt the execution.
 // If not all supplementary information is available (ie not enough verifierResults) it will return an error and the message will not be attempted.
 func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message protocol.Message) error {
+	destinationChain := message.DestChainSelector
 	messageID, err := message.MessageID()
 	if err != nil {
 		return fmt.Errorf("failed to get message ID: %w", err)
-	}
-
-	// Check if the message is already executed to not waste gas and time.
-	destinationChain := message.DestChainSelector
-	executed, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
-		ctx,
-		message,
-	)
-	// todo: Check confirmed/finalized. If message is confirmed but not finalized, skip message but put back in heap
-	// if message is finalized, skip message entirely. If neither, proceed as normal. Avoid caching on IsMessageExecuted
-	// Maybe using logpoller to track finalized blocks?
-	if err != nil {
-		return fmt.Errorf("failed to check IsMessageExecuted: %w", err)
-	}
-	if executed {
-		cle.lggr.Infof("message %s (nonce %d) already executed on chain %d, skipping...", messageID.String(), message.Nonce, destinationChain)
-		return executor.ErrMsgAlreadyExecuted
 	}
 
 	// Fetch CCV data from the indexer and CCV info from the destination reader

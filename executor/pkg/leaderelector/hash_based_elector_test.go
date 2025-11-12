@@ -387,3 +387,43 @@ func Test_getSliceIncreasingDistance(t *testing.T) {
 		})
 	}
 }
+func TestHashBasedLeaderElector_GetRetryDelay(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		executorIds       []string
+		executionInterval time.Duration
+		expectedDelay     int64
+	}{
+		{
+			name:              "valid test",
+			executorIds:       []string{"ex-1", "ex-2", "ex-3"},
+			executionInterval: 20 * time.Second,
+			expectedDelay:     3 * 20, // 3 executors * 20s
+		},
+		{
+			name:              "multiple executors in pool",
+			executorIds:       []string{"ex-1", "ex-2", "ex-3", "ex-4"},
+			executionInterval: 15 * time.Second,
+			expectedDelay:     4 * 15, // 4 executors * 15s
+		},
+		{
+			name:              "single executor",
+			executorIds:       []string{"only-executor"},
+			executionInterval: 30 * time.Second,
+			expectedDelay:     1 * 30, // 1 executor * 30s
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc // capture
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Pick the first executor as thisExecutorId for simplicity
+			thisID := tc.executorIds[0]
+			le := NewHashBasedLeaderElector(logger.Test(t), tc.executorIds, thisID, tc.executionInterval, 0)
+			retryDelay := le.GetRetryDelay(123)
+			assert.Equal(t, tc.expectedDelay, retryDelay, "unexpected retry delay for case %s", tc.name)
+		})
+	}
+}

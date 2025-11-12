@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	ErrMsgAlreadyExecuted    = fmt.Errorf("message already executed")
 	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
 )
 
@@ -52,3 +51,12 @@ type CCVAddressInfo struct {
 	OptionalCCVs      []protocol.UnknownAddress `json:"optional_ccvs"`
 	OptionalThreshold uint8                     `json:"optional_threshold"`
 }
+
+type MessageExecutionState uint8
+
+const (
+	MESSAGE_UNTOUCHED MessageExecutionState = iota
+	MESSAGE_IN_PROGRESS
+	MESSAGE_SUCCESS
+	MESSAGE_FAILURE
+)

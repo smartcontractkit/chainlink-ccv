@@ -29,6 +29,7 @@ type Coordinator struct {
 	cancel             context.CancelFunc
 	delayedMessageHeap *message_heap.MessageHeap
 	running            atomic.Bool
+	statusChecker      StatusChecker
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -38,6 +39,7 @@ func NewCoordinator(
 	messageSubscriber MessageSubscriber,
 	leaderElector LeaderElector,
 	monitoring Monitoring,
+	statusChecker StatusChecker,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
 		lggr:              lggr,
@@ -48,6 +50,7 @@ func NewCoordinator(
 		ccvDataCh:         make(chan MessageWithCCVData, 100),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
+		statusChecker: statusChecker,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -155,19 +158,30 @@ func (ec *Coordinator) run(ctx context.Context) {
 					message := message
 					id, _ := message.MessageID() // can we make this less bad?
 					ec.lggr.Infow("processing message with ID", "messageID", id)
-					err := ec.executor.AttemptExecuteMessage(ctx, message)
-					if errors.Is(err, ErrMsgAlreadyExecuted) {
-						ec.lggr.Infow("message already executed, skipping", "messageID", id)
-						return
-					} else if errors.Is(err, ErrInsufficientVerifiers) {
-						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
-						return
-					} else if err != nil {
-						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
-						ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-						return
+					shouldRetry, shouldExecute, err := ec.statusChecker.GetMessageStatus(ctx, message)
+					if err != nil {
+						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
 					}
-					ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+
+					if shouldRetry {
+						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
+						heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamp{
+							Payload:   &message,
+							ReadyTime: currentTime + ec.leaderElector.GetRetryDelay(message.DestChainSelector),
+						})
+					}
+					if shouldExecute {
+						err = ec.executor.AttemptExecuteMessage(ctx, message)
+						if errors.Is(err, ErrInsufficientVerifiers) {
+							ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
+							return
+						} else if err != nil {
+							ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
+							ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
+							return
+						}
+						ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+					}
 				}()
 			}
 		}
@@ -188,6 +202,7 @@ func (ec *Coordinator) validate() error {
 	appendIfNil(ec.lggr, "logger")
 	appendIfNil(ec.messageSubscriber, "messageSubscriber")
 	appendIfNil(ec.monitoring, "monitoring")
+	appendIfNil(ec.statusChecker, "statusChecker")
 
 	return errors.Join(errs...)
 }

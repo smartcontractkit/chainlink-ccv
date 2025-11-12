@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/statuschecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
@@ -89,6 +90,8 @@ func NewExecutorCoordinator(
 		executorMonitoring,
 	)
 
+	sc := statuschecker.NewStatusChecker(lggr, destReaders)
+
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(
 		lggr,
@@ -114,6 +117,7 @@ func NewExecutorCoordinator(
 		indexerStream,
 		le,
 		executorMonitoring,
+		sc,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)

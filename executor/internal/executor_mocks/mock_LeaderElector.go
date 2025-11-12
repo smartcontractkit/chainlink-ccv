@@ -67,6 +67,52 @@ func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protoc
 	return _c
 }
 
+// GetRetryDelay provides a mock function with given fields: destinationChain
+func (_m *MockLeaderElector) GetRetryDelay(destinationChain protocol.ChainSelector) int64 {
+	ret := _m.Called(destinationChain)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRetryDelay")
+	}
+
+	var r0 int64
+	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) int64); ok {
+		r0 = rf(destinationChain)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	return r0
+}
+
+// MockLeaderElector_GetRetryDelay_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRetryDelay'
+type MockLeaderElector_GetRetryDelay_Call struct {
+	*mock.Call
+}
+
+// GetRetryDelay is a helper method to define mock.On call
+//   - destinationChain protocol.ChainSelector
+func (_e *MockLeaderElector_Expecter) GetRetryDelay(destinationChain interface{}) *MockLeaderElector_GetRetryDelay_Call {
+	return &MockLeaderElector_GetRetryDelay_Call{Call: _e.mock.On("GetRetryDelay", destinationChain)}
+}
+
+func (_c *MockLeaderElector_GetRetryDelay_Call) Run(run func(destinationChain protocol.ChainSelector)) *MockLeaderElector_GetRetryDelay_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(protocol.ChainSelector))
+	})
+	return _c
+}
+
+func (_c *MockLeaderElector_GetRetryDelay_Call) Return(_a0 int64) *MockLeaderElector_GetRetryDelay_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockLeaderElector_GetRetryDelay_Call) RunAndReturn(run func(protocol.ChainSelector) int64) *MockLeaderElector_GetRetryDelay_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockLeaderElector creates a new instance of MockLeaderElector. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockLeaderElector(t interface {
