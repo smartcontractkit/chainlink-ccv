@@ -5,15 +5,15 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
 // MessageSigner defines the interface for signing data.
-// Note: currently the only valid implementations use an EDCSA V27 normalized format.
+// TODO: revisit this, shouldn't be ECDSA specific?
 type MessageSigner interface {
-	// Sign returns data signed by account.
-	// nil data can be used as a no-op to check for account existence.
+	// Sign returns an ECDSA signature that is 65 bytes long (R + S + V).
 	Sign(data []byte) (signed []byte, err error)
 }
 
@@ -45,6 +45,8 @@ type SourceReader interface {
 	// Required for walking back parent chain during LCA finding in reorg detection.
 	// Returns nil if block doesn't exist, error for RPC failures.
 	GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error)
+
+	cursedetector.RMNCurseReader
 }
 
 // Monitoring provides all core monitoring functionality for the verifier.

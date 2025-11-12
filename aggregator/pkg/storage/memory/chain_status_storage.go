@@ -64,7 +64,7 @@ func (s *ChainStatusStorage) StoreChainStatus(ctx context.Context, clientID stri
 
 // GetClientChainStatus retrieves all statuses for a client.
 // Returns an empty map if the client has no statuses.
-func (s *ChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*common.ChainStatus, error) {
+func (s *ChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string, chainSelectors []uint64) (map[uint64]*common.ChainStatus, error) {
 	value, exists := s.clientData.Load(clientID)
 	if !exists {
 		return make(map[uint64]*common.ChainStatus), nil
@@ -74,7 +74,22 @@ func (s *ChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID 
 	if !ok {
 		return make(map[uint64]*common.ChainStatus), nil
 	}
-	return clientStore.GetChainStatus(ctx), nil
+
+	if len(chainSelectors) == 0 {
+		return clientStore.GetChainStatus(ctx), nil
+	}
+
+	filteredResults := make(map[uint64]*common.ChainStatus)
+	internalResults := clientStore.GetChainStatus(ctx)
+
+	for _, selector := range chainSelectors {
+		result, ok := internalResults[selector]
+		if ok {
+			filteredResults[selector] = result
+		}
+	}
+
+	return filteredResults, nil
 }
 
 // StoreChainStatus stores statuses for this client atomically.
