@@ -159,7 +159,7 @@ func main() {
 	// create executor
 	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient, executorMonitoring)
 
-	sc := statuschecker.NewStatusChecker(lggr, destReaders)
+	sc := statuschecker.NewStatusChecker(lggr, destReaders, executorConfig.GetCCVInfoCacheExpiry())
 
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(

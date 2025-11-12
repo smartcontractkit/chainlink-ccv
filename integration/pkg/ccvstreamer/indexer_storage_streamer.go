@@ -100,6 +100,7 @@ func (oss *IndexerStorageStreamer) Start(
 					oss.lggr.Infow("IndexerStorageStreamer found messages using query", "offset", offset, "start", oss.lastQueryTime, "end", newtime, "messages", responses)
 				}
 
+				// todo: is it valuable to pass the messageids as well as the messages?
 				result := executor.StreamerResult{
 					Messages: maps.Values(responses),
 					Error:    err,

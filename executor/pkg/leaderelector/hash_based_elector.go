@@ -21,7 +21,7 @@ type HashBasedLeaderElector struct {
 }
 
 // NewHashBasedLeaderElector creates a new hash-based leader elector.
-// Todo: Support variable executors per destination chain
+// TODO: Support variable executors per destination chain selector.
 func NewHashBasedLeaderElector(
 	lggr logger.Logger,
 	executorIDs []string,

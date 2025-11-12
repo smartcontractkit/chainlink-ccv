@@ -155,10 +155,11 @@ func (ec *Coordinator) run(ctx context.Context) {
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
 			for _, message := range readyMessages {
 				go func() {
-					message := message
-					id, _ := message.MessageID() // can we make this less bad?
+					message, currentTime := message, currentTime
+					id, _ := message.MessageID()
+
 					ec.lggr.Infow("processing message with ID", "messageID", id)
-					shouldRetry, shouldExecute, err := ec.statusChecker.GetMessageStatus(ctx, message)
+					shouldRetry, shouldExecute, err := ec.statusChecker.GetMessageStatus(ctx, message, currentTime)
 					if err != nil {
 						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
 					}

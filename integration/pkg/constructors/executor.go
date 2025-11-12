@@ -90,7 +90,7 @@ func NewExecutorCoordinator(
 		executorMonitoring,
 	)
 
-	sc := statuschecker.NewStatusChecker(lggr, destReaders)
+	sc := statuschecker.NewStatusChecker(lggr, destReaders, cfg.GetCCVInfoCacheExpiry())
 
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(

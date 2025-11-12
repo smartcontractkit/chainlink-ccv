@@ -50,7 +50,7 @@ type Executor interface {
 
 // StatusChecker tells us if a message should be executed and retried.
 type StatusChecker interface {
-	GetMessageStatus(ctx context.Context, message protocol.Message) (bool, bool, error)
+	GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (bool, bool, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains
