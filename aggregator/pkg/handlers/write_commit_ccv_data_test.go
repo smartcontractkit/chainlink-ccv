@@ -41,14 +41,14 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	validUUID := "550e8400-e29b-41d4-a716-446655440000"
 
 	signer1 := &model.IdentifierSigner{
-		Signer:      model.Signer{ParticipantID: "p1", Addresses: []string{"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
-		Address:     []byte{0xAA},
-		CommitteeID: model.DefaultCommitteeID,
+		ParticipantID: "p1",
+		Address:       []byte{0xAA},
+		CommitteeID:   model.DefaultCommitteeID,
 	}
 	signer2 := &model.IdentifierSigner{
-		Signer:      model.Signer{ParticipantID: "p2", Addresses: []string{"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
-		Address:     []byte{0xBB},
-		CommitteeID: model.DefaultCommitteeID,
+		ParticipantID: "p2",
+		Address:       []byte{0xBB},
+		CommitteeID:   model.DefaultCommitteeID,
 	}
 
 	type testCase struct {

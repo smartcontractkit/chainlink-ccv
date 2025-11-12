@@ -51,8 +51,8 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 		Message:               msg,
 		Timestamp:             time.Now(),
 		IdentifierSigner: &model.IdentifierSigner{
-			Signer:  model.Signer{ParticipantID: participantID, Addresses: []string{sigAddr}},
-			Address: common.HexToAddress(sigAddr).Bytes(),
+			ParticipantID: participantID,
+			Address:       common.HexToAddress(sigAddr).Bytes(),
 		},
 		BlobData: blobData,
 		ReceiptBlobs: []*model.ReceiptBlob{
