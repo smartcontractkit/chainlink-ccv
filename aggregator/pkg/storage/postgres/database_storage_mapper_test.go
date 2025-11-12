@@ -60,13 +60,11 @@ func TestRecordToInsertParams(t *testing.T) {
 			},
 		},
 		IdentifierSigner: &model.IdentifierSigner{
-			Signer: model.Signer{
-				ParticipantID: "participant1",
-			},
-			Address:     signerAddr.Bytes(),
-			SignatureR:  sigR,
-			SignatureS:  sigS,
-			CommitteeID: "committee1",
+			ParticipantID: "participant1",
+			Address:       signerAddr.Bytes(),
+			SignatureR:    sigR,
+			SignatureS:    sigS,
+			CommitteeID:   "committee1",
 		},
 		CommitteeID:    "committee1",
 		IdempotencyKey: uuid.New(),
@@ -80,19 +78,21 @@ func TestRecordToInsertParams(t *testing.T) {
 	require.Equal(t, "committee1", params["committee_id"])
 	require.Equal(t, "participant1", params["participant_id"])
 	require.Equal(t, signerAddr.Hex(), params["signer_address"])
-	require.Equal(t, "1", params["source_chain_selector"])
-	require.Equal(t, "2", params["dest_chain_selector"])
 	require.Equal(t, "aggregation_key_1", params["aggregation_key"])
 
 	messageDataJSON, ok := params["message_data"].([]byte)
 	require.True(t, ok)
 	var msgData struct {
-		Version uint8  `json:"version"`
-		Nonce   uint64 `json:"nonce"`
+		Version             uint8  `json:"version"`
+		SourceChainSelector uint64 `json:"source_chain_selector"`
+		DestChainSelector   uint64 `json:"dest_chain_selector"`
+		Nonce               uint64 `json:"nonce"`
 	}
 	err = json.Unmarshal(messageDataJSON, &msgData)
 	require.NoError(t, err)
 	require.Equal(t, uint8(1), msgData.Version)
+	require.Equal(t, uint64(1), msgData.SourceChainSelector)
+	require.Equal(t, uint64(2), msgData.DestChainSelector)
 	require.Equal(t, uint64(123), msgData.Nonce)
 }
 
@@ -110,10 +110,6 @@ func TestRowToCommitVerificationRecord(t *testing.T) {
 		CommitteeID:           "committee1",
 		ParticipantID:         "participant1",
 		SignerAddress:         signerAddr,
-		SourceChainSelector:   "1",
-		DestChainSelector:     "2",
-		OnrampAddress:         "0x1111111111111111111111111111111111111111",
-		OfframpAddress:        "0x2222222222222222222222222222222222222222",
 		SignatureR:            sigR[:],
 		SignatureS:            sigS[:],
 		VerificationTimestamp: time.Now().UTC(),
@@ -126,6 +122,10 @@ func TestRowToCommitVerificationRecord(t *testing.T) {
 
 	msgData := messageDataJSON{
 		Version:              1,
+		SourceChainSelector:  1,
+		DestChainSelector:    2,
+		OnRampAddress:        common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes(),
+		OffRampAddress:       common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes(),
 		Sender:               common.HexToAddress("0x3333333333333333333333333333333333333333").Bytes(),
 		SenderLength:         20,
 		Data:                 []byte("testdata"),

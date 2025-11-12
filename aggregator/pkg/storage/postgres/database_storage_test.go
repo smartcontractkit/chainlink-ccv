@@ -168,11 +168,11 @@ func createTestCommitVerificationRecord(msgWithCCV *pb.MessageWithCCVNodeData, s
 
 	record := model.CommitVerificationRecordFromProto(msgWithCCV)
 	record.IdentifierSigner = &model.IdentifierSigner{
-		Signer:      signer.Signer,
-		Address:     signerAddress.Bytes(),
-		SignatureR:  r32,
-		SignatureS:  s32,
-		CommitteeID: committeeID,
+		ParticipantID: signer.Signer.ParticipantID,
+		Address:       signerAddress.Bytes(),
+		SignatureR:    r32,
+		SignatureS:    s32,
+		CommitteeID:   committeeID,
 	}
 	record.CommitteeID = committeeID
 	record.IdempotencyKey = uuid.New()

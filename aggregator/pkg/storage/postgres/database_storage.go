@@ -106,10 +106,10 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 	}
 
 	stmt := `INSERT INTO commit_verification_records 
-		(message_id, committee_id, participant_id, signer_address, source_chain_selector, dest_chain_selector, 
-		 onramp_address, offramp_address, signature_r, signature_s, verification_timestamp, idempotency_key, aggregation_key,
+		(message_id, committee_id, participant_id, signer_address, 
+		 signature_r, signature_s, verification_timestamp, idempotency_key, aggregation_key,
 		 source_verifier_address, blob_data, ccv_data, message_data, receipt_blobs) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (message_id, committee_id, signer_address, idempotency_key, aggregation_key) 
 		DO NOTHING
 		RETURNING id`
@@ -120,10 +120,6 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		params["committee_id"],
 		params["participant_id"],
 		params["signer_address"],
-		params["source_chain_selector"],
-		params["dest_chain_selector"],
-		params["onramp_address"],
-		params["offramp_address"],
 		params["signature_r"],
 		params["signature_s"],
 		params["verification_timestamp"],
@@ -290,10 +286,6 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			&verRow.CommitteeID,
 			&verRow.ParticipantID,
 			&verRow.SignerAddress,
-			&verRow.SourceChainSelector,
-			&verRow.DestChainSelector,
-			&verRow.OnrampAddress,
-			&verRow.OfframpAddress,
 			&verRow.SignatureR,
 			&verRow.SignatureS,
 			&verRow.VerificationTimestamp,
@@ -446,10 +438,6 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 			&verRow.CommitteeID,
 			&verRow.ParticipantID,
 			&verRow.SignerAddress,
-			&verRow.SourceChainSelector,
-			&verRow.DestChainSelector,
-			&verRow.OnrampAddress,
-			&verRow.OfframpAddress,
 			&verRow.SignatureR,
 			&verRow.SignatureS,
 			&verRow.VerificationTimestamp,
@@ -571,10 +559,6 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 			&verRow.CommitteeID,
 			&verRow.ParticipantID,
 			&verRow.SignerAddress,
-			&verRow.SourceChainSelector,
-			&verRow.DestChainSelector,
-			&verRow.OnrampAddress,
-			&verRow.OfframpAddress,
 			&verRow.SignatureR,
 			&verRow.SignatureS,
 			&verRow.VerificationTimestamp,

@@ -19,10 +19,6 @@ type commitVerificationRecordRow struct {
 	CommitteeID           string    `db:"committee_id"`
 	ParticipantID         string    `db:"participant_id"`
 	SignerAddress         string    `db:"signer_address"`
-	SourceChainSelector   string    `db:"source_chain_selector"`
-	DestChainSelector     string    `db:"dest_chain_selector"`
-	OnrampAddress         string    `db:"onramp_address"`
-	OfframpAddress        string    `db:"offramp_address"`
 	SignatureR            []byte    `db:"signature_r"`
 	SignatureS            []byte    `db:"signature_s"`
 	VerificationTimestamp time.Time `db:"verification_timestamp"`
@@ -38,6 +34,10 @@ type commitVerificationRecordRow struct {
 
 type messageDataJSON struct {
 	Version              uint8  `json:"version"`
+	SourceChainSelector  uint64 `json:"source_chain_selector"`
+	DestChainSelector    uint64 `json:"dest_chain_selector"`
+	OnRampAddress        []byte `json:"onramp_address"`
+	OffRampAddress       []byte `json:"offramp_address"`
 	Sender               []byte `json:"sender"`
 	SenderLength         uint8  `json:"sender_length"`
 	Data                 []byte `json:"data"`
@@ -64,13 +64,11 @@ func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.Com
 	copy(sigS[:], row.SignatureS)
 
 	identifierSigner := &model.IdentifierSigner{
-		Signer: model.Signer{
-			ParticipantID: row.ParticipantID,
-		},
-		Address:     signerAddrBytes,
-		SignatureR:  sigR,
-		SignatureS:  sigS,
-		CommitteeID: row.CommitteeID,
+		ParticipantID: row.ParticipantID,
+		Address:       signerAddrBytes,
+		SignatureR:    sigR,
+		SignatureS:    sigS,
+		CommitteeID:   row.CommitteeID,
 	}
 
 	var msgData messageDataJSON
@@ -80,13 +78,13 @@ func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.Com
 
 	message := &protocol.Message{
 		Version:              msgData.Version,
-		SourceChainSelector:  protocol.ChainSelector(mustParseUint64(row.SourceChainSelector)),
-		DestChainSelector:    protocol.ChainSelector(mustParseUint64(row.DestChainSelector)),
+		SourceChainSelector:  protocol.ChainSelector(msgData.SourceChainSelector),
+		DestChainSelector:    protocol.ChainSelector(msgData.DestChainSelector),
 		Nonce:                protocol.Nonce(msgData.Nonce),
 		OnRampAddressLength:  msgData.OnRampAddressLength,
-		OnRampAddress:        common.HexToAddress(row.OnrampAddress).Bytes(),
+		OnRampAddress:        msgData.OnRampAddress,
 		OffRampAddressLength: msgData.OffRampAddressLength,
-		OffRampAddress:       common.HexToAddress(row.OfframpAddress).Bytes(),
+		OffRampAddress:       msgData.OffRampAddress,
 		Finality:             msgData.Finality,
 		SenderLength:         msgData.SenderLength,
 		Sender:               msgData.Sender,
@@ -135,13 +133,13 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 
 	messageIDHex := common.Bytes2Hex(record.MessageID)
 	signerAddressHex := common.BytesToAddress(record.IdentifierSigner.Address).Hex()
-	sourceChainSelector := fmt.Sprintf("%d", record.Message.SourceChainSelector)
-	destChainSelector := fmt.Sprintf("%d", record.Message.DestChainSelector)
-	onrampAddress := common.BytesToAddress(record.Message.OnRampAddress).Hex()
-	offrampAddress := common.BytesToAddress(record.Message.OffRampAddress).Hex()
 
 	msgData := messageDataJSON{
 		Version:              record.Message.Version,
+		SourceChainSelector:  uint64(record.Message.SourceChainSelector),
+		DestChainSelector:    uint64(record.Message.DestChainSelector),
+		OnRampAddress:        record.Message.OnRampAddress,
+		OffRampAddress:       record.Message.OffRampAddress,
 		Sender:               record.Message.Sender,
 		SenderLength:         record.Message.SenderLength,
 		Data:                 record.Message.Data,
@@ -169,10 +167,6 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 		"committee_id":            record.CommitteeID,
 		"participant_id":          record.IdentifierSigner.ParticipantID,
 		"signer_address":          signerAddressHex,
-		"source_chain_selector":   sourceChainSelector,
-		"dest_chain_selector":     destChainSelector,
-		"onramp_address":          onrampAddress,
-		"offramp_address":         offrampAddress,
 		"signature_r":             record.IdentifierSigner.SignatureR[:],
 		"signature_s":             record.IdentifierSigner.SignatureS[:],
 		"verification_timestamp":  record.Timestamp,
@@ -196,12 +190,10 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 }
 
 const allVerificationRecordColumns = `message_id, committee_id, participant_id, signer_address, 
-	source_chain_selector, dest_chain_selector, onramp_address, offramp_address, 
 	signature_r, signature_s, verification_timestamp, idempotency_key, aggregation_key,
 	source_verifier_address, blob_data, ccv_data, message_data, receipt_blobs, id`
 
 const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.committee_id, cvr.participant_id, cvr.signer_address, 
-	cvr.source_chain_selector, cvr.dest_chain_selector, cvr.onramp_address, cvr.offramp_address, 
 	cvr.signature_r, cvr.signature_s, cvr.verification_timestamp, cvr.idempotency_key, cvr.aggregation_key,
 	cvr.source_verifier_address, cvr.blob_data, cvr.ccv_data, cvr.message_data, cvr.receipt_blobs, cvr.id`
 
