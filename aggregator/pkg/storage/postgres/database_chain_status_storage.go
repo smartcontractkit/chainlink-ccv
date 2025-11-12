@@ -109,10 +109,15 @@ func (d *DatabaseChainStatusStorage) StoreChainStatus(ctx context.Context, clien
 
 // GetClientChainStatuses retrieves all statuses for a client.
 // Returns an empty map if the client has no statuses.
-func (d *DatabaseChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*common.ChainStatus, error) {
+func (d *DatabaseChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string, chainSelectors []uint64) (map[uint64]*common.ChainStatus, error) {
 	stmt := `SELECT chain_selector, finalized_block_height, disabled 
 		FROM chain_statuses 
 		WHERE client_id = $1`
+	shouldQueryAllChainStatus := len(chainSelectors) == 0
+
+	if !shouldQueryAllChainStatus {
+		stmt += " AND chain_selector IN ($2)"
+	}
 
 	type chainStatus struct {
 		ChainSelector        string `db:"chain_selector"`
@@ -121,7 +126,15 @@ func (d *DatabaseChainStatusStorage) GetClientChainStatus(ctx context.Context, c
 	}
 
 	var statuses []chainStatus
-	err := d.ds.SelectContext(ctx, &statuses, stmt, clientID)
+	args := []any{clientID}
+	if !shouldQueryAllChainStatus {
+		chainSelectorsStr := make([]string, len(chainSelectors))
+		for i, sel := range chainSelectors {
+			chainSelectorsStr[i] = fmt.Sprintf("%d", sel)
+		}
+		args = append(args, strings.Join(chainSelectorsStr, ","))
+	}
+	err := d.ds.SelectContext(ctx, &statuses, stmt, args...)
 	if err != nil {
 		return nil, err
 	}

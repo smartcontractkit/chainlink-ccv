@@ -149,9 +149,9 @@ func (s *MetricsAwareChainStatusStorage) StoreChainStatus(ctx context.Context, c
 	})
 }
 
-func (s *MetricsAwareChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*common.ChainStatus, error) {
+func (s *MetricsAwareChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string, chainSelectors []uint64) (map[uint64]*common.ChainStatus, error) {
 	return captureMetrics(ctx, s.metrics(ctx, getClientChainStatusesOp), func() (map[uint64]*common.ChainStatus, error) {
-		return s.inner.GetClientChainStatus(ctx, clientID)
+		return s.inner.GetClientChainStatus(ctx, clientID, chainSelectors)
 	})
 }
 
