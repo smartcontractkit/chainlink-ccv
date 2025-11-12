@@ -20,6 +20,7 @@ const (
 	requestIDKey     contextKey = "requestID"
 	committeeIDKey   contextKey = "committeeID"
 	apiName          contextKey = "apiName"
+	aggregationKey   contextKey = "aggregationKey"
 )
 
 var loggerContextKeys = []contextKey{
@@ -29,6 +30,7 @@ var loggerContextKeys = []contextKey{
 	requestIDKey,
 	committeeIDKey,
 	apiName,
+	aggregationKey,
 }
 
 var metricsContextKeys = []contextKey{
@@ -59,6 +61,10 @@ func WithParticipantID(ctx context.Context, participantID string) context.Contex
 
 func WithCommitteeID(ctx context.Context, committeeID string) context.Context {
 	return context.WithValue(ctx, committeeIDKey, committeeID)
+}
+
+func WithAggregationKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, aggregationKey, key)
 }
 
 func AugmentLogger(ctx context.Context, logger logger.SugaredLogger) logger.SugaredLogger {

@@ -106,10 +106,12 @@ func getSubCommands(parent string) []prompt.Suggest {
 	case "obs":
 		return []prompt.Suggest{
 			{Text: "up", Description: "Spin up observability stack (Loki/Prometheus/Grafana)"},
-			{Text: "up -f", Description: "Spin up full observability stack (Pyroscope, cadvisor, postgres exporter)"},
+			{Text: "up -m full", Description: "Spin up full observability stack (Pyroscope, cadvisor, postgres exporter)"},
+			{Text: "up -m loki", Description: "Spin up Loki + Grafana (only for log assertions in CI)"},
 			{Text: "down", Description: "Spin down observability stack"},
+			{Text: "restart -m full", Description: "Restart full observability stack"},
+			{Text: "restart -m loki", Description: "Restart only Loki observability stack"},
 			{Text: "restart", Description: "Restart observability stack"},
-			{Text: "restart -f", Description: "Restart full observability stack"},
 		}
 	case "db":
 		return []prompt.Suggest{

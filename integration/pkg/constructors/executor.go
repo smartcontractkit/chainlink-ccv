@@ -62,6 +62,7 @@ func NewExecutorCoordinator(
 			cfg.GetCCVInfoCacheExpiry())
 	}
 
+	// TODO: monitoring config home
 	executorMonitoring, err := monitoring.InitMonitoring(beholder.Config{
 		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
 		CACertFile:               cfg.Monitoring.Beholder.CACertFile,

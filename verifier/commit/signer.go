@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 // ECDSASignerWithKeystoreSigner implements ECDSA with an injected signer object.
@@ -126,4 +127,41 @@ func ReadPrivateKeyFromString(privateKey string) ([]byte, error) {
 		return nil, fmt.Errorf("private key must be 32 bytes, got: %d", len(privateKeyBytes))
 	}
 	return privateKeyBytes, nil
+}
+
+// ECDSASignerWithKeystoreSigner implements ECDSA with an injected signer object.
+// This is useful when the private key material is not directly accessible.
+type ECDSASignerWithKeystoreSigner struct {
+	keystoreSigner verifier.MessageSigner
+}
+
+func NewECDSASignerWithKeystoreSigner(keystoreSigner verifier.MessageSigner) *ECDSASignerWithKeystoreSigner {
+	return &ECDSASignerWithKeystoreSigner{
+		keystoreSigner: keystoreSigner,
+	}
+}
+
+func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
+	// 1. Sign with v27 format.
+	r32, s32, addr, err := protocol.SignV27WithKeystoreSigner(data, s.keystoreSigner)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign message: %w", err)
+	}
+
+	// 2. Create signature data with signer address.
+	signatures := []protocol.Data{
+		{
+			R:      r32,
+			S:      s32,
+			Signer: addr,
+		},
+	}
+
+	// 3. Encode signature using protocol format.
+	encodedSignature, err := protocol.EncodeSignatures(signatures)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode signature: %w", err)
+	}
+
+	return encodedSignature, nil
 }

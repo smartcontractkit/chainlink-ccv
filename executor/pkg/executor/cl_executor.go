@@ -76,7 +76,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return fmt.Errorf("failed to check IsMessageExecuted: %w", err)
 	}
 	if executed {
-		cle.lggr.Infof("message %x (nonce %d) already executed on chain %d, skipping...", messageID, message.Nonce, destinationChain)
+		cle.lggr.Infof("message %s (nonce %d) already executed on chain %d, skipping...", messageID.String(), message.Nonce, destinationChain)
 		return executor.ErrMsgAlreadyExecuted
 	}
 
@@ -87,7 +87,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	g.Go(func() error {
 		res, err := cle.verifierResultsReader.GetVerifierResults(errGroupCtx, messageID)
 		if err != nil {
-			return fmt.Errorf("failed to get CCV data for message %x: %w", messageID, err)
+			return fmt.Errorf("failed to get CCV data for message %s: %w", messageID.String(), err)
 		}
 		ccvData = append(ccvData, res...)
 		return nil
@@ -100,7 +100,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 			message,
 		)
 		if err != nil && len(res.RequiredCCVs) == 0 {
-			return fmt.Errorf("failed to get CCV Offramp info for message %x: %w", messageID, err)
+			return fmt.Errorf("failed to get CCV Offramp info for message %s: %w", messageID.String(), err)
 		}
 		ccvInfo = res
 		return nil
@@ -121,7 +121,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	)
 	orderedCCVData, orderedCCVOfframps, latestCCVTimestamp, err := orderCCVData(ccvData, ccvInfo)
 	if err != nil {
-		return fmt.Errorf("failed to order CCV Offramp data for message %x: %w", messageID, err)
+		return fmt.Errorf("failed to order CCV Offramp data for message %s: %w", messageID.String(), err)
 	}
 
 	// Create the aggregated report and transmit it to the chain.

@@ -34,6 +34,7 @@ func NewVerificationCoordinator(
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 	}
 
+	// TODO: this verification shouldn't be here?
 	cfgSignerBytes := common.HexToAddress(cfg.SignerAddress).Bytes()
 	if !bytes.Equal(signingAddress.Bytes(), cfgSignerBytes) {
 		return nil, fmt.Errorf("signing address does not match configuration: config %x vs provided %x", cfgSignerBytes, signingAddress.Bytes())
@@ -48,6 +49,11 @@ func NewVerificationCoordinator(
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map verifier addresses.", "error", err)
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map verifier addresses: %w", err)
+	}
+	rmnRemoteAddrs, err := mapAddresses(cfg.RMNRemoteAddresses)
+	if err != nil {
+		lggr.Errorw("Invalid CCV configuration, failed to map RMN Remote addresses.", "error", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map RMN Remote addresses: %w", err)
 	}
 
 	// Initialize chain components.
@@ -69,6 +75,7 @@ func NewVerificationCoordinator(
 			chain.HeadTracker(),
 			// TODO: use UnknownAddress instead of ethereum address.
 			common.HexToAddress(onRampAddrs[sel].String()),
+			common.HexToAddress(rmnRemoteAddrs[sel].String()),
 			// TODO: does this need to be configurable?
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,

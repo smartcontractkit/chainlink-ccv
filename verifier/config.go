@@ -29,7 +29,10 @@ type Config struct {
 	// The committee verifier will verify messages that specify the default executor even if they don't
 	// specify the committee verifier.
 	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
-	Monitoring                     MonitoringConfig  `toml:"monitoring"`
+	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
+	// Required for curse detection.
+	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+	Monitoring         MonitoringConfig  `toml:"monitoring"`
 }
 
 // MonitoringConfig provides monitoring configuration for executor.
@@ -64,11 +67,12 @@ type BeholderConfig struct {
 
 func (c *Config) Validate() error {
 	if len(c.BlockchainInfos) != len(c.OnRampAddresses) ||
-		len(c.BlockchainInfos) != len(c.CommitteeVerifierAddresses) {
+		len(c.BlockchainInfos) != len(c.CommitteeVerifierAddresses) ||
+		len(c.BlockchainInfos) != len(c.RMNRemoteAddresses) {
 		prefix := "invalid verifier configuration, mismatched lengths of blockchain infos and addresses"
 		return fmt.Errorf(
-			"%s: BlockchainInfos: %d, OnRampAddresses: %d, CommitteeVerifierAddresses: %d",
-			prefix, len(c.BlockchainInfos), len(c.OnRampAddresses), len(c.CommitteeVerifierAddresses))
+			"%s: BlockchainInfos: %d, OnRampAddresses: %d, CommitteeVerifierAddresses: %d, RMNRemoteAddresses: %d",
+			prefix, len(c.BlockchainInfos), len(c.OnRampAddresses), len(c.CommitteeVerifierAddresses), len(c.RMNRemoteAddresses))
 	}
 
 	for k := range c.BlockchainInfos {
@@ -77,6 +81,9 @@ func (c *Config) Validate() error {
 		}
 		if _, ok := c.CommitteeVerifierAddresses[k]; !ok {
 			return fmt.Errorf("invalid CCV configuration, missing verifier address for chain: %s", k)
+		}
+		if _, ok := c.RMNRemoteAddresses[k]; !ok {
+			return fmt.Errorf("invalid CCV configuration, missing RMN Remote address for chain: %s", k)
 		}
 	}
 	return nil
