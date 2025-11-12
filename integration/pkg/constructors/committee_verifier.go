@@ -21,11 +21,17 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
+type AggregatorSecret struct {
+	APIKey    string
+	SecretKey string
+}
+
 // NewVerificationCoordinator starts the Committee Verifier with evm chains.
 // Signing is passed in because it's managed differently in the CL node vs standalone modes.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg verifier.Config,
+	aggregatorSecret AggregatorSecret,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
@@ -118,11 +124,10 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
 	}
 
-	// Checkpoint manager
-	// TODO: these are secrets, probably shouldn't be in config.
+	// Aggregator client setup.
 	hmacConfig := &hmac.ClientConfig{
-		APIKey: cfg.AggregatorAPIKey,
-		Secret: cfg.AggregatorSecretKey,
+		APIKey: aggregatorSecret.APIKey,
+		Secret: aggregatorSecret.SecretKey,
 	}
 
 	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, hmacConfig)

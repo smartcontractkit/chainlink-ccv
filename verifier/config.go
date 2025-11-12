@@ -10,9 +10,11 @@ type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
 
+	// Deprecated: do not use, will be removed soon.
 	// TODO: Move to a separate secrets config file.
 	AggregatorAPIKey string `toml:"aggregator_api_key"`
 
+	// Deprecated: do not use, will be removed soon.
 	// TODO: Move to a separate secrets config file.
 	AggregatorSecretKey string `toml:"aggregator_secret_key"`
 
