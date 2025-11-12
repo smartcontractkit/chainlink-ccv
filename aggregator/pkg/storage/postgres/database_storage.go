@@ -100,11 +100,6 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		return fmt.Errorf("commit verification record cannot be nil")
 	}
 
-	_, err := record.GetID()
-	if err != nil {
-		return fmt.Errorf("failed to get record ID: %w", err)
-	}
-
 	params, err := recordToInsertParams(record, aggregationKey)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert parameters: %w", err)
@@ -420,7 +415,7 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
         LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
         WHERE car.message_id = $1 AND car.committee_id = $2
         ORDER BY car.seq_num DESC, vid.ord
-        LIMIT 100
+
     `, allVerificationRecordColumnsQualified)
 
 	rows, err := d.ds.QueryContext(ctx, stmt, messageIDHex, committeeID)
