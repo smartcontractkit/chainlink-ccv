@@ -3,12 +3,15 @@ package cursedetector
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const (
@@ -28,6 +31,7 @@ type ChainCurseState struct {
 // Service monitors RMN Remote contracts for curse status.
 // It polls configured RMN readers at regular intervals and maintains curse state.
 type Service struct {
+	services.StateMachine
 	rmnReaders       map[protocol.ChainSelector]RMNCurseReader
 	chainCurseStates map[protocol.ChainSelector]*ChainCurseState
 	mutex            sync.RWMutex
@@ -35,6 +39,7 @@ type Service struct {
 	lggr             logger.Logger
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
+	running          atomic.Bool
 }
 
 // NewCurseDetectorService creates a new curse detector service.
@@ -69,33 +74,46 @@ func NewCurseDetectorService(
 
 // Start begins polling RMN Remote contracts for curse updates.
 func (s *Service) Start(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
+	return s.StartOnce("cursedetector.Service", func() error {
+		c, cancel := context.WithCancel(ctx)
+		s.cancel = cancel
 
-	// Initial poll
-	s.pollAllChains(ctx)
+		// Initial poll
+		s.pollAllChains(c)
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		s.pollLoop(ctx)
-	}()
+		s.running.Store(true)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.pollLoop(c)
+		}()
 
-	s.lggr.Infow("Curse detector service started",
-		"pollInterval", s.pollInterval,
-		"chainCount", len(s.rmnReaders))
+		s.lggr.Infow("Curse detector service started",
+			"pollInterval", s.pollInterval,
+			"chainCount", len(s.rmnReaders))
 
-	return nil
+		return nil
+	})
 }
 
 // Close stops the curse detector and waits for background goroutines to finish.
 func (s *Service) Close() error {
-	if s.cancel != nil {
-		s.cancel()
-	}
-	s.wg.Wait()
-	s.lggr.Infow("Curse detector service stopped")
-	return nil
+	return s.StopOnce("cursedetector.Service", func() error {
+		s.lggr.Infow("Curse detector service stopping")
+
+		// Cancel the background goroutine and wait for it to exit.
+		if s.cancel != nil {
+			s.cancel()
+		}
+		s.wg.Wait()
+
+		// Update running state to reflect in healthcheck and readiness.
+		s.running.Store(false)
+
+		s.lggr.Infow("Curse detector service stopped")
+
+		return nil
+	})
 }
 
 // IsRemoteChainCursed checks if remoteChain is cursed according to localChain's RMN Remote.
@@ -184,4 +202,26 @@ func chainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
 	// Convert the uint64 to bytes and place it in the last 8 bytes of the array
 	binary.BigEndian.PutUint64(result[8:], uint64(chainSel))
 	return result
+}
+
+// Ready returns nil if the service is ready, or an error otherwise.
+func (s *Service) Ready() error {
+	if !s.running.Load() {
+		return errors.New("curse detector service not running")
+	}
+
+	return nil
+}
+
+// HealthReport returns a full health report of the service.
+func (s *Service) HealthReport() map[string]error {
+	report := make(map[string]error)
+	report[s.Name()] = s.Ready()
+
+	return report
+}
+
+// Name returns the fully qualified name of the service.
+func (s *Service) Name() string {
+	return "cursedetector.Service"
 }

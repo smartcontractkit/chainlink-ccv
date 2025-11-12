@@ -53,7 +53,7 @@ type Coordinator struct {
 	timestampsMu      sync.RWMutex
 	mu                sync.RWMutex
 	verifyingWg       sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
-	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and finalityCheckingLoop() (must complete after error channels closed)
+	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
 	running           bool
 
 	// Storage batching
@@ -359,7 +359,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.backgroundWg.Add(1)
 	go func() {
 		defer vc.backgroundWg.Done()
-		vc.finalityCheckingLoop(ctx)
+		vc.readyMessagesCheckingLoop(ctx)
 	}()
 
 	vc.lggr.Infow("Coordinator started with finality checking and reorg detection",
@@ -392,7 +392,7 @@ func (vc *Coordinator) Close() error {
 		}
 	}
 
-	// Wait for background goroutines (run, finalityCheckingLoop, and processReorgUpdates) to finish.
+	// Wait for background goroutines (run, readyMessagesCheckingLoop, and processReorgUpdates) to finish.
 	vc.backgroundWg.Wait()
 
 	// Close curse detector
@@ -719,8 +719,8 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	)
 }
 
-// finalityCheckingLoop runs the finality checking loop for all chains.
-func (vc *Coordinator) finalityCheckingLoop(ctx context.Context) {
+// readyMessagesCheckingLoop runs the finality checking loop for all chains.
+func (vc *Coordinator) readyMessagesCheckingLoop(ctx context.Context) {
 	ticker := time.NewTicker(vc.finalityCheckInterval)
 	defer ticker.Stop()
 

@@ -213,15 +213,15 @@ func main() {
 
 		if config.CommitteeVerifierAddresses[strSelector] == "" {
 			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
-			os.Exit(1)
+			continue
 		}
 		if config.OnRampAddresses[strSelector] == "" {
 			lggr.Errorw("On ramp address is not set", "chainSelector", selector)
-			os.Exit(1)
+			continue
 		}
 		if config.RMNRemoteAddresses[strSelector] == "" {
 			lggr.Errorw("RMN Remote address is not set", "chainSelector", selector)
-			os.Exit(1)
+			continue
 		}
 
 		// Create mock head tracker for this chain

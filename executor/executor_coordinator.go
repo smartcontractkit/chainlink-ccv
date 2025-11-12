@@ -59,14 +59,14 @@ func NewCoordinator(
 
 func (ec *Coordinator) Start(ctx context.Context) error {
 	return ec.StartOnce("executor.Coordinator", func() error {
-		ctx, cancel := context.WithCancel(context.Background())
+		c, cancel := context.WithCancel(ctx)
 		ec.cancel = cancel
 		ec.delayedMessageHeap = &message_heap.MessageHeap{}
 		heap.Init(ec.delayedMessageHeap)
 
 		ec.running.Store(true)
 		ec.wg.Go(func() {
-			ec.run(ctx)
+			ec.run(c)
 		})
 
 		ec.lggr.Infow("Coordinator started")
