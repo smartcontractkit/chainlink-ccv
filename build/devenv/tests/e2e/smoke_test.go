@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"testing"
@@ -19,10 +20,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink/deployment/ccip/changeset/globals"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	ccvEvm "github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
 const (
@@ -74,7 +76,7 @@ func TestE2ESmoke(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
 
-	c, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -128,7 +130,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                     "1337->3337 msg execution mock receiver",
 				fromSelector:             selectors[0],
 				toSelector:               selectors[2],
-				receiver:                 getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.DefaultReceiverQualifier, "mock receiver"),
+				receiver:                 getContractAddress(t, in, selectors[2], datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.DefaultReceiverQualifier, "mock receiver"),
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
@@ -258,7 +260,7 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
-		runTokenTransferTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
+		runTokenTransferTestCase := func(t *testing.T, combo ccvEvm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
 			sender := mustGetSenderAddress(t, c, selectors[0])
 
 			srcToken := getTokenAddress(t, in, selectors[0], combo.SourcePoolAddressRef().Qualifier)
@@ -330,13 +332,13 @@ func TestE2ESmoke(t *testing.T) {
 			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
 			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
 		}
-		for _, combo := range evm.AllTokenCombinations() {
+		for _, combo := range ccvEvm.AllTokenCombinations() {
 			receiver := mustGetEOAReceiverAddress(t, c, selectors[1])
 			t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer (%s)", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
 				runTokenTransferTestCase(t, combo, combo.FinalityConfig(), receiver)
 			})
 		}
-		for _, combo := range evm.All17TokenCombinations() {
+		for _, combo := range ccvEvm.All17TokenCombinations() {
 			receiver := mustGetEOAReceiverAddress(t, c, selectors[1])
 			mockReceiver := getContractAddress(
 				t,
@@ -344,7 +346,7 @@ func TestE2ESmoke(t *testing.T) {
 				selectors[1],
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
-				evm.DefaultReceiverQualifier,
+				ccvEvm.DefaultReceiverQualifier,
 				"default mock receiver",
 			)
 			t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer 1.7.0 (%s) default finality", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
@@ -357,13 +359,13 @@ func TestE2ESmoke(t *testing.T) {
 	})
 }
 
-func mustGetEOAReceiverAddress(t *testing.T, c *evm.CCIP17EVM, chainSelector uint64) protocol.UnknownAddress {
+func mustGetEOAReceiverAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector uint64) protocol.UnknownAddress {
 	receiver, err := c.GetEOAReceiverAddress(chainSelector)
 	require.NoError(t, err)
 	return receiver
 }
 
-func mustGetSenderAddress(t *testing.T, c *evm.CCIP17EVM, chainSelector uint64) protocol.UnknownAddress {
+func mustGetSenderAddress(t *testing.T, c *ccvEvm.CCIP17EVM, chainSelector uint64) protocol.UnknownAddress {
 	sender, err := c.GetSenderAddress(chainSelector)
 	require.NoError(t, err)
 	return sender
@@ -386,7 +388,7 @@ func getTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, qualif
 		"burn mint erc677")
 }
 
-func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.CCIP17EVM) []testcase {
+func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvEvm.CCIP17EVM) []testcase {
 	maxDataBytes, err := c.GetMaxDataBytes(t.Context(), dest)
 	require.NoError(t, err)
 	return []testcase{
@@ -401,13 +403,13 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.CCIP1
 				dest,
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
-				evm.DefaultReceiverQualifier,
+				ccvEvm.DefaultReceiverQualifier,
 				"default mock receiver",
 			),
 			msgData: bytes.Repeat([]byte("a"), int(maxDataBytes)),
 			ccvs: []protocol.CCV{
 				{
-					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverProxyType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 					Args:       []byte{},
 					ArgsLen:    0,
 				},
@@ -420,7 +422,7 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.CCIP1
 }
 
 // multiVerifierTestCases returns a list of test cases for testing multi-verifier scenarios.
-func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.CCIP17EVM) []testcase {
+func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *ccvEvm.CCIP17EVM) []testcase {
 	return []testcase{
 		{
 			name:        "EOA receiver and default committee verifier",
@@ -430,7 +432,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 			receiver:    mustGetEOAReceiverAddress(t, c, dest),
 			ccvs: []protocol.CCV{
 				{
-					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverProxyType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverProxyType), committee_verifier.Deploy.Version(), ccvEvm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 					Args:       []byte{},
 					ArgsLen:    0,
 				},
@@ -454,7 +456,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier,
+						ccvEvm.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
 					),
 					Args:    []byte{},
@@ -468,7 +470,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						ccvEvm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -489,7 +491,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 				dest,
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
-				evm.SecondaryReceiverQualifier,
+				ccvEvm.SecondaryReceiverQualifier,
 				"secondary mock receiver",
 			),
 			ccvs: []protocol.CCV{
@@ -500,7 +502,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier,
+						ccvEvm.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
 					),
 					Args:    []byte{},
@@ -514,7 +516,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						ccvEvm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -529,7 +531,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 			srcSelector: src,
 			dstSelector: dest,
 			finality:    1,
-			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.SecondaryReceiverQualifier, "secondary mock receiver"),
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.SecondaryReceiverQualifier, "secondary mock receiver"),
 			ccvs: []protocol.CCV{
 				// secondary is required, so it should be retrieved.
 				{
@@ -539,7 +541,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy",
+						ccvEvm.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy",
 					),
 					Args:    []byte{},
 					ArgsLen: 0,
@@ -552,7 +554,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.TertiaryCommitteeVerifierQualifier,
+						ccvEvm.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
 					),
 					Args:    []byte{},
@@ -566,7 +568,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						ccvEvm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -581,7 +583,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 			srcSelector: src,
 			dstSelector: dest,
 			finality:    1,
-			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
 			ccvs: []protocol.CCV{
 				// default is required, so it should be retrieved.
 				{
@@ -591,7 +593,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						ccvEvm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -604,7 +606,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier,
+						ccvEvm.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
 					),
 				},
@@ -615,7 +617,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.TertiaryCommitteeVerifierQualifier,
+						ccvEvm.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
 					),
 				},
@@ -630,7 +632,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 			srcSelector: src,
 			dstSelector: dest,
 			finality:    1,
-			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
 			ccvs: []protocol.CCV{
 				// default is required, so it should be retrieved.
 				{
@@ -640,7 +642,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						ccvEvm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -653,7 +655,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier,
+						ccvEvm.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
 					),
 				},
@@ -668,7 +670,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 			srcSelector: src,
 			dstSelector: dest,
 			finality:    1,
-			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), ccvEvm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
 			ccvs: []protocol.CCV{
 				// default is required, so it should be retrieved.
 				{
@@ -678,7 +680,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						ccvEvm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -691,7 +693,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 						src,
 						datastore.ContractType(committee_verifier.ResolverProxyType),
 						committee_verifier.Deploy.Version(),
-						evm.TertiaryCommitteeVerifierQualifier,
+						ccvEvm.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
 					),
 				},
@@ -702,4 +704,381 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 			numExpectedReceipts: 3,
 		},
 	}
+}
+
+// ============================================================================
+// RMN Curse Helper Functions
+// ============================================================================
+
+// chainSelectorToSubject converts a chain selector to a bytes16 curse subject.
+func chainSelectorToSubject(chainSel uint64) [16]byte {
+	var result [16]byte
+	// Convert the uint64 to bytes and place it in the last 8 bytes of the array
+	binary.BigEndian.PutUint64(result[8:], chainSel)
+	return result
+}
+
+// globalCurseSubject returns the global curse constant.
+func globalCurseSubject() [16]byte {
+	return globals.GlobalCurseSubject()
+}
+
+// ============================================================================
+// RMN Curse Tests
+// ============================================================================
+
+func TestRMNCurseLane(t *testing.T) {
+	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
+	require.NoError(t, err)
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
+	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+	for _, bc := range in.Blockchains {
+		chainIDs = append(chainIDs, bc.ChainID)
+		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	}
+
+	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	require.NoError(t, err)
+	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
+
+	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+	require.NoError(t, err)
+
+	chain0, chain1, chain2 := selectors[0], selectors[1], selectors[2]
+	receiver := mustGetEOAReceiverAddress(t, c, chain1)
+
+	// 1. Send baseline message (chain0 -> chain1) to verify lane works
+	l.Info().Msg("Step 1: Sending baseline message from chain0 to chain1")
+	seqNo, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
+		Receiver: receiver,
+		Data:     []byte("baseline message"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+
+	execEvt, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo, defaultExecTimeout)
+	require.NoError(t, err)
+	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "baseline message should succeed")
+	l.Info().Msg("Baseline message executed successfully")
+
+	// 2. Apply bidirectional lane curse (chain0 <-> chain1)
+	l.Info().Msg("Step 2: Applying bidirectional lane curse between chain0 and chain1")
+	err = c.ApplyCurse(ctx, chain0, [][16]byte{chainSelectorToSubject(chain1)})
+	require.NoError(t, err)
+	err = c.ApplyCurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
+	require.NoError(t, err)
+
+	// 3. Wait for curse detector to poll and detect curses
+	l.Info().Msg("Step 3: Waiting 5 seconds for curse detector to detect curses")
+	time.Sleep(5 * time.Second)
+
+	// 4. Verify curse state
+	l.Info().Msg("Step 4: Verifying curse state")
+	isCursed, err := c.VerifyCurseState(ctx, chain0, chainSelectorToSubject(chain1))
+	require.NoError(t, err)
+	require.True(t, isCursed, "chain1 should be cursed on chain0")
+
+	isCursed, err = c.VerifyCurseState(ctx, chain1, chainSelectorToSubject(chain0))
+	require.NoError(t, err)
+	require.True(t, isCursed, "chain0 should be cursed on chain1")
+
+	// 5. Attempt to send message chain0 -> chain1 (should fail/timeout)
+	l.Info().Msg("Step 5: Attempting to send message on cursed lane (should not execute)")
+	seqNo, err = c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
+		Receiver: receiver,
+		Data:     []byte("cursed message"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+
+	// Wait a bit and verify message does NOT get executed
+	time.Sleep(10 * time.Second)
+	// Try to get execution event with short timeout - should timeout/fail
+	execEvt, err = c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo, 5*time.Second)
+	if err == nil {
+		require.NotEqual(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
+			"message on cursed lane should not execute successfully")
+	}
+	l.Info().Msg("Confirmed: message on cursed lane was not executed")
+
+	// 6. Verify chain0 -> chain2 still works (uncursed lane)
+	l.Info().Msg("Step 6: Verifying uncursed lane (chain0 -> chain2) still works")
+	receiver2 := mustGetEOAReceiverAddress(t, c, chain2)
+	seqNo2, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain2)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain0, chain2, cciptestinterfaces.MessageFields{
+		Receiver: receiver2,
+		Data:     []byte("uncursed lane message"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+
+	execEvt2, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain2, seqNo2, defaultExecTimeout)
+	require.NoError(t, err)
+	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt2.State,
+		"message on uncursed lane should succeed")
+	l.Info().Msg("Confirmed: uncursed lane still works")
+
+	// 7. Uncurse the lane
+	l.Info().Msg("Step 7: Uncursing the lane")
+	err = c.ApplyUncurse(ctx, chain0, [][16]byte{chainSelectorToSubject(chain1)})
+	require.NoError(t, err)
+	err = c.ApplyUncurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
+	require.NoError(t, err)
+
+	// 8. Wait for curse detector to detect uncurse
+	l.Info().Msg("Step 8: Waiting 5 seconds for curse detector to detect uncurse")
+	time.Sleep(5 * time.Second)
+
+	// 9. Verify curse cleared
+	l.Info().Msg("Step 9: Verifying curse state cleared")
+	isCursed, err = c.VerifyCurseState(ctx, chain0, chainSelectorToSubject(chain1))
+	require.NoError(t, err)
+	require.False(t, isCursed, "chain1 should no longer be cursed on chain0")
+
+	isCursed, err = c.VerifyCurseState(ctx, chain1, chainSelectorToSubject(chain0))
+	require.NoError(t, err)
+	require.False(t, isCursed, "chain0 should no longer be cursed on chain1")
+
+	// 10. Send message again and verify it executes successfully
+	l.Info().Msg("Step 10: Sending message on uncursed lane")
+	seqNo3, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
+		Receiver: receiver,
+		Data:     []byte("post-uncurse message"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+
+	execEvt3, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo3, defaultExecTimeout)
+	require.NoError(t, err)
+	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt3.State,
+		"message after uncurse should succeed")
+	l.Info().Msg("Test completed successfully: lane curse and uncurse work as expected")
+}
+
+func TestRMNGlobalCurse(t *testing.T) {
+	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
+	require.NoError(t, err)
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
+	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+	for _, bc := range in.Blockchains {
+		chainIDs = append(chainIDs, bc.ChainID)
+		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	}
+
+	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	require.NoError(t, err)
+	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
+
+	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+	require.NoError(t, err)
+
+	chain0, chain1, chain2 := selectors[0], selectors[1], selectors[2]
+
+	// 1. Send baseline messages to verify all lanes work
+	l.Info().Msg("Step 1: Sending baseline messages to verify all lanes work")
+
+	receiver01 := mustGetEOAReceiverAddress(t, c, chain1)
+	seqNo01, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
+		Receiver: receiver01,
+		Data:     []byte("baseline 0->1"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+	execEvt01, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo01, defaultExecTimeout)
+	require.NoError(t, err)
+	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt01.State)
+	l.Info().Msg("Baseline message 0->1 executed successfully")
+
+	receiver12 := mustGetEOAReceiverAddress(t, c, chain2)
+	seqNo12, err := c.GetExpectedNextSequenceNumber(ctx, chain1, chain2)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain1, chain2, cciptestinterfaces.MessageFields{
+		Receiver: receiver12,
+		Data:     []byte("baseline 1->2"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+	execEvt12, err := c.WaitOneExecEventBySeqNo(ctx, chain1, chain2, seqNo12, defaultExecTimeout)
+	require.NoError(t, err)
+	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt12.State)
+	l.Info().Msg("Baseline message 1->2 executed successfully")
+
+	// 2. Apply global curse to chain0
+	l.Info().Msg("Step 2: Applying global curse to chain0")
+	// Apply global curse on chain0 itself
+	err = c.ApplyCurse(ctx, chain0, [][16]byte{globalCurseSubject()})
+	require.NoError(t, err)
+	// Apply chain0 curse on all other chains
+	err = c.ApplyCurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
+	require.NoError(t, err)
+	err = c.ApplyCurse(ctx, chain2, [][16]byte{chainSelectorToSubject(chain0)})
+	require.NoError(t, err)
+
+	// 3. Wait for curse detector
+	l.Info().Msg("Step 3: Waiting 5 seconds for curse detector to detect curses")
+	time.Sleep(5 * time.Second)
+
+	// 4. Verify curse state
+	l.Info().Msg("Step 4: Verifying curse state")
+	isCursed, err := c.VerifyCurseState(ctx, chain0, globalCurseSubject())
+	require.NoError(t, err)
+	require.True(t, isCursed, "chain0 should have global curse")
+
+	isCursed, err = c.VerifyCurseState(ctx, chain1, chainSelectorToSubject(chain0))
+	require.NoError(t, err)
+	require.True(t, isCursed, "chain0 should be cursed on chain1")
+
+	isCursed, err = c.VerifyCurseState(ctx, chain2, chainSelectorToSubject(chain0))
+	require.NoError(t, err)
+	require.True(t, isCursed, "chain0 should be cursed on chain2")
+
+	// 5. Verify all lanes involving chain0 are blocked
+	l.Info().Msg("Step 5: Verifying all lanes involving chain0 are blocked")
+
+	// Try chain0 -> chain1 (should fail)
+	seqNo, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
+		Receiver: receiver01,
+		Data:     []byte("cursed 0->1"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+	time.Sleep(10 * time.Second)
+	execEvt, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo, 5*time.Second)
+	if err == nil {
+		require.NotEqual(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
+			"message 0->1 on globally cursed chain should not execute")
+	}
+	l.Info().Msg("Confirmed: chain0->chain1 is blocked")
+
+	// Try chain1 -> chain0 (should fail)
+	receiver10 := mustGetEOAReceiverAddress(t, c, chain0)
+	seqNo10, err := c.GetExpectedNextSequenceNumber(ctx, chain1, chain0)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain1, chain0, cciptestinterfaces.MessageFields{
+		Receiver: receiver10,
+		Data:     []byte("cursed 1->0"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+	time.Sleep(10 * time.Second)
+	execEvt10, err := c.WaitOneExecEventBySeqNo(ctx, chain1, chain0, seqNo10, 5*time.Second)
+	if err == nil {
+		require.NotEqual(t, cciptestinterfaces.ExecutionStateSuccess, execEvt10.State,
+			"message 1->0 to globally cursed chain should not execute")
+	}
+	l.Info().Msg("Confirmed: chain1->chain0 is blocked")
+
+	// Try chain0 -> chain2 (should fail)
+	receiver02 := mustGetEOAReceiverAddress(t, c, chain2)
+	seqNo02, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain2)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain0, chain2, cciptestinterfaces.MessageFields{
+		Receiver: receiver02,
+		Data:     []byte("cursed 0->2"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+	time.Sleep(10 * time.Second)
+	execEvt02, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain2, seqNo02, 5*time.Second)
+	if err == nil {
+		require.NotEqual(t, cciptestinterfaces.ExecutionStateSuccess, execEvt02.State,
+			"message 0->2 from globally cursed chain should not execute")
+	}
+	l.Info().Msg("Confirmed: chain0->chain2 is blocked")
+
+	// 6. Verify unrelated lane still works (chain1 -> chain2)
+	l.Info().Msg("Step 6: Verifying unrelated lane (chain1->chain2) still works")
+	seqNo, err = c.GetExpectedNextSequenceNumber(ctx, chain1, chain2)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain1, chain2, cciptestinterfaces.MessageFields{
+		Receiver: receiver12,
+		Data:     []byte("uncursed 1->2"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+	execEvt, err = c.WaitOneExecEventBySeqNo(ctx, chain1, chain2, seqNo, defaultExecTimeout)
+	require.NoError(t, err)
+	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
+		"unrelated lane should still work")
+	l.Info().Msg("Confirmed: unrelated lane chain1->chain2 still works")
+
+	// 7. Uncurse chain0
+	l.Info().Msg("Step 7: Uncursing chain0")
+	err = c.ApplyUncurse(ctx, chain0, [][16]byte{globalCurseSubject()})
+	require.NoError(t, err)
+	err = c.ApplyUncurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
+	require.NoError(t, err)
+	err = c.ApplyUncurse(ctx, chain2, [][16]byte{chainSelectorToSubject(chain0)})
+	require.NoError(t, err)
+
+	// 8. Wait for curse detector
+	l.Info().Msg("Step 8: Waiting 5 seconds for curse detector to detect uncurse")
+	time.Sleep(5 * time.Second)
+
+	// 9. Verify curse cleared
+	l.Info().Msg("Step 9: Verifying curse state cleared on all chains")
+	isCursed, err = c.VerifyCurseState(ctx, chain0, globalCurseSubject())
+	require.NoError(t, err)
+	require.False(t, isCursed, "chain0 should no longer have global curse")
+
+	isCursed, err = c.VerifyCurseState(ctx, chain1, chainSelectorToSubject(chain0))
+	require.NoError(t, err)
+	require.False(t, isCursed, "chain0 should no longer be cursed on chain1")
+
+	isCursed, err = c.VerifyCurseState(ctx, chain2, chainSelectorToSubject(chain0))
+	require.NoError(t, err)
+	require.False(t, isCursed, "chain0 should no longer be cursed on chain2")
+
+	// 10. Verify all lanes work again
+	l.Info().Msg("Step 10: Verifying all lanes work after uncurse")
+	seqNo, err = c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
+	require.NoError(t, err)
+	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
+		Receiver: receiver01,
+		Data:     []byte("post-uncurse 0->1"),
+	}, cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	})
+	require.NoError(t, err)
+	execEvt, err = c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo, defaultExecTimeout)
+	require.NoError(t, err)
+	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
+		"lane should work after uncurse")
+	l.Info().Msg("Test completed successfully: global curse and uncurse work as expected")
 }
