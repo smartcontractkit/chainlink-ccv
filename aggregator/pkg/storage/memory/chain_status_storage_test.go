@@ -16,7 +16,7 @@ func TestChainStatusStorage(t *testing.T) {
 		storage := NewChainStatusStorage()
 		require.NotNil(t, storage, "storage should not be nil")
 
-		statuses, _ := storage.GetClientChainStatus(t.Context(), "test-client")
+		statuses, _ := storage.GetClientChainStatus(t.Context(), "test-client", nil)
 		require.Empty(t, statuses, "new storage should be empty")
 	})
 
@@ -30,7 +30,7 @@ func TestChainStatusStorage(t *testing.T) {
 		err := storage.StoreChainStatus(t.Context(), "test-client", statuses)
 		require.NoError(t, err, "storing statuses should not error")
 
-		result, _ := storage.GetClientChainStatus(t.Context(), "test-client")
+		result, _ := storage.GetClientChainStatus(t.Context(), "test-client", nil)
 		require.Equal(t, statuses, result, "stored statuses should match retrieved")
 	})
 
@@ -46,8 +46,57 @@ func TestChainStatusStorage(t *testing.T) {
 		err := storage.StoreChainStatus(t.Context(), "test-client", statuses)
 		require.NoError(t, err, "storing multiple statuses should not error")
 
-		result, _ := storage.GetClientChainStatus(t.Context(), "test-client")
+		result, _ := storage.GetClientChainStatus(t.Context(), "test-client", nil)
 		require.Equal(t, statuses, result, "all statuses should be stored")
+	})
+
+	t.Run("store_multiple_statuses_read_with_empty_array_return_all_results", func(t *testing.T) {
+		storage := NewChainStatusStorage()
+
+		statuses := map[uint64]*common.ChainStatus{
+			1: {FinalizedBlockHeight: 100, Disabled: false},
+			2: {FinalizedBlockHeight: 200, Disabled: false},
+			5: {FinalizedBlockHeight: 500, Disabled: false},
+		}
+
+		err := storage.StoreChainStatus(t.Context(), "test-client", statuses)
+		require.NoError(t, err, "storing multiple statuses should not error")
+
+		result, _ := storage.GetClientChainStatus(t.Context(), "test-client", []uint64{})
+		require.Equal(t, statuses, result, "all statuses should be stored")
+	})
+
+	t.Run("store_multiple_statuses_retrieve_single", func(t *testing.T) {
+		storage := NewChainStatusStorage()
+
+		statuses := map[uint64]*common.ChainStatus{
+			1: {FinalizedBlockHeight: 100, Disabled: false},
+			2: {FinalizedBlockHeight: 200, Disabled: false},
+			5: {FinalizedBlockHeight: 500, Disabled: false},
+		}
+
+		err := storage.StoreChainStatus(t.Context(), "test-client", statuses)
+		require.NoError(t, err, "storing multiple statuses should not error")
+
+		result, _ := storage.GetClientChainStatus(t.Context(), "test-client", []uint64{1})
+		require.Len(t, result, 1)
+		require.Equal(t, statuses[1], result[1], "returning only the status queried for")
+	})
+
+	t.Run("store_multiple_statuses_retrieve_non_existent_status", func(t *testing.T) {
+		storage := NewChainStatusStorage()
+
+		statuses := map[uint64]*common.ChainStatus{
+			1: {FinalizedBlockHeight: 100, Disabled: false},
+			2: {FinalizedBlockHeight: 200, Disabled: false},
+			5: {FinalizedBlockHeight: 500, Disabled: false},
+		}
+
+		err := storage.StoreChainStatus(t.Context(), "test-client", statuses)
+		require.NoError(t, err, "storing multiple statuses should not error")
+
+		result, _ := storage.GetClientChainStatus(t.Context(), "test-client", []uint64{100})
+		require.Len(t, result, 0)
 	})
 
 	t.Run("override_existing_status", func(t *testing.T) {
@@ -67,7 +116,7 @@ func TestChainStatusStorage(t *testing.T) {
 		err = storage.StoreChainStatus(t.Context(), "test-client", override)
 		require.NoError(t, err, "override should not error")
 
-		result, _ := storage.GetClientChainStatus(t.Context(), "test-client")
+		result, _ := storage.GetClientChainStatus(t.Context(), "test-client", nil)
 		require.Equal(t, uint64(200), result[1].FinalizedBlockHeight, "status should be overridden")
 	})
 
@@ -89,8 +138,8 @@ func TestChainStatusStorage(t *testing.T) {
 		require.NoError(t, err, "client 2 storage should not error")
 
 		// Verify isolation
-		result1, _ := storage.GetClientChainStatus(t.Context(), "client-1")
-		result2, _ := storage.GetClientChainStatus(t.Context(), "client-2")
+		result1, _ := storage.GetClientChainStatus(t.Context(), "client-1", nil)
+		result2, _ := storage.GetClientChainStatus(t.Context(), "client-2", nil)
 
 		require.Equal(t, client1Data, result1, "client 1 should only see their data")
 		require.Equal(t, client2Data, result2, "client 2 should only see their data")
@@ -120,7 +169,7 @@ func TestChainStatusStorage(t *testing.T) {
 
 		wg.Wait()
 
-		result, _ := storage.GetClientChainStatus(t.Context(), "concurrent-client")
+		result, _ := storage.GetClientChainStatus(t.Context(), "concurrent-client", nil)
 		require.Len(t, result, numGoroutines, "all concurrent updates should be present")
 	})
 
@@ -152,7 +201,7 @@ func TestChainStatusStorage(t *testing.T) {
 		// Verify each client has their data
 		for i := 0; i < numClients; i++ {
 			clientID := "client-" + string(rune('A'+i))
-			result, _ := storage.GetClientChainStatus(t.Context(), clientID)
+			result, _ := storage.GetClientChainStatus(t.Context(), clientID, nil)
 			expected := uint64((i + 1) * 100)
 			require.Equal(t, expected, result[1].FinalizedBlockHeight, "each client should have their own data")
 		}
@@ -178,7 +227,7 @@ func TestChainStatusStorage(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for j := 0; j < 100; j++ {
-					result, _ := storage.GetClientChainStatus(t.Context(), "rw-client")
+					result, _ := storage.GetClientChainStatus(t.Context(), "rw-client", nil)
 					require.NotNil(t, result, "read should not return nil")
 				}
 			}()
@@ -205,7 +254,7 @@ func TestChainStatusStorage(t *testing.T) {
 		wg.Wait()
 
 		// Final state should be consistent
-		result, _ := storage.GetClientChainStatus(t.Context(), "rw-client")
+		result, _ := storage.GetClientChainStatus(t.Context(), "rw-client", nil)
 		require.NotEmpty(t, result, "final state should not be empty")
 	})
 

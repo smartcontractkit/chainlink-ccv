@@ -45,6 +45,7 @@ func (c *CLDF) AddAddresses(addresses string) {
 func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.DataStore) ([]uint64, *deployment.Environment, error) {
 	providers := make([]cldf_chain.BlockChain, 0)
 	selectors := make([]uint64, 0)
+	defaultTxTimeout := 30 * time.Second
 	for _, b := range bc {
 		chainID := b.Out.ChainID
 		rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
@@ -55,6 +56,16 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 			return nil, nil, err
 		}
 		selectors = append(selectors, d.ChainSelector)
+
+		var confirmer cldf_evm_provider.ConfirmFunctor
+		switch b.Type {
+		case "anvil":
+			confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout, cldf_evm_provider.WithTickInterval(5*time.Millisecond))
+		case "geth":
+			confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout)
+		default:
+			panic("blockchain type is not 'anvil' or 'geth', no other types are supported right now")
+		}
 
 		p, err := cldf_evm_provider.NewRPCChainProvider(
 			d.ChainSelector,
@@ -70,7 +81,7 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 						PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 					},
 				},
-				ConfirmFunctor: NewConfirmFunctorAnvil(10*time.Millisecond, 30*time.Second),
+				ConfirmFunctor: confirmer,
 			},
 		).Initialize(context.Background())
 		if err != nil {
