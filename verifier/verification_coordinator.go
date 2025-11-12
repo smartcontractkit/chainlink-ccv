@@ -1181,17 +1181,13 @@ func (vc *Coordinator) startCurseDetector(
 	if len(rmnReaders) == 0 {
 		return fmt.Errorf("no RMN readers provided for curse detector")
 	}
-	cursePollInterval := vc.config.CursePollInterval
-	if cursePollInterval <= 0 {
-		cursePollInterval = 2 * time.Second // Default
-	}
 
 	// if a curse detector service is already set, use it; otherwise create a new one
 	curseDetectorSvc := vc.curseDetector
 	if curseDetectorSvc == nil {
 		cd, err := cursedetector.NewCurseDetectorService(
 			rmnReaders,
-			cursePollInterval,
+			vc.config.CursePollInterval,
 			vc.lggr,
 		)
 		if err != nil {
