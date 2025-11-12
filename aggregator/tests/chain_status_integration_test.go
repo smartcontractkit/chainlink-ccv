@@ -268,6 +268,47 @@ func TestChainStatusClientIsolation(t *testing.T) {
 	})
 }
 
+func TestChainStatusBehavior(t *testing.T) {
+	t.Run("chain_status_reads", func(t *testing.T) {
+		// Setup server only
+		listener, cleanup, err := CreateServerOnly(t, WithChainStatusTestClients())
+		require.NoError(t, err, "failed to create test server")
+		defer cleanup()
+
+		// Create two separate clients
+		clientA, _, cleanupA := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-A", "secret-update-client-A"))
+		defer cleanupA()
+
+		// Clients store initial data
+		initialReq := &pb.WriteChainStatusRequest{
+			Statuses: []*pb.ChainStatus{
+				{ChainSelector: 1, FinalizedBlockHeight: 100, Disabled: false},
+				{ChainSelector: 2, FinalizedBlockHeight: 200, Disabled: false},
+			},
+		}
+		_, err = clientA.WriteChainStatus(context.Background(), initialReq)
+		require.NoError(t, err, "client A initial write should succeed")
+
+		// Verify client A query all
+		resp1, err := clientA.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{})
+		require.NoError(t, err, "client A read should succeed")
+		require.Len(t, resp1.Statuses, 2, "Empty selectors should return all chain status")
+
+		resp2, err := clientA.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{ChainSelectors: []uint64{}})
+		require.NoError(t, err, "client A read should succeed")
+		require.Len(t, resp2.Statuses, 2, "Empty selectors should return all chain status")
+
+		resp3, err := clientA.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{ChainSelectors: []uint64{3}})
+		require.NoError(t, err, "client A read should succeed")
+		require.Len(t, resp3.Statuses, 0, "Missing selector should return empty result")
+
+		resp4, err := clientA.ReadChainStatus(context.Background(), &pb.ReadChainStatusRequest{ChainSelectors: []uint64{1}})
+		require.NoError(t, err, "client A read should succeed")
+		require.Len(t, resp4.Statuses, 1, "Existing selector should be in the list")
+		require.Equal(t, resp4.Statuses[0].FinalizedBlockHeight, uint64(100))
+	})
+}
+
 // TestChainStatusConcurrency tests concurrent access to chain status operations.
 func TestChainStatusConcurrency(t *testing.T) {
 	t.Run("concurrent_writes_same_client", func(t *testing.T) {
