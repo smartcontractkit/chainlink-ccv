@@ -2,16 +2,24 @@ package ccv
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
+	"net/url"
 	"os"
+	"slices"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -61,15 +69,8 @@ const (
 `
 )
 
-type Mode string
-
-const (
-	Standalone Mode = "standalone"
-	CL         Mode = "cl"
-)
-
 type Cfg struct {
-	Mode               Mode                        `toml:"mode"`
+	Mode               services.Mode               `toml:"mode"`
 	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
 	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
@@ -129,16 +130,29 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////
 	// Start: Initialize Configs //
 	///////////////////////////////
+
+	var hasCLNodeService bool
+
 	// Override the default config to "cl"...
 	if in.Mode == "" {
-		in.Mode = Standalone
+		in.Mode = services.Standalone
 	}
 
 	// Verifier configs...
-	for _, ver := range in.Verifier {
+	for i, ver := range in.Verifier {
+		services.ApplyVerifierDefaults(ver)
 		// deterministic key generation algorithm.
 		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
 		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+		in.Verifier[i] = ver // technically not needed because it's a pointer.
+
+		hasCLNodeService = hasCLNodeService || (ver.Mode == services.CL)
+	}
+
+	// Executor config...
+	if in.Executor != nil {
+		services.ApplyExecutorDefaults(in.Executor)
+		hasCLNodeService = hasCLNodeService || (in.Executor.Mode == services.CL)
 	}
 
 	/////////////////////////////
@@ -188,15 +202,26 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 
-	prodJDImage := os.Getenv("JD_IMAGE")
+	// JD is not currently used.
+	/*
+		prodJDImage := os.Getenv("JD_IMAGE")
 
-	if prodJDImage != "" {
-		in.JD.Image = prodJDImage
-	}
-	_, err = jd.NewJD(in.JD)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create JD service: %w", err)
-	}
+		if in.JD != nil {
+			if prodJDImage != "" {
+				in.JD.Image = prodJDImage
+			}
+			if len(in.JD.Image) == 0 {
+				Plog.Warn().Msg("No JD image provided, skipping JD service startup")
+			} else {
+				_, err = jd.NewJD(in.JD)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create JD service: %w", err)
+				}
+			}
+		} else {
+			Plog.Warn().Msg("No JD configuration provided, skipping JD service startup")
+		}
+	*/
 
 	timeTrack.Record("[infra] deploying blockchains")
 
@@ -262,7 +287,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	if in.Mode == CL { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
+	if hasCLNodeService { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
 		clChainConfigs := make([]string, 0)
 		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 		for i, impl := range impls {
@@ -307,27 +332,104 @@ func NewEnvironment() (in *Cfg, err error) {
 			// import hard coded keys into the CL node keystore
 			for _, ver := range in.Verifier {
 				if len(ver.SigningKey) != 0 {
-					pk, err := hex.DecodeString(ver.SigningKey)
+					encryptedJSON, signerAddress, err := encryptedJSONKey(ver.SigningKey, "", keystore.StandardScryptN, keystore.StandardScryptP)
 					if err != nil {
-						return nil, fmt.Errorf("decoding verifier signing key (%s): %w", ver.ContainerName, err)
+						return nil, fmt.Errorf("failed to encrypt verifier signing key (%s): %w", ver.ContainerName, err)
 					}
-					cc.ImportEVMKey(pk, ver.CommitteeName)
+
+					Plog.Info().
+						Str("Verifier", ver.ContainerName).
+						Str("Key", ver.SigningKey).
+						Str("encryptedJSON", string(encryptedJSON)).
+						Str("signerAddress", signerAddress.Hex()).
+						Msg("Importing encrypted verifier signing key into CL node")
+					// import the key first and then enable it on the rest of the chains.
+					for _, chain := range in.Blockchains {
+						addressesBefore, err := cc.EthAddressesForChain(chain.ChainID)
+						if err != nil {
+							return nil, fmt.Errorf("failed to get addresses for chain %s: %w", chain.ChainID, err)
+						}
+
+						Plog.Info().
+							Str("Key", ver.SigningKey).
+							Str("chainID", chain.ChainID).
+							Str("signerAddress", signerAddress.Hex()).
+							Any("addressesBefore", addressesBefore).
+							Msg("Importing verifier signing key into chain")
+						resp, err := cc.ImportEVMKey(encryptedJSON, chain.ChainID)
+						if err != nil {
+							return nil, fmt.Errorf("failed to import verifier signing key (%s) into chain %s: %w", ver.ContainerName, chain.ChainID, err)
+						}
+
+						// 201 is returned for creation of a new key, which is expected here.
+						if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+							return nil, fmt.Errorf("failed to import verifier signing key (%s) into chain %s: status code %d", ver.ContainerName, chain.ChainID, resp.StatusCode)
+						}
+
+						// check if the key was imported
+						addressesAfter, err := cc.EthAddressesForChain(chain.ChainID)
+						if err != nil {
+							return nil, fmt.Errorf("failed to get addresses for chain %s: %w", chain.ChainID, err)
+						}
+						if !slices.Contains(addressesAfter, signerAddress.Hex()) {
+							return nil, fmt.Errorf("verifier signing key (%s) was not imported into chain %s, all addresses: %v", ver.ContainerName, chain.ChainID, addressesAfter)
+						}
+						Plog.Info().
+							Str("Key", ver.SigningKey).
+							Str("chainID", chain.ChainID).
+							Str("signerAddress", signerAddress.Hex()).
+							Any("addressesAfter", addressesAfter).
+							Msg("Verifier signing key imported into CL node for chain")
+
+						break
+					}
+
+					for _, chain := range in.Blockchains {
+						Plog.Info().
+							Str("Key", ver.SigningKey).
+							Str("chainID", chain.ChainID).
+							Str("signerAddress", signerAddress.Hex()).
+							Msg("Enabling verifier signing key on chain")
+						req := cc.APIClient.R()
+						req.QueryParam = url.Values{
+							"evmChainID": {chain.ChainID},
+							"address":    {signerAddress.Hex()},
+							"enabled":    {"true"},
+						}
+						resp, err := req.Post("/v2/keys/evm/chain")
+						if err != nil {
+							return nil, fmt.Errorf("failed to enable verifier signing key (%s) on chain %s: %w", ver.ContainerName, chain.ChainID, err)
+						}
+						if resp.StatusCode() != http.StatusOK {
+							return nil, fmt.Errorf("failed to enable verifier signing key (%s) on chain %s: status code %d", ver.ContainerName, chain.ChainID, resp.StatusCode())
+						}
+						Plog.Info().
+							Str("Key", ver.SigningKey).
+							Str("chainID", chain.ChainID).
+							Str("signerAddress", signerAddress.Hex()).
+							Msg("Verifier signing key enabled on chain")
+					}
 				}
 			}
 		}
 	}
 
-	// Start standalone executor/verifiers if in standalone mode.
-	if in.Mode == Standalone {
-		_, err = services.NewExecutor(in.Executor)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create executor service: %w", err)
+	if !hasCLNodeService {
+		// Start standalone executor if in standalone mode.
+		if in.Executor != nil && in.Executor.Mode == services.Standalone {
+			_, err = services.NewExecutor(in.Executor)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create executor service: %w", err)
+			}
 		}
 
+		// Start standalone verifiers if in standalone mode.
 		for _, ver := range in.Verifier {
-			_, err = services.NewVerifier(ver)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			if ver.Mode == services.Standalone {
+				_, err = services.NewVerifier(ver)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create verifier service: %w", err)
+				}
 			}
 		}
 	}
@@ -338,4 +440,47 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	return in, Store(in)
+}
+
+func encryptedJSONKey(privKeyHex, password string, scryptN, scryptP int) ([]byte, common.Address, error) {
+	// get the address from the given private key
+	privKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyHex)
+	if err != nil {
+		return nil, common.Address{}, fmt.Errorf("failed to read private key: %w", err)
+	}
+
+	_, signerAddress, err := commit.NewECDSAMessageSigner(privKeyBytes)
+	if err != nil {
+		return nil, common.Address{}, fmt.Errorf("failed to create ECDSA message signer: %w", err)
+	}
+
+	if len(signerAddress) != 20 {
+		return nil, common.Address{}, fmt.Errorf("expected signer address to be 20 bytes, got: %d", len(signerAddress))
+	}
+
+	// Code below adapted from ToEncryptedJSON in core/services/keystore/keys/ethkey/export.go.
+	id, err := uuid.FromBytes(signerAddress[:16])
+	if err != nil {
+		return nil, common.Address{}, fmt.Errorf("failed to create UUID from address: %w", err)
+	}
+
+	privateKey, err := crypto.ToECDSA(privKeyBytes)
+	if err != nil {
+		return nil, common.Address{}, fmt.Errorf("failed to convert private key to ECDSA: %w", err)
+	}
+
+	signerAddressGeth := common.BytesToAddress(signerAddress[:])
+
+	dKey := &keystore.Key{
+		Id:         id,
+		Address:    signerAddressGeth,
+		PrivateKey: privateKey,
+	}
+
+	encryptedJSON, err := keystore.EncryptKey(dKey, password, scryptN, scryptP)
+	if err != nil {
+		return nil, common.Address{}, fmt.Errorf("failed to encrypt key: %w", err)
+	}
+
+	return encryptedJSON, signerAddressGeth, nil
 }
