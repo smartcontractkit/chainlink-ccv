@@ -26,6 +26,7 @@ func TestConstructor(t *testing.T) {
 		sub  executor.MessageSubscriber
 		le   executor.LeaderElector
 		mon  executor.Monitoring
+		sc   executor.StatusChecker
 	}
 
 	testcases := []struct {
@@ -46,6 +47,7 @@ func TestConstructor(t *testing.T) {
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: false,
 		},
@@ -56,6 +58,7 @@ func TestConstructor(t *testing.T) {
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: true,
 		},
@@ -66,6 +69,7 @@ func TestConstructor(t *testing.T) {
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: true,
 		},
@@ -76,6 +80,7 @@ func TestConstructor(t *testing.T) {
 				exec: executor_mocks.NewMockExecutor(t),
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: true,
 		},
@@ -86,6 +91,7 @@ func TestConstructor(t *testing.T) {
 				exec: executor_mocks.NewMockExecutor(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: true,
 		},
@@ -96,6 +102,18 @@ func TestConstructor(t *testing.T) {
 				exec: executor_mocks.NewMockExecutor(t),
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
+				sc:   executor_mocks.NewMockStatusChecker(t),
+			},
+			expectErr: true,
+		},
+		{
+			name: "missing StatusChecker",
+			args: args{
+				lggr: lggr,
+				exec: executor_mocks.NewMockExecutor(t),
+				sub:  executor_mocks.NewMockMessageSubscriber(t),
+				le:   executor_mocks.NewMockLeaderElector(t),
+				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
 			expectErr: true,
 		},
@@ -103,7 +121,7 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon)
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, tc.args.sc)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -127,6 +145,7 @@ func TestLifecycle(t *testing.T) {
 		ccvDataReader,
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		executor_mocks.NewMockStatusChecker(t),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -152,6 +171,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 		messageSubscriber,
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		executor_mocks.NewMockStatusChecker(t),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -182,6 +202,7 @@ func TestStopNotRunning(t *testing.T) {
 		executor_mocks.NewMockMessageSubscriber(t),
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		executor_mocks.NewMockStatusChecker(t),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
