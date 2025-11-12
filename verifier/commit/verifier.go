@@ -140,18 +140,18 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	// 1. Validate that the message comes from a configured source chain
 	sourceConfig, exists := cv.config.SourceConfigs[message.SourceChainSelector]
 	if !exists {
-		return fmt.Errorf("message source chain selector %d is not configured for message 0x%x", message.SourceChainSelector, messageID)
+		return fmt.Errorf("message source chain selector %d is not configured for message 0x%s", message.SourceChainSelector, messageID.String())
 	}
 
 	// 2. Validate message format and check verifier receipts
 	if err := cv.ValidateMessage(message); err != nil {
-		return fmt.Errorf("message format validation failed for message 0x%x: %w", messageID, err)
+		return fmt.Errorf("message format validation failed for message 0x%s: %w", messageID.String(), err)
 	}
 
 	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress, sourceConfig.DefaultExecutorAddress); err != nil {
 		return fmt.Errorf(
-			"message validation failed for message 0x%x with verifier address %s and default executor address %s: %w",
-			messageID,
+			"message validation failed for message 0x%s with verifier address %s and default executor address %s: %w",
+			messageID.String(),
 			sourceConfig.VerifierAddress.String(),
 			sourceConfig.DefaultExecutorAddress.String(),
 			err,
@@ -173,12 +173,12 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	}
 	hash, err := committee.NewSignableHash(messageID, verifierBlob)
 	if err != nil {
-		return fmt.Errorf("failed to create signable hash for message %s: %w", messageID.String(), err)
+		return fmt.Errorf("failed to create signable hash for message 0x%s: %w", messageID.String(), err)
 	}
 
 	encodedSignature, err := cv.signer.Sign(hash[:])
 	if err != nil {
-		return fmt.Errorf("failed to sign message 0x%x: %w", messageID, err)
+		return fmt.Errorf("failed to sign message 0x%s: %w", messageID.String(), err)
 	}
 
 	cv.lggr.Infow("Message signed successfully",
@@ -190,7 +190,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	// 4. Create CCV data with all required fields
 	ccvData, err := CreateCCVData(&verificationTask, encodedSignature, verifierBlob, sourceConfig.VerifierAddress)
 	if err != nil {
-		return fmt.Errorf("failed to create CCV data for message 0x%x: %w", messageID, err)
+		return fmt.Errorf("failed to create CCV data for message 0x%s: %w", messageID.String(), err)
 	}
 
 	// Add CCVData with idempotency key to batcher
@@ -199,7 +199,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		IdempotencyKey: verificationTask.IdempotencyKey,
 	}
 	if err := ccvDataBatcher.Add(ccvDataWithKey); err != nil {
-		return fmt.Errorf("failed to add CCV data to batcher for message 0x%x (nonce: %d, source chain: %d): %w", messageID, message.Nonce, message.SourceChainSelector, err)
+		return fmt.Errorf("failed to add CCV data to batcher for message 0x%s (nonce: %d, source chain: %d): %w", messageID.String(), message.Nonce, message.SourceChainSelector, err)
 	}
 
 	// Record successful message processing

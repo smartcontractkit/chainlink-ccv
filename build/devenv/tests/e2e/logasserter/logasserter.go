@@ -72,7 +72,7 @@ func (la *LogAsserter) processStreamedLogs() {
 				return
 			}
 
-			msgIDHex := fmt.Sprintf("0x%x", logEntry.MessageID)
+			msgIDHex := fmt.Sprintf("0x%x", logEntry.MessageID[:])
 
 			logsInterface, _ := la.logCache.LoadOrStore(msgIDHex, &MessageStageLogs{
 				instances: make(map[string][]InstanceLog),
@@ -104,7 +104,7 @@ func (la *LogAsserter) WaitForStage(ctx context.Context, messageID [32]byte, sta
 		return time.Time{}, fmt.Errorf("streaming not started, call StartStreaming() first")
 	}
 
-	msgIDHex := fmt.Sprintf("0x%x", messageID)
+	msgIDHex := fmt.Sprintf("0x%x", messageID[:])
 
 	ticker := time.NewTicker(la.pollInterval)
 	defer ticker.Stop()
