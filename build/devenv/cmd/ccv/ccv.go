@@ -166,11 +166,14 @@ var obsUpCmd = &cobra.Command{
 	Aliases: []string{"u"},
 	Short:   "Spin up the observability stack",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		full, _ := cmd.Flags().GetBool("full")
+		mode, _ := cmd.Flags().GetString("mode")
 		var err error
-		if full {
+		switch mode {
+		case "full":
 			err = framework.ObservabilityUpFull()
-		} else {
+		case "loki":
+			err = framework.ObservabilityUpOnlyLoki()
+		default:
 			err = framework.ObservabilityUp()
 		}
 		if err != nil {
@@ -310,11 +313,14 @@ var obsRestartCmd = &cobra.Command{
 		if err := framework.ObservabilityDown(); err != nil {
 			return fmt.Errorf("observability down failed: %w", err)
 		}
-		full, _ := cmd.Flags().GetBool("full")
+		mode, _ := cmd.Flags().GetString("mode")
 		var err error
-		if full {
+		switch mode {
+		case "full":
 			err = framework.ObservabilityUpFull()
-		} else {
+		case "loki":
+			err = framework.ObservabilityUpOnlyLoki()
+		default:
 			err = framework.ObservabilityUp()
 		}
 		if err != nil {
@@ -668,7 +674,7 @@ func init() {
 	rootCmd.AddCommand(bsCmd)
 
 	// observability
-	obsCmd.PersistentFlags().BoolP("full", "f", false, "Enable full observability stack with additional components")
+	obsCmd.PersistentFlags().StringP("mode", "m", "full", "Run some configuration of observability stack")
 	obsCmd.AddCommand(obsRestartCmd)
 	obsCmd.AddCommand(obsUpCmd)
 	obsCmd.AddCommand(obsDownCmd)

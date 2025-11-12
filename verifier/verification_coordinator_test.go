@@ -340,7 +340,7 @@ func verifyStoredTasks(t *testing.T, storedData []protocol.CCVData, expectedTask
 		expectedIDs[messageID] = true
 	}
 	for _, data := range storedData {
-		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %x", data.MessageID)
+		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %s", data.MessageID.String())
 		assert.Equal(t, expectedChain, data.SourceChainSelector)
 	}
 }
@@ -402,7 +402,7 @@ func TestVerifier(t *testing.T) {
 		expectedIDs[messageID] = true
 	}
 	for _, data := range storedData {
-		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %x", data.MessageID)
+		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %s", data.MessageID.String())
 	}
 }
 
