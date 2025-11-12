@@ -162,6 +162,8 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			agg := aggregation_mocks.NewMockAggregationTriggerer(t)
 			sig := aggregation_mocks.NewMockSignatureValidator(t)
 
+			sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
+
 			// Signature validator expectation
 			if tc.sigErr != nil {
 				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, nil, tc.sigErr)
@@ -179,23 +181,25 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 					}
 					require.NotZero(t, r.IdempotencyKey)
 					return true
-				})).Return(tc.saveErr).Times(tc.expectStoreCalls)
+				}), mock.Anything).Return(tc.saveErr).Times(tc.expectStoreCalls)
 			} else {
-				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything).Maybe()
+				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
 
 			// Aggregator expectations and capture
 			aggCalled := 0
 			var lastMsgID model.MessageID
 			var lastCommittee model.CommitteeID
+			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Run(func(m model.MessageID, c model.CommitteeID) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Run(func(m model.MessageID, a model.AggregationKey, c model.CommitteeID) {
 					aggCalled++
 					lastMsgID = m
 					lastCommittee = c
+					lastAggregation = a
 				}).Return(tc.aggErr).Times(tc.expectAggCalls)
 			} else {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
 
 			handler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
@@ -218,6 +222,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			if tc.expectAggCalls > 0 {
 				require.Equal(t, tc.expectCommitteeID, lastCommittee)
 				require.Len(t, lastMsgID, 32)
+				require.NotEmpty(t, lastAggregation)
 			}
 		})
 	}

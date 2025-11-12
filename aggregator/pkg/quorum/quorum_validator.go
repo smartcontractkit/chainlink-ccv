@@ -3,6 +3,7 @@ package quorum
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -65,6 +66,21 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 
 	q.logger(ctx).Debugf("Quorum met with %d unique participant IDs", len(participantIDs))
 	return true, nil
+}
+
+func (q *EVMQuorumValidator) DeriveAggregationKey(ctx context.Context, record *model.CommitVerificationRecord) (model.AggregationKey, error) {
+	messageID, err := record.Message.MessageID()
+	if err != nil {
+		q.logger(ctx).Errorw("Failed to compute message hash", "error", err)
+		return "", err
+	}
+
+	hash, err := committee.NewSignableHash(messageID, record.BlobData)
+	if err != nil {
+		q.logger(ctx).Errorw("Failed to produce signed hash", "error", err)
+		return "", err
+	}
+	return hex.EncodeToString(hash[:]), nil
 }
 
 // ValidateSignature validates the signature of a commit verification record and returns the signers and the quorum config used.
