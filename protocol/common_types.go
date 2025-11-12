@@ -146,6 +146,61 @@ func (h ByteSlice) String() string {
 	return "0x" + hex.EncodeToString(h)
 }
 
+type Bytes16 [16]byte
+
+// NewBytes16FromString creates 16-sized bytes array from hex-encoded string or returns an error.
+func NewBytes16FromString(s string) (Bytes16, error) {
+	if len(s) > 34 { // "0x" + 32 hex chars
+		return Bytes16{}, fmt.Errorf("Bytes16 must be at most 16 bytes (32 hex chars) long: %s", s)
+	}
+
+	if !strings.HasPrefix(s, "0x") {
+		return Bytes16{}, fmt.Errorf("Bytes16 must start with '0x' prefix: %s", s)
+	}
+
+	b, err := hex.DecodeString(s[2:])
+	if err != nil {
+		return Bytes16{}, fmt.Errorf("failed to decode hex: %w", err)
+	}
+
+	var res Bytes16
+	copy(res[:], b)
+	return res, nil
+}
+
+func (b Bytes16) String() string {
+	return "0x" + hex.EncodeToString(b[:])
+}
+
+func (b Bytes16) IsEmpty() bool {
+	return b == Bytes16{}
+}
+
+func (b Bytes16) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf(`"%s"`, b.String())), nil
+}
+
+func (b *Bytes16) UnmarshalJSON(data []byte) error {
+	v := string(data)
+	if len(v) < 4 {
+		return fmt.Errorf("invalid Bytes16: %s", v)
+	}
+	v = v[1 : len(v)-1] // trim quotes
+
+	if !strings.HasPrefix(v, "0x") {
+		return fmt.Errorf("bytes must start with '0x' prefix: %s", v)
+	}
+	v = v[2:] // trim 0x prefix
+
+	bCp, err := hex.DecodeString(v)
+	if err != nil {
+		return err
+	}
+
+	copy(b[:], bCp)
+	return nil
+}
+
 type Bytes32 [32]byte
 
 // NewBytes32FromString creates 32-sized bytes array from hex-encoded string or returns an error.

@@ -209,6 +209,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	// Mock BlockTime to return immediately during initialization
 	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
+	mockSourceReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
 
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
