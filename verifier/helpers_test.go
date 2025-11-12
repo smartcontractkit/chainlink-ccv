@@ -78,6 +78,7 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 	now := time.Now().Unix()
 
 	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
+	mockReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
 
 	return &MockSourceReaderSetup{
 		Reader:  mockReader,
