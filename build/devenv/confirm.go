@@ -21,6 +21,7 @@ import (
 // NewConfirmFunctorAnvil specific confirmer for Anvil instant blocks.
 func NewConfirmFunctorAnvil(tickInterval, waitMinedTimeout time.Duration) cldf_evm_provider.ConfirmFunctor {
 	return &confirmAnvil{
+		TickInterval:     tickInterval,
 		WaitMinedTimeout: waitMinedTimeout,
 	}
 }
@@ -42,7 +43,7 @@ func (g *confirmAnvil) Generate(
 		ctxTimeout, cancel := context.WithTimeout(ctx, g.WaitMinedTimeout)
 		defer cancel()
 
-		receipt, err := WaitMined(ctxTimeout, client, tx.Hash())
+		receipt, err := WaitMined(ctxTimeout, g.TickInterval, client, tx.Hash())
 		if err != nil {
 			return 0, fmt.Errorf("tx %s failed to confirm for selector %d: %w",
 				tx.Hash().Hex(), selector, err,
@@ -78,8 +79,8 @@ type DeployBackend interface {
 	CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error)
 }
 
-func WaitMined(ctx context.Context, b DeployBackend, txHash common.Hash) (*types.Receipt, error) {
-	queryTicker := time.NewTicker(50 * time.Millisecond)
+func WaitMined(ctx context.Context, tick time.Duration, b DeployBackend, txHash common.Hash) (*types.Receipt, error) {
+	queryTicker := time.NewTicker(tick)
 	defer queryTicker.Stop()
 	for {
 		receipt, err := b.TransactionReceipt(ctx, txHash)
