@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type LogAsserter struct {
@@ -99,12 +100,10 @@ func (la *LogAsserter) processStreamedLogs() {
 	}
 }
 
-func (la *LogAsserter) WaitForStage(ctx context.Context, messageID [32]byte, stage LogStage) (time.Time, error) {
+func (la *LogAsserter) WaitForStage(ctx context.Context, messageID protocol.Bytes32, stage LogStage) (time.Time, error) {
 	if la.stream == nil {
 		return time.Time{}, fmt.Errorf("streaming not started, call StartStreaming() first")
 	}
-
-	msgIDHex := fmt.Sprintf("0x%x", messageID[:])
 
 	ticker := time.NewTicker(la.pollInterval)
 	defer ticker.Stop()
@@ -112,9 +111,9 @@ func (la *LogAsserter) WaitForStage(ctx context.Context, messageID [32]byte, sta
 	for {
 		select {
 		case <-ctx.Done():
-			return time.Time{}, fmt.Errorf("timeout waiting for stage %s for message %s", stage.Name, msgIDHex)
+			return time.Time{}, fmt.Errorf("timeout waiting for stage %s for message %s", stage.Name, messageID.String())
 		case <-ticker.C:
-			if logsInterface, ok := la.logCache.Load(msgIDHex); ok {
+			if logsInterface, ok := la.logCache.Load(messageID.String()); ok {
 				msgLogs := logsInterface.(*MessageStageLogs)
 				msgLogs.mu.RLock()
 				instances := msgLogs.instances[stage.Name]
