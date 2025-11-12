@@ -297,7 +297,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		// TODO: Generate config file, write it to a local path, and mount it here.
 		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
 			filepath.Join(cwd, "configs", "aggregator", in.CommitteeName, "aggregator.toml"),
-			//aggregator.DefaultConfigFile,
+			// aggregator.DefaultConfigFile,
 			"/etc/config.toml",
 		))
 		framework.L.Info().
