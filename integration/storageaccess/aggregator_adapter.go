@@ -358,6 +358,18 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 			tempSince = sequence + 1
 		}
 
+		receiptBlobs := []protocol.ReceiptWithBlob{}
+		for _, receipt := range result.GetReceiptBlobsFromMajority() {
+			receiptBlobs = append(receiptBlobs, protocol.ReceiptWithBlob{
+				Issuer:            protocol.UnknownAddress(receipt.Issuer),
+				Blob:              protocol.ByteSlice(receipt.Blob),
+				ExtraArgs:         protocol.ByteSlice(receipt.ExtraArgs),
+				DestGasLimit:      receipt.DestGasLimit,
+				DestBytesOverhead: receipt.DestBytesOverhead,
+				FeeTokenAmount:    big.NewInt(0), // for some reason doesn't exist in the pb message
+			})
+		}
+
 		results = append(results, protocol.QueryResponse{
 			Timestamp: nil,
 			Data: protocol.CCVData{
@@ -365,6 +377,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 				DestVerifierAddress:   result.GetDestVerifierAddress(),
 				CCVData:               result.CcvData,
 				// BlobData & ReceiptBlobs need to be added
+				ReceiptBlobs:        receiptBlobs,
 				Message:             msg,
 				Nonce:               msg.Nonce,
 				SourceChainSelector: msg.SourceChainSelector,
@@ -379,4 +392,8 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	a.token = resp.NextToken
 
 	return results, nil
+}
+
+func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+	return nil, nil
 }
