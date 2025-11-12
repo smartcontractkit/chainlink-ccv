@@ -287,8 +287,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	// TODO: don't hard code for CL node
-	if hasCLNodeService || true { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
+	if hasCLNodeService { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
 		clChainConfigs := make([]string, 0)
 		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 		for i, impl := range impls {
@@ -415,10 +414,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	/*  // TODO: don't hard code for CL node
-	// TODO: remove this if condition once configuration is injected into the node.
-	// For now, if the core node is started, assume that it will launch all services.
-	// TODO: Maybe it starts with just the verifiers.
 	if !hasCLNodeService {
 		// Start standalone executor if in standalone mode.
 		if in.Executor != nil && in.Executor.Mode == services.Standalone {
@@ -438,7 +433,6 @@ func NewEnvironment() (in *Cfg, err error) {
 			}
 		}
 	}
-	*/
 
 	timeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
