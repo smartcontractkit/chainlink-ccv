@@ -108,7 +108,7 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 		}
 		for _, resp := range responses.Responses {
 			if resp.Status != pb.WriteStatus_SUCCESS {
-				return fmt.Errorf("failed to write CCV data for message ID %x: status %s", ccvData.MessageID, resp.Status.String())
+				return fmt.Errorf("failed to write CCV data for message ID %s: status %s", ccvData.MessageID.String(), resp.Status.String())
 			}
 			a.lggr.Infow("Successfully stored CCV data", "messageID", ccvData.MessageID)
 		}

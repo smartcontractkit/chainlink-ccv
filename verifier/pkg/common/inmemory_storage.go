@@ -254,7 +254,7 @@ func (s *InMemoryOffchainStorage) ReadCCVDataByMessageID(messageID protocol.Byte
 		}
 	}
 
-	return nil, fmt.Errorf("CCV data not found for message ID: %x", messageID)
+	return nil, fmt.Errorf("CCV data not found for message ID: %s", messageID.String())
 }
 
 // GetStats returns storage statistics (for testing/debugging).
