@@ -41,7 +41,7 @@ type ChainStatusStorageInterface interface {
 	// StoreChainStatus stores chain status data for a client.
 	StoreChainStatus(ctx context.Context, clientID string, chainStatuses map[uint64]*ChainStatus) error
 	// GetClientChainStatus retrieves all chain statuses for a specific client.
-	GetClientChainStatus(ctx context.Context, clientID string) (map[uint64]*ChainStatus, error)
+	GetClientChainStatus(ctx context.Context, clientID string, chainSelectors []uint64) (map[uint64]*ChainStatus, error)
 	// GetAllClients returns a list of all client IDs that have stored chain statuses.
 	GetAllClients(ctx context.Context) ([]string, error)
 }
