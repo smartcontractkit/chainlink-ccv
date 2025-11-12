@@ -62,20 +62,13 @@ func NormalizeToV27(sig65 []byte) (r32, s32 [32]byte, err error) {
 	return r32, s32, nil
 }
 
-// SignV27 signs hash with priv and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
-// This is equivalent to signing normally, then applying NormalizeToV27.
-func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, addr common.Address, err error) {
-	// go-ethereum's crypto.Sign returns 65 bytes: R||S||V, where V is 0/1 (recovery id).
-	sig, err := crypto.Sign(hash, priv)
-	if err != nil {
-		return r32, s32, common.Address{}, err
-	}
+func normalizeAndVerify(sig, hash []byte) (r32, s32 [32]byte, addr common.Address, err error) {
 	r32, s32, err = NormalizeToV27(sig)
 	if err != nil {
 		return r32, s32, common.Address{}, err
 	}
 
-	// Optional: verify our normalization actually recovers the expected address on-chain semantics.
+	// Verify our normalization actually recovers the expected address on-chain semantics.
 	// We emulate ecrecover(hash,27,r,s) by reconstructing a 65B sig with v=0 and running SigToPub.
 	check := make([]byte, 65)
 	copy(check[0:32], r32[:])
@@ -87,6 +80,32 @@ func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, addr commo
 		return r32, s32, common.Address{}, err
 	}
 	return r32, s32, crypto.PubkeyToAddress(*pub), nil
+}
+
+// SignV27WithKeystoreSigner signs hash with the provided keystore signer and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
+// This is equivalent to signing normally, then applying NormalizeToV27.
+func SignV27WithKeystoreSigner(hash []byte, keystoreSigner interface {
+	Sign(data []byte) ([]byte, error)
+},
+) (r32, s32 [32]byte, addr common.Address, err error) {
+	sig, err := keystoreSigner.Sign(hash)
+	if err != nil {
+		return r32, s32, common.Address{}, err
+	}
+
+	return normalizeAndVerify(sig, hash)
+}
+
+// SignV27 signs hash with priv and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
+// This is equivalent to signing normally, then applying NormalizeToV27.
+func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, addr common.Address, err error) {
+	// go-ethereum's crypto.Sign returns 65 bytes: R||S||V, where V is 0/1 (recovery id).
+	sig, err := crypto.Sign(hash, priv)
+	if err != nil {
+		return r32, s32, common.Address{}, err
+	}
+
+	return normalizeAndVerify(sig, hash)
 }
 
 // Helper: left-pad a big-endian slice to 32 bytes.

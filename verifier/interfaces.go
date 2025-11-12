@@ -10,10 +10,9 @@ import (
 )
 
 // MessageSigner defines the interface for signing data.
-// Note: currently the only valid implementations use an EDCSA V27 normalized format.
+// TODO: revisit this, shouldn't be ECDSA specific?
 type MessageSigner interface {
-	// Sign returns data signed by account.
-	// nil data can be used as a no-op to check for account existence.
+	// Sign returns an ECDSA signature that is 65 bytes long (R + S + V).
 	Sign(data []byte) (signed []byte, err error)
 }
 
