@@ -20,15 +20,15 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
 const (
@@ -166,11 +166,14 @@ var obsUpCmd = &cobra.Command{
 	Aliases: []string{"u"},
 	Short:   "Spin up the observability stack",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		full, _ := cmd.Flags().GetBool("full")
+		mode, _ := cmd.Flags().GetString("mode")
 		var err error
-		if full {
+		switch mode {
+		case "full":
 			err = framework.ObservabilityUpFull()
-		} else {
+		case "loki":
+			err = framework.ObservabilityUpOnlyLoki()
+		default:
 			err = framework.ObservabilityUp()
 		}
 		if err != nil {
@@ -216,7 +219,7 @@ var deployCommitVerifierCmd = &cobra.Command{
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
 
-		allAddrs, err := ccvEvm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, committee_verifier.SetSignatureConfigArgs{
+		allAddrs, err := evm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, committee_verifier.SetSignatureConfigArgs{
 			Threshold: uint8(threshold),
 			Signers:   addresses,
 		})
@@ -284,7 +287,7 @@ var deployReceiverCmd = &cobra.Command{
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
 
-		allAddrs, err := ccvEvm.DeployMockReceiver(ctx, e, in.CLDF.Addresses, selector, constructorArgs)
+		allAddrs, err := evm.DeployMockReceiver(ctx, e, in.CLDF.Addresses, selector, constructorArgs)
 		if err != nil {
 			return fmt.Errorf("creating mock receiver contract: %w", err)
 		}
@@ -310,11 +313,14 @@ var obsRestartCmd = &cobra.Command{
 		if err := framework.ObservabilityDown(); err != nil {
 			return fmt.Errorf("observability down failed: %w", err)
 		}
-		full, _ := cmd.Flags().GetBool("full")
+		mode, _ := cmd.Flags().GetString("mode")
 		var err error
-		if full {
+		switch mode {
+		case "full":
 			err = framework.ObservabilityUpFull()
-		} else {
+		case "loki":
+			err = framework.ObservabilityUpOnlyLoki()
+		default:
 			err = framework.ObservabilityUp()
 		}
 		if err != nil {
@@ -468,7 +474,7 @@ var monitorContractsCmd = &cobra.Command{
 		}
 		ctx = ccv.Plog.WithContext(ctx)
 		l := zerolog.Ctx(ctx)
-		impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+		impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 		if err != nil {
 			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
 		}
@@ -575,7 +581,7 @@ var sendCmd = &cobra.Command{
 		}
 		ctx = ccv.Plog.WithContext(ctx)
 		l := zerolog.Ctx(ctx)
-		impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+		impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 		if err != nil {
 			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
 		}
@@ -585,7 +591,7 @@ var sendCmd = &cobra.Command{
 				dest,
 				datastore.ContractType(mock_receiver.ContractType),
 				semver.MustParse(mock_receiver.Deploy.Version()),
-				ccvEvm.DefaultReceiverQualifier))
+				evm.DefaultReceiverQualifier))
 		if err != nil {
 			return fmt.Errorf("failed to get mock receiver address: %w", err)
 		}
@@ -603,7 +609,7 @@ var sendCmd = &cobra.Command{
 					src,
 					datastore.ContractType(committee_verifier.ResolverProxyType),
 					semver.MustParse(committee_verifier.Deploy.Version()),
-					ccvEvm.DefaultCommitteeVerifierQualifier))
+					evm.DefaultCommitteeVerifierQualifier))
 			if err != nil {
 				return fmt.Errorf("failed to get committee verifier proxy address: %w", err)
 			}
@@ -668,7 +674,7 @@ func init() {
 	rootCmd.AddCommand(bsCmd)
 
 	// observability
-	obsCmd.PersistentFlags().BoolP("full", "f", false, "Enable full observability stack with additional components")
+	obsCmd.PersistentFlags().StringP("mode", "m", "full", "Run some configuration of observability stack")
 	obsCmd.AddCommand(obsRestartCmd)
 	obsCmd.AddCommand(obsUpCmd)
 	obsCmd.AddCommand(obsDownCmd)

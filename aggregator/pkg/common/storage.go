@@ -10,14 +10,14 @@ import (
 // CommitVerificationStore defines an interface for storing and retrieving commit verification records.
 type CommitVerificationStore interface {
 	// SaveCommitVerification persists a commit verification record.
-	SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error
+	SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error
 	// GetCommitVerification retrieves a commit verification record by its identifier.
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)
-	// ListCommitVerificationByMessageID retrieves all commit verification records for a specific message ID and committee ID.
-	ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error)
-	// ListOrphanedMessageIDs finds verification records that have not been aggregated yet.
+	// ListCommitVerificationByAggregationKey retrieves all commit verification records for a specific message ID, committee ID and aggregation Key.
+	ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, committee string) ([]*model.CommitVerificationRecord, error)
+	// ListOrphanedKeys finds verification records that have not been aggregated yet.
 	// Returns channels for streaming results: one for message/committee pairs, one for errors.
-	ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error)
+	ListOrphanedKeys(ctx context.Context, committeeID model.CommitteeID) (<-chan model.OrphanedKey, <-chan error)
 }
 
 type CommitVerificationAggregatedStore interface {

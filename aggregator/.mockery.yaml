@@ -4,6 +4,10 @@ dir: ./internal/aggregation_mocks
 outpkg: aggregation_mocks
 
 packages:
+  github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers:
+    interfaces:
+      SignatureValidator:
+      AggregationTriggerer:
   github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common:
     interfaces:
       CommitVerificationStore:

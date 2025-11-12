@@ -10,16 +10,17 @@ import (
 	"os"
 	"strings"
 
-	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
@@ -70,6 +71,7 @@ const (
 type Cfg struct {
 	Mode               Mode                        `toml:"mode"`
 	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
+	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
 	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
@@ -94,7 +96,7 @@ func checkKeys(in *Cfg) error {
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
-		return &ccvEvm.CCIP17EVM{}, nil
+		return &evm.CCIP17EVM{}, nil
 	case "canton":
 		// see devenv-evm implementation and add Canton
 		return nil, nil
@@ -184,6 +186,16 @@ func NewEnvironment() (in *Cfg, err error) {
 	_, err = services.NewIndexer(in.Indexer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
+	}
+
+	prodJDImage := os.Getenv("JD_IMAGE")
+
+	if prodJDImage != "" {
+		in.JD.Image = prodJDImage
+	}
+	_, err = jd.NewJD(in.JD)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JD service: %w", err)
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")

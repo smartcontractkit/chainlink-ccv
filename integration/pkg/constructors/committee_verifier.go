@@ -1,6 +1,7 @@
 package constructors
 
 import (
+	"bytes"
 	"fmt"
 	"time"
 
@@ -10,9 +11,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
@@ -30,8 +34,10 @@ func NewVerificationCoordinator(
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 	}
 
-	if signingAddress.String() != cfg.SignerAddress {
-		return nil, fmt.Errorf("signing address does not match configuration: config %s vs provided %s", cfg.SignerAddress, signingAddress.String())
+	// TODO: this verification shouldn't be here?
+	cfgSignerBytes := common.HexToAddress(cfg.SignerAddress).Bytes()
+	if !bytes.Equal(signingAddress.Bytes(), cfgSignerBytes) {
+		return nil, fmt.Errorf("signing address does not match configuration: config %x vs provided %x", cfgSignerBytes, signingAddress.Bytes())
 	}
 
 	onRampAddrs, err := mapAddresses(cfg.OnRampAddresses)
@@ -48,6 +54,7 @@ func NewVerificationCoordinator(
 	// Initialize chain components.
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 	for sel, chain := range relayers {
 		if _, ok := onRampAddrs[sel]; !ok {
 			lggr.Warnw("No onramp address for chain, skipping.", "chainID", sel)
@@ -71,6 +78,14 @@ func NewVerificationCoordinator(
 			lggr.Errorw("Failed to create source reader.", "error", err, "chainID", sel)
 			return nil, fmt.Errorf("failed to create source reader: %w", err)
 		}
+
+		// TODO: this seems wacky
+		headTracker, ok := sourceReader.(chainaccess.HeadTracker)
+		if !ok {
+			lggr.Errorw("Source reader does not implement HeadTracker interface", "chainID", sel)
+			return nil, fmt.Errorf("source reader does not implement HeadTracker interface: %w", err)
+		}
+		headTrackers[sel] = headTracker
 		sourceReaders[sel] = sourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress: verifierAddrs[sel],
@@ -81,10 +96,24 @@ func NewVerificationCoordinator(
 
 	// Initialize other required services and configs.
 
-	// TODO: monitoring
-	var verifierMonitoring verifier.Monitoring
+	// TODO: monitoring config home
+	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
+		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
+		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
+		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
+		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
+		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
+		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
+	})
+	if err != nil {
+		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
+		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
+	}
 
 	// Checkpoint manager
+	// TODO: these are secrets, probably shouldn't be in config.
 	hmacConfig := &hmac.ClientConfig{
 		APIKey: cfg.AggregatorAPIKey,
 		Secret: cfg.AggregatorSecretKey,
@@ -118,7 +147,8 @@ func NewVerificationCoordinator(
 	}
 
 	// Create commit verifier (with ECDSA signer)
-	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signingAddress, signer, lggr, verifierMonitoring)
+	ecdsaSigner := commit.NewECDSASignerWithKeystoreSigner(signer)
+	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signingAddress, ecdsaSigner, lggr, verifierMonitoring)
 	if err != nil {
 		lggr.Errorw("Failed to create commit verifier", "error", err)
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
@@ -132,8 +162,8 @@ func NewVerificationCoordinator(
 		verifier.WithChainStatusManager(chainStatusManager),
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
-		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(verifierMonitoring),
+		verifier.WithHeadTrackers(headTrackers),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

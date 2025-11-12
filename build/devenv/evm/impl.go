@@ -1,4 +1,4 @@
-package ccv_evm
+package evm
 
 import (
 	"context"
@@ -37,7 +37,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
@@ -1071,7 +1071,7 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 		signerAddresses = append(signerAddresses, common.BytesToAddress(addr[:]))
 	}
 	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(numNodes), //nolint:gosec
+		Threshold: uint8(numNodes),
 		Signers:   signerAddresses,
 	}
 }
