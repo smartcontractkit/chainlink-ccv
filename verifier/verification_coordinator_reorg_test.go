@@ -34,6 +34,10 @@ type reorgTestSetup struct {
 	lggr               logger.Logger
 	taskChannel        chan VerificationTask
 
+	// Coordinator configuration for recreating coordinators
+	coordinatorConfig     CoordinatorConfig
+	finalityCheckInterval time.Duration
+
 	// Block state for simulating chain progression
 	currentLatest    *protocol.BlockHeader
 	currentFinalized *protocol.BlockHeader
@@ -68,20 +72,33 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	// Create test verifier
 	testVer := NewTestVerifier()
 
+	// Create coordinator configuration
+	coordinatorConfig := CoordinatorConfig{
+		VerifierID: "reorg-test-coordinator",
+		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
+			chainSelector: {
+				VerifierAddress: protocol.UnknownAddress("0x1234"),
+				PollInterval:    10 * time.Millisecond,
+			},
+		},
+	}
+
 	setup := &reorgTestSetup{
-		t:                  t,
-		ctx:                ctx,
-		cancel:             cancel,
-		mockSourceReader:   mockSetup.Reader,
-		mockHeadTracker:    mockHeadTracker,
-		chainStatusManager: NewInMemoryChainStatusManager(),
-		chainSelector:      chainSelector,
-		lggr:               lggr,
-		currentLatest:      initialLatest,
-		currentFinalized:   initialFinalized,
-		testVerifier:       testVer,
-		storage:            common.NewInMemoryOffchainStorage(lggr),
-		taskChannel:        mockSetup.Channel,
+		t:                     t,
+		ctx:                   ctx,
+		cancel:                cancel,
+		mockSourceReader:      mockSetup.Reader,
+		mockHeadTracker:       mockHeadTracker,
+		chainStatusManager:    NewInMemoryChainStatusManager(),
+		chainSelector:         chainSelector,
+		lggr:                  lggr,
+		currentLatest:         initialLatest,
+		currentFinalized:      initialFinalized,
+		testVerifier:          testVer,
+		storage:               common.NewInMemoryOffchainStorage(lggr),
+		taskChannel:           mockSetup.Channel,
+		coordinatorConfig:     coordinatorConfig,
+		finalityCheckInterval: finalityCheckInterval,
 	}
 
 	// Setup mock head tracker to return current state
@@ -97,40 +114,37 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	mrd := newMockReorgDetector()
 	setup.mockReorgDetector = mrd
 
-	// Create coordinator configuration
-	coordinatorConfig := CoordinatorConfig{
-		VerifierID: "reorg-test-coordinator",
-		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
-			chainSelector: {
-				VerifierAddress: protocol.UnknownAddress("0x1234"),
-				PollInterval:    10 * time.Millisecond,
-			},
-		},
-	}
-
-	// Create coordinator with all components
-	coordinator, err := NewCoordinator(
-		WithVerifier(setup.testVerifier),
-		WithStorage(setup.storage),
-		WithLogger(lggr),
-		WithConfig(coordinatorConfig),
-		WithChainStatusManager(setup.chainStatusManager),
-		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
-			chainSelector: setup.mockSourceReader,
-		}),
-		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
-			chainSelector: mockHeadTracker,
-		}),
-		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{
-			chainSelector: mrd,
-		}),
-		WithMonitoring(&noopMonitoring{}),
-		WithFinalityCheckInterval(finalityCheckInterval),
-	)
-	require.NoError(t, err)
+	// Create the initial coordinator
+	coordinator := setup.createCoordinator()
 	setup.coordinator = coordinator
 
 	return setup
+}
+
+// createCoordinator creates a new coordinator instance with the same dependencies.
+// This allows for realistic restart testing - creating a fresh coordinator while reusing
+// shared state (storage, chainStatusManager, etc.).
+func (s *reorgTestSetup) createCoordinator() *Coordinator {
+	coordinator, err := NewCoordinator(
+		WithVerifier(s.testVerifier),
+		WithStorage(s.storage),
+		WithLogger(s.lggr),
+		WithConfig(s.coordinatorConfig),
+		WithChainStatusManager(s.chainStatusManager),
+		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
+			s.chainSelector: s.mockSourceReader,
+		}),
+		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
+			s.chainSelector: s.mockHeadTracker,
+		}),
+		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{
+			s.chainSelector: s.mockReorgDetector,
+		}),
+		WithMonitoring(&noopMonitoring{}),
+		WithFinalityCheckInterval(s.finalityCheckInterval),
+	)
+	require.NoError(s.t, err)
+	return coordinator
 }
 
 // cleanup tears down the test setup.
@@ -169,13 +183,19 @@ func (s *reorgTestSetup) mustRestartCoordinator() {
 }
 
 func (s *reorgTestSetup) restartCoordinator() error {
+	// Close the old coordinator
 	err := s.coordinator.Close()
 	if err != nil {
 		return err
 	}
 	s.t.Log("✅ Coordinator closed")
 
-	// Restart the same coordinator - disabled chain should be skipped
+	// Create a new coordinator instance (more realistic - simulates process restart)
+	// This reuses the same dependencies (storage, chainStatusManager, etc.)
+	s.coordinator = s.createCoordinator()
+	s.t.Log("🆕 New coordinator created")
+
+	// Start the new coordinator - disabled chains should be skipped
 	err = s.coordinator.Start(s.ctx)
 	if err != nil {
 		return err
@@ -330,13 +350,12 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	require.True(t, statusMap[chainSelector].Disabled, "Chain should be marked as disabled")
 	t.Log("✅ Chain marked as disabled in chain status manager")
 
-	t.Log("🔄 Testing coordinator restart with disabled chain - should remain stopped")
+	t.Log("🔄 Testing coordinator restart with disabled chain - should fail to start")
 	err = setup.restartCoordinator()
-	// That means the source reader is not started for the only disabled chain which prevents the coordinator from starting successfully
-	require.ErrorContains(t, err, "no RMN readers provided for curse detector")
-	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
+	// With all chains disabled, the coordinator should fail to start because there's nothing to coordinate
+	require.ErrorContains(t, err, "no enabled chains to coordinate")
 
-	t.Log("✅ Test completed: Disabled chain correctly skipped on restart")
+	t.Log("✅ Test completed: Disabled chain correctly prevented coordinator start")
 }
 
 func sendTasksToChannel(t *testing.T, setup *reorgTestSetup, tasks []VerificationTask) {

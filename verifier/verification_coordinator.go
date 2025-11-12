@@ -334,6 +334,13 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		vc.sourceStates[chainSelector] = state
 	}
 
+	// If all chains are disabled, there are no source states and no RMN readers
+	// In this case, we should not start the coordinator as there's nothing to coordinate
+	if len(vc.sourceStates) == 0 {
+		vc.lggr.Warnw("No enabled chains found, coordinator cannot start")
+		return fmt.Errorf("no enabled chains to coordinate")
+	}
+
 	vc.running = true
 
 	if err := vc.startCurseDetector(ctx, rmnReaders); err != nil {
