@@ -122,7 +122,7 @@ func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.Com
 	}, nil
 }
 
-func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) (map[string]interface{}, error) {
+func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) (map[string]any, error) {
 	if record == nil {
 		return nil, fmt.Errorf("record cannot be nil")
 	}
@@ -164,7 +164,7 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 		return nil, fmt.Errorf("failed to marshal message_data: %w", err)
 	}
 
-	params := map[string]interface{}{
+	params := map[string]any{
 		"message_id":              messageIDHex,
 		"committee_id":            record.CommitteeID,
 		"participant_id":          record.IdentifierSigner.ParticipantID,
@@ -207,6 +207,6 @@ const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.committee_id,
 
 func mustParseUint64(s string) uint64 {
 	var result uint64
-	fmt.Sscanf(s, "%d", &result)
+	_, _ = fmt.Sscanf(s, "%d", &result)
 	return result
 }

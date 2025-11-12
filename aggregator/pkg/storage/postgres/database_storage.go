@@ -140,7 +140,6 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		params["message_data"],
 		params["receipt_blobs"],
 	)
-
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil
