@@ -12,43 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
-// ECDSASignerWithKeystoreSigner implements ECDSA with an injected signer object.
-// This is useful when the private key material is not directly available.
-type ECDSASignerWithKeystoreSigner struct {
-	keystoreSigner protocol.KeystoreSigner
-}
-
-func NewECDSASignerWithKeystoreSigner(keystoreSigner protocol.KeystoreSigner) *ECDSASignerWithKeystoreSigner {
-	return &ECDSASignerWithKeystoreSigner{
-		keystoreSigner: keystoreSigner,
-	}
-}
-
-func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
-	// 1. Sign with v27 format.
-	r32, s32, addr, err := protocol.SignV27WithKeystoreSigner(data, s.keystoreSigner)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign message: %w", err)
-	}
-
-	// 2. Create signature data with signer address.
-	signatures := []protocol.Data{
-		{
-			R:      r32,
-			S:      s32,
-			Signer: addr,
-		},
-	}
-
-	// 3. Encode signature using protocol format.
-	encodedSignature, err := protocol.EncodeSignatures(signatures)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode signature: %w", err)
-	}
-
-	return encodedSignature, nil
-}
-
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {
 	privateKey *ecdsa.PrivateKey
