@@ -1,4 +1,4 @@
-package ccv_evm
+package evm
 
 import (
 	"context"
@@ -37,7 +37,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
@@ -238,6 +238,16 @@ func AllTokenCombinations() []TokenCombination {
 			expectedVerifierResults: 2, // default CCV, secondary CCV
 		},
 	}
+}
+
+func All17TokenCombinations() []TokenCombination {
+	combinations := []TokenCombination{}
+	for _, tc := range AllTokenCombinations() {
+		if semver.MustParse(tc.sourcePoolVersion).Equal(semver.MustParse("1.7.0")) && semver.MustParse(tc.destPoolVersion).Equal(semver.MustParse("1.7.0")) {
+			combinations = append(combinations, tc)
+		}
+	}
+	return combinations
 }
 
 type CCIP17EVM struct {
@@ -1061,7 +1071,7 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 		signerAddresses = append(signerAddresses, common.BytesToAddress(addr[:]))
 	}
 	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(numNodes), //nolint:gosec
+		Threshold: uint8(numNodes),
 		Signers:   signerAddresses,
 	}
 }

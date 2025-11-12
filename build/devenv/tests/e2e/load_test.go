@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
+	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
@@ -26,9 +26,9 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/cciptestinterfaces"
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
 type ChaosTestCase struct {
@@ -58,8 +58,8 @@ type EVMTXGun struct {
 	e          *deployment.Environment
 	selectors  []uint64
 	impl       cciptestinterfaces.CCIP17ProductConfiguration
-	src        evm.Chain
-	dest       evm.Chain
+	src        cldfevm.Chain
+	dest       cldfevm.Chain
 	sentSeqNos []uint64
 	sentTimes  map[uint64]time.Time
 	msgIDs     map[uint64][32]byte
@@ -75,7 +75,7 @@ func (m *EVMTXGun) CloseSentChannel() {
 	})
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d evm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) *EVMTXGun {
 	return &EVMTXGun{
 		cfg:        cfg,
 		e:          e,
@@ -111,7 +111,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	}
 
 	// Get sequence number before sending and record timestamp
-	c, ok := m.impl.(*ccvEvm.CCIP17EVM)
+	c, ok := m.impl.(*evm.CCIP17EVM)
 	var seqNo uint64
 	if ok {
 		seqNo, err = c.GetExpectedNextSequenceNumber(ctx, srcChain.ChainSelector, dstChain.ChainSelector)
@@ -129,7 +129,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 			dstChain.ChainSelector,
 			datastore.ContractType(mock_receiver.ContractType),
 			semver.MustParse(mock_receiver.Deploy.Version()),
-			ccvEvm.DefaultReceiverQualifier))
+			evm.DefaultReceiverQualifier))
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("could not find mock receiver address in datastore: %w", err).Error(), Failed: true}
 	}
@@ -138,7 +138,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 			srcChain.ChainSelector,
 			datastore.ContractType(committee_verifier.ResolverProxyType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
-			ccvEvm.DefaultCommitteeVerifierQualifier))
+			evm.DefaultCommitteeVerifierQualifier))
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err).Error(), Failed: true}
 	}
@@ -376,7 +376,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d evm.Chain) (*wasp.Profile, *EVMTXGun) {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
 	gun := NewEVMTransactionGun(in, e, selectors, impl, s, d)
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
@@ -422,7 +422,7 @@ func TestE2ELoad(t *testing.T) {
 		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 	}
 
-	impl, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+	impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
 	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)

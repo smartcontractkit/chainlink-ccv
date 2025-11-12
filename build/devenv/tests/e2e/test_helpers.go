@@ -13,15 +13,15 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 
-	ccvEvm "github.com/smartcontractkit/chainlink-ccv/ccv-evm"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
 type TestingContext struct {
 	T                *testing.T
 	Ctx              context.Context
-	Impl             *ccvEvm.CCIP17EVM
+	Impl             *evm.CCIP17EVM
 	AggregatorClient *ccv.AggregatorClient
 	IndexerClient    *ccv.IndexerClient
 	LogAsserter      *logasserter.LogAsserter
@@ -29,7 +29,7 @@ type TestingContext struct {
 	logger           zerolog.Logger
 }
 
-func NewTestingContext(t *testing.T, ctx context.Context, impl *ccvEvm.CCIP17EVM, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
+func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
 		lokiURL = "ws://localhost:3030"

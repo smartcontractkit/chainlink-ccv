@@ -114,7 +114,7 @@ func (d *DatabaseStorage) HealthCheck(ctx context.Context) *pkgcommon.ComponentH
 	return result
 }
 
-func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord) error {
+func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {
 	if record == nil {
 		return fmt.Errorf("commit verification record cannot be nil")
 	}
@@ -129,9 +129,9 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 
 	stmt := `INSERT INTO commit_verification_records 
 		(message_id, committee_id, participant_id, signer_address, source_chain_selector, dest_chain_selector, 
-		 onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, verification_timestamp, idempotency_key) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		ON CONFLICT (message_id, committee_id, signer_address, idempotency_key) 
+		 onramp_address, offramp_address, signature_r, signature_s, ccv_node_data, verification_timestamp, idempotency_key, aggregation_key) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		ON CONFLICT (message_id, committee_id, signer_address, idempotency_key, aggregation_key) 
 		DO NOTHING`
 
 	ccvNodeData, err := json.Marshal(record)
@@ -162,6 +162,7 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		string(ccvNodeData),
 		record.Timestamp,
 		record.IdempotencyKey,
+		aggregationKey,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save commit verification record: %w", err)
@@ -220,12 +221,12 @@ func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.Co
 	return result, nil
 }
 
-func (d *DatabaseStorage) ListCommitVerificationByMessageID(ctx context.Context, messageID model.MessageID, committee string) ([]*model.CommitVerificationRecord, error) {
+func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, committee string) ([]*model.CommitVerificationRecord, error) {
 	stmt := `SELECT DISTINCT ON (signer_address) message_id, committee_id, participant_id, signer_address, 
 		source_chain_selector, dest_chain_selector, onramp_address, offramp_address, 
 		signature_r, signature_s, ccv_node_data, verification_timestamp, created_at
 		FROM commit_verification_records 
-		WHERE message_id = $1 AND committee_id = $2
+		WHERE message_id = $1 AND committee_id = $2 AND aggregation_key = $3
 		ORDER BY signer_address, seq_num DESC`
 
 	type dbRecord struct {
@@ -247,7 +248,7 @@ func (d *DatabaseStorage) ListCommitVerificationByMessageID(ctx context.Context,
 	messageIDHex := common.Bytes2Hex(messageID)
 
 	var dbRecords []dbRecord
-	err := d.ds.SelectContext(ctx, &dbRecords, stmt, messageIDHex, committee)
+	err := d.ds.SelectContext(ctx, &dbRecords, stmt, messageIDHex, committee, aggregationKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query commit verification records: %w", err)
 	}
@@ -777,18 +778,18 @@ func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.Commit
 	return nil
 }
 
-func (d *DatabaseStorage) ListOrphanedMessageIDs(ctx context.Context, committeeID model.CommitteeID) (<-chan model.MessageID, <-chan error) {
-	messageIDCh := make(chan model.MessageID, 10) // Buffered for performance
+func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, committeeID model.CommitteeID) (<-chan model.OrphanedKey, <-chan error) {
+	orphanedKeyCh := make(chan model.OrphanedKey, 10) // Buffered for performance
 	errCh := make(chan error, 1)
 
 	go func() {
-		defer close(messageIDCh)
+		defer close(orphanedKeyCh)
 		defer close(errCh)
 
-		// Query to find distinct (message_id, committee_id) pairs from verification records
+		// Query to find distinct  pairs from verification records
 		// that don't have corresponding aggregated reports
 		stmt := `
-		SELECT DISTINCT cvr.message_id
+		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
 		FROM commit_verification_records cvr
 		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id AND cvr.committee_id = car.committee_id
 		WHERE car.message_id IS NULL AND cvr.committee_id = $1`
@@ -812,17 +813,26 @@ func (d *DatabaseStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 			default:
 			}
 
-			var messageIDHex string
-			err := rows.Scan(&messageIDHex)
+			type dbResult struct {
+				MessageID      string `db:"message_id"`
+				AggregationKey string `db:"aggregation_key"`
+			}
+
+			var result dbResult
+			err := rows.Scan(&result.MessageID, &result.AggregationKey)
 			if err != nil {
 				errCh <- fmt.Errorf("failed to scan orphaned pair: %w", err)
 				return
 			}
 
-			messageID := common.Hex2Bytes(messageIDHex)
+			messageID := common.Hex2Bytes(result.MessageID)
 
 			select {
-			case messageIDCh <- messageID:
+			case orphanedKeyCh <- model.OrphanedKey{
+				MessageID:      messageID,
+				AggregationKey: result.AggregationKey,
+				CommitteeID:    committeeID,
+			}:
 			case <-ctx.Done():
 				errCh <- ctx.Err()
 				return
@@ -834,5 +844,5 @@ func (d *DatabaseStorage) ListOrphanedMessageIDs(ctx context.Context, committeeI
 		}
 	}()
 
-	return messageIDCh, errCh
+	return orphanedKeyCh, errCh
 }
