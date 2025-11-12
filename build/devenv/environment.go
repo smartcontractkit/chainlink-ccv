@@ -394,7 +394,7 @@ func launchCLNodes(ctx context.Context, in *Cfg, impls []cciptestinterfaces.CCIP
 
 		// import hard coded keys into the CL node keystore
 		for _, ver := range in.Verifier {
-			if len(ver.SigningKey) != 0 {
+			if len(ver.SigningKey) != 0 { //nolint:nestif // it's a bit complicated
 				encryptedJSON, signerAddress, err := encryptedJSONKey(ver.SigningKey, "", keystore.StandardScryptN, keystore.StandardScryptP)
 				if err != nil {
 					return fmt.Errorf("failed to encrypt verifier signing key (%s): %w", ver.ContainerName, err)
