@@ -11,6 +11,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const (
+	DEFAULT_POLL_INTERVAL = 2 * time.Second
+)
+
 // GlobalCurseSubject is the constant from RMN specification representing a global curse.
 // If this subject is present in cursed subjects, all lanes involving this chain are cursed.
 var GlobalCurseSubject = [16]byte{0: 0x01, 15: 0x01}
@@ -39,7 +43,7 @@ type Service struct {
 //   - rmnReaders: Map of chain selectors to RMN curse readers
 //     For verifier: source chain selectors -> SourceReaders (with source RMN Remotes)
 //     For executor: dest chain selectors -> DestinationReaders (with dest RMN Remotes)
-//   - pollInterval: How often to poll RMN Remotes (default: 2s if <= 0)
+//   - pollInterval: How often to poll RMN Remotes (default: DEFAULT_POLL_INTERVAL if <= 0)
 func NewCurseDetectorService(
 	rmnReaders map[protocol.ChainSelector]RMNCurseReader,
 	pollInterval time.Duration,
@@ -52,7 +56,7 @@ func NewCurseDetectorService(
 		return nil, fmt.Errorf("logger is required")
 	}
 	if pollInterval <= 0 {
-		pollInterval = 2 * time.Second // Default
+		pollInterval = DEFAULT_POLL_INTERVAL
 	}
 
 	return &Service{
@@ -69,7 +73,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.cancel = cancel
 
 	// Initial poll
-	s.PollAllChains(ctx)
+	s.pollAllChains(ctx)
 
 	s.wg.Add(1)
 	go func() {
@@ -121,50 +125,58 @@ func (s *Service) pollLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.PollAllChains(ctx)
+			s.pollAllChains(ctx)
 		}
 	}
 }
 
-// PollAllChains queries all configured RMN Remotes and updates curse state.
-// Exported for testing - allows tests to trigger synchronous updates without waiting for poll interval.
-func (s *Service) PollAllChains(ctx context.Context) {
+// pollAllChains queries all configured RMN Remotes concurrently and updates curse state.
+func (s *Service) pollAllChains(ctx context.Context) {
+	var wg sync.WaitGroup
+
 	for chainSelector, reader := range s.rmnReaders {
-		subjects, err := reader.GetRMNCursedSubjects(ctx)
-		if err != nil {
-			s.lggr.Errorw("Failed to get cursed subjects",
-				"chain", chainSelector,
-				"error", err)
-			continue
-		}
+		wg.Add(1)
+		go func(chain protocol.ChainSelector, r RMNCurseReader) {
+			defer wg.Done()
 
-		state := &ChainCurseState{
-			CursedRemoteChains: make(map[protocol.ChainSelector]bool),
-			HasGlobalCurse:     false,
-		}
-
-		for _, subject := range subjects {
-			if subject == GlobalCurseSubject {
-				state.HasGlobalCurse = true
-				s.lggr.Warnw("Global curse detected",
-					"chain", chainSelector)
-			} else {
-				// Extract chain selector from last 8 bytes (big-endian)
-				remoteChain := protocol.ChainSelector(
-					binary.BigEndian.Uint64(subject[8:]))
-				state.CursedRemoteChains[remoteChain] = true
+			subjects, err := r.GetRMNCursedSubjects(ctx)
+			if err != nil {
+				s.lggr.Errorw("Failed to get cursed subjects",
+					"chain", chain,
+					"error", err)
+				return
 			}
-		}
 
-		s.mutex.Lock()
-		s.chainCurseStates[chainSelector] = state
-		s.mutex.Unlock()
+			state := &ChainCurseState{
+				CursedRemoteChains: make(map[protocol.ChainSelector]bool),
+				HasGlobalCurse:     false,
+			}
 
-		s.lggr.Debugw("Updated curse state",
-			"chain", chainSelector,
-			"globalCurse", state.HasGlobalCurse,
-			"cursedRemoteChains", len(state.CursedRemoteChains))
+			for _, subject := range subjects {
+				if subject == GlobalCurseSubject {
+					state.HasGlobalCurse = true
+					s.lggr.Warnw("Global curse detected",
+						"chain", chain)
+				} else {
+					// Extract chain selector from last 8 bytes (big-endian)
+					remoteChain := protocol.ChainSelector(
+						binary.BigEndian.Uint64(subject[8:]))
+					state.CursedRemoteChains[remoteChain] = true
+				}
+			}
+
+			s.mutex.Lock()
+			s.chainCurseStates[chain] = state
+			s.mutex.Unlock()
+
+			s.lggr.Debugw("Updated curse state",
+				"chain", chain,
+				"globalCurse", state.HasGlobalCurse,
+				"cursedRemoteChains", len(state.CursedRemoteChains))
+		}(chainSelector, reader)
 	}
+
+	wg.Wait()
 }
 
 func chainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {

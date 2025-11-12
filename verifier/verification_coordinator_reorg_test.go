@@ -164,14 +164,24 @@ func (s *reorgTestSetup) mustStartCoordinator() {
 }
 
 func (s *reorgTestSetup) mustRestartCoordinator() {
-	err := s.coordinator.Close()
+	err := s.restartCoordinator()
 	require.NoError(s.t, err)
+}
+
+func (s *reorgTestSetup) restartCoordinator() error {
+	err := s.coordinator.Close()
+	if err != nil {
+		return err
+	}
 	s.t.Log("✅ Coordinator closed")
 
 	// Restart the same coordinator - disabled chain should be skipped
 	err = s.coordinator.Start(s.ctx)
-	require.NoError(s.t, err)
+	if err != nil {
+		return err
+	}
 	s.t.Log("✅ Coordinator restarted")
+	return nil
 }
 
 // assertSourceReaderChannelState verifies the state of the source reader's verification task channel.
@@ -321,7 +331,9 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	t.Log("✅ Chain marked as disabled in chain status manager")
 
 	t.Log("🔄 Testing coordinator restart with disabled chain - should remain stopped")
-	setup.mustRestartCoordinator()
+	err = setup.restartCoordinator()
+	// That means the source reader is not started for the only disabled chain which prevents the coordinator from starting successfully
+	require.ErrorContains(t, err, "no RMN readers provided for curse detector")
 	assertSourceReaderChannelState(t, setup.coordinator, chainSelector, false)
 
 	t.Log("✅ Test completed: Disabled chain correctly skipped on restart")

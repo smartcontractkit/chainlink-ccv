@@ -1,4 +1,4 @@
-package pkg
+package rmnremotereader
 
 import (
 	"context"
@@ -12,13 +12,13 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
-// ReadRMNCursedSubjects queries an RMN Remote contract and returns cursed subjects.
+// EVMReadRMNCursedSubjects queries an RMN Remote contract and returns cursed subjects.
 // This is a common helper function that both EVMSourceReader and EVMDestinationReader can use.
 //
 // Returns cursed subjects as bytes16, which can be:
 // - Global curse constant (0x0100000000000000000000000000000001)
 // - Chain selector (last 8 bytes) of a cursed remote chain.
-func ReadRMNCursedSubjects(
+func EVMReadRMNCursedSubjects(
 	ctx context.Context,
 	chainClient client.Client,
 	rmnRemoteAddress common.Address,
