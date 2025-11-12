@@ -2,6 +2,7 @@ package quorum_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -226,7 +227,7 @@ func TestValidateSignature(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
 		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
-		assert.Equal(t, signerFixture.Signer.Addresses, signers[0].Addresses)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signers[0].Address)
 	})
 
 	t.Run("missing signature", func(t *testing.T) {
@@ -341,7 +342,7 @@ func TestValidateSignature(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
 		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
-		assert.Equal(t, signerFixture.Signer.Addresses, signers[0].Addresses)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signers[0].Address)
 	})
 }
 

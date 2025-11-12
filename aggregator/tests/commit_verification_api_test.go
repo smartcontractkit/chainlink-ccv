@@ -84,6 +84,58 @@ func TestAggregationHappyPath(t *testing.T) {
 	}
 }
 
+func TestAggregationHappyPathMultipleSigSingleVerification(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		config := map[string]*model.Committee{
+			"default": {
+				SourceVerifierAddresses: map[string]string{
+					"1": common.Bytes2Hex(sourceVerifierAddress),
+				},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					"2": {
+						Threshold: 2,
+						Signers: []model.Signer{
+							signer1.Signer,
+							signer2.Signer,
+						},
+						CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					},
+				},
+			},
+		}
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(config), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := NewProtocolMessage(t)
+		messageId, err := message.MessageID()
+		require.NoError(t, err, "failed to compute message ID")
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1, signer2))
+
+		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1))
+
+		require.NoError(t, err, "WriteCommitCCVNodeData failed")
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
+
+		// Example of signature validation: Verify that the aggregated CCV data contains
+		// valid signatures from both signer1 and signer2
+		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData1.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2))
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
 func TestAggregationHappyPath_NoQuorumWhenBlobDataIsDifferent(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}

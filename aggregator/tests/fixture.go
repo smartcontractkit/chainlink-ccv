@@ -129,7 +129,9 @@ func WithReceiptBlobs(receiptBlobs []*pb.ReceiptBlob) MessageWithCCVNodeDataOpti
 	}
 }
 
-func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
+// WithSignatureFrom merges signatures from multiple signers into a single CCV data.
+// This is useful for testing scenarios where quorum is reached immediately with multiple signatures.
+func WithSignatureFrom(t *testing.T, signers ...*SignerFixture) MessageWithCCVNodeDataOption {
 	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
 
@@ -145,16 +147,18 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		require.Len(t, m.BlobData, 4, "blob data must be at least 4 bytes to account for version")
 		hash, err := committee.NewSignableHash(messageID, m.BlobData)
 		require.NoError(t, err, "failed to create signed hash")
-		r32, s32, signerAddr, err := protocol.SignV27(hash[:], signer.key)
-		require.NoError(t, err, "failed to sign message")
 
-		// Create signature data with actual signer address
-		sigData := []protocol.Data{
-			{
+		// Collect all signatures
+		sigData := make([]protocol.Data, 0, len(signers))
+		for _, signer := range signers {
+			r32, s32, signerAddr, err := protocol.SignV27(hash[:], signer.key)
+			require.NoError(t, err, "failed to sign message for signer %s", signer.Signer.ParticipantID)
+
+			sigData = append(sigData, protocol.Data{
 				R:      r32,
 				S:      s32,
 				Signer: signerAddr,
-			},
+			})
 		}
 
 		m.CcvData, err = protocol.EncodeSignatures(sigData)
