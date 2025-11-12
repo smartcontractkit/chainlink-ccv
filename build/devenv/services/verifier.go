@@ -168,6 +168,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	envVars := make(map[string]string)
+	// TODO: mount config file rather than defining a path inside of the container
 	envVars["VERIFIER_CONFIG_PATH"] = in.ConfigFilePath
 
 	if in.Env != nil {

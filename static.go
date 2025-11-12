@@ -4,13 +4,13 @@ import _ "embed"
 
 // Aggregator configuration.
 var (
-	//go:embed aggregator/testconfig/default/aggregator.toml
+	//go:embed build/devenv/configs/aggregator/default/aggregator.toml
 	DefaultAggregatorConfigTOML string
 
-	//go:embed aggregator/testconfig/secondary/aggregator.toml
+	//go:embed build/devenv/configs/aggregator/secondary/aggregator.toml
 	SecondaryAggregatorConfigTOML string
 
-	//go:embed aggregator/testconfig/tertiary/aggregator.toml
+	//go:embed build/devenv/configs/aggregator/tertiary/aggregator.toml
 	TertiaryAggregatorConfigTOML string
 )
 
