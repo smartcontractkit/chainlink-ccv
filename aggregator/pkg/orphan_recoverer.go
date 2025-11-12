@@ -61,13 +61,13 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 	for committeeID := range o.config.Committees {
 		// Get channels for orphaned message/committee pairs
-		orphansChan, errorChan := o.storage.ListOrphanedMessageIDs(ctx, committeeID)
+		orphansChan, errorChan := o.storage.ListOrphanedKeys(ctx, committeeID)
 
 		var processedCount, errorCount int
 
 		for {
 			select {
-			case messageID, ok := <-orphansChan:
+			case orphanRecord, ok := <-orphansChan:
 				if !ok {
 					// Channel closed, we're done
 					o.logger.Infow("Orphan recovery completed",
@@ -77,16 +77,18 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 				}
 
 				// Process this orphaned record
-				err := o.processOrphanedRecord(messageID, committeeID)
+				err := o.processOrphanedRecord(orphanRecord)
 				if err != nil {
 					o.logger.Errorw("Failed to process orphaned record",
-						"messageID", fmt.Sprintf("%x", messageID),
+						"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
+						"aggregationKey", orphanRecord.AggregationKey,
 						"committeeID", committeeID,
 						"error", err)
 					errorCount++
 				} else {
 					o.logger.Debugw("Successfully processed orphaned record",
-						"messageID", fmt.Sprintf("%x", messageID),
+						"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
+						"aggregationKey", orphanRecord.AggregationKey,
 						"committeeID", committeeID)
 					processedCount++
 				}
@@ -115,15 +117,16 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 }
 
 // processOrphanedRecord attempts to re-aggregate an orphaned verification record.
-func (o *OrphanRecoverer) processOrphanedRecord(messageID model.MessageID, committeeID string) error { // Trigger aggregation check - this will evaluate if we have enough verifications for quorum
-	err := o.aggregator.CheckAggregation(messageID, committeeID)
+func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error { // Trigger aggregation check - this will evaluate if we have enough verifications for quorum
+	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey, record.CommitteeID)
 	if err != nil {
 		return fmt.Errorf("failed to trigger aggregation check: %w", err)
 	}
 
 	o.logger.Debugw("Successfully triggered re-aggregation check",
-		"messageID", fmt.Sprintf("%x", messageID),
-		"committeeID", committeeID)
+		"messageID", fmt.Sprintf("%x", record.MessageID),
+		"aggregationKey", record.AggregationKey,
+		"committeeID", record.CommitteeID)
 
 	return nil
 }

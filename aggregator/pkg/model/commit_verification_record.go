@@ -13,6 +13,15 @@ import (
 // MessageID is a type alias for bytes representing a message identifier.
 type MessageID = []byte
 
+// AggregationKey is a type alias that represent the key on which the aggregation is performed.
+type AggregationKey = string
+
+type OrphanedKey struct {
+	MessageID      MessageID
+	AggregationKey AggregationKey
+	CommitteeID    CommitteeID
+}
+
 // CommitVerificationRecordIdentifier uniquely identifies a commit verification record.
 type CommitVerificationRecordIdentifier struct {
 	MessageID   MessageID

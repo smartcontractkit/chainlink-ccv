@@ -95,23 +95,20 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 
 	// To create the full ccvData, prepend encodedSignatures with the version of the source verifier
 	// The first verifierVersionLength bytes of the source verifier's return data constitute the version
-	var ccvData []byte
-	for _, receipt := range report.WinningReceiptBlobs {
-		if bytes.Equal(receipt.Issuer, report.GetSourceVerifierAddress()) {
-			if receipt.Blob == nil {
-				return nil, fmt.Errorf("source verifier return blob is missing from receipt")
-			}
-			blobLen := len(receipt.Blob)
-			if blobLen < committee.VerifierVersionLength {
-				return nil, fmt.Errorf("source verifier return blob is too short (expected at least %d bytes, got %d)", committee.VerifierVersionLength, blobLen)
-			}
-			ccvData = append(receipt.Blob[:committee.VerifierVersionLength], encodedSignatures...)
-			break
-		}
+	// Because we aggregate on the signed hash and this data is actually signed by verifiers it is safe to assume that all verifications have the same BlobData
+	if len(report.Verifications) == 0 {
+		return nil, fmt.Errorf("report does not contains verification")
 	}
-	if len(ccvData) == 0 {
-		return nil, fmt.Errorf("source verifier receipt not found in winning receipts, unable to create CCV data")
+
+	blobData := report.Verifications[0].BlobData
+	if blobData == nil {
+		return nil, fmt.Errorf("blob is missing from receipt")
 	}
+	blobLen := len(blobData)
+	if blobLen < committee.VerifierVersionLength {
+		return nil, fmt.Errorf("blob is too short (expected at least %d bytes, got %d)", committee.VerifierVersionLength, blobLen)
+	}
+	ccvData := append(blobData[:committee.VerifierVersionLength], encodedSignatures...)
 
 	return &pb.VerifierResult{
 		Message:               report.GetProtoMessage(),
