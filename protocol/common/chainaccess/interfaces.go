@@ -2,7 +2,9 @@ package chainaccess
 
 import (
 	"context"
+	"math/big"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -16,4 +18,34 @@ type HeadTracker interface {
 	// This is more efficient than separate RPC calls and provides complete block information
 	// including hashes, parent hashes, and timestamps needed for reorg detection.
 	LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error)
+}
+
+// SourceReader defines the interface for reading CCIP message events from source chains.
+// This interface abstracts polling-based access to blockchain data and provides
+// the foundation for chain-agnostic message reading.
+//
+// Thread-safety: All methods must be safe for concurrent calls.
+type SourceReader interface {
+	// FetchMessageSentEvents returns MessageSentEvents in the given block range.
+	// The toBlock parameter can be nil to query up to the latest block.
+	FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error)
+
+	// BlockTime returns the timestamp of a given block.
+	BlockTime(ctx context.Context, block *big.Int) (uint64, error)
+
+	// GetBlocksHeaders returns the full block headers for a batch of block numbers.
+	// This is more efficient than individual calls when building the chain tail.
+	// Returns error if any block doesn't exist or RPC call fails.
+	GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[*big.Int]protocol.BlockHeader, error)
+
+	// GetBlockHeaderByHash returns a block header by its hash.
+	// Required for walking back parent chain during LCA finding in reorg detection.
+	// Returns nil if block doesn't exist, error for RPC failures.
+	GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error)
+
+	// HeadTracker Embed HeadTracker for blockchain head tracking functionality.
+	HeadTracker
+
+	// RMNCurseReader Embed RMNCurseReader for curse detection functionality.
+	cursedetector.RMNCurseReader
 }

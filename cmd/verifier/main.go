@@ -202,7 +202,7 @@ func main() {
 	chainStatusManager := storageaccess.NewAggregatorChainStatusManager(aggregatorWriter, aggregatorReader)
 
 	// Create source readers and head trackers - either blockchain-based or mock
-	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 
 	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)

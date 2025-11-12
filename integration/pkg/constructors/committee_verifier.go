@@ -57,7 +57,7 @@ func NewVerificationCoordinator(
 	}
 
 	// Initialize chain components.
-	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 	for sel, chain := range relayers {

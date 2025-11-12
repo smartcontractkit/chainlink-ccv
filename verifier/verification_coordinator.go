@@ -62,7 +62,7 @@ type Coordinator struct {
 
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
-	sourceReaders      map[protocol.ChainSelector]SourceReader
+	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
 	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
 	curseDetector      cursedetector.CurseDetector
@@ -86,10 +86,10 @@ func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
 }
 
 // WithSourceReaders sets multiple source readers.
-func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Option {
+func WithSourceReaders(sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader) Option {
 	return func(vc *Coordinator) {
 		if vc.sourceReaders == nil {
-			vc.sourceReaders = make(map[protocol.ChainSelector]SourceReader)
+			vc.sourceReaders = make(map[protocol.ChainSelector]chainaccess.SourceReader)
 		}
 
 		for chainSelector, reader := range sourceReaders {
@@ -99,8 +99,8 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Op
 }
 
 // AddSourceReader adds a single source reader to the existing map.
-func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
-	return WithSourceReaders(map[protocol.ChainSelector]SourceReader{chainSelector: sourceReader})
+func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainaccess.SourceReader) Option {
+	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
 }
 
 // WithHeadTrackers sets multiple head trackers.

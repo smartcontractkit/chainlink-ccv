@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
@@ -30,9 +32,9 @@ const (
 	ChainStatusRetryAttempts = 5
 )
 
-// SourceReaderService implements SourceReader for reading CCIPMessageSent events from blockchain.
+// SourceReaderService wraps a SourceReader and converts MessageSentEvents to VerificationTasks.
 type SourceReaderService struct {
-	sourceReader         SourceReader
+	sourceReader         chainaccess.SourceReader
 	headTracker          chainaccess.HeadTracker
 	logger               logger.Logger
 	lastProcessedBlock   *big.Int
@@ -72,7 +74,7 @@ func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
 
 // NewSourceReaderService creates a new blockchain-based source reader.
 func NewSourceReaderService(
-	sourceReader SourceReader,
+	sourceReader chainaccess.SourceReader,
 	headTracker chainaccess.HeadTracker,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
@@ -611,8 +613,8 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Fetch until latest available
-	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, nil)
+	// Fetch message events from blockchain
+	events, err := r.sourceReader.FetchMessageSentEvents(logsCtx, fromBlock, nil)
 	if err != nil {
 		r.logger.Errorw("⚠️ Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
@@ -621,6 +623,20 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to latest: %w",
 			fromBlock.String(), err))
 		return
+	}
+
+	// Convert MessageSentEvents to VerificationTasks
+	now := time.Now()
+	tasks := make([]VerificationTask, 0, len(events))
+	for _, event := range events {
+		task := VerificationTask{
+			Message:        event.Message,
+			ReceiptBlobs:   event.Receipts,
+			BlockNumber:    event.BlockNumber,
+			CreatedAt:      now,
+			IdempotencyKey: uuid.NewString(),
+		}
+		tasks = append(tasks, task)
 	}
 
 	// Send batch if tasks were found
@@ -711,7 +727,7 @@ func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
 	}
 }
 
-func (r *SourceReaderService) GetSourceReader() SourceReader {
+func (r *SourceReaderService) GetSourceReader() chainaccess.SourceReader {
 	return r.sourceReader
 }
 

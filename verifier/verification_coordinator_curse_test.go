@@ -122,7 +122,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		WithLogger(lggr),
 		WithConfig(coordinatorConfig),
 		WithChainStatusManager(setup.chainStatusManager),
-		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
+		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
 			sourceChain: setup.mockSourceReader,
 		}),
 		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{

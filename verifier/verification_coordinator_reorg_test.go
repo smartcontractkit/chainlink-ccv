@@ -131,7 +131,7 @@ func (s *reorgTestSetup) createCoordinator() *Coordinator {
 		WithLogger(s.lggr),
 		WithConfig(s.coordinatorConfig),
 		WithChainStatusManager(s.chainStatusManager),
-		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
+		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
 			s.chainSelector: s.mockSourceReader,
 		}),
 		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
