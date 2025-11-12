@@ -1,15 +1,17 @@
 package worker
 
+import "context"
+
 // Execute processes a task by finding missing verifiers, loading verifier readers,
 // enqueueing verifier calls, and storing the results.
-func Execute(task *Task) (*TaskResult, error) {
+func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	// Find what verifications we're currently missing
 	// This does a storage lookup to see what verifications
 	// we currently have for the message.
 	//
 	// The storage uses a write-through cache so this should be
 	// a low cost call.
-	missing, err := task.getMissingVerifiers()
+	missing, err := task.getMissingVerifiers(ctx)
 	totalVerifiers := task.getVerifiers()
 	if err != nil {
 		// If we're unable to query the storage, we'll return the error
@@ -35,9 +37,9 @@ func Execute(task *Task) (*TaskResult, error) {
 	// Each verifier reader returns a channel that will emit one result when ready.
 	//
 	// Collects the results from the channels and returns any successful verifications.
-	results := task.collectVerifierResults(verifierReaders)
+	results := task.collectVerifierResults(ctx, verifierReaders)
 	if len(results) > 0 {
-		err = task.storage.BatchInsertCCVData(task.ctx, results)
+		err = task.storage.BatchInsertCCVData(ctx, results)
 		if err != nil {
 			return nil, err
 		}

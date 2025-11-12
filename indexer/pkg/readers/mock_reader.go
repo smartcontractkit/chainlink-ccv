@@ -9,9 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var (
-	_ protocol.OffchainStorageReader = (*MockReader)(nil)
-)
+var _ protocol.OffchainStorageReader = (*MockReader)(nil)
 
 // MockReaderConfig configures the behavior of the mock reader.
 type MockReaderConfig struct {
@@ -83,6 +81,10 @@ func NewMockReader(config MockReaderConfig) *MockReader {
 		// Initialize lastEmitTime to zero so the first message emits immediately
 		lastEmitTime: time.Time{},
 	}
+}
+
+func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+	return nil, nil
 }
 
 // ReadCCVData implements the OffchainStorageReader interface.

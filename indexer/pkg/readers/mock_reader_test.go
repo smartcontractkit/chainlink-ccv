@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func TestMockReader_EmitsMessagesImmediately(t *testing.T) {
