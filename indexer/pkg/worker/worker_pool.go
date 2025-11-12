@@ -20,7 +20,6 @@ type Pool struct {
 	scheduler        *Scheduler
 	registry         *registry.VerifierRegistry
 	storage          common.IndexerStorage
-	delayHeap        *DelayHeap
 }
 
 type Config struct {

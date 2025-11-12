@@ -36,7 +36,13 @@ func (h DelayHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i]; h[i].index, h[j].in
 // Push adds a task to the heap. The task's index field will be updated
 // by subsequent heap operations. Push should be called through heap.Push,
 // not directly.
-func (h *DelayHeap) Push(x any) { *h = append(*h, x.(*Task)) }
+func (h *DelayHeap) Push(x any) {
+	task, ok := x.(*Task)
+	if !ok {
+		return
+	}
+	*h = append(*h, task)
+}
 
 // Pop removes and returns the task at the end of the heap slice.
 // Pop should be called through heap.Pop, not directly, to ensure

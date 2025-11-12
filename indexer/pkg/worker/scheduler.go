@@ -4,7 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -104,9 +104,9 @@ func (s *Scheduler) run(ctx context.Context) {
 func (s *Scheduler) shouldEnqueue(t *Task) (bool, time.Duration) {
 	if t.attempt+1 >= s.config.MaxAttempts {
 		return false, 0
-	} else {
-		return true, s.backoff(t.attempt + 1)
 	}
+
+	return true, s.backoff(t.attempt + 1)
 }
 
 func (s *Scheduler) backoff(attempt int) time.Duration {
@@ -122,11 +122,12 @@ func (s *Scheduler) backoff(attempt int) time.Duration {
 	}
 
 	// To prevent a flood of messages from overwhelming the verifiers we'll add
-	// a small percentage of the delay time. This should help favour smaller but
+	// a small percentage of the delay time. This should help favor smaller but
 	// more frquent batches to the verifiers.
 	if s.config.JitterFrac > 0 && attempt > 0 {
 		j := s.config.JitterFrac * float64(d)
-		delta := time.Duration(rand.Int63n(int64(2*j))) - time.Duration(j)
+		// #nosec G404 - only used for jitter, not secure rand generation
+		delta := time.Duration(rand.Int64N(int64(2*j))) - time.Duration(j)
 		d += delta
 	}
 

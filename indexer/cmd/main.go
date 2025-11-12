@@ -58,11 +58,6 @@ func main() {
 		lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
 	}
 
-	// Initialize the indexer storage & create a reader discovery, which will discover the off-chain storage readers
-	// Storage Discovery allows the indexer to add new off-chain storage readers without needing a restart
-	// Currently, this uses the static discovery method, which reads the off-chain storage readers from the configuration passed to it.
-	readerDiscovery := createReaderDiscovery(lggr, config)
-
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
 
@@ -118,50 +113,6 @@ func main() {
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
 	api.Serve(v1, 8100)
-}
-
-// createReaderDiscovery creates the appropriate reader discovery based on the configuration.
-func createReaderDiscovery(lggr logger.Logger, cfg *config.Config) common.ReaderDiscovery {
-	// Determine the appropriate reader discovery based on the configuration
-	switch cfg.Discovery.Type {
-	case config.DiscoveryTypeStatic:
-		return discovery.NewStaticDiscovery(createStaticReaders(lggr, cfg))
-	default:
-		lggr.Fatalf("Unsupported discovery type: %s", cfg.Discovery.Type)
-	}
-
-	return nil
-}
-
-// createStaticReaders creates the static readers based on the configuration.
-func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.OffchainStorageReader {
-	readerSlice := []protocol.OffchainStorageReader{}
-
-	// Iterate over the readers and create the appropriate reader
-	for _, reader := range cfg.Discovery.Static.Readers {
-		switch reader.Type {
-		case config.ReaderTypeAggregator:
-			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since)
-			if err != nil {
-				lggr.Fatalf("Failed to create aggregator reader: %v", err)
-			}
-			readerSlice = append(readerSlice, aggReader)
-		case config.ReaderTypeRest:
-			restReader := readers.NewRestReader(readers.RestReaderConfig{
-				BaseURL:        reader.Rest.BaseURL,
-				Since:          reader.Rest.Since,
-				RequestTimeout: time.Duration(reader.Rest.RequestTimeout) * time.Second,
-				Logger:         lggr,
-			})
-			readerSlice = append(readerSlice, restReader)
-		default:
-			lggr.Fatalf("Unsupported reader type: %s", reader.Type)
-		}
-	}
-
-	lggr.Infof("Created %d readers", len(readerSlice))
-	// Return the readers
-	return readerSlice
 }
 
 // createStorage creates the storage backend connection based on the configuration.
