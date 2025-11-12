@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
+
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -201,23 +202,26 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 
-	prodJDImage := os.Getenv("JD_IMAGE")
+	// JD is not currently used.
+	/*
+		prodJDImage := os.Getenv("JD_IMAGE")
 
-	if in.JD != nil {
-		if prodJDImage != "" {
-			in.JD.Image = prodJDImage
-		}
-		if len(in.JD.Image) == 0 {
-			Plog.Warn().Msg("No JD image provided, skipping JD service startup")
-		} else {
-			_, err = jd.NewJD(in.JD)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create JD service: %w", err)
+		if in.JD != nil {
+			if prodJDImage != "" {
+				in.JD.Image = prodJDImage
 			}
+			if len(in.JD.Image) == 0 {
+				Plog.Warn().Msg("No JD image provided, skipping JD service startup")
+			} else {
+				_, err = jd.NewJD(in.JD)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create JD service: %w", err)
+				}
+			}
+		} else {
+			Plog.Warn().Msg("No JD configuration provided, skipping JD service startup")
 		}
-	} else {
-		Plog.Warn().Msg("No JD configuration provided, skipping JD service startup")
-	}
+	*/
 
 	timeTrack.Record("[infra] deploying blockchains")
 
@@ -444,7 +448,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	return in, Store(in)
 }
 
-func encryptedJSONKey(privKeyHex string, password string, scryptN int, scryptP int) ([]byte, common.Address, error) {
+func encryptedJSONKey(privKeyHex, password string, scryptN, scryptP int) ([]byte, common.Address, error) {
 	// get the address from the given private key
 	privKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyHex)
 	if err != nil {
