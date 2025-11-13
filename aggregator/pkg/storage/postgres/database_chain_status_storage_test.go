@@ -19,6 +19,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
+var testClient = "test-client-2"
+
 func setupTestChainStatusDB(t *testing.T) (*DatabaseChainStatusStorage, func()) {
 	ctx := context.Background()
 
@@ -70,7 +72,7 @@ func TestStoreChainStatus_HappyPath_SingleChainStatus(t *testing.T) {
 	err := storage.StoreChainStatus(ctx, clientID, statuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID, nil)
 	require.NoError(t, err)
 	require.Equal(t, statuses, retrieved)
 }
@@ -80,19 +82,76 @@ func TestStoreChainStatus_HappyPath_MultipleChainStatuses(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	clientID := "test-client-2"
 	statuses := map[uint64]*common.ChainStatus{
 		1: {FinalizedBlockHeight: 100, Disabled: false},
 		2: {FinalizedBlockHeight: 200, Disabled: false},
 		3: {FinalizedBlockHeight: 300, Disabled: false},
 	}
 
-	err := storage.StoreChainStatus(ctx, clientID, statuses)
+	err := storage.StoreChainStatus(ctx, testClient, statuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, testClient, nil)
 	require.NoError(t, err)
 	require.Equal(t, statuses, retrieved)
+}
+
+func TestStoreChainStatus_HappyPath_MultipleChainStatuses_EmptyArray(t *testing.T) {
+	storage, cleanup := setupTestChainStatusDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	statuses := map[uint64]*common.ChainStatus{
+		1: {FinalizedBlockHeight: 100, Disabled: false},
+		2: {FinalizedBlockHeight: 200, Disabled: false},
+		3: {FinalizedBlockHeight: 300, Disabled: false},
+	}
+
+	err := storage.StoreChainStatus(ctx, testClient, statuses)
+	require.NoError(t, err)
+
+	retrieved, err := storage.GetClientChainStatus(ctx, testClient, []uint64{})
+	require.NoError(t, err)
+	require.Equal(t, statuses, retrieved)
+}
+
+func TestStoreChainStatus_HappyPath_MultipleChainStatuses_MissingStatus(t *testing.T) {
+	storage, cleanup := setupTestChainStatusDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	statuses := map[uint64]*common.ChainStatus{
+		1: {FinalizedBlockHeight: 100, Disabled: false},
+		2: {FinalizedBlockHeight: 200, Disabled: false},
+		3: {FinalizedBlockHeight: 300, Disabled: false},
+	}
+
+	err := storage.StoreChainStatus(ctx, testClient, statuses)
+	require.NoError(t, err)
+
+	retrieved, err := storage.GetClientChainStatus(ctx, testClient, []uint64{100})
+	require.NoError(t, err)
+	require.Empty(t, retrieved)
+}
+
+func TestStoreChainStatus_HappyPath_MultipleChainStatuses_RetrieveSingle(t *testing.T) {
+	storage, cleanup := setupTestChainStatusDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	statuses := map[uint64]*common.ChainStatus{
+		1: {FinalizedBlockHeight: 100, Disabled: false},
+		2: {FinalizedBlockHeight: 200, Disabled: false},
+		3: {FinalizedBlockHeight: 300, Disabled: false},
+	}
+
+	err := storage.StoreChainStatus(ctx, testClient, statuses)
+	require.NoError(t, err)
+
+	retrieved, err := storage.GetClientChainStatus(ctx, testClient, []uint64{1})
+	require.NoError(t, err)
+	require.Len(t, retrieved, 1)
+	require.Equal(t, statuses[1], retrieved[1], "returning only the status queried for")
 }
 
 func TestStoreChainStatus_ValidationErrors(t *testing.T) {
@@ -177,7 +236,7 @@ func TestStoreChainStatus_OverrideExisting(t *testing.T) {
 	err = storage.StoreChainStatus(ctx, clientID, updatedChainStatuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID, nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(150), retrieved[1].FinalizedBlockHeight, "chain selector 1 should be updated")
 	require.Equal(t, uint64(200), retrieved[2].FinalizedBlockHeight, "chain selector 2 should remain unchanged")
@@ -204,7 +263,7 @@ func TestStoreChainStatus_PartialOverride(t *testing.T) {
 	err = storage.StoreChainStatus(ctx, clientID, partialUpdate)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID, nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(100), retrieved[1].FinalizedBlockHeight)
 	require.Equal(t, uint64(250), retrieved[2].FinalizedBlockHeight)
@@ -217,7 +276,7 @@ func TestGetClientChainStatuses_NotFound(t *testing.T) {
 
 	ctx := context.Background()
 
-	retrieved, err := storage.GetClientChainStatus(ctx, "non-existent-client")
+	retrieved, err := storage.GetClientChainStatus(ctx, "non-existent-client", nil)
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	require.Empty(t, retrieved)
@@ -303,7 +362,7 @@ func TestConcurrentAccess(t *testing.T) {
 			err := storage.StoreChainStatus(ctx, cID, chainStatuses)
 			require.NoError(t, err)
 
-			retrieved, err := storage.GetClientChainStatus(ctx, cID)
+			retrieved, err := storage.GetClientChainStatus(ctx, cID, nil)
 			require.NoError(t, err)
 			require.Equal(t, chainStatuses, retrieved)
 		}(clientID, i)
@@ -342,7 +401,7 @@ func TestConcurrentUpdates_SameClient(t *testing.T) {
 
 	wg.Wait()
 
-	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID, nil)
 	require.NoError(t, err)
 	require.Len(t, retrieved, numGoroutines)
 
@@ -368,7 +427,7 @@ func TestStoreChainStatus_LargeValues(t *testing.T) {
 	err := storage.StoreChainStatus(ctx, clientID, chainStatuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID, nil)
 	require.NoError(t, err)
 	require.Equal(t, chainStatuses, retrieved)
 }
@@ -388,7 +447,7 @@ func TestStoreChainStatus_HighBitSetValues(t *testing.T) {
 	err := storage.StoreChainStatus(ctx, clientID, chainStatuses)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetClientChainStatus(ctx, clientID)
+	retrieved, err := storage.GetClientChainStatus(ctx, clientID, nil)
 	require.NoError(t, err)
 	require.Equal(t, chainStatuses, retrieved)
 }
