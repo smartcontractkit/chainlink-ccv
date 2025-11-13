@@ -1384,6 +1384,27 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 	return nil
 }
 
+func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChainCommittees) []adapters.CommitteeVerifier[datastore.AddressRef] {
+	committeeVerifiers := make([]adapters.CommitteeVerifier[datastore.AddressRef], 0, len(committees))
+	for _, committee := range committees {
+		committeeVerifiers = append(committeeVerifiers, adapters.CommitteeVerifier[datastore.AddressRef]{
+			Implementation: datastore.AddressRef{
+				Type:          datastore.ContractType(committee_verifier.ContractType),
+				Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+				ChainSelector: selector,
+				Qualifier:     committee.CommitteeQualifier,
+			},
+			Resolver: datastore.AddressRef{
+				Type:          datastore.ContractType(committee_verifier.ResolverType),
+				Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+				ChainSelector: selector,
+				Qualifier:     committee.CommitteeQualifier,
+			},
+		})
+	}
+	return committeeVerifiers
+}
+
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
 	l := m.logger
@@ -1413,7 +1434,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier,
+					Qualifier:     DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
 			},
 			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
@@ -1422,7 +1443,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier,
+					Qualifier:     DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
 			},
 			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
@@ -1481,50 +1502,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
-				CommitteeVerifiers: []adapters.CommitteeVerifier[datastore.AddressRef]{
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     DefaultCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     DefaultCommitteeVerifierQualifier,
-						},
-					},
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-					},
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     TertiaryCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     TertiaryCommitteeVerifierQualifier,
-						},
-					},
-				},
+				CommitteeVerifiers: toComitteeVerifier(selector, committees),
 			},
 		},
 	})
