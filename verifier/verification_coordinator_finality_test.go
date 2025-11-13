@@ -39,9 +39,13 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	// Message at block 940 (< finalized 950) should be processed immediately
 	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
-	finalizedTask := VerificationTask{
-		Message: finalizedMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
+	messageID, _ := finalizedMessage.MessageID()
+	finalizedEvent := protocol.MessageSentEvent{
+		DestChainSelector: finalizedMessage.DestChainSelector,
+		SequenceNumber:    uint64(finalizedMessage.Nonce),
+		MessageID:         messageID,
+		Message:           finalizedMessage,
+		Receipts: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
 			DestGasLimit:      300000,
 			DestBytesOverhead: 100,
@@ -52,7 +56,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	}
 
 	// Send message
-	setup.verificationTaskCh <- finalizedTask
+	setup.verificationTaskCh <- finalizedEvent
 	// Wait for processing (poll interval is 100ms, add some buffer)
 	time.Sleep(200 * time.Millisecond)
 
@@ -79,9 +83,13 @@ func TestFinality_CustomFinality(t *testing.T) {
 	customGasLimit := uint32(300_000)
 
 	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
-	readyTask := VerificationTask{
-		Message: readyMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
+	messageID, _ := readyMessage.MessageID()
+	readyEvent := protocol.MessageSentEvent{
+		DestChainSelector: readyMessage.DestChainSelector,
+		SequenceNumber:    uint64(readyMessage.Nonce),
+		MessageID:         messageID,
+		Message:           readyMessage,
+		Receipts: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
 			DestGasLimit:      300000,
 			DestBytesOverhead: 100,
@@ -92,7 +100,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 	}
 
 	// Send message
-	setup.verificationTaskCh <- readyTask
+	setup.verificationTaskCh <- readyEvent
 	// Wait for processing (poll interval is 100ms, add some buffer)
 	time.Sleep(200 * time.Millisecond)
 
@@ -119,9 +127,13 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
-	nonFinalizedTask := VerificationTask{
-		Message: nonFinalizedMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
+	messageID, _ := nonFinalizedMessage.MessageID()
+	nonFinalizedEvent := protocol.MessageSentEvent{
+		DestChainSelector: nonFinalizedMessage.DestChainSelector,
+		SequenceNumber:    uint64(nonFinalizedMessage.Nonce),
+		MessageID:         messageID,
+		Message:           nonFinalizedMessage,
+		Receipts: []protocol.ReceiptWithBlob{{
 			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
 			DestGasLimit:      300000,
 			DestBytesOverhead: 100,
@@ -133,10 +145,10 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Send message with timeout
 	select {
-	case setup.verificationTaskCh <- nonFinalizedTask:
+	case setup.verificationTaskCh <- nonFinalizedEvent:
 		// Successfully sent
 	case <-ctx.Done():
-		t.Fatal("Timeout sending task to verification channel")
+		t.Fatal("Timeout sending event to verification channel")
 	}
 
 	// Wait for task to be added to finality queue (poll interval is 50ms)
@@ -169,9 +181,9 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 type coordinatorTestSetup struct {
 	coordinator           *Coordinator
-	mockSourceReader      *MockSourceReader
+	mockSourceReader      *protocol_mocks.MockSourceReader
 	mockVerifier          *TestVerifier
-	verificationTaskCh    chan VerificationTask
+	verificationTaskCh    chan protocol.MessageSentEvent
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
@@ -191,25 +203,11 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	require.NoError(t, err)
 
 	mockVerifier := NewTestVerifier()
-	mockSourceReader := NewMockSourceReader(t)
+	mockSetup := SetupMockSourceReader(t)
+	mockSetup.ExpectVerificationTask(false)
+	mockSourceReader := mockSetup.Reader
 	mockStorage := &NoopStorage{}
-	verificationTaskCh := make(chan VerificationTask, 10)
-
-	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]VerificationTask, error) {
-		var tasks []VerificationTask
-		for {
-			select {
-			case task := <-verificationTaskCh:
-				tasks = append(tasks, task)
-			default:
-				return tasks, nil
-			}
-		}
-	})
-
-	// Mock BlockTime to return immediately during initialization
-	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
-	mockSourceReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
+	verificationTaskCh := mockSetup.Channel
 
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)

@@ -24,7 +24,7 @@ type reorgTestSetup struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
 	coordinator        *Coordinator
-	mockSourceReader   *MockSourceReader
+	mockSourceReader   *protocol_mocks.MockSourceReader
 	mockHeadTracker    *protocol_mocks.MockHeadTracker
 	mockReorgDetector  *mockReorgDetector
 	chainStatusManager *InMemoryChainStatusManager
@@ -32,7 +32,7 @@ type reorgTestSetup struct {
 	storage            *common.InMemoryOffchainStorage
 	chainSelector      protocol.ChainSelector
 	lggr               logger.Logger
-	taskChannel        chan VerificationTask
+	taskChannel        chan protocol.MessageSentEvent
 
 	// Coordinator configuration for recreating coordinators
 	coordinatorConfig     CoordinatorConfig
@@ -255,19 +255,19 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	setup := setupReorgTest(t, chainSelector, 500*time.Millisecond)
 	defer setup.cleanup()
 
-	// - Tasks at blocks 98, 99: BELOW finalized block (100), should be PROCESSED
-	// - Tasks at blocks 101, 102: ABOVE finalized block (100), should be FLUSHED by reorg
-	finalizedTasks := createTestVerificationTasks(t, 1, chainSelector, defaultDestChain, []uint64{98, 99})
-	pendingTasks := createTestVerificationTasks(t, 3, chainSelector, defaultDestChain, []uint64{101, 102})
+	// - Events at blocks 98, 99: BELOW finalized block (100), should be PROCESSED
+	// - Events at blocks 101, 102: ABOVE finalized block (100), should be FLUSHED by reorg
+	finalizedEvents := createTestMessageSentEvents(t, 1, chainSelector, defaultDestChain, []uint64{98, 99})
+	pendingEvents := createTestMessageSentEvents(t, 3, chainSelector, defaultDestChain, []uint64{101, 102})
 
 	setup.mustStartCoordinator()
-	// THEN send tasks via channel (like in verification_coordinator_test.go)
-	sendTasksToChannel(t, setup, append(finalizedTasks, pendingTasks...))
-	// Wait for finalized tasks to be processed before triggering reorg
-	// Tasks at blocks 98, 99 should be processed since they're below finalized block 100
-	t.Log("📋 Waiting for finalized tasks (98, 99) to be processed...")
+	// THEN send events via channel (like in verification_coordinator_test.go)
+	sendEventsToChannel(t, setup, append(finalizedEvents, pendingEvents...))
+	// Wait for finalized events to be processed before triggering reorg
+	// Events at blocks 98, 99 should be processed since they're below finalized block 100
+	t.Log("📋 Waiting for finalized events (98, 99) to be processed...")
 	WaitForMessagesInStorage(setup.t, setup.storage, 2)
-	t.Log("✅ Finalized tasks (98, 99) have been processed")
+	t.Log("✅ Finalized events (98, 99) have been processed")
 	sourceReaderService := setup.coordinator.sourceStates[chainSelector].reader
 	require.Equal(t, getLastProcessedBlockSafe(sourceReaderService), uint64(102), "Source reader should have read up to block 102")
 
@@ -314,10 +314,10 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	defer setup.cleanup()
 
 	setup.mustStartCoordinator()
-	// Create tasks at blocks 98, 99, 100 (around finalized block)
-	tasks := createTestVerificationTasks(t, 1, chainSelector, defaultDestChain, []uint64{98, 99, 100})
+	// Create events at blocks 98, 99, 100 (around finalized block)
+	events := createTestMessageSentEvents(t, 1, chainSelector, defaultDestChain, []uint64{98, 99, 100})
 
-	sendTasksToChannel(t, setup, tasks)
+	sendEventsToChannel(t, setup, events)
 
 	// Inject a finality violation event directly
 	// This simulates a reorg deeper than the finalized block
@@ -358,17 +358,17 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 	t.Log("✅ Test completed: Disabled chain correctly prevented coordinator start")
 }
 
-func sendTasksToChannel(t *testing.T, setup *reorgTestSetup, tasks []VerificationTask) {
+func sendEventsToChannel(t *testing.T, setup *reorgTestSetup, events []protocol.MessageSentEvent) {
 	t.Helper()
-	t.Log("📋 Sending tasks to verification pipeline")
+	t.Log("📋 Sending events to verification pipeline")
 
-	// Send tasks via channel
+	// Send events via channel
 	go func() {
-		for _, task := range tasks {
-			setup.taskChannel <- task
+		for _, event := range events {
+			setup.taskChannel <- event
 		}
 	}()
 	// Give some time for tasks to be queued
 	time.Sleep(20 * time.Millisecond)
-	t.Log("📋 Tasks queued")
+	t.Log("📋 Events queued")
 }

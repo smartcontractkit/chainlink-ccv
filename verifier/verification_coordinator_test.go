@@ -108,34 +108,6 @@ func createTestSigner(t *testing.T) (verifier.MessageSigner, protocol.UnknownAdd
 	return signer, addr
 }
 
-func createTestVerificationTask(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32) verifier.VerificationTask {
-	message := verifier.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality, gasLimit)
-
-	// Determine the correct verifier address based on source chain
-	var verifierAddress string
-	switch sourceChainSelector {
-	case sourceChain1:
-		verifierAddress = "0x1234"
-	case sourceChain2:
-		verifierAddress = "0x5678"
-	default:
-		verifierAddress = "0x1234" // Default fallback
-	}
-
-	return verifier.VerificationTask{
-		Message: message,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{
-			{
-				Issuer:            []byte(verifierAddress),
-				DestGasLimit:      300000, // Test gas limit
-				DestBytesOverhead: 100,    // Test bytes overhead
-				Blob:              []byte("test-blob"),
-				ExtraArgs:         []byte("test-extra-args"), // Test extra args
-			},
-		},
-	}
-}
-
 // createCoordinatorConfig creates a coordinator config with the given sources.
 func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSelector]string) verifier.CoordinatorConfig {
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
@@ -156,19 +128,20 @@ func TestNewVerifierCoordinator(t *testing.T) {
 		sourceChain1: "0x1234",
 	})
 
-	mockReader := verifier.NewMockSourceReader(t)
-	channel := make(chan verifier.VerificationTask, 10)
-	mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
-		var tasks []verifier.VerificationTask
+	mockSetup := verifier.SetupMockSourceReader(t)
+	mockReader := mockSetup.Reader
+	mockSetup.ExpectVerificationTask(true)
+	mockSetup.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]protocol.MessageSentEvent, error) {
+		var events []protocol.MessageSentEvent
 		for {
 			select {
-			case task := <-channel:
-				tasks = append(tasks, task)
+			case event := <-mockSetup.Channel:
+				events = append(events, event)
 			default:
-				return tasks, nil
+				return events, nil
 			}
 		}
-	}).Maybe()
+	})
 
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockReader,
@@ -318,11 +291,11 @@ func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorCon
 	)
 }
 
-// sendTasksAsync sends verification tasks asynchronously with a delay.
-func sendTasksAsync(tasks []verifier.VerificationTask, channel chan<- verifier.VerificationTask, counter *atomic.Int32, delay time.Duration) {
+// sendEventsAsync sends message sent events asynchronously with a delay.
+func sendEventsAsync(events []protocol.MessageSentEvent, channel chan<- protocol.MessageSentEvent, counter *atomic.Int32, delay time.Duration) {
 	go func() {
-		for _, task := range tasks {
-			channel <- task
+		for _, event := range events {
+			channel <- event
 			if counter != nil {
 				counter.Add(1)
 			}
@@ -332,7 +305,7 @@ func sendTasksAsync(tasks []verifier.VerificationTask, channel chan<- verifier.V
 }
 
 // verifyStoredTasks is a helper to verify stored data matches expected tasks.
-func verifyStoredTasks(t *testing.T, storedData []protocol.CCVData, expectedTasks []verifier.VerificationTask, expectedChain protocol.ChainSelector) {
+func verifyStoredTasks(t *testing.T, storedData []protocol.CCVData, expectedTasks []protocol.MessageSentEvent, expectedChain protocol.ChainSelector) {
 	expectedIDs := make(map[[32]byte]bool)
 	for _, task := range expectedTasks {
 		messageID, err := task.Message.MessageID()
@@ -373,17 +346,17 @@ func TestVerifier(t *testing.T) {
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
 
-	// Create and send test tasks
-	testTasks := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
-		createTestVerificationTask(t, 200, sourceChain1, defaultDestChain, 0, 300_000),
+	// Create and send test events
+	testEvents := []protocol.MessageSentEvent{
+		createTestMessageSentEvent(t, 100, sourceChain1, defaultDestChain, 0, 300_000, 100),
+		createTestMessageSentEvent(t, 200, sourceChain1, defaultDestChain, 0, 300_000, 200),
 	}
 
 	var messagesSent atomic.Int32
-	sendTasksAsync(testTasks, mockSetup.Channel, &messagesSent, 10*time.Millisecond)
+	sendEventsAsync(testEvents, mockSetup.Channel, &messagesSent, 10*time.Millisecond)
 
 	// Wait for processing and verify results
-	verifier.WaitForMessagesInStorage(ts.t, ts.storage, len(testTasks))
+	verifier.WaitForMessagesInStorage(ts.t, ts.storage, len(testEvents))
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -391,15 +364,13 @@ func TestVerifier(t *testing.T) {
 	// Verify stored data
 	storedData, err := ts.storage.GetAllCCVData(config.SourceConfigs[sourceChain1].VerifierAddress)
 	require.NoError(t, err)
-	assert.Len(t, storedData, len(testTasks))
-	assert.Equal(t, int(messagesSent.Load()), len(testTasks))
+	assert.Len(t, storedData, len(testEvents))
+	assert.Equal(t, int(messagesSent.Load()), len(testEvents))
 
 	// Verify message IDs
 	expectedIDs := make(map[[32]byte]bool)
-	for _, task := range testTasks {
-		messageID, err := task.Message.MessageID()
-		require.NoError(t, err)
-		expectedIDs[messageID] = true
+	for _, event := range testEvents {
+		expectedIDs[event.MessageID] = true
 	}
 	for _, data := range storedData {
 		assert.True(t, expectedIDs[data.MessageID], "Unexpected message ID: %s", data.MessageID.String())
@@ -440,23 +411,23 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
 
-	// Create test tasks for both sources
-	tasksSource1 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
-		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0, 300_000),
+	// Create test events for both sources
+	eventsSource1 := []protocol.MessageSentEvent{
+		createTestMessageSentEvent(t, 100, sourceChain1, defaultDestChain, 0, 300_000, 100),
+		createTestMessageSentEvent(t, 101, sourceChain1, defaultDestChain, 0, 300_000, 101),
 	}
-	tasksSource2 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 200, sourceChain2, defaultDestChain, 0, 300_000),
-		createTestVerificationTask(t, 201, sourceChain2, defaultDestChain, 0, 300_000),
+	eventsSource2 := []protocol.MessageSentEvent{
+		createTestMessageSentEvent(t, 200, sourceChain2, defaultDestChain, 0, 300_000, 200),
+		createTestMessageSentEvent(t, 201, sourceChain2, defaultDestChain, 0, 300_000, 201),
 	}
 
-	// Send tasks from both sources
+	// Send events from both sources
 	var messagesSent1, messagesSent2 atomic.Int32
-	sendTasksAsync(tasksSource1, mockSetup1.Channel, &messagesSent1, 5*time.Millisecond)
-	sendTasksAsync(tasksSource2, mockSetup2.Channel, &messagesSent2, 7*time.Millisecond)
+	sendEventsAsync(eventsSource1, mockSetup1.Channel, &messagesSent1, 5*time.Millisecond)
+	sendEventsAsync(eventsSource2, mockSetup2.Channel, &messagesSent2, 7*time.Millisecond)
 
 	// Wait for all messages to be processed
-	totalMessages := len(tasksSource1) + len(tasksSource2)
+	totalMessages := len(eventsSource1) + len(eventsSource2)
 	verifier.WaitForMessagesInStorage(ts.t, ts.storage, totalMessages)
 
 	err = v.Close()
@@ -468,14 +439,14 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	storedDataSource2, err := ts.storage.GetAllCCVData(config.SourceConfigs[sourceChain2].VerifierAddress)
 	require.NoError(t, err)
 
-	assert.Len(t, storedDataSource1, len(tasksSource1))
-	assert.Len(t, storedDataSource2, len(tasksSource2))
-	assert.Equal(t, int(messagesSent1.Load()), len(tasksSource1))
-	assert.Equal(t, int(messagesSent2.Load()), len(tasksSource2))
+	assert.Len(t, storedDataSource1, len(eventsSource1))
+	assert.Len(t, storedDataSource2, len(eventsSource2))
+	assert.Equal(t, int(messagesSent1.Load()), len(eventsSource1))
+	assert.Equal(t, int(messagesSent2.Load()), len(eventsSource2))
 
 	// Verify message IDs and chain selectors
-	verifyStoredTasks(t, storedDataSource1, tasksSource1, sourceChain1)
-	verifyStoredTasks(t, storedDataSource2, tasksSource2, sourceChain2)
+	verifyStoredTasks(t, storedDataSource1, eventsSource1, sourceChain1)
+	verifyStoredTasks(t, storedDataSource2, eventsSource2, sourceChain2)
 }
 
 func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
@@ -494,7 +465,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	// Generate an error on source 2.
 	mockSetup2 := verifier.SetupMockSourceReader(t)
 	sentinelError := errors.New("The Terminator")
-	mockSetup2.Reader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).Return(nil, sentinelError)
+	mockSetup2.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).Return(nil, sentinelError)
 
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockSetup1.Reader,
@@ -516,14 +487,14 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
 
-	// Send verification tasks only to source 1
-	tasksSource1 := []verifier.VerificationTask{
-		createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000),
-		createTestVerificationTask(t, 101, sourceChain1, defaultDestChain, 0, 300_000),
+	// Send verification events only to source 1
+	eventsSource1 := []protocol.MessageSentEvent{
+		createTestMessageSentEvent(t, 100, sourceChain1, defaultDestChain, 0, 300_000, 100),
+		createTestMessageSentEvent(t, 101, sourceChain1, defaultDestChain, 0, 300_000, 101),
 	}
 
-	sendTasksAsync(tasksSource1, mockSetup1.Channel, nil, 5*time.Millisecond)
-	verifier.WaitForMessagesInStorage(ts.t, ts.storage, len(tasksSource1))
+	sendEventsAsync(eventsSource1, mockSetup1.Channel, nil, 5*time.Millisecond)
+	verifier.WaitForMessagesInStorage(ts.t, ts.storage, len(eventsSource1))
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -534,7 +505,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	storedDataSource2, err := ts.storage.GetAllCCVData(config.SourceConfigs[sourceChain2].VerifierAddress)
 	require.NoError(t, err)
 
-	assert.Len(t, storedDataSource1, len(tasksSource1))
+	assert.Len(t, storedDataSource1, len(eventsSource1))
 	assert.Len(t, storedDataSource2, 0) // No messages from failed source
 }
 
@@ -561,23 +532,12 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 				sourceChain2: "0x5678",
 			}),
 			readers: func() map[protocol.ChainSelector]chainaccess.SourceReader {
-				// Create a mock that only expects VerificationTaskChannel call
-				mockReader := verifier.NewMockSourceReader(t)
-				mockCh := make(chan verifier.VerificationTask)
-				mockReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]verifier.VerificationTask, error) {
-					var tasks []verifier.VerificationTask
-					for {
-						select {
-						case task := <-mockCh:
-							tasks = append(tasks, task)
-						default:
-							return tasks, nil
-						}
-					}
-				}).Maybe()
+				// Create a mock that only expects FetchMessageSentEvents call
+				mockSetup := verifier.SetupMockSourceReader(t)
+				mockSetup.ExpectVerificationTask(true)
 
 				return map[protocol.ChainSelector]chainaccess.SourceReader{
-					sourceChain1: mockReader, // Missing reader for sourceChain2
+					sourceChain1: mockSetup.Reader, // Missing reader for sourceChain2
 				}
 			}(),
 			expectError: "source reader not found for chain selector 84",
@@ -691,15 +651,15 @@ func TestVerificationErrorHandling(t *testing.T) {
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
 
-	// Create test verification tasks
-	validTask := createTestVerificationTask(t, 100, sourceChain1, defaultDestChain, 0, 300_000)
-	invalidTask := createTestVerificationTask(t, 200, unconfiguredChain, defaultDestChain, 0, 300_000)
+	// Create test verification events
+	validEvent := createTestMessageSentEvent(t, 100, sourceChain1, defaultDestChain, 0, 300_000, 100)
+	invalidEvent := createTestMessageSentEvent(t, 200, unconfiguredChain, defaultDestChain, 0, 300_000, 200)
 
-	// Send tasks
-	sendTasksAsync([]verifier.VerificationTask{validTask}, mockSetup1.Channel, nil, 10*time.Millisecond)
-	sendTasksAsync([]verifier.VerificationTask{invalidTask}, mockSetup2.Channel, nil, 10*time.Millisecond)
+	// Send events
+	sendEventsAsync([]protocol.MessageSentEvent{validEvent}, mockSetup1.Channel, nil, 10*time.Millisecond)
+	sendEventsAsync([]protocol.MessageSentEvent{invalidEvent}, mockSetup2.Channel, nil, 10*time.Millisecond)
 
-	// Wait for valid task to be processed
+	// Wait for valid event to be processed
 	verifier.WaitForMessagesInStorage(ts.t, ts.storage, 1)
 
 	// Give some time for error processing
@@ -712,11 +672,44 @@ func TestVerificationErrorHandling(t *testing.T) {
 	storedData, err := ts.storage.GetAllCCVData(config.SourceConfigs[sourceChain1].VerifierAddress)
 	require.NoError(t, err)
 	assert.Len(t, storedData, 1)
-	expectedMessageID, err := validTask.Message.MessageID()
-	require.NoError(t, err)
-	assert.Equal(t, expectedMessageID, storedData[0].MessageID)
+	assert.Equal(t, validEvent.MessageID, storedData[0].MessageID)
 
 	// The unconfigured chain is not in the config, so we can't check its data
-	// The test validates that tasks from unconfigured chains don't cause crashes
+	// The test validates that events from unconfigured chains don't cause crashes
 	// and that configured chains continue to work properly
+}
+
+// createTestMessageSentEvent creates a single MessageSentEvent for testing.
+func createTestMessageSentEvent(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32, blockNumber uint64) protocol.MessageSentEvent {
+	t.Helper()
+	message := verifier.CreateTestMessage(t, nonce, sourceChainSelector, destChainSelector, finality, gasLimit)
+	messageID, _ := message.MessageID()
+
+	// Determine the correct verifier address based on source chain
+	var verifierAddress string
+	switch sourceChainSelector {
+	case sourceChain1:
+		verifierAddress = "0x1234"
+	case sourceChain2:
+		verifierAddress = "0x5678"
+	default:
+		verifierAddress = "0x1234" // Default fallback
+	}
+
+	return protocol.MessageSentEvent{
+		DestChainSelector: message.DestChainSelector,
+		SequenceNumber:    uint64(message.Nonce),
+		MessageID:         messageID,
+		Message:           message,
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            []byte(verifierAddress),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte("test-extra-args"),
+			},
+		},
+		BlockNumber: blockNumber,
+	}
 }

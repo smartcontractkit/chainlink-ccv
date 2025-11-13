@@ -10,3 +10,4 @@ packages:
     github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess:
         interfaces:
             HeadTracker:
+            SourceReader:
