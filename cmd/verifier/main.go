@@ -243,12 +243,7 @@ func main() {
 
 		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
 		sourceReaders[selector] = evmSourceReader
-		headTrackerInterface, ok := evmSourceReader.(chainaccess.HeadTracker)
-		if !ok {
-			lggr.Errorw("EVMSourceReader does not implement HeadTracker interface", "selector", selector)
-			continue
-		}
-		headTrackers[selector] = headTrackerInterface
+		headTrackers[selector] = evmSourceReader
 
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
