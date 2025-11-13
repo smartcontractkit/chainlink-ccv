@@ -35,7 +35,7 @@ func TestGetMessagesSinceHandler_Success_NoNextToken(t *testing.T) {
 	signerAddr := addrSigner
 	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
-	committee := buildCommittee(sourceSel, destSel, sourceVerifierAddr, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
+	committee := buildCommittee(destSel, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
 
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	msgID, _ := msg.MessageID()
@@ -67,7 +67,7 @@ func TestGetMessagesSinceHandler_Success_WithNextToken(t *testing.T) {
 	signerAddr := addrSigner
 	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
-	committee := buildCommittee(1, 2, sourceVerifierAddr, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
+	committee := buildCommittee(2, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
 
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	msgID, _ := msg.MessageID()

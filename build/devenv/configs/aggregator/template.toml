@@ -91,7 +91,3 @@ TraceBatchTimeout = 10
 #[[committees.default.quorumConfigs.4793464827907405086.signers]]
 #participantID = "default-participant2"
 #addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
-#[committees.default.sourceVerifierAddresses]
-#12922642891491394802 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
-#3379446385462418246 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
-#4793464827907405086 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
