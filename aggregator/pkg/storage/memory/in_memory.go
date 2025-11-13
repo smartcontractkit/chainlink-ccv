@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"sync"
+	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
@@ -16,7 +16,6 @@ import (
 type InMemoryStorage struct {
 	records           *sync.Map
 	aggregatedReports *sync.Map
-	timeProvider      common.TimeProvider
 }
 
 type recordWithAggregationKey struct {
@@ -82,7 +81,7 @@ func (s *InMemoryStorage) ListCommitVerificationByAggregationKey(_ context.Conte
 
 func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
 	id := report.GetID()
-	report.WrittenAt = s.timeProvider.Now()
+	report.WrittenAt = time.Now()
 	s.aggregatedReports.Store(id, report)
 	return nil
 }
@@ -105,7 +104,7 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 }
 
 func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, start int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
-	end := s.timeProvider.Now().UnixMilli()
+	end := time.Now().UnixMilli()
 	return s.QueryAggregatedReportsRange(ctx, start, end, committeeID, token)
 }
 
@@ -174,13 +173,8 @@ func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context, committeeID mode
 
 // NewInMemoryStorage creates a new instance of InMemoryStorage.
 func NewInMemoryStorage() *InMemoryStorage {
-	return NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
-}
-
-func NewInMemoryStorageWithTimeProvider(timeProvider common.TimeProvider) *InMemoryStorage {
 	return &InMemoryStorage{
 		records:           new(sync.Map),
 		aggregatedReports: new(sync.Map),
-		timeProvider:      timeProvider,
 	}
 }
