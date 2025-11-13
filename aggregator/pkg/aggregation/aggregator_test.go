@@ -143,7 +143,6 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 
 		existingReport := &model.CommitAggregatedReport{
 			MessageID:     messageID,
-			CommitteeID:   committeeID,
 			Verifications: []*model.CommitVerificationRecord{},
 		}
 

@@ -76,7 +76,7 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 }
 
 // NewCommitteeFixture creates a test committee configuration with the given parameters.
-func NewCommitteeFixture(sourceVerifierAddress []byte, destVerifierAddress []byte, signers ...model.Signer) *model.Committee {
+func NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress []byte, signers ...model.Signer) *model.Committee {
 	return &model.Committee{
 		SourceVerifierAddresses: map[string]string{
 			"1": common.Bytes2Hex(sourceVerifierAddress),
