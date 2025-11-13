@@ -232,8 +232,16 @@ func (a *AggregatorReader) Close() error {
 // ReadChainStatus reads chain statuses from the aggregator.
 // Returns map of chainSelector -> ChainStatusInfo. Missing chains are not included in the map.
 func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+	// Convert chainSelectors to uint64 slice
+	selectors := make([]uint64, len(chainSelectors))
+	for i, selector := range chainSelectors {
+		selectors[i] = uint64(selector)
+	}
+
 	// Create read request
-	req := &pb.ReadChainStatusRequest{}
+	req := &pb.ReadChainStatusRequest{
+		ChainSelectors: selectors,
+	}
 
 	// Create aggregator client for chain status operations (different from CCV data client)
 	aggregatorClient := pb.NewAggregatorClient(a.conn)
@@ -244,22 +252,13 @@ func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors [
 		return nil, fmt.Errorf("failed to read chain status: %w", err)
 	}
 
-	// Build a map of all statuses from response for quick lookup
-	allStatuses := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
+	result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 	for _, chainStatus := range resp.Statuses {
 		selector := protocol.ChainSelector(chainStatus.ChainSelector)
-		allStatuses[selector] = &protocol.ChainStatusInfo{
+		result[selector] = &protocol.ChainStatusInfo{
 			ChainSelector: selector,
 			BlockNumber:   new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight),
 			Disabled:      chainStatus.Disabled,
-		}
-	}
-
-	// Filter to only requested chain selectors
-	result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-	for _, selector := range chainSelectors {
-		if status, ok := allStatuses[selector]; ok {
-			result[selector] = status
 		}
 	}
 
