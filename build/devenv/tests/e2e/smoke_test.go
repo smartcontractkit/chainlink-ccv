@@ -27,10 +27,6 @@ import (
 	ccvEvm "github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
-const (
-	defaultExecTimeout = 40 * time.Second
-)
-
 type tokenTransfer struct {
 	tokenAmount  cciptestinterfaces.TokenAmount
 	destTokenRef datastore.AddressRef
@@ -748,12 +744,7 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 
 	l.Info().Msg("Verifying uncursed lane (chain0 -> chain2) still works")
 	receiver2 := mustGetEOAReceiverAddress(t, c, chain2)
-	sentEvt2 := testCtx.MustSendMessage(chain0, chain2, receiver2, 0) // finality=0 uses version 2
-
-	execEvt2, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain2, sentEvt2.SequenceNumber, defaultExecTimeout)
-	require.NoError(t, err)
-	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt2.State,
-		"message on uncursed lane should succeed")
+	testCtx.MustExecuteMessage(chain0, chain2, receiver2, 0) // finality=0
 	l.Info().Msg("Confirmed: uncursed lane still works")
 
 	l.Info().Msg("Uncursing the lane")
@@ -765,12 +756,8 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 	// TODO: test again without this sleep to make sure that we don't drop messages because of the cache
 	time.Sleep(5 * time.Second) // wait a bit for the uncurse to propagate
 
-	sentEvt3 := testCtx.MustSendMessage(chain0, chain1, receiver, 0) // finality=0
+	testCtx.MustExecuteMessage(chain0, chain1, receiver, 0) // finality=0
 
-	execEvt3, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, sentEvt3.SequenceNumber, defaultExecTimeout)
-	require.NoError(t, err)
-	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt3.State,
-		"message after uncurse should succeed")
 	l.Info().Msg("Test completed successfully: lane curse and uncurse work as expected")
 }
 
@@ -814,12 +801,7 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 
 	l.Info().Msg("Verifying unrelated lane (chain1->chain2) still works")
 	receiver12 := mustGetEOAReceiverAddress(t, c, chain2)
-	sentEvt := testCtx.MustSendMessage(chain1, chain2, receiver12, 0) // finality=0
-
-	execEvt, err := c.WaitOneExecEventBySeqNo(ctx, chain1, chain2, sentEvt.SequenceNumber, defaultExecTimeout)
-	require.NoError(t, err)
-	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
-		"unrelated lane should still work")
+	testCtx.MustExecuteMessage(chain1, chain2, receiver12, 0) // finality=0
 	l.Info().Msg("Confirmed: unrelated lane chain1->chain2 still works")
 
 	// 8. Uncurse chain0
@@ -831,11 +813,7 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 	err = c.ApplyUncurse(ctx, chain2, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
-	sentEvtFinal := testCtx.MustSendMessage(chain0, chain1, receiver01, 0) // finality=0
+	testCtx.MustExecuteMessage(chain0, chain1, receiver01, 0) // finality=0
 
-	execEvt, err = c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, sentEvtFinal.SequenceNumber, defaultExecTimeout)
-	require.NoError(t, err)
-	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
-		"lane should work after uncurse")
 	l.Info().Msg("Test completed successfully: global curse and uncurse work as expected")
 }

@@ -504,7 +504,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("no off ramp for selector %d", to)
 	}
 
-	l.Info().Msg("Awaiting ExecutionStateChanged event")
+	l.Info().Uint64("srcChain", from).Uint64("destChain", to).Uint64("seqNo", seq).Msg("Awaiting ExecutionStateChanged event")
 
 	for {
 		select {

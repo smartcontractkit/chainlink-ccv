@@ -23,6 +23,7 @@ import (
 
 const (
 	defaultSentTimeout = 10 * time.Second
+	defaultExecTimeout = 40 * time.Second
 )
 
 type TestingContext struct {
@@ -133,6 +134,24 @@ func (tc *TestingContext) MustFailSend(srcChain, destChain uint64, receiver prot
 	require.ErrorContains(tc.T, err, expectedError)
 
 	l.Info().Uint64("srcChain", srcChain).Uint64("destChain", destChain).Str("error", expectedError).Msg("Message send failed as expected")
+}
+
+// MustExecuteMessage sends a message and waits for successful execution.
+// If finality is 0, uses version 2 (no finality config).
+// If finality is non-zero, uses version 3 with the specified finality config.
+// Returns the execution event.
+func (tc *TestingContext) MustExecuteMessage(srcChain, destChain uint64, receiver protocol.UnknownAddress, finality uint16) cciptestinterfaces.ExecutionStateChangedEvent {
+	sentEvt := tc.MustSendMessage(srcChain, destChain, receiver, finality)
+
+	l := zerolog.Ctx(tc.Ctx)
+	l.Info().Uint64("srcChain", srcChain).Uint64("destChain", destChain).Hex("messageID", sentEvt.MessageID[:]).Msg("Waiting for message execution")
+
+	execEvt, err := tc.Impl.WaitOneExecEventBySeqNo(tc.Ctx, srcChain, destChain, sentEvt.SequenceNumber, defaultExecTimeout)
+	require.NoError(tc.T, err)
+	require.Equal(tc.T, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
+		"expected successful execution for message from chain %d to chain %d", srcChain, destChain)
+
+	return execEvt
 }
 
 type AssertionResult struct {
