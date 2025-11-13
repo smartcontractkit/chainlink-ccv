@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/big"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -47,5 +46,15 @@ type SourceReader interface {
 	HeadTracker
 
 	// RMNCurseReader Embed RMNCurseReader for curse detection functionality.
-	cursedetector.RMNCurseReader
+	RMNCurseReader
+}
+
+// RMNCurseReader provides read-only access to RMN Remote curse state.
+// Both SourceReader and DestinationReader implement this interface.
+type RMNCurseReader interface {
+	// GetRMNCursedSubjects queries the configured RMN Remote contract.
+	// Returns cursed subjects as bytes16, which can be:
+	// - Global curse constant (0x0100000000000000000000000000000001)
+	// - Chain selectors as bytes16s
+	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }

@@ -11,3 +11,4 @@ packages:
         interfaces:
             HeadTracker:
             SourceReader:
+            RMNCurseReader:

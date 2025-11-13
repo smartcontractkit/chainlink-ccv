@@ -244,7 +244,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 	// Initialize source states with reorg detection
 	// Also collect RMN curse readers for curse detector
-	rmnReaders := make(map[protocol.ChainSelector]cursedetector.RMNCurseReader)
+	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 
 	for chainSelector, sourceReader := range vc.sourceReaders {
 		if sourceReader == nil {
@@ -1183,7 +1183,7 @@ func (vc *Coordinator) isMessageReadyForVerification(
 // Uses CursePollInterval from config, defaulting to 2s if not set.
 func (vc *Coordinator) startCurseDetector(
 	ctx context.Context,
-	rmnReaders map[protocol.ChainSelector]cursedetector.RMNCurseReader,
+	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader,
 ) error {
 	if len(rmnReaders) == 0 {
 		return fmt.Errorf("no RMN readers provided for curse detector")

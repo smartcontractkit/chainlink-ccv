@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -32,7 +33,7 @@ type ChainCurseState struct {
 // It polls configured RMN readers at regular intervals and maintains curse state.
 type Service struct {
 	services.StateMachine
-	rmnReaders       map[protocol.ChainSelector]RMNCurseReader
+	rmnReaders       map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	chainCurseStates map[protocol.ChainSelector]*ChainCurseState
 	mutex            sync.RWMutex
 	pollInterval     time.Duration
@@ -50,7 +51,7 @@ type Service struct {
 //     For executor: dest chain selectors -> DestinationReaders (with dest RMN Remotes)
 //   - pollInterval: How often to poll RMN Remotes (default: DEFAULT_POLL_INTERVAL if <= 0)
 func NewCurseDetectorService(
-	rmnReaders map[protocol.ChainSelector]RMNCurseReader,
+	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader,
 	pollInterval time.Duration,
 	lggr logger.Logger,
 ) (CurseDetector, error) {
@@ -154,7 +155,7 @@ func (s *Service) pollAllChains(ctx context.Context) {
 
 	for chainSelector, reader := range s.rmnReaders {
 		wg.Add(1)
-		go func(chain protocol.ChainSelector, r RMNCurseReader) {
+		go func(chain protocol.ChainSelector, r chainaccess.RMNCurseReader) {
 			defer wg.Done()
 
 			subjects, err := r.GetRMNCursedSubjects(ctx)
