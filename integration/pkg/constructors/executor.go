@@ -90,7 +90,7 @@ func NewExecutorCoordinator(
 		executorMonitoring,
 	)
 
-	sc := statuschecker.NewStatusChecker(lggr, destReaders, cfg.GetCCVInfoCacheExpiry())
+	sc := statuschecker.NewStatusChecker(lggr, destReaders)
 
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(
@@ -118,6 +118,7 @@ func NewExecutorCoordinator(
 		le,
 		executorMonitoring,
 		sc,
+		cfg.GetMaxRetryDuration(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)

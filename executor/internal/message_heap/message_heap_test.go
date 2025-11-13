@@ -17,29 +17,29 @@ func createTestMessage(nonce, sourceChain, destChain uint64) *protocol.Message {
 	}
 }
 
-func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimestamp {
-	return &MessageWithTimestamp{
+func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimestamps {
+	return &MessageWithTimestamps{
 		ReadyTime: readyTime,
-		Payload:   createTestMessage(nonce, 1, 2),
+		Message:   createTestMessage(nonce, 1, 2),
 	}
 }
 
 func TestMessageHeap_PeekTime(t *testing.T) {
 	tests := []struct {
 		name     string
-		messages []*MessageWithTimestamp
+		messages []*MessageWithTimestamps
 		expected int64
 	}{
 		{
 			name: "single element heap",
-			messages: []*MessageWithTimestamp{
+			messages: []*MessageWithTimestamps{
 				createMessageWithTimestamp(100, 1),
 			},
 			expected: 100,
 		},
 		{
 			name: "multi-element heap - should return earliest",
-			messages: []*MessageWithTimestamp{
+			messages: []*MessageWithTimestamps{
 				createMessageWithTimestamp(300, 3),
 				createMessageWithTimestamp(100, 1),
 				createMessageWithTimestamp(200, 2),
@@ -57,7 +57,7 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 				heap.Push(&mh, msg)
 			}
 
-			if got := mh.PeekTime(); got != tt.expected {
+			if got := mh.peekTime(); got != tt.expected {
 				t.Errorf("MessageHeap.PeekTime() = %v, want %v", got, tt.expected)
 			}
 		})
@@ -67,7 +67,7 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 func TestMessageHeap_PopAllReady(t *testing.T) {
 	tests := []struct {
 		name           string
-		messages       []*MessageWithTimestamp
+		messages       []*MessageWithTimestamps
 		expectedNonces []uint64
 		timestamp      int64
 		expectedCount  int
@@ -75,7 +75,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 	}{
 		{
 			name:           "empty heap",
-			messages:       []*MessageWithTimestamp{},
+			messages:       []*MessageWithTimestamps{},
 			timestamp:      100,
 			expectedCount:  0,
 			expectedNonces: []uint64{},
@@ -83,7 +83,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "no messages ready",
-			messages: []*MessageWithTimestamp{
+			messages: []*MessageWithTimestamps{
 				createMessageWithTimestamp(300, 2),
 				createMessageWithTimestamp(200, 1),
 			},
@@ -94,7 +94,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "some messages ready",
-			messages: []*MessageWithTimestamp{
+			messages: []*MessageWithTimestamps{
 				createMessageWithTimestamp(300, 4),
 				createMessageWithTimestamp(200, 3),
 				createMessageWithTimestamp(50, 1),
@@ -107,7 +107,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		},
 		{
 			name: "all messages ready",
-			messages: []*MessageWithTimestamp{
+			messages: []*MessageWithTimestamps{
 				createMessageWithTimestamp(150, 3),
 				createMessageWithTimestamp(50, 1),
 				createMessageWithTimestamp(100, 2),
@@ -140,8 +140,8 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 
 			// Check that returned messages have expected nonces
 			var actualNonces []uint64
-			for _, msg := range result {
-				actualNonces = append(actualNonces, uint64(msg.Nonce))
+			for _, payload := range result {
+				actualNonces = append(actualNonces, uint64(payload.Message.Nonce))
 			}
 
 			if !reflect.DeepEqual(actualNonces, tt.expectedNonces) {
@@ -164,7 +164,7 @@ func TestMessageHeap_Integration(t *testing.T) {
 	}
 
 	// Push some messages out of order
-	messages := []*MessageWithTimestamp{
+	messages := []*MessageWithTimestamps{
 		createMessageWithTimestamp(50, 0),
 		createMessageWithTimestamp(300, 3),
 		createMessageWithTimestamp(100, 1),
@@ -174,8 +174,8 @@ func TestMessageHeap_Integration(t *testing.T) {
 	for _, msg := range messages {
 		heap.Push(&mh, msg)
 		// Verify heap property - should always return earliest time
-		if mh.PeekTime() != 50 {
-			t.Errorf("PeekTime() = %v, want 50", mh.PeekTime())
+		if mh.peekTime() != 50 {
+			t.Errorf("peekTime() = %v, want 50", mh.peekTime())
 		}
 	}
 
@@ -189,19 +189,19 @@ func TestMessageHeap_Integration(t *testing.T) {
 			break
 		}
 
-		if mh.PeekTime() != expectedOrder[i] {
-			t.Errorf("PeekTime() at iteration %v = %v, want %v", i, mh.PeekTime(), expectedOrder[i])
+		if mh.peekTime() != expectedOrder[i] {
+			t.Errorf("peekTime() at iteration %v = %v, want %v", i, mh.peekTime(), expectedOrder[i])
 		}
 
 		result := heap.Pop(&mh)
-		msg, ok := result.(*MessageWithTimestamp)
+		msg, ok := result.(*MessageWithTimestamps)
 		if !ok {
 			t.Errorf("Pop() returned wrong type: %T", result)
 			continue
 		}
 
-		if uint64(msg.Payload.Nonce) != expectedNonces[i] {
-			t.Errorf("Pop() at iteration %v returned nonce %v, want %v", i, msg.Payload.Nonce, expectedNonces[i])
+		if uint64(msg.Message.Nonce) != expectedNonces[i] {
+			t.Errorf("Pop() at iteration %v returned nonce %v, want %v", i, msg.Message.Nonce, expectedNonces[i])
 		}
 	}
 

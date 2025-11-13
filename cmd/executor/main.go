@@ -154,7 +154,7 @@ func main() {
 	// create executor
 	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient, executorMonitoring)
 
-	sc := statuschecker.NewStatusChecker(lggr, destReaders, executorConfig.GetCCVInfoCacheExpiry())
+	sc := statuschecker.NewStatusChecker(lggr, destReaders)
 
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(
@@ -183,6 +183,7 @@ func main() {
 		le,
 		executorMonitoring,
 		sc,
+		executorConfig.GetMaxRetryDuration(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)

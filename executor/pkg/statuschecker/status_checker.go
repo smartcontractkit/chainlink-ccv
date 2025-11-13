@@ -3,8 +3,6 @@ package statuschecker
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -14,18 +12,12 @@ import (
 type StatusChecker struct {
 	lggr               logger.Logger
 	destinationReaders map[protocol.ChainSelector]executor.DestinationReader
-	messageExpiry      map[protocol.Bytes32]int64
-	expiryDuration     time.Duration
-	messageExpiryMu    sync.RWMutex
 }
 
-func NewStatusChecker(lggr logger.Logger, destinationReaders map[protocol.ChainSelector]executor.DestinationReader, expiryDuration time.Duration) *StatusChecker {
-	messageExpiry := make(map[protocol.Bytes32]int64)
+func NewStatusChecker(lggr logger.Logger, destinationReaders map[protocol.ChainSelector]executor.DestinationReader) *StatusChecker {
 	return &StatusChecker{
 		lggr:               lggr,
 		destinationReaders: destinationReaders,
-		messageExpiry:      messageExpiry,
-		expiryDuration:     expiryDuration,
 	}
 }
 
@@ -36,38 +28,11 @@ func (sc *StatusChecker) GetMessageStatus(ctx context.Context, message protocol.
 	if err != nil {
 		return false, false, fmt.Errorf("failed to get message ID: %w", err)
 	}
-	if sc.IsMessageExpired(messageID, currentTime) {
-		return false, false, nil
-	}
 	if sc.IsCursed(message) {
-		return false, false, nil
+		sc.lggr.Infow("Lane is cursed, skipping execution for message", "messageID", messageID)
+		return true, false, nil
 	}
-	shouldRetry, shouldExecute, err := sc.GetExecutionState(ctx, message, messageID)
-	if !shouldRetry { // if message should not be retried, don't add back to heap
-		sc.messageExpiryMu.Lock()
-		defer sc.messageExpiryMu.Unlock()
-		delete(sc.messageExpiry, messageID)
-	}
-	return shouldRetry, shouldExecute, err
-}
-
-// IsMessageExpired checks the message retry against an 8 hour expiry timer.
-func (sc *StatusChecker) IsMessageExpired(messageID protocol.Bytes32, currentTime int64) bool {
-	// todo: Have some garbage collection on the expiry map to ensure there're no stale entries
-	sc.messageExpiryMu.RLock()
-	defer sc.messageExpiryMu.RUnlock()
-
-	expiryTime, ok := sc.messageExpiry[messageID]
-	if !ok {
-		// if no expiry time, add to expiry map, indicate not expired
-		sc.messageExpiry[messageID] = currentTime + int64(sc.expiryDuration.Seconds())
-	}
-	// if message is expired, delete from expiry map
-	if currentTime > expiryTime {
-		delete(sc.messageExpiry, messageID)
-		return true
-	}
-	return false
+	return sc.GetExecutionState(ctx, message, messageID)
 }
 
 func (sc *StatusChecker) IsCursed(message protocol.Message) bool {
