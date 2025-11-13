@@ -727,10 +727,8 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 	chain0, chain1, chain2 := selectors[0], selectors[1], selectors[2]
 	receiver := mustGetEOAReceiverAddress(t, c, chain1)
 
-	l.Info().Msg("Sending baseline message from chain0 to chain1")
 	sentEvt := testCtx.MustSendMessage(chain0, chain1, receiver, 50) // Use custom finality to slow down picking for verification
 	messageID := sentEvt.MessageID
-	l.Info().Hex("messageID", messageID[:]).Msg("Baseline message sent on chain")
 
 	l.Info().Msg("Applying bidirectional lane curse between chain0 and chain1 (before execution)")
 	err = c.ApplyCurse(ctx, chain0, [][16]byte{chainSelectorToSubject(chain1)})
@@ -745,16 +743,7 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 	// TODO: On-chain has a bug where on-ramp doesn't check for curses - once it's fixed we should add this back
 	//  on-chain ticket where it'll be fixed https://smartcontract-it.atlassian.net/browse/CCIP-7956
 	//l.Info().Msg("Attempting to send message on cursed lane (should revert)")
-	//seqNo, err = c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
-	//require.NoError(t, err)
-	//_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
-	//	Receiver: receiver,
-	//	Data:     []byte("cursed message"),
-	//}, cciptestinterfaces.MessageOptions{
-	//	Version:  2,
-	//	GasLimit: 200_000,
-	//})
-	//require.Error(t, err)
+	//testCtx.MustFailSend(chain0, chain1, receiver, 0, "BadARMSignal")
 	//l.Info().Msg("Confirmed: message on cursed lane was reverted")
 
 	l.Info().Msg("Verifying uncursed lane (chain0 -> chain2) still works")
@@ -776,7 +765,6 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 	// TODO: test again without this sleep to make sure that we don't drop messages because of the cache
 	time.Sleep(5 * time.Second) // wait a bit for the uncurse to propagate
 
-	l.Info().Msg("Sending message on uncursed lane")
 	sentEvt3 := testCtx.MustSendMessage(chain0, chain1, receiver, 0) // finality=0
 
 	execEvt3, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, sentEvt3.SequenceNumber, defaultExecTimeout)
@@ -797,15 +785,12 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 
 	receiver01 := mustGetEOAReceiverAddress(t, c, chain1)
 	receiver02 := mustGetEOAReceiverAddress(t, c, chain2)
-	l.Info().Msg("Sending baseline messages from chain0 to chain1 and chain2")
 
 	sentEvt01 := testCtx.MustSendMessage(chain0, chain1, receiver01, 50) // Use custom finality to slow down picking for verification
 	messageID01 := sentEvt01.MessageID
-	l.Info().Hex("messageID", messageID01[:]).Msg("Baseline message 0->1 sent on chain")
 
 	sentEvt02 := testCtx.MustSendMessage(chain0, chain2, receiver02, 50) // Use custom finality to slow down picking for verification
 	messageID02 := sentEvt02.MessageID
-	l.Info().Hex("messageID", messageID02[:]).Msg("Baseline message 0->2 sent on chain")
 
 	l.Info().Msg("Applying global curse to chain0 (before execution)")
 	// Apply global curse on chain0 itself
@@ -824,29 +809,9 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 	require.NoError(t, err, "message from chain0->chain2 reached verifier and then dropped due to curse")
 
 	l.Info().Msg("Verifying all lanes involving chain0 are blocked")
-	// Try chain0 -> chain1 (should revert on chain)
-	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
-		Receiver: receiver01,
-		Data:     []byte("cursed 0->1"),
-	}, cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
-	})
-	require.ErrorContains(t, err, "BadARMSignal")
-	l.Info().Msg("Confirmed: chain0->chain1 is reverted on chain")
+	testCtx.MustFailSend(chain0, chain1, receiver01, 0, "BadARMSignal")
+	testCtx.MustFailSend(chain0, chain2, receiver02, 0, "BadARMSignal")
 
-	// Try chain0 -> chain2 (should revert on chain)
-	_, err = c.SendMessage(ctx, chain0, chain2, cciptestinterfaces.MessageFields{
-		Receiver: receiver02,
-		Data:     []byte("cursed 0->2"),
-	}, cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
-	})
-	require.ErrorContains(t, err, "BadARMSignal")
-	l.Info().Msg("Confirmed: chain0->chain2 is blocked")
-
-	// 7. Verify unrelated lane still works (chain1 -> chain2)
 	l.Info().Msg("Verifying unrelated lane (chain1->chain2) still works")
 	receiver12 := mustGetEOAReceiverAddress(t, c, chain2)
 	sentEvt := testCtx.MustSendMessage(chain1, chain2, receiver12, 0) // finality=0
@@ -866,8 +831,7 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 	err = c.ApplyUncurse(ctx, chain2, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
-	l.Info().Msg("Verifying all lanes work after uncurse")
-	sentEvtFinal := testCtx.MustSendMessage(chain0, chain1, receiver01, 0) // finality=0 uses version 2
+	sentEvtFinal := testCtx.MustSendMessage(chain0, chain1, receiver01, 0) // finality=0
 
 	execEvt, err = c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, sentEvtFinal.SequenceNumber, defaultExecTimeout)
 	require.NoError(t, err)

@@ -90,6 +90,9 @@ func DefaultMessageFields(receiver protocol.UnknownAddress) cciptestinterfaces.M
 // If finality is 0, uses version 2 (no finality config).
 // If finality is non-zero, uses version 3 with the specified finality config.
 func (tc *TestingContext) MustSendMessage(srcChain, destChain uint64, receiver protocol.UnknownAddress, finality uint16) cciptestinterfaces.MessageSentEvent {
+	l := zerolog.Ctx(tc.Ctx)
+	l.Info().Uint64("srcChain", srcChain).Uint64("destChain", destChain).Msg("Sending message")
+
 	seqNo, err := tc.Impl.GetExpectedNextSequenceNumber(tc.Ctx, srcChain, destChain)
 	require.NoError(tc.T, err)
 
@@ -109,6 +112,27 @@ func (tc *TestingContext) MustSendMessage(srcChain, destChain uint64, receiver p
 	require.NoError(tc.T, err)
 
 	return sentEvt
+}
+
+// MustFailSend attempts to send a message and asserts that it fails with the expected error.
+// If finality is 0, uses version 2 (no finality config).
+// If finality is non-zero, uses version 3 with the specified finality config.
+func (tc *TestingContext) MustFailSend(srcChain, destChain uint64, receiver protocol.UnknownAddress, finality uint16, expectedError string) {
+	l := zerolog.Ctx(tc.Ctx)
+
+	opts := cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	}
+	if finality != 0 {
+		opts.Version = 3
+		opts.FinalityConfig = finality
+	}
+
+	_, err := tc.Impl.SendMessage(tc.Ctx, srcChain, destChain, DefaultMessageFields(receiver), opts)
+	require.ErrorContains(tc.T, err, expectedError)
+
+	l.Info().Uint64("srcChain", srcChain).Uint64("destChain", destChain).Str("error", expectedError).Msg("Message send failed as expected")
 }
 
 type AssertionResult struct {
