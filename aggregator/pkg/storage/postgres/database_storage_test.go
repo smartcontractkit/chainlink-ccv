@@ -11,7 +11,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -168,7 +167,26 @@ func createTestCommitVerificationRecord(msgWithCCV *pb.MessageWithCCVNodeData, s
 		SignatureR:    r32,
 		SignatureS:    s32,
 	}
-	record.IdempotencyKey = uuid.New()
+
+	return record
+}
+
+func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *pb.MessageWithCCVNodeData, participantID string) *model.CommitVerificationRecord {
+	privateKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	messageID := msgWithCCV.MessageId
+	r32, s32, _, err := protocol.SignV27(messageID, privateKey)
+	require.NoError(t, err)
+
+	record := model.CommitVerificationRecordFromProto(msgWithCCV)
+	record.IdentifierSigner = &model.IdentifierSigner{
+		ParticipantID: participantID,
+		Address:       signerAddress.Bytes(),
+		SignatureR:    r32,
+		SignatureS:    s32,
+	}
 
 	return record
 }
@@ -306,7 +324,6 @@ func TestGetCommitVerification_MultipleVersions(t *testing.T) {
 	signer := newTestSigner(t, "test-node-1")
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
-
 	aggregationKey := hex.EncodeToString(msgWithCCV.MessageId)
 
 	record1 := createTestCommitVerificationRecord(msgWithCCV, signer)
@@ -315,12 +332,12 @@ func TestGetCommitVerification_MultipleVersions(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	record2 := createTestCommitVerificationRecord(msgWithCCV, signer)
+	record2 := createTestCommitVerificationRecordWithNewKey(t, msgWithCCV, signer.Signer.ParticipantID)
 	record2.SetTimestampFromMillis(time.Now().UnixMilli())
 	err = storage.SaveCommitVerification(ctx, record2, aggregationKey)
 	require.NoError(t, err)
 
-	id, err := record1.GetID()
+	id, err := record2.GetID()
 	require.NoError(t, err)
 
 	retrieved, err := storage.GetCommitVerification(ctx, *id)
@@ -885,7 +902,7 @@ func TestListCommitVerificationByAggregationKey_DistinctOnSigner(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	msgWithCCV2 := createTestMessageWithCCV(t, message, signer)
-	record2 := createTestCommitVerificationRecord(msgWithCCV2, signer)
+	record2 := createTestCommitVerificationRecordWithNewKey(t, msgWithCCV2, signer.Signer.ParticipantID)
 	record2.SetTimestampFromMillis(time.Now().UnixMilli())
 	err = storage.SaveCommitVerification(ctx, record2, aggregationKey)
 	require.NoError(t, err)

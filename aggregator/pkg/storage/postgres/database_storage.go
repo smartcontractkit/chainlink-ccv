@@ -107,10 +107,10 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 
 	stmt := `INSERT INTO commit_verification_records 
 		(message_id, participant_id, signer_address, 
-		 signature_r, signature_s, verification_timestamp, idempotency_key, aggregation_key,
+		 signature_r, signature_s, verification_timestamp, aggregation_key,
 		 source_verifier_address, blob_data, ccv_data, message_data, receipt_blobs) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		ON CONFLICT (message_id, signer_address, idempotency_key, aggregation_key) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (message_id, signer_address, aggregation_key) 
 		DO NOTHING
 		RETURNING id`
 
@@ -122,7 +122,6 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		params["signature_r"],
 		params["signature_s"],
 		params["verification_timestamp"],
-		params["idempotency_key"],
 		params["aggregation_key"],
 		params["source_verifier_address"],
 		params["blob_data"],
@@ -167,10 +166,10 @@ func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.Co
 }
 
 func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
-	stmt := fmt.Sprintf(`SELECT DISTINCT ON (signer_address) %s
+	stmt := fmt.Sprintf(`SELECT DISTINCT ON (participant_id) %s
 		FROM commit_verification_records 
 		WHERE message_id = $1 AND aggregation_key = $2
-		ORDER BY signer_address, seq_num DESC`, allVerificationRecordColumns)
+		ORDER BY participant_id, seq_num DESC`, allVerificationRecordColumns)
 
 	messageIDHex := common.Bytes2Hex(messageID)
 
@@ -281,7 +280,6 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			&verRow.SignatureR,
 			&verRow.SignatureS,
 			&verRow.VerificationTimestamp,
-			&verRow.IdempotencyKey,
 			&verRow.AggregationKey,
 			&verRow.SourceVerifierAddress,
 			&verRow.BlobData,
@@ -428,7 +426,6 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 			&verRow.SignatureR,
 			&verRow.SignatureS,
 			&verRow.VerificationTimestamp,
-			&verRow.IdempotencyKey,
 			&verRow.AggregationKey,
 			&verRow.SourceVerifierAddress,
 			&verRow.BlobData,
@@ -544,7 +541,6 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 			&verRow.SignatureR,
 			&verRow.SignatureS,
 			&verRow.VerificationTimestamp,
-			&verRow.IdempotencyKey,
 			&verRow.AggregationKey,
 			&verRow.SourceVerifierAddress,
 			&verRow.BlobData,
