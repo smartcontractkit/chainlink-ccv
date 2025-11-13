@@ -31,7 +31,7 @@ func main() {
 
 	filePath, ok := os.LookupEnv("AGGREGATOR_CONFIG_PATH")
 	if !ok {
-		filePath = "aggregator.toml"
+		filePath = aggregator.DefaultConfigFile
 	}
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
