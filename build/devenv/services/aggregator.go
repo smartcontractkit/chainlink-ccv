@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 
@@ -285,9 +284,9 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		cwd, err := os.Getwd()
+		absRootPath, err := filepath.Abs(in.RootPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get working directory: %w", err)
+			return nil, fmt.Errorf("failed to get absolute root path: %w", err)
 		}
 
 		req.Mounts = testcontainers.Mounts()
@@ -296,7 +295,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 
 		// TODO: Generate config file, write it to a local path, and mount it here.
 		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
-			filepath.Join(cwd, "configs", "aggregator", in.CommitteeName, "aggregator.toml"),
+			filepath.Join(absRootPath, "build", "devenv", "configs", "aggregator", in.CommitteeName, "aggregator.toml"),
 			// aggregator.DefaultConfigFile,
 			"/etc/config.toml",
 		))
