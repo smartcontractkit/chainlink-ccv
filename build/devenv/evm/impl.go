@@ -1720,7 +1720,6 @@ func (m *CCIP17EVM) ApplyCurse(ctx context.Context, chainSelector uint64, subjec
 	}
 
 	// Set context for transaction
-	txOpts.Context = ctx
 
 	// Call Curse method
 	tx, err := rmnRemote.Curse0(txOpts, subjects)
@@ -1771,7 +1770,6 @@ func (m *CCIP17EVM) ApplyUncurse(ctx context.Context, chainSelector uint64, subj
 	}
 
 	// Set context for transaction
-	txOpts.Context = ctx
 
 	// Call Uncurse method
 	tx, err := rmnRemote.Uncurse0(txOpts, subjects)

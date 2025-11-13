@@ -736,7 +736,7 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 
 	// TODO: On-chain has a bug where on-ramp doesn't check for curses - once it's fixed we should add this back
 	//  on-chain ticket where it'll be fixed https://smartcontract-it.atlassian.net/browse/CCIP-7956
-	//testCtx.MustFailSend(chain0, chain1, receiver, 0, "BadARMSignal")
+	// testCtx.MustFailSend(chain0, chain1, receiver, 0, "BadARMSignal")
 
 	l.Info().Msg("Verifying uncursed lane (chain0 -> chain2) still works")
 	receiver2 := mustGetEOAReceiverAddress(t, c, chain2)

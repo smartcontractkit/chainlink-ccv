@@ -277,7 +277,6 @@ func (tc *TestingContext) AssertMessageReachedAndDroppedInVerifier(messageID [32
 	tc.logger.Info().
 		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
 		Msg("✓ Message dropped in verifier due to curse")
-
 }
 
 func defaultAggregatorPort(in *ccv.Cfg) int {
