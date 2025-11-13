@@ -8,12 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
 func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
-	storage := NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
+	storage := NewInMemoryStorage()
 	ctx := context.Background()
 
 	// Create test data
@@ -57,7 +56,7 @@ func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
 }
 
 func TestInMemoryStorage_GetBatchCCVData_EmptyMessageIDs(t *testing.T) {
-	storage := NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
+	storage := NewInMemoryStorage()
 	ctx := context.Background()
 
 	// Test with empty message IDs
@@ -67,7 +66,7 @@ func TestInMemoryStorage_GetBatchCCVData_EmptyMessageIDs(t *testing.T) {
 }
 
 func TestInMemoryStorage_GetBatchCCVData_NoMatchingData(t *testing.T) {
-	storage := NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
+	storage := NewInMemoryStorage()
 	ctx := context.Background()
 
 	// Test with message IDs that don't exist

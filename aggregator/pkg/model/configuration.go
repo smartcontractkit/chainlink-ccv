@@ -119,11 +119,6 @@ type AggregationConfig struct {
 	ChannelBufferSize int `toml:"channelBufferSize"`
 	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
-	// EnableAggregationAfterQuorum allows new aggregations even when an existing one already meets quorum.
-	// When disabled (default false), the aggregator will check for existing aggregated reports before creating new ones.
-	// If an existing report still meets quorum requirements, no new aggregation will be created.
-	// Set to true to disable this optimization and always attempt new aggregations.
-	EnableAggregationAfterQuorum bool `toml:"enableAggregationAfterQuorum"`
 }
 
 type OrphanRecoveryConfig struct {
@@ -344,7 +339,6 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
 	}
-	// Note: EnableAggregationAfterQuorum defaults to false (no reaggregation after quorum)
 	// Initialize Storage config if nil
 	if c.Storage == nil {
 		c.Storage = &StorageConfig{}

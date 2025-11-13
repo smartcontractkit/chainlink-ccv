@@ -16,9 +16,11 @@ const (
 	DefaultExecutorName  = "executor"
 	DefaultExecutorImage = "executor:dev"
 	DefaultExecutorPort  = 8101
+	DefaultExecutorMode  = Standalone
 )
 
 type ExecutorInput struct {
+	Mode           Mode            `toml:"mode"`
 	Out            *ExecutorOutput `toml:"-"`
 	Image          string          `toml:"image"`
 	SourceCodePath string          `toml:"source_code_path"`
@@ -35,7 +37,7 @@ type ExecutorOutput struct {
 	UseCache        bool   `toml:"use_cache"`
 }
 
-func executorDefaults(in *ExecutorInput) {
+func ApplyExecutorDefaults(in *ExecutorInput) {
 	if in.Image == "" {
 		in.Image = DefaultExecutorImage
 	}
@@ -44,6 +46,9 @@ func executorDefaults(in *ExecutorInput) {
 	}
 	if in.ContainerName == "" {
 		in.ContainerName = DefaultExecutorName
+	}
+	if in.Mode == "" {
+		in.Mode = DefaultExecutorMode
 	}
 }
 
@@ -55,7 +60,7 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 		return in.Out, nil
 	}
 	ctx := context.Background()
-	executorDefaults(in)
+	ApplyExecutorDefaults(in)
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err

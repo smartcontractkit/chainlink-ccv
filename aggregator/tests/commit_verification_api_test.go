@@ -735,13 +735,7 @@ func TestParticipantDeduplication(t *testing.T) {
 
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 
-		// Create server with enabled EnableAggregationAfterQuorum feature
-		configOption := func(c *model.AggregatorConfig, clientConfig *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-			c.Aggregation.EnableAggregationAfterQuorum = true // Explicitly enable the feature
-			return c, clientConfig
-		}
-
-		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType), configOption)
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
@@ -782,27 +776,7 @@ func TestParticipantDeduplication(t *testing.T) {
 			WithValidSignatureFrom(signer1),
 		)
 
-		// Wait a second to ensure the aggregation timestamp is different (we use write time as aggregation time)
-		time.Sleep(1 * time.Second)
-
-		newerTimestamp := time.Now().UnixMilli()
-		ccvNodeData1Newer := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1),
-			WithCustomTimestamp(newerTimestamp))
-
-		resp4, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1Newer))
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1 (new)")
-		require.Equal(t, pb.WriteStatus_SUCCESS, resp4.Status, "expected WriteStatus_SUCCESS")
-
-		// The assertion above should eventually return the new report, but let's add an explicit check
-		// with retry logic to ensure we're not getting a cached/stale result
-		require.EventuallyWithT(t, func(collect *assert.CollectT) {
-			resp, err := ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
-				MessageId: messageId[:],
-			})
-			require.NoError(collect, err)
-			require.Greater(collect, resp.Timestamp, aggResp1.Timestamp, "We should have a newer aggregation timestamp")
-		}, 5*time.Second, 100*time.Millisecond, "New aggregated report not found within timeout")
+		t.Logf("✅ Participant deduplication verified: aggregation timestamp=%d", aggResp1.Timestamp)
 	}
 
 	for _, storageType := range storageTypes {
@@ -1120,148 +1094,6 @@ func TestGetMessagesSinceDeduplication(t *testing.T) {
 	}
 }
 
-// TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled verifies that when EnableAggregationAfterQuorum is enabled
-// the system allows post-quorum aggregations and both GetMessagesSince and GetVerifierResultForMessage
-// return the expected results with multiple aggregated reports.
-func TestPostQuorumAggregationWhenAggregationAfterQuorumEnabled(t *testing.T) {
-	storageTypes := []string{"postgres"}
-
-	testFunc := func(t *testing.T, storageType string) {
-		// Track the timestamp (int64) of the first aggregated report so we can compare with the second
-		var firstAggregationTimestamp int64
-
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-
-		// Create server with enabled EnableAggregationAfterQuorum feature
-		configOption := func(c *model.AggregatorConfig, clientConfig *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-			c.Aggregation.EnableAggregationAfterQuorum = true // Explicitly enable the feature
-			return c, clientConfig
-		}
-
-		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(
-			t,
-			WithCommitteeConfig(committee),
-			WithStorageType(storageType),
-			configOption,
-		)
-		t.Cleanup(cleanup)
-		require.NoError(t, err, "failed to create server and client")
-
-		// Create a message that both signers will verify
-		message := NewProtocolMessage(t)
-		messageID, err := message.MessageID()
-		require.NoError(t, err, "failed to compute message ID")
-
-		// Step 1: Signer1 sends their verification
-		t.Log("Step 1: Signer1 sends verification")
-		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1), WithCustomTimestamp(time.Now().Add(-2*time.Minute).UnixMilli()))
-		resp1, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1))
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
-		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status)
-
-		// GetMessagesSince should return nothing (no quorum yet)
-		getResp1, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
-			SinceSequence: 0,
-		})
-		require.NoError(t, err, "GetMessagesSince should succeed")
-		require.Len(t, getResp1.Results, 0, "Should return 0 reports (no quorum yet)")
-		t.Log("✓ GetMessagesSince returns 0 reports after signer1 verification")
-
-		// GetVerifierResultForMessage should return nothing (no quorum yet)
-		_, err = ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
-			MessageId: messageID[:],
-		})
-		require.Error(t, err, "GetVerifierResultForMessage should fail before quorum")
-		require.Contains(t, err.Error(), "no data found", "Error should indicate no data found before quorum")
-		t.Log("✓ GetVerifierResultForMessage returns not found before quorum")
-
-		// Step 2: Signer2 sends their verification (quorum reached)
-		t.Log("Step 2: Signer2 sends verification")
-		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(time.Now().Add(-1*time.Minute).UnixMilli()))
-		resp2, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2))
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
-		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status)
-
-		// Wait for first aggregation to complete
-		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
-			getResp, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
-				SinceSequence: 0,
-			})
-			require.NoError(collect, err, "GetMessagesSince should succeed")
-			require.Len(collect, getResp.Results, 1, "Should return 1 report (first quorum reached)")
-		}, 5*time.Second, 500*time.Millisecond, "GetMessagesSince should eventually return 1 report after first quorum is reached")
-
-		// Check GetVerifierResultForMessage after first aggregation and record its timestamp
-		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
-			getVerifierResp, err := ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
-				MessageId: messageID[:],
-			})
-			require.NoError(collect, err, "GetVerifierResultForMessage should succeed")
-			require.NotNil(collect, getVerifierResp, "Should return a result after first quorum")
-			firstAggregationTimestamp = getVerifierResp.Timestamp
-		}, 5*time.Second, 500*time.Millisecond, "GetVerifierResultForMessage should eventually return a result after first quorum")
-
-		// Wait a second to ensure the aggregation timestamp is different (we use write time as aggregation time)
-		time.Sleep(1 * time.Second)
-
-		// Step 3: Signer2 sends new verification with more recent timestamp (should trigger reaggregation since feature is disabled)
-		t.Log("Step 3: Signer2 sends new verification for the same message (more recent timestamp)")
-		newerTimestamp := time.Now().UnixMilli()
-		ccvNodeData2New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2), WithCustomTimestamp(newerTimestamp))
-		resp3, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2New))
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2 (newer timestamp)")
-		require.Equal(t, pb.WriteStatus_SUCCESS, resp3.Status)
-
-		// GetMessagesSince should eventually return 2 reports (feature disabled allows reaggregation)
-		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
-			getResp, err := ccvDataClient.GetMessagesSince(t.Context(), &pb.GetMessagesSinceRequest{
-				SinceSequence: 0,
-			})
-			require.NoError(collect, err, "GetMessagesSince should succeed")
-			require.Len(collect, getResp.Results, 2, "Should return 2 reports (feature disabled allows reaggregation)")
-
-			// Verify both reports are for the same message but with different timestamps
-			result1 := getResp.Results[0]
-			result2 := getResp.Results[1]
-
-			assert.Equal(collect, uint64(message.Nonce), result1.Message.Nonce, "First report should be for our message")
-			assert.Equal(collect, uint64(message.Nonce), result2.Message.Nonce, "Second report should be for our message")
-
-			// The newer report should have a more recent timestamp
-			assert.Greater(collect, result2.Timestamp, result1.Timestamp, "Second report should have newer timestamp")
-		}, 10*time.Second, 500*time.Millisecond, "GetMessagesSince should eventually return 2 reports when feature is disabled")
-
-		// GetVerifierResultForMessage should return the most recent aggregated report; verify timestamp advanced
-		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
-			getVerifierResp, err := ccvDataClient.GetVerifierResultForMessage(t.Context(), &pb.GetVerifierResultForMessageRequest{
-				MessageId: messageID[:],
-			})
-			require.NoError(collect, err, "GetVerifierResultForMessage should succeed")
-			require.NotNil(collect, getVerifierResp, "Should return a result")
-
-			// Should return the most recent aggregated report
-			assert.Equal(collect, uint64(message.Nonce), getVerifierResp.Message.Nonce, "Should return result for our message")
-
-			// The new aggregation timestamp should be different and greater than the first
-			assert.NotEqual(collect, firstAggregationTimestamp, getVerifierResp.Timestamp, "Second aggregation should have a different timestamp")
-			assert.Greater(collect, getVerifierResp.Timestamp, firstAggregationTimestamp, "Second aggregation should be more recent than first")
-		}, 10*time.Second, 500*time.Millisecond, "GetVerifierResultForMessage should return the newer aggregated report with a later timestamp")
-
-		t.Log("✓ Both GetMessagesSince and GetVerifierResultForMessage behave correctly with feature disabled")
-	}
-
-	for _, storageType := range storageTypes {
-		t.Run(storageType, func(t *testing.T) {
-			t.Parallel()
-			testFunc(t, storageType)
-		})
-	}
-}
-
 // TestBatchGetVerifierResult_HappyPath tests basic batch API functionality with multiple messages.
 func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 	t.Parallel()
@@ -1357,91 +1189,6 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 		require.Equal(t, sourceVerifierAddress, result2.SourceVerifierAddress, "source verifier address should match")
 		require.Equal(t, destVerifierAddress, result2.DestVerifierAddress, "dest verifier address should match")
 		require.NotNil(t, result2.CcvData, "CCV data should not be nil")
-	}
-
-	for _, storageType := range storageTypes {
-		t.Run(storageType, func(t *testing.T) {
-			t.Parallel()
-			testFunc(t, storageType)
-		})
-	}
-}
-
-// TestBatchGetVerifierResult_ReAggregation tests that batch API returns updated results after re-aggregation.
-func TestBatchGetVerifierResult_ReAggregation(t *testing.T) {
-	t.Parallel()
-	storageTypes := []string{"postgres"}
-
-	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-
-		// Create server with enabled EnableAggregationAfterQuorum feature for re-aggregation
-		configOption := func(c *model.AggregatorConfig, clientConfig *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-			c.Aggregation.EnableAggregationAfterQuorum = true // Enable re-aggregation after quorum
-			return c, clientConfig
-		}
-
-		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType), configOption)
-		t.Cleanup(cleanup)
-		require.NoError(t, err, "failed to create server and client")
-
-		// Create message and aggregate it
-		message := NewProtocolMessage(t)
-		message.Nonce = protocol.Nonce(1001)
-		messageId, err := message.MessageID()
-		require.NoError(t, err, "failed to compute message ID")
-
-		// Initial aggregation
-		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
-		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1))
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer1")
-
-		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
-		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2))
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for signer2")
-
-		time.Sleep(100 * time.Millisecond)
-
-		// Get initial batch result
-		batchReq := &pb.BatchGetVerifierResultForMessageRequest{
-			Requests: []*pb.GetVerifierResultForMessageRequest{
-				{MessageId: messageId[:]},
-			},
-		}
-
-		batchResp, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReq)
-		require.NoError(t, err, "BatchGetVerifierResultForMessage failed")
-		require.Len(t, batchResp.Results, 1, "should have 1 result")
-
-		originalTimestamp := batchResp.Results[0].Timestamp
-		t.Logf("Original timestamp: %d", originalTimestamp)
-
-		// Wait and submit with newer timestamp to trigger re-aggregation
-		time.Sleep(1 * time.Second)
-		newerTimestamp := time.Now().UnixMilli()
-		ccvNodeData1Newer := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1),
-			WithCustomTimestamp(newerTimestamp))
-
-		_, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1Newer))
-		require.NoError(t, err, "WriteCommitCCVNodeData failed for newer timestamp")
-
-		time.Sleep(200 * time.Millisecond)
-
-		// Get batch result after re-aggregation
-		batchRespReagg, err := ccvDataClient.BatchGetVerifierResultForMessage(t.Context(), batchReq)
-		require.NoError(t, err, "BatchGetVerifierResultForMessage after re-aggregation failed")
-		require.Len(t, batchRespReagg.Results, 1, "should have 1 result after re-aggregation")
-
-		newTimestamp := batchRespReagg.Results[0].Timestamp
-		t.Logf("New timestamp: %d", newTimestamp)
-
-		// Verify the timestamp is newer, indicating re-aggregation occurred
-		require.Greater(t, newTimestamp, originalTimestamp,
-			"re-aggregated result should have newer timestamp than original")
 	}
 
 	for _, storageType := range storageTypes {

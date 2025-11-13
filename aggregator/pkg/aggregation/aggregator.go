@@ -21,16 +21,15 @@ type QuorumValidator interface {
 // It manages the verification and storage of commit reports through a configurable storage backend,
 // processes aggregation requests via a message channel, and forwards verified reports to a sink.
 type CommitReportAggregator struct {
-	storage                      common.CommitVerificationStore
-	aggregatedStore              common.CommitVerificationAggregatedStore
-	sink                         common.Sink
-	aggregationKeyChan           chan aggregationRequest
-	backgroundWorkerCount        int
-	quorum                       QuorumValidator
-	l                            logger.SugaredLogger
-	monitoring                   common.AggregatorMonitoring
-	done                         chan struct{}
-	enableAggregationAfterQuorum bool
+	storage               common.CommitVerificationStore
+	aggregatedStore       common.CommitVerificationAggregatedStore
+	sink                  common.Sink
+	aggregationKeyChan    chan aggregationRequest
+	backgroundWorkerCount int
+	quorum                QuorumValidator
+	l                     logger.SugaredLogger
+	monitoring            common.AggregatorMonitoring
+	done                  chan struct{}
 }
 
 type aggregationRequest struct {
@@ -128,10 +127,6 @@ func deduplicateVerificationsByParticipant(verifications []*model.CommitVerifica
 // because an existing aggregated report already meets quorum requirements.
 // Returns true if aggregation should be skipped, false otherwise.
 func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx context.Context, messageID model.MessageID) (bool, error) {
-	if c.enableAggregationAfterQuorum {
-		return false, nil
-	}
-
 	lggr := c.logger(ctx)
 
 	if c.aggregatedStore == nil {
@@ -173,14 +168,12 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	lggr := c.logger(ctx)
 	lggr.Infof("Checking aggregation for message", request.MessageID, request.AggregationKey)
 
-	if !c.enableAggregationAfterQuorum {
-		shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID)
-		if err != nil {
-			lggr.Errorw("Error checking existing quorum", "error", err)
-		} else if shouldSkip {
-			lggr.Infow("Skipping aggregation due to existing quorum")
-			return nil, nil
-		}
+	shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID)
+	if err != nil {
+		lggr.Errorw("Error checking existing quorum", "error", err)
+	} else if shouldSkip {
+		lggr.Infow("Skipping aggregation due to existing quorum")
+		return nil, nil
 	}
 
 	verifications, err := c.storage.ListCommitVerificationByAggregationKey(ctx, request.MessageID, request.AggregationKey)
@@ -273,14 +266,13 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
 func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, quorum QuorumValidator, config *model.AggregatorConfig, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring) *CommitReportAggregator {
 	return &CommitReportAggregator{
-		storage:                      storage,
-		aggregatedStore:              aggregatedStore,
-		sink:                         sink,
-		aggregationKeyChan:           make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
-		backgroundWorkerCount:        config.Aggregation.BackgroundWorkerCount,
-		quorum:                       quorum,
-		monitoring:                   monitoring,
-		l:                            logger,
-		enableAggregationAfterQuorum: config.Aggregation.EnableAggregationAfterQuorum,
+		storage:               storage,
+		aggregatedStore:       aggregatedStore,
+		sink:                  sink,
+		aggregationKeyChan:    make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
+		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
+		quorum:                quorum,
+		monitoring:            monitoring,
+		l:                     logger,
 	}
 }
