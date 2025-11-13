@@ -216,44 +216,40 @@ func TestStopNotRunning(t *testing.T) {
 
 func TestMessageExpiration(t *testing.T) {
 	testcases := []struct {
-		name                     string
-		expiryDuration           time.Duration
-		retryDelay               int64
-		initialReadyDelay        int64
-		shouldRetry              bool
-		shouldExecute            bool
-		expectExpirationLogEntry bool
-		expectRetryLogEntry      bool
+		name              string
+		expiryDuration    time.Duration
+		retryDelay        int64
+		initialReadyDelay int64
+		shouldRetry       bool
+		shouldExecute     bool
+		shouldExpire      bool
 	}{
 		{
-			name:                     "message expires when retry time exceeds expiry",
-			expiryDuration:           5 * time.Second,
-			retryDelay:               10, // 10 seconds retry delay
-			initialReadyDelay:        0,  // ready immediately
-			shouldRetry:              true,
-			shouldExecute:            false,
-			expectExpirationLogEntry: true,
-			expectRetryLogEntry:      false,
+			name:              "message expires when retry time exceeds expiry",
+			expiryDuration:    5 * time.Second,
+			retryDelay:        10, // 10 seconds retry delay
+			initialReadyDelay: 0,  // ready immediately
+			shouldRetry:       true,
+			shouldExecute:     false,
+			shouldExpire:      true,
 		},
 		{
-			name:                     "message retries when within expiry window",
-			expiryDuration:           20 * time.Second,
-			retryDelay:               5, // 5 seconds retry delay
-			initialReadyDelay:        0,
-			shouldRetry:              true,
-			shouldExecute:            false,
-			expectExpirationLogEntry: false,
-			expectRetryLogEntry:      true,
+			name:              "message retries when within expiry window",
+			expiryDuration:    20 * time.Second,
+			retryDelay:        5, // 5 seconds retry delay
+			initialReadyDelay: 0,
+			shouldRetry:       true,
+			shouldExecute:     false,
+			shouldExpire:      false,
 		},
 		{
-			name:                     "message does not retry when shouldRetry is false",
-			expiryDuration:           10 * time.Second,
-			retryDelay:               5,
-			initialReadyDelay:        0,
-			shouldRetry:              false,
-			shouldExecute:            false,
-			expectExpirationLogEntry: false,
-			expectRetryLogEntry:      false,
+			name:              "message does not retry when shouldRetry is false",
+			expiryDuration:    10 * time.Second,
+			retryDelay:        5,
+			initialReadyDelay: 0,
+			shouldRetry:       false,
+			shouldExecute:     false,
+			shouldExpire:      false,
 		},
 	}
 
@@ -331,19 +327,19 @@ func TestMessageExpiration(t *testing.T) {
 				return false
 			}
 
-			if tc.expectExpirationLogEntry {
+			if tc.shouldExecute {
 				require.Eventuallyf(t, func() bool {
 					return found("message has expired")
 				}, 3*time.Second, 100*time.Millisecond, "expected to find 'message has expired' log entry")
 			}
 
-			if tc.expectRetryLogEntry {
+			if !tc.shouldExpire && tc.shouldRetry {
 				require.Eventuallyf(t, func() bool {
 					return found("message should be retried")
 				}, 3*time.Second, 100*time.Millisecond, "expected to find 'message should be retried' log entry")
 			}
 
-			if !tc.expectExpirationLogEntry && !tc.expectRetryLogEntry {
+			if !tc.shouldExecute && !tc.shouldRetry {
 				// If neither should happen, verify no expiration or retry log entries exist
 				time.Sleep(2 * time.Second)
 				require.False(t, found("message has expired"), "should not have expiration log")
