@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
@@ -200,4 +201,58 @@ func (tc *TestingContext) AssertMessageReachedAndDroppedInVerifier(messageID [32
 		Msg("✓ Message dropped in verifier due to curse")
 
 	return nil
+}
+
+func defaultAggregatorPort(in *ccv.Cfg) int {
+	for _, aggregator := range in.Aggregator {
+		if aggregator.CommitteeName == "default" {
+			return aggregator.HostPort
+		}
+	}
+	panic(fmt.Sprintf("default aggregator not found, expected to find a default aggregator in the configuration, got: %+v", in.Aggregator))
+}
+
+// NewDefaultTestingContext creates a complete testing context with all necessary components
+// for E2E tests. It handles loading the configuration, setting up chains, and initializing
+// aggregator and indexer clients.
+func NewDefaultTestingContext(t *testing.T, configPath string, expectedChainCount int) (TestingContext, []uint64) {
+	in, err := ccv.LoadOutput[ccv.Cfg](configPath)
+	require.NoError(t, err)
+
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
+	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+	for _, bc := range in.Blockchains {
+		chainIDs = append(chainIDs, bc.ChainID)
+		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	}
+
+	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	require.NoError(t, err)
+	require.Len(t, selectors, expectedChainCount, "expected %d chains for this test in the environment", expectedChainCount)
+
+	c, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+	require.NoError(t, err)
+
+	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
+
+	defaultAggregatorClient, err := ccv.NewAggregatorClient(
+		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+		defaultAggregatorAddr)
+	require.NoError(t, err)
+	require.NotNil(t, defaultAggregatorClient)
+	t.Cleanup(func() {
+		defaultAggregatorClient.Close()
+	})
+
+	indexerClient := ccv.NewIndexerClient(
+		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
+		indexerURL)
+	require.NotNil(t, indexerClient)
+
+	testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
+
+	return testCtx, selectors
 }

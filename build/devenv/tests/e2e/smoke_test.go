@@ -32,15 +32,6 @@ const (
 	defaultExecTimeout = 40 * time.Second
 )
 
-func defaultAggregatorPort(in *ccv.Cfg) int {
-	for _, aggregator := range in.Aggregator {
-		if aggregator.CommitteeName == "default" {
-			return aggregator.HostPort
-		}
-	}
-	panic(fmt.Sprintf("default aggregator not found, expected to find a default aggregator in the configuration, got: %+v", in.Aggregator))
-}
-
 type tokenTransfer struct {
 	tokenAmount  cciptestinterfaces.TokenAmount
 	destTokenRef datastore.AddressRef
@@ -728,40 +719,10 @@ func globalCurseSubject() [16]byte {
 // ============================================================================
 
 func TestRMNCurseLane(t *testing.T) {
-	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
-	require.NoError(t, err)
-	ctx := ccv.Plog.WithContext(t.Context())
+	testCtx, selectors := NewDefaultTestingContext(t, "../../env-out.toml", 3)
+	c := testCtx.Impl
+	ctx := testCtx.Ctx
 	l := zerolog.Ctx(ctx)
-
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-	}
-
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-	require.NoError(t, err)
-	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
-
-	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-	require.NoError(t, err)
-
-	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
-
-	defaultAggregatorClient, err := ccv.NewAggregatorClient(
-		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		defaultAggregatorAddr)
-	require.NoError(t, err)
-	require.NotNil(t, defaultAggregatorClient)
-	t.Cleanup(func() {
-		defaultAggregatorClient.Close()
-	})
-
-	indexerClient := ccv.NewIndexerClient(
-		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-		indexerURL)
-	require.NotNil(t, indexerClient)
 
 	chain0, chain1, chain2 := selectors[0], selectors[1], selectors[2]
 	receiver := mustGetEOAReceiverAddress(t, c, chain1)
@@ -775,7 +736,7 @@ func TestRMNCurseLane(t *testing.T) {
 	}, cciptestinterfaces.MessageOptions{
 		Version:        3,
 		GasLimit:       200_000,
-		FinalityConfig: 20, // Use custom finality, this should make the message a bit slower to execute
+		FinalityConfig: 50, // Use custom finality, this should make the message a bit slower to execute
 	})
 	require.NoError(t, err)
 
@@ -791,7 +752,6 @@ func TestRMNCurseLane(t *testing.T) {
 	require.NoError(t, err)
 
 	l.Info().Msg("Asserting baseline message reaches verifier but gets dropped due to curse")
-	testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
 	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID, 100*time.Second)
 	require.NoError(t, err, "message reached verifier and then dropped due to curse")
 
@@ -858,40 +818,10 @@ func TestRMNCurseLane(t *testing.T) {
 }
 
 func TestRMNGlobalCurse(t *testing.T) {
-	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
-	require.NoError(t, err)
-	ctx := ccv.Plog.WithContext(t.Context())
+	testCtx, selectors := NewDefaultTestingContext(t, "../../env-out.toml", 3)
+	c := testCtx.Impl
+	ctx := testCtx.Ctx
 	l := zerolog.Ctx(ctx)
-
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-	}
-
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-	require.NoError(t, err)
-	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
-
-	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-	require.NoError(t, err)
-
-	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
-
-	defaultAggregatorClient, err := ccv.NewAggregatorClient(
-		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		defaultAggregatorAddr)
-	require.NoError(t, err)
-	require.NotNil(t, defaultAggregatorClient)
-	t.Cleanup(func() {
-		defaultAggregatorClient.Close()
-	})
-
-	indexerClient := ccv.NewIndexerClient(
-		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-		indexerURL)
-	require.NotNil(t, indexerClient)
 
 	chain0, chain1, chain2 := selectors[0], selectors[1], selectors[2]
 
@@ -907,7 +837,7 @@ func TestRMNGlobalCurse(t *testing.T) {
 	}, cciptestinterfaces.MessageOptions{
 		Version:        3,
 		GasLimit:       200_000,
-		FinalityConfig: 30, // Use custom finality to slow down execution
+		FinalityConfig: 50, // Use custom finality to slow down execution
 	})
 	require.NoError(t, err)
 
@@ -919,7 +849,7 @@ func TestRMNGlobalCurse(t *testing.T) {
 	}, cciptestinterfaces.MessageOptions{
 		Version:        3,
 		GasLimit:       200_000,
-		FinalityConfig: 30, // Use custom finality to slow down execution
+		FinalityConfig: 50, // Use custom finality to slow down execution
 	})
 	require.NoError(t, err)
 
@@ -943,7 +873,6 @@ func TestRMNGlobalCurse(t *testing.T) {
 	require.NoError(t, err)
 
 	l.Info().Msg("Asserting baseline message reaches verifier but gets dropped due to global curse")
-	testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
 	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID01, 100*time.Second)
 	require.NoError(t, err, "message from chain0->chain1 reached verifier and then dropped due to curse")
 	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID02, 100*time.Second)
