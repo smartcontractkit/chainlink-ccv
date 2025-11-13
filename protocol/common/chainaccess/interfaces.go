@@ -8,7 +8,11 @@ import (
 )
 
 // HeadTracker provides access to the latest blockchain head information.
-// This interface is responsible for tracking the current and finalized block states. This should take into consideration finality tags where possible.
+// This interface is responsible for tracking the current and finalized block states.
+//
+// THIS MUST TAKE INTO CONSIDERATION FINALITY TAGS / FINALITY DEPTH.
+//
+// Reorg detection relies on accurate finalized block info and abstracts away chain-specific details by using this interface.
 //
 // The recommendation is to use HeadTracker implementations from each chain, e.g. chainlink-evm/pkg/heads.
 // Thread-safety: All methods must be safe for concurrent calls.
