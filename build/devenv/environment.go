@@ -255,7 +255,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		addrs[ver.CommitteeName] = append(addrs[ver.CommitteeName], hexutil.MustDecode(ver.SigningKeyPublic))
 	}
 
-	var committees []cciptestinterfaces.OnChainCommittees
+	committees := make([]cciptestinterfaces.OnChainCommittees, 0, len(addrs))
 	for committeeName, signers := range addrs {
 		committees = append(committees, cciptestinterfaces.OnChainCommittees{
 			CommitteeQualifier: committeeName,
