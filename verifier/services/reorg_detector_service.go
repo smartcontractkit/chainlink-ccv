@@ -165,7 +165,7 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 		return nil, fmt.Errorf("failed to build initial tail: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	c, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	r.running = true
 
@@ -173,7 +173,7 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		r.pollAndCheckForReorgs(ctx)
+		r.pollAndCheckForReorgs(c)
 	}()
 
 	r.lggr.Infow("Reorg detector service started successfully",

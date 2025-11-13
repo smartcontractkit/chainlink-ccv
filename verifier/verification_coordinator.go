@@ -220,7 +220,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		return fmt.Errorf("coordinator already running")
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	c, cancel := context.WithCancel(context.Background())
 	vc.cancel = cancel
 
 	// Check for disabled chains before initialization
@@ -350,7 +350,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	// Initialize storage batcher (will automatically flush when ctx is canceled)
 	vc.batchedCCVDataCh = make(chan batcher.BatchResult[CCVDataWithIdempotencyKey], 10)
 	vc.storageBatcher = batcher.NewBatcher(
-		ctx,
+		c,
 		vc.config.StorageBatchSize,
 		vc.config.StorageBatchTimeout,
 		vc.batchedCCVDataCh,
@@ -360,13 +360,13 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.backgroundWg.Add(1)
 	go func() {
 		defer vc.backgroundWg.Done()
-		vc.run(ctx)
+		vc.run(c)
 	}()
 
 	vc.backgroundWg.Add(1)
 	go func() {
 		defer vc.backgroundWg.Done()
-		vc.readyMessagesCheckingLoop(ctx)
+		vc.readyMessagesCheckingLoop(c)
 	}()
 
 	vc.lggr.Infow("Coordinator started with finality checking and reorg detection",

@@ -40,6 +40,7 @@ type SourceReaderService struct {
 	stopCh               chan struct{}
 	ccipMessageSentTopic string
 	wg                   sync.WaitGroup
+	cancel               context.CancelFunc
 	pollInterval         time.Duration
 	chainSelector        protocol.ChainSelector
 	mu                   sync.RWMutex
@@ -122,7 +123,9 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 	r.isRunning = true
 	r.wg.Add(1)
 
-	go r.eventMonitoringLoop(ctx)
+	c, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
+	go r.eventMonitoringLoop(c)
 
 	r.logger.Infow("✅ SourceReaderService started successfully")
 	return nil
@@ -139,6 +142,7 @@ func (r *SourceReaderService) Stop() error {
 	r.logger.Infow("🛑 Stopping SourceReaderService")
 
 	close(r.stopCh)
+	r.cancel()
 	r.mu.Unlock()
 
 	// Wait for goroutine WITHOUT holding lock to avoid deadlock
