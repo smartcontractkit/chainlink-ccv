@@ -83,8 +83,8 @@ func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common
 //
 // Start returns immediately after spawning the background goroutine. It does not
 // wait for the goroutine to complete.
-func (v *VerifierReader) Start(ctx context.Context) error {
-	runCtx, cancel := context.WithCancel(ctx)
+func (v *verifierReader) Start(ctx context.Context) error {
+	runCtx, cancel := context.WithCancel(context.Background())
 	v.runCancel = cancel
 	v.runWg.Add(1)
 	go func() {

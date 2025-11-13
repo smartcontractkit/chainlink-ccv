@@ -59,7 +59,7 @@ func NewCoordinator(
 
 func (ec *Coordinator) Start(ctx context.Context) error {
 	return ec.StartOnce("executor.Coordinator", func() error {
-		c, cancel := context.WithCancel(ctx)
+		c, cancel := context.WithCancel(context.Background())
 		ec.cancel = cancel
 		ec.delayedMessageHeap = &message_heap.MessageHeap{}
 		heap.Init(ec.delayedMessageHeap)
