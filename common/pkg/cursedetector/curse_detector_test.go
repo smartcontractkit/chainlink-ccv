@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"

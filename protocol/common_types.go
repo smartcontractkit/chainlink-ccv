@@ -259,7 +259,7 @@ func (b *Bytes32) UnmarshalJSON(data []byte) error {
 // MessageSentEvent represents a CCIPMessageSent event from the blockchain.
 // This is the protocol-level representation of the OnRamp CCIPMessageSent event,
 // decoupled from chain-specific implementations.
-// Note: Message and ReceiptWithBlob types are defined in message_types.go
+// Note: Message and ReceiptWithBlob types are defined in message_types.go.
 type MessageSentEvent struct {
 	DestChainSelector ChainSelector     // Destination chain for the message
 	SequenceNumber    uint64            // Sequential nonce for this message
