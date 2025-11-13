@@ -1587,15 +1587,19 @@ func (m *CCIP17EVM) FundNodes(ctx context.Context, ns []*simple_node_set.Input, 
 	}
 	ethKeyAddressesSrc := make([]string, 0)
 	for i, nc := range nodeClients {
-		addrSrc, err := nc.ReadPrimaryETHKey(bc.ChainID)
+		addrSrc, err := nc.MustReadETHKeys()
 		if err != nil {
 			return fmt.Errorf("getting primary ETH key from OCR node %d (src chain): %w", i, err)
 		}
-		ethKeyAddressesSrc = append(ethKeyAddressesSrc, addrSrc.Attributes.Address)
-		l.Info().
-			Int("Idx", i).
-			Str("ETHKeySrc", addrSrc.Attributes.Address).
-			Msg("Node info")
+		for _, key := range addrSrc.Data {
+			if key.Attributes.ChainID == bc.ChainID {
+				ethKeyAddressesSrc = append(ethKeyAddressesSrc, key.Attributes.Address)
+			}
+		}
+		// l.Info().
+		// 	Int("Idx", i).
+		// 	Str("ETHKeySrc", addrSrc.Attributes.Address).
+		// 	Msg("Node info")
 	}
 	clientSrc, _, _, err := ETHClient(ctx, bc.Out.Nodes[0].ExternalWSUrl, &GasSettings{
 		FeeCapMultiplier: 2,
@@ -1604,6 +1608,7 @@ func (m *CCIP17EVM) FundNodes(ctx context.Context, ns []*simple_node_set.Input, 
 	if err != nil {
 		return fmt.Errorf("could not create basic eth client: %w", err)
 	}
+	l.Info().Any("ETHKeyAddressesSrc", ethKeyAddressesSrc).Msg("Funding CL nodes with ETH")
 	for _, addr := range ethKeyAddressesSrc {
 		a, _ := nativeAmount.Float64()
 		if err := FundNodeEIP1559(ctx, clientSrc, getNetworkPrivateKey(), addr, a); err != nil {

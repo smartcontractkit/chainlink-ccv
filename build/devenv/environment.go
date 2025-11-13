@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 
+	static "github.com/smartcontractkit/chainlink-ccv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -287,7 +288,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 	timeTrack.Record("[changeset] deployed product contracts")
 
-	if hasCLNodeService { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
+	if hasCLNodeService || true { //nolint:nestif // large block needed for clarity, refactor as a cl node component later
 		clChainConfigs := make([]string, 0)
 		clChainConfigs = append(clChainConfigs, CommonCLNodesConfig)
 		for i, impl := range impls {
@@ -310,129 +311,163 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
 		}
 
-		// Fund nodes...
-		for i, impl := range impls {
-			if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
-				return nil, err
-			}
-		}
-
 		// Configured keys on CL nodes
 		clClients, err := clclient.New(in.NodeSets[0].Out.CLNodes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect CL node clients")
 		}
 
+		if len(clClients) != 1 {
+			return nil, fmt.Errorf("this spinup currently only works with 1 CL client, got %d", len(clClients))
+		}
+
+		verifierConfigs := []string{static.DefaultVerifier1ConfigTOML, static.DefaultVerifier2ConfigTOML}
+		executorConfig := static.DefaultExecutorConfigTOML
 		// transforming Executor and Verifier configs to Jobs
 		for _, cc := range clClients {
-			// TODO: generate keys instead of hard coding them
-			// TODO: generation could be done by devenv, and imported into CL nodes here, or they could be
-			// generated on the CL node and exported for use in the config files for verifier/executor.
-
-			// import hard coded keys into the CL node keystore
+			// Import the signer keys for each verifier into the node
 			for _, ver := range in.Verifier {
-				if len(ver.SigningKey) != 0 {
-					encryptedJSON, signerAddress, err := encryptedJSONKey(ver.SigningKey, "", keystore.StandardScryptN, keystore.StandardScryptP)
+				// Only spin up default for now.
+				if ver.CommitteeName != "default" {
+					continue
+				}
+
+				encryptedJSON, signerAddress, err := encryptedJSONKey(ver.SigningKey, "", keystore.StandardScryptN, keystore.StandardScryptP)
+				if err != nil {
+					return nil, fmt.Errorf("failed to encrypt verifier signing key (%s): %w", ver.ContainerName, err)
+				}
+
+				// import the key first and then enable it on the rest of the chains.
+				for _, chain := range in.Blockchains {
+					addressesBefore, err := cc.EthAddressesForChain(chain.ChainID)
 					if err != nil {
-						return nil, fmt.Errorf("failed to encrypt verifier signing key (%s): %w", ver.ContainerName, err)
+						return nil, fmt.Errorf("failed to get addresses for chain %s: %w", chain.ChainID, err)
 					}
 
 					Plog.Info().
-						Str("Verifier", ver.ContainerName).
 						Str("Key", ver.SigningKey).
-						Str("encryptedJSON", string(encryptedJSON)).
+						Str("verifierName", ver.ContainerName).
+						Str("chainID", chain.ChainID).
 						Str("signerAddress", signerAddress.Hex()).
-						Msg("Importing encrypted verifier signing key into CL node")
-					// import the key first and then enable it on the rest of the chains.
-					for _, chain := range in.Blockchains {
-						addressesBefore, err := cc.EthAddressesForChain(chain.ChainID)
-						if err != nil {
-							return nil, fmt.Errorf("failed to get addresses for chain %s: %w", chain.ChainID, err)
-						}
-
-						Plog.Info().
-							Str("Key", ver.SigningKey).
-							Str("chainID", chain.ChainID).
-							Str("signerAddress", signerAddress.Hex()).
-							Any("addressesBefore", addressesBefore).
-							Msg("Importing verifier signing key into chain")
-						resp, err := cc.ImportEVMKey(encryptedJSON, chain.ChainID)
-						if err != nil {
-							return nil, fmt.Errorf("failed to import verifier signing key (%s) into chain %s: %w", ver.ContainerName, chain.ChainID, err)
-						}
-
-						// 201 is returned for creation of a new key, which is expected here.
-						if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-							return nil, fmt.Errorf("failed to import verifier signing key (%s) into chain %s: status code %d", ver.ContainerName, chain.ChainID, resp.StatusCode)
-						}
-
-						// check if the key was imported
-						addressesAfter, err := cc.EthAddressesForChain(chain.ChainID)
-						if err != nil {
-							return nil, fmt.Errorf("failed to get addresses for chain %s: %w", chain.ChainID, err)
-						}
-						if !slices.Contains(addressesAfter, signerAddress.Hex()) {
-							return nil, fmt.Errorf("verifier signing key (%s) was not imported into chain %s, all addresses: %v", ver.ContainerName, chain.ChainID, addressesAfter)
-						}
-						Plog.Info().
-							Str("Key", ver.SigningKey).
-							Str("chainID", chain.ChainID).
-							Str("signerAddress", signerAddress.Hex()).
-							Any("addressesAfter", addressesAfter).
-							Msg("Verifier signing key imported into CL node for chain")
-
-						break
+						Any("addressesBefore", addressesBefore).
+						Msg("Importing verifier signing key into chain")
+					resp, err := cc.ImportEVMKey(encryptedJSON, chain.ChainID)
+					if err != nil {
+						return nil, fmt.Errorf("failed to import verifier signing key (%s) into chain %s: %w", ver.ContainerName, chain.ChainID, err)
 					}
 
-					for _, chain := range in.Blockchains {
-						Plog.Info().
-							Str("Key", ver.SigningKey).
-							Str("chainID", chain.ChainID).
-							Str("signerAddress", signerAddress.Hex()).
-							Msg("Enabling verifier signing key on chain")
-						req := cc.APIClient.R()
-						req.QueryParam = url.Values{
-							"evmChainID": {chain.ChainID},
-							"address":    {signerAddress.Hex()},
-							"enabled":    {"true"},
-						}
-						resp, err := req.Post("/v2/keys/evm/chain")
-						if err != nil {
-							return nil, fmt.Errorf("failed to enable verifier signing key (%s) on chain %s: %w", ver.ContainerName, chain.ChainID, err)
-						}
-						if resp.StatusCode() != http.StatusOK {
-							return nil, fmt.Errorf("failed to enable verifier signing key (%s) on chain %s: status code %d", ver.ContainerName, chain.ChainID, resp.StatusCode())
-						}
-						Plog.Info().
-							Str("Key", ver.SigningKey).
-							Str("chainID", chain.ChainID).
-							Str("signerAddress", signerAddress.Hex()).
-							Msg("Verifier signing key enabled on chain")
+					// 201 is returned for creation of a new key, which is expected here.
+					if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+						return nil, fmt.Errorf("failed to import verifier signing key (%s) into chain %s: status code %d", ver.ContainerName, chain.ChainID, resp.StatusCode)
 					}
+
+					// check if the key was imported
+					addressesAfter, err := cc.EthAddressesForChain(chain.ChainID)
+					if err != nil {
+						return nil, fmt.Errorf("failed to get addresses for chain %s: %w", chain.ChainID, err)
+					}
+					if !slices.Contains(addressesAfter, signerAddress.Hex()) {
+						return nil, fmt.Errorf("verifier signing key (%s) was not imported into chain %s, all addresses: %v", ver.ContainerName, chain.ChainID, addressesAfter)
+					}
+					Plog.Info().
+						Str("Key", ver.SigningKey).
+						Str("verifierName", ver.ContainerName).
+						Str("chainID", chain.ChainID).
+						Str("signerAddress", signerAddress.Hex()).
+						Any("addressesAfter", addressesAfter).
+						Msg("Verifier signing key imported into CL node for chain")
+					break // only import the key once for the first chain
+				}
+
+				for _, chain := range in.Blockchains {
+					Plog.Info().
+						Str("Key", ver.SigningKey).
+						Str("verifierName", ver.ContainerName).
+						Str("chainID", chain.ChainID).
+						Str("signerAddress", signerAddress.Hex()).
+						Msg("Enabling verifier signing key on chain")
+					req := cc.APIClient.R()
+					req.QueryParam = url.Values{
+						"evmChainID": {chain.ChainID},
+						"address":    {signerAddress.Hex()},
+						"enabled":    {"true"},
+					}
+					resp, err := req.Post("/v2/keys/evm/chain")
+					if err != nil {
+						return nil, fmt.Errorf("failed to enable verifier signing key (%s) on chain %s: %w", ver.ContainerName, chain.ChainID, err)
+					}
+					if resp.StatusCode() != http.StatusOK {
+						return nil, fmt.Errorf("failed to enable verifier signing key (%s) on chain %s: status code %d", ver.ContainerName, chain.ChainID, resp.StatusCode())
+					}
+					Plog.Info().
+						Str("Key", ver.SigningKey).
+						Str("verifierName", ver.ContainerName).
+						Str("chainID", chain.ChainID).
+						Str("signerAddress", signerAddress.Hex()).
+						Msg("Verifier signing key enabled on chain")
 				}
 			}
-		}
-	}
 
-	if !hasCLNodeService {
-		// Start standalone executor if in standalone mode.
-		if in.Executor != nil && in.Executor.Mode == services.Standalone {
-			_, err = services.NewExecutor(in.Executor)
+			j, resp, err := cc.CreateJobRaw(formatCCVCommitteeVerifierSpec(verifierConfigs[0]))
 			if err != nil {
-				return nil, fmt.Errorf("failed to create executor service: %w", err)
+				return nil, fmt.Errorf("failed to create committee verifier job with first config: %w", err)
 			}
+			if resp.StatusCode != 200 && resp.StatusCode != 201 {
+				return nil, fmt.Errorf("failed to create committee verifier job with first config: %s", resp.Status)
+			}
+
+			Plog.Info().Str("JobID", j.Data.ID).Msg("Created committee verifier job with first config")
+
+			j, resp, err = cc.CreateJobRaw(formatCCVCommitteeVerifierSpec(verifierConfigs[1]))
+			if err != nil {
+				return nil, fmt.Errorf("failed to create committee verifier job with second config: %w", err)
+			}
+			if resp.StatusCode != 200 && resp.StatusCode != 201 {
+				return nil, fmt.Errorf("failed to create committee verifier job with second config: %s", resp.Status)
+			}
+
+			Plog.Info().Str("JobID", j.Data.ID).Msg("Created committee verifier job with second config")
+
+			j, resp, err = cc.CreateJobRaw(formatCCVExecutorSpec(executorConfig))
+			if err != nil {
+				return nil, fmt.Errorf("failed to create executor job: %w", err)
+			}
+			if resp.StatusCode != 200 && resp.StatusCode != 201 {
+				return nil, fmt.Errorf("failed to create executor job: %s", resp.Status)
+			}
+
+			Plog.Info().Str("JobID", j.Data.ID).Msg("Created executor job")
 		}
 
-		// Start standalone verifiers if in standalone mode.
-		for _, ver := range in.Verifier {
-			if ver.Mode == services.Standalone {
-				_, err = services.NewVerifier(ver)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create verifier service: %w", err)
-				}
+		// Fund nodes...
+		// TODO: this will end up funding the signing keys which are also eth keys.
+		// Need to cut over to OCR2 keys to avoid using signing keys as transmission keys.
+		for i, impl := range impls {
+			if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
+				return nil, err
 			}
 		}
 	}
+
+	// if !hasCLNodeService {
+	// 	// Start standalone executor if in standalone mode.
+	// 	if in.Executor != nil && in.Executor.Mode == services.Standalone {
+	// 		_, err = services.NewExecutor(in.Executor)
+	// 		if err != nil {
+	// 			return nil, fmt.Errorf("failed to create executor service: %w", err)
+	// 		}
+	// 	}
+
+	// 	// Start standalone verifiers if in standalone mode.
+	// 	for _, ver := range in.Verifier {
+	// 		if ver.Mode == services.Standalone {
+	// 			_, err = services.NewVerifier(ver)
+	// 			if err != nil {
+	// 				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	timeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
@@ -483,4 +518,26 @@ func encryptedJSONKey(privKeyHex, password string, scryptN, scryptP int) ([]byte
 	}
 
 	return encryptedJSON, signerAddressGeth, nil
+}
+
+func formatCCVCommitteeVerifierSpec(tomlConfig string) string {
+	return fmt.Sprintf(
+		`
+schemaVersion = 1
+type = "ccvcommitteeverifier"
+committeeVerifierConfig = """
+%s
+"""
+`, tomlConfig)
+}
+
+func formatCCVExecutorSpec(tomlConfig string) string {
+	return fmt.Sprintf(
+		`
+schemaVersion = 1
+type = "ccvexecutor"
+executorConfig = """
+%s
+"""
+`, tomlConfig)
 }

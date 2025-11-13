@@ -20,6 +20,7 @@ type Config struct {
 
 	SignerAddress string `toml:"signer_address"`
 
+	// Deprecated: do not use, will be removed soon.
 	// TODO: remove from verifier config, readers need to be initialized separately.
 	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	PyroscopeURL    string                              `toml:"pyroscope_url"`
