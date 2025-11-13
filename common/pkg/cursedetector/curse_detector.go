@@ -75,7 +75,7 @@ func NewCurseDetectorService(
 // Start begins polling RMN Remote contracts for curse updates.
 func (s *Service) Start(ctx context.Context) error {
 	return s.StartOnce("cursedetector.Service", func() error {
-		c, cancel := context.WithCancel(ctx)
+		c, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
 
 		// Initial poll
