@@ -15,8 +15,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+)
+
+const (
+	defaultSentTimeout = 10 * time.Second
 )
 
 type TestingContext struct {
@@ -70,6 +76,39 @@ func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, a
 
 func (tc *TestingContext) enrichMetrics(metrics []metrics.MessageMetrics) {
 	tc.LogAsserter.EnrichMetrics(metrics)
+}
+
+// DefaultMessageFields creates a simple message with test data.
+func DefaultMessageFields(receiver protocol.UnknownAddress) cciptestinterfaces.MessageFields {
+	return cciptestinterfaces.MessageFields{
+		Receiver: receiver,
+		Data:     []byte("test-msg"),
+	}
+}
+
+// MustSendMessage sends a message and waits for the sent event.
+// If finality is 0, uses version 2 (no finality config).
+// If finality is non-zero, uses version 3 with the specified finality config.
+func (tc *TestingContext) MustSendMessage(srcChain, destChain uint64, receiver protocol.UnknownAddress, finality uint16) cciptestinterfaces.MessageSentEvent {
+	seqNo, err := tc.Impl.GetExpectedNextSequenceNumber(tc.Ctx, srcChain, destChain)
+	require.NoError(tc.T, err)
+
+	opts := cciptestinterfaces.MessageOptions{
+		Version:  2,
+		GasLimit: 200_000,
+	}
+	if finality != 0 {
+		opts.Version = 3
+		opts.FinalityConfig = finality
+	}
+
+	_, err = tc.Impl.SendMessage(tc.Ctx, srcChain, destChain, DefaultMessageFields(receiver), opts)
+	require.NoError(tc.T, err)
+
+	sentEvt, err := tc.Impl.WaitOneSentEventBySeqNo(tc.Ctx, srcChain, destChain, seqNo, defaultSentTimeout)
+	require.NoError(tc.T, err)
+
+	return sentEvt
 }
 
 type AssertionResult struct {
