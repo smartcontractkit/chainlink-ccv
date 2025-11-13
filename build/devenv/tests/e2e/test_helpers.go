@@ -23,7 +23,7 @@ import (
 
 const (
 	defaultSentTimeout = 10 * time.Second
-	defaultExecTimeout = 60 * time.Second
+	defaultExecTimeout = 40 * time.Second
 )
 
 type TestingContext struct {

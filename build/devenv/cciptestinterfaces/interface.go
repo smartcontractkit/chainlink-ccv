@@ -131,6 +131,12 @@ type Chains interface {
 	GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
 	// GetMaxDataBytes gets the maximum data size for a CCIP message to a remote chain.
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
+
+	// ApplyCurse applies a curse to the specified subjects on the given chain.
+	ApplyCurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
+
+	// ApplyUncurse removes a curse from the specified subjects on the given chain.
+	ApplyUncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
 }
 
 // OnChainConfigurable defines methods that allows devenv to

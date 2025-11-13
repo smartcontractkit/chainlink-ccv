@@ -1679,8 +1679,8 @@ func (m *CCIP17EVM) fundLockReleaseTokenPool(
 // RMN Curse Operations
 // ============================================================================
 
-// GetRMNRemoteAddress returns the RMN Remote contract address for a given chain.
-func (m *CCIP17EVM) GetRMNRemoteAddress(chainSelector uint64) (common.Address, error) {
+// getRMNRemoteAddress returns the RMN Remote contract address for a given chain.
+func (m *CCIP17EVM) getRMNRemoteAddress(chainSelector uint64) (common.Address, error) {
 	rmnRemoteRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			chainSelector,
@@ -1698,7 +1698,7 @@ func (m *CCIP17EVM) GetRMNRemoteAddress(chainSelector uint64) (common.Address, e
 // ApplyCurse applies curses to the RMN Remote contract on a given chain.
 // The subjects parameter contains the curse subjects (either chain selectors or global curse).
 func (m *CCIP17EVM) ApplyCurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
-	rmnRemoteAddr, err := m.GetRMNRemoteAddress(chainSelector)
+	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
 	if err != nil {
 		return err
 	}
@@ -1748,7 +1748,7 @@ func (m *CCIP17EVM) ApplyCurse(ctx context.Context, chainSelector uint64, subjec
 // ApplyUncurse removes curses from the RMN Remote contract on a given chain.
 // The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
 func (m *CCIP17EVM) ApplyUncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
-	rmnRemoteAddr, err := m.GetRMNRemoteAddress(chainSelector)
+	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
 	if err != nil {
 		return err
 	}
@@ -1793,31 +1793,4 @@ func (m *CCIP17EVM) ApplyUncurse(ctx context.Context, chainSelector uint64, subj
 		Msg("Applied uncurse on chain")
 
 	return nil
-}
-
-// VerifyCurseState checks if a specific subject is cursed on a given chain.
-// Returns true if the subject is cursed, false otherwise.
-func (m *CCIP17EVM) VerifyCurseState(ctx context.Context, chainSelector uint64, subject [16]byte) (bool, error) {
-	rmnRemoteAddr, err := m.GetRMNRemoteAddress(chainSelector)
-	if err != nil {
-		return false, err
-	}
-
-	ethClient, ok := m.ethClients[chainSelector]
-	if !ok {
-		return false, fmt.Errorf("eth client not found for chain %d", chainSelector)
-	}
-
-	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, ethClient)
-	if err != nil {
-		return false, fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
-	}
-
-	// Call IsCursed
-	isCursed, err := rmnRemote.IsCursed(&bind.CallOpts{Context: ctx}, subject)
-	if err != nil {
-		return false, fmt.Errorf("failed to call IsCursed: %w", err)
-	}
-
-	return isCursed, nil
 }
