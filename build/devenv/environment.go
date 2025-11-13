@@ -14,6 +14,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 
@@ -143,9 +144,24 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Verifier configs...
 	for i, ver := range in.Verifier {
 		services.ApplyVerifierDefaults(ver)
+		if ver.Mode != services.Standalone {
+			// only generate keys with this method for standalone verifiers.
+			continue
+		}
 		// deterministic key generation algorithm.
 		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
 		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+
+		privateKey, err := commit.ReadPrivateKeyFromString(ver.SigningKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load private key: %w", err)
+		}
+		_, publicKey, err := commit.NewECDSAMessageSigner(privateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create message signer: %w", err)
+		}
+		ver.SigningKeyPublic = publicKey.String()
+
 		in.Verifier[i] = ver // technically not needed because it's a pointer.
 	}
 
@@ -227,6 +243,26 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////
 	// Start: Deploy contracts //
 	/////////////////////////////
+
+	// TODO: When job specs are supported, contract deploy needs to happen after CL nodes are up (and keys are
+	// generated) and before the services have been started.
+
+	addrs := make(map[string][][]byte)
+
+	for _, ver := range in.Verifier {
+		// At this point, SigningKeyPublic must be assigned -- either by keygen either manually or by the CL node.
+		addrs[ver.CommitteeName] = append(addrs[ver.CommitteeName], hexutil.MustDecode(ver.SigningKeyPublic))
+	}
+
+	var committees []cciptestinterfaces.OnChainCommittees
+	for committeeName, signers := range addrs {
+		committees = append(committees, cciptestinterfaces.OnChainCommittees{
+			CommitteeQualifier: committeeName,
+			Signers:            signers,
+			Threshold:          1,
+		})
+	}
+
 	var selectors []uint64
 	var e *deployment.Environment
 	// the CLDF datastore is not initialized at this point because contracts are not deployed yet.
@@ -247,7 +283,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deployed chain selector")
 		var dsi datastore.DataStore
-		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector)
+		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector, committees)
 		if err != nil {
 			return nil, err
 		}
@@ -280,7 +316,7 @@ func NewEnvironment() (in *Cfg, err error) {
 				selsToConnect = append(selsToConnect, sel)
 			}
 		}
-		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect)
+		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect, committees)
 		if err != nil {
 			return nil, err
 		}

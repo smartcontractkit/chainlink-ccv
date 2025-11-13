@@ -1076,7 +1076,38 @@ func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatu
 	}
 }
 
-func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64) (datastore.DataStore, error) {
+func toCommitteeVerifierParams(committees []cciptestinterfaces.OnChainCommittees) []sequences.CommitteeVerifierParams {
+	params := make([]sequences.CommitteeVerifierParams, 0, len(committees))
+
+	toCommon := func(addrs [][]byte) []common.Address {
+		var result []common.Address
+		for _, addr := range addrs {
+			if len(addr) != common.AddressLength {
+				panic(fmt.Sprintf("invalid address length: %d", len(addr)))
+			}
+			result = append(result, common.BytesToAddress(addr))
+		}
+		return result
+	}
+
+	// TODO: deploy the offchain verifiers that correspond to these contracts.
+	for _, c := range committees {
+		params = append(params, sequences.CommitteeVerifierParams{
+			Version: semver.MustParse(committee_verifier.Deploy.Version()),
+			// TODO: add mocked contract here
+			FeeAggregator: common.HexToAddress("0x01"),
+			SignatureConfigArgs: committee_verifier.SetSignatureConfigArgs{
+				Signers:   toCommon(c.Signers),
+				Threshold: c.Threshold,
+			},
+			Qualifier: c.CommitteeQualifier,
+		})
+	}
+
+	return params
+}
+
+func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {
 	l := m.logger
 	l.Info().Msg("Configuring contracts for selector")
 	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
@@ -1113,30 +1144,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				},
 				// Deploy multiple committee verifiers in order to test different receiver
 				// configurations.
-				CommitteeVerifier: []sequences.CommitteeVerifierParams{
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(DefaultCommitteeVerifierQualifier),
-						Qualifier:           DefaultCommitteeVerifierQualifier,
-					},
-					// TODO: deploy the offchain verifiers that correspond to these contracts.
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(SecondaryCommitteeVerifierQualifier),
-						Qualifier:           SecondaryCommitteeVerifierQualifier,
-					},
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(TertiaryCommitteeVerifierQualifier),
-						Qualifier:           TertiaryCommitteeVerifierQualifier,
-					},
-				},
+				CommitteeVerifier: toCommitteeVerifierParams(committees),
 				OnRamp: sequences.OnRampParams{
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),
@@ -1159,6 +1167,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					USDPerLINK:                     usdPerLink,
 					USDPerWETH:                     usdPerWeth,
 				},
+				// TODO: How to generate this from the committees param?
 				MockReceivers: []sequences.MockReceiverParams{
 					{
 						// single required verifier (default), no optional verifiers, no optional threshold
@@ -1411,7 +1420,8 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 	return nil
 }
 
-func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
+// TODO: How to generate all the default/secondary/tertiary things from the committee param?
+func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
 	l := m.logger
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
 	bundle := operations.NewBundle(
