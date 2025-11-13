@@ -87,14 +87,6 @@ const (
 var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
-	// this is a hacky way to be able to programmatically generate the individual verifier
-	// signing addresses for each qualifier.
-	nodesPerCommittee = map[string]int{
-		DefaultCommitteeVerifierQualifier:   2,
-		SecondaryCommitteeVerifierQualifier: 2,
-		TertiaryCommitteeVerifierQualifier:  2,
-	}
-
 	tokenPoolVersions = []string{
 		"1.6.1",
 		"1.7.0",
@@ -1047,33 +1039,6 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 		bc.Out.Nodes[0].InternalWSUrl,
 		bc.Out.Nodes[0].InternalHTTPUrl,
 	), nil
-}
-
-// getCommitteeSignatureConfig returns the committee signature configuration for a given qualifier.
-// The signer addresses are programmatically generated in an identical to fashion to what is done in
-// NewEnvironment to avoid hardcoding hard-to-determine addresses in the code.
-func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatureConfigArgs {
-	numNodes, ok := nodesPerCommittee[qualifier]
-	if !ok {
-		panic(fmt.Sprintf("couldn't find verifier indexes for qualifier: %s", qualifier))
-	}
-	signerAddresses := make([]common.Address, 0, numNodes)
-	for i := range numNodes {
-		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(qualifier, i)
-		privateKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyString)
-		if err != nil {
-			panic(fmt.Sprintf("failed to read private key: %v", err))
-		}
-		_, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
-		if err != nil {
-			panic(fmt.Sprintf("failed to create ECDSA message signer: %v", err))
-		}
-		signerAddresses = append(signerAddresses, common.BytesToAddress(addr[:]))
-	}
-	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(numNodes),
-		Signers:   signerAddresses,
-	}
 }
 
 func toCommitteeVerifierParams(committees []cciptestinterfaces.OnChainCommittees) []sequences.CommitteeVerifierParams {

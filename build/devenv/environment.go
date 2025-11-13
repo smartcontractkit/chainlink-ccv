@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -150,7 +151,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 		// deterministic key generation algorithm.
 		ver.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", ver.CommitteeName, ver.NodeIndex+1)
-		ver.SigningKey = cciptestinterfaces.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+		ver.SigningKey = util.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
 
 		privateKey, err := commit.ReadPrivateKeyFromString(ver.SigningKey)
 		if err != nil {
@@ -259,7 +260,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		committees = append(committees, cciptestinterfaces.OnChainCommittees{
 			CommitteeQualifier: committeeName,
 			Signers:            signers,
-			Threshold:          1,
+			Threshold:          uint8(len(signers)),
 		})
 	}
 
