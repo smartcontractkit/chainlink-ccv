@@ -113,10 +113,8 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	return ccvInfo, nil
 }
 
-// IsMessageExecuted checks the destination chain to verify if a message has been executed.
-func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error) {
-	_ = ctx
-
+// GetMessageExecutionState checks the destination chain to verify if a message has been executed.
+func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, message protocol.Message) (executor.MessageExecutionState, error) {
 	rcv := common.BytesToAddress(message.Receiver)
 	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
@@ -128,15 +126,8 @@ func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message p
 		message.Sender,
 		rcv)
 	if err != nil {
-		return false, fmt.Errorf("failed to call getExecutionState: %w", err)
+		return MESSAGE_FAILURE, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
 
-	if execState == MESSAGE_FAILURE || execState == MESSAGE_IN_PROGRESS || execState == MESSAGE_SUCCESS {
-		return true, nil
-	}
-	if execState == MESSAGE_UNTOUCHED {
-		return false, nil
-	}
-
-	return true, fmt.Errorf("unknown execution state: %d", execState)
+	return executor.MessageExecutionState(execState), nil
 }

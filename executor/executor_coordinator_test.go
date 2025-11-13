@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -26,6 +27,7 @@ func TestConstructor(t *testing.T) {
 		sub  executor.MessageSubscriber
 		le   executor.LeaderElector
 		mon  executor.Monitoring
+		sc   executor.StatusChecker
 	}
 
 	testcases := []struct {
@@ -46,6 +48,7 @@ func TestConstructor(t *testing.T) {
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: false,
 		},
@@ -56,6 +59,7 @@ func TestConstructor(t *testing.T) {
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: true,
 		},
@@ -66,6 +70,7 @@ func TestConstructor(t *testing.T) {
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: true,
 		},
@@ -76,6 +81,7 @@ func TestConstructor(t *testing.T) {
 				exec: executor_mocks.NewMockExecutor(t),
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: true,
 		},
@@ -86,6 +92,7 @@ func TestConstructor(t *testing.T) {
 				exec: executor_mocks.NewMockExecutor(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
+				sc:   executor_mocks.NewMockStatusChecker(t),
 			},
 			expectErr: true,
 		},
@@ -96,6 +103,18 @@ func TestConstructor(t *testing.T) {
 				exec: executor_mocks.NewMockExecutor(t),
 				sub:  executor_mocks.NewMockMessageSubscriber(t),
 				le:   executor_mocks.NewMockLeaderElector(t),
+				sc:   executor_mocks.NewMockStatusChecker(t),
+			},
+			expectErr: true,
+		},
+		{
+			name: "missing StatusChecker",
+			args: args{
+				lggr: lggr,
+				exec: executor_mocks.NewMockExecutor(t),
+				sub:  executor_mocks.NewMockMessageSubscriber(t),
+				le:   executor_mocks.NewMockLeaderElector(t),
+				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
 			expectErr: true,
 		},
@@ -103,7 +122,7 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon)
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, tc.args.sc, 8*time.Hour)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -127,6 +146,8 @@ func TestLifecycle(t *testing.T) {
 		ccvDataReader,
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		executor_mocks.NewMockStatusChecker(t),
+		8*time.Hour,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -152,6 +173,8 @@ func TestSubscribeMessagesError(t *testing.T) {
 		messageSubscriber,
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		executor_mocks.NewMockStatusChecker(t),
+		8*time.Hour,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -182,9 +205,146 @@ func TestStopNotRunning(t *testing.T) {
 		executor_mocks.NewMockMessageSubscriber(t),
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		executor_mocks.NewMockStatusChecker(t),
+		8*time.Hour,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
 
 	require.ErrorContains(t, ec.Close(), "has not been started")
+}
+
+func TestMessageExpiration(t *testing.T) {
+	testcases := []struct {
+		name              string
+		expiryDuration    time.Duration
+		retryDelay        int64
+		initialReadyDelay int64
+		shouldRetry       bool
+		shouldExecute     bool
+		shouldExpire      bool
+	}{
+		{
+			name:              "message expires when retry time exceeds expiry",
+			expiryDuration:    5 * time.Second,
+			retryDelay:        10, // 10 seconds retry delay
+			initialReadyDelay: 0,  // ready immediately
+			shouldRetry:       true,
+			shouldExecute:     false,
+			shouldExpire:      true,
+		},
+		{
+			name:              "message retries when within expiry window",
+			expiryDuration:    20 * time.Second,
+			retryDelay:        5, // 5 seconds retry delay
+			initialReadyDelay: 0,
+			shouldRetry:       true,
+			shouldExecute:     false,
+			shouldExpire:      false,
+		},
+		{
+			name:              "message does not retry when shouldRetry is false",
+			expiryDuration:    10 * time.Second,
+			retryDelay:        5,
+			initialReadyDelay: 0,
+			shouldRetry:       false,
+			shouldExecute:     false,
+			shouldExpire:      false,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a new observed logger for each test case
+			lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
+
+			// Create a test message
+			testMessage := executor.StreamerResult{
+				Messages: []protocol.Message{
+					{
+						DestChainSelector:   1,
+						SourceChainSelector: 2,
+						Nonce:               1,
+					},
+				},
+			}
+
+			// Set up message subscriber to send one message
+			messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
+			messageChan := make(chan executor.StreamerResult, 1)
+			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, nil)
+
+			// Set up executor mock
+			mockExecutor := executor_mocks.NewMockExecutor(t)
+			mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+
+			// Set up leader elector mock
+			leaderElector := executor_mocks.NewMockLeaderElector(t)
+			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything).Return(time.Now().Unix() + tc.initialReadyDelay).Maybe()
+			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay).Maybe()
+
+			// Set up status checker mock
+			statusChecker := executor_mocks.NewMockStatusChecker(t)
+			statusChecker.EXPECT().GetMessageStatus(mock.Anything, mock.Anything, mock.Anything).
+				Return(tc.shouldRetry, tc.shouldExecute, nil).Maybe()
+
+			// Create coordinator with test expiry duration
+			ec, err := executor.NewCoordinator(
+				lggr,
+				mockExecutor,
+				messageSubscriber,
+				leaderElector,
+				monitoring.NewNoopExecutorMonitoring(),
+				statusChecker,
+				tc.expiryDuration,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, ec)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Start the coordinator
+			require.NoError(t, ec.Start(ctx))
+			defer func() {
+				_ = ec.Close()
+			}()
+
+			// Send the test message
+			messageChan <- testMessage
+
+			// Wait for processing to occur (ticker fires every second)
+			time.Sleep(2 * time.Second)
+
+			// Check for expected log entries
+			found := func(searchStr string) bool {
+				for _, entry := range hook.All() {
+					entryStr := fmt.Sprintf("%+v", entry)
+					if strings.Contains(entryStr, searchStr) {
+						return true
+					}
+				}
+				return false
+			}
+
+			if tc.shouldExecute {
+				require.Eventuallyf(t, func() bool {
+					return found("message has expired")
+				}, 3*time.Second, 100*time.Millisecond, "expected to find 'message has expired' log entry")
+			}
+
+			if !tc.shouldExpire && tc.shouldRetry {
+				require.Eventuallyf(t, func() bool {
+					return found("message should be retried")
+				}, 3*time.Second, 100*time.Millisecond, "expected to find 'message should be retried' log entry")
+			}
+
+			if !tc.shouldExecute && !tc.shouldRetry {
+				// If neither should happen, verify no expiration or retry log entries exist
+				time.Sleep(2 * time.Second)
+				require.False(t, found("message has expired"), "should not have expiration log")
+				require.False(t, found("message should be retried"), "should not have retry log")
+			}
+		})
+	}
 }

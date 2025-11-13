@@ -7,10 +7,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var (
-	ErrMsgAlreadyExecuted    = fmt.Errorf("message already executed")
-	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
-)
+var ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
 
 type AbstractAggregatedReport struct {
 	CCVS    []protocol.UnknownAddress
@@ -52,3 +49,12 @@ type CCVAddressInfo struct {
 	OptionalCCVs      []protocol.UnknownAddress `json:"optional_ccvs"`
 	OptionalThreshold uint8                     `json:"optional_threshold"`
 }
+
+type MessageExecutionState uint8
+
+const (
+	MESSAGE_UNTOUCHED MessageExecutionState = iota
+	MESSAGE_IN_PROGRESS
+	MESSAGE_SUCCESS
+	MESSAGE_FAILURE
+)

@@ -29,6 +29,8 @@ type Coordinator struct {
 	cancel             context.CancelFunc
 	delayedMessageHeap *message_heap.MessageHeap
 	running            atomic.Bool
+	statusChecker      StatusChecker
+	expiryDuration     time.Duration
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -38,6 +40,8 @@ func NewCoordinator(
 	messageSubscriber MessageSubscriber,
 	leaderElector LeaderElector,
 	monitoring Monitoring,
+	statusChecker StatusChecker,
+	expiryDuration time.Duration,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
 		lggr:              lggr,
@@ -48,6 +52,8 @@ func NewCoordinator(
 		ccvDataCh:         make(chan MessageWithCCVData, 100),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
+		statusChecker:  statusChecker,
+		expiryDuration: expiryDuration,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -141,33 +147,52 @@ func (ec *Coordinator) run(ctx context.Context) {
 				// get message delay from leader elector
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
 
-				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamp{
-					Payload:   &msg,
-					ReadyTime: readyTimestamp,
+				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamps{
+					Message:    &msg,
+					ReadyTime:  readyTimestamp,
+					ExpiryTime: readyTimestamp + int64(ec.expiryDuration.Seconds()),
 				})
 			}
 		case <-ticker.C:
 			// todo: get this current time from a single source across all executors
 			currentTime := time.Now().Unix()
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
-			for _, message := range readyMessages {
+			for _, payload := range readyMessages {
 				go func() {
-					message := message
-					id, _ := message.MessageID() // can we make this less bad?
+					message, currentTime := *payload.Message, currentTime
+					id, _ := message.MessageID()
+
 					ec.lggr.Infow("processing message with ID", "messageID", id)
-					err := ec.executor.AttemptExecuteMessage(ctx, message)
-					if errors.Is(err, ErrMsgAlreadyExecuted) {
-						ec.lggr.Infow("message already executed, skipping", "messageID", id)
-						return
-					} else if errors.Is(err, ErrInsufficientVerifiers) {
-						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
-						return
-					} else if err != nil {
-						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
-						ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-						return
+					shouldRetry, shouldExecute, err := ec.statusChecker.GetMessageStatus(ctx, message, currentTime)
+					if err != nil {
+						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
 					}
-					ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+
+					if shouldRetry {
+						retryTime := currentTime + ec.leaderElector.GetRetryDelay(message.DestChainSelector)
+						if retryTime > payload.ExpiryTime {
+							ec.lggr.Infow("message has expired", "messageID", id)
+							return
+						}
+						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
+						heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamps{
+							Message:    &message,
+							ReadyTime:  retryTime,
+							ExpiryTime: payload.ExpiryTime,
+						})
+					}
+					if shouldExecute {
+						err = ec.executor.AttemptExecuteMessage(ctx, message)
+						if errors.Is(err, ErrInsufficientVerifiers) {
+							ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
+							return
+						} else if err != nil {
+							ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
+							ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
+							return
+						}
+						ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+					}
 				}()
 			}
 		}
@@ -188,6 +213,7 @@ func (ec *Coordinator) validate() error {
 	appendIfNil(ec.lggr, "logger")
 	appendIfNil(ec.messageSubscriber, "messageSubscriber")
 	appendIfNil(ec.monitoring, "monitoring")
+	appendIfNil(ec.statusChecker, "statusChecker")
 
 	return errors.Join(errs...)
 }
