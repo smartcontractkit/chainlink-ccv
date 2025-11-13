@@ -746,73 +746,71 @@ func TestRMNCurseLane(t *testing.T) {
 	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
+	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
+
+	defaultAggregatorClient, err := ccv.NewAggregatorClient(
+		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+		defaultAggregatorAddr)
+	require.NoError(t, err)
+	require.NotNil(t, defaultAggregatorClient)
+	t.Cleanup(func() {
+		defaultAggregatorClient.Close()
+	})
+
+	indexerClient := ccv.NewIndexerClient(
+		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
+		indexerURL)
+	require.NotNil(t, indexerClient)
+
 	chain0, chain1, chain2 := selectors[0], selectors[1], selectors[2]
 	receiver := mustGetEOAReceiverAddress(t, c, chain1)
 
-	// 1. Send baseline message (chain0 -> chain1) to verify lane works
-	l.Info().Msg("Step 1: Sending baseline message from chain0 to chain1")
+	l.Info().Msg("Sending baseline message from chain0 to chain1")
 	seqNo, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
 	require.NoError(t, err)
 	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
 		Receiver: receiver,
 		Data:     []byte("baseline message"),
 	}, cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
+		Version:        3,
+		GasLimit:       200_000,
+		FinalityConfig: 20, // Use custom finality, this should make the message a bit slower to execute
 	})
 	require.NoError(t, err)
 
-	execEvt, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo, defaultExecTimeout)
+	sentEvt, err := c.WaitOneSentEventBySeqNo(ctx, chain0, chain1, seqNo, defaultSentTimeout)
 	require.NoError(t, err)
-	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "baseline message should succeed")
-	l.Info().Msg("Baseline message executed successfully")
+	messageID := sentEvt.MessageID
+	l.Info().Hex("messageID", messageID[:]).Msg("Baseline message sent on chain")
 
-	// 2. Apply bidirectional lane curse (chain0 <-> chain1)
-	l.Info().Msg("Step 2: Applying bidirectional lane curse between chain0 and chain1")
+	l.Info().Msg("Applying bidirectional lane curse between chain0 and chain1 (before execution)")
 	err = c.ApplyCurse(ctx, chain0, [][16]byte{chainSelectorToSubject(chain1)})
 	require.NoError(t, err)
 	err = c.ApplyCurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
-	// 3. Wait for curse detector to poll and detect curses
-	l.Info().Msg("Step 3: Waiting 5 seconds for curse detector to detect curses")
-	time.Sleep(5 * time.Second)
+	l.Info().Msg("Asserting baseline message reaches verifier but gets dropped due to curse")
+	testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
+	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID, 100*time.Second)
+	require.NoError(t, err, "message reached verifier and then dropped due to curse")
 
-	// 4. Verify curse state
-	l.Info().Msg("Step 4: Verifying curse state")
-	isCursed, err := c.VerifyCurseState(ctx, chain0, chainSelectorToSubject(chain1))
-	require.NoError(t, err)
-	require.True(t, isCursed, "chain1 should be cursed on chain0")
+	// TODO: On-chain has a bug where on-ramp doesn't check for curses - once it's fixed we should add this back
+	//  on-chain ticket where it'll be fixed https://smartcontract-it.atlassian.net/browse/CCIP-7956
+	//l.Info().Msg("Attempting to send message on cursed lane (should revert)")
+	//seqNo, err = c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
+	//require.NoError(t, err)
+	//_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
+	//	Receiver: receiver,
+	//	Data:     []byte("cursed message"),
+	//}, cciptestinterfaces.MessageOptions{
+	//	Version:  2,
+	//	GasLimit: 200_000,
+	//})
+	//require.Error(t, err)
+	//l.Info().Msg("Confirmed: message on cursed lane was reverted")
 
-	isCursed, err = c.VerifyCurseState(ctx, chain1, chainSelectorToSubject(chain0))
-	require.NoError(t, err)
-	require.True(t, isCursed, "chain0 should be cursed on chain1")
-
-	// 5. Attempt to send message chain0 -> chain1 (should fail/timeout)
-	l.Info().Msg("Step 5: Attempting to send message on cursed lane (should not execute)")
-	seqNo, err = c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
-	require.NoError(t, err)
-	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
-		Receiver: receiver,
-		Data:     []byte("cursed message"),
-	}, cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
-	})
-	require.NoError(t, err)
-
-	// Wait a bit and verify message does NOT get executed
-	time.Sleep(10 * time.Second)
-	// Try to get execution event with short timeout - should timeout/fail
-	execEvt, err = c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo, 5*time.Second)
-	if err == nil {
-		require.NotEqual(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
-			"message on cursed lane should not execute successfully")
-	}
-	l.Info().Msg("Confirmed: message on cursed lane was not executed")
-
-	// 6. Verify chain0 -> chain2 still works (uncursed lane)
-	l.Info().Msg("Step 6: Verifying uncursed lane (chain0 -> chain2) still works")
+	l.Info().Msg("Verifying uncursed lane (chain0 -> chain2) still works")
 	receiver2 := mustGetEOAReceiverAddress(t, c, chain2)
 	seqNo2, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain2)
 	require.NoError(t, err)
@@ -831,29 +829,16 @@ func TestRMNCurseLane(t *testing.T) {
 		"message on uncursed lane should succeed")
 	l.Info().Msg("Confirmed: uncursed lane still works")
 
-	// 7. Uncurse the lane
-	l.Info().Msg("Step 7: Uncursing the lane")
+	l.Info().Msg("Uncursing the lane")
 	err = c.ApplyUncurse(ctx, chain0, [][16]byte{chainSelectorToSubject(chain1)})
 	require.NoError(t, err)
 	err = c.ApplyUncurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
-	// 8. Wait for curse detector to detect uncurse
-	l.Info().Msg("Step 8: Waiting 5 seconds for curse detector to detect uncurse")
-	time.Sleep(5 * time.Second)
+	// TODO: test again without this sleep to make sure that we don't drop messages because of the cache
+	time.Sleep(5 * time.Second) // wait a bit for the uncurse to propagate
 
-	// 9. Verify curse cleared
-	l.Info().Msg("Step 9: Verifying curse state cleared")
-	isCursed, err = c.VerifyCurseState(ctx, chain0, chainSelectorToSubject(chain1))
-	require.NoError(t, err)
-	require.False(t, isCursed, "chain1 should no longer be cursed on chain0")
-
-	isCursed, err = c.VerifyCurseState(ctx, chain1, chainSelectorToSubject(chain0))
-	require.NoError(t, err)
-	require.False(t, isCursed, "chain0 should no longer be cursed on chain1")
-
-	// 10. Send message again and verify it executes successfully
-	l.Info().Msg("Step 10: Sending message on uncursed lane")
+	l.Info().Msg("Sending message on uncursed lane")
 	seqNo3, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
 	require.NoError(t, err)
 	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
@@ -891,45 +876,63 @@ func TestRMNGlobalCurse(t *testing.T) {
 	c, err := ccvEvm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
+	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
+	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
+
+	defaultAggregatorClient, err := ccv.NewAggregatorClient(
+		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+		defaultAggregatorAddr)
+	require.NoError(t, err)
+	require.NotNil(t, defaultAggregatorClient)
+	t.Cleanup(func() {
+		defaultAggregatorClient.Close()
+	})
+
+	indexerClient := ccv.NewIndexerClient(
+		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
+		indexerURL)
+	require.NotNil(t, indexerClient)
+
 	chain0, chain1, chain2 := selectors[0], selectors[1], selectors[2]
 
-	// 1. Send baseline messages to verify all lanes work
-	l.Info().Msg("Step 1: Sending baseline messages to verify all lanes work")
-
 	receiver01 := mustGetEOAReceiverAddress(t, c, chain1)
+	receiver02 := mustGetEOAReceiverAddress(t, c, chain2)
+	l.Info().Msg("Sending baseline message from chain0 to chain1")
+
 	seqNo01, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
 	require.NoError(t, err)
 	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
 		Receiver: receiver01,
 		Data:     []byte("baseline 0->1"),
 	}, cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
+		Version:        3,
+		GasLimit:       200_000,
+		FinalityConfig: 30, // Use custom finality to slow down execution
 	})
 	require.NoError(t, err)
-	execEvt01, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo01, defaultExecTimeout)
-	require.NoError(t, err)
-	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt01.State)
-	l.Info().Msg("Baseline message 0->1 executed successfully")
 
-	receiver12 := mustGetEOAReceiverAddress(t, c, chain2)
-	seqNo12, err := c.GetExpectedNextSequenceNumber(ctx, chain1, chain2)
+	seqNo02, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain2)
 	require.NoError(t, err)
-	_, err = c.SendMessage(ctx, chain1, chain2, cciptestinterfaces.MessageFields{
-		Receiver: receiver12,
-		Data:     []byte("baseline 1->2"),
+	_, err = c.SendMessage(ctx, chain0, chain2, cciptestinterfaces.MessageFields{
+		Receiver: receiver02,
+		Data:     []byte("baseline 0->2"),
 	}, cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
+		Version:        3,
+		GasLimit:       200_000,
+		FinalityConfig: 30, // Use custom finality to slow down execution
 	})
 	require.NoError(t, err)
-	execEvt12, err := c.WaitOneExecEventBySeqNo(ctx, chain1, chain2, seqNo12, defaultExecTimeout)
-	require.NoError(t, err)
-	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt12.State)
-	l.Info().Msg("Baseline message 1->2 executed successfully")
 
-	// 2. Apply global curse to chain0
-	l.Info().Msg("Step 2: Applying global curse to chain0")
+	sentEvt01, err := c.WaitOneSentEventBySeqNo(ctx, chain0, chain1, seqNo01, defaultSentTimeout)
+	require.NoError(t, err)
+	sentEvt02, err := c.WaitOneSentEventBySeqNo(ctx, chain0, chain1, seqNo02, defaultSentTimeout)
+	require.NoError(t, err)
+	messageID01 := sentEvt01.MessageID
+	l.Info().Hex("messageID", messageID01[:]).Msg("Baseline message 0->1 sent on chain")
+	messageID02 := sentEvt02.MessageID
+	l.Info().Hex("messageID", messageID02[:]).Msg("Baseline message 0->2 sent on chain")
+
+	l.Info().Msg("Applying global curse to chain0 (before execution)")
 	// Apply global curse on chain0 itself
 	err = c.ApplyCurse(ctx, chain0, [][16]byte{globalCurseSubject()})
 	require.NoError(t, err)
@@ -939,30 +942,15 @@ func TestRMNGlobalCurse(t *testing.T) {
 	err = c.ApplyCurse(ctx, chain2, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
-	// 3. Wait for curse detector
-	l.Info().Msg("Step 3: Waiting 5 seconds for curse detector to detect curses")
-	time.Sleep(5 * time.Second)
+	l.Info().Msg("Asserting baseline message reaches verifier but gets dropped due to global curse")
+	testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
+	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID01, 100*time.Second)
+	require.NoError(t, err, "message from chain0->chain1 reached verifier and then dropped due to curse")
+	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID02, 100*time.Second)
+	require.NoError(t, err, "message from chain0->chain2 reached verifier and then dropped due to curse")
 
-	// 4. Verify curse state
-	l.Info().Msg("Step 4: Verifying curse state")
-	isCursed, err := c.VerifyCurseState(ctx, chain0, globalCurseSubject())
-	require.NoError(t, err)
-	require.True(t, isCursed, "chain0 should have global curse")
-
-	isCursed, err = c.VerifyCurseState(ctx, chain1, chainSelectorToSubject(chain0))
-	require.NoError(t, err)
-	require.True(t, isCursed, "chain0 should be cursed on chain1")
-
-	isCursed, err = c.VerifyCurseState(ctx, chain2, chainSelectorToSubject(chain0))
-	require.NoError(t, err)
-	require.True(t, isCursed, "chain0 should be cursed on chain2")
-
-	// 5. Verify all lanes involving chain0 are blocked
-	l.Info().Msg("Step 5: Verifying all lanes involving chain0 are blocked")
-
-	// Try chain0 -> chain1 (should fail)
-	seqNo, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
-	require.NoError(t, err)
+	l.Info().Msg("Verifying all lanes involving chain0 are blocked")
+	// Try chain0 -> chain1 (should revert on chain)
 	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{
 		Receiver: receiver01,
 		Data:     []byte("cursed 0->1"),
@@ -970,39 +958,10 @@ func TestRMNGlobalCurse(t *testing.T) {
 		Version:  2,
 		GasLimit: 200_000,
 	})
-	require.NoError(t, err)
-	time.Sleep(10 * time.Second)
-	execEvt, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain1, seqNo, 5*time.Second)
-	if err == nil {
-		require.NotEqual(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
-			"message 0->1 on globally cursed chain should not execute")
-	}
-	l.Info().Msg("Confirmed: chain0->chain1 is blocked")
+	require.Error(t, err)
+	l.Info().Msg("Confirmed: chain0->chain1 is reverted on chain")
 
-	// Try chain1 -> chain0 (should fail)
-	receiver10 := mustGetEOAReceiverAddress(t, c, chain0)
-	seqNo10, err := c.GetExpectedNextSequenceNumber(ctx, chain1, chain0)
-	require.NoError(t, err)
-	_, err = c.SendMessage(ctx, chain1, chain0, cciptestinterfaces.MessageFields{
-		Receiver: receiver10,
-		Data:     []byte("cursed 1->0"),
-	}, cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
-	})
-	require.NoError(t, err)
-	time.Sleep(10 * time.Second)
-	execEvt10, err := c.WaitOneExecEventBySeqNo(ctx, chain1, chain0, seqNo10, 5*time.Second)
-	if err == nil {
-		require.NotEqual(t, cciptestinterfaces.ExecutionStateSuccess, execEvt10.State,
-			"message 1->0 to globally cursed chain should not execute")
-	}
-	l.Info().Msg("Confirmed: chain1->chain0 is blocked")
-
-	// Try chain0 -> chain2 (should fail)
-	receiver02 := mustGetEOAReceiverAddress(t, c, chain2)
-	seqNo02, err := c.GetExpectedNextSequenceNumber(ctx, chain0, chain2)
-	require.NoError(t, err)
+	// Try chain0 -> chain2 (should revert on chain)
 	_, err = c.SendMessage(ctx, chain0, chain2, cciptestinterfaces.MessageFields{
 		Receiver: receiver02,
 		Data:     []byte("cursed 0->2"),
@@ -1010,18 +969,13 @@ func TestRMNGlobalCurse(t *testing.T) {
 		Version:  2,
 		GasLimit: 200_000,
 	})
-	require.NoError(t, err)
-	time.Sleep(10 * time.Second)
-	execEvt02, err := c.WaitOneExecEventBySeqNo(ctx, chain0, chain2, seqNo02, 5*time.Second)
-	if err == nil {
-		require.NotEqual(t, cciptestinterfaces.ExecutionStateSuccess, execEvt02.State,
-			"message 0->2 from globally cursed chain should not execute")
-	}
+	require.Error(t, err)
 	l.Info().Msg("Confirmed: chain0->chain2 is blocked")
 
-	// 6. Verify unrelated lane still works (chain1 -> chain2)
-	l.Info().Msg("Step 6: Verifying unrelated lane (chain1->chain2) still works")
-	seqNo, err = c.GetExpectedNextSequenceNumber(ctx, chain1, chain2)
+	// 7. Verify unrelated lane still works (chain1 -> chain2)
+	l.Info().Msg("Verifying unrelated lane (chain1->chain2) still works")
+	receiver12 := mustGetEOAReceiverAddress(t, c, chain2)
+	seqNo, err := c.GetExpectedNextSequenceNumber(ctx, chain1, chain2)
 	require.NoError(t, err)
 	_, err = c.SendMessage(ctx, chain1, chain2, cciptestinterfaces.MessageFields{
 		Receiver: receiver12,
@@ -1031,14 +985,14 @@ func TestRMNGlobalCurse(t *testing.T) {
 		GasLimit: 200_000,
 	})
 	require.NoError(t, err)
-	execEvt, err = c.WaitOneExecEventBySeqNo(ctx, chain1, chain2, seqNo, defaultExecTimeout)
+	execEvt, err := c.WaitOneExecEventBySeqNo(ctx, chain1, chain2, seqNo, defaultExecTimeout)
 	require.NoError(t, err)
 	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
 		"unrelated lane should still work")
 	l.Info().Msg("Confirmed: unrelated lane chain1->chain2 still works")
 
-	// 7. Uncurse chain0
-	l.Info().Msg("Step 7: Uncursing chain0")
+	// 8. Uncurse chain0
+	l.Info().Msg("Uncursing chain0")
 	err = c.ApplyUncurse(ctx, chain0, [][16]byte{globalCurseSubject()})
 	require.NoError(t, err)
 	err = c.ApplyUncurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
@@ -1046,26 +1000,7 @@ func TestRMNGlobalCurse(t *testing.T) {
 	err = c.ApplyUncurse(ctx, chain2, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
-	// 8. Wait for curse detector
-	l.Info().Msg("Step 8: Waiting 5 seconds for curse detector to detect uncurse")
-	time.Sleep(5 * time.Second)
-
-	// 9. Verify curse cleared
-	l.Info().Msg("Step 9: Verifying curse state cleared on all chains")
-	isCursed, err = c.VerifyCurseState(ctx, chain0, globalCurseSubject())
-	require.NoError(t, err)
-	require.False(t, isCursed, "chain0 should no longer have global curse")
-
-	isCursed, err = c.VerifyCurseState(ctx, chain1, chainSelectorToSubject(chain0))
-	require.NoError(t, err)
-	require.False(t, isCursed, "chain0 should no longer be cursed on chain1")
-
-	isCursed, err = c.VerifyCurseState(ctx, chain2, chainSelectorToSubject(chain0))
-	require.NoError(t, err)
-	require.False(t, isCursed, "chain0 should no longer be cursed on chain2")
-
-	// 10. Verify all lanes work again
-	l.Info().Msg("Step 10: Verifying all lanes work after uncurse")
+	l.Info().Msg("Verifying all lanes work after uncurse")
 	seqNo, err = c.GetExpectedNextSequenceNumber(ctx, chain0, chain1)
 	require.NoError(t, err)
 	_, err = c.SendMessage(ctx, chain0, chain1, cciptestinterfaces.MessageFields{

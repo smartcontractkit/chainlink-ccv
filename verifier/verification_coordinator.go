@@ -694,6 +694,7 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 			"source", task.Message.SourceChainSelector,
 			"dest", task.Message.DestChainSelector,
 			"messageID", messageID,
+			"stage", "pending_queue_addition",
 			"blockNumber", task.BlockNumber)
 		return
 	}
@@ -832,10 +833,11 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 			task.Message.DestChainSelector,
 		) {
 			messageID, _ := task.Message.MessageID()
-			vc.lggr.Warnw("Dropping finalized task - lane is cursed",
+			vc.lggr.Warnw("Dropping task - lane is cursed",
 				"source", task.Message.SourceChainSelector,
 				"dest", task.Message.DestChainSelector,
 				"messageID", messageID,
+				"stage", "message_readiness",
 				"chain", chainSelector)
 			// Drop the task (don't add to remainingTasks or readyTasks)
 			continue

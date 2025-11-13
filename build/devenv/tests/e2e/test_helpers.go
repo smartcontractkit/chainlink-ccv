@@ -39,6 +39,7 @@ func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, a
 	logAssert := logasserter.New(lokiURL, logger)
 	err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
 		logasserter.MessageReachedVerifier(),
+		logasserter.MessageDroppedInVerifier(),
 		logasserter.MessageSigned(),
 		logasserter.ProcessingInExecutor(),
 		logasserter.SentToChainInExecutor(),
@@ -169,4 +170,34 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	}
 
 	return result, nil
+}
+
+// AssertMessageReachedAndDroppedInVerifier asserts that a message reached the verifier
+// but was dropped due to a curse. This is useful for testing curse behavior where messages
+// should not reach the aggregator or executor.
+func (tc *TestingContext) AssertMessageReachedAndDroppedInVerifier(messageID [32]byte, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(tc.Ctx, timeout)
+	defer cancel()
+
+	// Wait for message to reach verifier
+	_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageReachedVerifier())
+	if err != nil {
+		return fmt.Errorf("message did not reach verifier: %w", err)
+	}
+
+	tc.logger.Info().
+		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+		Msg("✓ Message reached verifier")
+
+	// Wait for message to be dropped
+	_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageDroppedInVerifier())
+	if err != nil {
+		return fmt.Errorf("message was not dropped in verifier: %w", err)
+	}
+
+	tc.logger.Info().
+		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
+		Msg("✓ Message dropped in verifier due to curse")
+
+	return nil
 }
