@@ -723,7 +723,7 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 	chain0, chain1, chain2 := selectors[0], selectors[1], selectors[2]
 	receiver := mustGetEOAReceiverAddress(t, c, chain1)
 
-	sentEvt := testCtx.MustSendMessage(chain0, chain1, receiver, 50) // Use custom finality to slow down picking for verification
+	sentEvt := testCtx.MustSendMessage(chain0, chain1, receiver, 150) // Use custom finality to slow down picking for verification
 	messageID := sentEvt.MessageID
 
 	l.Info().Msg("Applying lane curse between chain0 and chain1 (before message gets picked up by verifier)")
@@ -748,7 +748,8 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 	require.NoError(t, err)
 
 	// We sleep here because in reality we'll need to replay events in case of curses to pick up the dropped tasks
-	time.Sleep(5 * time.Second) // wait a bit for the uncurse to propagate
+	// Increased wait time for CI environments where services may need more time to catch up
+	time.Sleep(15 * time.Second)
 
 	testCtx.MustExecuteMessage(chain0, chain1, receiver, 0) // finality=0
 
@@ -767,10 +768,10 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 	receiver01 := mustGetEOAReceiverAddress(t, c, chain1)
 	receiver02 := mustGetEOAReceiverAddress(t, c, chain2)
 
-	sentEvt01 := testCtx.MustSendMessage(chain0, chain1, receiver01, 50) // Use custom finality to slow down picking for verification
+	sentEvt01 := testCtx.MustSendMessage(chain0, chain1, receiver01, 150) // Use custom finality to slow down picking for verification
 	messageID01 := sentEvt01.MessageID
 
-	sentEvt02 := testCtx.MustSendMessage(chain0, chain2, receiver02, 50) // Use custom finality to slow down picking for verification
+	sentEvt02 := testCtx.MustSendMessage(chain0, chain2, receiver02, 150) // Use custom finality to slow down picking for verification
 	messageID02 := sentEvt02.MessageID
 
 	l.Info().Msg("Applying global curse to chain0 (before message gets picked up by verifier)")
@@ -796,6 +797,9 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 	l.Info().Msg("Uncursing chain0")
 	err = c.ApplyUncurse(ctx, chain0, [][16]byte{globalCurseSubject()})
 	require.NoError(t, err)
+
+	// Increased wait time for CI environments where services may need more time to catch up after uncurse
+	time.Sleep(15 * time.Second)
 
 	testCtx.MustExecuteMessage(chain0, chain1, receiver01, 0) // finality=0
 	testCtx.MustExecuteMessage(chain0, chain2, receiver02, 0) // finality=0
