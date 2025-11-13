@@ -726,31 +726,25 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 	sentEvt := testCtx.MustSendMessage(chain0, chain1, receiver, 50) // Use custom finality to slow down picking for verification
 	messageID := sentEvt.MessageID
 
-	l.Info().Msg("Applying bidirectional lane curse between chain0 and chain1 (before execution)")
+	l.Info().Msg("Applying lane curse between chain0 and chain1 (before message gets picked up by verifier)")
+	// normally it's bidirectional, for the sake of the test we only curse one direction
 	err = c.ApplyCurse(ctx, chain0, [][16]byte{chainSelectorToSubject(chain1)})
-	require.NoError(t, err)
-	err = c.ApplyCurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
 	l.Info().Msg("Asserting baseline message reaches verifier but gets dropped due to curse")
-	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID, 100*time.Second)
-	require.NoError(t, err, "message reached verifier and then dropped due to curse")
+	testCtx.AssertMessageReachedAndDroppedInVerifier(messageID, 100*time.Second)
 
 	// TODO: On-chain has a bug where on-ramp doesn't check for curses - once it's fixed we should add this back
 	//  on-chain ticket where it'll be fixed https://smartcontract-it.atlassian.net/browse/CCIP-7956
-	//l.Info().Msg("Attempting to send message on cursed lane (should revert)")
 	//testCtx.MustFailSend(chain0, chain1, receiver, 0, "BadARMSignal")
-	//l.Info().Msg("Confirmed: message on cursed lane was reverted")
 
 	l.Info().Msg("Verifying uncursed lane (chain0 -> chain2) still works")
 	receiver2 := mustGetEOAReceiverAddress(t, c, chain2)
 	testCtx.MustExecuteMessage(chain0, chain2, receiver2, 0) // finality=0
 	l.Info().Msg("Confirmed: uncursed lane still works")
 
-	l.Info().Msg("Uncursing the lane")
+	l.Info().Msg("Uncursing the cursed lane")
 	err = c.ApplyUncurse(ctx, chain0, [][16]byte{chainSelectorToSubject(chain1)})
-	require.NoError(t, err)
-	err = c.ApplyUncurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
 	// TODO: test again without this sleep to make sure that we don't drop messages because of the cache
@@ -779,23 +773,17 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 	sentEvt02 := testCtx.MustSendMessage(chain0, chain2, receiver02, 50) // Use custom finality to slow down picking for verification
 	messageID02 := sentEvt02.MessageID
 
-	l.Info().Msg("Applying global curse to chain0 (before execution)")
+	l.Info().Msg("Applying global curse to chain0 (before message gets picked up by verifier)")
 	// Apply global curse on chain0 itself
+	// usually all other chains will have a curse on chain0 as well, but for the sake of the test we only apply the global curse on chain0
 	err = c.ApplyCurse(ctx, chain0, [][16]byte{globalCurseSubject()})
-	require.NoError(t, err)
-	// Apply chain0 curse on all other chains
-	err = c.ApplyCurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
-	require.NoError(t, err)
-	err = c.ApplyCurse(ctx, chain2, [][16]byte{chainSelectorToSubject(chain0)})
 	require.NoError(t, err)
 
 	l.Info().Msg("Asserting baseline message reaches verifier but gets dropped due to global curse")
-	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID01, 100*time.Second)
-	require.NoError(t, err, "message from chain0->chain1 reached verifier and then dropped due to curse")
-	err = testCtx.AssertMessageReachedAndDroppedInVerifier(messageID02, 100*time.Second)
-	require.NoError(t, err, "message from chain0->chain2 reached verifier and then dropped due to curse")
+	testCtx.AssertMessageReachedAndDroppedInVerifier(messageID01, 100*time.Second)
+	testCtx.AssertMessageReachedAndDroppedInVerifier(messageID02, 100*time.Second)
 
-	l.Info().Msg("Verifying all lanes involving chain0 are blocked")
+	l.Info().Msg("Verifying all lanes involving chain0 as source are blocked")
 	testCtx.MustFailSend(chain0, chain1, receiver01, 0, "BadARMSignal")
 	testCtx.MustFailSend(chain0, chain2, receiver02, 0, "BadARMSignal")
 
@@ -808,12 +796,9 @@ func TestRMNGlobalCurseVerifierSide(t *testing.T) {
 	l.Info().Msg("Uncursing chain0")
 	err = c.ApplyUncurse(ctx, chain0, [][16]byte{globalCurseSubject()})
 	require.NoError(t, err)
-	err = c.ApplyUncurse(ctx, chain1, [][16]byte{chainSelectorToSubject(chain0)})
-	require.NoError(t, err)
-	err = c.ApplyUncurse(ctx, chain2, [][16]byte{chainSelectorToSubject(chain0)})
-	require.NoError(t, err)
 
 	testCtx.MustExecuteMessage(chain0, chain1, receiver01, 0) // finality=0
+	testCtx.MustExecuteMessage(chain0, chain2, receiver02, 0) // finality=0
 
 	l.Info().Msg("Test completed successfully: global curse and uncurse work as expected")
 }

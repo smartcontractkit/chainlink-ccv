@@ -258,15 +258,13 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 // AssertMessageReachedAndDroppedInVerifier asserts that a message reached the verifier
 // but was dropped due to a curse. This is useful for testing curse behavior where messages
 // should not reach the aggregator or executor.
-func (tc *TestingContext) AssertMessageReachedAndDroppedInVerifier(messageID [32]byte, timeout time.Duration) error {
+func (tc *TestingContext) AssertMessageReachedAndDroppedInVerifier(messageID [32]byte, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(tc.Ctx, timeout)
 	defer cancel()
 
 	// Wait for message to reach verifier
 	_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageReachedVerifier())
-	if err != nil {
-		return fmt.Errorf("message did not reach verifier: %w", err)
-	}
+	require.NoError(tc.T, err, "message didn't reach verifier as expected")
 
 	tc.logger.Info().
 		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
@@ -274,15 +272,12 @@ func (tc *TestingContext) AssertMessageReachedAndDroppedInVerifier(messageID [32
 
 	// Wait for message to be dropped
 	_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageDroppedInVerifier())
-	if err != nil {
-		return fmt.Errorf("message was not dropped in verifier: %w", err)
-	}
+	require.NoError(tc.T, err, "message reached verifier and wasn't dropped as expected")
 
 	tc.logger.Info().
 		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
 		Msg("✓ Message dropped in verifier due to curse")
 
-	return nil
 }
 
 func defaultAggregatorPort(in *ccv.Cfg) int {
