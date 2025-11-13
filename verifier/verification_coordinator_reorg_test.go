@@ -51,7 +51,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 
 	// Create mocks using the test helper pattern
 	mockSetup := SetupMockSourceReader(t)
-	mockSetup.ExpectVerificationTask(false)
+	mockSetup.ExpectFetchMessageSentEvent(false)
 
 	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 

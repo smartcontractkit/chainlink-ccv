@@ -87,7 +87,7 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 	}
 }
 
-func (msrs *MockSourceReaderSetup) ExpectVerificationTask(maybeVerificationTask bool) {
+func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerificationTask bool) {
 	call := msrs.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]protocol.MessageSentEvent, error) {
 		var events []protocol.MessageSentEvent
 		for {

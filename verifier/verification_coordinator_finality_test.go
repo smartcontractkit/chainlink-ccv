@@ -204,7 +204,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 
 	mockVerifier := NewTestVerifier()
 	mockSetup := SetupMockSourceReader(t)
-	mockSetup.ExpectVerificationTask(false)
+	mockSetup.ExpectFetchMessageSentEvent(false)
 	mockSourceReader := mockSetup.Reader
 	mockStorage := &NoopStorage{}
 	verificationTaskCh := mockSetup.Channel

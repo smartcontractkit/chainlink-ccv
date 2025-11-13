@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"errors"
-	"math/big"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -130,18 +129,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 	mockSetup := verifier.SetupMockSourceReader(t)
 	mockReader := mockSetup.Reader
-	mockSetup.ExpectVerificationTask(true)
-	mockSetup.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]protocol.MessageSentEvent, error) {
-		var events []protocol.MessageSentEvent
-		for {
-			select {
-			case event := <-mockSetup.Channel:
-				events = append(events, event)
-			default:
-				return events, nil
-			}
-		}
-	})
+	mockSetup.ExpectFetchMessageSentEvent(true)
 
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockReader,
@@ -328,7 +316,7 @@ func TestVerifier(t *testing.T) {
 
 	// Set up mock source reader
 	mockSetup := verifier.SetupMockSourceReader(t)
-	mockSetup.ExpectVerificationTask(false)
+	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockSetup.Reader,
 	}
@@ -388,9 +376,9 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Set up mock source readers
 	mockSetup1 := verifier.SetupMockSourceReader(t)
-	mockSetup1.ExpectVerificationTask(false)
+	mockSetup1.ExpectFetchMessageSentEvent(false)
 	mockSetup2 := verifier.SetupMockSourceReader(t)
-	mockSetup2.ExpectVerificationTask(false)
+	mockSetup2.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockSetup1.Reader,
 		sourceChain2: mockSetup2.Reader,
@@ -460,7 +448,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 
 	// Set up mock source readers.
 	mockSetup1 := verifier.SetupMockSourceReader(t)
-	mockSetup1.ExpectVerificationTask(false)
+	mockSetup1.ExpectFetchMessageSentEvent(false)
 
 	// Generate an error on source 2.
 	mockSetup2 := verifier.SetupMockSourceReader(t)
@@ -534,7 +522,7 @@ func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
 			readers: func() map[protocol.ChainSelector]chainaccess.SourceReader {
 				// Create a mock that only expects FetchMessageSentEvents call
 				mockSetup := verifier.SetupMockSourceReader(t)
-				mockSetup.ExpectVerificationTask(true)
+				mockSetup.ExpectFetchMessageSentEvent(true)
 
 				return map[protocol.ChainSelector]chainaccess.SourceReader{
 					sourceChain1: mockSetup.Reader, // Missing reader for sourceChain2
@@ -566,9 +554,9 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 
 	// Create mock source readers
 	mockSetup1 := verifier.SetupMockSourceReader(t)
-	mockSetup1.ExpectVerificationTask(true)
+	mockSetup1.ExpectFetchMessageSentEvent(true)
 	mockSetup2 := verifier.SetupMockSourceReader(t)
-	mockSetup2.ExpectVerificationTask(true)
+	mockSetup2.ExpectFetchMessageSentEvent(true)
 
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockSetup1.Reader,
@@ -626,9 +614,9 @@ func TestVerificationErrorHandling(t *testing.T) {
 
 	// Set up mock source readers for both chains.
 	mockSetup1 := verifier.SetupMockSourceReader(t)
-	mockSetup1.ExpectVerificationTask(false)
+	mockSetup1.ExpectFetchMessageSentEvent(false)
 	mockSetup2 := verifier.SetupMockSourceReader(t)
-	mockSetup2.ExpectVerificationTask(true)
+	mockSetup2.ExpectFetchMessageSentEvent(true)
 
 	// Create source readers map that includes the unconfigured chain
 	// This simulates having a reader for a chain that's not in the coordinator config
