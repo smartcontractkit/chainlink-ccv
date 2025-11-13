@@ -18,7 +18,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
 // NewVerificationCoordinator starts the Committee Verifier with evm chains.
@@ -28,7 +27,7 @@ func NewVerificationCoordinator(
 	cfg verifier.Config,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
-	relayers map[protocol.ChainSelector]legacyevm.Chain,
+	providers map[protocol.ChainSelector]CCVProvider,
 ) (*verifier.Coordinator, error) {
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
@@ -60,7 +59,7 @@ func NewVerificationCoordinator(
 	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
-	for sel, chain := range relayers {
+	for sel, chain := range providers {
 		if _, ok := onRampAddrs[sel]; !ok {
 			lggr.Warnw("No onramp address for chain, skipping.", "chainID", sel)
 			continue
