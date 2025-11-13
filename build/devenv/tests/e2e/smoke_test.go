@@ -747,7 +747,7 @@ func TestRMNCurseLaneVerifierSide(t *testing.T) {
 	err = c.ApplyUncurse(ctx, chain0, [][16]byte{chainSelectorToSubject(chain1)})
 	require.NoError(t, err)
 
-	// TODO: test again without this sleep to make sure that we don't drop messages because of the cache
+	// We sleep here because in reality we'll need to replay events in case of curses to pick up the dropped tasks
 	time.Sleep(5 * time.Second) // wait a bit for the uncurse to propagate
 
 	testCtx.MustExecuteMessage(chain0, chain1, receiver, 0) // finality=0
