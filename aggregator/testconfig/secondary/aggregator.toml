@@ -42,47 +42,46 @@ pyroscope_url = "http://pyroscope:4040"
   [rateLimiting.groupLimits.monitoring]
     "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 200 }
 
-# TODO: multi-committee support should be removed at some point.
-[committees]
-  [committees.default]
-    [committees.default.quorumConfigs]
-      [committees.default.quorumConfigs.12922642891491394802]
-        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
-        threshold = 2
+# Single committee configuration
+[committee]
+  [committee.quorumConfigs]
+    [committee.quorumConfigs.12922642891491394802]
+      committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+      threshold = 2
 
-        [[committees.default.quorumConfigs.12922642891491394802.signers]]
-          participantID = "default-participant1"
-          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+      [[committee.quorumConfigs.12922642891491394802.signers]]
+        participantID = "default-participant1"
+        addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
 
-        [[committees.default.quorumConfigs.12922642891491394802.signers]]
-          participantID = "default-participant2"
-          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
-      [committees.default.quorumConfigs.3379446385462418246]
-        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
-        threshold = 2
+      [[committee.quorumConfigs.12922642891491394802.signers]]
+        participantID = "default-participant2"
+        addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
+    [committee.quorumConfigs.3379446385462418246]
+      committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+      threshold = 2
 
-        [[committees.default.quorumConfigs.3379446385462418246.signers]]
-          participantID = "default-participant1"
-          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+      [[committee.quorumConfigs.3379446385462418246.signers]]
+        participantID = "default-participant1"
+        addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
 
-        [[committees.default.quorumConfigs.3379446385462418246.signers]]
-          participantID = "default-participant2"
-          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
-      [committees.default.quorumConfigs.4793464827907405086]
-        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
-        threshold = 2
+      [[committee.quorumConfigs.3379446385462418246.signers]]
+        participantID = "default-participant2"
+        addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
+    [committee.quorumConfigs.4793464827907405086]
+      committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+      threshold = 2
 
-        [[committees.default.quorumConfigs.4793464827907405086.signers]]
-          participantID = "default-participant1"
-          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
-        
-        [[committees.default.quorumConfigs.4793464827907405086.signers]]
-          participantID = "default-participant2"
-          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
-    [committees.default.sourceVerifierAddresses]
-      12922642891491394802 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
-      3379446385462418246 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
-      4793464827907405086 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+      [[committee.quorumConfigs.4793464827907405086.signers]]
+        participantID = "default-participant1"
+        addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
+      
+      [[committee.quorumConfigs.4793464827907405086.signers]]
+        participantID = "default-participant2"
+        addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
+  [committee.sourceVerifierAddresses]
+    12922642891491394802 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+    3379446385462418246 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+    4793464827907405086 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
 
 [Monitoring]
 Enabled = true

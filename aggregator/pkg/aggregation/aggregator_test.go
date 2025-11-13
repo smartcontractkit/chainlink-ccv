@@ -21,7 +21,6 @@ import (
 func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 	ctx := context.Background()
 	messageID := model.MessageID{1, 2, 3}
-	committeeID := model.CommitteeID("test-committee")
 
 	t.Run("feature is disabled by default", func(t *testing.T) {
 		storage := memory.NewInMemoryStorage()
@@ -54,7 +53,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		assert.False(t, aggregator.enableAggregationAfterQuorum, "EnableAggregationAfterQuorum should be disabled by default")
 
 		// Test the functionality works with defaults
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 
 		require.NoError(t, err)
 		assert.False(t, shouldSkip) // No existing report, so should not skip
@@ -86,7 +85,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			monitoring,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 
 		require.NoError(t, err)
 		assert.False(t, shouldSkip) // Should not skip when aggregated store is nil
@@ -118,7 +117,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			monitoring,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 
 		require.NoError(t, err)
 		assert.False(t, shouldSkip)
@@ -150,7 +149,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			monitoring,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 
 		require.NoError(t, err)
 		assert.False(t, shouldSkip)
@@ -175,7 +174,6 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		// Create an existing aggregated report
 		existingReport := &model.CommitAggregatedReport{
 			MessageID:     messageID,
-			CommitteeID:   committeeID,
 			Verifications: []*model.CommitVerificationRecord{}, // Empty for simplicity
 		}
 
@@ -196,7 +194,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			monitoring,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 
 		require.NoError(t, err)
 		assert.True(t, shouldSkip)
@@ -222,7 +220,6 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		// Create an existing aggregated report
 		existingReport := &model.CommitAggregatedReport{
 			MessageID:     messageID,
-			CommitteeID:   committeeID,
 			Verifications: []*model.CommitVerificationRecord{}, // Empty for simplicity
 		}
 
@@ -243,7 +240,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			monitoring,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 
 		require.NoError(t, err)
 		assert.False(t, shouldSkip)
@@ -256,11 +253,11 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
-		aggStore.EXPECT().GetCCVData(ctx, messageID, committeeID).Return(nil, errors.New("boom"))
+		aggStore.EXPECT().GetCCVData(ctx, messageID).Return(nil, errors.New("boom"))
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
 		a := NewCommitReportAggregator(memory.NewInMemoryStorage(), aggStore, memory.NewInMemoryStorage(), quorum, config, logger.Sugared(logger.Test(t)), monitoring)
-		shouldSkip, err := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		require.NoError(t, err)
 		assert.False(t, shouldSkip)
 	})
@@ -273,7 +270,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
 
-		existingReport := &model.CommitAggregatedReport{MessageID: messageID, CommitteeID: committeeID}
+		existingReport := &model.CommitAggregatedReport{MessageID: messageID}
 		err := storage.SubmitReport(ctx, existingReport)
 		require.NoError(t, err)
 
@@ -281,7 +278,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
 		a := NewCommitReportAggregator(storage, storage, storage, quorum, config, logger.Sugared(logger.Test(t)), monitoring)
-		shouldSkip, err := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, committeeID)
+		shouldSkip, err := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		require.NoError(t, err)
 		assert.False(t, shouldSkip)
 	})
@@ -337,7 +334,7 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 2, BackgroundWorkerCount: 1}}
 		a := NewCommitReportAggregator(memory.NewInMemoryStorage(), nil, memory.NewInMemoryStorage(), aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
 
-		err := a.CheckAggregation([]byte{1}, model.CommitteeID("c"), "")
+		err := a.CheckAggregation([]byte{1}, "")
 		require.NoError(t, err)
 	})
 
@@ -352,7 +349,7 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		// Fill buffer
 		a.aggregationKeyChan <- aggregationRequest{}
 
-		err := a.CheckAggregation([]byte{1}, model.CommitteeID("c"), "")
+		err := a.CheckAggregation([]byte{1}, "")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, common.ErrAggregationChannelFull)
 	})
@@ -361,18 +358,16 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 	ctx := context.Background()
 	msgID := model.MessageID{0x1}
-	committeeID := model.CommitteeID("committee")
 	aggregationKey := "key"
 
 	request := aggregationRequest{
 		MessageID:      msgID,
-		CommitteeID:    committeeID,
 		AggregationKey: aggregationKey,
 	}
 
 	t.Run("list error", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey, committeeID).Return(nil, errors.New("boom"))
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return(nil, errors.New("boom"))
 
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -385,7 +380,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum error", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey, committeeID).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(false, errors.New("boom")).Maybe()
 
@@ -400,7 +395,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met submits and records metrics", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey, committeeID).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
 		sink := aggregation_mocks.NewMockSink(t)
@@ -419,7 +414,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met submit error", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey, committeeID).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
 		sink := aggregation_mocks.NewMockSink(t)
@@ -436,7 +431,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum not met", func(t *testing.T) {
 		storage := aggregation_mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey, committeeID).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(false, nil).Maybe()
 

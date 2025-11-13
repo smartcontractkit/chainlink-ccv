@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -71,6 +72,22 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 	return &SignerFixture{
 		Signer: signer,
 		key:    privateKey,
+	}
+}
+
+// NewCommitteeFixture creates a test committee configuration with the given parameters.
+func NewCommitteeFixture(sourceVerifierAddress []byte, destVerifierAddress []byte, signers ...model.Signer) *model.Committee {
+	return &model.Committee{
+		SourceVerifierAddresses: map[string]string{
+			"1": common.Bytes2Hex(sourceVerifierAddress),
+		},
+		QuorumConfigs: map[string]*model.QuorumConfig{
+			"2": {
+				Threshold:                uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
+				Signers:                  signers,
+				CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+			},
+		},
 	}
 }
 

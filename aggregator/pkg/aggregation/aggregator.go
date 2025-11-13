@@ -34,8 +34,6 @@ type CommitReportAggregator struct {
 }
 
 type aggregationRequest struct {
-	// CommitteeID is the ID of the committee for the aggregation request.
-	CommitteeID    model.CommitteeID
 	AggregationKey model.AggregationKey
 	MessageID      model.MessageID
 }
@@ -75,10 +73,9 @@ func (c *CommitReportAggregator) HealthCheck(ctx context.Context) *common.Compon
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey, committeeID model.CommitteeID) error {
+func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey) error {
 	request := aggregationRequest{
 		MessageID:      messageID,
-		CommitteeID:    committeeID,
 		AggregationKey: aggregationKey,
 	}
 	select {
@@ -130,38 +127,33 @@ func deduplicateVerificationsByParticipant(verifications []*model.CommitVerifica
 // shouldSkipAggregationDueToExistingQuorum checks if we should skip creating a new aggregation
 // because an existing aggregated report already meets quorum requirements.
 // Returns true if aggregation should be skipped, false otherwise.
-func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx context.Context, messageID model.MessageID, committeeID model.CommitteeID) (bool, error) {
-	// If reaggregation is enabled, never skip aggregation
+func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx context.Context, messageID model.MessageID) (bool, error) {
 	if c.enableAggregationAfterQuorum {
 		return false, nil
 	}
 
 	lggr := c.logger(ctx)
 
-	// Check if aggregated store is available
 	if c.aggregatedStore == nil {
 		lggr.Warnw("No aggregated store available, cannot check existing aggregations")
 		return false, nil
 	}
 
-	// Try to get existing aggregated report
-	existingReport, err := c.aggregatedStore.GetCCVData(ctx, messageID, committeeID)
+	existingReport, err := c.aggregatedStore.GetCCVData(ctx, messageID)
 	if err != nil {
 		lggr.Warnw("Failed to check for existing aggregated report", "error", err)
-		return false, nil // On error, proceed with aggregation
+		return false, nil
 	}
 
-	// If no existing report, don't skip
 	if existingReport == nil {
 		lggr.Debugw("No existing aggregated report found, proceeding with aggregation")
 		return false, nil
 	}
 
-	// Check if the existing report still meets quorum
 	quorumMet, err := c.quorum.CheckQuorum(ctx, existingReport)
 	if err != nil {
 		lggr.Warnw("Failed to check quorum for existing report", "error", err)
-		return false, nil // On error, proceed with aggregation
+		return false, nil
 	}
 
 	if quorumMet {
@@ -179,22 +171,19 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
-	lggr.Infof("Checking aggregation for message", request.MessageID, request.CommitteeID, request.AggregationKey)
+	lggr.Infof("Checking aggregation for message", request.MessageID, request.AggregationKey)
 
-	// Check if we should skip aggregation due to existing quorum (only if reaggregation is disabled)
-	// If there is already an aggregation that reached quorum for this message we will skip even if the aggregationKey (signed hash is different)
 	if !c.enableAggregationAfterQuorum {
-		shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID, request.CommitteeID)
+		shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID)
 		if err != nil {
 			lggr.Errorw("Error checking existing quorum", "error", err)
-			// Continue with aggregation on error
 		} else if shouldSkip {
 			lggr.Infow("Skipping aggregation due to existing quorum")
 			return nil, nil
 		}
 	}
 
-	verifications, err := c.storage.ListCommitVerificationByAggregationKey(ctx, request.MessageID, request.AggregationKey, request.CommitteeID)
+	verifications, err := c.storage.ListCommitVerificationByAggregationKey(ctx, request.MessageID, request.AggregationKey)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
 		return nil, err
@@ -215,7 +204,6 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:           request.MessageID,
-		CommitteeID:         request.CommitteeID,
 		Verifications:       dedupedVerifications,
 		WinningReceiptBlobs: winningReceiptBlobs,
 	}
@@ -256,7 +244,6 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 			case request := <-c.aggregationKeyChan:
 				p.Go(func(poolCtx context.Context) error {
 					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
-					poolCtx = scope.WithCommitteeID(poolCtx, request.CommitteeID)
 					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
 					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
 					_, err := c.checkAggregationAndSubmitComplete(poolCtx, request)

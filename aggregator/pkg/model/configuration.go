@@ -24,7 +24,6 @@ type IdentifierSigner struct {
 	Address       []byte
 	SignatureR    [32]byte
 	SignatureS    [32]byte
-	CommitteeID   CommitteeID
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -46,25 +45,6 @@ func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) 
 	selectorStr := new(big.Int).SetUint64(chainSelector).String()
 	qc, exists := c.QuorumConfigs[selectorStr]
 	return qc, exists
-}
-
-func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[CommitteeID]*Committee, sourceSelector, destSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
-	for _, committee := range committees {
-		sourceAddress, ok := committee.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
-		if !ok {
-			continue
-		}
-		if !bytes.Equal(common.HexToAddress(sourceAddress).Bytes(), sourceVerifierAddress) {
-			continue
-		}
-
-		quorumConfig, exists := committee.GetQuorumConfig(destSelector)
-		if !exists {
-			continue
-		}
-		return quorumConfig
-	}
-	return nil
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.
@@ -332,21 +312,19 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
-	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
-	Committees     map[CommitteeID]*Committee `toml:"committees"`
-	Server         ServerConfig               `toml:"server"`
-	Storage        *StorageConfig             `toml:"storage"`
-	APIKeys        APIKeyConfig               `toml:"-"`
-	ChainStatuses  ChainStatusConfig          `toml:"chainStatuses"`
-	Aggregation    AggregationConfig          `toml:"aggregation"`
-	OrphanRecovery OrphanRecoveryConfig       `toml:"orphanRecovery"`
-	RateLimiting   RateLimitingConfig         `toml:"rateLimiting"`
-	HealthCheck    HealthCheckConfig          `toml:"healthCheck"`
-	StubMode       bool                       `toml:"stubQuorumValidation"`
-	Monitoring     MonitoringConfig           `toml:"monitoring"`
-	PyroscopeURL   string                     `toml:"pyroscope_url"`
-	// MaxMessageIDsPerBatch limits the number of message IDs per batch verifier result request
-	MaxMessageIDsPerBatch int `toml:"maxMessageIDsPerBatch"`
+	Committee             *Committee           `toml:"committee"`
+	Server                ServerConfig         `toml:"server"`
+	Storage               *StorageConfig       `toml:"storage"`
+	APIKeys               APIKeyConfig         `toml:"-"`
+	ChainStatuses         ChainStatusConfig    `toml:"chainStatuses"`
+	Aggregation           AggregationConfig    `toml:"aggregation"`
+	OrphanRecovery        OrphanRecoveryConfig `toml:"orphanRecovery"`
+	RateLimiting          RateLimitingConfig   `toml:"rateLimiting"`
+	HealthCheck           HealthCheckConfig    `toml:"healthCheck"`
+	StubMode              bool                 `toml:"stubQuorumValidation"`
+	Monitoring            MonitoringConfig     `toml:"monitoring"`
+	PyroscopeURL          string               `toml:"pyroscope_url"`
+	MaxMessageIDsPerBatch int                  `toml:"maxMessageIDsPerBatch"`
 }
 
 // SetDefaults sets default values for the configuration.

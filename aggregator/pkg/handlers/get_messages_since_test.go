@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
@@ -42,14 +41,12 @@ func TestGetMessagesSinceHandler_Success_NoNextToken(t *testing.T) {
 	msgID, _ := msg.MessageID()
 	report := makeAggregatedReport(msgID[:], sourceSel, destSel, sourceVerifierAddr, signerAddr, participantID)
 
-	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&model.PaginatedAggregatedReports{Reports: []*model.CommitAggregatedReport{report}, NextPageToken: nil}, nil)
+	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything).Return(&model.PaginatedAggregatedReports{Reports: []*model.CommitAggregatedReport{report}, NextPageToken: nil}, nil)
 	labeler.EXPECT().RecordMessageSinceNumberOfRecordsReturned(mock.Anything, 1)
 
 	h := NewGetMessagesSinceHandler(store, committee, lggr, mon)
-	md := metadata.Pairs(model.CommitteeIDHeader, model.DefaultCommitteeID)
-	ctx := metadata.NewIncomingContext(context.Background(), md)
 
-	resp, err := h.Handle(ctx, &pb.GetMessagesSinceRequest{SinceSequence: 0})
+	resp, err := h.Handle(context.Background(), &pb.GetMessagesSinceRequest{SinceSequence: 0})
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 1)
 	require.Equal(t, int64(1), resp.Results[0].Sequence)
@@ -78,14 +75,12 @@ func TestGetMessagesSinceHandler_Success_WithNextToken(t *testing.T) {
 	report.WrittenAt = time.Now()
 
 	next := "nxt"
-	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&model.PaginatedAggregatedReports{Reports: []*model.CommitAggregatedReport{report}, NextPageToken: &next}, nil)
+	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything).Return(&model.PaginatedAggregatedReports{Reports: []*model.CommitAggregatedReport{report}, NextPageToken: &next}, nil)
 	labeler.EXPECT().RecordMessageSinceNumberOfRecordsReturned(mock.Anything, 1)
 
 	h := NewGetMessagesSinceHandler(store, committee, lggr, mon)
-	md := metadata.Pairs(model.CommitteeIDHeader, model.DefaultCommitteeID)
-	ctx := metadata.NewIncomingContext(context.Background(), md)
 
-	resp, err := h.Handle(ctx, &pb.GetMessagesSinceRequest{SinceSequence: 0})
+	resp, err := h.Handle(context.Background(), &pb.GetMessagesSinceRequest{SinceSequence: 0})
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 1)
 	require.Equal(t, "nxt", resp.NextToken)
@@ -99,13 +94,11 @@ func TestGetMessagesSinceHandler_StorageError(t *testing.T) {
 	mon := aggregation_mocks.NewMockAggregatorMonitoring(t)
 	// no metrics expected on early error path
 
-	h := NewGetMessagesSinceHandler(store, map[string]*model.Committee{}, lggr, mon)
-	md := metadata.Pairs(model.CommitteeIDHeader, model.DefaultCommitteeID)
-	ctx := metadata.NewIncomingContext(context.Background(), md)
+	h := NewGetMessagesSinceHandler(store, &model.Committee{}, lggr, mon)
 
-	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, assertAnError())
+	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything).Return(nil, assertAnError())
 
-	resp, err := h.Handle(ctx, &pb.GetMessagesSinceRequest{SinceSequence: 0})
+	resp, err := h.Handle(context.Background(), &pb.GetMessagesSinceRequest{SinceSequence: 0})
 	require.Error(t, err)
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.Nil(t, resp)
