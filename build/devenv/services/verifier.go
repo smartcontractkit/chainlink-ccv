@@ -90,10 +90,14 @@ type VerifierInput struct {
 	ConfigFilePath    string               `toml:"config_file_path"`
 	BlockchainOutputs []*blockchain.Output `toml:"-"`
 	AggregatorAddress string               `toml:"aggregator_address"`
-	SigningKey        string               `toml:"signing_key"`
 	Env               *VerifierEnvConfig   `toml:"env"`
 	CommitteeName     string               `toml:"committee_name"`
 	NodeIndex         int                  `toml:"node_index"`
+
+	// SigningKey is generated during the deploy step.
+	SigningKey string `toml:"signing_key"`
+	// SigningKeyPublic is generated during the deploy step.
+	SigningKeyPublic string `toml:"signing_key_public"`
 }
 
 type VerifierOutput struct {

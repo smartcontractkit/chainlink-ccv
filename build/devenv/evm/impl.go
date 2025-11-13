@@ -39,7 +39,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -86,14 +85,6 @@ const (
 
 var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
-
-	// this is a hacky way to be able to programmatically generate the individual verifier
-	// signing addresses for each qualifier.
-	nodesPerCommittee = map[string]int{
-		DefaultCommitteeVerifierQualifier:   2,
-		SecondaryCommitteeVerifierQualifier: 2,
-		TertiaryCommitteeVerifierQualifier:  2,
-	}
 
 	tokenPoolVersions = []string{
 		"1.6.1",
@@ -1049,34 +1040,38 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 	), nil
 }
 
-// getCommitteeSignatureConfig returns the committee signature configuration for a given qualifier.
-// The signer addresses are programmatically generated in an identical to fashion to what is done in
-// NewEnvironment to avoid hardcoding hard-to-determine addresses in the code.
-func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatureConfigArgs {
-	numNodes, ok := nodesPerCommittee[qualifier]
-	if !ok {
-		panic(fmt.Sprintf("couldn't find verifier indexes for qualifier: %s", qualifier))
-	}
-	signerAddresses := make([]common.Address, 0, numNodes)
-	for i := range numNodes {
-		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(qualifier, i)
-		privateKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyString)
-		if err != nil {
-			panic(fmt.Sprintf("failed to read private key: %v", err))
+func toCommitteeVerifierParams(committees []cciptestinterfaces.OnChainCommittees) []sequences.CommitteeVerifierParams {
+	params := make([]sequences.CommitteeVerifierParams, 0, len(committees))
+
+	toCommon := func(addrs [][]byte) []common.Address {
+		var result []common.Address
+		for _, addr := range addrs {
+			if len(addr) != common.AddressLength {
+				panic(fmt.Sprintf("invalid address length: %d", len(addr)))
+			}
+			result = append(result, common.BytesToAddress(addr))
 		}
-		_, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
-		if err != nil {
-			panic(fmt.Sprintf("failed to create ECDSA message signer: %v", err))
-		}
-		signerAddresses = append(signerAddresses, common.BytesToAddress(addr[:]))
+		return result
 	}
-	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(numNodes),
-		Signers:   signerAddresses,
+
+	// TODO: deploy the offchain verifiers that correspond to these contracts.
+	for _, c := range committees {
+		params = append(params, sequences.CommitteeVerifierParams{
+			Version: semver.MustParse(committee_verifier.Deploy.Version()),
+			// TODO: add mocked contract here
+			FeeAggregator: common.HexToAddress("0x01"),
+			SignatureConfigArgs: committee_verifier.SetSignatureConfigArgs{
+				Signers:   toCommon(c.Signers),
+				Threshold: c.Threshold,
+			},
+			Qualifier: c.CommitteeQualifier,
+		})
 	}
+
+	return params
 }
 
-func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64) (datastore.DataStore, error) {
+func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {
 	l := m.logger
 	l.Info().Msg("Configuring contracts for selector")
 	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
@@ -1113,30 +1108,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				},
 				// Deploy multiple committee verifiers in order to test different receiver
 				// configurations.
-				CommitteeVerifier: []sequences.CommitteeVerifierParams{
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(DefaultCommitteeVerifierQualifier),
-						Qualifier:           DefaultCommitteeVerifierQualifier,
-					},
-					// TODO: deploy the offchain verifiers that correspond to these contracts.
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(SecondaryCommitteeVerifierQualifier),
-						Qualifier:           SecondaryCommitteeVerifierQualifier,
-					},
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(TertiaryCommitteeVerifierQualifier),
-						Qualifier:           TertiaryCommitteeVerifierQualifier,
-					},
-				},
+				CommitteeVerifier: toCommitteeVerifierParams(committees),
 				OnRamp: sequences.OnRampParams{
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),
@@ -1159,6 +1131,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					USDPerLINK:                     usdPerLink,
 					USDPerWETH:                     usdPerWeth,
 				},
+				// TODO: How to generate this from the committees param?
 				MockReceivers: []sequences.MockReceiverParams{
 					{
 						// single required verifier (default), no optional verifiers, no optional threshold
@@ -1411,7 +1384,29 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 	return nil
 }
 
-func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
+func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChainCommittees) []adapters.CommitteeVerifier[datastore.AddressRef] {
+	committeeVerifiers := make([]adapters.CommitteeVerifier[datastore.AddressRef], 0, len(committees))
+	for _, committee := range committees {
+		committeeVerifiers = append(committeeVerifiers, adapters.CommitteeVerifier[datastore.AddressRef]{
+			Implementation: datastore.AddressRef{
+				Type:          datastore.ContractType(committee_verifier.ContractType),
+				Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+				ChainSelector: selector,
+				Qualifier:     committee.CommitteeQualifier,
+			},
+			Resolver: datastore.AddressRef{
+				Type:          datastore.ContractType(committee_verifier.ResolverType),
+				Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+				ChainSelector: selector,
+				Qualifier:     committee.CommitteeQualifier,
+			},
+		})
+	}
+	return committeeVerifiers
+}
+
+// TODO: How to generate all the default/secondary/tertiary things from the committee param?
+func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
 	l := m.logger
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
 	bundle := operations.NewBundle(
@@ -1439,7 +1434,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier,
+					Qualifier:     DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
 			},
 			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
@@ -1448,7 +1443,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier,
+					Qualifier:     DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
 			},
 			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
@@ -1507,50 +1502,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
-				CommitteeVerifiers: []adapters.CommitteeVerifier[datastore.AddressRef]{
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     DefaultCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     DefaultCommitteeVerifierQualifier,
-						},
-					},
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-					},
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     TertiaryCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     TertiaryCommitteeVerifierQualifier,
-						},
-					},
-				},
+				CommitteeVerifiers: toComitteeVerifier(selector, committees),
 			},
 		},
 	})
