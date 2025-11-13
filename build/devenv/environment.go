@@ -477,6 +477,34 @@ func NewEnvironment() (in *Cfg, err error) {
 	return in, Store(in)
 }
 
+func launchStandaloneExecutor(in *Cfg) ([]*services.ExecutorOutput, error) {
+	var outs []*services.ExecutorOutput
+	// Start standalone executor if in standalone mode.
+	if in.Executor != nil && in.Executor.Mode == services.Standalone {
+		out, err := services.NewExecutor(in.Executor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create executor service: %w", err)
+		}
+		outs = append(outs, out)
+	}
+	return outs, nil
+}
+
+func launchStandaloneVerifiers(in *Cfg) ([]*services.VerifierOutput, error) {
+	var outs []*services.VerifierOutput
+	// Start standalone verifiers if in standalone mode.
+	for _, ver := range in.Verifier {
+		if ver.Mode == services.Standalone {
+			out, err := services.NewVerifier(ver)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			}
+			outs = append(outs, out)
+		}
+	}
+	return outs, nil
+}
+
 func encryptedJSONKey(privKeyHex, password string, scryptN, scryptP int) ([]byte, common.Address, error) {
 	// get the address from the given private key
 	privKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyHex)

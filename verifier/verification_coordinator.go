@@ -289,7 +289,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			sourcePollInterval,
 		)
 
-		err := service.Start(ctx)
+		err := service.Start(c)
 		if err != nil {
 			return fmt.Errorf("failed to start source reader for chain %d: %w", chainSelector, err)
 		}
@@ -304,7 +304,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		// TODO: Initialize reorgDetectorService like the sourceReaderService - we can keep the WithReorgDetector option and create them if they're not present
 		if detector, hasDetector := vc.reorgDetectors[chainSelector]; hasDetector {
 			// Start detector (blocks until initial tail is built and subscription is established)
-			reorgStatusCh, err := detector.Start(ctx)
+			reorgStatusCh, err := detector.Start(c)
 			if err != nil {
 				vc.lggr.Errorw("Failed to start reorg detector",
 					"chainSelector", chainSelector,
@@ -324,7 +324,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				vc.backgroundWg.Add(1)
 				go func(s *sourceState) {
 					defer vc.backgroundWg.Done()
-					vc.processReorgUpdates(ctx, s)
+					vc.processReorgUpdates(c, s)
 				}(state)
 			}
 		} else {
@@ -343,7 +343,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 	vc.running = true
 
-	if err := vc.startCurseDetector(ctx, rmnReaders); err != nil {
+	if err := vc.startCurseDetector(c, rmnReaders); err != nil {
 		return fmt.Errorf("failed to create and start curse detector: %w", err)
 	}
 
