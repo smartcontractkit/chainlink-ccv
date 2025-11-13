@@ -7,13 +7,14 @@ import (
 )
 
 type MessageHeap struct {
-	h   []*MessageWithTimestamp
+	h   []*MessageWithTimestamps
 	set map[protocol.Bytes32]struct{}
 }
 
-type MessageWithTimestamp struct {
-	ReadyTime int64
-	Payload   *protocol.Message
+type MessageWithTimestamps struct {
+	ReadyTime  int64
+	Message    *protocol.Message
+	ExpiryTime int64
 }
 
 func (mh MessageHeap) Len() int {
@@ -31,13 +32,16 @@ func (mh MessageHeap) Swap(i, j int) {
 func (mh *MessageHeap) Push(x any) {
 	// Push and Pop use pointer receivers because they modify the slice's length,
 	// not just its contents.
-	val, ok := x.(*MessageWithTimestamp)
+	val, ok := x.(*MessageWithTimestamps)
 	if !ok {
 		return
 	}
-	id, _ := val.Payload.MessageID()
 	if mh.set == nil {
 		mh.set = make(map[protocol.Bytes32]struct{})
+	}
+	id, err := val.Message.MessageID()
+	if err != nil {
+		return
 	}
 	mh.set[id] = struct{}{}
 	mh.h = append(mh.h, val)
@@ -49,7 +53,7 @@ func (mh *MessageHeap) Pop() any {
 	x := old[n-1]
 	mh.h = old[0 : n-1]
 
-	id, _ := x.Payload.MessageID()
+	id, _ := x.Message.MessageID()
 	delete(mh.set, id)
 
 	return x
@@ -59,21 +63,21 @@ func (mh *MessageHeap) IsEmpty() bool {
 	return mh.Len() == 0
 }
 
-func (mh *MessageHeap) PopAllReady(timestamp int64) []protocol.Message {
-	var readyMessages []protocol.Message
-	for mh.Len() > 0 && mh.PeekTime() <= timestamp {
-		msg, ok := heap.Pop(mh).(*MessageWithTimestamp)
+func (mh *MessageHeap) PopAllReady(timestamp int64) []MessageWithTimestamps {
+	var readyMessages []MessageWithTimestamps
+	for mh.Len() > 0 && mh.peekTime() <= timestamp {
+		msg, ok := heap.Pop(mh).(*MessageWithTimestamps)
 		if !ok {
 			continue
 		}
-		readyMessages = append(readyMessages, *msg.Payload)
-		id, _ := msg.Payload.MessageID()
+		readyMessages = append(readyMessages, *msg)
+		id, _ := msg.Message.MessageID()
 		delete(mh.set, id)
 	}
 	return readyMessages
 }
 
-func (mh *MessageHeap) PeekTime() int64 {
+func (mh *MessageHeap) peekTime() int64 {
 	if mh.Len() == 0 {
 		return 0
 	}

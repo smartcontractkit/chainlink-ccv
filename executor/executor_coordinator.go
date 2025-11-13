@@ -30,6 +30,7 @@ type Coordinator struct {
 	delayedMessageHeap *message_heap.MessageHeap
 	running            atomic.Bool
 	statusChecker      StatusChecker
+	expiryDuration     time.Duration
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -40,6 +41,7 @@ func NewCoordinator(
 	leaderElector LeaderElector,
 	monitoring Monitoring,
 	statusChecker StatusChecker,
+	expiryDuration time.Duration,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
 		lggr:              lggr,
@@ -50,7 +52,8 @@ func NewCoordinator(
 		ccvDataCh:         make(chan MessageWithCCVData, 100),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
-		statusChecker: statusChecker,
+		statusChecker:  statusChecker,
+		expiryDuration: expiryDuration,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -144,18 +147,19 @@ func (ec *Coordinator) run(ctx context.Context) {
 				// get message delay from leader elector
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
 
-				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamp{
-					Payload:   &msg,
-					ReadyTime: readyTimestamp,
+				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamps{
+					Message:    &msg,
+					ReadyTime:  readyTimestamp,
+					ExpiryTime: readyTimestamp + int64(ec.expiryDuration.Seconds()),
 				})
 			}
 		case <-ticker.C:
 			// todo: get this current time from a single source across all executors
 			currentTime := time.Now().Unix()
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
-			for _, message := range readyMessages {
+			for _, payload := range readyMessages {
 				go func() {
-					message, currentTime := message, currentTime
+					message, currentTime := *payload.Message, currentTime
 					id, _ := message.MessageID()
 
 					ec.lggr.Infow("processing message with ID", "messageID", id)
@@ -165,10 +169,16 @@ func (ec *Coordinator) run(ctx context.Context) {
 					}
 
 					if shouldRetry {
+						retryTime := currentTime + ec.leaderElector.GetRetryDelay(message.DestChainSelector)
+						if retryTime > payload.ExpiryTime {
+							ec.lggr.Infow("message has expired", "messageID", id)
+							return
+						}
 						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
-						heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamp{
-							Payload:   &message,
-							ReadyTime: currentTime + ec.leaderElector.GetRetryDelay(message.DestChainSelector),
+						heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamps{
+							Message:    &message,
+							ReadyTime:  retryTime,
+							ExpiryTime: payload.ExpiryTime,
 						})
 					}
 					if shouldExecute {
