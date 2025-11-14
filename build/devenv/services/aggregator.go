@@ -151,7 +151,7 @@ func validateAggregatorInput(in *AggregatorInput) error {
 	return nil
 }
 
-func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
+func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput, error) {
 	if in == nil {
 		return nil, nil
 	}

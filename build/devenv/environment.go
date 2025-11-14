@@ -204,7 +204,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Start aggregators.
 	for _, aggregatorInput := range in.Aggregator {
-		_, err = services.NewAggregator(aggregatorInput)
+		_, err = services.NewAggregator(aggregatorInput, in.Verifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
