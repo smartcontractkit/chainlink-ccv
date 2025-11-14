@@ -144,5 +144,8 @@ func (t *Task) getVerifiers() []string {
 		verifiers = append(verifiers, receipt.Issuer.String())
 	}
 
+	spew.Dump(t.message.ReceiptBlobs)
+	spew.Dump(verifiers)
+
 	return verifiers
 }

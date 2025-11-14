@@ -232,5 +232,5 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 }
 
 func (a *AggregatorMessageDiscovery) isCircuitBreakerOpen() bool {
-	return a.aggregatorReader.GetCircuitBreakerState() == circuitbreaker.OpenState
+	return a.aggregatorReader.GetDiscoveryCircuitBreakerState() == circuitbreaker.OpenState
 }

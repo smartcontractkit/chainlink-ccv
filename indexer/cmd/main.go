@@ -166,8 +166,8 @@ func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.Inde
 		discovery.WithMonitoring(monitoring),
 		discovery.WithLogger(lggr),
 		discovery.WithConfig(discovery.Config{
-			PollInterval:       time.Duration(cfg.Discovery.PollInterval),
-			Timeout:            time.Duration(cfg.Discovery.Timeout),
+			PollInterval:       time.Duration(cfg.Discovery.PollInterval) * time.Second,
+			Timeout:            time.Duration(cfg.Discovery.Timeout) * time.Second,
 			MessageChannelSize: cfg.Discovery.MessageChannelSize,
 		}))
 }

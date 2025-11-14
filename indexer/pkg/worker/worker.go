@@ -20,8 +20,8 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	}
 
 	task.logger.Infof("Attempting to retrieve %d verifications for the message. Total Verifiers: %d", len(missing), len(totalVerifiers))
-	task.logger.Debugf("All Verifiers %s", totalVerifiers)
-	task.logger.Debugf("Missing Verifiers %s", missing)
+	task.logger.Infof("All Verifiers %s", totalVerifiers)
+	task.logger.Infof("Missing Verifiers %s", missing)
 
 	// Load all missing verifier readers from the registry
 	//
