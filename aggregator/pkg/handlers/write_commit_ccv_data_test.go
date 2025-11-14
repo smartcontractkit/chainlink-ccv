@@ -44,15 +44,11 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		ParticipantID: "p1",
 		Address:       []byte{0xAA},
 	}
-	signer2 := &model.IdentifierSigner{
-		ParticipantID: "p2",
-		Address:       []byte{0xBB},
-	}
 
 	type testCase struct {
 		name             string
 		req              *pb.WriteCommitCCVNodeDataRequest
-		signers          []*model.IdentifierSigner
+		signer           *model.IdentifierSigner
 		sigErr           error
 		saveErr          error
 		aggErr           error
@@ -66,19 +62,10 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		{
 			name:             "success_single_signer_returns_success",
 			req:              makeValidProtoRequest(validUUID),
-			signers:          []*model.IdentifierSigner{signer1},
+			signer:           signer1,
 			expectGRPCCode:   codes.OK,
 			expectStatus:     pb.WriteStatus_SUCCESS,
 			expectStoreCalls: 1,
-			expectAggCalls:   1,
-		},
-		{
-			name:             "success_multiple_signers_stores_all_and_triggers_once",
-			req:              makeValidProtoRequest(validUUID),
-			signers:          []*model.IdentifierSigner{signer1, signer2},
-			expectGRPCCode:   codes.OK,
-			expectStatus:     pb.WriteStatus_SUCCESS,
-			expectStoreCalls: 2,
 			expectAggCalls:   1,
 		},
 		{
@@ -96,7 +83,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		{
 			name:             "invalid_idempotency_key_returns_invalid_argument",
 			req:              makeValidProtoRequest("not-a-uuid"),
-			signers:          []*model.IdentifierSigner{signer1},
+			signer:           signer1,
 			expectGRPCCode:   codes.InvalidArgument,
 			expectStatus:     pb.WriteStatus_FAILED,
 			expectStoreCalls: 0,
@@ -105,7 +92,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		{
 			name:             "signature_validator_error_returns_internal",
 			req:              makeValidProtoRequest(validUUID),
-			signers:          nil,
+			signer:           nil,
 			sigErr:           errors.New("sig-fail"),
 			expectGRPCCode:   codes.Internal,
 			expectStatus:     pb.WriteStatus_FAILED,
@@ -115,7 +102,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		{
 			name:             "storage_error_returns_internal_and_no_aggregation",
 			req:              makeValidProtoRequest(validUUID),
-			signers:          []*model.IdentifierSigner{signer1},
+			signer:           signer1,
 			saveErr:          errors.New("db-down"),
 			expectGRPCCode:   codes.Internal,
 			expectStatus:     pb.WriteStatus_FAILED,
@@ -125,7 +112,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		{
 			name:             "aggregation_channel_full_returns_resource_exhausted",
 			req:              makeValidProtoRequest(validUUID),
-			signers:          []*model.IdentifierSigner{signer1},
+			signer:           signer1,
 			aggErr:           common.ErrAggregationChannelFull,
 			expectGRPCCode:   codes.ResourceExhausted,
 			expectStatus:     pb.WriteStatus_FAILED,
@@ -135,7 +122,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		{
 			name:             "aggregation_other_error_returns_internal",
 			req:              makeValidProtoRequest(validUUID),
-			signers:          []*model.IdentifierSigner{signer1},
+			signer:           signer1,
 			aggErr:           errors.New("agg-fail"),
 			expectGRPCCode:   codes.Internal,
 			expectStatus:     pb.WriteStatus_FAILED,
@@ -161,7 +148,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			if tc.sigErr != nil {
 				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, nil, tc.sigErr)
 			} else {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(tc.signers, nil, nil).Maybe()
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(tc.signer, nil, nil).Maybe()
 			}
 
 			// Save expectations with counter
