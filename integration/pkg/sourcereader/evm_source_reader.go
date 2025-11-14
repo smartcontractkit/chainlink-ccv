@@ -13,19 +13,16 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
-
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
-// Compile-time checks to ensure EVMSourceReader implements both interfaces.
+// Compile-time checks to ensure EVMSourceReader implements the SourceReader interface.
 var (
-	_ verifiertypes.SourceReader = (*EVMSourceReader)(nil)
-	_ chainaccess.HeadTracker    = (*EVMSourceReader)(nil)
+	_ chainaccess.SourceReader = (*EVMSourceReader)(nil)
 )
 
 type EVMSourceReader struct {
@@ -46,7 +43,7 @@ func NewEVMSourceReader(
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
-) (verifiertypes.SourceReader, error) {
+) (chainaccess.SourceReader, error) {
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {
 		if field == nil {
@@ -157,8 +154,9 @@ func (r *EVMSourceReader) BlockTime(ctx context.Context, block *big.Int) (uint64
 	return hdr.Time, nil
 }
 
-// VerificationTasks returns the channel where new message events are delivered.
-func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]verifiertypes.VerificationTask, error) {
+// FetchMessageSentEvents returns MessageSentEvents in the given block range.
+// The toBlock parameter can be nil to query up to the latest block.
+func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
@@ -167,11 +165,11 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 	}
 	logs, err := r.chainClient.FilterLogs(ctx, rangeQuery)
 	if err != nil {
-		r.lggr.Warnw("⚠️ Failed to filter logs", "error", err)
+		r.lggr.Warnw("Failed to filter logs", "error", err)
 		return nil, err
 	}
 
-	results := make([]verifiertypes.VerificationTask, 0, len(logs))
+	results := make([]protocol.MessageSentEvent, 0, len(logs))
 
 	// Process found events
 	for _, log := range logs {
@@ -205,16 +203,16 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 		event.SequenceNumber = nonce
 		abi, err := onramp.OnRampMetaData.GetAbi()
 		if err != nil {
-			r.lggr.Errorw("❌ Failed to get ABI", "error", err)
+			r.lggr.Errorw("Failed to get ABI", "error", err)
 			continue // to next message
 		}
 		err = abi.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 		if err != nil {
-			r.lggr.Errorw("❌ Failed to unpack CCIPMessageSent event payload", "error", err)
+			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
 			continue // to next message
 		}
 		// Log the event structure using the fixed bindings
-		r.lggr.Infow("📋 OnRamp Event Structure",
+		r.lggr.Infow("OnRamp Event Structure",
 			"destChainSelector", event.DestChainSelector,
 			"nonce", event.SequenceNumber,
 			"messageId", common.Bytes2Hex(event.MessageId[:]),
@@ -223,7 +221,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 
 		if len(event.Receipts) < 1 {
 			// The executor receipt is at Receipts[len-1], so we need at least one receipt
-			r.lggr.Errorw("❌ Executor receipt is missing.", "count", len(event.Receipts))
+			r.lggr.Errorw("Executor receipt is missing.", "count", len(event.Receipts))
 			continue // to next message
 		}
 
@@ -240,29 +238,29 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 
 		// Log executor receipt
 		executorReceipt := event.Receipts[len(event.Receipts)-1]
-		r.lggr.Infow("📋 Executor Receipt",
+		r.lggr.Infow("Executor Receipt",
 			"issuer", executorReceipt.Issuer.Hex(),
 			"destGasLimit", executorReceipt.DestGasLimit,
 			"destBytesOverhead", executorReceipt.DestBytesOverhead,
 			"feeTokenAmount", executorReceipt.FeeTokenAmount.String(),
 			"extraArgs", common.Bytes2Hex(executorReceipt.ExtraArgs))
 
-		r.lggr.Infow("📋 Decoding encoded message",
+		r.lggr.Infow("Decoding encoded message",
 			"encodedMessageLength", len(event.EncodedMessage),
 			"messageId", common.Bytes2Hex(event.MessageId[:]))
 		decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 		if err != nil {
-			r.lggr.Errorw("❌ Failed to decode message", "error", err)
+			r.lggr.Errorw("Failed to decode message", "error", err)
 			continue // to next message
 		}
-		r.lggr.Infow("📋 Decoded message",
+		r.lggr.Infow("Decoded message",
 			"message", decodedMsg)
 
 		// Create receipt blobs from verifier receipts and receipt blobs
 		receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.Receipts)+1)
 
 		if len(event.Receipts) == 0 {
-			r.lggr.Errorw("❌ No verifier receipts found")
+			r.lggr.Errorw("No verifier receipts found")
 			continue // to next message
 		}
 		// Process verifier receipts
@@ -271,7 +269,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 			if i < len(event.VerifierBlobs) && len(event.VerifierBlobs[i]) > 0 {
 				blob = event.VerifierBlobs[i]
 			} else {
-				r.lggr.Infow("⚠️ Empty or missing receipt blob",
+				r.lggr.Infow("Empty or missing receipt blob",
 					"verifierIndex", i,
 				)
 			}
@@ -287,7 +285,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 			}
 			receiptBlobs = append(receiptBlobs, receiptBlob)
 
-			r.lggr.Infow("📋 Processed verifier receipt",
+			r.lggr.Infow("Processed verifier receipt",
 				"index", i,
 				"issuer", vr.Issuer.Hex(),
 				"blobLength", len(blob))
@@ -305,14 +303,16 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 		}
 		receiptBlobs = append(receiptBlobs, executorReceiptBlob)
 
-		r.lggr.Infow("📋 Processed executor receipt",
+		r.lggr.Infow("Processed executor receipt",
 			"issuer", executorReceipt.Issuer.Hex())
 
-		// Create verification task
-		results = append(results, verifiertypes.VerificationTask{
-			Message:      *decodedMsg,
-			ReceiptBlobs: receiptBlobs,
-			BlockNumber:  log.BlockNumber,
+		results = append(results, protocol.MessageSentEvent{
+			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
+			SequenceNumber:    event.SequenceNumber,
+			MessageID:         protocol.Bytes32(event.MessageId),
+			Message:           *decodedMsg,
+			Receipts:          receiptBlobs,
+			BlockNumber:       log.BlockNumber,
 		})
 	}
 	return results, nil
@@ -354,9 +354,9 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 }
 
 // GetRMNCursedSubjects queries this source chain's RMN Remote contract.
-// Implements SourceReader and cursedetector.RMNCurseReader interfaces.
+// Implements SourceReader and cursechecker.RMNCurseReader interfaces.
 func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
-	// Use the common helper function from cursedetector package
+	// Use the common helper function from cursechecker package
 	// This avoids code duplication with EVMDestinationReader
 	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.chainClient, r.rmnRemoteAddress)
 }

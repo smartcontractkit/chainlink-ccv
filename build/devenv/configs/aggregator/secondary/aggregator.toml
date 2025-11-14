@@ -77,10 +77,6 @@ pyroscope_url = "http://pyroscope:4040"
       [[committee.quorumConfigs.4793464827907405086.signers]]
         participantID = "default-participant2"
         addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
-  [committee.sourceVerifierAddresses]
-    12922642891491394802 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
-    3379446385462418246 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
-    4793464827907405086 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
 
 [Monitoring]
 Enabled = true

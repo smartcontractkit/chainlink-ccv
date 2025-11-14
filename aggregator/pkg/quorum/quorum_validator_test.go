@@ -110,9 +110,6 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 
 	return &model.AggregatorConfig{
 		Committee: &model.Committee{
-			SourceVerifierAddresses: map[string]string{
-				"1": common.Bytes2Hex(b.sourceVerifierAddress),
-			},
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				"1": {
 					CommitteeVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
@@ -201,9 +198,6 @@ func TestValidateSignature(t *testing.T) {
 		// Setup validator with test configuration
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				SourceVerifierAddresses: map[string]string{
-					"1": common.Bytes2Hex(sourceVerifierAddress),
-				},
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					destSelector: {
 						Signers:                  []model.Signer{signerFixture.Signer},
@@ -228,9 +222,6 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("missing signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				SourceVerifierAddresses: map[string]string{
-					"1": common.Bytes2Hex(sourceVerifierAddress),
-				},
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					destSelector: {
 						Signers:                  []model.Signer{signerFixture.Signer},
@@ -258,9 +249,6 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("invalid signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				SourceVerifierAddresses: map[string]string{
-					"1": common.Bytes2Hex(sourceVerifierAddress),
-				},
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					destSelector: {
 						Signers:                  []model.Signer{signerFixture.Signer},
@@ -305,9 +293,6 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("receipt blob is not part of the signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				SourceVerifierAddresses: map[string]string{
-					"1": common.Bytes2Hex(sourceVerifierAddress),
-				},
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					destSelector: {
 						Signers:                  []model.Signer{signerFixture.Signer},

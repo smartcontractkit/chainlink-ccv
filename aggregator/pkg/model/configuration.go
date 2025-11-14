@@ -32,13 +32,7 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs           map[string]*QuorumConfig `toml:"quorumConfigs"`
-	SourceVerifierAddresses map[string]string        `toml:"sourceVerifierAddresses"`
-}
-
-func (c *Committee) GetSourceVerifierAddress(sourceSelector uint64) (string, bool) {
-	address, exists := c.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
-	return address, exists
+	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
 }
 
 func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) {

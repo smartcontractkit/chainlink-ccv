@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
@@ -65,14 +67,14 @@ func CreateTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, 
 
 // MockSourceReaderSetup contains a mock source Reader and its Channel.
 type MockSourceReaderSetup struct {
-	Reader  *MockSourceReader
-	Channel chan VerificationTask
+	Reader  *protocol_mocks.MockSourceReader
+	Channel chan protocol.MessageSentEvent
 }
 
 // SetupMockSourceReader creates a mock source Reader with expectations.
 func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
-	mockReader := NewMockSourceReader(t)
-	channel := make(chan VerificationTask, 10)
+	mockReader := protocol_mocks.NewMockSourceReader(t)
+	channel := make(chan protocol.MessageSentEvent, 10)
 
 	now := time.Now().Unix()
 
@@ -85,15 +87,15 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 	}
 }
 
-func (msrs *MockSourceReaderSetup) ExpectVerificationTask(maybeVerificationTask bool) {
-	call := msrs.Reader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]VerificationTask, error) {
-		var tasks []VerificationTask
+func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerificationTask bool) {
+	call := msrs.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]protocol.MessageSentEvent, error) {
+		var events []protocol.MessageSentEvent
 		for {
 			select {
-			case task := <-msrs.Channel:
-				tasks = append(tasks, task)
+			case event := <-msrs.Channel:
+				events = append(events, event)
 			default:
-				return tasks, nil
+				return events, nil
 			}
 		}
 	})
@@ -224,31 +226,35 @@ func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVD
 	return nil
 }
 
-// createTestVerificationTasks creates a batch of verification tasks for testing.
-// Each task will have a sequential message ID starting from startSeqNum and uses the provided block numbers.
-func createTestVerificationTasks(
-	t *testing.T,
-	startNonce uint64,
-	chainSelector, destChain protocol.ChainSelector,
-	blockNumbers []uint64,
-) []VerificationTask {
-	t.Helper()
-
-	tasks := make([]VerificationTask, len(blockNumbers))
-	for i, blockNum := range blockNumbers {
-		nonce := startNonce + uint64(i)
-		tasks[i] = VerificationTask{
-			Message:      CreateTestMessage(t, protocol.Nonce(nonce), chainSelector, destChain, 0, 300_000),
-			BlockNumber:  blockNum,
-			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
-			CreatedAt:    time.Now(),
-		}
-	}
-	return tasks
-}
-
 func hashFromNumber(n uint64) protocol.Bytes32 {
 	var h protocol.Bytes32
 	binary.BigEndian.PutUint64(h[:], n)
 	return h
+}
+
+// createTestMessageSentEvents creates a batch of MessageSentEvent for testing.
+func createTestMessageSentEvents(
+	t *testing.T,
+	startNonce uint64,
+	chainSelector, destChain protocol.ChainSelector,
+	blockNumbers []uint64,
+) []protocol.MessageSentEvent {
+	t.Helper()
+
+	events := make([]protocol.MessageSentEvent, len(blockNumbers))
+	for i, blockNum := range blockNumbers {
+		nonce := startNonce + uint64(i)
+		message := CreateTestMessage(t, protocol.Nonce(nonce), chainSelector, destChain, 0, 300_000)
+		messageID, _ := message.MessageID()
+
+		events[i] = protocol.MessageSentEvent{
+			DestChainSelector: message.DestChainSelector,
+			SequenceNumber:    uint64(message.Nonce),
+			MessageID:         messageID,
+			Message:           message,
+			Receipts:          []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
+			BlockNumber:       blockNum,
+		}
+	}
+	return events
 }

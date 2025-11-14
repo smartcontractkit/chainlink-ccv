@@ -10,8 +10,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -26,6 +26,7 @@ import (
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg verifier.Config,
+	aggregatorSecret *hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
@@ -57,7 +58,7 @@ func NewVerificationCoordinator(
 	}
 
 	// Initialize chain components.
-	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 	for sel, chain := range relayers {
@@ -120,18 +121,13 @@ func NewVerificationCoordinator(
 
 	// Checkpoint manager
 	// TODO: these are secrets, probably shouldn't be in config.
-	hmacConfig := &hmac.ClientConfig{
-		APIKey: cfg.AggregatorAPIKey,
-		Secret: cfg.AggregatorSecretKey,
-	}
-
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, hmacConfig)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, aggregatorSecret)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(cfg.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(cfg.AggregatorAddress, lggr, 0, aggregatorSecret) // since=0 for checkpoint reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()

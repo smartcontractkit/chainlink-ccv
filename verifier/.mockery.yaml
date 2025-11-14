@@ -6,4 +6,3 @@ packages:
     config:
       dir: "{{.InterfaceDir}}"
     interfaces:
-      SourceReader: {}

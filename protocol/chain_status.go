@@ -44,3 +44,7 @@ type ChainStatus struct {
 	Type         ReorgType
 	ResetToBlock uint64 // Block number to reset to (0 for finality violations)
 }
+
+func (c ChainStatus) IsFinalityViolated() bool {
+	return c.Type == ReorgTypeFinalityViolation
+}
