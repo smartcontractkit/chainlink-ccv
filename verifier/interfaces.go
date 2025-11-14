@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
