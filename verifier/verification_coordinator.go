@@ -203,14 +203,11 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	// Apply defaults to config if not set
 	vc.applyConfigDefaults()
 
-	// Initialize source states map (services will be created in Start())
-	if vc.sourceStates == nil {
-		vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
-	}
-
 	return vc, nil
 }
 
+// FIXME: This method is too long, needs refactoring.
+// Maybe we can split into smaller methods related to initialization of different components?
 // Start begins the verification coordinator processing.
 func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.mu.Lock()
@@ -254,7 +251,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 		// Check if chain is disabled
 		if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
-			vc.lggr.Warnw("⚠️ Chain is disabled in aggregator DB, skipping initialization",
+			vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
 				"chain", chainSelector,
 				"blockHeight", chainStatus.BlockNumber)
 			continue
@@ -410,17 +407,13 @@ func (vc *Coordinator) Close() error {
 		}
 	}
 
-	// Close reorg detectors
+	// Close reorg detectors & source readers
 	for chainSelector, state := range vc.sourceStates {
 		if state.reorgDetector != nil {
 			if err := state.reorgDetector.Close(); err != nil {
 				vc.lggr.Errorw("Error closing reorg detector", "error", err, "chainSelector", chainSelector)
 			}
 		}
-	}
-
-	// Close source readers.
-	for chainSelector, state := range vc.sourceStates {
 		if err := state.reader.Stop(); err != nil {
 			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
 		}
@@ -447,6 +440,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 	// Main loop - process batched storage writes
 	for {
 		select {
+		// FIXME Wrapping with {} will make it clearer
 		case <-ctx.Done():
 			vc.lggr.Infow("Context cancelled, stopping coordinator")
 			wg.Wait()
@@ -474,6 +468,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 
 			// Write batch of CCVData to offchain storage
+			// FIXME: Entire write batch to offchain storage should be extracted to a separate method
 			storageStart := time.Now()
 
 			// Extract CCVData and idempotency keys from the batch
@@ -503,6 +498,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 				storageDuration := time.Since(storageStart)
 
 				// Record storage write duration
+				// FIXME: Ideally business logic shouldn't be polluted with monitoring calls (but that might be hard to achieve with current architecture)
 				vc.monitoring.Metrics().
 					With("verifier_id", vc.config.VerifierID).
 					RecordStorageWriteDuration(ctx, storageDuration)
@@ -511,6 +507,11 @@ func (vc *Coordinator) run(ctx context.Context) {
 				vc.timestampsMu.Lock()
 				for _, item := range ccvDataBatch.Items {
 					ccvData := item.CCVData
+					// FIXME I would suggest replacing timestampsMu/messageTimestamps with go-cache
+					// * automatic expiration of old entries - it's safer in case of bugs elsewhere. We saw that for OCR2 metrics
+					//   which were responsible for extremeyly high memory consumption due to forgotten entries
+					// * no need for manual locking - go-cache is thread-safe
+					// * simpler code - no need to manually manage the map
 					if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
 						e2eDuration := time.Since(createdAt)
 						vc.monitoring.Metrics().
@@ -685,17 +686,19 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 		return
 	}
 
+	messageContextLggr := logger.With(
+		vc.lggr,
+		"messageID", task.Message.MustMessageID(),
+		"source", task.Message.SourceChainSelector,
+		"dest", task.Message.DestChainSelector,
+	)
+
 	// Check if lane is cursed (source -> dest)
 	if vc.curseDetector.IsRemoteChainCursed(
 		task.Message.SourceChainSelector,
 		task.Message.DestChainSelector,
 	) {
-		messageID, _ := task.Message.MessageID()
-		vc.lggr.Warnw("Dropping task - lane is cursed",
-			"source", task.Message.SourceChainSelector,
-			"dest", task.Message.DestChainSelector,
-			"messageID", messageID,
-			"blockNumber", task.BlockNumber)
+		messageContextLggr.Warnw("Dropping task - lane is cursed", "blockNumber", task.BlockNumber)
 		return
 	}
 
@@ -711,6 +714,9 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 
 	// Track message creation time for E2E latency measurement
 	vc.timestampsMu.Lock()
+	// FIXME: Is it a valid case? If SourceReader didn't set it, and we are setting it here with time.Now(),
+	// we might have inaccurate CreatedAt timestamps. Clocks between nodes will be different
+	// If we don't have real `createdAt` then maybe field should be called `SeenAt` or `FirstObservedAt`?
 	if task.CreatedAt.IsZero() {
 		// If CreatedAt was not set by source reader, set it now
 		task.CreatedAt = time.Now()
@@ -718,9 +724,7 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	vc.messageTimestamps[messageID] = task.CreatedAt
 	vc.timestampsMu.Unlock()
 
-	vc.lggr.Infow("Message added to finality queue",
-		"messageID", messageID,
-		"chainSelector", state.chainSelector,
+	messageContextLggr.Infow("Message added to finality queue",
 		"blockNumber", task.BlockNumber,
 		"nonce", task.Message.Nonce,
 		"queueSize", len(state.pendingTasks),
@@ -748,6 +752,7 @@ func (vc *Coordinator) readyMessagesCheckingLoop(ctx context.Context) {
 				vc.processFinalityQueueForChain(ctx, state)
 			}
 		case <-cleanupTicker.C:
+			// FIXME This is exactly what go-cache would do automatically, right?
 			vc.cleanupOldTimestamps()
 		}
 	}
@@ -818,6 +823,8 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
 
 	// Record chain state metrics
+	// FIXME: This could be nicely extracted with a decorator patter (just decorate `LatestAndFinalizedBlock` method
+	// in sourceReader and business logic won't be polluted with monitoring calls)
 	vc.monitoring.Metrics().
 		With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
 		RecordSourceChainLatestBlock(ctx, latestBlock.Int64())
@@ -827,26 +834,26 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 	// Check finality for each task
 	for _, task := range state.pendingTasks {
+		msgContextLggr := logger.With(
+			vc.lggr,
+			"messageID", task.Message.MustMessageID(),
+			"source", task.Message.SourceChainSelector,
+			"dest", task.Message.DestChainSelector,
+		)
+
 		// Check if lane is cursed before processing finalized tasks
 		if vc.curseDetector.IsRemoteChainCursed(
 			task.Message.SourceChainSelector,
 			task.Message.DestChainSelector,
 		) {
-			messageID, _ := task.Message.MessageID()
-			vc.lggr.Warnw("Dropping finalized task - lane is cursed",
-				"source", task.Message.SourceChainSelector,
-				"dest", task.Message.DestChainSelector,
-				"messageID", messageID,
-				"chain", chainSelector)
+			msgContextLggr.Warnw("Dropping finalized task - lane is cursed", "chain", chainSelector)
 			// Drop the task (don't add to remainingTasks or readyTasks)
 			continue
 		}
 
 		ready, err := vc.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock)
 		if err != nil {
-			messageID, _ := task.Message.MessageID()
-			vc.lggr.Warnw("Failed to check finality for message",
-				"messageID", messageID,
+			msgContextLggr.Warnw("Failed to check finality for message",
 				"error", err,
 				"chain", chainSelector)
 			// Keep in queue to retry later
@@ -865,7 +872,7 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	state.pendingTasks = remainingTasks
 
 	if len(readyTasks) > 0 {
-		vc.lggr.Infow("✅ Processing finalized messages",
+		vc.lggr.Infow("Processing finalized messages",
 			"chain", chainSelector,
 			"readyCount", len(readyTasks),
 			"remainingCount", len(remainingTasks),
@@ -912,7 +919,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 		// Check chain status before processing
 		state.chainStatusMu.RLock()
-		isFinalityViolated := state.chainStatus.Type == protocol.ReorgTypeFinalityViolation
+		isFinalityViolated := state.chainStatus.IsFinalityViolated()
 		state.chainStatusMu.RUnlock()
 
 		if isFinalityViolated {
@@ -940,40 +947,36 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 // handleVerificationErrors processes and logs errors from a verification batch.
 func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch batcher.BatchResult[VerificationError], chainSelector protocol.ChainSelector, totalTasks int) {
-	if len(errorBatch.Items) > 0 {
-		vc.lggr.Infow("Verification batch completed with errors",
-			"chainSelector", chainSelector,
-			"totalTasks", totalTasks,
-			"errorCount", len(errorBatch.Items))
-
-		// Log and record metrics for each error
-		for _, verificationError := range errorBatch.Items {
-			message := verificationError.Task.Message
-			messageID, err := message.MessageID()
-			if err != nil {
-				vc.lggr.Errorw("Failed to compute message ID for error logging", "error", err)
-				messageID = protocol.Bytes32{} // Use empty message ID as fallback
-			}
-
-			// Record verification error metric
-			vc.monitoring.Metrics().
-				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
-				IncrementMessagesVerificationFailed(ctx)
-
-			vc.lggr.Errorw("Message verification failed",
-				"error", verificationError.Error,
-				"messageID", messageID,
-				"nonce", message.Nonce,
-				"sourceChain", message.SourceChainSelector,
-				"destChain", message.DestChainSelector,
-				"timestamp", verificationError.Timestamp,
-				"chainSelector", chainSelector,
-			)
-		}
-	} else {
+	if len(errorBatch.Items) <= 0 {
 		vc.lggr.Debugw("Verification batch completed successfully",
 			"chainSelector", chainSelector,
 			"taskCount", totalTasks)
+		return
+	}
+
+	vc.lggr.Infow("Verification batch completed with errors",
+		"chainSelector", chainSelector,
+		"totalTasks", totalTasks,
+		"errorCount", len(errorBatch.Items))
+
+	// Log and record metrics for each error
+	for _, verificationError := range errorBatch.Items {
+		message := verificationError.Task.Message
+
+		// Record verification error metric
+		vc.monitoring.Metrics().
+			With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
+			IncrementMessagesVerificationFailed(ctx)
+
+		vc.lggr.Errorw("Message verification failed",
+			"error", verificationError.Error,
+			"messageID", message.MustMessageID(),
+			"nonce", message.Nonce,
+			"sourceChain", message.SourceChainSelector,
+			"destChain", message.DestChainSelector,
+			"timestamp", verificationError.Timestamp,
+			"chainSelector", chainSelector,
+		)
 	}
 }
 
@@ -1157,7 +1160,7 @@ func (vc *Coordinator) isMessageReadyForVerification(
 		// Default finality: wait for chain finalization
 		ready = messageBlockNumber.Cmp(latestFinalizedBlock) <= 0
 		if ready {
-			vc.lggr.Debugw("✅ Message meets default finality requirement",
+			vc.lggr.Debugw("Message meets default finality requirement",
 				"messageID", messageID,
 				"messageBlock", messageBlockNumber.String(),
 				"finalizedBlock", latestFinalizedBlock.String(),
@@ -1168,7 +1171,7 @@ func (vc *Coordinator) isMessageReadyForVerification(
 		requiredBlock := new(big.Int).Add(messageBlockNumber, new(big.Int).SetUint64(uint64(finalityConfig)))
 		ready = requiredBlock.Cmp(latestBlock) <= 0
 		if ready {
-			vc.lggr.Debugw("✅ Message meets custom finality requirement",
+			vc.lggr.Debugw("Message meets custom finality requirement",
 				"messageID", messageID,
 				"messageBlock", messageBlockNumber.String(),
 				"finalityConfig", finalityConfig,
