@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         test: [
-          { name: "TestE2ESmoke", config: "env.toml,env-cl-ci.toml" },
+          { name: "Test(E2ESmoke|RMNCurseLaneVerifierSide|RMNGlobalCurseVerifierSide)", config: "env.toml,env-cl-ci.toml" },
         ]
       fail-fast: false
     steps:

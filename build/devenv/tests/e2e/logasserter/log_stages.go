@@ -8,6 +8,14 @@ func MessageReachedVerifier() LogStage {
 	}
 }
 
+func MessageDroppedInVerifier() LogStage {
+	return LogStage{
+		Name:       "MessageDroppedInVerifier",
+		Service:    "verifier",
+		LogPattern: "Dropping task",
+	}
+}
+
 func MessageSigned() LogStage {
 	return LogStage{
 		Name:       "MessageSigned",

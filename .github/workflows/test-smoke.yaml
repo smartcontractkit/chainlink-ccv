@@ -80,7 +80,7 @@ jobs:
         working-directory: build/devenv/tests/e2e
         run: |
           set -o pipefail
-          go test -v -timeout 15m -count=1 -run 'TestE2ESmoke' -json \
+          go test -v -timeout 15m -count=1 -run 'Test(E2ESmoke|RMNCurseLaneVerifierSide|RMNGlobalCurseVerifierSide)' -json \
             | tee test-results.json \
             | jq -r '
               select(.Action != null) |

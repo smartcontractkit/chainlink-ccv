@@ -35,6 +35,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
@@ -494,7 +495,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("no off ramp for selector %d", to)
 	}
 
-	l.Info().Msg("Awaiting ExecutionStateChanged event")
+	l.Info().Uint64("srcChain", from).Uint64("destChain", to).Uint64("seqNo", seq).Msg("Awaiting ExecutionStateChanged event")
 
 	for {
 		select {
@@ -1622,6 +1623,126 @@ func (m *CCIP17EVM) fundLockReleaseTokenPool(
 	if receipt.Status != types.ReceiptStatusSuccessful {
 		return fmt.Errorf("transfer transaction failed with status: %d", receipt.Status)
 	}
+
+	return nil
+}
+
+// ============================================================================
+// RMN Curse Operations
+// ============================================================================
+
+// getRMNRemoteAddress returns the RMN Remote contract address for a given chain.
+func (m *CCIP17EVM) getRMNRemoteAddress(chainSelector uint64) (common.Address, error) {
+	rmnRemoteRef, err := m.e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			chainSelector,
+			datastore.ContractType(rmn_remote.ContractType),
+			rmn_remote.Version,
+			"",
+		),
+	)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to get RMN Remote address for chain %d: %w", chainSelector, err)
+	}
+	return common.HexToAddress(rmnRemoteRef.Address), nil
+}
+
+// ApplyCurse applies curses to the RMN Remote contract on a given chain.
+// The subjects parameter contains the curse subjects (either chain selectors or global curse).
+func (m *CCIP17EVM) ApplyCurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
+	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
+	if err != nil {
+		return err
+	}
+
+	ethClient, ok := m.ethClients[chainSelector]
+	if !ok {
+		return fmt.Errorf("eth client not found for chain %d", chainSelector)
+	}
+
+	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, ethClient)
+	if err != nil {
+		return fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
+	}
+
+	// Get deployer key for transaction signing
+	txOpts := m.e.BlockChains.EVMChains()[chainSelector].DeployerKey
+	if txOpts == nil {
+		return fmt.Errorf("deployer key not found for chain %d", chainSelector)
+	}
+
+	// Set context for transaction
+
+	// Call Curse method
+	tx, err := rmnRemote.Curse0(txOpts, subjects)
+	if err != nil {
+		return fmt.Errorf("failed to call Curse on RMN Remote at %s: %w", rmnRemoteAddr.Hex(), err)
+	}
+
+	// Wait for transaction receipt
+	receipt, err := bind.WaitMined(ctx, ethClient, tx.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to wait for curse transaction: %w", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("curse transaction failed")
+	}
+
+	m.logger.Info().
+		Uint64("chain", chainSelector).
+		Str("tx", tx.Hash().Hex()).
+		Int("numSubjects", len(subjects)).
+		Msg("Applied curse on chain")
+
+	return nil
+}
+
+// ApplyUncurse removes curses from the RMN Remote contract on a given chain.
+// The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
+func (m *CCIP17EVM) ApplyUncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
+	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
+	if err != nil {
+		return err
+	}
+
+	ethClient, ok := m.ethClients[chainSelector]
+	if !ok {
+		return fmt.Errorf("eth client not found for chain %d", chainSelector)
+	}
+
+	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, ethClient)
+	if err != nil {
+		return fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
+	}
+
+	// Get deployer key for transaction signing
+	txOpts := m.e.BlockChains.EVMChains()[chainSelector].DeployerKey
+	if txOpts == nil {
+		return fmt.Errorf("deployer key not found for chain %d", chainSelector)
+	}
+
+	// Set context for transaction
+
+	// Call Uncurse method
+	tx, err := rmnRemote.Uncurse0(txOpts, subjects)
+	if err != nil {
+		return fmt.Errorf("failed to call Uncurse on RMN Remote at %s: %w", rmnRemoteAddr.Hex(), err)
+	}
+
+	// Wait for transaction receipt
+	receipt, err := bind.WaitMined(ctx, ethClient, tx.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to wait for uncurse transaction: %w", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("uncurse transaction failed")
+	}
+
+	m.logger.Info().
+		Uint64("chain", chainSelector).
+		Str("tx", tx.Hash().Hex()).
+		Int("numSubjects", len(subjects)).
+		Msg("Applied uncurse on chain")
 
 	return nil
 }
