@@ -516,6 +516,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 						seenAt, ok1 := rawSeenAt.(time.Time)
 						if !ok1 {
 							vc.lggr.Errorw("Invalid timestamp type in cache for message")
+							continue
 						}
 						vc.monitoring.Metrics().
 							With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
