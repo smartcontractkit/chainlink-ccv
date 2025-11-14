@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
-	cursedetector_impl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
+	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
@@ -1193,7 +1193,7 @@ func (vc *Coordinator) startCurseDetector(
 	// if a curse detector service is already set, use it; otherwise create a new one
 	curseDetectorSvc := vc.curseDetector
 	if curseDetectorSvc == nil {
-		cd, err := cursedetector_impl.NewCurseDetectorService(
+		cd, err := cursecheckerimpl.NewCurseDetectorService(
 			rmnReaders,
 			vc.config.CursePollInterval,
 			vc.lggr,
