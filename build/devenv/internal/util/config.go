@@ -8,7 +8,11 @@ import (
 )
 
 func CCVConfigDir() string {
-	return path.Join(configDir(), "ccv")
+	p := path.Join(configDir(), "ccv")
+	if err := os.MkdirAll(p, 0777); err != nil {
+		panic("Unable to get config dir: " + err.Error())
+	}
+	return p
 }
 
 func configDir() string {
