@@ -1,4 +1,4 @@
-package cursedetector
+package common
 
 import (
 	"context"
@@ -6,19 +6,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// RMNCurseReader provides read-only access to RMN Remote curse state.
-// Both SourceReader and DestinationReader implement this interface.
-type RMNCurseReader interface {
-	// GetRMNCursedSubjects queries the configured RMN Remote contract.
-	// Returns cursed subjects as bytes16, which can be:
-	// - Global curse constant (0x0100000000000000000000000000000001)
-	// - Chain selectors as bytes16s
-	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
-}
-
-// CurseDetector monitors RMN Remotes for curse status.
+// CurseChecker abstracts checking for chain curse status.
+// Implementations expected to use RMNCurseReader to poll RMN Remote contracts and maintain curse state.
 // Reusable for both verifier (source RMN Remotes) and executor (dest RMN Remotes).
-type CurseDetector interface {
+type CurseChecker interface {
 	// IsRemoteChainCursed checks if remoteChain is cursed per localChain's RMN Remote.
 	// Returns true if:
 	//   - remoteChain appears in localChain's cursed subjects, OR
