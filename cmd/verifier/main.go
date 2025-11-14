@@ -21,8 +21,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -114,7 +114,6 @@ func main() {
 		lggr.Errorw("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
 		os.Exit(1)
 	}
-	config.AggregatorAPIKey = apiKey
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_API_KEY from environment")
 
 	secretKey := os.Getenv("VERIFIER_AGGREGATOR_SECRET_KEY")
@@ -122,7 +121,6 @@ func main() {
 		lggr.Errorw("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
 		os.Exit(1)
 	}
-	config.AggregatorSecretKey = secretKey
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
 
 	if _, err := pyroscope.Start(pyroscope.Config{
@@ -178,8 +176,8 @@ func main() {
 	}
 
 	hmacConfig := &hmac.ClientConfig{
-		APIKey: config.AggregatorAPIKey,
-		Secret: config.AggregatorSecretKey,
+		APIKey: apiKey,
+		Secret: secretKey,
 	}
 
 	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, lggr, hmacConfig)
@@ -202,7 +200,7 @@ func main() {
 	chainStatusManager := storageaccess.NewAggregatorChainStatusManager(aggregatorWriter, aggregatorReader)
 
 	// Create source readers and head trackers - either blockchain-based or mock
-	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 
 	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)
@@ -243,12 +241,7 @@ func main() {
 
 		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
 		sourceReaders[selector] = evmSourceReader
-		headTrackerInterface, ok := evmSourceReader.(chainaccess.HeadTracker)
-		if !ok {
-			lggr.Errorw("EVMSourceReader does not implement HeadTracker interface", "selector", selector)
-			continue
-		}
-		headTrackers[selector] = headTrackerInterface
+		headTrackers[selector] = evmSourceReader
 
 		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
 	}
