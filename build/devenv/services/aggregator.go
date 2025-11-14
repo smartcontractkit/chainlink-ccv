@@ -238,7 +238,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	confDir := util.CCVConfigDir()
 	configFilePath := filepath.Join(confDir,
 		fmt.Sprintf("aggregator-%s-config.toml", in.CommitteeName))
-	if err := os.WriteFile(configFilePath, config, 0644); err != nil {
+	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
 
