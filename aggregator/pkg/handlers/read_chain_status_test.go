@@ -46,7 +46,7 @@ func TestReadChainStatusHandler_StorageError_ReturnsInternal(t *testing.T) {
 	h := NewReadChainStatusHandler(s, logger.TestSugared(t))
 	ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity("clientA", false))
 
-	s.EXPECT().GetClientChainStatus(mock.Anything, "clientA").Return(nil, status.Error(codes.Internal, "boom"))
+	s.EXPECT().GetClientChainStatus(mock.Anything, "clientA", mock.Anything).Return(nil, status.Error(codes.Internal, "boom"))
 
 	resp, err := h.Handle(ctx, &pb.ReadChainStatusRequest{})
 	require.Error(t, err)
@@ -64,7 +64,7 @@ func TestReadChainStatusHandler_Success_MapsToProto(t *testing.T) {
 		1: {FinalizedBlockHeight: 100, Disabled: false},
 		2: {FinalizedBlockHeight: 200, Disabled: true},
 	}
-	s.EXPECT().GetClientChainStatus(mock.Anything, "clientA").Return(data, nil)
+	s.EXPECT().GetClientChainStatus(mock.Anything, "clientA", mock.Anything).Return(data, nil)
 
 	resp, err := h.Handle(ctx, &pb.ReadChainStatusRequest{})
 	require.NoError(t, err)

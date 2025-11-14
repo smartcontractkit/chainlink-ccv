@@ -141,11 +141,11 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 					if signerAddress == address {
 						q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
 						identifiedSigners = append(identifiedSigners, &model.IdentifierSigner{
-							Signer:      signer,
-							Address:     signerAddress.Bytes(),
-							SignatureR:  rs[i],
-							SignatureS:  ss[i],
-							CommitteeID: committeeName,
+							ParticipantID: signer.ParticipantID,
+							Address:       signerAddress.Bytes(),
+							SignatureR:    rs[i],
+							SignatureS:    ss[i],
+							CommitteeID:   committeeName,
 						})
 					}
 				}

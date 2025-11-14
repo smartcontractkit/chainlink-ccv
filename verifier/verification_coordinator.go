@@ -221,7 +221,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		return fmt.Errorf("coordinator already running")
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	vc.cancel = cancel
 
 	// Check for disabled chains before initialization

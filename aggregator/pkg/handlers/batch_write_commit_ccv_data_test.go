@@ -25,9 +25,9 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	agg := aggregation_mocks.NewMockAggregationTriggerer(t)
 
 	signer := &model.IdentifierSigner{
-		Signer:      model.Signer{ParticipantID: "p1", Addresses: []string{"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
-		Address:     []byte{0xAA},
-		CommitteeID: model.DefaultCommitteeID,
+		ParticipantID: "p1",
+		Address:       []byte{0xAA},
+		CommitteeID:   model.DefaultCommitteeID,
 	}
 	sig := aggregation_mocks.NewMockSignatureValidator(t)
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return([]*model.IdentifierSigner{signer}, nil, nil)

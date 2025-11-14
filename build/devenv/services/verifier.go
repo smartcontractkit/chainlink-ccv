@@ -26,6 +26,7 @@ const (
 	DefaultVerifierPort    = 8100
 	DefaultVerifierDBPort  = 8432
 	DefaultVerifierSQLInit = "init.sql"
+	DefaultVerifierMode    = Standalone
 
 	DefaultVerifierDBImage = "postgres:16-alpine"
 )
@@ -75,11 +76,13 @@ type VerifierEnvConfig struct {
 }
 
 type VerifierInput struct {
-	DB                *VerifierDBInput     `toml:"db"`
-	Out               *VerifierOutput      `toml:"out"`
-	Image             string               `toml:"image"`
-	SourceCodePath    string               `toml:"source_code_path"`
-	RootPath          string               `toml:"root_path"`
+	Mode           Mode             `toml:"mode"`
+	DB             *VerifierDBInput `toml:"db"`
+	Out            *VerifierOutput  `toml:"out"`
+	Image          string           `toml:"image"`
+	SourceCodePath string           `toml:"source_code_path"`
+	RootPath       string           `toml:"root_path"`
+	// TODO: Rename to VerifierID -- maps to this value in verifier.Config
 	ContainerName     string               `toml:"container_name"`
 	VerifierConfig    verifier.Config      `toml:"verifier_config"`
 	Port              int                  `toml:"port"`
@@ -87,10 +90,14 @@ type VerifierInput struct {
 	ConfigFilePath    string               `toml:"config_file_path"`
 	BlockchainOutputs []*blockchain.Output `toml:"-"`
 	AggregatorAddress string               `toml:"aggregator_address"`
-	SigningKey        string               `toml:"signing_key"`
 	Env               *VerifierEnvConfig   `toml:"env"`
 	CommitteeName     string               `toml:"committee_name"`
 	NodeIndex         int                  `toml:"node_index"`
+
+	// SigningKey is generated during the deploy step.
+	SigningKey string `toml:"signing_key"`
+	// SigningKeyPublic is generated during the deploy step.
+	SigningKeyPublic string `toml:"signing_key_public"`
 }
 
 type VerifierOutput struct {
@@ -102,7 +109,7 @@ type VerifierOutput struct {
 	UseCache           bool   `toml:"use_cache"`
 }
 
-func verifierDefaults(in *VerifierInput) {
+func ApplyVerifierDefaults(in *VerifierInput) {
 	if in.Image == "" {
 		in.Image = DefaultVerifierImage
 	}
@@ -122,6 +129,9 @@ func verifierDefaults(in *VerifierInput) {
 	if in.ConfigFilePath == "" {
 		in.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", in.CommitteeName, in.NodeIndex+1)
 	}
+	if in.Mode == "" {
+		in.Mode = DefaultVerifierMode
+	}
 }
 
 func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
@@ -133,7 +143,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 	ctx := context.Background()
 
-	verifierDefaults(in)
+	ApplyVerifierDefaults(in)
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
@@ -162,6 +172,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	envVars := make(map[string]string)
+	// TODO: mount config file rather than defining a path inside of the container
 	envVars["VERIFIER_CONFIG_PATH"] = in.ConfigFilePath
 
 	if in.Env != nil {

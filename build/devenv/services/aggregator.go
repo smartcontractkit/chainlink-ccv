@@ -259,8 +259,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		envVars["AGGREGATOR_REDIS_DB"] = in.Env.RedisDB
 	}
 
-	envVars["AGGREGATOR_CONFIG_PATH"] = fmt.Sprintf("testconfig/%s/aggregator.toml", in.CommitteeName)
-
 	// Start the aggregator container
 	aggregatorContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorContainerNameSuffix)
 	req := testcontainers.ContainerRequest{
@@ -286,9 +284,21 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
+		absRootPath, err := filepath.Abs(in.RootPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute root path: %w", err)
+		}
+
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
+
+		// TODO: Generate config file, write it to a local path, and mount it here.
+		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+			filepath.Join(absRootPath, "build", "devenv", "configs", "aggregator", in.CommitteeName, "aggregator.toml"),
+			// aggregator.DefaultConfigFile,
+			"/etc/config.toml",
+		))
 		framework.L.Info().
 			Str("Service", aggregatorContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

@@ -164,7 +164,7 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 		return nil, fmt.Errorf("failed to build initial tail: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	r.running = true
 
