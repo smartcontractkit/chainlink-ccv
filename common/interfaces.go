@@ -7,6 +7,7 @@ import (
 )
 
 // CurseChecker abstracts checking for chain curse status.
+// Implementations expected to use RMNCurseReader to poll RMN Remote contracts and maintain curse state.
 // Reusable for both verifier (source RMN Remotes) and executor (dest RMN Remotes).
 type CurseChecker interface {
 	// IsRemoteChainCursed checks if remoteChain is cursed per localChain's RMN Remote.

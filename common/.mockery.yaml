@@ -2,7 +2,7 @@ with-expecter: true
 inpackage: true
 
 packages:
-    github.com/smartcontractkit/chainlink-ccv/common/:
+    github.com/smartcontractkit/chainlink-ccv/common:
         config:
             dir: "{{.InterfaceDir}}"
         interfaces:
