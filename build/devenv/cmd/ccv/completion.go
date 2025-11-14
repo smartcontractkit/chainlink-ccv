@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -15,29 +13,6 @@ const (
 	historyFileName = "shell_history"
 	activeFileName  = "active_config"
 )
-
-func init() {
-	// Ensure the config directory exists
-	configPath := filepath.Join(configDir(), "ccv")
-	if err := os.MkdirAll(configPath, os.ModePerm); err != nil {
-		fmt.Printf("Error creating config directory: %v\n", err)
-	}
-}
-
-// TODO: share configDir with enviornment.go.
-func configDir() string {
-	switch runtime.GOOS {
-	case "windows":
-		return os.Getenv("APPDATA")
-	case "darwin":
-		return fmt.Sprintf("%s/Library/Preferences", os.Getenv("HOME"))
-	default: // Unix/Linux
-		if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
-			return configHome
-		}
-		return fmt.Sprintf("%s/.config", os.Getenv("HOME"))
-	}
-}
 
 func getCommands() []prompt.Suggest {
 	activeConfig := getActiveConfig()

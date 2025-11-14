@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 )
 
 func activeConfigPath() string {
-	return filepath.Join(configDir(), "ccv", activeFileName)
+	return filepath.Join(util.CCVConfigDir(), activeFileName)
 }
 
 func getActiveConfig() string {

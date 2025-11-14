@@ -7,12 +7,14 @@ import (
 	"runtime"
 )
 
-func CCVConfigDir() string {
-	p := path.Join(configDir(), "ccv")
-	if err := os.MkdirAll(p, 0o777); err != nil {
-		panic("Unable to get config dir: " + err.Error())
+func init() {
+	if err := os.MkdirAll(CCVConfigDir(), 0o777); err != nil {
+		panic("Failed to create CCVConfigDir: " + err.Error())
 	}
-	return p
+}
+
+func CCVConfigDir() string {
+	return path.Join(configDir(), "ccv")
 }
 
 func configDir() string {
