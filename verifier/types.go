@@ -16,12 +16,6 @@ type VerificationTask struct {
 	QueuedAt     time.Time                  `json:"queued_at"`     // When added to finality queue (for finality wait duration)
 }
 
-// CCVDataWithIdempotencyKey pairs CCVData with its corresponding idempotency key.
-type CCVDataWithIdempotencyKey struct {
-	CCVData        protocol.CCVData `json:"ccv_data"`
-	IdempotencyKey string           `json:"idempotency_key"`
-}
-
 // SourceConfig contains configuration for a single source chain.
 type SourceConfig struct {
 	VerifierAddress        protocol.UnknownAddress `json:"verifier_address"`

@@ -84,7 +84,6 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitCCVN
 			},
 			ReceiptBlobs: receiptBlobs,
 		},
-		IdempotencyKey: "",
 	}, nil
 }
 

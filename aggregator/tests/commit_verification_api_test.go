@@ -1500,8 +1500,7 @@ func TestBatchWriteCommitCCVNodeData_MixedSuccessFailure(t *testing.T) {
 		invalidCcvNodeData1 := NewMessageWithCCVNodeData(t, invalidMessage, sourceVerifierAddress)
 		invalidCcvNodeData1.CcvData = nil
 		invalidRequest1 := &pb.WriteCommitCCVNodeDataRequest{
-			CcvNodeData:    invalidCcvNodeData1,
-			IdempotencyKey: "550e8400-e29b-41d4-a716-446655440001",
+			CcvNodeData: invalidCcvNodeData1,
 		}
 
 		invalidCcvNodeData2 := &pb.MessageWithCCVNodeData{
@@ -1509,8 +1508,7 @@ func TestBatchWriteCommitCCVNodeData_MixedSuccessFailure(t *testing.T) {
 			CcvData:   []byte{},
 		}
 		invalidRequest2 := &pb.WriteCommitCCVNodeDataRequest{
-			CcvNodeData:    invalidCcvNodeData2,
-			IdempotencyKey: "550e8400-e29b-41d4-a716-446655440002",
+			CcvNodeData: invalidCcvNodeData2,
 		}
 
 		batchReq := &pb.BatchWriteCommitCCVNodeDataRequest{
