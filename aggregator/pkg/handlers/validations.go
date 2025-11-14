@@ -3,7 +3,6 @@ package handlers
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -15,14 +14,10 @@ import (
 
 var hundredYears = 100 * 365 * 24 * time.Hour
 
-// uuidRegex matches standard UUID format (with or without hyphens).
-var uuidRegex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-
 func validateWriteRequest(req *pb.WriteCommitCCVNodeDataRequest) error {
 	err := validation.ValidateStruct(
 		req,
-		validation.Field(&req.CcvNodeData, validation.Required),
-		validation.Field(&req.IdempotencyKey, validation.Required, validation.Match(uuidRegex).Error("must be a valid UUID")))
+		validation.Field(&req.CcvNodeData, validation.Required))
 	if err != nil {
 		return err
 	}

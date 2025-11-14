@@ -2,14 +2,11 @@ package tests
 
 import (
 	"crypto/ecdsa"
-	"crypto/sha256"
-	"encoding/binary"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -18,28 +15,6 @@ import (
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
-
-// DeriveUUIDFromString creates a deterministic UUID from a string for testing.
-func DeriveUUIDFromString(input string) string {
-	hash := sha256.Sum256([]byte(input))
-	// Use first 16 bytes to create a UUID
-	return uuid.UUID(hash[:16]).String()
-}
-
-// DeriveUUIDFromTimestamp creates a deterministic UUID from a timestamp for testing.
-func DeriveUUIDFromTimestamp(timestamp int64) string {
-	buf := make([]byte, 8)
-	// Safe conversion: use absolute value to avoid issues with negative timestamps
-	var ts uint64
-	if timestamp < 0 {
-		ts = uint64(-timestamp)
-	} else {
-		ts = uint64(timestamp)
-	}
-	binary.LittleEndian.PutUint64(buf, ts)
-	hash := sha256.Sum256(buf)
-	return uuid.UUID(hash[:16]).String()
-}
 
 func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
 	// Generate valid Ethereum addresses using private keys
@@ -225,18 +200,8 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 	return ccvNodeData
 }
 
-// NewWriteCommitCCVNodeDataRequest creates a new WriteCommitCCVNodeDataRequest with a generated idempotency key.
 func NewWriteCommitCCVNodeDataRequest(ccvNodeData *pb.MessageWithCCVNodeData) *pb.WriteCommitCCVNodeDataRequest {
 	return &pb.WriteCommitCCVNodeDataRequest{
-		CcvNodeData:    ccvNodeData,
-		IdempotencyKey: uuid.New().String(),
-	}
-}
-
-// NewWriteCommitCCVNodeDataRequestWithKey creates a new WriteCommitCCVNodeDataRequest with a specific idempotency key.
-func NewWriteCommitCCVNodeDataRequestWithKey(ccvNodeData *pb.MessageWithCCVNodeData, idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest {
-	return &pb.WriteCommitCCVNodeDataRequest{
-		CcvNodeData:    ccvNodeData,
-		IdempotencyKey: idempotencyKey,
+		CcvNodeData: ccvNodeData,
 	}
 }

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -42,7 +40,6 @@ type CommitVerificationRecord struct {
 	Timestamp             time.Time
 	ReceiptBlobs          []*ReceiptBlob
 	IdentifierSigner      *IdentifierSigner
-	IdempotencyKey        uuid.UUID
 }
 
 // GetID retrieves the unique identifier for the commit verification record.

@@ -8,8 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -630,11 +628,10 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	tasks := make([]VerificationTask, 0, len(events))
 	for _, event := range events {
 		task := VerificationTask{
-			Message:        event.Message,
-			ReceiptBlobs:   event.Receipts,
-			BlockNumber:    event.BlockNumber,
-			FirstSeenAt:    now,
-			IdempotencyKey: uuid.NewString(),
+			Message:      event.Message,
+			ReceiptBlobs: event.Receipts,
+			BlockNumber:  event.BlockNumber,
+			FirstSeenAt:  now,
 		}
 		tasks = append(tasks, task)
 	}

@@ -12,7 +12,7 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func makeValidWriteReq(idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest {
+func makeValidWriteReq() *pb.WriteCommitCCVNodeDataRequest {
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	id, _ := msg.MessageID()
 	return &pb.WriteCommitCCVNodeDataRequest{
@@ -22,34 +22,28 @@ func makeValidWriteReq(idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest 
 			Timestamp: time.Now().UnixMilli(),
 			Message:   model.MapProtocolMessageToProtoMessage(msg),
 		},
-		IdempotencyKey: idempotencyKey,
 	}
 }
 
 func TestValidateWriteRequest_Success(t *testing.T) {
-	req := makeValidWriteReq("550e8400-e29b-41d4-a716-446655440000")
+	req := makeValidWriteReq()
 	require.NoError(t, validateWriteRequest(req))
 }
 
 func TestValidateWriteRequest_Errors(t *testing.T) {
 	t.Run("nil_ccv_node_data", func(t *testing.T) {
-		req := &pb.WriteCommitCCVNodeDataRequest{CcvNodeData: nil, IdempotencyKey: "550e8400-e29b-41d4-a716-446655440000"}
-		require.Error(t, validateWriteRequest(req))
-	})
-
-	t.Run("bad_uuid", func(t *testing.T) {
-		req := makeValidWriteReq("not-a-uuid")
+		req := &pb.WriteCommitCCVNodeDataRequest{CcvNodeData: nil}
 		require.Error(t, validateWriteRequest(req))
 	})
 
 	t.Run("message_id_mismatch", func(t *testing.T) {
-		req := makeValidWriteReq("550e8400-e29b-41d4-a716-446655440000")
+		req := makeValidWriteReq()
 		req.CcvNodeData.MessageId[0] ^= 0xFF
 		require.Error(t, validateWriteRequest(req))
 	})
 
 	t.Run("timestamp_out_of_range", func(t *testing.T) {
-		req := makeValidWriteReq("550e8400-e29b-41d4-a716-446655440000")
+		req := makeValidWriteReq()
 		req.CcvNodeData.Timestamp = time.Now().Add(200 * 365 * 24 * time.Hour).UnixMilli()
 		require.Error(t, validateWriteRequest(req))
 	})

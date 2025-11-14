@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -65,7 +64,6 @@ func TestRecordToInsertParams(t *testing.T) {
 			SignatureR:    sigR,
 			SignatureS:    sigS,
 		},
-		IdempotencyKey: uuid.New(),
 	}
 
 	params, err := recordToInsertParams(record, "aggregation_key_1")
@@ -109,7 +107,6 @@ func TestRowToCommitVerificationRecord(t *testing.T) {
 		SignatureR:            sigR[:],
 		SignatureS:            sigS[:],
 		VerificationTimestamp: time.Now().UTC(),
-		IdempotencyKey:        uuid.New(),
 		AggregationKey:        "aggregation_key_1",
 		SourceVerifierAddress: common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
 		BlobData:              []byte("blob_data"),
