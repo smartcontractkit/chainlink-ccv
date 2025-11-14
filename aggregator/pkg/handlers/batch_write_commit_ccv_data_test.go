@@ -27,14 +27,13 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	signer := &model.IdentifierSigner{
 		ParticipantID: "p1",
 		Address:       []byte{0xAA},
-		CommitteeID:   model.DefaultCommitteeID,
 	}
 	sig := aggregation_mocks.NewMockSignatureValidator(t)
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return([]*model.IdentifierSigner{signer}, nil, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
 	// Aggregation may be called once for the valid request
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// For the valid request, expect one store call
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)

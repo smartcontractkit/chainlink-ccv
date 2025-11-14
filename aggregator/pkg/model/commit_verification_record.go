@@ -19,19 +19,17 @@ type AggregationKey = string
 type OrphanedKey struct {
 	MessageID      MessageID
 	AggregationKey AggregationKey
-	CommitteeID    CommitteeID
 }
 
 // CommitVerificationRecordIdentifier uniquely identifies a commit verification record.
 type CommitVerificationRecordIdentifier struct {
-	MessageID   MessageID
-	Address     []byte
-	CommitteeID CommitteeID
+	MessageID MessageID
+	Address   []byte
 }
 
 // ToIdentifier converts the CommitVerificationRecordIdentifier to a string identifier.
 func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
-	return fmt.Sprintf("%x:%x:%s", c.MessageID, hex.EncodeToString(c.Address), c.CommitteeID)
+	return fmt.Sprintf("%x:%x", c.MessageID, hex.EncodeToString(c.Address))
 }
 
 // CommitVerificationRecord represents a record of a commit verification.
@@ -44,7 +42,6 @@ type CommitVerificationRecord struct {
 	Timestamp             time.Time
 	ReceiptBlobs          []*ReceiptBlob
 	IdentifierSigner      *IdentifierSigner
-	CommitteeID           CommitteeID
 	IdempotencyKey        uuid.UUID
 }
 
@@ -58,9 +55,8 @@ func (c *CommitVerificationRecord) GetID() (*CommitVerificationRecordIdentifier,
 	}
 
 	return &CommitVerificationRecordIdentifier{
-		MessageID:   c.MessageID,
-		Address:     c.IdentifierSigner.Address,
-		CommitteeID: c.CommitteeID,
+		MessageID: c.MessageID,
+		Address:   c.IdentifierSigner.Address,
 	}, nil
 }
 
