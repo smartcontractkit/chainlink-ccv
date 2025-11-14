@@ -77,7 +77,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 				}
 				if result.Err() == nil {
 					mu.Lock()
-					t.logger.Debugf("Received result from %s for MessageID %s", reader.IssuerAddress(), t.messageID.String())
+					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().SourceVerifierAddress, t.messageID.String())
 					results = append(results, result.Value())
 					mu.Unlock()
 				}

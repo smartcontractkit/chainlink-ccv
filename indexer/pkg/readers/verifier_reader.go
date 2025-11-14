@@ -2,6 +2,7 @@ package readers
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 // It provides a one-shot results channel for every call to ProcessMessage;
 // this channel will emit a message once the batch has been completed.
 type VerifierReader struct {
-	issuerAddress protocol.UnknownAddress
 	demux         *common.Demultiplexer[protocol.Bytes32, protocol.CCVData]
 	batchCh       chan batcher.BatchResult[protocol.Bytes32]
 	batcher       *batcher.Batcher[protocol.Bytes32]
@@ -44,12 +44,11 @@ type VerifierReaderConfig struct {
 // The returned reader batches message verification requests and processes them
 // asynchronously. The context is used to control the lifetime of the internal
 // batcher goroutine.
-func NewVerifierReader(ctx context.Context, issuerAddress protocol.UnknownAddress, verifier protocol.VerifierResultsAPI, config VerifierReaderConfig) *VerifierReader {
+func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI, config VerifierReaderConfig) *VerifierReader {
 	batchCh := make(chan batcher.BatchResult[protocol.Bytes32], config.MaxPendingBatches)
 	batcherCtx, batcherCancel := context.WithCancel(ctx)
 
 	return &VerifierReader{
-		issuerAddress: issuerAddress,
 		verifier:      verifier,
 		demux:         common.NewDemultiplexer[protocol.Bytes32, protocol.CCVData](),
 		batchCh:       batchCh,
@@ -57,12 +56,6 @@ func NewVerifierReader(ctx context.Context, issuerAddress protocol.UnknownAddres
 		batcherCtx:    batcherCtx,
 		batcherCancel: batcherCancel,
 	}
-}
-
-// IssuerAddress is unique address for the ultimate issuer of the verification
-// the address is the same across all chains.
-func (v *VerifierReader) IssuerAddress() protocol.UnknownAddress {
-	return v.issuerAddress
 }
 
 // ProcessMessage enqueues a message for verification and returns a channel
@@ -146,7 +139,15 @@ func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 
 	// Iterate over the batch of results, return both value and error (if any)
 	for _, messageID := range batch {
-		respMap[messageID] = common.NewResult(response[messageID], err)
+		value, ok := response[messageID]
+		switch {
+		case err != nil:
+			respMap[messageID] = common.NewResult(value, err)
+		case !ok:
+			respMap[messageID] = common.NewResult(value, errors.New("verification not found"))
+		default:
+			respMap[messageID] = common.NewResult(value, nil)
+		}
 	}
 
 	return respMap

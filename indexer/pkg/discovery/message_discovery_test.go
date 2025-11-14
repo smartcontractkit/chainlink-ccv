@@ -534,7 +534,7 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify circuit breaker is open
-	state := ts.Reader.GetCircuitBreakerState()
+	state := ts.Reader.GetDiscoveryCircuitBreakerState()
 	assert.Equal(t, circuitbreaker.OpenState, state)
 
 	// Discovery should continue (skip polling when circuit breaker is open)

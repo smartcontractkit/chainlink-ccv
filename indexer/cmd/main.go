@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -60,37 +61,15 @@ func main() {
 
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
-
-	aggregatorReader, err := readers.NewAggregatorReader("default-aggregator:50051", lggr, 0)
-	if err != nil {
-		lggr.Fatalf("Failed to initalize aggregator reader: %v", err)
-	}
-
-	verifierRegistry := registry.NewVerifierRegistry()
-	address, err := protocol.NewUnknownAddressFromHex("0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae")
-	if err != nil {
-		lggr.Fatalf("Failed to convert hex: %v", err)
-	}
-	aggregatorVerifierReader := readers.NewVerifierReader(ctx, address, aggregatorReader, readers.VerifierReaderConfig{})
-	err = verifierRegistry.AddVerifier(address, aggregatorVerifierReader)
-	if err != nil {
-		lggr.Fatalf("Failed to add verifier to registry: %v", err)
-	}
-
-	// Start MessageDiscovery
-	messageDiscovery, err := discovery.NewAggregatorMessageDiscovery(
-		discovery.WithAggregator(aggregatorReader),
-		discovery.WithLogger(lggr),
-		discovery.WithMonitoring(indexerMonitoring),
-		discovery.WithStorage(indexerStorage),
-		discovery.WithConfig(discovery.Config{
-			PollInterval:       time.Second * 1,
-			Timeout:            time.Second * 2,
-			MessageChannelSize: 100,
-		}),
-	)
+	messageDiscovery, err := createDiscovery(lggr, config, indexerStorage, indexerMonitoring)
 	if err != nil {
 		lggr.Fatalf("Failed to initialize message discovery: %v", err)
+	}
+
+	verifierRegistry := createRegistry()
+	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config)
+	if err != nil {
+		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
 
 	scheduler, err := worker.NewScheduler(lggr, worker.SchedulerConfig{
@@ -113,6 +92,84 @@ func main() {
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
 	api.Serve(v1, 8100)
+}
+
+func createRegistry() *registry.VerifierRegistry {
+	return registry.NewVerifierRegistry()
+}
+
+func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config) error {
+	for _, verifierConfig := range config.Verifiers {
+		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig) error {
+	reader, err := createReader(lggr, verifierConfig)
+	if err != nil {
+		return err
+	}
+
+	verifierReader := readers.NewVerifierReader(ctx, reader, readers.VerifierReaderConfig{
+		BatchSize:         20,                     // Make configurable
+		MaxWaitTime:       250 * time.Millisecond, // Make configurable
+		MaxPendingBatches: 10,                     // Make configurable
+	})
+
+	if err := verifierReader.Start(ctx); err != nil {
+		return err
+	}
+
+	for _, address := range verifierConfig.IssuerAddresses {
+		unknownAddress, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			return err
+		}
+
+		err = verifierRegistry.AddVerifier(unknownAddress, verifierReader)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.ResilientReader, error) {
+	switch cfg.Type {
+	case config.ReaderTypeAggregator:
+		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since)
+	case config.ReaderTypeRest:
+		return readers.NewRestReader(readers.RestReaderConfig{
+			BaseURL:        cfg.BaseURL,
+			RequestTimeout: time.Duration(cfg.RequestTimeout),
+		}), nil
+	default:
+		return nil, errors.New("unknown verifier type")
+	}
+}
+
+func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) (common.MessageDiscovery, error) {
+	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, cfg.Discovery.Since)
+	if err != nil {
+		return nil, err
+	}
+
+	return discovery.NewAggregatorMessageDiscovery(
+		discovery.WithAggregator(aggregator),
+		discovery.WithStorage(storage),
+		discovery.WithMonitoring(monitoring),
+		discovery.WithLogger(lggr),
+		discovery.WithConfig(discovery.Config{
+			PollInterval:       time.Duration(cfg.Discovery.PollInterval),
+			Timeout:            time.Duration(cfg.Discovery.Timeout),
+			MessageChannelSize: cfg.Discovery.MessageChannelSize,
+		}))
 }
 
 // createStorage creates the storage backend connection based on the configuration.
@@ -146,7 +203,7 @@ func createSingleStorage(ctx context.Context, lggr logger.Logger, cfg *config.Si
 
 // createSinkStorage creates a storage sink with multiple backends based on the configuration.
 func createSinkStorage(ctx context.Context, lggr logger.Logger, cfg *config.SinkStorageConfig, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
-	storagesWithConditions := make([]storage.WithCondition, 0, len(cfg.Storages))
+	storages := make([]common.IndexerStorage, 0, len(cfg.Storages))
 
 	for i, storageCfg := range cfg.Storages {
 		lggr.Infof("Creating storage backend %d of %d (type: %s)", i+1, len(cfg.Storages), storageCfg.Type)
@@ -162,17 +219,11 @@ func createSinkStorage(ctx context.Context, lggr logger.Logger, cfg *config.Sink
 			lggr.Fatalf("Unsupported storage backend type: %s", storageCfg.Type)
 		}
 
-		// Create the read condition
-		readCondition := createReadCondition(storageCfg.ReadCondition)
-
-		storagesWithConditions = append(storagesWithConditions, storage.WithCondition{
-			Storage:   storageBackend,
-			Condition: readCondition,
-		})
+		storages = append(storages, storageBackend)
 	}
 
 	// Create the storage sink
-	sink, err := storage.NewSink(lggr, storagesWithConditions...)
+	sink, err := storage.NewSink(lggr, storages...)
 	if err != nil {
 		lggr.Fatalf("Failed to create storage sink: %v", err)
 	}
@@ -221,24 +272,6 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	}
 
 	return dbStore
-}
-
-// createReadCondition creates a read condition from configuration.
-func createReadCondition(cfg config.ReadConditionConfig) storage.ReadCondition {
-	switch cfg.Type {
-	case config.ReadConditionAlways:
-		return storage.AlwaysRead()
-	case config.ReadConditionNever:
-		return storage.NeverRead()
-	case config.ReadConditionTimeRange:
-		return storage.TimeRangeRead(cfg.StartUnix, cfg.EndUnix)
-	case config.ReadConditionRecent:
-		duration := time.Duration(*cfg.LookbackWindowSeconds) * time.Second
-		return storage.RecentRead(duration)
-	default:
-		// Default to always read if unknown type
-		return storage.AlwaysRead()
-	}
 }
 
 // runMigrations runs all pending database migrations using goose.

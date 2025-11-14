@@ -26,11 +26,9 @@ func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageID
 }
 
 // newTestVerifierReader creates a new VerifierReader instance for testing.
-func newTestVerifierReader(t *testing.T, mockVerifier *mockVerifierResultsAPI, config VerifierReaderConfig) *VerifierReader {
+func newTestVerifierReader(mockVerifier *mockVerifierResultsAPI, config VerifierReaderConfig) *VerifierReader {
 	ctx := context.Background()
-	addr, err := protocol.NewUnknownAddressFromHex("0x0000")
-	require.NoError(t, err)
-	return NewVerifierReader(ctx, addr, mockVerifier, config)
+	return NewVerifierReader(ctx, mockVerifier, config)
 }
 
 func TestNewVerifierReader(t *testing.T) {
@@ -44,7 +42,7 @@ func TestNewVerifierReader(t *testing.T) {
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
 
-	reader := newTestVerifierReader(t, mockVerifier, config)
+	reader := newTestVerifierReader(mockVerifier, config)
 	require.NotNil(t, reader)
 }
 
@@ -58,7 +56,7 @@ func TestVerifierReader_ProcessMessage_Success(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
-	reader := newTestVerifierReader(t, mockVerifier, config)
+	reader := newTestVerifierReader(mockVerifier, config)
 	messageID := protocol.Bytes32{1, 2, 3}
 
 	resultCh, err := reader.ProcessMessage(messageID)
@@ -85,9 +83,7 @@ func TestVerifierReader_ProcessMessage_BatcherClosed(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
-	addr, err := protocol.NewUnknownAddressFromHex("0x0000")
-	require.NoError(t, err)
-	reader := NewVerifierReader(ctx, addr, mockVerifier, config)
+	reader := NewVerifierReader(ctx, mockVerifier, config)
 
 	// Cancel context to close batcher
 	cancel()
@@ -114,7 +110,7 @@ func TestVerifierReader_Start(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
-	reader := newTestVerifierReader(t, mockVerifier, config)
+	reader := newTestVerifierReader(mockVerifier, config)
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)
@@ -150,11 +146,9 @@ func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
 			messageID2: ccvData2,
 		},
 	}
-	addr, err := protocol.NewUnknownAddressFromHex("0x0000")
-	require.NoError(t, err)
-	reader := NewVerifierReader(ctx, addr, mockVerifier, config)
+	reader := NewVerifierReader(ctx, mockVerifier, config)
 
-	err = reader.Start(ctx)
+	err := reader.Start(ctx)
 	require.NoError(t, err)
 
 	// Process two messages to trigger a batch
@@ -198,11 +192,9 @@ func TestVerifierReader_Run_HandlesVerifierError(t *testing.T) {
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 		err:     expectedError,
 	}
-	addr, err := protocol.NewUnknownAddressFromHex("0x0000")
-	require.NoError(t, err)
-	reader := NewVerifierReader(ctx, addr, mockVerifier, config)
+	reader := NewVerifierReader(ctx, mockVerifier, config)
 
-	err = reader.Start(ctx)
+	err := reader.Start(ctx)
 	require.NoError(t, err)
 
 	resultCh, err := reader.ProcessMessage(messageID)
@@ -229,7 +221,7 @@ func TestVerifierReader_Close_GracefulShutdown(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
-	reader := newTestVerifierReader(t, mockVerifier, config)
+	reader := newTestVerifierReader(mockVerifier, config)
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)
@@ -267,7 +259,7 @@ func TestVerifierReader_Close_MultipleCalls(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
-	reader := newTestVerifierReader(t, mockVerifier, config)
+	reader := newTestVerifierReader(mockVerifier, config)
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)
@@ -297,7 +289,7 @@ func TestVerifierReader_Close_WithPendingBatches(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
-	reader := newTestVerifierReader(t, mockVerifier, config)
+	reader := newTestVerifierReader(mockVerifier, config)
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)
@@ -340,11 +332,9 @@ func TestVerifierReader_Run_ChannelClosed(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
-	addr, err := protocol.NewUnknownAddressFromHex("0x0000")
-	require.NoError(t, err)
-	reader := NewVerifierReader(ctx, addr, mockVerifier, config)
+	reader := NewVerifierReader(ctx, mockVerifier, config)
 
-	err = reader.Start(ctx)
+	err := reader.Start(ctx)
 	require.NoError(t, err)
 
 	// Cancel the batcher's context, which will cause it to close batchCh
