@@ -203,12 +203,6 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	// Apply defaults to config if not set
 	vc.applyConfigDefaults()
 
-	// FIXME: This is already initialized above, redundant
-	// Initialize source states map (services will be created in Start())
-	if vc.sourceStates == nil {
-		vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
-	}
-
 	return vc, nil
 }
 
@@ -258,7 +252,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 		// Check if chain is disabled
 		if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
-			vc.lggr.Warnw("⚠️ Chain is disabled in aggregator DB, skipping initialization",
+			vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
 				"chain", chainSelector,
 				"blockHeight", chainStatus.BlockNumber)
 			continue
@@ -414,7 +408,7 @@ func (vc *Coordinator) Close() error {
 		}
 	}
 
-	// Close reorg detectors
+	// Close reorg detectors & source readers
 	for chainSelector, state := range vc.sourceStates {
 		if state.reorgDetector != nil {
 			if err := state.reorgDetector.Close(); err != nil {
@@ -577,7 +571,6 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 				continue
 			}
 
-			// FIXME: How do we recover from that?
 			// Drop tasks if reorg is in progress for this chain
 			if state.reorgInProgress.Load() {
 				vc.lggr.Warnw("Dropping task batch due to ongoing reorg",
@@ -694,17 +687,19 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 		return
 	}
 
+	messageContextLggr := logger.With(
+		vc.lggr,
+		"messageID", task.Message.MustMessageID(),
+		"source", task.Message.SourceChainSelector,
+		"dest", task.Message.DestChainSelector,
+	)
+
 	// Check if lane is cursed (source -> dest)
 	if vc.curseDetector.IsRemoteChainCursed(
 		task.Message.SourceChainSelector,
 		task.Message.DestChainSelector,
 	) {
-		messageID, _ := task.Message.MessageID()
-		vc.lggr.Warnw("Dropping task - lane is cursed",
-			"source", task.Message.SourceChainSelector,
-			"dest", task.Message.DestChainSelector,
-			"messageID", messageID,
-			"blockNumber", task.BlockNumber)
+		messageContextLggr.Warnw("Dropping task - lane is cursed", "blockNumber", task.BlockNumber)
 		return
 	}
 
@@ -730,9 +725,7 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	vc.messageTimestamps[messageID] = task.CreatedAt
 	vc.timestampsMu.Unlock()
 
-	vc.lggr.Infow("Message added to finality queue",
-		"messageID", messageID,
-		"chainSelector", state.chainSelector,
+	messageContextLggr.Infow("Message added to finality queue",
 		"blockNumber", task.BlockNumber,
 		"nonce", task.Message.Nonce,
 		"queueSize", len(state.pendingTasks),
@@ -842,27 +835,26 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 	// Check finality for each task
 	for _, task := range state.pendingTasks {
+		msgContextLggr := logger.With(
+			vc.lggr,
+			"messageID", task.Message.MustMessageID(),
+			"source", task.Message.SourceChainSelector,
+			"dest", task.Message.DestChainSelector,
+		)
+
 		// Check if lane is cursed before processing finalized tasks
 		if vc.curseDetector.IsRemoteChainCursed(
 			task.Message.SourceChainSelector,
 			task.Message.DestChainSelector,
 		) {
-			messageID, _ := task.Message.MessageID()
-			vc.lggr.Warnw("Dropping finalized task - lane is cursed",
-				"source", task.Message.SourceChainSelector,
-				"dest", task.Message.DestChainSelector,
-				"messageID", messageID,
-				"chain", chainSelector)
+			msgContextLggr.Warnw("Dropping finalized task - lane is cursed", "chain", chainSelector)
 			// Drop the task (don't add to remainingTasks or readyTasks)
 			continue
 		}
 
 		ready, err := vc.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock)
 		if err != nil {
-			// fixme: duplication, probably messageID can be extracted once and added to logger context
-			messageID, _ := task.Message.MessageID()
-			vc.lggr.Warnw("Failed to check finality for message",
-				"messageID", messageID,
+			msgContextLggr.Warnw("Failed to check finality for message",
 				"error", err,
 				"chain", chainSelector)
 			// Keep in queue to retry later
@@ -883,7 +875,7 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	if len(readyTasks) > 0 {
 		// FIXME: nit but I would avoid emojis and utf8 characters as they might be problematic in some logging systems
 		// (I saw them not being rendered properly for some NOPs )
-		vc.lggr.Infow("✅ Processing finalized messages",
+		vc.lggr.Infow("Processing finalized messages",
 			"chain", chainSelector,
 			"readyCount", len(readyTasks),
 			"remainingCount", len(remainingTasks),
@@ -930,8 +922,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 		// Check chain status before processing
 		state.chainStatusMu.RLock()
-		// FIXME: Method might be more convenient than direct field access (e.g. state.chainStatus.IsFinalityViolated())
-		isFinalityViolated := state.chainStatus.Type == protocol.ReorgTypeFinalityViolation
+		isFinalityViolated := state.chainStatus.IsFinalityViolated()
 		state.chainStatusMu.RUnlock()
 
 		if isFinalityViolated {
@@ -959,41 +950,36 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 // handleVerificationErrors processes and logs errors from a verification batch.
 func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch batcher.BatchResult[VerificationError], chainSelector protocol.ChainSelector, totalTasks int) {
-	// FIXME: I suggest flipping the condition to reduce nesting
-	if len(errorBatch.Items) > 0 {
-		vc.lggr.Infow("Verification batch completed with errors",
-			"chainSelector", chainSelector,
-			"totalTasks", totalTasks,
-			"errorCount", len(errorBatch.Items))
-
-		// Log and record metrics for each error
-		for _, verificationError := range errorBatch.Items {
-			message := verificationError.Task.Message
-			messageID, err := message.MessageID()
-			if err != nil {
-				vc.lggr.Errorw("Failed to compute message ID for error logging", "error", err)
-				messageID = protocol.Bytes32{} // Use empty message ID as fallback
-			}
-
-			// Record verification error metric
-			vc.monitoring.Metrics().
-				With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
-				IncrementMessagesVerificationFailed(ctx)
-
-			vc.lggr.Errorw("Message verification failed",
-				"error", verificationError.Error,
-				"messageID", messageID,
-				"nonce", message.Nonce,
-				"sourceChain", message.SourceChainSelector,
-				"destChain", message.DestChainSelector,
-				"timestamp", verificationError.Timestamp,
-				"chainSelector", chainSelector,
-			)
-		}
-	} else {
+	if len(errorBatch.Items) <= 0 {
 		vc.lggr.Debugw("Verification batch completed successfully",
 			"chainSelector", chainSelector,
 			"taskCount", totalTasks)
+		return
+	}
+
+	vc.lggr.Infow("Verification batch completed with errors",
+		"chainSelector", chainSelector,
+		"totalTasks", totalTasks,
+		"errorCount", len(errorBatch.Items))
+
+	// Log and record metrics for each error
+	for _, verificationError := range errorBatch.Items {
+		message := verificationError.Task.Message
+
+		// Record verification error metric
+		vc.monitoring.Metrics().
+			With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
+			IncrementMessagesVerificationFailed(ctx)
+
+		vc.lggr.Errorw("Message verification failed",
+			"error", verificationError.Error,
+			"messageID", message.MustMessageID(),
+			"nonce", message.Nonce,
+			"sourceChain", message.SourceChainSelector,
+			"destChain", message.DestChainSelector,
+			"timestamp", verificationError.Timestamp,
+			"chainSelector", chainSelector,
+		)
 	}
 }
 
@@ -1177,7 +1163,7 @@ func (vc *Coordinator) isMessageReadyForVerification(
 		// Default finality: wait for chain finalization
 		ready = messageBlockNumber.Cmp(latestFinalizedBlock) <= 0
 		if ready {
-			vc.lggr.Debugw("✅ Message meets default finality requirement",
+			vc.lggr.Debugw("Message meets default finality requirement",
 				"messageID", messageID,
 				"messageBlock", messageBlockNumber.String(),
 				"finalizedBlock", latestFinalizedBlock.String(),
@@ -1188,7 +1174,7 @@ func (vc *Coordinator) isMessageReadyForVerification(
 		requiredBlock := new(big.Int).Add(messageBlockNumber, new(big.Int).SetUint64(uint64(finalityConfig)))
 		ready = requiredBlock.Cmp(latestBlock) <= 0
 		if ready {
-			vc.lggr.Debugw("✅ Message meets custom finality requirement",
+			vc.lggr.Debugw("Message meets custom finality requirement",
 				"messageID", messageID,
 				"messageBlock", messageBlockNumber.String(),
 				"finalityConfig", finalityConfig,
