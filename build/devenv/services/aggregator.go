@@ -188,13 +188,13 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 		chainSelStr := strconv.FormatUint(chainSelector, 10)
 		threshold := uint8(0)
 		var signers []model.Signer
-		for _, v := range inV {
+		for i, v := range inV {
 			if v.CommitteeName != committeeName {
 				continue
 			}
 			threshold++
 			signers = append(signers, model.Signer{
-				ParticipantID: fmt.Sprintf("%s-participant%d", committeeName, chainSelector),
+				ParticipantID: fmt.Sprintf("%s-participant%d", committeeName, i),
 				Addresses:     []string{v.SigningKeyPublic},
 			})
 		}
