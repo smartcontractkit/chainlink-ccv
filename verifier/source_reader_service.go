@@ -633,7 +633,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 			Message:        event.Message,
 			ReceiptBlobs:   event.Receipts,
 			BlockNumber:    event.BlockNumber,
-			CreatedAt:      now,
+			FirstSeenAt:    now,
 			IdempotencyKey: uuid.NewString(),
 		}
 		tasks = append(tasks, task)
