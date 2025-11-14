@@ -143,10 +143,10 @@ func main() {
 	var blockchainHelper *protocol.BlockchainHelper
 	chainClients := make(map[protocol.ChainSelector]client.Client)
 	if len(config.BlockchainInfos) == 0 {
-		lggr.Warnw("⚠️ No blockchain information in config")
+		lggr.Warnw("No blockchain information in config")
 	} else {
 		blockchainHelper = protocol.NewBlockchainHelper(config.BlockchainInfos)
-		lggr.Infow("✅ Using real blockchain information from environment",
+		lggr.Infow("Using real blockchain information from environment",
 			"chainCount", len(config.BlockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
 		for _, selector := range blockchainHelper.GetAllChainSelectors() {
@@ -243,7 +243,7 @@ func main() {
 		sourceReaders[selector] = evmSourceReader
 		headTrackers[selector] = evmSourceReader
 
-		lggr.Infow("✅ Created blockchain source reader", "chain", selector)
+		lggr.Infow("Created blockchain source reader", "chain", selector)
 	}
 
 	// Create coordinator configuration
@@ -333,7 +333,7 @@ func main() {
 	}
 
 	// Start the verification coordinator
-	lggr.Infow("🚀 Starting Verification Coordinator",
+	lggr.Infow("Starting Verification Coordinator",
 		"verifierID", coordinatorConfig.VerifierID,
 		"verifierAddress", verifierAddresses,
 	)
@@ -345,23 +345,23 @@ func main() {
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		lggr.Infow("✅ CCV Verifier is running!\n")
+		lggr.Infow("CCV Verifier is running!\n")
 		lggr.Infow("Verifier ID: %s\n", coordinatorConfig.VerifierID)
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := coordinator.Ready(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			lggr.Infow("❌ Unhealthy: %s\n", err.Error())
+			lggr.Infow("Unhealthy: %s\n", err.Error())
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		lggr.Infow("✅ Healthy\n")
+		lggr.Infow("Healthy\n")
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
 		stats := aggregatorWriter.GetStats()
-		lggr.Infow("📊 Storage Statistics:\n")
+		lggr.Infow("Storage Statistics:\n")
 		for key, value := range stats {
 			lggr.Infow("%s: %v\n", key, value)
 		}
@@ -396,7 +396,7 @@ func main() {
 		lggr.Errorw("Coordinator stop error", "error", err)
 	}
 
-	lggr.Infow("✅ Verifier service stopped gracefully")
+	lggr.Infow("Verifier service stopped gracefully")
 }
 
 // simpleHeadTrackerWrapper is a simple implementation that wraps chain client calls.

@@ -165,7 +165,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 	}
 	logs, err := r.chainClient.FilterLogs(ctx, rangeQuery)
 	if err != nil {
-		r.lggr.Warnw("⚠️ Failed to filter logs", "error", err)
+		r.lggr.Warnw("Failed to filter logs", "error", err)
 		return nil, err
 	}
 
@@ -203,16 +203,16 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		event.SequenceNumber = nonce
 		abi, err := onramp.OnRampMetaData.GetAbi()
 		if err != nil {
-			r.lggr.Errorw("❌ Failed to get ABI", "error", err)
+			r.lggr.Errorw("Failed to get ABI", "error", err)
 			continue // to next message
 		}
 		err = abi.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 		if err != nil {
-			r.lggr.Errorw("❌ Failed to unpack CCIPMessageSent event payload", "error", err)
+			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
 			continue // to next message
 		}
 		// Log the event structure using the fixed bindings
-		r.lggr.Infow("📋 OnRamp Event Structure",
+		r.lggr.Infow("OnRamp Event Structure",
 			"destChainSelector", event.DestChainSelector,
 			"nonce", event.SequenceNumber,
 			"messageId", common.Bytes2Hex(event.MessageId[:]),
@@ -221,7 +221,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 		if len(event.Receipts) < 1 {
 			// The executor receipt is at Receipts[len-1], so we need at least one receipt
-			r.lggr.Errorw("❌ Executor receipt is missing.", "count", len(event.Receipts))
+			r.lggr.Errorw("Executor receipt is missing.", "count", len(event.Receipts))
 			continue // to next message
 		}
 
@@ -238,29 +238,29 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 		// Log executor receipt
 		executorReceipt := event.Receipts[len(event.Receipts)-1]
-		r.lggr.Infow("📋 Executor Receipt",
+		r.lggr.Infow("Executor Receipt",
 			"issuer", executorReceipt.Issuer.Hex(),
 			"destGasLimit", executorReceipt.DestGasLimit,
 			"destBytesOverhead", executorReceipt.DestBytesOverhead,
 			"feeTokenAmount", executorReceipt.FeeTokenAmount.String(),
 			"extraArgs", common.Bytes2Hex(executorReceipt.ExtraArgs))
 
-		r.lggr.Infow("📋 Decoding encoded message",
+		r.lggr.Infow("Decoding encoded message",
 			"encodedMessageLength", len(event.EncodedMessage),
 			"messageId", common.Bytes2Hex(event.MessageId[:]))
 		decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 		if err != nil {
-			r.lggr.Errorw("❌ Failed to decode message", "error", err)
+			r.lggr.Errorw("Failed to decode message", "error", err)
 			continue // to next message
 		}
-		r.lggr.Infow("📋 Decoded message",
+		r.lggr.Infow("Decoded message",
 			"message", decodedMsg)
 
 		// Create receipt blobs from verifier receipts and receipt blobs
 		receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.Receipts)+1)
 
 		if len(event.Receipts) == 0 {
-			r.lggr.Errorw("❌ No verifier receipts found")
+			r.lggr.Errorw("No verifier receipts found")
 			continue // to next message
 		}
 		// Process verifier receipts
@@ -269,7 +269,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 			if i < len(event.VerifierBlobs) && len(event.VerifierBlobs[i]) > 0 {
 				blob = event.VerifierBlobs[i]
 			} else {
-				r.lggr.Infow("⚠️ Empty or missing receipt blob",
+				r.lggr.Infow("Empty or missing receipt blob",
 					"verifierIndex", i,
 				)
 			}
@@ -285,7 +285,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 			}
 			receiptBlobs = append(receiptBlobs, receiptBlob)
 
-			r.lggr.Infow("📋 Processed verifier receipt",
+			r.lggr.Infow("Processed verifier receipt",
 				"index", i,
 				"issuer", vr.Issuer.Hex(),
 				"blobLength", len(blob))
@@ -303,7 +303,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		}
 		receiptBlobs = append(receiptBlobs, executorReceiptBlob)
 
-		r.lggr.Infow("📋 Processed executor receipt",
+		r.lggr.Infow("Processed executor receipt",
 			"issuer", executorReceipt.Issuer.Hex())
 
 		results = append(results, protocol.MessageSentEvent{

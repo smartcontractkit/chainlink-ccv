@@ -111,13 +111,13 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 		return nil // Already running
 	}
 
-	r.logger.Infow("🔄 Starting SourceReaderService",
+	r.logger.Infow("Starting SourceReaderService",
 		"chainSelector", r.chainSelector,
 		"topic", r.ccipMessageSentTopic)
 
 	// Test connectivity before starting
 	if err := r.testConnectivity(ctx); err != nil {
-		r.logger.Errorw("❌ Connectivity test failed", "error", err)
+		r.logger.Errorw("Connectivity test failed", "error", err)
 		return err
 	}
 
@@ -126,7 +126,7 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 
 	go r.eventMonitoringLoop(ctx)
 
-	r.logger.Infow("✅ SourceReaderService started successfully")
+	r.logger.Infow("SourceReaderService started successfully")
 	return nil
 }
 
@@ -138,7 +138,7 @@ func (r *SourceReaderService) Stop() error {
 		return nil // Already stopped
 	}
 
-	r.logger.Infow("🛑 Stopping SourceReaderService")
+	r.logger.Infow("Stopping SourceReaderService")
 
 	close(r.stopCh)
 	r.mu.Unlock()
@@ -153,7 +153,7 @@ func (r *SourceReaderService) Stop() error {
 	r.isRunning = false
 	r.mu.Unlock()
 
-	r.logger.Infow("✅ SourceReaderService stopped successfully")
+	r.logger.Infow("SourceReaderService stopped successfully")
 	return nil
 }
 
@@ -231,17 +231,17 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 
 	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
-		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
+		r.logger.Warnw("Connectivity test failed", "error", err)
 		return fmt.Errorf("connectivity test failed: %w", err)
 	}
 	if finalized == nil {
-		r.logger.Warnw("⚠️ Connectivity test failed: finalized block is nil")
+		r.logger.Warnw("Connectivity test failed: finalized block is nil")
 		return fmt.Errorf("connectivity test failed: finalized block is nil")
 	}
 
 	_, err = r.sourceReader.BlockTime(testCtx, new(big.Int).SetUint64(finalized.Number))
 	if err != nil {
-		r.logger.Warnw("⚠️ Connectivity test failed during BlockTime call", "error", err)
+		r.logger.Warnw("Connectivity test failed during BlockTime call", "error", err)
 		return fmt.Errorf("connectivity test failed during BlockTime call: %w", err)
 	}
 
@@ -520,7 +520,7 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 	// Add panic recovery
 	defer func() {
 		if rec := recover(); rec != nil {
-			r.logger.Errorw("❌ Recovered from panic in event monitoring loop", "panic", rec)
+			r.logger.Errorw("Recovered from panic in event monitoring loop", "panic", rec)
 		}
 	}()
 
@@ -598,13 +598,13 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	cancel()
 
 	if err != nil {
-		r.logger.Errorw("⚠️ Failed to get latest block", "error", err)
+		r.logger.Errorw("Failed to get latest block", "error", err)
 		// Send batch-level error to coordinator
 		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
 		return
 	}
 	if finalized == nil {
-		r.logger.Errorw("⚠️ Finalized block is nil")
+		r.logger.Errorw("Finalized block is nil")
 		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
 		return
 	}
@@ -616,7 +616,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	// Fetch message events from blockchain
 	events, err := r.sourceReader.FetchMessageSentEvents(logsCtx, fromBlock, nil)
 	if err != nil {
-		r.logger.Errorw("⚠️ Failed to query logs", "error", err,
+		r.logger.Errorw("Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
 		// Send batch-level error to coordinator
@@ -650,7 +650,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		// Send to verification channel (blocking - backpressure)
 		select {
 		case r.verificationTaskCh <- batch:
-			r.logger.Infow("✅ Verification task batch sent to channel",
+			r.logger.Infow("Verification task batch sent to channel",
 				"batchSize", len(tasks),
 				"fromBlock", fromBlock.String(),
 				"toBlock", "latest")
@@ -659,7 +659,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 			return
 		}
 	} else {
-		r.logger.Debugw("🔍 No events found in range",
+		r.logger.Debugw("No events found in range",
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
 	}
