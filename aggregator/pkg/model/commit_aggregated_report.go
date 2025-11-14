@@ -199,9 +199,9 @@ type CommitAggregatedReport struct {
 	WinningReceiptBlobs []*ReceiptBlob
 }
 
-type PaginatedAggregatedReports struct {
-	Reports       []*CommitAggregatedReport
-	NextPageToken *string
+type AggregatedReportBatch struct {
+	Reports []*CommitAggregatedReport
+	HasMore bool
 }
 
 func (c *CommitAggregatedReport) GetMostRecentVerificationTimestamp() time.Time {

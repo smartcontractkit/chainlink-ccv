@@ -862,18 +862,15 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 
 	time.Sleep(2 * time.Second)
 
-	t.Log("Paginating through all messages...")
+	t.Log("Iterating through all messages...")
 	retrievedMessages := make(map[string]bool)
-	var nextToken string
+	var sinceSequence int64 = 0
 	pageCount := 0
 
 	for {
 		pageCount++
 		req := &pb.GetMessagesSinceRequest{
-			SinceSequence: 0,
-		}
-		if nextToken != "" {
-			req.NextToken = nextToken
+			SinceSequence: sinceSequence,
 		}
 
 		resp, err := ccvDataClient.GetMessagesSince(t.Context(), req)
@@ -881,6 +878,11 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 		require.NotNil(t, resp, "response should not be nil")
 
 		t.Logf("Page %d: retrieved %d reports", pageCount, len(resp.Results))
+
+		if len(resp.Results) == 0 {
+			t.Logf("Iteration complete after %d pages", pageCount)
+			break
+		}
 
 		for _, report := range resp.Results {
 			msg := &protocol.Message{
@@ -913,12 +915,8 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 			retrievedMessages[messageIdHex] = true
 		}
 
-		if resp.NextToken == "" {
-			t.Logf("Pagination complete after %d pages", pageCount)
-			break
-		}
-
-		nextToken = resp.NextToken
+		lastResult := resp.Results[len(resp.Results)-1]
+		sinceSequence = lastResult.Sequence + 1
 		require.Less(t, pageCount, 100, "too many pages - possible infinite loop")
 	}
 
@@ -930,7 +928,7 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 
 	require.Equal(t, expectedPages, pageCount, "number of pages does not match expected")
 
-	t.Logf("✅ Pagination test completed: %d messages retrieved across %d pages", len(retrievedMessages), pageCount)
+	t.Logf("✅ Iteration test completed: %d messages retrieved across %d pages", len(retrievedMessages), pageCount)
 }
 
 // TestParticipantDeduplication verifies that only one verification per participant

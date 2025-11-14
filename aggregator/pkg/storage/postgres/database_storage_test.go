@@ -464,11 +464,11 @@ func TestQueryAggregatedReports_NilToken(t *testing.T) {
 
 	ctx := context.Background()
 
-	result, err := storage.QueryAggregatedReports(ctx, 0, "test-committee", nil)
+	result, err := storage.QueryAggregatedReports(ctx, 0, "test-committee")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Empty(t, result.Reports)
-	require.Nil(t, result.NextPageToken)
+	require.False(t, result.HasMore)
 }
 
 func TestQueryAggregatedReports_Pagination(t *testing.T) {
@@ -505,10 +505,10 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	result, err := storage.QueryAggregatedReports(ctx, 0, committeeID, nil)
+	result, err := storage.QueryAggregatedReports(ctx, 0, committeeID)
 	require.NoError(t, err)
 	require.Len(t, result.Reports, 10)
-	require.NotNil(t, result.NextPageToken)
+	require.True(t, result.HasMore)
 
 	for _, report := range result.Reports {
 		require.Equal(t, committeeID, report.CommitteeID)
@@ -516,40 +516,17 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 		require.NotEmpty(t, report.MessageID)
 	}
 
-	result2, err := storage.QueryAggregatedReports(ctx, 0, committeeID, result.NextPageToken)
+	lastSequence := result.Reports[len(result.Reports)-1].Sequence
+	result2, err := storage.QueryAggregatedReports(ctx, lastSequence+1, committeeID)
 	require.NoError(t, err)
 	require.Len(t, result2.Reports, 5)
-	require.Nil(t, result2.NextPageToken)
+	require.False(t, result2.HasMore)
 
 	for _, report := range result2.Reports {
 		require.Equal(t, committeeID, report.CommitteeID)
 		require.Len(t, report.Verifications, 1)
 		require.NotEmpty(t, report.MessageID)
 	}
-}
-
-func TestQueryAggregatedReports_InvalidToken(t *testing.T) {
-	storage, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	invalidToken := "invalid-json"
-	_, err := storage.QueryAggregatedReports(ctx, 0, "test-committee", &invalidToken)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to parse pagination token")
-}
-
-func TestQueryAggregatedReports_CommitteeMismatch(t *testing.T) {
-	storage, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	token := `{"committee_id":"committee-a","since_sequence_inclusive":5}`
-	_, err := storage.QueryAggregatedReports(ctx, 0, "committee-b", &token)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "pagination token committee mismatch")
 }
 
 func TestGetCCVData_Found(t *testing.T) {
@@ -662,7 +639,7 @@ func TestSubmitReport_DuplicateHandling(t *testing.T) {
 	err = storage.SubmitReport(ctx, report)
 	require.NoError(t, err)
 
-	result, err := storage.QueryAggregatedReports(ctx, 0, "test-committee", nil)
+	result, err := storage.QueryAggregatedReports(ctx, 0, "test-committee")
 	require.NoError(t, err)
 	require.Len(t, result.Reports, 1, "Should have exactly 1 report after duplicate submission")
 	require.Equal(t, messageID[:], result.Reports[0].MessageID)
@@ -854,7 +831,7 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	result, err := storage.QueryAggregatedReports(ctx, firstReportSeq+2, committeeID, nil)
+	result, err := storage.QueryAggregatedReports(ctx, firstReportSeq+2, committeeID)
 	require.NoError(t, err)
 	require.Len(t, result.Reports, 3)
 

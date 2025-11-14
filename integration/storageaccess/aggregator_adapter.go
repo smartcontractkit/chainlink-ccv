@@ -191,7 +191,6 @@ type AggregatorReader struct {
 	client pb.VerifierResultAPIClient
 	lggr   logger.Logger
 	conn   *grpc.ClientConn
-	token  string
 	since  int64
 }
 
@@ -331,13 +330,12 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	resp, err := a.client.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
 		SinceSequence: a.since,
-		NextToken:     a.token,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error calling GetMessagesSince: %w", err)
 	}
 
-	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", a.since, "token", a.token, "nextToken", resp.NextToken)
+	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", a.since)
 	// Convert the response to []types.QueryResponse
 	results := make([]protocol.QueryResponse, 0, len(resp.Results))
 	tempSince := a.since
@@ -376,7 +374,6 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	}
 
 	a.since = tempSince
-	a.token = resp.NextToken
 
 	return results, nil
 }

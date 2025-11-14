@@ -142,29 +142,29 @@ func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) RunAndReturn(ru
 	return _c
 }
 
-// QueryAggregatedReports provides a mock function with given fields: ctx, start, committeeID, token
-func (_m *MockCommitVerificationAggregatedStore) QueryAggregatedReports(ctx context.Context, start int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
-	ret := _m.Called(ctx, start, committeeID, token)
+// QueryAggregatedReports provides a mock function with given fields: ctx, sinceSequenceInclusive, committeeID
+func (_m *MockCommitVerificationAggregatedStore) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64, committeeID string) (*model.AggregatedReportBatch, error) {
+	ret := _m.Called(ctx, sinceSequenceInclusive, committeeID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for QueryAggregatedReports")
 	}
 
-	var r0 *model.PaginatedAggregatedReports
+	var r0 *model.AggregatedReportBatch
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, int64, string, *string) (*model.PaginatedAggregatedReports, error)); ok {
-		return rf(ctx, start, committeeID, token)
+	if rf, ok := ret.Get(0).(func(context.Context, int64, string) (*model.AggregatedReportBatch, error)); ok {
+		return rf(ctx, sinceSequenceInclusive, committeeID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int64, string, *string) *model.PaginatedAggregatedReports); ok {
-		r0 = rf(ctx, start, committeeID, token)
+	if rf, ok := ret.Get(0).(func(context.Context, int64, string) *model.AggregatedReportBatch); ok {
+		r0 = rf(ctx, sinceSequenceInclusive, committeeID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.PaginatedAggregatedReports)
+			r0 = ret.Get(0).(*model.AggregatedReportBatch)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, int64, string, *string) error); ok {
-		r1 = rf(ctx, start, committeeID, token)
+	if rf, ok := ret.Get(1).(func(context.Context, int64, string) error); ok {
+		r1 = rf(ctx, sinceSequenceInclusive, committeeID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -179,26 +179,25 @@ type MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call struct {
 
 // QueryAggregatedReports is a helper method to define mock.On call
 //   - ctx context.Context
-//   - start int64
+//   - sinceSequenceInclusive int64
 //   - committeeID string
-//   - token *string
-func (_e *MockCommitVerificationAggregatedStore_Expecter) QueryAggregatedReports(ctx interface{}, start interface{}, committeeID interface{}, token interface{}) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
-	return &MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call{Call: _e.mock.On("QueryAggregatedReports", ctx, start, committeeID, token)}
+func (_e *MockCommitVerificationAggregatedStore_Expecter) QueryAggregatedReports(ctx interface{}, sinceSequenceInclusive interface{}, committeeID interface{}) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
+	return &MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call{Call: _e.mock.On("QueryAggregatedReports", ctx, sinceSequenceInclusive, committeeID)}
 }
 
-func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) Run(run func(ctx context.Context, start int64, committeeID string, token *string)) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
+func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) Run(run func(ctx context.Context, sinceSequenceInclusive int64, committeeID string)) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int64), args[2].(string), args[3].(*string))
+		run(args[0].(context.Context), args[1].(int64), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) Return(_a0 *model.PaginatedAggregatedReports, _a1 error) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
+func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) Return(_a0 *model.AggregatedReportBatch, _a1 error) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) RunAndReturn(run func(context.Context, int64, string, *string) (*model.PaginatedAggregatedReports, error)) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
+func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) RunAndReturn(run func(context.Context, int64, string) (*model.AggregatedReportBatch, error)) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
 	_c.Call.Return(run)
 	return _c
 }

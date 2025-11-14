@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -193,54 +192,7 @@ func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Con
 	return records, nil
 }
 
-type PaginationToken struct {
-	CommitteeID            string `json:"committee_id"`
-	SinceSequenceInclusive int64  `json:"since_sequence_inclusive"`
-}
-
-func parsePostgresPaginationToken(token *string) (*PaginationToken, error) {
-	if token == nil || *token == "" {
-		return nil, nil
-	}
-
-	var parsedToken PaginationToken
-	err := json.Unmarshal([]byte(*token), &parsedToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse pagination token: %w", err)
-	}
-
-	return &parsedToken, nil
-}
-
-func serializePostgresPaginationToken(token *PaginationToken) (*string, error) {
-	if token == nil {
-		return nil, nil
-	}
-
-	tokenBytes, err := json.Marshal(token)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize pagination token: %w", err)
-	}
-
-	tokenStr := string(tokenBytes)
-	return &tokenStr, nil
-}
-
-func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
-	var effectiveSequence int64
-	if token != nil && *token != "" {
-		parsedToken, err := parsePostgresPaginationToken(token)
-		if err != nil {
-			return nil, fmt.Errorf("invalid pagination token: %w", err)
-		}
-		if parsedToken.CommitteeID != committeeID {
-			return nil, fmt.Errorf("pagination token committee mismatch: expected %s, got %s", committeeID, parsedToken.CommitteeID)
-		}
-		effectiveSequence = parsedToken.SinceSequenceInclusive
-	} else {
-		effectiveSequence = sinceSequenceInclusive
-	}
-
+func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64, committeeID string) (*model.AggregatedReportBatch, error) {
 	stmt := fmt.Sprintf(`
 		SELECT 
 			car.message_id,
@@ -256,7 +208,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		ORDER BY car.seq_num ASC, vid.ord
 	`, allVerificationRecordColumnsQualified)
 
-	rows, err := d.ds.QueryContext(ctx, stmt, committeeID, effectiveSequence)
+	rows, err := d.ds.QueryContext(ctx, stmt, committeeID, sinceSequenceInclusive)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query aggregated reports: %w", err)
 	}
@@ -356,7 +308,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 	}
 
 	if len(reportOrder) == 0 {
-		return &model.PaginatedAggregatedReports{}, nil
+		return &model.AggregatedReportBatch{}, nil
 	}
 
 	reports := make([]*model.CommitAggregatedReport, 0, len(reportOrder))
@@ -364,30 +316,15 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		reports = append(reports, reportsMap[key])
 	}
 
-	var nextPageToken *string
 	hasMore := false
-
 	for rows.Next() {
 		hasMore = true
 		break
 	}
 
-	if hasMore && len(reports) > 0 {
-		lastReport := reports[len(reports)-1]
-		nextToken := &PaginationToken{
-			CommitteeID:            committeeID,
-			SinceSequenceInclusive: lastReport.Sequence + 1,
-		}
-
-		nextPageToken, err = serializePostgresPaginationToken(nextToken)
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize next page token: %w", err)
-		}
-	}
-
-	return &model.PaginatedAggregatedReports{
-		Reports:       reports,
-		NextPageToken: nextPageToken,
+	return &model.AggregatedReportBatch{
+		Reports: reports,
+		HasMore: hasMore,
 	}, nil
 }
 
