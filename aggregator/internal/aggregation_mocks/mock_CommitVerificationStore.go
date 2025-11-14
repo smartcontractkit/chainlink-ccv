@@ -81,9 +81,9 @@ func (_c *MockCommitVerificationStore_GetCommitVerification_Call) RunAndReturn(r
 	return _c
 }
 
-// ListCommitVerificationByAggregationKey provides a mock function with given fields: ctx, messageID, aggregationKey, committee
-func (_m *MockCommitVerificationStore) ListCommitVerificationByAggregationKey(ctx context.Context, messageID []byte, aggregationKey string, committee string) ([]*model.CommitVerificationRecord, error) {
-	ret := _m.Called(ctx, messageID, aggregationKey, committee)
+// ListCommitVerificationByAggregationKey provides a mock function with given fields: ctx, messageID, aggregationKey
+func (_m *MockCommitVerificationStore) ListCommitVerificationByAggregationKey(ctx context.Context, messageID []byte, aggregationKey string) ([]*model.CommitVerificationRecord, error) {
+	ret := _m.Called(ctx, messageID, aggregationKey)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListCommitVerificationByAggregationKey")
@@ -91,19 +91,19 @@ func (_m *MockCommitVerificationStore) ListCommitVerificationByAggregationKey(ct
 
 	var r0 []*model.CommitVerificationRecord
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, string, string) ([]*model.CommitVerificationRecord, error)); ok {
-		return rf(ctx, messageID, aggregationKey, committee)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string) ([]*model.CommitVerificationRecord, error)); ok {
+		return rf(ctx, messageID, aggregationKey)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, string, string) []*model.CommitVerificationRecord); ok {
-		r0 = rf(ctx, messageID, aggregationKey, committee)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string) []*model.CommitVerificationRecord); ok {
+		r0 = rf(ctx, messageID, aggregationKey)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*model.CommitVerificationRecord)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, []byte, string, string) error); ok {
-		r1 = rf(ctx, messageID, aggregationKey, committee)
+	if rf, ok := ret.Get(1).(func(context.Context, []byte, string) error); ok {
+		r1 = rf(ctx, messageID, aggregationKey)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -120,14 +120,13 @@ type MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call str
 //   - ctx context.Context
 //   - messageID []byte
 //   - aggregationKey string
-//   - committee string
-func (_e *MockCommitVerificationStore_Expecter) ListCommitVerificationByAggregationKey(ctx interface{}, messageID interface{}, aggregationKey interface{}, committee interface{}) *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call {
-	return &MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call{Call: _e.mock.On("ListCommitVerificationByAggregationKey", ctx, messageID, aggregationKey, committee)}
+func (_e *MockCommitVerificationStore_Expecter) ListCommitVerificationByAggregationKey(ctx interface{}, messageID interface{}, aggregationKey interface{}) *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call {
+	return &MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call{Call: _e.mock.On("ListCommitVerificationByAggregationKey", ctx, messageID, aggregationKey)}
 }
 
-func (_c *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call) Run(run func(ctx context.Context, messageID []byte, aggregationKey string, committee string)) *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call {
+func (_c *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call) Run(run func(ctx context.Context, messageID []byte, aggregationKey string)) *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]byte), args[2].(string), args[3].(string))
+		run(args[0].(context.Context), args[1].([]byte), args[2].(string))
 	})
 	return _c
 }
@@ -137,14 +136,14 @@ func (_c *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Cal
 	return _c
 }
 
-func (_c *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call) RunAndReturn(run func(context.Context, []byte, string, string) ([]*model.CommitVerificationRecord, error)) *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call {
+func (_c *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call) RunAndReturn(run func(context.Context, []byte, string) ([]*model.CommitVerificationRecord, error)) *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ListOrphanedKeys provides a mock function with given fields: ctx, committeeID
-func (_m *MockCommitVerificationStore) ListOrphanedKeys(ctx context.Context, committeeID string) (<-chan model.OrphanedKey, <-chan error) {
-	ret := _m.Called(ctx, committeeID)
+// ListOrphanedKeys provides a mock function with given fields: ctx
+func (_m *MockCommitVerificationStore) ListOrphanedKeys(ctx context.Context) (<-chan model.OrphanedKey, <-chan error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListOrphanedKeys")
@@ -152,19 +151,19 @@ func (_m *MockCommitVerificationStore) ListOrphanedKeys(ctx context.Context, com
 
 	var r0 <-chan model.OrphanedKey
 	var r1 <-chan error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (<-chan model.OrphanedKey, <-chan error)); ok {
-		return rf(ctx, committeeID)
+	if rf, ok := ret.Get(0).(func(context.Context) (<-chan model.OrphanedKey, <-chan error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) <-chan model.OrphanedKey); ok {
-		r0 = rf(ctx, committeeID)
+	if rf, ok := ret.Get(0).(func(context.Context) <-chan model.OrphanedKey); ok {
+		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(<-chan model.OrphanedKey)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) <-chan error); ok {
-		r1 = rf(ctx, committeeID)
+	if rf, ok := ret.Get(1).(func(context.Context) <-chan error); ok {
+		r1 = rf(ctx)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(<-chan error)
@@ -181,14 +180,13 @@ type MockCommitVerificationStore_ListOrphanedKeys_Call struct {
 
 // ListOrphanedKeys is a helper method to define mock.On call
 //   - ctx context.Context
-//   - committeeID string
-func (_e *MockCommitVerificationStore_Expecter) ListOrphanedKeys(ctx interface{}, committeeID interface{}) *MockCommitVerificationStore_ListOrphanedKeys_Call {
-	return &MockCommitVerificationStore_ListOrphanedKeys_Call{Call: _e.mock.On("ListOrphanedKeys", ctx, committeeID)}
+func (_e *MockCommitVerificationStore_Expecter) ListOrphanedKeys(ctx interface{}) *MockCommitVerificationStore_ListOrphanedKeys_Call {
+	return &MockCommitVerificationStore_ListOrphanedKeys_Call{Call: _e.mock.On("ListOrphanedKeys", ctx)}
 }
 
-func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) Run(run func(ctx context.Context, committeeID string)) *MockCommitVerificationStore_ListOrphanedKeys_Call {
+func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) Run(run func(ctx context.Context)) *MockCommitVerificationStore_ListOrphanedKeys_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -198,7 +196,7 @@ func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) Return(_a0 <-chan m
 	return _c
 }
 
-func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) RunAndReturn(run func(context.Context, string) (<-chan model.OrphanedKey, <-chan error)) *MockCommitVerificationStore_ListOrphanedKeys_Call {
+func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) RunAndReturn(run func(context.Context) (<-chan model.OrphanedKey, <-chan error)) *MockCommitVerificationStore_ListOrphanedKeys_Call {
 	_c.Call.Return(run)
 	return _c
 }

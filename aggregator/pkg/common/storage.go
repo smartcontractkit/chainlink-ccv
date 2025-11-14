@@ -13,21 +13,21 @@ type CommitVerificationStore interface {
 	SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error
 	// GetCommitVerification retrieves a commit verification record by its identifier.
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)
-	// ListCommitVerificationByAggregationKey retrieves all commit verification records for a specific message ID, committee ID and aggregation Key.
-	ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, committee string) ([]*model.CommitVerificationRecord, error)
+	// ListCommitVerificationByAggregationKey retrieves all commit verification records for a specific message ID and aggregation Key.
+	ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error)
 	// ListOrphanedKeys finds verification records that have not been aggregated yet.
-	// Returns channels for streaming results: one for message/committee pairs, one for errors.
-	ListOrphanedKeys(ctx context.Context, committeeID model.CommitteeID) (<-chan model.OrphanedKey, <-chan error)
+	// Returns channels for streaming results: one for message pairs, one for errors.
+	ListOrphanedKeys(ctx context.Context) (<-chan model.OrphanedKey, <-chan error)
 }
 
 type CommitVerificationAggregatedStore interface {
 	// QueryAggregatedReports retrieves a batch of aggregated reports starting from a sequence number.
-	QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64, committeeID string) (*model.AggregatedReportBatch, error)
+	QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error)
 	// GetCCVData retrieves the aggregated CCV data for a specific message ID.
-	GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error)
+	GetCCVData(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error)
 	// GetBatchCCVData retrieves the aggregated CCV data for multiple message IDs efficiently.
 	// Returns a map of messageID hex string to CommitAggregatedReport. Missing message IDs are not included in the map.
-	GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error)
+	GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error)
 }
 
 // ChainStatus represents chain status data with finalized block height and disabled flag.

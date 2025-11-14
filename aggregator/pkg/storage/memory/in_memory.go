@@ -55,12 +55,9 @@ func (s *InMemoryStorage) GetCommitVerification(_ context.Context, id model.Comm
 }
 
 // ListCommitVerificationByAggregationKey retrieves all commit verification records for a specific message ID.
-func (s *InMemoryStorage) ListCommitVerificationByAggregationKey(_ context.Context, messageID model.MessageID, aggreationKey model.AggregationKey, committee string) ([]*model.CommitVerificationRecord, error) {
+func (s *InMemoryStorage) ListCommitVerificationByAggregationKey(_ context.Context, messageID model.MessageID, aggreationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
 	recordMatch := func(r *recordWithAggregationKey) bool {
 		if !bytes.Equal(r.record.MessageID, messageID) {
-			return false
-		}
-		if r.record.CommitteeID != committee {
 			return false
 		}
 		if r.aggregationKey != aggreationKey {
@@ -86,7 +83,7 @@ func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAg
 	return nil
 }
 
-func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, end int64, committeeID string) (*model.AggregatedReportBatch, error) {
+func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, end int64) (*model.AggregatedReportBatch, error) {
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
@@ -94,7 +91,7 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 			if timestamp == 0 {
 				timestamp = report.Sequence
 			}
-			if timestamp >= start && timestamp <= end && report.CommitteeID == committeeID {
+			if timestamp >= start && timestamp <= end {
 				results = append(results, report)
 			}
 		}
@@ -103,15 +100,15 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 	return &model.AggregatedReportBatch{Reports: results}, nil
 }
 
-func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64, committeeID string) (*model.AggregatedReportBatch, error) {
+func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error) {
 	end := time.Now().UnixMilli()
-	return s.QueryAggregatedReportsRange(ctx, sinceSequenceInclusive, end, committeeID)
+	return s.QueryAggregatedReportsRange(ctx, sinceSequenceInclusive, end)
 }
 
-func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {
-	id := model.GetAggregatedReportID(messageID, committeeID)
+func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+	id := model.GetAggregatedReportID(messageID)
 	if value, ok := s.aggregatedReports.Load(id); ok {
-		if report, ok := value.(*model.CommitAggregatedReport); ok && report.CommitteeID == committeeID {
+		if report, ok := value.(*model.CommitAggregatedReport); ok {
 			return report, nil
 		}
 	}
@@ -119,14 +116,13 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 }
 
 // GetBatchCCVData retrieves commit verification data for multiple message IDs.
-func (s *InMemoryStorage) GetBatchCCVData(_ context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
+func (s *InMemoryStorage) GetBatchCCVData(_ context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
 	results := make(map[string]*model.CommitAggregatedReport)
 
 	for _, messageID := range messageIDs {
-		id := model.GetAggregatedReportID(messageID, committeeID)
+		id := model.GetAggregatedReportID(messageID)
 		if value, ok := s.aggregatedReports.Load(id); ok {
-			if report, ok := value.(*model.CommitAggregatedReport); ok && report.CommitteeID == committeeID {
-				// Use hex encoding to match PostgreSQL implementation
+			if report, ok := value.(*model.CommitAggregatedReport); ok {
 				messageIDHex := hex.EncodeToString(messageID)
 				results[messageIDHex] = report
 			}
@@ -138,8 +134,8 @@ func (s *InMemoryStorage) GetBatchCCVData(_ context.Context, messageIDs []model.
 
 // ListOrphanedMessageIDs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
 // Returns a channel for pairs and a channel for errors. Both channels will be closed when iteration is complete.
-func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context, committeeID model.CommitteeID) (<-chan model.OrphanedKey, <-chan error) {
-	pairCh := make(chan model.OrphanedKey, 10) // Buffered for performance
+func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.OrphanedKey, <-chan error) {
+	pairCh := make(chan model.OrphanedKey, 10)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -155,12 +151,11 @@ func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context, committeeID mode
 			}
 
 			if record, ok := value.(*recordWithAggregationKey); ok {
-				_, found := s.aggregatedReports.Load(model.GetAggregatedReportID(record.record.MessageID, committeeID))
+				_, found := s.aggregatedReports.Load(model.GetAggregatedReportID(record.record.MessageID))
 				if !found {
 					pairCh <- model.OrphanedKey{
 						AggregationKey: record.aggregationKey,
 						MessageID:      record.record.MessageID,
-						CommitteeID:    committeeID,
 					}
 				}
 			}

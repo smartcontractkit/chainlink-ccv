@@ -59,74 +59,68 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 // This method is designed to be called periodically to recover from cases where verifications
 // were submitted but aggregation failed due to transient errors.
 func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
-	for committeeID := range o.config.Committees {
-		// Get channels for orphaned message/committee pairs
-		orphansChan, errorChan := o.storage.ListOrphanedKeys(ctx, committeeID)
+	// Get channels for orphaned message/committee pairs
+	orphansChan, errorChan := o.storage.ListOrphanedKeys(ctx)
 
-		var processedCount, errorCount int
+	var processedCount, errorCount int
 
-		for {
-			select {
-			case orphanRecord, ok := <-orphansChan:
-				if !ok {
-					// Channel closed, we're done
-					o.logger.Infow("Orphan recovery completed",
-						"processed", processedCount,
-						"errors", errorCount)
-					return nil
-				}
-
-				// Process this orphaned record
-				err := o.processOrphanedRecord(orphanRecord)
-				if err != nil {
-					o.logger.Errorw("Failed to process orphaned record",
-						"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
-						"aggregationKey", orphanRecord.AggregationKey,
-						"committeeID", committeeID,
-						"error", err)
-					errorCount++
-				} else {
-					o.logger.Debugw("Successfully processed orphaned record",
-						"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
-						"aggregationKey", orphanRecord.AggregationKey,
-						"committeeID", committeeID)
-					processedCount++
-				}
-
-			case err, ok := <-errorChan:
-				if !ok {
-					// Error channel closed
-					o.logger.Infow("Orphan recovery completed",
-						"processed", processedCount,
-						"errors", errorCount)
-					return nil
-				}
-
-				if err != nil {
-					o.logger.Errorw("Error during orphan scanning", "error", err)
-					return fmt.Errorf("orphan recovery failed: %w", err)
-				}
-
-			case <-ctx.Done():
-				o.logger.Warn("Orphan recovery cancelled by context")
-				return ctx.Err()
+	for {
+		select {
+		case orphanRecord, ok := <-orphansChan:
+			if !ok {
+				// Channel closed, we're done
+				o.logger.Infow("Orphan recovery completed",
+					"processed", processedCount,
+					"errors", errorCount)
+				return nil
 			}
+
+			// Process this orphaned record
+			err := o.processOrphanedRecord(orphanRecord)
+			if err != nil {
+				o.logger.Errorw("Failed to process orphaned record",
+					"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
+					"aggregationKey", orphanRecord.AggregationKey,
+					"error", err)
+				errorCount++
+			} else {
+				o.logger.Debugw("Successfully processed orphaned record",
+					"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
+					"aggregationKey", orphanRecord.AggregationKey)
+				processedCount++
+			}
+
+		case err, ok := <-errorChan:
+			if !ok {
+				// Error channel closed
+				o.logger.Infow("Orphan recovery completed",
+					"processed", processedCount,
+					"errors", errorCount)
+				return nil
+			}
+
+			if err != nil {
+				o.logger.Errorw("Error during orphan scanning", "error", err)
+				return fmt.Errorf("orphan recovery failed: %w", err)
+			}
+
+		case <-ctx.Done():
+			o.logger.Warn("Orphan recovery cancelled by context")
+			return ctx.Err()
 		}
 	}
-	return nil
 }
 
 // processOrphanedRecord attempts to re-aggregate an orphaned verification record.
 func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error { // Trigger aggregation check - this will evaluate if we have enough verifications for quorum
-	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey, record.CommitteeID)
+	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey)
 	if err != nil {
 		return fmt.Errorf("failed to trigger aggregation check: %w", err)
 	}
 
 	o.logger.Debugw("Successfully triggered re-aggregation check",
 		"messageID", fmt.Sprintf("%x", record.MessageID),
-		"aggregationKey", record.AggregationKey,
-		"committeeID", record.CommitteeID)
+		"aggregationKey", record.AggregationKey)
 
 	return nil
 }

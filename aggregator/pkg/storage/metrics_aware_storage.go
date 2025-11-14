@@ -55,27 +55,27 @@ func (s *MetricsAwareStorage) GetCommitVerification(ctx context.Context, id mode
 	})
 }
 
-func (s *MetricsAwareStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, committee string) ([]*model.CommitVerificationRecord, error) {
+func (s *MetricsAwareStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
 	return captureMetrics(ctx, s.metrics(ctx, listByMsgIDOp), func() ([]*model.CommitVerificationRecord, error) {
-		return s.inner.ListCommitVerificationByAggregationKey(ctx, messageID, aggregationKey, committee)
+		return s.inner.ListCommitVerificationByAggregationKey(ctx, messageID, aggregationKey)
 	})
 }
 
-func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64, committeeID string) (*model.AggregatedReportBatch, error) {
+func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error) {
 	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() (*model.AggregatedReportBatch, error) {
-		return s.inner.QueryAggregatedReports(ctx, sinceSequenceInclusive, committeeID)
+		return s.inner.QueryAggregatedReports(ctx, sinceSequenceInclusive)
 	})
 }
 
-func (s *MetricsAwareStorage) GetCCVData(ctx context.Context, messageID model.MessageID, committeeID string) (*model.CommitAggregatedReport, error) {
+func (s *MetricsAwareStorage) GetCCVData(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
 	return captureMetrics(ctx, s.metrics(ctx, getCCVDataOp), func() (*model.CommitAggregatedReport, error) {
-		return s.inner.GetCCVData(ctx, messageID, committeeID)
+		return s.inner.GetCCVData(ctx, messageID)
 	})
 }
 
-func (s *MetricsAwareStorage) GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
+func (s *MetricsAwareStorage) GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
 	return captureMetrics(ctx, s.metrics(ctx, getBatchCCVDataOp), func() (map[string]*model.CommitAggregatedReport, error) {
-		return s.inner.GetBatchCCVData(ctx, messageIDs, committeeID)
+		return s.inner.GetBatchCCVData(ctx, messageIDs)
 	})
 }
 
@@ -85,12 +85,12 @@ func (s *MetricsAwareStorage) SubmitReport(ctx context.Context, report *model.Co
 	})
 }
 
-func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context, committeeID model.CommitteeID) (<-chan model.OrphanedKey, <-chan error) {
+func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.OrphanedKey, <-chan error) {
 	metrics := s.metrics(ctx, ListOrphanedKeysOp)
 	resultChan := make(chan model.OrphanedKey, 100)
 	errorChan := make(chan error, 1)
 
-	innerResultChan, innerErrorChan := s.inner.ListOrphanedKeys(ctx, committeeID)
+	innerResultChan, innerErrorChan := s.inner.ListOrphanedKeys(ctx)
 
 	go func() {
 		now := time.Now()
