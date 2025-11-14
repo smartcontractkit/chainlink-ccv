@@ -203,6 +203,7 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	// Apply defaults to config if not set
 	vc.applyConfigDefaults()
 
+	// FIXME: This is already initialized above, redundant
 	// Initialize source states map (services will be created in Start())
 	if vc.sourceStates == nil {
 		vc.sourceStates = make(map[protocol.ChainSelector]*sourceState)
@@ -211,12 +212,15 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	return vc, nil
 }
 
+// FIXME: This method is too long, needs refactoring.
+// Maybe we can split into smaller methods related to initialization of different components?
 // Start begins the verification coordinator processing.
 func (vc *Coordinator) Start(ctx context.Context) error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 	// TODO: If aggregator is not healthy don't start verifier
 
+	// FIXME: Shall we use services.StateMachine{}? It has StartOnce/StopOnce methods to prevent multiple starts/stops
 	if vc.running {
 		return fmt.Errorf("coordinator already running")
 	}
@@ -417,10 +421,6 @@ func (vc *Coordinator) Close() error {
 				vc.lggr.Errorw("Error closing reorg detector", "error", err, "chainSelector", chainSelector)
 			}
 		}
-	}
-
-	// Close source readers.
-	for chainSelector, state := range vc.sourceStates {
 		if err := state.reader.Stop(); err != nil {
 			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
 		}
@@ -447,6 +447,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 	// Main loop - process batched storage writes
 	for {
 		select {
+		// FIXME Wrapping with {} will make it clearer
 		case <-ctx.Done():
 			vc.lggr.Infow("Context cancelled, stopping coordinator")
 			wg.Wait()
@@ -474,6 +475,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 
 			// Write batch of CCVData to offchain storage
+			// FIXME: Entire write batch to offchain storage should be extracted to a separate method
 			storageStart := time.Now()
 
 			// Extract CCVData and idempotency keys from the batch
@@ -503,6 +505,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 				storageDuration := time.Since(storageStart)
 
 				// Record storage write duration
+				// FIXME: Ideally business logic shouldn't be polluted with monitoring calls (but that might be hard to achieve with current architecture)
 				vc.monitoring.Metrics().
 					With("verifier_id", vc.config.VerifierID).
 					RecordStorageWriteDuration(ctx, storageDuration)
@@ -511,6 +514,11 @@ func (vc *Coordinator) run(ctx context.Context) {
 				vc.timestampsMu.Lock()
 				for _, item := range ccvDataBatch.Items {
 					ccvData := item.CCVData
+					// FIXME I would suggest replacing timestampsMu/messageTimestamps with go-cache
+					// * automatic expiration of old entries - it's safer in case of bugs elsewhere. We saw that for OCR2 metrics
+					//   which were responsible for extremeyly high memory consumption due to forgotten entries
+					// * no need for manual locking - go-cache is thread-safe
+					// * simpler code - no need to manually manage the map
 					if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
 						e2eDuration := time.Since(createdAt)
 						vc.monitoring.Metrics().
@@ -569,6 +577,7 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 				continue
 			}
 
+			// FIXME: How do we recover from that?
 			// Drop tasks if reorg is in progress for this chain
 			if state.reorgInProgress.Load() {
 				vc.lggr.Warnw("Dropping task batch due to ongoing reorg",
@@ -711,6 +720,9 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 
 	// Track message creation time for E2E latency measurement
 	vc.timestampsMu.Lock()
+	// FIXME: Is it a valid case? If SourceReader didn't set it, and we are setting it here with time.Now(),
+	// we might have inaccurate CreatedAt timestamps. Clocks between nodes will be different
+	// If we don't have real `createdAt` then maybe field should be called `SeenAt` or `FirstObservedAt`?
 	if task.CreatedAt.IsZero() {
 		// If CreatedAt was not set by source reader, set it now
 		task.CreatedAt = time.Now()
@@ -748,6 +760,7 @@ func (vc *Coordinator) readyMessagesCheckingLoop(ctx context.Context) {
 				vc.processFinalityQueueForChain(ctx, state)
 			}
 		case <-cleanupTicker.C:
+			// FIXME This is exactly what go-cache would do automatically, right?
 			vc.cleanupOldTimestamps()
 		}
 	}
@@ -818,6 +831,8 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
 
 	// Record chain state metrics
+	// FIXME: This could be nicely extracted with a decorator patter (just decorate `LatestAndFinalizedBlock` method
+	// in sourceReader and business logic won't be polluted with monitoring calls)
 	vc.monitoring.Metrics().
 		With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
 		RecordSourceChainLatestBlock(ctx, latestBlock.Int64())
@@ -844,6 +859,7 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 		ready, err := vc.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock)
 		if err != nil {
+			// fixme: duplication, probably messageID can be extracted once and added to logger context
 			messageID, _ := task.Message.MessageID()
 			vc.lggr.Warnw("Failed to check finality for message",
 				"messageID", messageID,
@@ -865,6 +881,8 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	state.pendingTasks = remainingTasks
 
 	if len(readyTasks) > 0 {
+		// FIXME: nit but I would avoid emojis and utf8 characters as they might be problematic in some logging systems
+		// (I saw them not being rendered properly for some NOPs )
 		vc.lggr.Infow("✅ Processing finalized messages",
 			"chain", chainSelector,
 			"readyCount", len(readyTasks),
@@ -912,6 +930,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 		// Check chain status before processing
 		state.chainStatusMu.RLock()
+		// FIXME: Method might be more convenient than direct field access (e.g. state.chainStatus.IsFinalityViolated())
 		isFinalityViolated := state.chainStatus.Type == protocol.ReorgTypeFinalityViolation
 		state.chainStatusMu.RUnlock()
 
@@ -940,6 +959,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 // handleVerificationErrors processes and logs errors from a verification batch.
 func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch batcher.BatchResult[VerificationError], chainSelector protocol.ChainSelector, totalTasks int) {
+	// FIXME: I suggest flipping the condition to reduce nesting
 	if len(errorBatch.Items) > 0 {
 		vc.lggr.Infow("Verification batch completed with errors",
 			"chainSelector", chainSelector,
