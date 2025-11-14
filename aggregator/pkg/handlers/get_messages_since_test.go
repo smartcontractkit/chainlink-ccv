@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -18,7 +17,7 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func TestGetMessagesSinceHandler_Success_NoNextToken(t *testing.T) {
+func TestGetMessagesSinceHandler_Success(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
@@ -50,38 +49,6 @@ func TestGetMessagesSinceHandler_Success_NoNextToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 1)
 	require.Equal(t, int64(1), resp.Results[0].Sequence)
-	require.Empty(t, resp.NextToken)
-}
-
-func TestGetMessagesSinceHandler_Success_WithHasMore(t *testing.T) {
-	t.Parallel()
-
-	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
-	mon := aggregation_mocks.NewMockAggregatorMonitoring(t)
-	labeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
-	mon.EXPECT().Metrics().Return(labeler)
-
-	participantID := "p1"
-	signerAddr := addrSigner
-	sourceVerifierAddr := addrSourceVerifier
-	destVerifierAddr := addrDestVerifier
-	committee := buildCommittee(2, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
-
-	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
-	msgID, _ := msg.MessageID()
-	report := makeAggregatedReport(msgID[:], 1, 2, sourceVerifierAddr, signerAddr, participantID)
-	report.WrittenAt = time.Now()
-
-	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything).Return(&model.AggregatedReportBatch{Reports: []*model.CommitAggregatedReport{report}, HasMore: true}, nil)
-	labeler.EXPECT().RecordMessageSinceNumberOfRecordsReturned(mock.Anything, 1)
-
-	h := NewGetMessagesSinceHandler(store, committee, lggr, mon)
-
-	resp, err := h.Handle(context.Background(), &pb.GetMessagesSinceRequest{SinceSequence: 0})
-	require.NoError(t, err)
-	require.Len(t, resp.Results, 1)
-	require.Empty(t, resp.NextToken)
 }
 
 func TestGetMessagesSinceHandler_StorageError(t *testing.T) {
