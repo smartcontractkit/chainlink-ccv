@@ -24,15 +24,15 @@ func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogg
 
 // Handle processes the get request and retrieves the commit verification data since the specified time.
 func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
-	h.logger(ctx).Tracef("Received GetMessagesSinceRequest, sinceSequence: %d, nextToken: %v", req.SinceSequence, req.NextToken)
-	storage, err := h.storage.QueryAggregatedReports(ctx, req.SinceSequence, &req.NextToken)
+	h.logger(ctx).Tracef("Received GetMessagesSinceRequest, sinceSequence: %d", req.SinceSequence)
+	batch, err := h.storage.QueryAggregatedReports(ctx, req.SinceSequence)
 	if err != nil {
 		h.logger(ctx).Errorw("failed to query aggregated reports", "sinceSequence", req.SinceSequence, "error", err)
 		return nil, err
 	}
 
-	records := make([]*pb.MessageWithVerifierResult, 0, len(storage.Reports))
-	for _, report := range storage.Reports {
+	records := make([]*pb.MessageWithVerifierResult, 0, len(batch.Reports))
+	for _, report := range batch.Reports {
 		ccvData, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
 		if err != nil {
 			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
@@ -53,15 +53,8 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 	h.m.Metrics().RecordMessageSinceNumberOfRecordsReturned(ctx, len(records))
 	h.logger(ctx).Tracef("Returning %d records for GetMessagesSinceRequest", len(records))
 
-	for _, report := range storage.Reports {
+	for _, report := range batch.Reports {
 		h.logger(ctx).Tracef("Report MessageID: %x, Sequence: %d, Verifications: %d", report.MessageID, report.Sequence, len(report.Verifications))
-	}
-
-	if storage.NextPageToken != nil {
-		return &pb.GetMessagesSinceResponse{
-			Results:   records,
-			NextToken: *storage.NextPageToken,
-		}, nil
 	}
 
 	return &pb.GetMessagesSinceResponse{

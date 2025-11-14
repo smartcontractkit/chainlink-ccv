@@ -41,7 +41,7 @@ func TestGetMessagesSinceHandler_Success_NoNextToken(t *testing.T) {
 	msgID, _ := msg.MessageID()
 	report := makeAggregatedReport(msgID[:], sourceSel, destSel, sourceVerifierAddr, signerAddr, participantID)
 
-	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything).Return(&model.PaginatedAggregatedReports{Reports: []*model.CommitAggregatedReport{report}, NextPageToken: nil}, nil)
+	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything).Return(&model.AggregatedReportBatch{Reports: []*model.CommitAggregatedReport{report}, HasMore: false}, nil)
 	labeler.EXPECT().RecordMessageSinceNumberOfRecordsReturned(mock.Anything, 1)
 
 	h := NewGetMessagesSinceHandler(store, committee, lggr, mon)
@@ -50,11 +50,10 @@ func TestGetMessagesSinceHandler_Success_NoNextToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 1)
 	require.Equal(t, int64(1), resp.Results[0].Sequence)
-	// next token absent
 	require.Empty(t, resp.NextToken)
 }
 
-func TestGetMessagesSinceHandler_Success_WithNextToken(t *testing.T) {
+func TestGetMessagesSinceHandler_Success_WithHasMore(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
@@ -74,8 +73,7 @@ func TestGetMessagesSinceHandler_Success_WithNextToken(t *testing.T) {
 	report := makeAggregatedReport(msgID[:], 1, 2, sourceVerifierAddr, signerAddr, participantID)
 	report.WrittenAt = time.Now()
 
-	next := "nxt"
-	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything).Return(&model.PaginatedAggregatedReports{Reports: []*model.CommitAggregatedReport{report}, NextPageToken: &next}, nil)
+	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything).Return(&model.AggregatedReportBatch{Reports: []*model.CommitAggregatedReport{report}, HasMore: true}, nil)
 	labeler.EXPECT().RecordMessageSinceNumberOfRecordsReturned(mock.Anything, 1)
 
 	h := NewGetMessagesSinceHandler(store, committee, lggr, mon)
@@ -83,7 +81,7 @@ func TestGetMessagesSinceHandler_Success_WithNextToken(t *testing.T) {
 	resp, err := h.Handle(context.Background(), &pb.GetMessagesSinceRequest{SinceSequence: 0})
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 1)
-	require.Equal(t, "nxt", resp.NextToken)
+	require.Empty(t, resp.NextToken)
 }
 
 func TestGetMessagesSinceHandler_StorageError(t *testing.T) {
@@ -96,7 +94,7 @@ func TestGetMessagesSinceHandler_StorageError(t *testing.T) {
 
 	h := NewGetMessagesSinceHandler(store, &model.Committee{}, lggr, mon)
 
-	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything, mock.Anything).Return(nil, assertAnError())
+	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything).Return(nil, assertAnError())
 
 	resp, err := h.Handle(context.Background(), &pb.GetMessagesSinceRequest{SinceSequence: 0})
 	require.Error(t, err)
