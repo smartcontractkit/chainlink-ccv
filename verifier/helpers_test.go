@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -167,7 +166,7 @@ func NewTestVerifier() *TestVerifier {
 func (t *TestVerifier) VerifyMessages(
 	_ context.Context,
 	tasks []VerificationTask,
-	ccvDataBatcher *batcher.Batcher[CCVDataWithIdempotencyKey],
+	ccvDataBatcher *batcher.Batcher[protocol.CCVData],
 ) batcher.BatchResult[VerificationError] {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
@@ -190,12 +189,7 @@ func (t *TestVerifier) VerifyMessages(
 			ReceiptBlobs:          verificationTask.ReceiptBlobs,
 		}
 
-		ccvDataWithKey := CCVDataWithIdempotencyKey{
-			CCVData:        ccvData,
-			IdempotencyKey: verificationTask.IdempotencyKey,
-		}
-
-		if err := ccvDataBatcher.Add(ccvDataWithKey); err != nil {
+		if err := ccvDataBatcher.Add(ccvData); err != nil {
 			// If context is canceled or batcher is closed, stop processing
 			return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
 		}
@@ -226,7 +220,7 @@ func (t *TestVerifier) GetProcessedTasks() []VerificationTask {
 // NoopStorage for testing.
 type NoopStorage struct{}
 
-func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData, idempotencyKeys []string) error {
+func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVData) error {
 	return nil
 }
 
@@ -244,11 +238,10 @@ func createTestVerificationTasks(
 	for i, blockNum := range blockNumbers {
 		nonce := startNonce + uint64(i)
 		tasks[i] = VerificationTask{
-			Message:        CreateTestMessage(t, protocol.Nonce(nonce), chainSelector, destChain, 0, 300_000),
-			BlockNumber:    blockNum,
-			ReceiptBlobs:   []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
-			CreatedAt:      time.Now(),
-			IdempotencyKey: uuid.NewString(),
+			Message:      CreateTestMessage(t, protocol.Nonce(nonce), chainSelector, destChain, 0, 300_000),
+			BlockNumber:  blockNum,
+			ReceiptBlobs: []protocol.ReceiptWithBlob{{Blob: []byte("receipt1")}},
+			CreatedAt:    time.Now(),
 		}
 	}
 	return tasks
