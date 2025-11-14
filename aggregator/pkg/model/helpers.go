@@ -42,7 +42,7 @@ func compareStringCaseInsensitive(a, b string) bool {
 	return bytes.EqualFold([]byte(a), []byte(b))
 }
 
-func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*pb.VerifierResult, error) {
+func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Committee) (*pb.VerifierResult, error) {
 	participantSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
@@ -56,8 +56,8 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 		}
 	}
 
-	quorumConfig := FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees, report.GetSourceChainSelector(), report.GetDestinationSelector(), report.GetSourceVerifierAddress())
-	if quorumConfig == nil {
+	quorumConfig, ok := c.GetQuorumConfig(report.GetDestinationSelector())
+	if !ok {
 		return nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", report.GetDestinationSelector(), common.BytesToAddress(report.GetSourceVerifierAddress()).Hex())
 	}
 

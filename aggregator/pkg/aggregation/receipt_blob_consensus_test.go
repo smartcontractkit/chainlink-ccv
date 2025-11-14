@@ -215,7 +215,6 @@ func createTestVerification(timestamp int64, receiptBlobs []*pb.ReceiptBlob) *mo
 	return &model.CommitVerificationRecord{
 		Timestamp:    time.UnixMilli(timestamp).UTC(),
 		ReceiptBlobs: modelReceiptBlobs,
-		CommitteeID:  "test-committee",
 	}
 }
 
