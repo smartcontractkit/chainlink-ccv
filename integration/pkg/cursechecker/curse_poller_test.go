@@ -1,4 +1,4 @@
-package cursedetector
+package cursechecker
 
 import (
 	"context"
@@ -187,7 +187,7 @@ func TestNewCurseDetectorService_Validation(t *testing.T) {
 			lggr,
 		)
 		require.NoError(t, err)
-		require.Equal(t, 2*time.Second, svc.(*Service).pollInterval, "should use default poll interval")
+		require.Equal(t, 2*time.Second, svc.(*PollerService).pollInterval, "should use default poll interval")
 	})
 
 	_ = mockReaderA // Silence unused variable

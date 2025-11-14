@@ -9,7 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
+	"github.com/smartcontractkit/chainlink-ccv/common"
+	cursedetector_impl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
@@ -65,7 +66,7 @@ type Coordinator struct {
 	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
 	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
-	curseDetector      cursedetector.CurseDetector
+	curseDetector      common.CurseChecker
 }
 
 // Option is the functional option type for Coordinator.
@@ -175,7 +176,7 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 
 // WithCurseDetector sets the curse detector for monitoring RMN Remote contracts.
 // This is primarily for testing - in production, the coordinator creates its own curse detector.
-func WithCurseDetector(detector cursedetector.CurseDetector) Option {
+func WithCurseDetector(detector common.CurseChecker) Option {
 	return func(vc *Coordinator) {
 		vc.curseDetector = detector
 	}
@@ -1192,7 +1193,7 @@ func (vc *Coordinator) startCurseDetector(
 	// if a curse detector service is already set, use it; otherwise create a new one
 	curseDetectorSvc := vc.curseDetector
 	if curseDetectorSvc == nil {
-		cd, err := cursedetector.NewCurseDetectorService(
+		cd, err := cursedetector_impl.NewCurseDetectorService(
 			rmnReaders,
 			vc.config.CursePollInterval,
 			vc.lggr,

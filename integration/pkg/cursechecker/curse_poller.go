@@ -1,4 +1,4 @@
-package cursedetector
+package cursechecker
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -29,9 +30,9 @@ type ChainCurseState struct {
 	HasGlobalCurse     bool
 }
 
-// Service monitors RMN Remote contracts for curse status.
+// PollerService monitors RMN Remote contracts for curse status.
 // It polls configured RMN readers at regular intervals and maintains curse state.
-type Service struct {
+type PollerService struct {
 	services.StateMachine
 	rmnReaders       map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	chainCurseStates map[protocol.ChainSelector]*ChainCurseState
@@ -54,7 +55,7 @@ func NewCurseDetectorService(
 	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader,
 	pollInterval time.Duration,
 	lggr logger.Logger,
-) (CurseDetector, error) {
+) (common.CurseChecker, error) {
 	if len(rmnReaders) == 0 {
 		return nil, fmt.Errorf("at least one RMN reader required")
 	}
@@ -65,7 +66,7 @@ func NewCurseDetectorService(
 		pollInterval = DEFAULT_POLL_INTERVAL
 	}
 
-	return &Service{
+	return &PollerService{
 		rmnReaders:       rmnReaders,
 		chainCurseStates: make(map[protocol.ChainSelector]*ChainCurseState),
 		pollInterval:     pollInterval,
@@ -74,8 +75,8 @@ func NewCurseDetectorService(
 }
 
 // Start begins polling RMN Remote contracts for curse updates.
-func (s *Service) Start(ctx context.Context) error {
-	return s.StartOnce("cursedetector.Service", func() error {
+func (s *PollerService) Start(ctx context.Context) error {
+	return s.StartOnce("cursechecker.PollerService", func() error {
 		c, cancel := context.WithCancel(ctx)
 		s.cancel = cancel
 
@@ -98,8 +99,8 @@ func (s *Service) Start(ctx context.Context) error {
 }
 
 // Close stops the curse detector and waits for background goroutines to finish.
-func (s *Service) Close() error {
-	return s.StopOnce("cursedetector.Service", func() error {
+func (s *PollerService) Close() error {
+	return s.StopOnce("cursechecker.PollerService", func() error {
 		s.lggr.Infow("Curse detector service stopping")
 
 		// Cancel the background goroutine and wait for it to exit.
@@ -121,7 +122,7 @@ func (s *Service) Close() error {
 // Returns true if:
 //   - remoteChain appears in localChain's cursed subjects, OR
 //   - localChain has a global curse
-func (s *Service) IsRemoteChainCursed(localChain, remoteChain protocol.ChainSelector) bool {
+func (s *PollerService) IsRemoteChainCursed(localChain, remoteChain protocol.ChainSelector) bool {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -135,7 +136,7 @@ func (s *Service) IsRemoteChainCursed(localChain, remoteChain protocol.ChainSele
 }
 
 // pollLoop runs the periodic polling loop for curse updates.
-func (s *Service) pollLoop(ctx context.Context) {
+func (s *PollerService) pollLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
 
@@ -150,7 +151,7 @@ func (s *Service) pollLoop(ctx context.Context) {
 }
 
 // pollAllChains queries all configured RMN Remotes concurrently and updates curse state.
-func (s *Service) pollAllChains(ctx context.Context) {
+func (s *PollerService) pollAllChains(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	for chainSelector, reader := range s.rmnReaders {
@@ -206,7 +207,7 @@ func chainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
 }
 
 // Ready returns nil if the service is ready, or an error otherwise.
-func (s *Service) Ready() error {
+func (s *PollerService) Ready() error {
 	if !s.running.Load() {
 		return errors.New("curse detector service not running")
 	}
@@ -215,7 +216,7 @@ func (s *Service) Ready() error {
 }
 
 // HealthReport returns a full health report of the service.
-func (s *Service) HealthReport() map[string]error {
+func (s *PollerService) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[s.Name()] = s.Ready()
 
@@ -223,6 +224,6 @@ func (s *Service) HealthReport() map[string]error {
 }
 
 // Name returns the fully qualified name of the service.
-func (s *Service) Name() string {
-	return "cursedetector.Service"
+func (s *PollerService) Name() string {
+	return "cursechecker.PollerService"
 }

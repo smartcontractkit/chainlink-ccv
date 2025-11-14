@@ -1,4 +1,4 @@
-package cursedetector
+package common
 
 import (
 	"context"
@@ -6,9 +6,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// CurseDetector monitors RMN Remotes for curse status.
+// CurseChecker abstracts checking for chain curse status.
 // Reusable for both verifier (source RMN Remotes) and executor (dest RMN Remotes).
-type CurseDetector interface {
+type CurseChecker interface {
 	// IsRemoteChainCursed checks if remoteChain is cursed per localChain's RMN Remote.
 	// Returns true if:
 	//   - remoteChain appears in localChain's cursed subjects, OR
