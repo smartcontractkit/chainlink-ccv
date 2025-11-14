@@ -212,11 +212,11 @@ func TestValidateSignature(t *testing.T) {
 
 		// Convert protobuf to domain model for validation
 		record := model.CommitVerificationRecordFromProto(messageData)
-		signers, _, err := validator.ValidateSignature(context.Background(), record)
+		signer, _, err := validator.ValidateSignature(context.Background(), record)
 		assert.NoError(t, err)
-		assert.NotNil(t, signers)
-		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
-		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signers[0].Address)
+		assert.NotNil(t, signer)
+		assert.Equal(t, signerFixture.Signer.ParticipantID, signer.ParticipantID)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signer.Address)
 	})
 
 	t.Run("missing signature", func(t *testing.T) {
@@ -312,11 +312,11 @@ func TestValidateSignature(t *testing.T) {
 
 		// Convert protobuf to domain model for validation
 		recordNoBlob := model.CommitVerificationRecordFromProto(messageDataNoBlob)
-		signers, _, err := validator.ValidateSignature(context.Background(), recordNoBlob)
+		signer, _, err := validator.ValidateSignature(context.Background(), recordNoBlob)
 		assert.NoError(t, err)
-		assert.NotNil(t, signers)
-		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
-		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signers[0].Address)
+		assert.NotNil(t, signer)
+		assert.Equal(t, signerFixture.Signer.ParticipantID, signer.ParticipantID)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signer.Address)
 	})
 }
 

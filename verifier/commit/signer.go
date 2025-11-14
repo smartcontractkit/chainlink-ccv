@@ -54,23 +54,18 @@ func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, protocol.Unkno
 
 // Sign signs some data with the new chain-agnostic format.
 func (ecdsa *ECDSASigner) Sign(data []byte) ([]byte, error) {
-	// 1. Sign with v27 format.
 	r, s, signerAddress, err := protocol.SignV27(data, ecdsa.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// 2. Create signature data with signer address.
-	signatures := []protocol.Data{
-		{
-			R:      r,
-			S:      s,
-			Signer: signerAddress,
-		},
+	signature := protocol.Data{
+		R:      r,
+		S:      s,
+		Signer: signerAddress,
 	}
 
-	// 3. Encode signature using protocol format.
-	encodedSignature, err := protocol.EncodeSignatures(signatures)
+	encodedSignature, err := protocol.EncodeSingleSignature(signature)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}
@@ -105,23 +100,18 @@ func NewECDSASignerWithKeystoreSigner(keystoreSigner verifier.MessageSigner) *EC
 }
 
 func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
-	// 1. Sign with v27 format.
 	r32, s32, addr, err := protocol.SignV27WithKeystoreSigner(data, s.keystoreSigner)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// 2. Create signature data with signer address.
-	signatures := []protocol.Data{
-		{
-			R:      r32,
-			S:      s32,
-			Signer: addr,
-		},
+	signature := protocol.Data{
+		R:      r32,
+		S:      s32,
+		Signer: addr,
 	}
 
-	// 3. Encode signature using protocol format.
-	encodedSignature, err := protocol.EncodeSignatures(signatures)
+	encodedSignature, err := protocol.EncodeSingleSignature(signature)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}

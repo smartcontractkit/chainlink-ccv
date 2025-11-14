@@ -48,18 +48,16 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 
 	participantIDs := make(map[string]struct{})
 	for _, verification := range aggregatedReport.Verifications {
-		signers, _, err := q.ValidateSignature(ctx, verification)
+		signer, _, err := q.ValidateSignature(ctx, verification)
 		if err != nil {
 			q.logger(ctx).Errorw("Failed to validate signature: %v", err)
 			continue
 		}
-		if len(signers) == 0 {
-			q.logger(ctx).Warn("No valid signers found. Might be due to a config change")
+		if signer == nil {
+			q.logger(ctx).Warn("No valid signer found. Might be due to a config change")
 			continue
 		}
-		for _, signer := range signers {
-			participantIDs[signer.ParticipantID] = struct{}{}
-		}
+		participantIDs[signer.ParticipantID] = struct{}{}
 	}
 
 	// Check if we have enough unique participant IDs to meet the quorum
@@ -87,9 +85,7 @@ func (q *EVMQuorumValidator) DeriveAggregationKey(ctx context.Context, record *m
 	return hex.EncodeToString(hash[:]), nil
 }
 
-// ValidateSignature validates the signature of a commit verification record and returns the signers and the quorum config used.
-// It can return multiple signers from the same participant if they have multiple addresses in the config.
-func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) (*model.IdentifierSigner, *model.QuorumConfig, error) {
 	q.logger(ctx).Debug("Validating signature for report")
 	if record.CcvData == nil {
 		q.logger(ctx).Error("Missing signature in report")
@@ -110,15 +106,10 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, nil, err
 	}
 
-	rs, ss, err := protocol.DecodeSignatures(record.CcvData)
+	r, s, _, err := protocol.DecodeSingleSignature(record.CcvData)
 	if err != nil {
-		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
-		return nil, nil, err
-	}
-
-	if len(rs) != len(ss) {
-		q.logger(ctx).Error("Mismatched signature lengths")
-		return nil, nil, fmt.Errorf("invalid signature format")
+		q.logger(ctx).Errorw("Failed to decode single signature", "error", err)
+		return nil, nil, fmt.Errorf("failed to decode single signature: %w", err)
 	}
 
 	if q.Committee == nil {
@@ -131,43 +122,36 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		q.logger(ctx).Errorf("Failed to get quorum config for chain selector: %d", message.DestChainSelector)
 		return nil, nil, fmt.Errorf("failed to get quorum config for chain selector: %d", message.DestChainSelector)
 	}
-	identifiedSigners := make([]*model.IdentifierSigner, 0, len(rs))
-	for i := range rs {
-		for vValue := byte(0); vValue <= 1; vValue++ {
-			combined := append(rs[i][:], ss[i][:]...)
-			combined = append(combined, vValue)
-			address, err := q.ecrecover(combined, hash[:])
-			if err != nil {
-				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
-				continue
-			}
-			q.logger(ctx).Tracef("Recovered address: %s", address.Hex())
 
-			for _, signer := range quorumConfig.Signers {
-				for _, s := range signer.Addresses {
-					signerAddress := common.HexToAddress(s)
+	// All signatures are normalized to v=27 by SignV27, so we only need to try v=0
+	// (which corresponds to v=27 in the on-chain ecrecover context)
+	combined := append(r[:], s[:]...)
+	combined = append(combined, byte(0))
+	address, err := q.ecrecover(combined, hash[:])
+	if err != nil {
+		q.logger(ctx).Debugw("Failed to recover address from signature", "error", err)
+		return nil, nil, fmt.Errorf("failed to recover address from signature: %w", err)
+	}
+	q.logger(ctx).Tracef("Recovered address: %s", address.Hex())
 
-					if signerAddress == address {
-						q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
-						identifiedSigners = append(identifiedSigners, &model.IdentifierSigner{
-							ParticipantID: signer.ParticipantID,
-							Address:       signerAddress.Bytes(),
-							SignatureR:    rs[i],
-							SignatureS:    ss[i],
-						})
-					}
-				}
+	for _, signer := range quorumConfig.Signers {
+		for _, signerAddrStr := range signer.Addresses {
+			signerAddress := common.HexToAddress(signerAddrStr)
+
+			if signerAddress == address {
+				q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
+				return &model.IdentifierSigner{
+					ParticipantID: signer.ParticipantID,
+					Address:       signerAddress.Bytes(),
+					SignatureR:    r,
+					SignatureS:    s,
+				}, quorumConfig, nil
 			}
 		}
 	}
 
-	if len(identifiedSigners) == 0 {
-		q.logger(ctx).Debug("No valid signers found for the provided signature")
-		return nil, nil, fmt.Errorf("no valid signers found for the provided signature")
-	}
-
-	q.logger(ctx).Debugf("Successfully validated signatures with %d signers", len(identifiedSigners))
-	return identifiedSigners, quorumConfig, nil
+	q.logger(ctx).Debug("No valid signers found for the provided signature")
+	return nil, nil, fmt.Errorf("no valid signers found for the provided signature")
 }
 
 func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {

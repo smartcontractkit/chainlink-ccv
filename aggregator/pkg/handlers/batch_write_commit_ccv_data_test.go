@@ -28,7 +28,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 		Address:       []byte{0xAA},
 	}
 	sig := aggregation_mocks.NewMockSignatureValidator(t)
-	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return([]*model.IdentifierSigner{signer}, nil, nil)
+	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(signer, nil, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
 	// Aggregation may be called once for the valid request
