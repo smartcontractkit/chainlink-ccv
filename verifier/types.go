@@ -11,9 +11,15 @@ type VerificationTask struct {
 	// TODO: Rename ReceiptBlobs to VerifierBlobs to match with onchain code.
 	ReceiptBlobs []protocol.ReceiptWithBlob `json:"receipt_blobs"`
 	Message      protocol.Message           `json:"message"`
-	BlockNumber  uint64                     `json:"block_number"` // Block number when the message was included
-	CreatedAt    time.Time                  `json:"created_at"`   // When message first entered the system (for E2E latency)
-	QueuedAt     time.Time                  `json:"queued_at"`    // When added to finality queue (for finality wait duration)
+	BlockNumber  uint64                     `json:"block_number"`  // Block number when the message was included
+	FirstSeenAt  time.Time                  `json:"first_seen_at"` // When message first entered the system (for E2E latency)
+	QueuedAt     time.Time                  `json:"queued_at"`     // When added to finality queue (for finality wait duration)
+}
+
+// CCVDataWithIdempotencyKey pairs CCVData with its corresponding idempotency key.
+type CCVDataWithIdempotencyKey struct {
+	CCVData        protocol.CCVData `json:"ccv_data"`
+	IdempotencyKey string           `json:"idempotency_key"`
 }
 
 // SourceConfig contains configuration for a single source chain.

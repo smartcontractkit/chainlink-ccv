@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/patrickmn/go-cache"
+
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -18,7 +20,9 @@ import (
 )
 
 const (
-	DefaultSourceReaderPollInterval = 2 * time.Second
+	DefaultSourceReaderPollInterval       = 2 * time.Second
+	DefaultE2ELatencyCacheExpiration      = 2 * time.Hour
+	DefaultE2ELatencyCacheCleanupInterval = 5 * time.Minute
 )
 
 // sourceState manages state for a single source chain reader.
@@ -50,12 +54,12 @@ type Coordinator struct {
 	config                CoordinatorConfig
 	finalityCheckInterval time.Duration
 	// Timestamp tracking for E2E latency measurement
-	messageTimestamps map[protocol.Bytes32]time.Time
-	timestampsMu      sync.RWMutex
-	mu                sync.RWMutex
-	verifyingWg       sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
-	backgroundWg      sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
-	running           bool
+	messageTimestamps *cache.Cache
+
+	mu           sync.RWMutex
+	verifyingWg  sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
+	backgroundWg sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
+	running      bool
 
 	// Storage batching
 	storageBatcher   *batcher.Batcher[protocol.CCVData]
@@ -186,8 +190,11 @@ func WithCurseDetector(detector common.CurseChecker) Option {
 func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		messageTimestamps:     make(map[protocol.Bytes32]time.Time),
 		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
+		messageTimestamps: cache.New(
+			DefaultE2ELatencyCacheExpiration,
+			DefaultE2ELatencyCacheCleanupInterval,
+		),
 	}
 
 	// Apply all options
@@ -440,12 +447,10 @@ func (vc *Coordinator) run(ctx context.Context) {
 	// Main loop - process batched storage writes
 	for {
 		select {
-		// FIXME Wrapping with {} will make it clearer
 		case <-ctx.Done():
 			vc.lggr.Infow("Context cancelled, stopping coordinator")
 			wg.Wait()
 			return
-
 		case ccvDataBatch, ok := <-vc.batchedCCVDataCh:
 			if !ok {
 				vc.lggr.Infow("Storage batcher channel closed")
@@ -494,25 +499,21 @@ func (vc *Coordinator) run(ctx context.Context) {
 					With("verifier_id", vc.config.VerifierID).
 					RecordStorageWriteDuration(ctx, storageDuration)
 
-				// Calculate and record E2E latency for each message in the batch
-				vc.timestampsMu.Lock()
 				for _, ccvData := range ccvDataBatch.Items {
-					// FIXME I would suggest replacing timestampsMu/messageTimestamps with go-cache
-					// * automatic expiration of old entries - it's safer in case of bugs elsewhere. We saw that for OCR2 metrics
-					//   which were responsible for extremeyly high memory consumption due to forgotten entries
-					// * no need for manual locking - go-cache is thread-safe
-					// * simpler code - no need to manually manage the map
-					if createdAt, exists := vc.messageTimestamps[ccvData.MessageID]; exists {
-						e2eDuration := time.Since(createdAt)
+					messageID := ccvData.MessageID.String()
+
+					if rawSeenAt, exists := vc.messageTimestamps.Get(messageID); exists {
+						seenAt, ok1 := rawSeenAt.(time.Time)
+						if !ok1 {
+							vc.lggr.Errorw("Invalid timestamp type in cache for message")
+							continue
+						}
 						vc.monitoring.Metrics().
 							With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
-							RecordMessageE2ELatency(ctx, e2eDuration)
-
-						// Clean up timestamp entry
-						delete(vc.messageTimestamps, ccvData.MessageID)
+							RecordMessageE2ELatency(ctx, time.Since(seenAt))
+						vc.messageTimestamps.Delete(messageID)
 					}
 				}
-				vc.timestampsMu.Unlock()
 
 				vc.lggr.Infow("CCV data batch stored successfully",
 					"batchSize", len(ccvDataBatch.Items),
@@ -703,16 +704,11 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	}
 
 	// Track message creation time for E2E latency measurement
-	vc.timestampsMu.Lock()
-	// FIXME: Is it a valid case? If SourceReader didn't set it, and we are setting it here with time.Now(),
-	// we might have inaccurate CreatedAt timestamps. Clocks between nodes will be different
-	// If we don't have real `createdAt` then maybe field should be called `SeenAt` or `FirstObservedAt`?
-	if task.CreatedAt.IsZero() {
-		// If CreatedAt was not set by source reader, set it now
-		task.CreatedAt = time.Now()
+	if task.FirstSeenAt.IsZero() {
+		// If FirstSeenAt was not set by source reader, set it now
+		task.FirstSeenAt = time.Now()
 	}
-	vc.messageTimestamps[messageID] = task.CreatedAt
-	vc.timestampsMu.Unlock()
+	vc.messageTimestamps.SetDefault(messageID.String(), task.FirstSeenAt)
 
 	messageContextLggr.Infow("Message added to finality queue",
 		"blockNumber", task.BlockNumber,
@@ -726,40 +722,18 @@ func (vc *Coordinator) readyMessagesCheckingLoop(ctx context.Context) {
 	ticker := time.NewTicker(vc.finalityCheckInterval)
 	defer ticker.Stop()
 
-	cleanupTicker := time.NewTicker(5 * time.Minute)
-	defer cleanupTicker.Stop()
-
-	vc.lggr.Infow("🔄 Starting finality checking loop")
+	vc.lggr.Infow("Starting finality checking loop")
 
 	for {
 		select {
 		case <-ctx.Done():
-			vc.lggr.Infow("🛑 Finality checking stopped due to context cancellation")
+			vc.lggr.Infow("Finality checking stopped due to context cancellation")
 			return
 		case <-ticker.C:
 			// Process finality for each chain independently
 			for _, state := range vc.sourceStates {
 				vc.processFinalityQueueForChain(ctx, state)
 			}
-		case <-cleanupTicker.C:
-			// FIXME This is exactly what go-cache would do automatically, right?
-			vc.cleanupOldTimestamps()
-		}
-	}
-}
-
-// cleanupOldTimestamps removes stale message timestamps older than 1 hour.
-func (vc *Coordinator) cleanupOldTimestamps() {
-	vc.timestampsMu.Lock()
-	defer vc.timestampsMu.Unlock()
-
-	cutoff := time.Now().Add(-1 * time.Hour)
-	for msgID, createdAt := range vc.messageTimestamps {
-		if createdAt.Before(cutoff) {
-			delete(vc.messageTimestamps, msgID)
-			vc.lggr.Warnw("Cleaned up stale message timestamp",
-				"messageID", msgID,
-				"age", time.Since(createdAt))
 		}
 	}
 }
