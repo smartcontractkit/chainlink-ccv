@@ -41,47 +41,42 @@ pyroscope_url = "http://pyroscope:4040"
   [rateLimiting.groupLimits.monitoring]
     "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 200 }
 
-# TODO: multi-committee support should be removed at some point.
-[committees]
-  [committees.default]
-    [committees.default.quorumConfigs]
-      [committees.default.quorumConfigs.12922642891491394802]
-        committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-        threshold = 2
+# Single committee configuration
+[committee]
+  [committee.quorumConfigs]
+    [committee.quorumConfigs.12922642891491394802]
+      committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+      threshold = 2
 
-        [[committees.default.quorumConfigs.12922642891491394802.signers]]
-          participantID = "default-participant1"
-          addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+      [[committee.quorumConfigs.12922642891491394802.signers]]
+        participantID = "default-participant1"
+        addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
 
-        [[committees.default.quorumConfigs.12922642891491394802.signers]]
-          participantID = "default-participant2"
-          addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
-      [committees.default.quorumConfigs.3379446385462418246]
-        committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-        threshold = 2
+      [[committee.quorumConfigs.12922642891491394802.signers]]
+        participantID = "default-participant2"
+        addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
+    [committee.quorumConfigs.3379446385462418246]
+      committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+      threshold = 2
 
-        [[committees.default.quorumConfigs.3379446385462418246.signers]]
-          participantID = "default-participant1"
-          addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+      [[committee.quorumConfigs.3379446385462418246.signers]]
+        participantID = "default-participant1"
+        addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
 
-        [[committees.default.quorumConfigs.3379446385462418246.signers]]
-          participantID = "default-participant2"
-          addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
-      [committees.default.quorumConfigs.4793464827907405086]
-        committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-        threshold = 2
+      [[committee.quorumConfigs.3379446385462418246.signers]]
+        participantID = "default-participant2"
+        addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
+    [committee.quorumConfigs.4793464827907405086]
+      committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+      threshold = 2
 
-        [[committees.default.quorumConfigs.4793464827907405086.signers]]
-          participantID = "default-participant1"
-          addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
-        
-        [[committees.default.quorumConfigs.4793464827907405086.signers]]
-          participantID = "default-participant2"
-          addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
-    [committees.default.sourceVerifierAddresses]
-      12922642891491394802 = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-      3379446385462418246 = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-      4793464827907405086 = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+      [[committee.quorumConfigs.4793464827907405086.signers]]
+        participantID = "default-participant1"
+        addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+      
+      [[committee.quorumConfigs.4793464827907405086.signers]]
+        participantID = "default-participant2"
+        addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
 
 [Monitoring]
 Enabled = true

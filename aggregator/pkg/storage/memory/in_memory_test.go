@@ -11,12 +11,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
-const testCommitteeID = "test-committee"
-
 func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
 	storage := NewInMemoryStorage()
 	ctx := context.Background()
-	committeeID := testCommitteeID
 
 	// Create test data
 	messageID1 := []byte("message1")
@@ -24,14 +21,12 @@ func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
 	messageID3 := []byte("message3") // This one won't have data
 
 	report1 := &model.CommitAggregatedReport{
-		MessageID:   messageID1,
-		CommitteeID: committeeID,
-		Sequence:    1,
+		MessageID: messageID1,
+		Sequence:  1,
 	}
 	report2 := &model.CommitAggregatedReport{
-		MessageID:   messageID2,
-		CommitteeID: committeeID,
-		Sequence:    2,
+		MessageID: messageID2,
+		Sequence:  2,
 	}
 
 	// Store test data
@@ -42,7 +37,7 @@ func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
 
 	// Test batch retrieval
 	messageIDs := []model.MessageID{messageID1, messageID2, messageID3}
-	results, err := storage.GetBatchCCVData(ctx, messageIDs, committeeID)
+	results, err := storage.GetBatchCCVData(ctx, messageIDs)
 	require.NoError(t, err)
 
 	// Verify results
@@ -63,10 +58,9 @@ func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
 func TestInMemoryStorage_GetBatchCCVData_EmptyMessageIDs(t *testing.T) {
 	storage := NewInMemoryStorage()
 	ctx := context.Background()
-	committeeID := testCommitteeID
 
 	// Test with empty message IDs
-	results, err := storage.GetBatchCCVData(ctx, []model.MessageID{}, committeeID)
+	results, err := storage.GetBatchCCVData(ctx, []model.MessageID{})
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
@@ -74,35 +68,10 @@ func TestInMemoryStorage_GetBatchCCVData_EmptyMessageIDs(t *testing.T) {
 func TestInMemoryStorage_GetBatchCCVData_NoMatchingData(t *testing.T) {
 	storage := NewInMemoryStorage()
 	ctx := context.Background()
-	committeeID := testCommitteeID
 
 	// Test with message IDs that don't exist
 	messageIDs := []model.MessageID{[]byte("nonexistent1"), []byte("nonexistent2")}
-	results, err := storage.GetBatchCCVData(ctx, messageIDs, committeeID)
+	results, err := storage.GetBatchCCVData(ctx, messageIDs)
 	require.NoError(t, err)
 	assert.Empty(t, results)
-}
-
-func TestInMemoryStorage_GetBatchCCVData_WrongCommittee(t *testing.T) {
-	storage := NewInMemoryStorage()
-	ctx := context.Background()
-	committeeID := testCommitteeID
-	wrongCommitteeID := "wrong-committee"
-
-	// Create and store test data
-	messageID := []byte("message1")
-	report := &model.CommitAggregatedReport{
-		MessageID:   messageID,
-		CommitteeID: committeeID,
-		Sequence:    1,
-	}
-
-	err := storage.SubmitReport(ctx, report)
-	require.NoError(t, err)
-
-	// Try to retrieve with wrong committee ID
-	messageIDs := []model.MessageID{messageID}
-	results, err := storage.GetBatchCCVData(ctx, messageIDs, wrongCommitteeID)
-	require.NoError(t, err)
-	assert.Empty(t, results, "Should return empty results for wrong committee ID")
 }

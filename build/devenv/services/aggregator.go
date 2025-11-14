@@ -93,8 +93,7 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs           map[string]*QuorumConfig `toml:"quorumConfigs"`
-	SourceVerifierAddresses map[string]string        `toml:"sourceVerifierAddresses"`
+	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
 }
 
 // StorageConfig represents the configuration for the storage backend.

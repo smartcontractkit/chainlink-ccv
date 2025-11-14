@@ -16,7 +16,6 @@ type commitVerificationRecordRow struct {
 	ID                    int64     `db:"id"`
 	SeqNum                int64     `db:"seq_num"`
 	MessageID             string    `db:"message_id"`
-	CommitteeID           string    `db:"committee_id"`
 	ParticipantID         string    `db:"participant_id"`
 	SignerAddress         string    `db:"signer_address"`
 	SignatureR            []byte    `db:"signature_r"`
@@ -68,7 +67,6 @@ func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.Com
 		Address:       signerAddrBytes,
 		SignatureR:    sigR,
 		SignatureS:    sigS,
-		CommitteeID:   row.CommitteeID,
 	}
 
 	var msgData messageDataJSON
@@ -115,7 +113,6 @@ func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.Com
 		Timestamp:             row.VerificationTimestamp,
 		ReceiptBlobs:          receiptBlobs,
 		IdentifierSigner:      identifierSigner,
-		CommitteeID:           row.CommitteeID,
 		IdempotencyKey:        row.IdempotencyKey,
 	}, nil
 }
@@ -164,7 +161,6 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 
 	params := map[string]any{
 		"message_id":              messageIDHex,
-		"committee_id":            record.CommitteeID,
 		"participant_id":          record.IdentifierSigner.ParticipantID,
 		"signer_address":          signerAddressHex,
 		"signature_r":             record.IdentifierSigner.SignatureR[:],
@@ -189,11 +185,11 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 	return params, nil
 }
 
-const allVerificationRecordColumns = `message_id, committee_id, participant_id, signer_address, 
+const allVerificationRecordColumns = `message_id, participant_id, signer_address, 
 	signature_r, signature_s, verification_timestamp, idempotency_key, aggregation_key,
 	source_verifier_address, blob_data, ccv_data, message_data, receipt_blobs, id`
 
-const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.committee_id, cvr.participant_id, cvr.signer_address, 
+const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.participant_id, cvr.signer_address, 
 	cvr.signature_r, cvr.signature_s, cvr.verification_timestamp, cvr.idempotency_key, cvr.aggregation_key,
 	cvr.source_verifier_address, cvr.blob_data, cvr.ccv_data, cvr.message_data, cvr.receipt_blobs, cvr.id`
 

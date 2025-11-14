@@ -187,7 +187,6 @@ func DeserializeReceiptBlobsJSON(data []byte) ([]*ReceiptBlob, error) {
 // CommitAggregatedReport represents a report of aggregated commit verifications.
 type CommitAggregatedReport struct {
 	MessageID     MessageID
-	CommitteeID   CommitteeID
 	Verifications []*CommitVerificationRecord
 	Sequence      int64
 	// WrittenAt represents when the aggregated report was written to storage.
@@ -215,8 +214,8 @@ func (c *CommitAggregatedReport) GetMostRecentVerificationTimestamp() time.Time 
 	return mostRecent
 }
 
-func GetAggregatedReportID(messageID MessageID, committeeID CommitteeID) string {
-	return hex.EncodeToString(messageID) + ":" + committeeID
+func GetAggregatedReportID(messageID MessageID) string {
+	return hex.EncodeToString(messageID)
 }
 
 func (c *CommitAggregatedReport) CalculateTimeToAggregation(aggregationTime time.Time) time.Duration {
@@ -230,7 +229,7 @@ func (c *CommitAggregatedReport) CalculateTimeToAggregation(aggregationTime time
 }
 
 func (c *CommitAggregatedReport) GetID() string {
-	return GetAggregatedReportID(c.MessageID, c.CommitteeID)
+	return GetAggregatedReportID(c.MessageID)
 }
 
 // GetDestinationSelector retrieves the destination chain selector from the first verification record.

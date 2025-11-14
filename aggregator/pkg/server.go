@@ -254,9 +254,9 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator)
 	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, l)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring)
-	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
-	getBatchCCVDataForMessageHandler := handlers.NewGetBatchCCVDataForMessageHandler(store, config.Committees, config.MaxMessageIDsPerBatch, l)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
+	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committee, l)
+	getBatchCCVDataForMessageHandler := handlers.NewGetBatchCCVDataForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
 	// Initialize chain status storage

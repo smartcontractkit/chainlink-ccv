@@ -17,7 +17,7 @@ import (
 
 type GetCCVDataForMessageHandler struct {
 	storage   common.CommitVerificationAggregatedStore
-	committee map[string]*model.Committee
+	committee *model.Committee
 	l         logger.SugaredLogger
 }
 
@@ -27,12 +27,10 @@ func (h *GetCCVDataForMessageHandler) logger(ctx context.Context) logger.Sugared
 
 // Handle processes the get request and retrieves the commit verification data.
 func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.GetVerifierResultForMessageRequest) (*pb.VerifierResult, error) {
-	committeeID := LoadCommitteeIDFromContext(ctx)
 	ctx = scope.WithMessageID(ctx, req.MessageId)
-	ctx = scope.WithCommitteeID(ctx, committeeID)
 	h.logger(ctx).Infof("Received GetVerifierResultForMessageRequest")
 
-	data, err := h.storage.GetCCVData(ctx, req.MessageId, committeeID)
+	data, err := h.storage.GetCCVData(ctx, req.MessageId)
 	if err != nil {
 		h.logger(ctx).Errorw("failed to get CCV data", "messageID", fmt.Sprintf("%x", req.MessageId), "error", err)
 		return nil, status.Errorf(codes.Internal, "%s", fmt.Sprintf("failed to get CCV data for message ID %x: %v", req.MessageId, err))
@@ -53,7 +51,7 @@ func (h *GetCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.GetVer
 }
 
 // NewGetCCVDataForMessageHandler creates a new instance of GetCCVDataForMessageHandler.
-func NewGetCCVDataForMessageHandler(storage common.CommitVerificationAggregatedStore, committee map[string]*model.Committee, l logger.SugaredLogger) *GetCCVDataForMessageHandler {
+func NewGetCCVDataForMessageHandler(storage common.CommitVerificationAggregatedStore, committee *model.Committee, l logger.SugaredLogger) *GetCCVDataForMessageHandler {
 	return &GetCCVDataForMessageHandler{
 		storage:   storage,
 		committee: committee,
