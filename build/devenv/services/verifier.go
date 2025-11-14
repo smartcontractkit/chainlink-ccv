@@ -14,7 +14,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -83,16 +82,14 @@ type VerifierInput struct {
 	SourceCodePath string           `toml:"source_code_path"`
 	RootPath       string           `toml:"root_path"`
 	// TODO: Rename to VerifierID -- maps to this value in verifier.Config
-	ContainerName     string               `toml:"container_name"`
-	VerifierConfig    verifier.Config      `toml:"verifier_config"`
-	Port              int                  `toml:"port"`
-	UseCache          bool                 `toml:"use_cache"`
-	ConfigFilePath    string               `toml:"config_file_path"`
-	BlockchainOutputs []*blockchain.Output `toml:"-"`
-	AggregatorAddress string               `toml:"aggregator_address"`
-	Env               *VerifierEnvConfig   `toml:"env"`
-	CommitteeName     string               `toml:"committee_name"`
-	NodeIndex         int                  `toml:"node_index"`
+	ContainerName     string             `toml:"container_name"`
+	Port              int                `toml:"port"`
+	UseCache          bool               `toml:"use_cache"`
+	ConfigFilePath    string             `toml:"config_file_path"`
+	AggregatorAddress string             `toml:"aggregator_address"`
+	Env               *VerifierEnvConfig `toml:"env"`
+	CommitteeName     string             `toml:"committee_name"`
+	NodeIndex         int                `toml:"node_index"`
 
 	// SigningKey is generated during the deploy step.
 	SigningKey string `toml:"signing_key"`

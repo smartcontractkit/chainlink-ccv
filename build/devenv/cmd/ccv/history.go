@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 )
 
 func historyFilePath() string {
-	return filepath.Join(configDir(), "ccv", historyFileName)
+	return filepath.Join(util.CCVConfigDir(), historyFileName)
 }
 
 func getHistory() []string {

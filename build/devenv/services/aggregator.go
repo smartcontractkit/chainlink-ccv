@@ -2,18 +2,28 @@ package services
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 
+	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
+
+//go:embed aggregator.template.toml
+var aggregatorConfigTemplate string
 
 const (
 	AggregatorContainerNameSuffix = "aggregator"
@@ -65,6 +75,9 @@ type AggregatorInput struct {
 	Out            *AggregatorOutput     `toml:"-"`
 	Env            *AggregatorEnvConfig  `toml:"env"`
 	CommitteeName  string                `toml:"committee_name"`
+
+	// Chain selector -> Committee Verifier Resolver Proxy Address
+	CommitteeVerifierResolverProxyAddresses map[uint64]string `toml:"committee_verifier_resolver_proxy_addresses"`
 }
 
 type AggregatorOutput struct {
@@ -107,7 +120,7 @@ type ServerConfig struct {
 	Address string `toml:"address"`
 }
 
-func validateAggregatorInput(in *AggregatorInput) error {
+func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 	if in.Image == "" {
 		return fmt.Errorf("image is required for aggregator")
 	}
@@ -148,23 +161,85 @@ func validateAggregatorInput(in *AggregatorInput) error {
 	if in.Env.RedisDB == "" {
 		return fmt.Errorf("redis DB is required for aggregator")
 	}
+
+	if inV == nil {
+		return fmt.Errorf("at least one verifier input is required for aggregator")
+	}
+	for range inV {
+		// TODO: Validate verifier input?
+	}
 	return nil
 }
 
-func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
+// generateConfigs generates the aggregator service configuration using the inputs.
+func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
+	committeeName := in.CommitteeName
+
+	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load aggregator config template: %w", err)
+	}
+
+	committeeConfig := &model.Committee{}
+	committeeConfig.QuorumConfigs = make(map[string]*model.QuorumConfig)
+
+	// Note: all verifiers are configured on all chains with the same pubkey.
+	for chainSelector, verifierAddress := range in.CommitteeVerifierResolverProxyAddresses {
+		chainSelStr := strconv.FormatUint(chainSelector, 10)
+		threshold := uint8(0)
+		var signers []model.Signer
+		for i, v := range inV {
+			if v.CommitteeName != committeeName {
+				continue
+			}
+			threshold++
+			signers = append(signers, model.Signer{
+				ParticipantID: fmt.Sprintf("%s-participant%d", committeeName, i),
+				Addresses:     []string{v.SigningKeyPublic},
+			})
+		}
+		committeeConfig.QuorumConfigs[chainSelStr] = &model.QuorumConfig{
+			CommitteeVerifierAddress: verifierAddress,
+			Signers:                  signers,
+			Threshold:                threshold,
+		}
+	}
+
+	config.Committee = committeeConfig
+
+	cfg, err := toml.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
+	}
+	return cfg, nil
+}
+
+func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
-	if err := validateAggregatorInput(in); err != nil {
+	if err := validateAggregatorInput(in, inV); err != nil {
 		return nil, err
 	}
 	ctx := context.Background()
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
+	}
+
+	config, err := generateConfig(in, inV)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate aggregator config: %w", err)
+	}
+
+	confDir := util.CCVConfigDir()
+	configFilePath := filepath.Join(confDir,
+		fmt.Sprintf("aggregator-%s-config.toml", in.CommitteeName))
+	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
 
 	// Start the aggregator postgres database container
@@ -283,20 +358,14 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	if in.SourceCodePath != "" {
-		absRootPath, err := filepath.Abs(in.RootPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get absolute root path: %w", err)
-		}
-
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 
 		// TODO: Generate config file, write it to a local path, and mount it here.
 		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
-			filepath.Join(absRootPath, "build", "devenv", "configs", "aggregator", in.CommitteeName, "aggregator.toml"),
-			// aggregator.DefaultConfigFile,
-			"/etc/config.toml",
+			configFilePath,
+			aggregator.DefaultConfigFile,
 		))
 		framework.L.Info().
 			Str("Service", aggregatorContainerName).
