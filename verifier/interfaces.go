@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
@@ -18,7 +19,7 @@ type MessageSigner interface {
 type Verifier interface {
 	// VerifyMessages performs verification of a batch of messages, adding successful results to the batcher.
 	// Returns a BatchResult containing any verification errors that occurred.
-	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[CCVDataWithIdempotencyKey]) batcher.BatchResult[VerificationError]
+	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) batcher.BatchResult[VerificationError]
 }
 
 // Monitoring provides all core monitoring functionality for the verifier.

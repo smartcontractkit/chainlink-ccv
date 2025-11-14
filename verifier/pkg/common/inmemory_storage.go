@@ -104,7 +104,7 @@ func (s *InMemoryOffchainStorage) WaitForStore(ctx context.Context) error {
 }
 
 // WriteCCVNodeData stores multiple CCV data entries in the offchain storage.
-func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData, idempotencyKeys []string) error {
+func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -385,7 +385,5 @@ type WriterOnlyView struct {
 }
 
 func (w *WriterOnlyView) WriteCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
-	// Generate empty idempotency keys for in-memory storage (they are not used)
-	idempotencyKeys := make([]string, len(ccvDataList))
-	return w.storage.WriteCCVNodeData(ctx, ccvDataList, idempotencyKeys)
+	return w.storage.WriteCCVNodeData(ctx, ccvDataList)
 }

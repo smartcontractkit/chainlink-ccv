@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -21,7 +20,6 @@ type commitVerificationRecordRow struct {
 	SignatureR            []byte    `db:"signature_r"`
 	SignatureS            []byte    `db:"signature_s"`
 	VerificationTimestamp time.Time `db:"verification_timestamp"`
-	IdempotencyKey        uuid.UUID `db:"idempotency_key"`
 	AggregationKey        string    `db:"aggregation_key"`
 	SourceVerifierAddress []byte    `db:"source_verifier_address"`
 	BlobData              []byte    `db:"blob_data"`
@@ -113,7 +111,6 @@ func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.Com
 		Timestamp:             row.VerificationTimestamp,
 		ReceiptBlobs:          receiptBlobs,
 		IdentifierSigner:      identifierSigner,
-		IdempotencyKey:        row.IdempotencyKey,
 	}, nil
 }
 
@@ -166,7 +163,6 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 		"signature_r":             record.IdentifierSigner.SignatureR[:],
 		"signature_s":             record.IdentifierSigner.SignatureS[:],
 		"verification_timestamp":  record.Timestamp,
-		"idempotency_key":         record.IdempotencyKey,
 		"aggregation_key":         aggregationKey,
 		"source_verifier_address": record.SourceVerifierAddress,
 		"blob_data":               record.BlobData,
@@ -186,11 +182,11 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 }
 
 const allVerificationRecordColumns = `message_id, participant_id, signer_address, 
-	signature_r, signature_s, verification_timestamp, idempotency_key, aggregation_key,
+	signature_r, signature_s, verification_timestamp, aggregation_key,
 	source_verifier_address, blob_data, ccv_data, message_data, receipt_blobs, id`
 
 const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.participant_id, cvr.signer_address, 
-	cvr.signature_r, cvr.signature_s, cvr.verification_timestamp, cvr.idempotency_key, cvr.aggregation_key,
+	cvr.signature_r, cvr.signature_s, cvr.verification_timestamp, cvr.aggregation_key,
 	cvr.source_verifier_address, cvr.blob_data, cvr.ccv_data, cvr.message_data, cvr.receipt_blobs, cvr.id`
 
 func mustParseUint64(s string) uint64 {

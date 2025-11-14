@@ -62,8 +62,8 @@ type Coordinator struct {
 	running      bool
 
 	// Storage batching
-	storageBatcher   *batcher.Batcher[CCVDataWithIdempotencyKey]
-	batchedCCVDataCh chan batcher.BatchResult[CCVDataWithIdempotencyKey]
+	storageBatcher   *batcher.Batcher[protocol.CCVData]
+	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVData]
 
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
@@ -353,7 +353,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	}
 
 	// Initialize storage batcher (will automatically flush when ctx is canceled)
-	vc.batchedCCVDataCh = make(chan batcher.BatchResult[CCVDataWithIdempotencyKey], 10)
+	vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
 	vc.storageBatcher = batcher.NewBatcher(
 		ctx,
 		vc.config.StorageBatchSize,
@@ -476,23 +476,14 @@ func (vc *Coordinator) run(ctx context.Context) {
 			// FIXME: Entire write batch to offchain storage should be extracted to a separate method
 			storageStart := time.Now()
 
-			// Extract CCVData and idempotency keys from the batch
-			ccvDataList := make([]protocol.CCVData, len(ccvDataBatch.Items))
-			idempotencyKeys := make([]string, len(ccvDataBatch.Items))
-			for i, item := range ccvDataBatch.Items {
-				ccvDataList[i] = item.CCVData
-				idempotencyKeys[i] = item.IdempotencyKey
-			}
-
-			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataList, idempotencyKeys); err != nil {
+			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err != nil {
 				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 				vc.lggr.Errorw("Error storing CCV data batch",
 					"error", err,
 					"batchSize", len(ccvDataBatch.Items),
 				)
 				// Log individual messageIDs in failed batch
-				for _, item := range ccvDataBatch.Items {
-					ccvData := item.CCVData
+				for _, ccvData := range ccvDataBatch.Items {
 					vc.lggr.Errorw("Failed to store CCV data in batch",
 						"messageID", ccvData.MessageID,
 						"nonce", ccvData.Nonce,
@@ -508,8 +499,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 					With("verifier_id", vc.config.VerifierID).
 					RecordStorageWriteDuration(ctx, storageDuration)
 
-				for _, item := range ccvDataBatch.Items {
-					ccvData := item.CCVData
+				for _, ccvData := range ccvDataBatch.Items {
 					messageID := ccvData.MessageID.String()
 
 					if rawSeenAt, exists := vc.messageTimestamps.Get(messageID); exists {
