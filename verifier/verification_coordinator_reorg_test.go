@@ -32,7 +32,7 @@ type reorgTestSetup struct {
 	storage            *common.InMemoryOffchainStorage
 	chainSelector      protocol.ChainSelector
 	lggr               logger.Logger
-	taskChannel        chan protocol.MessageSentEvent
+	sentEventsChan     chan protocol.MessageSentEvent
 
 	// Coordinator configuration for recreating coordinators
 	coordinatorConfig     CoordinatorConfig
@@ -96,7 +96,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 		currentFinalized:      initialFinalized,
 		testVerifier:          testVer,
 		storage:               common.NewInMemoryOffchainStorage(lggr),
-		taskChannel:           mockSetup.Channel,
+		sentEventsChan:        mockSetup.Channel,
 		coordinatorConfig:     coordinatorConfig,
 		finalityCheckInterval: finalityCheckInterval,
 	}
@@ -365,7 +365,7 @@ func sendEventsToChannel(t *testing.T, setup *reorgTestSetup, events []protocol.
 	// Send events via channel
 	go func() {
 		for _, event := range events {
-			setup.taskChannel <- event
+			setup.sentEventsChan <- event
 		}
 	}()
 	// Give some time for tasks to be queued

@@ -33,7 +33,7 @@ type curseTestSetup struct {
 	sourceChain        protocol.ChainSelector
 	destChain          protocol.ChainSelector
 	lggr               logger.Logger
-	taskChannel        chan protocol.MessageSentEvent
+	sentEventsChan     chan protocol.MessageSentEvent
 
 	// Block state for simulating chain progression
 	currentLatest    *protocol.BlockHeader
@@ -92,7 +92,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		currentFinalized:   initialFinalized,
 		testVerifier:       testVer,
 		storage:            common.NewInMemoryOffchainStorage(lggr),
-		taskChannel:        mockSetup.Channel,
+		sentEventsChan:     mockSetup.Channel,
 	}
 
 	// Setup mock head tracker to return current state
@@ -184,7 +184,7 @@ func (s *curseTestSetup) sendEvents(events []protocol.MessageSentEvent) {
 	s.t.Log("📋 Sending events to verification pipeline")
 	go func() {
 		for _, event := range events {
-			s.taskChannel <- event
+			s.sentEventsChan <- event
 		}
 	}()
 	// Give some time for events to be queued

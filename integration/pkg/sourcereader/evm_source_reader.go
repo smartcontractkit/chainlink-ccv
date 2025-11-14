@@ -306,7 +306,6 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		r.lggr.Infow("📋 Processed executor receipt",
 			"issuer", executorReceipt.Issuer.Hex())
 
-		// Create MessageSentEvent
 		results = append(results, protocol.MessageSentEvent{
 			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
 			SequenceNumber:    event.SequenceNumber,
