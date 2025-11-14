@@ -17,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const (
@@ -45,21 +46,20 @@ type sourceState struct {
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
+	services.StateMachine
+	cancel       context.CancelFunc
+	verifyingWg  sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
+	backgroundWg sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
+
 	verifier              Verifier
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
 	monitoring            Monitoring
 	sourceStates          map[protocol.ChainSelector]*sourceState
-	cancel                context.CancelFunc
 	config                CoordinatorConfig
 	finalityCheckInterval time.Duration
 	// Timestamp tracking for E2E latency measurement
 	messageTimestamps *cache.Cache
-
-	mu           sync.RWMutex
-	verifyingWg  sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
-	backgroundWg sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
-	running      bool
 
 	// Storage batching
 	storageBatcher   *batcher.Batcher[protocol.CCVData]
@@ -216,223 +216,206 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 // FIXME: This method is too long, needs refactoring.
 // Maybe we can split into smaller methods related to initialization of different components?
 // Start begins the verification coordinator processing.
-func (vc *Coordinator) Start(ctx context.Context) error {
-	vc.mu.Lock()
-	defer vc.mu.Unlock()
-	// TODO: If aggregator is not healthy don't start verifier
+func (vc *Coordinator) Start(_ context.Context) error {
+	return vc.StartOnce("Coordinator", func() error {
+		ctx, cancel := context.WithCancel(context.Background())
+		vc.cancel = cancel
 
-	if vc.running {
-		return fmt.Errorf("coordinator already running")
-	}
+		// Check for disabled chains before initialization
+		statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	vc.cancel = cancel
+		if vc.chainStatusManager != nil {
+			// Gather all configured chain selectors
+			allSelectors := make([]protocol.ChainSelector, 0, len(vc.sourceReaders))
+			for selector := range vc.sourceReaders {
+				allSelectors = append(allSelectors, selector)
+			}
 
-	// Check for disabled chains before initialization
-	statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-
-	if vc.chainStatusManager != nil {
-		// Gather all configured chain selectors
-		allSelectors := make([]protocol.ChainSelector, 0, len(vc.sourceReaders))
-		for selector := range vc.sourceReaders {
-			allSelectors = append(allSelectors, selector)
+			// Make single batch call to read all chain statuses
+			var err error
+			statusMap, err = vc.chainStatusManager.ReadChainStatuses(ctx, allSelectors)
+			if err != nil {
+				vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains",
+					"error", err)
+			}
 		}
 
-		// Make single batch call to read all chain statuses
-		var err error
-		statusMap, err = vc.chainStatusManager.ReadChainStatuses(ctx, allSelectors)
-		if err != nil {
-			vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains",
-				"error", err)
+		// Initialize source states with reorg detection
+		// Also collect RMN curse readers for curse detector
+		rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+
+		for chainSelector, sourceReader := range vc.sourceReaders {
+			if sourceReader == nil {
+				continue
+			}
+
+			// Check if chain is disabled
+			if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
+				vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
+					"chain", chainSelector,
+					"blockHeight", chainStatus.BlockNumber)
+				continue
+			}
+
+			sourceCfg, ok := vc.config.SourceConfigs[chainSelector]
+			if !ok {
+				vc.lggr.Warnw("skipping source reader: no source config found for chain selector", "chainSelector", chainSelector)
+				continue
+			}
+
+			// SourceReader automatically satisfies RMNCurseReader interface
+			rmnReaders[chainSelector] = sourceReader
+
+			sourcePollInterval := DefaultSourceReaderPollInterval
+			if sourceCfg.PollInterval > 0 {
+				sourcePollInterval = sourceCfg.PollInterval
+			}
+
+			// Get the corresponding HeadTracker for this chain
+			headTracker, ok := vc.headTrackers[chainSelector]
+			if !ok {
+				vc.lggr.Errorw("skipping source reader: no head tracker found for chain selector", "chainSelector", chainSelector)
+				continue
+			}
+
+			service := NewSourceReaderService(
+				sourceReader,
+				headTracker,
+				chainSelector,
+				vc.chainStatusManager,
+				vc.lggr,
+				sourcePollInterval,
+			)
+
+			err := service.Start(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to start source reader for chain %d: %w", chainSelector, err)
+			}
+			// Create source state
+			state := &sourceState{
+				reader:             service,
+				chainSelector:      chainSelector,
+				verificationTaskCh: service.VerificationTaskChannel(),
+			}
+
+			// Setup ReorgDetector (if provided)
+			// TODO: Initialize reorgDetectorService like the sourceReaderService - we can keep the WithReorgDetector option and create them if they're not present
+			if detector, hasDetector := vc.reorgDetectors[chainSelector]; hasDetector {
+				// Start detector (blocks until initial tail is built and subscription is established)
+				reorgStatusCh, err := detector.Start(ctx)
+				if err != nil {
+					vc.lggr.Errorw("Failed to start reorg detector",
+						"chainSelector", chainSelector,
+						"error", err)
+					// TODO: Should we make the reorg detector mandatory to the point we stop the
+					// 	reader as I'm doing here?
+					_ = service.Stop()
+				} else {
+					// Store reorg detection components
+					state.reorgDetector = detector
+					state.reorgStatusCh = reorgStatusCh
+
+					vc.lggr.Infow("Reorg detector started successfully",
+						"chainSelector", chainSelector)
+
+					// Spawn processReorgUpdates goroutine
+					vc.backgroundWg.Add(1)
+					go func(s *sourceState) {
+						defer vc.backgroundWg.Done()
+						vc.processReorgUpdates(ctx, s)
+					}(state)
+				}
+			} else {
+				vc.lggr.Infow("No reorg detector provided for chain, reorg detection disabled", "chainSelector", chainSelector)
+			}
+
+			vc.sourceStates[chainSelector] = state
 		}
-	}
 
-	// Initialize source states with reorg detection
-	// Also collect RMN curse readers for curse detector
-	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
-
-	for chainSelector, sourceReader := range vc.sourceReaders {
-		if sourceReader == nil {
-			continue
+		// If all chains are disabled, there are no source states and no RMN readers
+		// In this case, we should not start the coordinator as there's nothing to coordinate
+		if len(vc.sourceStates) == 0 {
+			vc.lggr.Warnw("No enabled chains found, coordinator cannot start")
+			return fmt.Errorf("no enabled chains to coordinate")
 		}
 
-		// Check if chain is disabled
-		if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
-			vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
-				"chain", chainSelector,
-				"blockHeight", chainStatus.BlockNumber)
-			continue
+		if err := vc.startCurseDetector(ctx, rmnReaders); err != nil {
+			return fmt.Errorf("failed to create and start curse detector: %w", err)
 		}
 
-		sourceCfg, ok := vc.config.SourceConfigs[chainSelector]
-		if !ok {
-			vc.lggr.Warnw("skipping source reader: no source config found for chain selector", "chainSelector", chainSelector)
-			continue
-		}
-
-		// SourceReader automatically satisfies RMNCurseReader interface
-		rmnReaders[chainSelector] = sourceReader
-
-		sourcePollInterval := DefaultSourceReaderPollInterval
-		if sourceCfg.PollInterval > 0 {
-			sourcePollInterval = sourceCfg.PollInterval
-		}
-
-		// Get the corresponding HeadTracker for this chain
-		headTracker, ok := vc.headTrackers[chainSelector]
-		if !ok {
-			vc.lggr.Errorw("skipping source reader: no head tracker found for chain selector", "chainSelector", chainSelector)
-			continue
-		}
-
-		service := NewSourceReaderService(
-			sourceReader,
-			headTracker,
-			chainSelector,
-			vc.chainStatusManager,
-			vc.lggr,
-			sourcePollInterval,
+		// Initialize storage batcher (will automatically flush when ctx is canceled)
+		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
+		vc.storageBatcher = batcher.NewBatcher(
+			ctx,
+			vc.config.StorageBatchSize,
+			vc.config.StorageBatchTimeout,
+			vc.batchedCCVDataCh,
 		)
 
-		err := service.Start(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to start source reader for chain %d: %w", chainSelector, err)
-		}
-		// Create source state
-		state := &sourceState{
-			reader:             service,
-			chainSelector:      chainSelector,
-			verificationTaskCh: service.VerificationTaskChannel(),
-		}
+		// Start processing loop and finality checking
+		vc.backgroundWg.Add(1)
+		go func() {
+			defer vc.backgroundWg.Done()
+			vc.run(ctx)
+		}()
 
-		// Setup ReorgDetector (if provided)
-		// TODO: Initialize reorgDetectorService like the sourceReaderService - we can keep the WithReorgDetector option and create them if they're not present
-		if detector, hasDetector := vc.reorgDetectors[chainSelector]; hasDetector {
-			// Start detector (blocks until initial tail is built and subscription is established)
-			reorgStatusCh, err := detector.Start(ctx)
-			if err != nil {
-				vc.lggr.Errorw("Failed to start reorg detector",
-					"chainSelector", chainSelector,
-					"error", err)
-				// TODO: Should we make the reorg detector mandatory to the point we stop the
-				// 	reader as I'm doing here?
-				_ = service.Stop()
-			} else {
-				// Store reorg detection components
-				state.reorgDetector = detector
-				state.reorgStatusCh = reorgStatusCh
+		vc.backgroundWg.Add(1)
+		go func() {
+			defer vc.backgroundWg.Done()
+			vc.readyMessagesCheckingLoop(ctx)
+		}()
 
-				vc.lggr.Infow("Reorg detector started successfully",
-					"chainSelector", chainSelector)
+		vc.lggr.Infow("Coordinator started with finality checking and reorg detection",
+			"coordinatorID", vc.config.VerifierID,
+		)
 
-				// Spawn processReorgUpdates goroutine
-				vc.backgroundWg.Add(1)
-				go func(s *sourceState) {
-					defer vc.backgroundWg.Done()
-					vc.processReorgUpdates(ctx, s)
-				}(state)
-			}
-		} else {
-			vc.lggr.Infow("No reorg detector provided for chain, reorg detection disabled", "chainSelector", chainSelector)
-		}
-
-		vc.sourceStates[chainSelector] = state
-	}
-
-	// If all chains are disabled, there are no source states and no RMN readers
-	// In this case, we should not start the coordinator as there's nothing to coordinate
-	if len(vc.sourceStates) == 0 {
-		vc.lggr.Warnw("No enabled chains found, coordinator cannot start")
-		return fmt.Errorf("no enabled chains to coordinate")
-	}
-
-	vc.running = true
-
-	if err := vc.startCurseDetector(ctx, rmnReaders); err != nil {
-		return fmt.Errorf("failed to create and start curse detector: %w", err)
-	}
-
-	// Initialize storage batcher (will automatically flush when ctx is canceled)
-	vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
-	vc.storageBatcher = batcher.NewBatcher(
-		ctx,
-		vc.config.StorageBatchSize,
-		vc.config.StorageBatchTimeout,
-		vc.batchedCCVDataCh,
-	)
-
-	// Start processing loop and finality checking
-	vc.backgroundWg.Add(1)
-	go func() {
-		defer vc.backgroundWg.Done()
-		vc.run(ctx)
-	}()
-
-	vc.backgroundWg.Add(1)
-	go func() {
-		defer vc.backgroundWg.Done()
-		vc.readyMessagesCheckingLoop(ctx)
-	}()
-
-	vc.lggr.Infow("Coordinator started with finality checking and reorg detection",
-		"coordinatorID", vc.config.VerifierID,
-	)
-
-	return nil
+		return nil
+	})
 }
 
 // Close stops the verification coordinator processing.
 func (vc *Coordinator) Close() error {
-	vc.mu.Lock()
-	if !vc.running {
-		vc.mu.Unlock()
-		return fmt.Errorf("coordinator not running")
-	}
-	vc.mu.Unlock()
+	return vc.StopOnce("Coordinator", func() error {
+		// Signal all goroutines to stop processing new work.
+		// This will also trigger the batcher to flush remaining items.
+		vc.cancel()
 
-	// Signal all goroutines to stop processing new work.
-	// This will also trigger the batcher to flush remaining items.
-	vc.cancel()
+		// Wait for any in-flight verification tasks to complete.
+		vc.verifyingWg.Wait()
 
-	// Wait for any in-flight verification tasks to complete.
-	vc.verifyingWg.Wait()
-
-	// Wait for storage batcher goroutine to finish flushing
-	if vc.storageBatcher != nil {
-		if err := vc.storageBatcher.Close(); err != nil {
-			vc.lggr.Errorw("Error closing storage batcher", "error", err)
-		}
-	}
-
-	// Wait for background goroutines (run, readyMessagesCheckingLoop, and processReorgUpdates) to finish.
-	vc.backgroundWg.Wait()
-
-	// Close curse detector
-	if vc.curseDetector != nil {
-		if err := vc.curseDetector.Close(); err != nil {
-			vc.lggr.Errorw("Error closing curse detector", "error", err)
-		}
-	}
-
-	// Close reorg detectors & source readers
-	for chainSelector, state := range vc.sourceStates {
-		if state.reorgDetector != nil {
-			if err := state.reorgDetector.Close(); err != nil {
-				vc.lggr.Errorw("Error closing reorg detector", "error", err, "chainSelector", chainSelector)
+		// Wait for storage batcher goroutine to finish flushing
+		if vc.storageBatcher != nil {
+			if err := vc.storageBatcher.Close(); err != nil {
+				vc.lggr.Errorw("Error closing storage batcher", "error", err)
 			}
 		}
-		if err := state.reader.Stop(); err != nil {
-			vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
+
+		// Wait for background goroutines (run, readyMessagesCheckingLoop, and processReorgUpdates) to finish.
+		vc.backgroundWg.Wait()
+
+		// Close curse detector
+		if vc.curseDetector != nil {
+			if err := vc.curseDetector.Close(); err != nil {
+				vc.lggr.Errorw("Error closing curse detector", "error", err)
+			}
 		}
-	}
 
-	vc.mu.Lock()
-	vc.running = false
-	vc.mu.Unlock()
+		// Close reorg detectors & source readers
+		for chainSelector, state := range vc.sourceStates {
+			if state.reorgDetector != nil {
+				if err := state.reorgDetector.Close(); err != nil {
+					vc.lggr.Errorw("Error closing reorg detector", "error", err, "chainSelector", chainSelector)
+				}
+			}
+			if err := state.reader.Stop(); err != nil {
+				vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
+			}
+		}
 
-	vc.lggr.Infow("Coordinator stopped")
+		vc.lggr.Infow("Coordinator stopped")
 
-	return nil
+		return nil
+	})
 }
 
 // run is the main processing loop.
@@ -634,26 +617,10 @@ func (vc *Coordinator) validate() error {
 	return errors.Join(errs...)
 }
 
-// Ready returns nil if the coordinator is ready, or an error otherwise.
-func (vc *Coordinator) Ready() error {
-	vc.mu.RLock()
-	defer vc.mu.RUnlock()
-
-	if !vc.running {
-		return errors.New("coordinator not running")
-	}
-
-	return nil
-}
-
 // HealthReport returns a full health report of the coordinator and its dependencies.
 func (vc *Coordinator) HealthReport() map[string]error {
-	vc.mu.RLock()
-	defer vc.mu.RUnlock()
-
 	report := make(map[string]error)
 	report[vc.Name()] = vc.Ready()
-
 	return report
 }
 
@@ -785,16 +752,6 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 	latestBlock := new(big.Int).SetUint64(latest.Number)
 	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
-
-	// Record chain state metrics
-	// FIXME: This could be nicely extracted with a decorator patter (just decorate `LatestAndFinalizedBlock` method
-	// in sourceReader and business logic won't be polluted with monitoring calls)
-	vc.monitoring.Metrics().
-		With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
-		RecordSourceChainLatestBlock(ctx, latestBlock.Int64())
-	vc.monitoring.Metrics().
-		With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
-		RecordSourceChainFinalizedBlock(ctx, latestFinalizedBlock.Int64())
 
 	// Check finality for each task
 	for _, task := range state.pendingTasks {

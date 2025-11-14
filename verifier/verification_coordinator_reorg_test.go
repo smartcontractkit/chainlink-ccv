@@ -211,9 +211,7 @@ func assertSourceReaderChannelState(t *testing.T, coordinator *Coordinator, chai
 	t.Helper()
 
 	// Access internal sourceReaders map directly
-	coordinator.mu.RLock()
 	sourceReaderService := coordinator.sourceStates[chainSelector].reader
-	coordinator.mu.RUnlock()
 
 	require.NotNil(t, sourceReaderService, "Source reader service should not be nil")
 

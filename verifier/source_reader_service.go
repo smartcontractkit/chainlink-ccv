@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const (
@@ -32,18 +33,19 @@ const (
 
 // SourceReaderService wraps a SourceReader and converts MessageSentEvents to VerificationTasks.
 type SourceReaderService struct {
+	services.StateMachine
+	wg     sync.WaitGroup
+	stopCh chan struct{}
+
 	sourceReader         chainaccess.SourceReader
 	headTracker          chainaccess.HeadTracker
 	logger               logger.Logger
 	lastProcessedBlock   *big.Int
 	verificationTaskCh   chan batcher.BatchResult[VerificationTask]
-	stopCh               chan struct{}
 	ccipMessageSentTopic string
-	wg                   sync.WaitGroup
 	pollInterval         time.Duration
 	chainSelector        protocol.ChainSelector
 	mu                   sync.RWMutex
-	isRunning            bool
 
 	// Reset coordination using optimistic locking pattern.
 	// This version counter is incremented each time ResetToBlock() is called.
@@ -102,57 +104,42 @@ func NewSourceReaderService(
 
 // Start begins reading messages and pushing them to the messages channel.
 func (r *SourceReaderService) Start(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	return r.StartOnce("SourceReaderService", func() error {
+		r.logger.Infow("Starting SourceReaderService",
+			"chainSelector", r.chainSelector,
+			"topic", r.ccipMessageSentTopic)
 
-	if r.isRunning {
-		return nil // Already running
-	}
+		// Test connectivity before starting
+		if err := r.testConnectivity(ctx); err != nil {
+			r.logger.Errorw("Connectivity test failed", "error", err)
+			return err
+		}
 
-	r.logger.Infow("Starting SourceReaderService",
-		"chainSelector", r.chainSelector,
-		"topic", r.ccipMessageSentTopic)
+		r.wg.Add(1)
+		go r.eventMonitoringLoop(ctx)
 
-	// Test connectivity before starting
-	if err := r.testConnectivity(ctx); err != nil {
-		r.logger.Errorw("Connectivity test failed", "error", err)
-		return err
-	}
-
-	r.isRunning = true
-	r.wg.Add(1)
-
-	go r.eventMonitoringLoop(ctx)
-
-	r.logger.Infow("SourceReaderService started successfully")
-	return nil
+		r.logger.Infow("SourceReaderService started successfully")
+		return nil
+	})
 }
 
 // Stop stops the reader and closes the messages channel.
 func (r *SourceReaderService) Stop() error {
-	r.mu.Lock()
-	if !r.isRunning {
-		r.mu.Unlock()
-		return nil // Already stopped
-	}
+	return r.StopOnce("SourceReaderService", func() error {
+		r.logger.Infow("Stopping SourceReaderService")
 
-	r.logger.Infow("Stopping SourceReaderService")
+		close(r.stopCh)
 
-	close(r.stopCh)
-	r.mu.Unlock()
+		// Wait for goroutine WITHOUT holding lock to avoid deadlock
+		// (event loop needs to acquire lock to finish its cycle)
+		r.wg.Wait()
 
-	// Wait for goroutine WITHOUT holding lock to avoid deadlock
-	// (event loop needs to acquire lock to finish its cycle)
-	r.wg.Wait()
+		// Re-acquire lock to update state
+		close(r.verificationTaskCh)
 
-	// Re-acquire lock to update state
-	r.mu.Lock()
-	close(r.verificationTaskCh)
-	r.isRunning = false
-	r.mu.Unlock()
-
-	r.logger.Infow("SourceReaderService stopped successfully")
-	return nil
+		r.logger.Infow("SourceReaderService stopped successfully")
+		return nil
+	})
 }
 
 // VerificationTaskChannel returns the channel where new message events are delivered as batches.
@@ -162,11 +149,8 @@ func (r *SourceReaderService) VerificationTaskChannel() <-chan batcher.BatchResu
 
 // HealthCheck returns the current health status of the reader.
 func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if !r.isRunning {
-		return nil // Not running is OK for health check
+	if err := r.Ready(); err != nil {
+		return err
 	}
 
 	// Test basic connectivity

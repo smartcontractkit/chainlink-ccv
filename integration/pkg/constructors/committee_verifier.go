@@ -57,6 +57,22 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map RMN Remote addresses: %w", err)
 	}
 
+	// TODO: monitoring config home
+	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
+		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
+		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
+		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
+		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
+		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
+		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
+	})
+	if err != nil {
+		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
+		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
+	}
+
 	// Initialize chain components.
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
@@ -86,14 +102,18 @@ func NewVerificationCoordinator(
 			return nil, fmt.Errorf("failed to create source reader: %w", err)
 		}
 
+		observedSourceReader := sourcereader.NewObservedSourceReader(
+			sourceReader, cfg.VerifierID, sel, verifierMonitoring,
+		)
+
 		// TODO: this seems wacky
-		headTracker, ok := sourceReader.(chainaccess.HeadTracker)
+		headTracker, ok := observedSourceReader.(chainaccess.HeadTracker)
 		if !ok {
 			lggr.Errorw("Source reader does not implement HeadTracker interface", "chainID", sel)
 			return nil, fmt.Errorf("source reader does not implement HeadTracker interface: %w", err)
 		}
 		headTrackers[sel] = headTracker
-		sourceReaders[sel] = sourceReader
+		sourceReaders[sel] = observedSourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress: verifierAddrs[sel],
 			PollInterval:    1 * time.Second, // TODO: make configurable
@@ -102,22 +122,6 @@ func NewVerificationCoordinator(
 	}
 
 	// Initialize other required services and configs.
-
-	// TODO: monitoring config home
-	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
-		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
-		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
-	})
-	if err != nil {
-		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
-		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
-	}
 
 	// Checkpoint manager
 	// TODO: these are secrets, probably shouldn't be in config.
