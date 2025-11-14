@@ -2,18 +2,6 @@ package chainlink_ccv
 
 import _ "embed"
 
-// Aggregator configuration.
-var (
-	//go:embed aggregator/testconfig/default/aggregator.toml
-	DefaultAggregatorConfigTOML string
-
-	//go:embed aggregator/testconfig/secondary/aggregator.toml
-	SecondaryAggregatorConfigTOML string
-
-	//go:embed aggregator/testconfig/tertiary/aggregator.toml
-	TertiaryAggregatorConfigTOML string
-)
-
 // Verifier configuration.
 var (
 	//go:embed cmd/verifier/testconfig/default/verifier-1.toml
@@ -40,11 +28,3 @@ var (
 	//go:embed cmd/executor/executor_config.toml
 	DefaultExecutorConfigTOML string
 )
-
-/*
-// Indexer configuration.
-var (
-	//go:embed indexer/config.toml
-	DefaultIndexerConfigTOML string
-)
-*/

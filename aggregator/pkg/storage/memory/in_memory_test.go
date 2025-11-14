@@ -8,14 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
 const testCommitteeID = "test-committee"
 
 func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
-	storage := NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
+	storage := NewInMemoryStorage()
 	ctx := context.Background()
 	committeeID := testCommitteeID
 
@@ -62,7 +61,7 @@ func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
 }
 
 func TestInMemoryStorage_GetBatchCCVData_EmptyMessageIDs(t *testing.T) {
-	storage := NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
+	storage := NewInMemoryStorage()
 	ctx := context.Background()
 	committeeID := testCommitteeID
 
@@ -73,7 +72,7 @@ func TestInMemoryStorage_GetBatchCCVData_EmptyMessageIDs(t *testing.T) {
 }
 
 func TestInMemoryStorage_GetBatchCCVData_NoMatchingData(t *testing.T) {
-	storage := NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
+	storage := NewInMemoryStorage()
 	ctx := context.Background()
 	committeeID := testCommitteeID
 
@@ -85,7 +84,7 @@ func TestInMemoryStorage_GetBatchCCVData_NoMatchingData(t *testing.T) {
 }
 
 func TestInMemoryStorage_GetBatchCCVData_WrongCommittee(t *testing.T) {
-	storage := NewInMemoryStorageWithTimeProvider(common.NewRealTimeProvider())
+	storage := NewInMemoryStorage()
 	ctx := context.Background()
 	committeeID := testCommitteeID
 	wrongCommitteeID := "wrong-committee"

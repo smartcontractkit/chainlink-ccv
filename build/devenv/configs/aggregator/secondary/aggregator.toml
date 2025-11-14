@@ -1,4 +1,3 @@
-stubQuorumValidation = false
 pyroscope_url = "http://pyroscope:4040"
 
 [server]
@@ -47,42 +46,42 @@ pyroscope_url = "http://pyroscope:4040"
   [committees.default]
     [committees.default.quorumConfigs]
       [committees.default.quorumConfigs.12922642891491394802]
-        committeeVerifierAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
         threshold = 2
 
         [[committees.default.quorumConfigs.12922642891491394802.signers]]
           participantID = "default-participant1"
-          addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
+          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
 
         [[committees.default.quorumConfigs.12922642891491394802.signers]]
           participantID = "default-participant2"
-          addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
+          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
       [committees.default.quorumConfigs.3379446385462418246]
-        committeeVerifierAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
         threshold = 2
 
         [[committees.default.quorumConfigs.3379446385462418246.signers]]
           participantID = "default-participant1"
-          addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
+          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
 
         [[committees.default.quorumConfigs.3379446385462418246.signers]]
           participantID = "default-participant2"
-          addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
+          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
       [committees.default.quorumConfigs.4793464827907405086]
-        committeeVerifierAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+        committeeVerifierAddress = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
         threshold = 2
 
         [[committees.default.quorumConfigs.4793464827907405086.signers]]
           participantID = "default-participant1"
-          addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
+          addresses = ["0x947a3f54dc6a01a0d12f0cb4810266f2c7afe61a"]
         
         [[committees.default.quorumConfigs.4793464827907405086.signers]]
           participantID = "default-participant2"
-          addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
+          addresses = ["0x6775609f7a2510cde5e2faa62355b247e2db02d3"]
     [committees.default.sourceVerifierAddresses]
-      12922642891491394802 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
-      3379446385462418246 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
-      4793464827907405086 = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+      12922642891491394802 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+      3379446385462418246 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
+      4793464827907405086 = "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
 
 [Monitoring]
 Enabled = true
