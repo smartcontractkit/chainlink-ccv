@@ -55,39 +55,38 @@ TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
 # Append committee config.
-#[committees]
-#[committees.default]
-#[committees.default.quorumConfigs]
-#[committees.default.quorumConfigs.12922642891491394802]
-#committeeVerifierAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"
-#threshold = 2
-#
-#[[committees.default.quorumConfigs.12922642891491394802.signers]]
-#participantID = "default-participant1"
-#addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
-#
-#[[committees.default.quorumConfigs.12922642891491394802.signers]]
-#participantID = "default-participant2"
-#addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
-#[committees.default.quorumConfigs.3379446385462418246]
-#committeeVerifierAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"
-#threshold = 2
-#
-#[[committees.default.quorumConfigs.3379446385462418246.signers]]
-#participantID = "default-participant1"
-#addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
-#
-#[[committees.default.quorumConfigs.3379446385462418246.signers]]
-#participantID = "default-participant2"
-#addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
-#[committees.default.quorumConfigs.4793464827907405086]
-#committeeVerifierAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"
-#threshold = 2
-#
-#[[committees.default.quorumConfigs.4793464827907405086.signers]]
-#participantID = "default-participant1"
-#addresses = ["0x2c127e1eea67c6ec6945652183d4f043141705b2"]
-#
-#[[committees.default.quorumConfigs.4793464827907405086.signers]]
-#participantID = "default-participant2"
-#addresses = ["0x2a3e6b4676d01c5afdd710f01d2b8870bdef182d"]
+# [committee]
+#   [committee.quorumConfigs]
+#     [committee.quorumConfigs.12922642891491394802]
+#       committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+#       threshold = 2
+
+#       [[committee.quorumConfigs.12922642891491394802.signers]]
+#         participantID = "default-participant1"
+#         addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+
+#       [[committee.quorumConfigs.12922642891491394802.signers]]
+#         participantID = "default-participant2"
+#         addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
+#     [committee.quorumConfigs.3379446385462418246]
+#       committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+#       threshold = 2
+
+#       [[committee.quorumConfigs.3379446385462418246.signers]]
+#         participantID = "default-participant1"
+#         addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+
+#       [[committee.quorumConfigs.3379446385462418246.signers]]
+#         participantID = "default-participant2"
+#         addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
+#     [committee.quorumConfigs.4793464827907405086]
+#       committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
+#       threshold = 2
+
+#       [[committee.quorumConfigs.4793464827907405086.signers]]
+#         participantID = "default-participant1"
+#         addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+      
+#       [[committee.quorumConfigs.4793464827907405086.signers]]
+#         participantID = "default-participant2"
+#         addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
