@@ -3,9 +3,11 @@ package worker
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
@@ -131,7 +133,7 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 	}
 
 	for _, r := range results {
-		existing = append(existing, r.DestVerifierAddress.String())
+		existing = append(existing, strings.ToLower(r.SourceVerifierAddress.String()))
 	}
 
 	return existing, nil
@@ -139,9 +141,9 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 
 func (t *Task) getVerifiers() []string {
 	verifiers := []string{}
-	blobsExcludingExecutor := t.message.ReceiptBlobs[:len(t.message.ReceiptBlobs)-1]
+	blobsExcludingExecutor := t.message.ReceiptBlobs[:len(t.message.ReceiptBlobs)]
 	for _, receipt := range blobsExcludingExecutor {
-		verifiers = append(verifiers, receipt.Issuer.String())
+		verifiers = append(verifiers, strings.ToLower(receipt.Issuer.String()))
 	}
 
 	spew.Dump(t.message.ReceiptBlobs)
