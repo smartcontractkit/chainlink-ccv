@@ -24,6 +24,7 @@ func init() {
 	}
 }
 
+// TODO: share configDir with enviornment.go
 func configDir() string {
 	switch runtime.GOOS {
 	case "windows":
