@@ -9,24 +9,20 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
-
-	verifiertypes "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
-// Compile-time checks to ensure EVMSourceReader implements both interfaces.
+// Compile-time checks to ensure EVMSourceReader implements the SourceReader interface.
 var (
-	_ verifiertypes.SourceReader = (*EVMSourceReader)(nil)
-	_ chainaccess.HeadTracker    = (*EVMSourceReader)(nil)
+	_ chainaccess.SourceReader = (*EVMSourceReader)(nil)
 )
 
 type EVMSourceReader struct {
@@ -47,7 +43,7 @@ func NewEVMSourceReader(
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
-) (verifiertypes.SourceReader, error) {
+) (chainaccess.SourceReader, error) {
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {
 		if field == nil {
@@ -158,8 +154,9 @@ func (r *EVMSourceReader) BlockTime(ctx context.Context, block *big.Int) (uint64
 	return hdr.Time, nil
 }
 
-// VerificationTasks returns the channel where new message events are delivered.
-func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBlock *big.Int) ([]verifiertypes.VerificationTask, error) {
+// FetchMessageSentEvents returns MessageSentEvents in the given block range.
+// The toBlock parameter can be nil to query up to the latest block.
+func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
@@ -172,7 +169,7 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 		return nil, err
 	}
 
-	results := make([]verifiertypes.VerificationTask, 0, len(logs))
+	results := make([]protocol.MessageSentEvent, 0, len(logs))
 
 	// Process found events
 	for _, log := range logs {
@@ -309,12 +306,13 @@ func (r *EVMSourceReader) VerificationTasks(ctx context.Context, fromBlock, toBl
 		r.lggr.Infow("📋 Processed executor receipt",
 			"issuer", executorReceipt.Issuer.Hex())
 
-		// Create verification task
-		results = append(results, verifiertypes.VerificationTask{
-			Message:        *decodedMsg,
-			ReceiptBlobs:   receiptBlobs,
-			BlockNumber:    log.BlockNumber,
-			IdempotencyKey: uuid.NewString(),
+		results = append(results, protocol.MessageSentEvent{
+			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
+			SequenceNumber:    event.SequenceNumber,
+			MessageID:         protocol.Bytes32(event.MessageId),
+			Message:           *decodedMsg,
+			Receipts:          receiptBlobs,
+			BlockNumber:       log.BlockNumber,
 		})
 	}
 	return results, nil
@@ -356,9 +354,9 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 }
 
 // GetRMNCursedSubjects queries this source chain's RMN Remote contract.
-// Implements SourceReader and cursedetector.RMNCurseReader interfaces.
+// Implements SourceReader and cursechecker.RMNCurseReader interfaces.
 func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
-	// Use the common helper function from cursedetector package
+	// Use the common helper function from cursechecker package
 	// This avoids code duplication with EVMDestinationReader
 	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.chainClient, r.rmnRemoteAddress)
 }

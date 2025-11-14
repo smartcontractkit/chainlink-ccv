@@ -9,10 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector"
+	"github.com/smartcontractkit/chainlink-ccv/common"
+	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -62,10 +63,10 @@ type Coordinator struct {
 
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
-	sourceReaders      map[protocol.ChainSelector]SourceReader
+	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
 	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
-	curseDetector      cursedetector.CurseDetector
+	curseDetector      common.CurseChecker
 }
 
 // Option is the functional option type for Coordinator.
@@ -86,10 +87,10 @@ func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
 }
 
 // WithSourceReaders sets multiple source readers.
-func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Option {
+func WithSourceReaders(sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader) Option {
 	return func(vc *Coordinator) {
 		if vc.sourceReaders == nil {
-			vc.sourceReaders = make(map[protocol.ChainSelector]SourceReader)
+			vc.sourceReaders = make(map[protocol.ChainSelector]chainaccess.SourceReader)
 		}
 
 		for chainSelector, reader := range sourceReaders {
@@ -99,8 +100,8 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]SourceReader) Op
 }
 
 // AddSourceReader adds a single source reader to the existing map.
-func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader SourceReader) Option {
-	return WithSourceReaders(map[protocol.ChainSelector]SourceReader{chainSelector: sourceReader})
+func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainaccess.SourceReader) Option {
+	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
 }
 
 // WithHeadTrackers sets multiple head trackers.
@@ -175,7 +176,7 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 
 // WithCurseDetector sets the curse detector for monitoring RMN Remote contracts.
 // This is primarily for testing - in production, the coordinator creates its own curse detector.
-func WithCurseDetector(detector cursedetector.CurseDetector) Option {
+func WithCurseDetector(detector common.CurseChecker) Option {
 	return func(vc *Coordinator) {
 		vc.curseDetector = detector
 	}
@@ -244,7 +245,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 	// Initialize source states with reorg detection
 	// Also collect RMN curse readers for curse detector
-	rmnReaders := make(map[protocol.ChainSelector]cursedetector.RMNCurseReader)
+	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 
 	for chainSelector, sourceReader := range vc.sourceReaders {
 		if sourceReader == nil {
@@ -1183,7 +1184,7 @@ func (vc *Coordinator) isMessageReadyForVerification(
 // Uses CursePollInterval from config, defaulting to 2s if not set.
 func (vc *Coordinator) startCurseDetector(
 	ctx context.Context,
-	rmnReaders map[protocol.ChainSelector]cursedetector.RMNCurseReader,
+	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader,
 ) error {
 	if len(rmnReaders) == 0 {
 		return fmt.Errorf("no RMN readers provided for curse detector")
@@ -1192,7 +1193,7 @@ func (vc *Coordinator) startCurseDetector(
 	// if a curse detector service is already set, use it; otherwise create a new one
 	curseDetectorSvc := vc.curseDetector
 	if curseDetectorSvc == nil {
-		cd, err := cursedetector.NewCurseDetectorService(
+		cd, err := cursecheckerimpl.NewCurseDetectorService(
 			rmnReaders,
 			vc.config.CursePollInterval,
 			vc.lggr,
