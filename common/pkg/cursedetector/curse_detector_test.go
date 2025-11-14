@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
