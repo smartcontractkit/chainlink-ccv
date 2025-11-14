@@ -26,6 +26,7 @@ import (
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg verifier.Config,
+	aggregatorSecret *hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
@@ -120,18 +121,13 @@ func NewVerificationCoordinator(
 
 	// Checkpoint manager
 	// TODO: these are secrets, probably shouldn't be in config.
-	hmacConfig := &hmac.ClientConfig{
-		APIKey: cfg.AggregatorAPIKey,
-		Secret: cfg.AggregatorSecretKey,
-	}
-
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, hmacConfig)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, aggregatorSecret)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(cfg.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(cfg.AggregatorAddress, lggr, 0, aggregatorSecret) // since=0 for checkpoint reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()
