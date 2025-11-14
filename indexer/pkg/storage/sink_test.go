@@ -171,7 +171,7 @@ func TestStorageSink_QueryFromFirstStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query from chain
-	results, err := chain.QueryCCVData(ctx, 900, 1100, nil, nil, 10, 0)
+	results, err := chain.QueryCCVData(ctx, time.UnixMilli(900), time.UnixMilli(1100), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 }
@@ -276,12 +276,12 @@ func TestStorageSink_TimeRangeCondition_RecentDataOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query for recent data - should use hot storage
-	results, err := chain.QueryCCVData(ctx, 9000, 10000, nil, nil, 10, 0)
+	results, err := chain.QueryCCVData(ctx, time.UnixMilli(9000), time.UnixMilli(10000), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find recent data in hot storage")
 
 	// Query for old data - should skip hot storage and use cold storage
-	results, err = chain.QueryCCVData(ctx, 7000, 8500, nil, nil, 10, 0)
+	results, err = chain.QueryCCVData(ctx, time.UnixMilli(7000), time.UnixMilli(8500), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find old data in cold storage")
 }
@@ -341,12 +341,12 @@ func TestStorageSink_TimeRangeCondition_HotAndCold(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query recent time range - should only check hot storage
-	results, err := chain.QueryCCVData(ctx, now-200, now, nil, nil, 10, 0)
+	results, err := chain.QueryCCVData(ctx, time.UnixMilli(now-200), time.UnixMilli(now), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find data in hot storage")
 
 	// Query old time range - should only check cold storage
-	results, err = chain.QueryCCVData(ctx, now-800000, now-650000, nil, nil, 10, 0)
+	results, err = chain.QueryCCVData(ctx, time.UnixMilli(now-800000), time.UnixMilli(now-650000), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find data in cold storage")
 }
@@ -460,14 +460,14 @@ func TestStorageSink_RecentReadCondition(t *testing.T) {
 	// Query for recent data (last 45 minutes) - should use hot storage
 	queryStart := now - 45*60*1000 // 45 minutes ago in milliseconds
 	queryEnd := now                // Current time in milliseconds
-	results, err := chain.QueryCCVData(ctx, queryStart, queryEnd, nil, nil, 10, 0)
+	results, err := chain.QueryCCVData(ctx, time.UnixMilli(queryStart), time.UnixMilli(queryEnd), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find recent data in hot storage")
 
 	// Query for old data (2-3 hours ago) - should skip hot storage and use cold storage
 	queryStart = now - 3*60*60*1000 // 3 hours ago in milliseconds
 	queryEnd = now - 90*60*1000     // 90 minutes ago in milliseconds
-	results, err = chain.QueryCCVData(ctx, queryStart, queryEnd, nil, nil, 10, 0)
+	results, err = chain.QueryCCVData(ctx, time.UnixMilli(queryStart), time.UnixMilli(queryEnd), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find old data in cold storage")
 }
@@ -525,12 +525,12 @@ func TestStorageSink_RecentReadCondition_ShortDuration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query for very recent data (last 45 seconds) - should use very hot storage
-	results, err := chain.QueryCCVData(ctx, now-45*1000, now, nil, nil, 10, 0)
+	results, err := chain.QueryCCVData(ctx, time.UnixMilli(now-45*1000), time.UnixMilli(now), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find very recent data in very hot storage")
 
 	// Query for slightly old data (5-10 minutes ago) - should skip very hot and use warm storage
-	results, err = chain.QueryCCVData(ctx, now-10*60*1000, now-4*60*1000, nil, nil, 10, 0)
+	results, err = chain.QueryCCVData(ctx, time.UnixMilli(now-10*60*1000), time.UnixMilli(now-4*60*1000), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "Should find slightly old data in warm storage")
 }

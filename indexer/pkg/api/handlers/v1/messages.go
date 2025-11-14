@@ -45,7 +45,7 @@ func (h *MessagesV1Handler) Handle(c *gin.Context) {
 	req.SourceChainSelectors = sourceChainSelectors
 	req.DestChainSelectors = destChainSelectors
 
-	verifications, err := h.storage.QueryCCVData(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
+	verifications, err := h.storage.QueryCCVData(c.Request.Context(), time.UnixMilli(req.Start), time.UnixMilli(req.End), req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

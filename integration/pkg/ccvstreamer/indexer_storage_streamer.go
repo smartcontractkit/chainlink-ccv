@@ -32,7 +32,7 @@ func NewIndexerStorageStreamer(
 		reader:          indexerConfig.IndexerClient,
 		lggr:            lggr,
 		queryLimit:      indexerConfig.QueryLimit,
-		lastQueryTime:   indexerConfig.LastQueryTime,
+		lastQueryTime:   time.UnixMilli(indexerConfig.LastQueryTime),
 		pollingInterval: indexerConfig.PollingInterval,
 		backoff:         indexerConfig.Backoff,
 	}
@@ -41,7 +41,7 @@ func NewIndexerStorageStreamer(
 type IndexerStorageStreamer struct {
 	reader          executor.MessageReader
 	lggr            logger.Logger
-	lastQueryTime   int64
+	lastQueryTime   time.Time
 	pollingInterval time.Duration
 	backoff         time.Duration
 	queryLimit      uint64
@@ -78,7 +78,7 @@ func (oss *IndexerStorageStreamer) Start(
 			oss.running = false
 			oss.mu.Unlock()
 		}()
-		newtime := time.Now().UnixMilli()
+		newtime := time.Now()
 		offset := uint64(0)
 		for {
 			select {
@@ -149,7 +149,7 @@ func (oss *IndexerStorageStreamer) Start(
 				}
 
 				// Update time for next iteration
-				newtime = time.Now().UnixMilli()
+				newtime = time.Now()
 			}
 		}
 	}()

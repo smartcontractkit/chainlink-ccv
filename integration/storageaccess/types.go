@@ -2,6 +2,7 @@ package storageaccess
 
 import (
 	"context"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -16,8 +17,8 @@ type IndexerAPI interface {
 type VerifierResultsRequest struct {
 	SourceChainSelectors []protocol.ChainSelector // Excluded from form due to gin parsing
 	DestChainSelectors   []protocol.ChainSelector // Excluded from form due to gin parsing
-	Start                int64                    `form:"start"`
-	End                  int64                    `form:"end"`
+	Start                time.Time                `form:"start"`
+	End                  time.Time                `form:"end"`
 	Limit                uint64                   `form:"limit"`
 	Offset               uint64                   `form:"offset"`
 }
