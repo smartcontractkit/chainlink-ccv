@@ -181,9 +181,7 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 	}
 
 	committeeConfig := &model.Committee{}
-	committeeConfig.SourceVerifierAddresses = make(map[string]string)
 	committeeConfig.QuorumConfigs = make(map[string]*model.QuorumConfig)
-	config.Committees = make(map[string]*model.Committee)
 
 	// Note: all verifiers are configured on all chains with the same pubkey.
 	for chainSelector, verifierAddress := range in.CommitteeVerifierResolverProxyAddresses {
@@ -194,7 +192,6 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 			if v.CommitteeName != committeeName {
 				continue
 			}
-			committeeConfig.SourceVerifierAddresses[chainSelStr] = verifierAddress
 			threshold++
 			signers = append(signers, model.Signer{
 				ParticipantID: fmt.Sprintf("%s-participant%d", committeeName, chainSelector),
@@ -208,7 +205,7 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 		}
 	}
 
-	config.Committees[committeeName] = committeeConfig
+	config.Committee = committeeConfig
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {
