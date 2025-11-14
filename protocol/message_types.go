@@ -416,6 +416,7 @@ type QueryResponse struct {
 
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
 type CCVNodeDataWriter interface {
+	// WriteCCVNodeData stores multiple CCV node data entries
 	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData) error
 }
 
