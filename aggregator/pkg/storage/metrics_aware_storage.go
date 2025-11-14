@@ -61,9 +61,9 @@ func (s *MetricsAwareStorage) ListCommitVerificationByAggregationKey(ctx context
 	})
 }
 
-func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, start int64, token *string) (*model.PaginatedAggregatedReports, error) {
-	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() (*model.PaginatedAggregatedReports, error) {
-		return s.inner.QueryAggregatedReports(ctx, start, token)
+func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error) {
+	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() (*model.AggregatedReportBatch, error) {
+		return s.inner.QueryAggregatedReports(ctx, sinceSequenceInclusive)
 	})
 }
 

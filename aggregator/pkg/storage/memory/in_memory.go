@@ -83,7 +83,7 @@ func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAg
 	return nil
 }
 
-func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, end int64, token *string) (*model.PaginatedAggregatedReports, error) {
+func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, end int64) (*model.AggregatedReportBatch, error) {
 	var results []*model.CommitAggregatedReport
 	s.aggregatedReports.Range(func(key, value any) bool {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
@@ -97,11 +97,12 @@ func (s *InMemoryStorage) QueryAggregatedReportsRange(_ context.Context, start, 
 		}
 		return true
 	})
-	return &model.PaginatedAggregatedReports{Reports: results}, nil
+	return &model.AggregatedReportBatch{Reports: results}, nil
 }
 
-func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, start int64, token *string) (*model.PaginatedAggregatedReports, error) {
-	return s.QueryAggregatedReportsRange(ctx, start, time.Now().UnixMilli(), token)
+func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error) {
+	end := time.Now().UnixMilli()
+	return s.QueryAggregatedReportsRange(ctx, sinceSequenceInclusive, end)
 }
 
 func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
