@@ -214,7 +214,6 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	defer vc.mu.Unlock()
 	// TODO: If aggregator is not healthy don't start verifier
 
-	// FIXME: Shall we use services.StateMachine{}? It has StartOnce/StopOnce methods to prevent multiple starts/stops
 	if vc.running {
 		return fmt.Errorf("coordinator already running")
 	}
@@ -873,8 +872,6 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	state.pendingTasks = remainingTasks
 
 	if len(readyTasks) > 0 {
-		// FIXME: nit but I would avoid emojis and utf8 characters as they might be problematic in some logging systems
-		// (I saw them not being rendered properly for some NOPs )
 		vc.lggr.Infow("Processing finalized messages",
 			"chain", chainSelector,
 			"readyCount", len(readyTasks),
