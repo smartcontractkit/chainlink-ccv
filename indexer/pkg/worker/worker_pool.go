@@ -75,7 +75,6 @@ func (p *Pool) run(ctx context.Context) {
 				continue
 			}
 		case task, ok := <-p.scheduler.Ready():
-			p.logger.Info("Starting Worker!")
 			if !ok {
 				continue
 			}
@@ -114,5 +113,5 @@ func (p *Pool) run(ctx context.Context) {
 }
 
 func (p *Pool) shouldRetry(result *TaskResult, err error) bool {
-	return err != nil || result.FailedVerifiers > 0
+	return err != nil || result.UnavailableCCVs > 0
 }

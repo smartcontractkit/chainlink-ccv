@@ -39,10 +39,8 @@ func NewSink(lggr logger.Logger, storages ...common.IndexerStorage) (*Sink, erro
 // Returns the first successful result, or the last error if all storages fail.
 func (d *Sink) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
 	var lastErr error
-	attemptedCount := 0
 
 	for i, storage := range d.storages {
-		attemptedCount++
 		d.lggr.Debugw("Attempting to read from storage",
 			"storageIndex", i,
 			"messageID", messageID.String(),
@@ -75,12 +73,37 @@ func (d *Sink) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]pr
 		lastErr = err
 	}
 
-	// If we didn't attempt any storages, return a specific error
-	if attemptedCount == 0 {
-		return nil, fmt.Errorf("no storages eligible for read based on conditions")
+	// All eligible storages failed, return the last error
+	return nil, lastErr
+}
+
+func (d *Sink) GetCCVDataSkipCache(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+	var lastErr error
+
+	storageLength := len(d.storages)
+	for i, storage := range d.storages {
+		if storageLength > 1 && i == 0 {
+			d.lggr.Debugw("Skipping cache read", "storageIndex", i, "messageID", messageID.String())
+			continue
+		}
+
+		d.lggr.Debugw("Attemptting to read from storage", "storageIndex", i, "messageID", messageID.String())
+
+		data, err := storage.GetCCVData(ctx, messageID)
+		if err == nil {
+			d.lggr.Debugw("Successfully read from storage", "storageIndex", i, "messageID", messageID.String(), "dataCount", len(data))
+			return data, nil
+		}
+
+		if err != ErrCCVDataNotFound {
+			d.lggr.Warnw("Error reading from storage", "storageIndex", i, "messageID", messageID.String(), "error", err)
+		} else {
+			d.lggr.Debugw("Data not found in storage", "storageIndex", i, "messageID", messageID.String(), "error", err)
+		}
+
+		lastErr = err
 	}
 
-	// All eligible storages failed, return the last error
 	return nil, lastErr
 }
 
