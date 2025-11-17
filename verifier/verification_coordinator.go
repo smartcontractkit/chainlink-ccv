@@ -81,7 +81,6 @@ type Coordinator struct {
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
 	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
-	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
 	curseDetector      common.CurseChecker
 }
