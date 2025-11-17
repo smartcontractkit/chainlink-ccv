@@ -2,12 +2,12 @@ package worker
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
@@ -146,8 +146,11 @@ func (t *Task) getVerifiers() []string {
 		verifiers = append(verifiers, strings.ToLower(receipt.Issuer.String()))
 	}
 
-	spew.Dump(t.message.ReceiptBlobs)
-	spew.Dump(verifiers)
+	uniqueVerifiersNoExecutor := map[string]bool{}
+	for _, verifier := range verifiers {
+		uniqueVerifiersNoExecutor[verifier] = true
+	}
 
-	return verifiers
+	verifierArr := slices.Collect(maps.Keys(uniqueVerifiersNoExecutor))
+	return verifierArr[:len(verifierArr)-1]
 }
