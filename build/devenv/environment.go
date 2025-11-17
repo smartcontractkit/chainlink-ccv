@@ -401,6 +401,9 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup contracts for verifier %s: %w", in.Verifier[i].CommitteeName, err)
 		}
+
+		ver.AggregatorAddress = fmt.Sprintf("%s-aggregator:50051", ver.CommitteeName)
+
 		// Apply changes back to input.
 		in.Verifier[i] = &ver
 	}

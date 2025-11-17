@@ -123,7 +123,7 @@ func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) 
 	}
 
 	config.VerifierID = v.ContainerName
-	// config.AggregatorAddress = v.AggregatorAddress
+	config.AggregatorAddress = v.AggregatorAddress
 	config.SignerAddress = v.SigningKeyPublic
 	config.CommitteeVerifierAddresses = v.CommitteeVerifierAddresses
 	config.OnRampAddresses = v.OnRampAddresses

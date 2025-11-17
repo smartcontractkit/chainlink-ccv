@@ -1,5 +1,4 @@
 pyroscope_url = "http://pyroscope:4040"
-aggregator_address = "default-aggregator:50051"
 
 [Monitoring]
 Enabled = true
