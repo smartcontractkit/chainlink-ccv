@@ -577,7 +577,7 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	// Before starting, should not be ready
 	err = v.Ready()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "coordinator not running")
+	assert.Contains(t, err.Error(), "service is \"Unstarted\", not started")
 
 	// Start the verifier
 	err = v.Start(ts.ctx)
