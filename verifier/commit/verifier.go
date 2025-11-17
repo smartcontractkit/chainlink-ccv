@@ -172,15 +172,13 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		}
 	}
 	if len(verifierBlob) == 0 {
+		issuers := make([]string, len(verificationTask.ReceiptBlobs))
+		for i, receipt := range verificationTask.ReceiptBlobs {
+			issuers[i] = receipt.Issuer.String()
+		}
 		return fmt.Errorf("verifier blob not found for message %s, all issuers: %v, expected issuer: %s",
 			messageID.String(),
-			func() []string {
-				issuers := make([]string, len(verificationTask.ReceiptBlobs))
-				for i, receipt := range verificationTask.ReceiptBlobs {
-					issuers[i] = receipt.Issuer.String()
-				}
-				return issuers
-			}(),
+			issuers,
 			sourceConfig.VerifierAddress.String(),
 		)
 	}
