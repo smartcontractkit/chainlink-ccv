@@ -146,7 +146,7 @@ func (t *Task) getVerifiers() []string {
 		verifiers = append(verifiers, strings.ToLower(receipt.Issuer.String()))
 	}
 
-	uniqueVerifiersNoExecutor := map[string]bool{}
+	uniqueVerifiersNoExecutor := make(map[string]bool)
 	for _, verifier := range verifiers {
 		uniqueVerifiersNoExecutor[verifier] = true
 	}
