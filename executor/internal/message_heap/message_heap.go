@@ -36,14 +36,14 @@ type MessageWithTimestamps struct {
 	ExpiryTime    int64
 }
 
-func NewMessageHeap() MessageHeap {
+func NewMessageHeap() *MessageHeap {
 	h := MessageHeap{
 		heap:    make([]*MessageHeapEntry, 0),
 		dataMap: make(map[protocol.Bytes32]ExpiryWithMessage),
 		mu:      &sync.RWMutex{},
 	}
 	heap.Init(&h)
-	return h
+	return &h
 }
 
 func (mh MessageHeap) Len() int {

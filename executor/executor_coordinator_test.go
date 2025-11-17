@@ -205,8 +205,8 @@ func TestMessageExpiration(t *testing.T) {
 	}{
 		{
 			name:              "message expires when retry time exceeds expiry",
-			expiryDuration:    2 * time.Second,
-			retryDelay:        5, // 10 seconds retry delay
+			expiryDuration:    1 * time.Second,
+			retryDelay:        3, // retry after 3 s
 			initialReadyDelay: 0, // ready immediately
 			shouldRetry:       true,
 			shouldExecute:     false,
@@ -215,7 +215,7 @@ func TestMessageExpiration(t *testing.T) {
 		{
 			name:              "message retries when within expiry window",
 			expiryDuration:    20 * time.Second,
-			retryDelay:        5, // 5 seconds retry delay
+			retryDelay:        2, // 2 seconds retry delay
 			initialReadyDelay: 0,
 			shouldRetry:       true,
 			shouldExecute:     false,
@@ -223,8 +223,8 @@ func TestMessageExpiration(t *testing.T) {
 		},
 		{
 			name:              "message does not retry when shouldRetry is false",
-			expiryDuration:    10 * time.Second,
-			retryDelay:        5,
+			expiryDuration:    1 * time.Second,
+			retryDelay:        2,
 			initialReadyDelay: 0,
 			shouldRetry:       false,
 			shouldExecute:     false,

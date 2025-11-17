@@ -61,7 +61,7 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 			mh := NewMessageHeap()
 
 			for _, msg := range tt.messages {
-				heap.Push(&mh, msg)
+				heap.Push(mh, msg)
 			}
 
 			if got := mh.peekTime(); got != tt.expected {
@@ -131,7 +131,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 			// Initialize heap to maintain heap property
 			mh := NewMessageHeap()
 			for _, msg := range tt.messages {
-				heap.Push(&mh, msg)
+				heap.Push(mh, msg)
 			}
 
 			result := mh.PopAllReady(tt.timestamp)
@@ -177,7 +177,7 @@ func TestMessageHeap_Integration(t *testing.T) {
 	}
 
 	for _, msg := range messages {
-		heap.Push(&mh, msg)
+		heap.Push(mh, msg)
 		// Verify heap property - should always return earliest time
 		if mh.peekTime() != 50 {
 			t.Errorf("peekTime() = %v, want 50", mh.peekTime())
@@ -198,7 +198,7 @@ func TestMessageHeap_Integration(t *testing.T) {
 			t.Errorf("peekTime() at iteration %v = %v, want %v", i, mh.peekTime(), expectedOrder[i])
 		}
 
-		result := heap.Pop(&mh)
+		result := heap.Pop(mh)
 		msg, ok := result.(*MessageWithTimestamps)
 		if !ok {
 			t.Errorf("Pop() returned wrong type: %T", result)
