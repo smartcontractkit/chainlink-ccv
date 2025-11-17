@@ -112,7 +112,6 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Pr
 func NewEnvironment() (in *Cfg, err error) {
 	ctx := context.Background()
 	timeTrack := NewTimeTracker(Plog)
-	defer framework.SaveContainerLogs("logs")
 
 	// track environment startup result and time using getDX app
 	defer func() {
