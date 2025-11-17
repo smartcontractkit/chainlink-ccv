@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -15,28 +13,6 @@ const (
 	historyFileName = "shell_history"
 	activeFileName  = "active_config"
 )
-
-func init() {
-	// Ensure the config directory exists
-	configPath := filepath.Join(configDir(), "ccv")
-	if err := os.MkdirAll(configPath, os.ModePerm); err != nil {
-		fmt.Printf("Error creating config directory: %v\n", err)
-	}
-}
-
-func configDir() string {
-	switch runtime.GOOS {
-	case "windows":
-		return os.Getenv("APPDATA")
-	case "darwin":
-		return fmt.Sprintf("%s/Library/Preferences", os.Getenv("HOME"))
-	default: // Unix/Linux
-		if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
-			return configHome
-		}
-		return fmt.Sprintf("%s/.config", os.Getenv("HOME"))
-	}
-}
 
 func getCommands() []prompt.Suggest {
 	activeConfig := getActiveConfig()
@@ -129,7 +105,7 @@ func getSubCommands(parent string) []prompt.Suggest {
 	case "restart":
 		return []prompt.Suggest{
 			{Text: "env-single-node.toml", Description: "Spin up Anvil <> Anvil local chains, 1 CL node"},
-			{Text: "env-single-node.toml,env-single-node-rebuild.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 4 CL nodes"},
+			{Text: "env.toml,env-single-node.toml,env-single-node-rebuild.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 1 CL nodes"},
 			{Text: "env.toml", Description: "Spin up Anvil <> Anvil local chains, all services, 4 CL nodes"},
 			{Text: "env.toml,env-cl-rebuild.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 4 CL nodes"},
 			{Text: "env.toml,env-geth.toml", Description: "Spin up Geth <> Geth local chains (clique), all services, 4 CL nodes"},

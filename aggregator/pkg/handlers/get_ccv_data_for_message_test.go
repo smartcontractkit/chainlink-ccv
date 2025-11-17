@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
@@ -22,18 +21,13 @@ import (
 )
 
 // helper to build a proper committee with quorum config.
-func buildCommittee(sourceSel, destSel uint64, sourceVerifierAddr, destVerifierAddr string, signers []model.Signer) map[string]*model.Committee {
-	return map[string]*model.Committee{
-		model.DefaultCommitteeID: {
-			QuorumConfigs: map[string]*model.QuorumConfig{
-				strconv.FormatUint(destSel, 10): {
-					CommitteeVerifierAddress: destVerifierAddr,
-					Signers:                  signers,
-					Threshold:                1,
-				},
-			},
-			SourceVerifierAddresses: map[string]string{
-				strconv.FormatUint(sourceSel, 10): sourceVerifierAddr,
+func buildCommittee(destSel uint64, destVerifierAddr string, signers []model.Signer) *model.Committee {
+	return &model.Committee{
+		QuorumConfigs: map[string]*model.QuorumConfig{
+			strconv.FormatUint(destSel, 10): {
+				CommitteeVerifierAddress: destVerifierAddr,
+				Signers:                  signers,
+				Threshold:                1,
 			},
 		},
 	}
@@ -51,8 +45,8 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 		Message:               msg,
 		Timestamp:             time.Now(),
 		IdentifierSigner: &model.IdentifierSigner{
-			Signer:  model.Signer{ParticipantID: participantID, Addresses: []string{sigAddr}},
-			Address: common.HexToAddress(sigAddr).Bytes(),
+			ParticipantID: participantID,
+			Address:       common.HexToAddress(sigAddr).Bytes(),
 		},
 		BlobData: blobData,
 		ReceiptBlobs: []*model.ReceiptBlob{
@@ -64,7 +58,6 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 	}
 	return &model.CommitAggregatedReport{
 		MessageID:     msgID,
-		CommitteeID:   model.DefaultCommitteeID,
 		Verifications: []*model.CommitVerificationRecord{ver},
 		Sequence:      1,
 		WrittenAt:     time.Now(),
@@ -95,19 +88,15 @@ func TestGetCCVDataForMessageHandler_Handle_Cases(t *testing.T) {
 	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
 
-	committee := buildCommittee(sourceSel, destSel, sourceVerifierAddr, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
+	committee := buildCommittee(destSel, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
 
 	goodReport := makeAggregatedReport(msgID[:], sourceSel, destSel, sourceVerifierAddr, signerAddr, participantID)
-
-	// metadata for committee header
-	md := metadata.Pairs(model.CommitteeIDHeader, model.DefaultCommitteeID)
-	ctx := metadata.NewIncomingContext(context.Background(), md)
 
 	t.Run("success_returns_verifier_result", func(t *testing.T) {
 		store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
 		h := NewGetCCVDataForMessageHandler(store, committee, lggr)
-		store.EXPECT().GetCCVData(mock.Anything, mock.Anything, mock.Anything).Return(goodReport, nil)
-		resp, err := h.Handle(ctx, &pb.GetVerifierResultForMessageRequest{MessageId: msgID[:]})
+		store.EXPECT().GetCCVData(mock.Anything, mock.Anything).Return(goodReport, nil)
+		resp, err := h.Handle(context.Background(), &pb.GetVerifierResultForMessageRequest{MessageId: msgID[:]})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Message)
@@ -119,8 +108,8 @@ func TestGetCCVDataForMessageHandler_Handle_Cases(t *testing.T) {
 	t.Run("storage_error_returns_internal", func(t *testing.T) {
 		store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
 		h := NewGetCCVDataForMessageHandler(store, committee, lggr)
-		store.EXPECT().GetCCVData(mock.Anything, mock.Anything, mock.Anything).Return(nil, assertAnError())
-		resp, err := h.Handle(ctx, &pb.GetVerifierResultForMessageRequest{MessageId: msgID[:]})
+		store.EXPECT().GetCCVData(mock.Anything, mock.Anything).Return(nil, assertAnError())
+		resp, err := h.Handle(context.Background(), &pb.GetVerifierResultForMessageRequest{MessageId: msgID[:]})
 		require.Error(t, err)
 		require.Nil(t, resp)
 		require.Equal(t, codes.Internal, status.Code(err))
@@ -129,20 +118,20 @@ func TestGetCCVDataForMessageHandler_Handle_Cases(t *testing.T) {
 	t.Run("not_found_returns_not_found", func(t *testing.T) {
 		store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
 		h := NewGetCCVDataForMessageHandler(store, committee, lggr)
-		store.EXPECT().GetCCVData(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-		resp, err := h.Handle(ctx, &pb.GetVerifierResultForMessageRequest{MessageId: msgID[:]})
+		store.EXPECT().GetCCVData(mock.Anything, mock.Anything).Return(nil, nil)
+		resp, err := h.Handle(context.Background(), &pb.GetVerifierResultForMessageRequest{MessageId: msgID[:]})
 		require.Error(t, err)
 		require.Nil(t, resp)
 		require.Equal(t, codes.NotFound, status.Code(err))
 	})
 
 	t.Run("mapping_error_returns_internal", func(t *testing.T) {
-		// Use committee that doesn't match source verifier address
-		badCommittee := buildCommittee(sourceSel, destSel, destVerifierAddr /* wrong */, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
+		// Create report with wrong dest selector to trigger "quorum config not found" error
+		badReport := makeAggregatedReport(msgID[:], sourceSel, 99999 /* wrong dest selector */, sourceVerifierAddr, signerAddr, participantID)
 		store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
-		store.EXPECT().GetCCVData(mock.Anything, mock.Anything, mock.Anything).Return(goodReport, nil)
-		h2 := NewGetCCVDataForMessageHandler(store, badCommittee, lggr)
-		resp, err := h2.Handle(ctx, &pb.GetVerifierResultForMessageRequest{MessageId: msgID[:]})
+		store.EXPECT().GetCCVData(mock.Anything, mock.Anything).Return(badReport, nil)
+		h := NewGetCCVDataForMessageHandler(store, committee, lggr)
+		resp, err := h.Handle(context.Background(), &pb.GetVerifierResultForMessageRequest{MessageId: msgID[:]})
 		require.Error(t, err)
 		require.Nil(t, resp)
 		require.Equal(t, codes.Internal, status.Code(err))

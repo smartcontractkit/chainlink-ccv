@@ -2,6 +2,7 @@ package quorum_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -108,17 +109,12 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 	}
 
 	return &model.AggregatorConfig{
-		Committees: map[string]*model.Committee{
-			b.committeeID: {
-				SourceVerifierAddresses: map[string]string{
-					"1": common.Bytes2Hex(b.sourceVerifierAddress),
-				},
-				QuorumConfigs: map[string]*model.QuorumConfig{
-					"1": {
-						CommitteeVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
-						Signers:                  signers,
-						Threshold:                b.threshold,
-					},
+		Committee: &model.Committee{
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"1": {
+					CommitteeVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
+					Signers:                  signers,
+					Threshold:                b.threshold,
 				},
 			},
 		},
@@ -190,7 +186,6 @@ func TestValidateSignature(t *testing.T) {
 	sourceVerifierAddress, destVerifierAddress := fixtures.GenerateVerifierAddresses(t)
 	// Create signer fixture
 	signerFixture := fixtures.NewSignerFixture(t, "signer1")
-	committeeID := "committee1"
 
 	// Create test message using fixture
 	protocolMessage := fixtures.NewProtocolMessage(t)
@@ -202,17 +197,12 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("valid signature", func(t *testing.T) {
 		// Setup validator with test configuration
 		config := &model.AggregatorConfig{
-			Committees: map[string]*model.Committee{
-				committeeID: {
-					SourceVerifierAddresses: map[string]string{
-						"1": common.Bytes2Hex(sourceVerifierAddress),
-					},
-					QuorumConfigs: map[string]*model.QuorumConfig{
-						destSelector: {
-							Signers:                  []model.Signer{signerFixture.Signer},
-							Threshold:                1,
-							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
-						},
+			Committee: &model.Committee{
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					destSelector: {
+						Signers:                  []model.Signer{signerFixture.Signer},
+						Threshold:                1,
+						CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 					},
 				},
 			},
@@ -226,22 +216,17 @@ func TestValidateSignature(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
 		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
-		assert.Equal(t, signerFixture.Signer.Addresses, signers[0].Addresses)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signers[0].Address)
 	})
 
 	t.Run("missing signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
-			Committees: map[string]*model.Committee{
-				committeeID: {
-					SourceVerifierAddresses: map[string]string{
-						"1": common.Bytes2Hex(sourceVerifierAddress),
-					},
-					QuorumConfigs: map[string]*model.QuorumConfig{
-						destSelector: {
-							Signers:                  []model.Signer{signerFixture.Signer},
-							Threshold:                1,
-							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
-						},
+			Committee: &model.Committee{
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					destSelector: {
+						Signers:                  []model.Signer{signerFixture.Signer},
+						Threshold:                1,
+						CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 					},
 				},
 			},
@@ -263,17 +248,12 @@ func TestValidateSignature(t *testing.T) {
 
 	t.Run("invalid signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
-			Committees: map[string]*model.Committee{
-				committeeID: {
-					SourceVerifierAddresses: map[string]string{
-						"1": common.Bytes2Hex(sourceVerifierAddress),
-					},
-					QuorumConfigs: map[string]*model.QuorumConfig{
-						destSelector: {
-							Signers:                  []model.Signer{signerFixture.Signer},
-							Threshold:                1,
-							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
-						},
+			Committee: &model.Committee{
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					destSelector: {
+						Signers:                  []model.Signer{signerFixture.Signer},
+						Threshold:                1,
+						CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 					},
 				},
 			},
@@ -297,7 +277,7 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("missing committee config", func(t *testing.T) {
 		// Empty configuration
 		config := &model.AggregatorConfig{
-			Committees: map[string]*model.Committee{},
+			Committee: nil,
 		}
 
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
@@ -307,22 +287,17 @@ func TestValidateSignature(t *testing.T) {
 		signer, _, err := validator.ValidateSignature(context.Background(), record)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
-		assert.Contains(t, err.Error(), "quorum config not found for chain selector")
+		assert.Contains(t, err.Error(), "committee config not found")
 	})
 
 	t.Run("receipt blob is not part of the signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
-			Committees: map[string]*model.Committee{
-				committeeID: {
-					SourceVerifierAddresses: map[string]string{
-						"1": common.Bytes2Hex(sourceVerifierAddress),
-					},
-					QuorumConfigs: map[string]*model.QuorumConfig{
-						destSelector: {
-							Signers:                  []model.Signer{signerFixture.Signer},
-							Threshold:                1,
-							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
-						},
+			Committee: &model.Committee{
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					destSelector: {
+						Signers:                  []model.Signer{signerFixture.Signer},
+						Threshold:                1,
+						CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 					},
 				},
 			},
@@ -341,7 +316,7 @@ func TestValidateSignature(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, signers)
 		assert.Equal(t, signerFixture.Signer.ParticipantID, signers[0].ParticipantID)
-		assert.Equal(t, signerFixture.Signer.Addresses, signers[0].Addresses)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signers[0].Address)
 	})
 }
 

@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -25,7 +24,7 @@ type SignatureValidator interface {
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
 	// CheckAggregation triggers the aggregation process for the specified aggregation key.
-	CheckAggregation(model.MessageID, model.AggregationKey, model.CommitteeID) error
+	CheckAggregation(model.MessageID, model.AggregationKey) error
 }
 
 // WriteCommitCCVNodeDataHandler handles requests to write commit verification records.
@@ -78,21 +77,9 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 	for _, signer := range signers {
 		signerCtx := scope.WithAddress(ctx, signer.Address)
 		signerCtx = scope.WithParticipantID(signerCtx, signer.ParticipantID)
-		signerCtx = scope.WithCommitteeID(signerCtx, signer.CommitteeID)
-
-		// Parse the idempotency key as UUID
-		idempotencyUUID, err := uuid.Parse(req.GetIdempotencyKey())
-		if err != nil {
-			h.logger(signerCtx).Errorw("invalid idempotency key format", "error", err)
-			return &pb.WriteCommitCCVNodeDataResponse{
-				Status: pb.WriteStatus_FAILED,
-			}, status.Errorf(codes.InvalidArgument, "invalid idempotency key format: %v", err)
-		}
 
 		record := model.CommitVerificationRecordFromProto(req.GetCcvNodeData())
 		record.IdentifierSigner = signer
-		record.CommitteeID = signer.CommitteeID
-		record.IdempotencyKey = idempotencyUUID
 
 		err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
 		if err != nil {
@@ -104,7 +91,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 		h.logger(signerCtx).Infof("Successfully saved commit verification record")
 	}
 
-	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey, signers[0].CommitteeID); err != nil {
+	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey); err != nil {
 		if err == common.ErrAggregationChannelFull {
 			reqLogger.Errorf("Aggregation channel is full")
 			return &pb.WriteCommitCCVNodeDataResponse{

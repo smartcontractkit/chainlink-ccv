@@ -81,7 +81,7 @@ func (cv *Verifier) ValidateMessage(message protocol.Message) error {
 // VerifyMessages verifies a batch of messages using the new chain-agnostic format.
 // It processes tasks concurrently and adds results directly to the batcher.
 // Returns a BatchResult containing any verification errors that occurred.
-func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[verifier.CCVDataWithIdempotencyKey]) batcher.BatchResult[verifier.VerificationError] {
+func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) batcher.BatchResult[verifier.VerificationError] {
 	if len(tasks) == 0 {
 		return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 	}
@@ -121,7 +121,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 
 // verifyMessage verifies a single message (internal helper)
 // Returns an error if verification fails, nil if successful.
-func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[verifier.CCVDataWithIdempotencyKey]) error {
+func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) error {
 	start := time.Now()
 	message := verificationTask.Message
 
@@ -193,12 +193,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		return fmt.Errorf("failed to create CCV data for message %s: %w", messageID.String(), err)
 	}
 
-	// Add CCVData with idempotency key to batcher
-	ccvDataWithKey := verifier.CCVDataWithIdempotencyKey{
-		CCVData:        *ccvData,
-		IdempotencyKey: verificationTask.IdempotencyKey,
-	}
-	if err := ccvDataBatcher.Add(ccvDataWithKey); err != nil {
+	if err := ccvDataBatcher.Add(*ccvData); err != nil {
 		return fmt.Errorf("failed to add CCV data to batcher for message %s (nonce: %d, source chain: %d): %w", messageID.String(), message.Nonce, message.SourceChainSelector, err)
 	}
 

@@ -41,9 +41,9 @@ type ClientConfig struct {
 
 type ConfigOption = func(*model.AggregatorConfig, *ClientConfig) (*model.AggregatorConfig, *ClientConfig)
 
-func WithCommitteeConfig(committeeConfig map[string]*model.Committee) ConfigOption {
+func WithCommitteeConfig(committeeConfig *model.Committee) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.Committees = committeeConfig
+		cfg.Committee = committeeConfig
 		return cfg, clientCfg
 	}
 }

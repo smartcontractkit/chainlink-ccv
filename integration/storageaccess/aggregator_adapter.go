@@ -46,7 +46,7 @@ func mapReceiptBlobs(receiptBlobs []protocol.ReceiptWithBlob) ([]*pb.ReceiptBlob
 	return result, nil
 }
 
-func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey string) (*pb.WriteCommitCCVNodeDataRequest, error) {
+func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitCCVNodeDataRequest, error) {
 	receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
 	if err != nil {
 		return nil, err
@@ -83,19 +83,14 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData, idempotencyKey strin
 			},
 			ReceiptBlobs: receiptBlobs,
 		},
-		IdempotencyKey: idempotencyKey, // Use provided idempotency key
 	}, nil
 }
 
 // WriteCCVNodeData writes CCV data to the aggregator via gRPC.
-func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData, idempotencyKeys []string) error {
-	if len(ccvDataList) != len(idempotencyKeys) {
-		return fmt.Errorf("ccvDataList and idempotencyKeys must have the same length: got %d and %d", len(ccvDataList), len(idempotencyKeys))
-	}
-
+func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
-	for i, ccvData := range ccvDataList {
-		req, err := mapCCVDataToCCVNodeDataProto(ccvData, idempotencyKeys[i])
+	for _, ccvData := range ccvDataList {
+		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
 		if err != nil {
 			return err
 		}
@@ -190,7 +185,6 @@ type AggregatorReader struct {
 	client pb.VerifierResultAPIClient
 	lggr   logger.Logger
 	conn   *grpc.ClientConn
-	token  string
 	since  int64
 }
 
@@ -232,8 +226,16 @@ func (a *AggregatorReader) Close() error {
 // ReadChainStatus reads chain statuses from the aggregator.
 // Returns map of chainSelector -> ChainStatusInfo. Missing chains are not included in the map.
 func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+	// Convert chainSelectors to uint64 slice
+	selectors := make([]uint64, len(chainSelectors))
+	for i, selector := range chainSelectors {
+		selectors[i] = uint64(selector)
+	}
+
 	// Create read request
-	req := &pb.ReadChainStatusRequest{}
+	req := &pb.ReadChainStatusRequest{
+		ChainSelectors: selectors,
+	}
 
 	// Create aggregator client for chain status operations (different from CCV data client)
 	aggregatorClient := pb.NewAggregatorClient(a.conn)
@@ -244,22 +246,13 @@ func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors [
 		return nil, fmt.Errorf("failed to read chain status: %w", err)
 	}
 
-	// Build a map of all statuses from response for quick lookup
-	allStatuses := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
+	result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 	for _, chainStatus := range resp.Statuses {
 		selector := protocol.ChainSelector(chainStatus.ChainSelector)
-		allStatuses[selector] = &protocol.ChainStatusInfo{
+		result[selector] = &protocol.ChainStatusInfo{
 			ChainSelector: selector,
 			BlockNumber:   new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight),
 			Disabled:      chainStatus.Disabled,
-		}
-	}
-
-	// Filter to only requested chain selectors
-	result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-	for _, selector := range chainSelectors {
-		if status, ok := allStatuses[selector]; ok {
-			result[selector] = status
 		}
 	}
 
@@ -330,13 +323,12 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
 	resp, err := a.client.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
 		SinceSequence: a.since,
-		NextToken:     a.token,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error calling GetMessagesSince: %w", err)
 	}
 
-	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", a.since, "token", a.token, "nextToken", resp.NextToken)
+	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", a.since)
 	// Convert the response to []types.QueryResponse
 	results := make([]protocol.QueryResponse, 0, len(resp.Results))
 	tempSince := a.since
@@ -388,7 +380,6 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	}
 
 	a.since = tempSince
-	a.token = resp.NextToken
 
 	return results, nil
 }
