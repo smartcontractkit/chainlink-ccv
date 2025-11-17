@@ -3,6 +3,8 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/grafana/pyroscope-go"
@@ -66,65 +68,71 @@ func (v *VerifierBeholderMonitoring) Metrics() verifier.MetricLabeler {
 	return v.metrics
 }
 
-var _ verifier.Monitoring = (*NoopVerifierMonitoring)(nil)
+var (
+	_ verifier.Monitoring    = (*FakeVerifierMonitoring)(nil)
+	_ verifier.MetricLabeler = (*FakeVerifierMetricLabeler)(nil)
+)
 
-// NoopVerifierMonitoring provides a no-op implementation of VerifierMonitoring.
-type NoopVerifierMonitoring struct {
-	noop verifier.MetricLabeler
+type FakeVerifierMonitoring struct {
+	Fake *FakeVerifierMetricLabeler
 }
 
-// NewNoopVerifierMonitoring creates a new noop monitoring instance.
-func NewNoopVerifierMonitoring() verifier.Monitoring {
-	return &NoopVerifierMonitoring{
-		noop: NewNoopVerifierMetricLabeler(),
+func (f FakeVerifierMonitoring) Metrics() verifier.MetricLabeler {
+	return f.Fake
+}
+
+func NewFakeVerifierMonitoring() *FakeVerifierMonitoring {
+	return &FakeVerifierMonitoring{
+		Fake: &FakeVerifierMetricLabeler{},
 	}
 }
 
-func (n *NoopVerifierMonitoring) Metrics() verifier.MetricLabeler {
-	return n.noop
+type FakeVerifierMetricLabeler struct {
+	mu     sync.RWMutex
+	labels []string
+
+	SourceChainLatestBLock    atomic.Int64
+	SourceChainFinalizedBlock atomic.Int64
 }
 
-var _ verifier.MetricLabeler = (*NoopVerifierMetricLabeler)(nil)
+func (f *FakeVerifierMetricLabeler) Labels() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
-// NoopVerifierMetricLabeler provides a no-op implementation of VerifierMetricLabeler.
-type NoopVerifierMetricLabeler struct{}
-
-// NewNoopVerifierMetricLabeler creates a new noop metric labeler.
-func NewNoopVerifierMetricLabeler() verifier.MetricLabeler {
-	return &NoopVerifierMetricLabeler{}
+	return f.labels
 }
 
-func (n *NoopVerifierMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
-	return n
+func (f *FakeVerifierMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.labels = keyValues
+	return f
 }
 
-func (n *NoopVerifierMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {
+func (f *FakeVerifierMetricLabeler) RecordMessageE2ELatency(context.Context, time.Duration) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementMessagesProcessed(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementMessagesVerificationFailed(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) RecordFinalityWaitDuration(context.Context, time.Duration) {}
+
+func (f *FakeVerifierMetricLabeler) RecordMessageVerificationDuration(context.Context, time.Duration) {
 }
 
-func (n *NoopVerifierMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {}
+func (f *FakeVerifierMetricLabeler) RecordStorageWriteDuration(context.Context, time.Duration) {}
 
-func (n *NoopVerifierMetricLabeler) IncrementMessagesVerificationFailed(ctx context.Context) {}
+func (f *FakeVerifierMetricLabeler) RecordFinalityQueueSize(context.Context, int64) {}
 
-func (n *NoopVerifierMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {
+func (f *FakeVerifierMetricLabeler) RecordCCVDataChannelSize(context.Context, int64) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, blockNum int64) {
+	f.SourceChainLatestBLock.Store(blockNum)
 }
 
-func (n *NoopVerifierMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordSigningDuration(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64) {}
-
-func (n *NoopVerifierMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64) {}
-
-func (n *NoopVerifierMetricLabeler) IncrementStorageWriteErrors(ctx context.Context) {}
-
-func (n *NoopVerifierMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {
+func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, blockNum int64) {
+	f.SourceChainFinalizedBlock.Store(blockNum)
 }

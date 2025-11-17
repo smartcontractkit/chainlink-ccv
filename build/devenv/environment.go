@@ -202,22 +202,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	// Start aggregators.
-	for _, aggregatorInput := range in.Aggregator {
-		_, err = services.NewAggregator(aggregatorInput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
-		}
-	}
-
-	// Start indexer.
-	// start up the indexer after the aggregators are up to avoid spamming of errors
-	// in the logs when it starts before the aggregators are up.
-	_, err = services.NewIndexer(in.Indexer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create indexer service: %w", err)
-	}
-
 	// JD is not currently used.
 	/*
 		prodJDImage := os.Getenv("JD_IMAGE")
@@ -248,20 +232,22 @@ func NewEnvironment() (in *Cfg, err error) {
 	// TODO: When job specs are supported, contract deploy needs to happen after CL nodes are up (and keys are
 	// generated) and before the services have been started.
 
-	addrs := make(map[string][][]byte)
+	var committees []cciptestinterfaces.OnChainCommittees
+	{
+		addrs := make(map[string][][]byte)
 
-	for _, ver := range in.Verifier {
-		// At this point, SigningKeyPublic must be assigned -- either by keygen either manually or by the CL node.
-		addrs[ver.CommitteeName] = append(addrs[ver.CommitteeName], hexutil.MustDecode(ver.SigningKeyPublic))
-	}
+		for _, ver := range in.Verifier {
+			// At this point, SigningKeyPublic must be assigned -- either by keygen either manually or by the CL node.
+			addrs[ver.CommitteeName] = append(addrs[ver.CommitteeName], hexutil.MustDecode(ver.SigningKeyPublic))
+		}
 
-	committees := make([]cciptestinterfaces.OnChainCommittees, 0, len(addrs))
-	for committeeName, signers := range addrs {
-		committees = append(committees, cciptestinterfaces.OnChainCommittees{
-			CommitteeQualifier: committeeName,
-			Signers:            signers,
-			Threshold:          uint8(len(signers)),
-		})
+		for committeeName, signers := range addrs {
+			committees = append(committees, cciptestinterfaces.OnChainCommittees{
+				CommitteeQualifier: committeeName,
+				Signers:            signers,
+				Threshold:          uint8(len(signers)),
+			})
+		}
 	}
 
 	var selectors []uint64
@@ -344,6 +330,40 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////////////
 	// Start: Launch standalone services //
 	///////////////////////////////////////
+
+	// Start aggregators.
+	for _, aggregatorInput := range in.Aggregator {
+		// Initialize proxy addresses from datastore.
+		addrs, _ := e.DataStore.Addresses().Fetch()
+		if aggregatorInput.CommitteeVerifierResolverProxyAddresses == nil {
+			aggregatorInput.CommitteeVerifierResolverProxyAddresses = make(map[uint64]string)
+		}
+		for _, addr := range addrs {
+			if addr.Qualifier != aggregatorInput.CommitteeName {
+				continue
+			}
+			if addr.Type != "CommitteeVerifierResolverProxy" {
+				continue
+			}
+			if _, ok := aggregatorInput.CommitteeVerifierResolverProxyAddresses[addr.ChainSelector]; ok {
+				return nil, fmt.Errorf("duplicate committee verifier resolver proxy address for committee %s on chain selector %d", aggregatorInput.CommitteeName, addr.ChainSelector)
+			}
+			aggregatorInput.CommitteeVerifierResolverProxyAddresses[addr.ChainSelector] = addr.Address
+		}
+
+		_, err = services.NewAggregator(aggregatorInput, in.Verifier)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
+		}
+	}
+
+	// Start indexer.
+	// start up the indexer after the aggregators are up to avoid spamming of errors
+	// in the logs when it starts before the aggregators are up.
+	_, err = services.NewIndexer(in.Indexer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create indexer service: %w", err)
+	}
 
 	_, err = launchStandaloneExecutor(in)
 	if err != nil {
