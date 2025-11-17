@@ -101,7 +101,6 @@ func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
 	return int64(selectedIndex - startIndex)
 }
 
-func (h *HashBasedLeaderElector) GetRetryDelay(destinationChain protocol.ChainSelector) int64 {
-	_ = destinationChain
+func (h *HashBasedLeaderElector) GetRetryDelay(_ protocol.ChainSelector) int64 {
 	return int64(len(h.executorIDs)) * int64(h.executionInterval.Seconds())
 }

@@ -26,7 +26,7 @@ func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimes
 	return &MessageWithTimestamps{
 		ReadyTime:     readyTime,
 		Message:       msg,
-		MessageID:     &msgID,
+		MessageID:     msgID,
 		RetryInterval: 0,
 	}
 }
@@ -58,8 +58,8 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Initialize heap to maintain heap property
-			var mh MessageHeap
-			heap.Init(&mh)
+			mh := NewMessageHeap()
+
 			for _, msg := range tt.messages {
 				heap.Push(&mh, msg)
 			}
@@ -129,8 +129,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Initialize heap to maintain heap property
-			var mh MessageHeap
-			heap.Init(&mh)
+			mh := NewMessageHeap()
 			for _, msg := range tt.messages {
 				heap.Push(&mh, msg)
 			}
@@ -162,8 +161,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 }
 
 func TestMessageHeap_Integration(t *testing.T) {
-	var mh MessageHeap
-	heap.Init(&mh)
+	mh := NewMessageHeap()
 
 	// Test that heap is initially empty
 	if !mh.IsEmpty() {

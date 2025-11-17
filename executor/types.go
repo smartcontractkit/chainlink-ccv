@@ -52,9 +52,19 @@ type CCVAddressInfo struct {
 
 type MessageExecutionState uint8
 
+// Sourced from the solidity contract.
+// Reference here if changes are needed.
+// https://github.com/smartcontractkit/chainlink-ccip/blob/develop/chains/evm/contracts/libraries/Internal.sol#L148.
 const (
 	MESSAGE_UNTOUCHED MessageExecutionState = iota
 	MESSAGE_IN_PROGRESS
 	MESSAGE_SUCCESS
 	MESSAGE_FAILURE
 )
+
+// MessageStatusResults is the translation of onchain execution state to executor's business logic behavior.
+// NonEVMs which have different contracts and onchain behavior will need special handling.
+type MessageStatusResults struct {
+	ShouldRetry   bool
+	ShouldExecute bool
+}

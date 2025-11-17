@@ -47,7 +47,7 @@ type Executor interface {
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
 	// GetMessageStatus checks if the message is expired, cursed, and if it should be retried and executed.
-	GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (bool, bool, error)
+	GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (MessageStatusResults, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains

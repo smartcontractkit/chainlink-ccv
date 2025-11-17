@@ -263,7 +263,7 @@ func TestMessageExpiration(t *testing.T) {
 			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay).Maybe()
 
 			mockExecutor.EXPECT().GetMessageStatus(mock.Anything, mock.Anything, mock.Anything).
-				Return(tc.shouldRetry, tc.shouldExecute, nil).Maybe()
+				Return(executor.MessageStatusResults{ShouldRetry: tc.shouldRetry, ShouldExecute: tc.shouldExecute}, nil).Maybe()
 
 			// Create coordinator with test expiry duration
 			ec, err := executor.NewCoordinator(

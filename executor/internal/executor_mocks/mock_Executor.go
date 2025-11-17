@@ -5,6 +5,7 @@ package executor_mocks
 import (
 	context "context"
 
+	executor "github.com/smartcontractkit/chainlink-ccv/executor"
 	mock "github.com/stretchr/testify/mock"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -118,38 +119,31 @@ func (_c *MockExecutor_CheckValidMessage_Call) RunAndReturn(run func(context.Con
 }
 
 // GetMessageStatus provides a mock function with given fields: ctx, message, currentTime
-func (_m *MockExecutor) GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (bool, bool, error) {
+func (_m *MockExecutor) GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (executor.MessageStatusResults, error) {
 	ret := _m.Called(ctx, message, currentTime)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetMessageStatus")
 	}
 
-	var r0 bool
-	var r1 bool
-	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, int64) (bool, bool, error)); ok {
+	var r0 executor.MessageStatusResults
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, int64) (executor.MessageStatusResults, error)); ok {
 		return rf(ctx, message, currentTime)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, int64) bool); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, int64) executor.MessageStatusResults); ok {
 		r0 = rf(ctx, message, currentTime)
 	} else {
-		r0 = ret.Get(0).(bool)
+		r0 = ret.Get(0).(executor.MessageStatusResults)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message, int64) bool); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message, int64) error); ok {
 		r1 = rf(ctx, message, currentTime)
 	} else {
-		r1 = ret.Get(1).(bool)
+		r1 = ret.Error(1)
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, protocol.Message, int64) error); ok {
-		r2 = rf(ctx, message, currentTime)
-	} else {
-		r2 = ret.Error(2)
-	}
-
-	return r0, r1, r2
+	return r0, r1
 }
 
 // MockExecutor_GetMessageStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageStatus'
@@ -172,12 +166,12 @@ func (_c *MockExecutor_GetMessageStatus_Call) Run(run func(ctx context.Context, 
 	return _c
 }
 
-func (_c *MockExecutor_GetMessageStatus_Call) Return(_a0 bool, _a1 bool, _a2 error) *MockExecutor_GetMessageStatus_Call {
-	_c.Call.Return(_a0, _a1, _a2)
+func (_c *MockExecutor_GetMessageStatus_Call) Return(_a0 executor.MessageStatusResults, _a1 error) *MockExecutor_GetMessageStatus_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockExecutor_GetMessageStatus_Call) RunAndReturn(run func(context.Context, protocol.Message, int64) (bool, bool, error)) *MockExecutor_GetMessageStatus_Call {
+func (_c *MockExecutor_GetMessageStatus_Call) RunAndReturn(run func(context.Context, protocol.Message, int64) (executor.MessageStatusResults, error)) *MockExecutor_GetMessageStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }
