@@ -155,11 +155,6 @@ jobs:
               body: body
             });
             
-      - name: Debug
-        if: always()
-        working-directory: build/devenv/tests/e2e
-        run: ls -lah
-
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
