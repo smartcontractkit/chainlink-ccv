@@ -128,3 +128,55 @@ func (n *NoopVerifierMetricLabeler) RecordSourceChainLatestBlock(ctx context.Con
 
 func (n *NoopVerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {
 }
+
+type FakeVerifierMonitoring struct {
+	Fake *FakeVerifierMetricLabeler
+}
+
+func (f FakeVerifierMonitoring) Metrics() verifier.MetricLabeler {
+	return f.Fake
+}
+
+func NewFakeVerifierMonitoring() *FakeVerifierMonitoring {
+	return &FakeVerifierMonitoring{
+		Fake: &FakeVerifierMetricLabeler{},
+	}
+}
+
+type FakeVerifierMetricLabeler struct {
+	Labels                    []string
+	SourceChainLatestBLock    int64
+	SourceChainFinalizedBlock int64
+}
+
+func (f *FakeVerifierMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
+	f.Labels = keyValues
+	return f
+}
+
+func (f *FakeVerifierMetricLabeler) RecordMessageE2ELatency(context.Context, time.Duration) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementMessagesProcessed(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementMessagesVerificationFailed(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) RecordFinalityWaitDuration(context.Context, time.Duration) {}
+
+func (f *FakeVerifierMetricLabeler) RecordMessageVerificationDuration(context.Context, time.Duration) {
+}
+
+func (f *FakeVerifierMetricLabeler) RecordStorageWriteDuration(context.Context, time.Duration) {}
+
+func (f *FakeVerifierMetricLabeler) RecordFinalityQueueSize(context.Context, int64) {}
+
+func (f *FakeVerifierMetricLabeler) RecordCCVDataChannelSize(context.Context, int64) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, blockNum int64) {
+	f.SourceChainLatestBLock = blockNum
+}
+
+func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, blockNum int64) {
+	f.SourceChainFinalizedBlock = blockNum
+}
