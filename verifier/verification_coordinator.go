@@ -44,6 +44,19 @@ type sourceState struct {
 	pendingMu    sync.RWMutex
 }
 
+func (s *sourceState) Close() error {
+	var aggErr error
+	if s.reorgDetector != nil {
+		if err := s.reorgDetector.Close(); err != nil {
+			aggErr = errors.Join(aggErr, fmt.Errorf("failed to close reorg detector: %w", err))
+		}
+	}
+	if err := s.reader.Stop(); err != nil {
+		aggErr = errors.Join(aggErr, fmt.Errorf("failed to stop source reader: %w", err))
+	}
+	return aggErr
+}
+
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
 	services.StateMachine
@@ -402,13 +415,8 @@ func (vc *Coordinator) Close() error {
 
 		// Close reorg detectors & source readers
 		for chainSelector, state := range vc.sourceStates {
-			if state.reorgDetector != nil {
-				if err := state.reorgDetector.Close(); err != nil {
-					vc.lggr.Errorw("Error closing reorg detector", "error", err, "chainSelector", chainSelector)
-				}
-			}
-			if err := state.reader.Stop(); err != nil {
-				vc.lggr.Errorw("Error stopping source reader", "error", err, "chainSelector", chainSelector)
+			if err := state.Close(); err != nil {
+				vc.lggr.Errorw("Error closing detector/sourceReader", "error", err, "chainSelector", chainSelector)
 			}
 		}
 
