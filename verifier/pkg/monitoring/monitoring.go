@@ -3,6 +3,8 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/grafana/pyroscope-go"
@@ -86,13 +88,25 @@ func NewFakeVerifierMonitoring() *FakeVerifierMonitoring {
 }
 
 type FakeVerifierMetricLabeler struct {
-	Labels                    []string
-	SourceChainLatestBLock    int64
-	SourceChainFinalizedBlock int64
+	mu     sync.RWMutex
+	labels []string
+
+	SourceChainLatestBLock    atomic.Int64
+	SourceChainFinalizedBlock atomic.Int64
+}
+
+func (f *FakeVerifierMetricLabeler) Labels() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	return f.labels
 }
 
 func (f *FakeVerifierMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
-	f.Labels = keyValues
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.labels = keyValues
 	return f
 }
 
@@ -116,9 +130,9 @@ func (f *FakeVerifierMetricLabeler) RecordCCVDataChannelSize(context.Context, in
 func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context) {}
 
 func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, blockNum int64) {
-	f.SourceChainLatestBLock = blockNum
+	f.SourceChainLatestBLock.Store(blockNum)
 }
 
 func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, blockNum int64) {
-	f.SourceChainFinalizedBlock = blockNum
+	f.SourceChainFinalizedBlock.Store(blockNum)
 }
