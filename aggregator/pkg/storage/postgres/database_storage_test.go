@@ -1,11 +1,13 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"testing"
 	"time"
 
@@ -46,7 +48,6 @@ func assertCommitVerificationRecordEqual(t *testing.T, expected, actual *model.C
 	}
 
 	if expected.IdentifierSigner != nil && actual.IdentifierSigner != nil {
-		require.Equal(t, expected.IdentifierSigner.ParticipantID, actual.IdentifierSigner.ParticipantID, "%s: IdentifierSigner.ParticipantID mismatch", msgPrefix)
 		require.Equal(t, expected.IdentifierSigner.Address, actual.IdentifierSigner.Address, "%s: IdentifierSigner.Address mismatch", msgPrefix)
 		require.Equal(t, expected.IdentifierSigner.SignatureR, actual.IdentifierSigner.SignatureR, "%s: IdentifierSigner.SignatureR mismatch", msgPrefix)
 		require.Equal(t, expected.IdentifierSigner.SignatureS, actual.IdentifierSigner.SignatureS, "%s: IdentifierSigner.SignatureS mismatch", msgPrefix)
@@ -65,8 +66,7 @@ func newTestSigner(t *testing.T, name string) *testFixture {
 	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 
 	signer := model.Signer{
-		ParticipantID: name,
-		Addresses:     []string{signerAddress.Hex()},
+		Address: signerAddress.Hex(),
 	}
 	return &testFixture{
 		Signer: signer,
@@ -158,20 +158,19 @@ func createTestCommitVerificationRecord(msgWithCCV *pb.MessageWithCCVNodeData, s
 	copy(r32[:], []byte("r_signature_test_32_bytes_here!"))
 	copy(s32[:], []byte("s_signature_test_32_bytes_here!"))
 
-	signerAddress := common.HexToAddress(signer.Signer.Addresses[0])
+	signerAddress := common.HexToAddress(signer.Signer.Address)
 
 	record := model.CommitVerificationRecordFromProto(msgWithCCV)
 	record.IdentifierSigner = &model.IdentifierSigner{
-		ParticipantID: signer.Signer.ParticipantID,
-		Address:       signerAddress.Bytes(),
-		SignatureR:    r32,
-		SignatureS:    s32,
+		Address:    signerAddress.Bytes(),
+		SignatureR: r32,
+		SignatureS: s32,
 	}
 
 	return record
 }
 
-func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *pb.MessageWithCCVNodeData, participantID string) *model.CommitVerificationRecord {
+func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *pb.MessageWithCCVNodeData) *model.CommitVerificationRecord {
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
@@ -182,10 +181,9 @@ func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *pb.M
 
 	record := model.CommitVerificationRecordFromProto(msgWithCCV)
 	record.IdentifierSigner = &model.IdentifierSigner{
-		ParticipantID: participantID,
-		Address:       signerAddress.Bytes(),
-		SignatureR:    r32,
-		SignatureS:    s32,
+		Address:    signerAddress.Bytes(),
+		SignatureR: r32,
+		SignatureS: s32,
 	}
 
 	return record
@@ -332,7 +330,7 @@ func TestGetCommitVerification_MultipleVersions(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	record2 := createTestCommitVerificationRecordWithNewKey(t, msgWithCCV, signer.Signer.ParticipantID)
+	record2 := createTestCommitVerificationRecordWithNewKey(t, msgWithCCV)
 	record2.SetTimestampFromMillis(time.Now().UnixMilli())
 	err = storage.SaveCommitVerification(ctx, record2, aggregationKey)
 	require.NoError(t, err)
@@ -378,11 +376,11 @@ func TestListCommitVerificationByAggregationKey(t *testing.T) {
 	foundSigner1 := false
 	foundSigner2 := false
 	for _, rec := range records {
-		if rec.IdentifierSigner.ParticipantID == "node-1" {
+		if bytes.Equal(rec.IdentifierSigner.Address, record1.IdentifierSigner.Address) {
 			foundSigner1 = true
 			assertCommitVerificationRecordEqual(t, record1, rec, "Signer1")
 		}
-		if rec.IdentifierSigner.ParticipantID == "node-2" {
+		if bytes.Equal(rec.IdentifierSigner.Address, record2.IdentifierSigner.Address) {
 			foundSigner2 = true
 			assertCommitVerificationRecordEqual(t, record2, rec, "Signer2")
 		}
@@ -764,8 +762,8 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 	for i, expectedRecord := range records {
 		found := false
 		for _, actualRecord := range retrieved.Verifications {
-			if actualRecord.IdentifierSigner.ParticipantID == expectedRecord.IdentifierSigner.ParticipantID {
-				assertCommitVerificationRecordEqual(t, expectedRecord, actualRecord, "BatchOperations_Signer"+expectedRecord.IdentifierSigner.ParticipantID)
+			if bytes.Equal(actualRecord.IdentifierSigner.Address, expectedRecord.IdentifierSigner.Address) {
+				assertCommitVerificationRecordEqual(t, expectedRecord, actualRecord, fmt.Sprintf("BatchOperations_Signer%d", i))
 				found = true
 				break
 			}
@@ -868,37 +866,4 @@ func TestDatabaseStorage_PageSize(t *testing.T) {
 	storage := NewDatabaseStorage(ds, customPageSize, logger.TestSugared(t))
 
 	require.Equal(t, customPageSize, storage.pageSize)
-}
-
-func TestListCommitVerificationByAggregationKey_DistinctOnSigner(t *testing.T) {
-	storage, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	message := createTestProtocolMessage()
-	messageID, err := message.MessageID()
-	aggregationKey := hex.EncodeToString(messageID[:])
-	require.NoError(t, err)
-
-	signer := newTestSigner(t, "node-1")
-
-	msgWithCCV1 := createTestMessageWithCCV(t, message, signer)
-	record1 := createTestCommitVerificationRecord(msgWithCCV1, signer)
-	record1.SetTimestampFromMillis(time.Now().UnixMilli())
-	err = storage.SaveCommitVerification(ctx, record1, aggregationKey)
-	require.NoError(t, err)
-
-	time.Sleep(10 * time.Millisecond)
-
-	msgWithCCV2 := createTestMessageWithCCV(t, message, signer)
-	record2 := createTestCommitVerificationRecordWithNewKey(t, msgWithCCV2, signer.Signer.ParticipantID)
-	record2.SetTimestampFromMillis(time.Now().UnixMilli())
-	err = storage.SaveCommitVerification(ctx, record2, aggregationKey)
-	require.NoError(t, err)
-
-	records, err := storage.ListCommitVerificationByAggregationKey(ctx, messageID[:], aggregationKey)
-	require.NoError(t, err)
-	require.Len(t, records, 1, "Should return only latest version")
-	require.Equal(t, record2.Timestamp, records[0].Timestamp, "Should be the second (latest) record")
-	assertCommitVerificationRecordEqual(t, record2, records[0], "DistinctOnSigner_Latest")
 }

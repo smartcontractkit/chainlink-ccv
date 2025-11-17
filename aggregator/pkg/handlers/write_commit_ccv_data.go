@@ -74,7 +74,6 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 	ctx = scope.WithAggregationKey(ctx, aggregationKey)
 
 	signerCtx := scope.WithAddress(ctx, signer.Address)
-	signerCtx = scope.WithParticipantID(signerCtx, signer.ParticipantID)
 
 	record.IdentifierSigner = signer
 

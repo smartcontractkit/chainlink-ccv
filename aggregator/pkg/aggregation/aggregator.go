@@ -94,35 +94,6 @@ func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorM
 	return scope.AugmentMetrics(ctx, c.monitoring.Metrics())
 }
 
-func deduplicateVerificationsByParticipant(verifications []*model.CommitVerificationRecord) []*model.CommitVerificationRecord {
-	if len(verifications) <= 1 {
-		return verifications
-	}
-
-	// Map from participant address (hex string) to the verification record
-	participantMap := make(map[string]*model.CommitVerificationRecord)
-
-	for _, verification := range verifications {
-		if verification.IdentifierSigner == nil || len(verification.IdentifierSigner.ParticipantID) == 0 {
-			continue
-		}
-
-		participantID := verification.IdentifierSigner.ParticipantID
-		existing, exists := participantMap[participantID]
-
-		if !exists || verification.GetTimestamp().After(existing.GetTimestamp()) {
-			participantMap[participantID] = verification
-		}
-	}
-
-	result := make([]*model.CommitVerificationRecord, 0, len(participantMap))
-	for _, verification := range participantMap {
-		result = append(result, verification)
-	}
-
-	return result
-}
-
 // shouldSkipAggregationDueToExistingQuorum checks if we should skip creating a new aggregation
 // because an existing aggregated report already meets quorum requirements.
 // Returns true if aggregation should be skipped, false otherwise.
@@ -184,12 +155,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	lggr.Debugw("Verifications retrieved", "count", len(verifications))
 
-	dedupedVerifications := deduplicateVerificationsByParticipant(verifications)
-	if len(dedupedVerifications) < len(verifications) {
-		lggr.Infow("Deduplicated verifications", "original", len(verifications), "deduplicated", len(dedupedVerifications))
-	}
-
-	winningReceiptBlobs, err := selectWinningReceiptBlobSet(dedupedVerifications)
+	winningReceiptBlobs, err := selectWinningReceiptBlobSet(verifications)
 	if err != nil {
 		lggr.Errorw("Failed to select winning receipt blob set", "error", err)
 		return nil, err
@@ -197,13 +163,13 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	aggregatedReport := &model.CommitAggregatedReport{
 		MessageID:           request.MessageID,
-		Verifications:       dedupedVerifications,
+		Verifications:       verifications,
 		WinningReceiptBlobs: winningReceiptBlobs,
 	}
 
 	mostRecentTimestamp := aggregatedReport.GetMostRecentVerificationTimestamp()
 
-	lggr.Debugw("Aggregated report created", "timestamp", mostRecentTimestamp, "verificationCount", len(dedupedVerifications))
+	lggr.Debugw("Aggregated report created", "timestamp", mostRecentTimestamp, "verificationCount", len(verifications))
 
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
 	if err != nil {

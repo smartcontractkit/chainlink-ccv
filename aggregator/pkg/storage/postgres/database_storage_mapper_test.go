@@ -59,10 +59,9 @@ func TestRecordToInsertParams(t *testing.T) {
 			},
 		},
 		IdentifierSigner: &model.IdentifierSigner{
-			ParticipantID: "participant1",
-			Address:       signerAddr.Bytes(),
-			SignatureR:    sigR,
-			SignatureS:    sigS,
+			Address:    signerAddr.Bytes(),
+			SignatureR: sigR,
+			SignatureS: sigS,
 		},
 	}
 
@@ -71,7 +70,6 @@ func TestRecordToInsertParams(t *testing.T) {
 	require.NotNil(t, params)
 
 	require.Equal(t, common.Bytes2Hex(messageID), params["message_id"])
-	require.Equal(t, "participant1", params["participant_id"])
 	require.Equal(t, signerAddr.Hex(), params["signer_address"])
 	require.Equal(t, "aggregation_key_1", params["aggregation_key"])
 
@@ -102,7 +100,6 @@ func TestRowToCommitVerificationRecord(t *testing.T) {
 	row := &commitVerificationRecordRow{
 		ID:                    1,
 		MessageID:             messageIDHex,
-		ParticipantID:         "participant1",
 		SignerAddress:         signerAddr,
 		SignatureR:            sigR[:],
 		SignatureS:            sigS[:],
@@ -157,7 +154,6 @@ func TestRowToCommitVerificationRecord(t *testing.T) {
 	require.NotNil(t, record)
 
 	require.Equal(t, common.Hex2Bytes(messageIDHex), record.MessageID)
-	require.Equal(t, "participant1", record.IdentifierSigner.ParticipantID)
 	require.Equal(t, common.HexToAddress(signerAddr).Bytes(), record.IdentifierSigner.Address)
 	require.Equal(t, sigR, record.IdentifierSigner.SignatureR)
 	require.Equal(t, sigS, record.IdentifierSigner.SignatureS)
