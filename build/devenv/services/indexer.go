@@ -89,6 +89,8 @@ func defaults(in *IndexerInput) {
 				AggregatorReaderConfig: config.AggregatorReaderConfig{
 					Address: "aggregator:50051",
 					Since:   0,
+					APIKey:  "dev-api-key-indexer",
+					Secret:  "dev-secret-indexer",
 				},
 				PollInterval:       1,
 				Timeout:            5,
@@ -100,6 +102,8 @@ func defaults(in *IndexerInput) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{
 						Address: "default-aggregator:50051",
 						Since:   0,
+						APIKey:  "dev-api-key-indexer",
+						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses: []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"},
 				},
@@ -108,6 +112,8 @@ func defaults(in *IndexerInput) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{
 						Address: "secondary-aggregator:50051",
 						Since:   0,
+						APIKey:  "dev-api-key-indexer",
+						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses: []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"},
 				},
@@ -116,6 +122,8 @@ func defaults(in *IndexerInput) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{
 						Address: "tertiary-aggregator:50051",
 						Since:   0,
+						APIKey:  "dev-api-key-indexer",
+						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses: []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"},
 				},

@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/worker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -143,7 +144,10 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.ResilientReader, error) {
 	switch cfg.Type {
 	case config.ReaderTypeAggregator:
-		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since)
+		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
+			APIKey: cfg.APIKey,
+			Secret: cfg.Secret,
+		})
 	case config.ReaderTypeRest:
 		return readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:        cfg.BaseURL,
@@ -155,7 +159,10 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 }
 
 func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) (common.MessageDiscovery, error) {
-	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, cfg.Discovery.Since)
+	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, cfg.Discovery.Since, hmac.ClientConfig{
+		APIKey: cfg.Discovery.APIKey,
+		Secret: cfg.Discovery.Secret,
+	})
 	if err != nil {
 		return nil, err
 	}
