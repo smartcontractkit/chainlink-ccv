@@ -110,3 +110,144 @@ func TestRecoverSigners(t *testing.T) {
 		require.Equal(t, expected, recoveredAddresses[i])
 	}
 }
+
+func TestEncodeSingleSignature(t *testing.T) {
+	t.Run("valid signature", func(t *testing.T) {
+		sig := Data{
+			R:      [32]byte{0x01},
+			S:      [32]byte{0x02},
+			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		}
+
+		encoded, err := EncodeSingleSignature(sig)
+		require.NoError(t, err)
+		require.Len(t, encoded, 96)
+		require.Equal(t, sig.R[:], encoded[0:32])
+		require.Equal(t, sig.S[:], encoded[32:64])
+		require.Equal(t, sig.Signer[:], encoded[64:84])
+	})
+
+	t.Run("zero R", func(t *testing.T) {
+		sig := Data{
+			R:      [32]byte{},
+			S:      [32]byte{0x02},
+			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		}
+
+		_, err := EncodeSingleSignature(sig)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+	})
+
+	t.Run("zero S", func(t *testing.T) {
+		sig := Data{
+			R:      [32]byte{0x01},
+			S:      [32]byte{},
+			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		}
+
+		_, err := EncodeSingleSignature(sig)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+	})
+
+	t.Run("zero signer", func(t *testing.T) {
+		sig := Data{
+			R:      [32]byte{0x01},
+			S:      [32]byte{0x02},
+			Signer: common.Address{},
+		}
+
+		_, err := EncodeSingleSignature(sig)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signer address cannot be zero")
+	})
+}
+
+func TestDecodeSingleSignature(t *testing.T) {
+	t.Run("valid signature", func(t *testing.T) {
+		expectedR := [32]byte{0x01}
+		expectedS := [32]byte{0x02}
+		expectedSigner := common.HexToAddress("0x1234567890123456789012345678901234567890")
+
+		data := make([]byte, 96)
+		copy(data[0:32], expectedR[:])
+		copy(data[32:64], expectedS[:])
+		copy(data[64:84], expectedSigner[:])
+
+		r, s, signer, err := DecodeSingleSignature(data)
+		require.NoError(t, err)
+		require.Equal(t, expectedR, r)
+		require.Equal(t, expectedS, s)
+		require.Equal(t, expectedSigner, signer)
+	})
+
+	t.Run("wrong length", func(t *testing.T) {
+		data := make([]byte, 95)
+		_, _, _, err := DecodeSingleSignature(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signature data must be exactly 96 bytes")
+	})
+
+	t.Run("zero R", func(t *testing.T) {
+		data := make([]byte, 96)
+		s := [32]byte{0x02}
+		copy(data[32:64], s[:])
+		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
+		copy(data[64:84], signer[:])
+
+		_, _, _, err := DecodeSingleSignature(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+	})
+
+	t.Run("zero S", func(t *testing.T) {
+		data := make([]byte, 96)
+		r := [32]byte{0x01}
+		copy(data[0:32], r[:])
+		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
+		copy(data[64:84], signer[:])
+
+		_, _, _, err := DecodeSingleSignature(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+	})
+
+	t.Run("zero signer", func(t *testing.T) {
+		data := make([]byte, 96)
+		r := [32]byte{0x01}
+		copy(data[0:32], r[:])
+		s := [32]byte{0x02}
+		copy(data[32:64], s[:])
+
+		_, _, _, err := DecodeSingleSignature(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signer address cannot be zero")
+	})
+}
+
+func TestSingleSignatureRoundTrip(t *testing.T) {
+	privateKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	hash := Keccak256([]byte("test message"))
+
+	r, s, addr, err := SignV27(hash[:], privateKey)
+	require.NoError(t, err)
+
+	sig := Data{
+		R:      r,
+		S:      s,
+		Signer: addr,
+	}
+
+	encoded, err := EncodeSingleSignature(sig)
+	require.NoError(t, err)
+
+	decodedR, decodedS, decodedSigner, err := DecodeSingleSignature(encoded)
+	require.NoError(t, err)
+
+	require.Equal(t, sig.R, decodedR)
+	require.Equal(t, sig.S, decodedS)
+	require.Equal(t, sig.Signer, decodedSigner)
+}
