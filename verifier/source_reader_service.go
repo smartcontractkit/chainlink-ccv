@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const (
@@ -30,20 +31,21 @@ const (
 	ChainStatusRetryAttempts = 5
 )
 
-// SourceReaderService implements SourceReader for reading CCIPMessageSent events from blockchain.
+// SourceReaderService wraps a SourceReader and converts MessageSentEvents to VerificationTasks.
 type SourceReaderService struct {
-	sourceReader         SourceReader
+	services.StateMachine
+	wg     sync.WaitGroup
+	stopCh chan struct{}
+
+	sourceReader         chainaccess.SourceReader
 	headTracker          chainaccess.HeadTracker
 	logger               logger.Logger
 	lastProcessedBlock   *big.Int
 	verificationTaskCh   chan batcher.BatchResult[VerificationTask]
-	stopCh               chan struct{}
 	ccipMessageSentTopic string
-	wg                   sync.WaitGroup
 	pollInterval         time.Duration
 	chainSelector        protocol.ChainSelector
 	mu                   sync.RWMutex
-	isRunning            bool
 
 	// Reset coordination using optimistic locking pattern.
 	// This version counter is incremented each time ResetToBlock() is called.
@@ -72,7 +74,7 @@ func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
 
 // NewSourceReaderService creates a new blockchain-based source reader.
 func NewSourceReaderService(
-	sourceReader SourceReader,
+	sourceReader chainaccess.SourceReader,
 	headTracker chainaccess.HeadTracker,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
@@ -102,57 +104,42 @@ func NewSourceReaderService(
 
 // Start begins reading messages and pushing them to the messages channel.
 func (r *SourceReaderService) Start(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	return r.StartOnce("SourceReaderService", func() error {
+		r.logger.Infow("Starting SourceReaderService",
+			"chainSelector", r.chainSelector,
+			"topic", r.ccipMessageSentTopic)
 
-	if r.isRunning {
-		return nil // Already running
-	}
+		// Test connectivity before starting
+		if err := r.testConnectivity(ctx); err != nil {
+			r.logger.Errorw("Connectivity test failed", "error", err)
+			return err
+		}
 
-	r.logger.Infow("🔄 Starting SourceReaderService",
-		"chainSelector", r.chainSelector,
-		"topic", r.ccipMessageSentTopic)
+		r.wg.Add(1)
+		go r.eventMonitoringLoop(ctx)
 
-	// Test connectivity before starting
-	if err := r.testConnectivity(ctx); err != nil {
-		r.logger.Errorw("❌ Connectivity test failed", "error", err)
-		return err
-	}
-
-	r.isRunning = true
-	r.wg.Add(1)
-
-	go r.eventMonitoringLoop(ctx)
-
-	r.logger.Infow("✅ SourceReaderService started successfully")
-	return nil
+		r.logger.Infow("SourceReaderService started successfully")
+		return nil
+	})
 }
 
 // Stop stops the reader and closes the messages channel.
 func (r *SourceReaderService) Stop() error {
-	r.mu.Lock()
-	if !r.isRunning {
-		r.mu.Unlock()
-		return nil // Already stopped
-	}
+	return r.StopOnce("SourceReaderService", func() error {
+		r.logger.Infow("Stopping SourceReaderService")
 
-	r.logger.Infow("🛑 Stopping SourceReaderService")
+		close(r.stopCh)
 
-	close(r.stopCh)
-	r.mu.Unlock()
+		// Wait for goroutine WITHOUT holding lock to avoid deadlock
+		// (event loop needs to acquire lock to finish its cycle)
+		r.wg.Wait()
 
-	// Wait for goroutine WITHOUT holding lock to avoid deadlock
-	// (event loop needs to acquire lock to finish its cycle)
-	r.wg.Wait()
+		// Re-acquire lock to update state
+		close(r.verificationTaskCh)
 
-	// Re-acquire lock to update state
-	r.mu.Lock()
-	close(r.verificationTaskCh)
-	r.isRunning = false
-	r.mu.Unlock()
-
-	r.logger.Infow("✅ SourceReaderService stopped successfully")
-	return nil
+		r.logger.Infow("SourceReaderService stopped successfully")
+		return nil
+	})
 }
 
 // VerificationTaskChannel returns the channel where new message events are delivered as batches.
@@ -162,11 +149,8 @@ func (r *SourceReaderService) VerificationTaskChannel() <-chan batcher.BatchResu
 
 // HealthCheck returns the current health status of the reader.
 func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if !r.isRunning {
-		return nil // Not running is OK for health check
+	if err := r.Ready(); err != nil {
+		return err
 	}
 
 	// Test basic connectivity
@@ -229,17 +213,17 @@ func (r *SourceReaderService) testConnectivity(ctx context.Context) error {
 
 	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(testCtx)
 	if err != nil {
-		r.logger.Warnw("⚠️ Connectivity test failed", "error", err)
+		r.logger.Warnw("Connectivity test failed", "error", err)
 		return fmt.Errorf("connectivity test failed: %w", err)
 	}
 	if finalized == nil {
-		r.logger.Warnw("⚠️ Connectivity test failed: finalized block is nil")
+		r.logger.Warnw("Connectivity test failed: finalized block is nil")
 		return fmt.Errorf("connectivity test failed: finalized block is nil")
 	}
 
 	_, err = r.sourceReader.BlockTime(testCtx, new(big.Int).SetUint64(finalized.Number))
 	if err != nil {
-		r.logger.Warnw("⚠️ Connectivity test failed during BlockTime call", "error", err)
+		r.logger.Warnw("Connectivity test failed during BlockTime call", "error", err)
 		return fmt.Errorf("connectivity test failed during BlockTime call: %w", err)
 	}
 
@@ -518,7 +502,7 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 	// Add panic recovery
 	defer func() {
 		if rec := recover(); rec != nil {
-			r.logger.Errorw("❌ Recovered from panic in event monitoring loop", "panic", rec)
+			r.logger.Errorw("Recovered from panic in event monitoring loop", "panic", rec)
 		}
 	}()
 
@@ -596,13 +580,13 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	cancel()
 
 	if err != nil {
-		r.logger.Errorw("⚠️ Failed to get latest block", "error", err)
+		r.logger.Errorw("Failed to get latest block", "error", err)
 		// Send batch-level error to coordinator
 		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
 		return
 	}
 	if finalized == nil {
-		r.logger.Errorw("⚠️ Finalized block is nil")
+		r.logger.Errorw("Finalized block is nil")
 		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
 		return
 	}
@@ -611,16 +595,29 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Fetch until latest available
-	tasks, err := r.sourceReader.VerificationTasks(logsCtx, fromBlock, nil)
+	// Fetch message events from blockchain
+	events, err := r.sourceReader.FetchMessageSentEvents(logsCtx, fromBlock, nil)
 	if err != nil {
-		r.logger.Errorw("⚠️ Failed to query logs", "error", err,
+		r.logger.Errorw("Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
 		// Send batch-level error to coordinator
 		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to latest: %w",
 			fromBlock.String(), err))
 		return
+	}
+
+	// Convert MessageSentEvents to VerificationTasks
+	now := time.Now()
+	tasks := make([]VerificationTask, 0, len(events))
+	for _, event := range events {
+		task := VerificationTask{
+			Message:      event.Message,
+			ReceiptBlobs: event.Receipts,
+			BlockNumber:  event.BlockNumber,
+			FirstSeenAt:  now,
+		}
+		tasks = append(tasks, task)
 	}
 
 	// Send batch if tasks were found
@@ -634,7 +631,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		// Send to verification channel (blocking - backpressure)
 		select {
 		case r.verificationTaskCh <- batch:
-			r.logger.Infow("✅ Verification task batch sent to channel",
+			r.logger.Infow("Verification task batch sent to channel",
 				"batchSize", len(tasks),
 				"fromBlock", fromBlock.String(),
 				"toBlock", "latest")
@@ -643,7 +640,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 			return
 		}
 	} else {
-		r.logger.Debugw("🔍 No events found in range",
+		r.logger.Debugw("No events found in range",
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
 	}
@@ -711,7 +708,7 @@ func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
 	}
 }
 
-func (r *SourceReaderService) GetSourceReader() SourceReader {
+func (r *SourceReaderService) GetSourceReader() chainaccess.SourceReader {
 	return r.sourceReader
 }
 

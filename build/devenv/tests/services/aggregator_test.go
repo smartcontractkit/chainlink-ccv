@@ -35,7 +35,12 @@ func TestServiceAggregator(t *testing.T) {
 			RedisDB:       "0",
 			APIKeysJSON:   `{"clients":{"test-key":{"clientId":"test","enabled":true,"groups":[],"secrets":{"primary":"test-secret"}}}}`,
 		},
-	})
+	}, []*services.VerifierInput{{
+		SourceCodePath: "../../../verifier",
+		RootPath:       "../../../../",
+		CommitteeName:  "default",
+		NodeIndex:      0,
+	}})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
 		_ = out

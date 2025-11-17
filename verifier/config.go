@@ -10,12 +10,6 @@ type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
 
-	// TODO: Move to a separate secrets config file.
-	AggregatorAPIKey string `toml:"aggregator_api_key"`
-
-	// TODO: Move to a separate secrets config file.
-	AggregatorSecretKey string `toml:"aggregator_secret_key"`
-
 	SignerAddress string `toml:"signer_address"`
 
 	// TODO: remove from verifier config, readers need to be initialized separately.

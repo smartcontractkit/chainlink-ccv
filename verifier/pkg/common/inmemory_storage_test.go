@@ -2,7 +2,6 @@ package common
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -12,15 +11,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
-
-// generateIdempotencyKeys creates test idempotency keys for a given number of items.
-func generateIdempotencyKeys(count int, prefix string) []string {
-	keys := make([]string, count)
-	for i := range keys {
-		keys[i] = fmt.Sprintf("%s-key-%d", prefix, i)
-	}
-	return keys
-}
 
 func createTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector) protocol.Message {
 	// Create empty token transfer
@@ -103,7 +93,7 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 	}
 
 	// Write data
-	err := storage.WriteCCVNodeData(ctx, testData, generateIdempotencyKeys(len(testData), "test"))
+	err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Retrieve and verify
@@ -153,7 +143,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		}
 
 		// Store first data at baseTime
-		err := storage.WriteCCVNodeData(ctx, testData1, generateIdempotencyKeys(len(testData1), "test1"))
+		err := storage.WriteCCVNodeData(ctx, testData1)
 		require.NoError(t, err)
 
 		// Update time provider for second batch
@@ -173,7 +163,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			},
 		}
 
-		err = storage.WriteCCVNodeData(ctx, testData2, generateIdempotencyKeys(len(testData2), "test2"))
+		err = storage.WriteCCVNodeData(ctx, testData2)
 		require.NoError(t, err)
 
 		// Update time provider for third batch
@@ -193,7 +183,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			},
 		}
 
-		err = storage.WriteCCVNodeData(ctx, testData3, generateIdempotencyKeys(len(testData3), "test3"))
+		err = storage.WriteCCVNodeData(ctx, testData3)
 		require.NoError(t, err)
 
 		return storage
@@ -319,7 +309,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	}
 
 	// Store data
-	err := storage.WriteCCVNodeData(ctx, testData, generateIdempotencyKeys(len(testData), "test"))
+	err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Test finding existing message
@@ -373,10 +363,10 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	}
 
 	// Write data for both verifiers
-	err := storage.WriteCCVNodeData(ctx, data1, generateIdempotencyKeys(len(data1), "test1"))
+	err := storage.WriteCCVNodeData(ctx, data1)
 	require.NoError(t, err)
 
-	err = storage.WriteCCVNodeData(ctx, data2, generateIdempotencyKeys(len(data2), "test2"))
+	err = storage.WriteCCVNodeData(ctx, data2)
 	require.NoError(t, err)
 
 	// Verify verifier1 data
@@ -412,7 +402,7 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 		},
 	}
 
-	err := storage.WriteCCVNodeData(ctx, testData, generateIdempotencyKeys(len(testData), "test"))
+	err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Verify data exists
@@ -442,7 +432,7 @@ func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
 	ctx := context.Background()
 
 	// Write empty data should not error
-	err := storage.WriteCCVNodeData(ctx, []protocol.CCVData{}, []string{})
+	err := storage.WriteCCVNodeData(ctx, []protocol.CCVData{})
 	require.NoError(t, err)
 
 	// Get data for non-existent verifier
@@ -473,7 +463,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 		},
 	}
 
-	err := storage.WriteCCVNodeData(ctx, testData, generateIdempotencyKeys(len(testData), "test"))
+	err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Verify data was stored - timestamp is managed internally by storage entries
@@ -563,7 +553,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 		}
 
 		// Store first data at baseTime
-		err := storage.WriteCCVNodeData(t.Context(), testData1, generateIdempotencyKeys(len(testData1), "test1"))
+		err := storage.WriteCCVNodeData(t.Context(), testData1)
 		require.NoError(t, err)
 	}
 
@@ -665,7 +655,7 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 				Message:               createTestMessage(t, 100, 1, 2),
 			},
 		}
-		err := storage.WriteCCVNodeData(t.Context(), testData1, generateIdempotencyKeys(len(testData1), "test1"))
+		err := storage.WriteCCVNodeData(t.Context(), testData1)
 		require.NoError(t, err)
 
 		// Next read should return the new message

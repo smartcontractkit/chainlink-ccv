@@ -10,8 +10,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -26,6 +26,7 @@ import (
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg verifier.Config,
+	aggregatorSecret *hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
@@ -56,8 +57,24 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map RMN Remote addresses: %w", err)
 	}
 
+	// TODO: monitoring config home
+	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
+		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
+		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
+		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
+		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
+		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
+		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
+	})
+	if err != nil {
+		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
+		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
+	}
+
 	// Initialize chain components.
-	sourceReaders := make(map[protocol.ChainSelector]verifier.SourceReader)
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 	for sel, chain := range relayers {
@@ -85,14 +102,12 @@ func NewVerificationCoordinator(
 			return nil, fmt.Errorf("failed to create source reader: %w", err)
 		}
 
-		// TODO: this seems wacky
-		headTracker, ok := sourceReader.(chainaccess.HeadTracker)
-		if !ok {
-			lggr.Errorw("Source reader does not implement HeadTracker interface", "chainID", sel)
-			return nil, fmt.Errorf("source reader does not implement HeadTracker interface: %w", err)
-		}
-		headTrackers[sel] = headTracker
-		sourceReaders[sel] = sourceReader
+		observedSourceReader := sourcereader.NewObservedSourceReader(
+			sourceReader, cfg.VerifierID, sel, verifierMonitoring,
+		)
+
+		headTrackers[sel] = observedSourceReader
+		sourceReaders[sel] = observedSourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress: verifierAddrs[sel],
 			PollInterval:    1 * time.Second, // TODO: make configurable
@@ -102,36 +117,15 @@ func NewVerificationCoordinator(
 
 	// Initialize other required services and configs.
 
-	// TODO: monitoring config home
-	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
-		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
-		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
-	})
-	if err != nil {
-		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
-		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
-	}
-
 	// Checkpoint manager
 	// TODO: these are secrets, probably shouldn't be in config.
-	hmacConfig := &hmac.ClientConfig{
-		APIKey: cfg.AggregatorAPIKey,
-		Secret: cfg.AggregatorSecretKey,
-	}
-
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, hmacConfig)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, aggregatorSecret)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(cfg.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for checkpoint reads
+	aggregatorReader, err := storageaccess.NewAggregatorReader(cfg.AggregatorAddress, lggr, 0, aggregatorSecret) // since=0 for checkpoint reads
 	if err != nil {
 		// Clean up writer if reader creation fails
 		err := aggregatorWriter.Close()

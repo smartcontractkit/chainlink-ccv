@@ -366,6 +366,16 @@ func (m *Message) MessageID() (Bytes32, error) {
 	return result, nil
 }
 
+// MustMessageID returns the message ID of this message, returning empty Bytes32 on encoding errors.
+// Use this when you want a simple getter that ignores errors (i.e. for logging).
+func (m *Message) MustMessageID() Bytes32 {
+	id, err := m.MessageID()
+	if err != nil {
+		return Bytes32{}
+	}
+	return id
+}
+
 // ReceiptWithBlob represents a chain-agnostic receipt with blob.
 type ReceiptWithBlob struct {
 	Issuer            UnknownAddress `json:"issuer"`
@@ -406,9 +416,8 @@ type QueryResponse struct {
 
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
 type CCVNodeDataWriter interface {
-	// WriteCCVNodeData stores multiple CCV node data entries in the offchain storage
-	// idempotencyKeys should have the same length as ccvDataList, with each key corresponding to the CCVData at the same index
-	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData, idempotencyKeys []string) error
+	// WriteCCVNodeData stores multiple CCV node data entries
+	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVData) error
 }
 
 // OffchainStorageWriter defines the interface for verifiers to store CCV data.

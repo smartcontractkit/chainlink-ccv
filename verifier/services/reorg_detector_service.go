@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const (
@@ -59,7 +59,9 @@ type ReorgDetectorConfig struct {
 // - Runs alongside SourceReaderService for each chain
 // - Uses same SourceReader instance to share RPC connections.
 type ReorgDetectorService struct {
-	sourceReader verifier.SourceReader
+	services.StateMachine
+
+	sourceReader chainaccess.SourceReader
 	headTracker  chainaccess.HeadTracker
 	config       ReorgDetectorConfig
 	lggr         logger.Logger
@@ -72,10 +74,6 @@ type ReorgDetectorService struct {
 	tailBlocks           map[uint64]protocol.BlockHeader
 	latestFinalizedBlock uint64
 	latestBlock          uint64
-
-	// Lifecycle management
-	mu      sync.RWMutex
-	running bool
 
 	// Polling configuration
 	pollInterval time.Duration
@@ -93,7 +91,7 @@ type ReorgDetectorService struct {
 // - *ReorgDetectorService ready to be started
 // - error if configuration is invalid.
 func NewReorgDetectorService(
-	sourceReader verifier.SourceReader,
+	sourceReader chainaccess.SourceReader,
 	headTracker chainaccess.HeadTracker,
 	config ReorgDetectorConfig,
 	lggr logger.Logger,
@@ -148,40 +146,34 @@ func NewReorgDetectorService(
 // Thread-safety:
 // - Safe to call once per instance
 // - Subsequent calls will return an error.
-func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *ReorgDetectorService) Start(ctx context.Context) error {
+	return r.StartOnce("ReorgDetectorService", func() error {
+		r.lggr.Infow("Starting reorg detector service",
+			"chainSelector", r.config.ChainSelector,
+			"pollInterval", r.pollInterval)
 
-	if r.running {
-		return nil, fmt.Errorf("reorg detector already started")
-	}
+		err := r.buildEntireTail(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to build initial tail: %w", err)
+		}
 
-	r.lggr.Infow("Starting reorg detector service",
-		"chainSelector", r.config.ChainSelector,
-		"pollInterval", r.pollInterval)
+		ctx1, cancel := context.WithCancel(context.Background())
+		r.cancel = cancel
 
-	err := r.buildEntireTail(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build initial tail: %w", err)
-	}
+		// Start polling goroutine
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			r.pollAndCheckForReorgs(ctx1)
+		}()
 
-	ctx, cancel := context.WithCancel(ctx)
-	r.cancel = cancel
-	r.running = true
+		r.lggr.Infow("Reorg detector service started successfully",
+			"chainSelector", r.config.ChainSelector,
+			"latestFinalizedBlock", r.latestFinalizedBlock,
+			"latestBlock", r.latestBlock)
 
-	// Start polling goroutine
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-		r.pollAndCheckForReorgs(ctx)
-	}()
-
-	r.lggr.Infow("Reorg detector service started successfully",
-		"chainSelector", r.config.ChainSelector,
-		"latestFinalizedBlock", r.latestFinalizedBlock,
-		"latestBlock", r.latestBlock)
-
-	return r.statusCh, nil
+		return nil
+	})
 }
 
 // pollAndCheckForReorgs is the main polling loop that periodically checks for new blocks
@@ -673,26 +665,19 @@ func (e *finalityViolationError) Error() string {
 // - Safe to call multiple times (subsequent calls are no-ops)
 // - Blocks until monitoring goroutine exits.
 func (r *ReorgDetectorService) Close() error {
-	r.mu.Lock()
-	if !r.running {
-		r.mu.Unlock()
-		return nil // Already closed
-	}
+	return r.StopOnce("ReorgDetectorService", func() error {
+		r.lggr.Infow("Closing reorg detector service", "chainSelector", r.config.ChainSelector)
 
-	r.lggr.Infow("Closing reorg detector service", "chainSelector", r.config.ChainSelector)
+		// Signal cancellation
+		r.cancel()
 
-	// Signal cancellation
-	r.cancel()
-	r.running = false
-	// Unlock to prevent deadlock with goroutine if it tries to acquire lock
-	r.mu.Unlock()
+		// Wait for goroutines without holding lock
+		r.wg.Wait()
 
-	// Wait for goroutines without holding lock
-	r.wg.Wait()
+		// Close status channel (safe - goroutine is stopped)
+		close(r.statusCh)
 
-	// Close status channel (safe - goroutine is stopped)
-	close(r.statusCh)
-
-	r.lggr.Infow("Reorg detector service closed", "chainSelector", r.config.ChainSelector)
-	return nil
+		r.lggr.Infow("Reorg detector service closed", "chainSelector", r.config.ChainSelector)
+		return nil
+	})
 }

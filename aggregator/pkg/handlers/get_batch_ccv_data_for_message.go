@@ -19,7 +19,7 @@ import (
 // GetBatchCCVDataForMessageHandler handles batch requests to retrieve commit verification data for multiple message IDs.
 type GetBatchCCVDataForMessageHandler struct {
 	storage               common.CommitVerificationAggregatedStore
-	committee             map[string]*model.Committee
+	committee             *model.Committee
 	l                     logger.SugaredLogger
 	maxMessageIDsPerBatch int
 }
@@ -30,9 +30,6 @@ func (h *GetBatchCCVDataForMessageHandler) logger(ctx context.Context) logger.Su
 
 // Handle processes the batch get request and retrieves commit verification data for multiple message IDs.
 func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.BatchGetVerifierResultForMessageRequest) (*pb.BatchGetVerifierResultForMessageResponse, error) {
-	committeeID := LoadCommitteeIDFromContext(ctx)
-	ctx = scope.WithCommitteeID(ctx, committeeID)
-
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received batch verifier result request for %d requests", len(req.GetRequests()))
 
@@ -54,7 +51,7 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.B
 	}
 
 	// Call storage for efficient batch retrieval
-	results, err := h.storage.GetBatchCCVData(ctx, messageIDs, committeeID)
+	results, err := h.storage.GetBatchCCVData(ctx, messageIDs)
 	if err != nil {
 		reqLogger.Errorf("Failed to retrieve batch CCV data: %v", err)
 		return nil, grpcstatus.Errorf(codes.Internal, "failed to retrieve batch data: %v", err)
@@ -101,7 +98,7 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.B
 }
 
 // NewGetBatchCCVDataForMessageHandler creates a new instance of GetBatchCCVDataForMessageHandler.
-func NewGetBatchCCVDataForMessageHandler(storage common.CommitVerificationAggregatedStore, committee map[string]*model.Committee, maxMessageIDsPerBatch int, l logger.SugaredLogger) *GetBatchCCVDataForMessageHandler {
+func NewGetBatchCCVDataForMessageHandler(storage common.CommitVerificationAggregatedStore, committee *model.Committee, maxMessageIDsPerBatch int, l logger.SugaredLogger) *GetBatchCCVDataForMessageHandler {
 	return &GetBatchCCVDataForMessageHandler{
 		storage:               storage,
 		committee:             committee,

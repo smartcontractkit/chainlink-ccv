@@ -146,6 +146,10 @@ type AggregatorReaderConfig struct {
 	Address string `toml:"Address"`
 	// Since is the unix timestamp in seconds to start reading from.
 	Since int64 `toml:"Since"`
+	// APIKey is the client's API Key (UUID format)
+	APIKey string `toml:"APIKey"`
+	// Secret is the HMAC secret used to sign requests
+	Secret string `toml:"Secret"`
 }
 
 // RestReaderConfig allows you to change the rest reader used by the indexer.

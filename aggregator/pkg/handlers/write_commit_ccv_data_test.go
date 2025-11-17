@@ -20,7 +20,7 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func makeValidProtoRequest(idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest {
+func makeValidProtoRequest() *pb.WriteCommitCCVNodeDataRequest {
 	msg, _ := protocol.NewMessage(1, 2, 1, nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	id, _ := msg.MessageID()
 	pbMsg := model.MapProtocolMessageToProtoMessage(msg)
@@ -31,66 +31,44 @@ func makeValidProtoRequest(idempotencyKey string) *pb.WriteCommitCCVNodeDataRequ
 			Timestamp: time.Now().UnixMilli(),
 			Message:   pbMsg,
 		},
-		IdempotencyKey: idempotencyKey,
 	}
 }
 
 func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	t.Parallel()
 
-	validUUID := "550e8400-e29b-41d4-a716-446655440000"
-
 	signer1 := &model.IdentifierSigner{
-		Signer:      model.Signer{ParticipantID: "p1", Addresses: []string{"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
-		Address:     []byte{0xAA},
-		CommitteeID: model.DefaultCommitteeID,
-	}
-	signer2 := &model.IdentifierSigner{
-		Signer:      model.Signer{ParticipantID: "p2", Addresses: []string{"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
-		Address:     []byte{0xBB},
-		CommitteeID: model.DefaultCommitteeID,
+		ParticipantID: "p1",
+		Address:       []byte{0xAA},
 	}
 
 	type testCase struct {
-		name              string
-		req               *pb.WriteCommitCCVNodeDataRequest
-		signers           []*model.IdentifierSigner
-		sigErr            error
-		saveErr           error
-		aggErr            error
-		expectGRPCCode    codes.Code
-		expectStatus      pb.WriteStatus
-		expectStoreCalls  int
-		expectAggCalls    int
-		expectCommitteeID model.CommitteeID
+		name             string
+		req              *pb.WriteCommitCCVNodeDataRequest
+		signer           *model.IdentifierSigner
+		sigErr           error
+		saveErr          error
+		aggErr           error
+		expectGRPCCode   codes.Code
+		expectStatus     pb.WriteStatus
+		expectStoreCalls int
+		expectAggCalls   int
 	}
 
 	tests := []testCase{
 		{
-			name:              "success_single_signer_returns_success",
-			req:               makeValidProtoRequest(validUUID),
-			signers:           []*model.IdentifierSigner{signer1},
-			expectGRPCCode:    codes.OK,
-			expectStatus:      pb.WriteStatus_SUCCESS,
-			expectStoreCalls:  1,
-			expectAggCalls:    1,
-			expectCommitteeID: model.DefaultCommitteeID,
-		},
-		{
-			name:              "success_multiple_signers_stores_all_and_triggers_once",
-			req:               makeValidProtoRequest(validUUID),
-			signers:           []*model.IdentifierSigner{signer1, signer2},
-			expectGRPCCode:    codes.OK,
-			expectStatus:      pb.WriteStatus_SUCCESS,
-			expectStoreCalls:  2,
-			expectAggCalls:    1,
-			expectCommitteeID: model.DefaultCommitteeID,
+			name:             "success_single_signer_returns_success",
+			req:              makeValidProtoRequest(),
+			signer:           signer1,
+			expectGRPCCode:   codes.OK,
+			expectStatus:     pb.WriteStatus_SUCCESS,
+			expectStoreCalls: 1,
+			expectAggCalls:   1,
 		},
 		{
 			name: "validation_enabled_missing_payload_invalid_argument",
 			req: &pb.WriteCommitCCVNodeDataRequest{
-				CcvNodeData:    nil, // triggers validation error
-				IdempotencyKey: validUUID,
+				CcvNodeData: nil,
 			},
 			// Signature validation is never called
 			expectGRPCCode:   codes.InvalidArgument,
@@ -99,18 +77,9 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			expectAggCalls:   0,
 		},
 		{
-			name:             "invalid_idempotency_key_returns_invalid_argument",
-			req:              makeValidProtoRequest("not-a-uuid"),
-			signers:          []*model.IdentifierSigner{signer1},
-			expectGRPCCode:   codes.InvalidArgument,
-			expectStatus:     pb.WriteStatus_FAILED,
-			expectStoreCalls: 0,
-			expectAggCalls:   0,
-		},
-		{
 			name:             "signature_validator_error_returns_internal",
-			req:              makeValidProtoRequest(validUUID),
-			signers:          nil,
+			req:              makeValidProtoRequest(),
+			signer:           nil,
 			sigErr:           errors.New("sig-fail"),
 			expectGRPCCode:   codes.Internal,
 			expectStatus:     pb.WriteStatus_FAILED,
@@ -119,8 +88,8 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		},
 		{
 			name:             "storage_error_returns_internal_and_no_aggregation",
-			req:              makeValidProtoRequest(validUUID),
-			signers:          []*model.IdentifierSigner{signer1},
+			req:              makeValidProtoRequest(),
+			signer:           signer1,
 			saveErr:          errors.New("db-down"),
 			expectGRPCCode:   codes.Internal,
 			expectStatus:     pb.WriteStatus_FAILED,
@@ -128,26 +97,24 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			expectAggCalls:   0,
 		},
 		{
-			name:              "aggregation_channel_full_returns_resource_exhausted",
-			req:               makeValidProtoRequest(validUUID),
-			signers:           []*model.IdentifierSigner{signer1},
-			aggErr:            common.ErrAggregationChannelFull,
-			expectGRPCCode:    codes.ResourceExhausted,
-			expectStatus:      pb.WriteStatus_FAILED,
-			expectStoreCalls:  1,
-			expectAggCalls:    1,
-			expectCommitteeID: model.DefaultCommitteeID,
+			name:             "aggregation_channel_full_returns_resource_exhausted",
+			req:              makeValidProtoRequest(),
+			signer:           signer1,
+			aggErr:           common.ErrAggregationChannelFull,
+			expectGRPCCode:   codes.ResourceExhausted,
+			expectStatus:     pb.WriteStatus_FAILED,
+			expectStoreCalls: 1,
+			expectAggCalls:   1,
 		},
 		{
-			name:              "aggregation_other_error_returns_internal",
-			req:               makeValidProtoRequest(validUUID),
-			signers:           []*model.IdentifierSigner{signer1},
-			aggErr:            errors.New("agg-fail"),
-			expectGRPCCode:    codes.Internal,
-			expectStatus:      pb.WriteStatus_FAILED,
-			expectStoreCalls:  1,
-			expectAggCalls:    1,
-			expectCommitteeID: model.DefaultCommitteeID,
+			name:             "aggregation_other_error_returns_internal",
+			req:              makeValidProtoRequest(),
+			signer:           signer1,
+			aggErr:           errors.New("agg-fail"),
+			expectGRPCCode:   codes.Internal,
+			expectStatus:     pb.WriteStatus_FAILED,
+			expectStoreCalls: 1,
+			expectAggCalls:   1,
 		},
 	}
 
@@ -168,20 +135,15 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			if tc.sigErr != nil {
 				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, nil, tc.sigErr)
 			} else {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(tc.signers, nil, nil).Maybe()
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(tc.signer, nil, nil).Maybe()
 			}
 
 			// Save expectations with counter
 			savedCount := 0
 			if tc.expectStoreCalls > 0 {
-				store.EXPECT().SaveCommitVerification(mock.Anything, mock.MatchedBy(func(r *model.CommitVerificationRecord) bool {
+				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Run(func(ctx context.Context, r *model.CommitVerificationRecord, key model.AggregationKey) {
 					savedCount++
-					if len(tc.signers) > 0 {
-						require.Equal(t, tc.signers[0].CommitteeID, r.CommitteeID)
-					}
-					require.NotZero(t, r.IdempotencyKey)
-					return true
-				}), mock.Anything).Return(tc.saveErr).Times(tc.expectStoreCalls)
+				}).Return(tc.saveErr).Times(tc.expectStoreCalls)
 			} else {
 				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
@@ -189,17 +151,15 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			// Aggregator expectations and capture
 			aggCalled := 0
 			var lastMsgID model.MessageID
-			var lastCommittee model.CommitteeID
 			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Run(func(m model.MessageID, a model.AggregationKey, c model.CommitteeID) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Run(func(m model.MessageID, a model.AggregationKey) {
 					aggCalled++
 					lastMsgID = m
-					lastCommittee = c
 					lastAggregation = a
 				}).Return(tc.aggErr).Times(tc.expectAggCalls)
 			} else {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Maybe()
 			}
 
 			handler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
@@ -220,7 +180,6 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			require.Equal(t, tc.expectStoreCalls, savedCount, "unexpected SaveCommitVerification call count")
 			require.Equal(t, tc.expectAggCalls, aggCalled, "unexpected CheckAggregation call count")
 			if tc.expectAggCalls > 0 {
-				require.Equal(t, tc.expectCommitteeID, lastCommittee)
 				require.Len(t, lastMsgID, 32)
 				require.NotEmpty(t, lastAggregation)
 			}

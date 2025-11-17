@@ -15,3 +15,12 @@ func LoadConfig(filePath string) (*model.AggregatorConfig, error) {
 	}
 	return &config, nil
 }
+
+// LoadConfigString loads the aggregator configuration from a string.
+func LoadConfigString(configStr string) (*model.AggregatorConfig, error) {
+	var config model.AggregatorConfig
+	if _, err := toml.Decode(configStr, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
