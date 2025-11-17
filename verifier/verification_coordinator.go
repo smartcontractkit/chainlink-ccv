@@ -59,8 +59,8 @@ func (s *sourceState) Close() error {
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
-	services.StateMachine
-	cancel       context.CancelFunc
+	sync         services.StateMachine
+	stopCh       services.StopChan
 	verifyingWg  sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
 	backgroundWg sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
 
@@ -184,6 +184,7 @@ func WithCurseDetector(detector common.CurseChecker) Option {
 func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
+		stopCh:                make(chan struct{}),
 		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
 		messageTimestamps: cache.New(
 			DefaultE2ELatencyCacheExpiration,
@@ -211,9 +212,8 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 // Maybe we can split into smaller methods related to initialization of different components?
 // Start begins the verification coordinator processing.
 func (vc *Coordinator) Start(_ context.Context) error {
-	return vc.StartOnce("Coordinator", func() error {
-		ctx, cancel := context.WithCancel(context.Background())
-		vc.cancel = cancel
+	return vc.sync.StartOnce("Coordinator", func() error {
+		ctx, _ := vc.stopCh.NewCtx()
 
 		// Check for disabled chains before initialization
 		statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
@@ -361,10 +361,10 @@ func (vc *Coordinator) Start(_ context.Context) error {
 
 // Close stops the verification coordinator processing.
 func (vc *Coordinator) Close() error {
-	return vc.StopOnce("Coordinator", func() error {
+	return vc.sync.StopOnce("Coordinator", func() error {
 		// Signal all goroutines to stop processing new work.
 		// This will also trigger the batcher to flush remaining items.
-		vc.cancel()
+		close(vc.stopCh)
 
 		// Wait for any in-flight verification tasks to complete.
 		vc.verifyingWg.Wait()
@@ -601,7 +601,7 @@ func (vc *Coordinator) validate() error {
 // HealthReport returns a full health report of the coordinator and its dependencies.
 func (vc *Coordinator) HealthReport() map[string]error {
 	report := make(map[string]error)
-	report[vc.Name()] = vc.Ready()
+	report[vc.Name()] = vc.sync.Ready()
 	return report
 }
 

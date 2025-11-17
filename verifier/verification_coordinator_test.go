@@ -555,20 +555,16 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Before starting, should not be ready
-	err = v.Ready()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "service is \"Unstarted\", not started")
+	report := v.HealthReport()
+	require.Error(t, report[v.Name()])
+	assert.Contains(t, report[v.Name()].Error(), "service is \"Unstarted\", not started")
 
 	// Start the verifier
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
 
-	// After starting, should be ready
-	err = v.Ready()
-	require.NoError(t, err)
-
 	// HealthReport should show coordinator is healthy
-	report := v.HealthReport()
+	report = v.HealthReport()
 	require.NotNil(t, report)
 	require.Contains(t, report, v.Name())
 	require.NoError(t, report[v.Name()])
@@ -578,8 +574,8 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	require.NoError(t, err)
 
 	// After stopping, should not be ready
-	err = v.Ready()
-	require.Error(t, err)
+	report = v.HealthReport()
+	require.Error(t, report[v.Name()])
 }
 
 func TestVerificationErrorHandling(t *testing.T) {

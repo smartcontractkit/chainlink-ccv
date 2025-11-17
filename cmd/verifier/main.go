@@ -347,10 +347,12 @@ func main() {
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := coordinator.Ready(); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			lggr.Infow("Unhealthy: %s\n", err.Error())
-			return
+		for serviceName, err := range coordinator.HealthReport() {
+			if err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				lggr.Infow("Unhealthy service: %s, error: %s\n", serviceName, err.Error())
+				return
+			}
 		}
 		w.WriteHeader(http.StatusOK)
 		lggr.Infow("Healthy\n")
