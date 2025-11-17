@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -91,7 +94,6 @@ type VerifierInput struct {
 	ContainerName     string             `toml:"container_name"`
 	Port              int                `toml:"port"`
 	UseCache          bool               `toml:"use_cache"`
-	ConfigFilePath    string             `toml:"config_file_path"`
 	AggregatorAddress string             `toml:"aggregator_address"`
 	Env               *VerifierEnvConfig `toml:"env"`
 	CommitteeName     string             `toml:"committee_name"`
@@ -114,10 +116,10 @@ type VerifierInput struct {
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
 }
 
-func (v *VerifierInput) GenerateConfig() (verifierTomlConfig string, err error) {
+func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
 	var config verifier.Config
 	if _, err := toml.Decode(verifierConfigTemplate, &config); err != nil {
-		return "", fmt.Errorf("failed to decode verifier config template: %w", err)
+		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
 
 	config.VerifierID = v.ContainerName
@@ -130,10 +132,10 @@ func (v *VerifierInput) GenerateConfig() (verifierTomlConfig string, err error) 
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
+		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
 	}
 
-	return string(cfg), nil
+	return cfg, nil
 }
 
 type VerifierOutput struct {
@@ -145,7 +147,7 @@ type VerifierOutput struct {
 	UseCache           bool   `toml:"use_cache"`
 }
 
-func ApplyVerifierDefaults(in *VerifierInput) {
+func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
 	if in.Image == "" {
 		in.Image = DefaultVerifierImage
 	}
@@ -162,12 +164,11 @@ func ApplyVerifierDefaults(in *VerifierInput) {
 			Port:  DefaultVerifierDBPort,
 		}
 	}
-	if in.ConfigFilePath == "" {
-		in.ConfigFilePath = fmt.Sprintf("/app/cmd/verifier/testconfig/%s/verifier-%d.toml", in.CommitteeName, in.NodeIndex+1)
-	}
 	if in.Mode == "" {
 		in.Mode = DefaultVerifierMode
 	}
+
+	return in
 }
 
 func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
@@ -179,7 +180,6 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 	ctx := context.Background()
 
-	ApplyVerifierDefaults(in)
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
@@ -208,8 +208,6 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	envVars := make(map[string]string)
-	// TODO: mount config file rather than defining a path inside of the container
-	envVars["VERIFIER_CONFIG_PATH"] = in.ConfigFilePath
 
 	if in.Env != nil {
 		// Use explicit configuration from env.toml
@@ -230,6 +228,18 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 
 	if in.SigningKey != "" {
 		envVars["VERIFIER_SIGNER_PRIVATE_KEY"] = in.SigningKey
+	}
+
+	// Generate and store config file.
+	config, err := in.GenerateConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate verifier config for committee %s: %w", in.CommitteeName, err)
+	}
+	confDir := util.CCVConfigDir()
+	configFilePath := filepath.Join(confDir,
+		fmt.Sprintf("verifier-%s-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
+	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
 
 	/* Service */
@@ -258,10 +268,15 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			WithPollInterval(3 * time.Second),
 	}
 
+	// Note: identical code to aggregator.go -- will indexer/executor be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
+		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+			configFilePath,
+			aggregator.DefaultConfigFile,
+		))
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
