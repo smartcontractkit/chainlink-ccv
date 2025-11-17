@@ -204,7 +204,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Verifier configs...
 	currIndex := 0
-	for i, _ := range in.Verifier {
+	for i := range in.Verifier {
 		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
 
 		switch ver.Mode {
@@ -396,7 +396,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	// Populate verifier input with contract addresses from the CLDF datastore.
-	for i, _ := range in.Verifier {
+	for i := range in.Verifier {
 		ver, err := lookupContractsForVerifier(e.DataStore, in.Blockchains, *in.Verifier[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup contracts for verifier %s: %w", in.Verifier[i].CommitteeName, err)
@@ -540,7 +540,7 @@ func launchCLNodes(ctx context.Context, in *Cfg, impls []cciptestinterfaces.CCIP
 		return nil, fmt.Errorf("failed to connect CL node clients")
 	}
 
-	var onchainPublicKeys = make(map[string][]string) // chainType -> onchain public keys
+	onchainPublicKeys := make(map[string][]string) // chainType -> onchain public keys
 	for _, cc := range clClients {
 		ocr2Keys, err := cc.MustReadOCR2Keys()
 		if err != nil {
