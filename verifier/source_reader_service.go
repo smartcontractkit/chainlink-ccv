@@ -75,7 +75,6 @@ func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
 // NewSourceReaderService creates a new blockchain-based source reader.
 func NewSourceReaderService(
 	sourceReader chainaccess.SourceReader,
-	headTracker chainaccess.HeadTracker,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
 	logger logger.Logger,
@@ -84,7 +83,6 @@ func NewSourceReaderService(
 ) *SourceReaderService {
 	s := &SourceReaderService{
 		sourceReader:         sourceReader,
-		headTracker:          headTracker,
 		logger:               logger,
 		verificationTaskCh:   make(chan batcher.BatchResult[VerificationTask], 1),
 		stopCh:               make(chan struct{}),
