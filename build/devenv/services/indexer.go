@@ -85,30 +85,47 @@ func defaults(in *IndexerInput) {
 					TraceBatchTimeout:        10,
 				},
 			},
-			Scanner: config.ScannerConfig{
-				ScanInterval:  1,
-				ReaderTimeout: 5,
-			},
 			Discovery: config.DiscoveryConfig{
-				Type: "static",
-				Static: config.StaticDiscoveryConfig{
-					Readers: []config.StaticDiscoveryReaderConfig{
-						{
-							Type: "aggregator",
-							Aggregator: config.AggregatorReaderConfig{
-								Address: "aggregator:50051",
-								Since:   0,
-							},
-						},
-						{
-							Type: "rest",
-							Rest: config.RestReaderConfig{
-								BaseURL:        "http://fake:9111",
-								Since:          0,
-								RequestTimeout: 5,
-							},
-						},
+				AggregatorReaderConfig: config.AggregatorReaderConfig{
+					Address: "aggregator:50051",
+					Since:   0,
+					APIKey:  "dev-api-key-indexer",
+					Secret:  "dev-secret-indexer",
+				},
+				PollInterval:       1,
+				Timeout:            5,
+				MessageChannelSize: 1000,
+			},
+			Verifiers: []config.VerifierConfig{
+				{
+					Type: config.ReaderTypeAggregator,
+					AggregatorReaderConfig: config.AggregatorReaderConfig{
+						Address: "default-aggregator:50051",
+						Since:   0,
+						APIKey:  "dev-api-key-indexer",
+						Secret:  "dev-secret-indexer",
 					},
+					IssuerAddresses: []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"},
+				},
+				{
+					Type: config.ReaderTypeAggregator,
+					AggregatorReaderConfig: config.AggregatorReaderConfig{
+						Address: "secondary-aggregator:50051",
+						Since:   0,
+						APIKey:  "dev-api-key-indexer",
+						Secret:  "dev-secret-indexer",
+					},
+					IssuerAddresses: []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"},
+				},
+				{
+					Type: config.ReaderTypeAggregator,
+					AggregatorReaderConfig: config.AggregatorReaderConfig{
+						Address: "tertiary-aggregator:50051",
+						Since:   0,
+						APIKey:  "dev-api-key-indexer",
+						Secret:  "dev-secret-indexer",
+					},
+					IssuerAddresses: []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"},
 				},
 			},
 			Storage: config.StorageConfig{
@@ -122,10 +139,6 @@ func defaults(in *IndexerInput) {
 								MaxSize:         10000,
 								CleanupInterval: 300,
 							},
-							ReadCondition: config.ReadConditionConfig{
-								Type:                  "recent",
-								LookbackWindowSeconds: &[]int64{3600}[0],
-							},
 						},
 						{
 							Type: "postgres",
@@ -135,9 +148,6 @@ func defaults(in *IndexerInput) {
 								MaxIdleConnections:     5,
 								IdleInTxSessionTimeout: 60,
 								LockTimeout:            30,
-							},
-							ReadCondition: config.ReadConditionConfig{
-								Type: "always",
 							},
 						},
 					},

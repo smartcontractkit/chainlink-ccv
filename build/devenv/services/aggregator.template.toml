@@ -41,6 +41,12 @@ key_prefix = "ratelimit"
 [rateLimiting.groupLimits.monitoring]
 "/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 200 }
 
+[rateLimiting.groupLimits.indexer]
+"/chainlink_ccv.v1.VerifierResultAPI/GetVerifierResultForMessage" = { limit_per_minute = 6000 }
+"/chainlink_ccv.v1.VerifierResultAPI/BatchGetVerifierResultForMessage" = { limit_per_minute = 6000 }
+"/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 1200 }
+
+
 [Monitoring]
 Enabled = true
 Type = "beholder"

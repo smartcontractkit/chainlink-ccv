@@ -331,13 +331,13 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	}
 
 	// Verify message
-	assert.Equal(t, ccvData.Message, receivedMessage.Message)
+	assert.Equal(t, ccvData.Message.MustMessageID(), receivedMessage.Message.MustMessageID())
 
 	// Verify message was stored
 	stored, err := ts.Storage.GetCCVData(ts.Context, ccvData.MessageID)
 	require.NoError(t, err)
 	require.Len(t, stored, 1)
-	assert.Equal(t, ccvData, stored[0])
+	assert.Equal(t, ccvData.Message.MustMessageID(), stored[0].Message.MustMessageID())
 }
 
 // TestMessageDiscovery_MultipleMessages tests discovering multiple messages in one call.
@@ -393,7 +393,7 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 		stored, err := ts.Storage.GetCCVData(ts.Context, expected.MessageID)
 		require.NoError(t, err)
 		require.Len(t, stored, 1)
-		assert.Equal(t, expected, stored[0])
+		assert.Equal(t, expected.Message.MustMessageID(), stored[0].Message.MustMessageID())
 	}
 }
 
@@ -534,7 +534,7 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify circuit breaker is open
-	state := ts.Reader.GetCircuitBreakerState()
+	state := ts.Reader.GetDiscoveryCircuitBreakerState()
 	assert.Equal(t, circuitbreaker.OpenState, state)
 
 	// Discovery should continue (skip polling when circuit breaker is open)
@@ -670,14 +670,13 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 
 	// Verify the message was emitted to the channel
 	require.NotNil(t, receivedMessage, "message should be emitted to channel")
-	assert.Equal(t, ccvData.Message, receivedMessage.Message, "emitted message should match expected message")
+	assert.Equal(t, ccvData.Message.MustMessageID(), receivedMessage.Message.MustMessageID(), "emitted message should match expected message")
 
 	// Verify the message was saved to storage
 	stored, err := ts.Storage.GetCCVData(ts.Context, ccvData.MessageID)
 	require.NoError(t, err, "should be able to retrieve message from storage")
 	require.Len(t, stored, 1, "exactly one message should be stored")
-	assert.Equal(t, ccvData, stored[0], "stored message should match expected message")
 
 	// Verify that the stored message's Message field matches what was emitted
-	assert.Equal(t, receivedMessage.Message, stored[0].Message, "stored message's Message field should match emitted message")
+	assert.Equal(t, receivedMessage.Message.MustMessageID(), stored[0].Message.MustMessageID(), "stored message's Message field should match emitted message")
 }

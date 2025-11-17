@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,9 +16,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/scanner"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/worker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -57,76 +60,123 @@ func main() {
 		lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
 	}
 
-	// Initialize the indexer storage & create a reader discovery, which will discover the off-chain storage readers
-	// Storage Discovery allows the indexer to add new off-chain storage readers without needing a restart
-	// Currently, this uses the static discovery method, which reads the off-chain storage readers from the configuration passed to it.
-	readerDiscovery := createReaderDiscovery(lggr, config)
-
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
+	messageDiscovery, err := createDiscovery(lggr, config, indexerStorage, indexerMonitoring)
+	if err != nil {
+		lggr.Fatalf("Failed to initialize message discovery: %v", err)
+	}
 
-	// Create a scanner, which will poll the off-chain storage(s) for CCV data
-	scanner := scanner.NewScanner(
-		scanner.WithReaderDiscovery(readerDiscovery),
-		scanner.WithConfig(scanner.Config{
-			ScanInterval:   time.Duration(config.Scanner.ScanInterval) * time.Second,
-			MetricInterval: time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
-			ReaderTimeout:  time.Duration(config.Scanner.ReaderTimeout) * time.Second,
-		}),
-		scanner.WithStorageWriter(indexerStorage),
-		scanner.WithMonitoring(indexerMonitoring),
-		scanner.WithLogger(lggr),
-	)
+	verifierRegistry := createRegistry()
+	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config)
+	if err != nil {
+		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
+	}
 
-	// Start the Scanner processing
-	scanner.Start(ctx)
+	scheduler, err := worker.NewScheduler(lggr, worker.SchedulerConfig{
+		TickerInterval: time.Millisecond * 50,
+		MaxAttempts:    960, // 8 Hours, assuming 30 second delay
+		BaseDelay:      time.Millisecond * 100,
+		MaxDelay:       time.Second * 30,
+		ReadyQueueSize: 1000,
+		DLQSize:        1000,
+		JitterFrac:     0.02,
+	})
+	if err != nil {
+		lggr.Fatalf("Failed to initalize scheduler: %v", err)
+	}
+	scheduler.Start(ctx)
+
+	discoveryCh := messageDiscovery.Start(ctx)
+	pool := worker.NewWorkerPool(lggr, worker.Config{WorkerTimeout: time.Minute * 5}, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	pool.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
 	api.Serve(v1, 8100)
 }
 
-// createReaderDiscovery creates the appropriate reader discovery based on the configuration.
-func createReaderDiscovery(lggr logger.Logger, cfg *config.Config) common.ReaderDiscovery {
-	// Determine the appropriate reader discovery based on the configuration
-	switch cfg.Discovery.Type {
-	case config.DiscoveryTypeStatic:
-		return discovery.NewStaticDiscovery(createStaticReaders(lggr, cfg))
-	default:
-		lggr.Fatalf("Unsupported discovery type: %s", cfg.Discovery.Type)
+func createRegistry() *registry.VerifierRegistry {
+	return registry.NewVerifierRegistry()
+}
+
+func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config) error {
+	for _, verifierConfig := range config.Verifiers {
+		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-// createStaticReaders creates the static readers based on the configuration.
-func createStaticReaders(lggr logger.Logger, cfg *config.Config) []protocol.OffchainStorageReader {
-	readerSlice := []protocol.OffchainStorageReader{}
+func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig) error {
+	reader, err := createReader(lggr, verifierConfig)
+	if err != nil {
+		return err
+	}
 
-	// Iterate over the readers and create the appropriate reader
-	for _, reader := range cfg.Discovery.Static.Readers {
-		switch reader.Type {
-		case config.ReaderTypeAggregator:
-			aggReader, err := readers.NewAggregatorReader(reader.Aggregator.Address, lggr, reader.Aggregator.Since)
-			if err != nil {
-				lggr.Fatalf("Failed to create aggregator reader: %v", err)
-			}
-			readerSlice = append(readerSlice, aggReader)
-		case config.ReaderTypeRest:
-			restReader := readers.NewRestReader(readers.RestReaderConfig{
-				BaseURL:        reader.Rest.BaseURL,
-				Since:          reader.Rest.Since,
-				RequestTimeout: time.Duration(reader.Rest.RequestTimeout) * time.Second,
-				Logger:         lggr,
-			})
-			readerSlice = append(readerSlice, restReader)
-		default:
-			lggr.Fatalf("Unsupported reader type: %s", reader.Type)
+	verifierReader := readers.NewVerifierReader(ctx, reader, readers.VerifierReaderConfig{
+		BatchSize:         20,                     // Make configurable
+		MaxWaitTime:       250 * time.Millisecond, // Make configurable
+		MaxPendingBatches: 10,                     // Make configurable
+	})
+
+	if err := verifierReader.Start(ctx); err != nil {
+		return err
+	}
+
+	for _, address := range verifierConfig.IssuerAddresses {
+		unknownAddress, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			return err
+		}
+
+		err = verifierRegistry.AddVerifier(unknownAddress, verifierReader)
+		if err != nil {
+			return err
 		}
 	}
 
-	lggr.Infof("Created %d readers", len(readerSlice))
-	// Return the readers
-	return readerSlice
+	return nil
+}
+
+func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.ResilientReader, error) {
+	switch cfg.Type {
+	case config.ReaderTypeAggregator:
+		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
+			APIKey: cfg.APIKey,
+			Secret: cfg.Secret,
+		})
+	case config.ReaderTypeRest:
+		return readers.NewRestReader(readers.RestReaderConfig{
+			BaseURL:        cfg.BaseURL,
+			RequestTimeout: time.Duration(cfg.RequestTimeout),
+		}), nil
+	default:
+		return nil, errors.New("unknown verifier type")
+	}
+}
+
+func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) (common.MessageDiscovery, error) {
+	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, cfg.Discovery.Since, hmac.ClientConfig{
+		APIKey: cfg.Discovery.APIKey,
+		Secret: cfg.Discovery.Secret,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return discovery.NewAggregatorMessageDiscovery(
+		discovery.WithAggregator(aggregator),
+		discovery.WithStorage(storage),
+		discovery.WithMonitoring(monitoring),
+		discovery.WithLogger(lggr),
+		discovery.WithConfig(discovery.Config{
+			PollInterval:       time.Duration(cfg.Discovery.PollInterval) * time.Second,
+			Timeout:            time.Duration(cfg.Discovery.Timeout) * time.Second,
+			MessageChannelSize: cfg.Discovery.MessageChannelSize,
+		}))
 }
 
 // createStorage creates the storage backend connection based on the configuration.
@@ -160,7 +210,7 @@ func createSingleStorage(ctx context.Context, lggr logger.Logger, cfg *config.Si
 
 // createSinkStorage creates a storage sink with multiple backends based on the configuration.
 func createSinkStorage(ctx context.Context, lggr logger.Logger, cfg *config.SinkStorageConfig, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
-	storagesWithConditions := make([]storage.WithCondition, 0, len(cfg.Storages))
+	storages := make([]common.IndexerStorage, 0, len(cfg.Storages))
 
 	for i, storageCfg := range cfg.Storages {
 		lggr.Infof("Creating storage backend %d of %d (type: %s)", i+1, len(cfg.Storages), storageCfg.Type)
@@ -176,17 +226,11 @@ func createSinkStorage(ctx context.Context, lggr logger.Logger, cfg *config.Sink
 			lggr.Fatalf("Unsupported storage backend type: %s", storageCfg.Type)
 		}
 
-		// Create the read condition
-		readCondition := createReadCondition(storageCfg.ReadCondition)
-
-		storagesWithConditions = append(storagesWithConditions, storage.WithCondition{
-			Storage:   storageBackend,
-			Condition: readCondition,
-		})
+		storages = append(storages, storageBackend)
 	}
 
 	// Create the storage sink
-	sink, err := storage.NewSink(lggr, storagesWithConditions...)
+	sink, err := storage.NewSink(lggr, storages...)
 	if err != nil {
 		lggr.Fatalf("Failed to create storage sink: %v", err)
 	}
@@ -235,24 +279,6 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	}
 
 	return dbStore
-}
-
-// createReadCondition creates a read condition from configuration.
-func createReadCondition(cfg config.ReadConditionConfig) storage.ReadCondition {
-	switch cfg.Type {
-	case config.ReadConditionAlways:
-		return storage.AlwaysRead()
-	case config.ReadConditionNever:
-		return storage.NeverRead()
-	case config.ReadConditionTimeRange:
-		return storage.TimeRangeRead(cfg.StartUnix, cfg.EndUnix)
-	case config.ReadConditionRecent:
-		duration := time.Duration(*cfg.LookbackWindowSeconds) * time.Second
-		return storage.RecentRead(duration)
-	default:
-		// Default to always read if unknown type
-		return storage.AlwaysRead()
-	}
 }
 
 // runMigrations runs all pending database migrations using goose.
