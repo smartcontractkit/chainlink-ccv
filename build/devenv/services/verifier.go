@@ -275,7 +275,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			WithPollInterval(3 * time.Second),
 	}
 
-	// Note: identical code to aggregator.go -- will indexer/executor be identical as well?
+	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)

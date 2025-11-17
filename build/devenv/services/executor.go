@@ -135,6 +135,7 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 		},
 	}
 
+	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
