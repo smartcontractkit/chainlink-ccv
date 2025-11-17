@@ -23,19 +23,32 @@ type IdentifierSigner struct {
 	SignatureS [32]byte
 }
 
+// DestinationSelector represents a destination chain selector as a string.
+type DestinationSelector = string
+
+// SourceSelector represents a source chain selector as a string.
+type SourceSelector = string
+
 // Committee represents a group of signers participating in the commit verification process.
 type Committee struct {
-	// QuorumConfigs stores a QuorumConfig for each chain selector
-	// there is a commit verifier for.
+	// QuorumConfigs stores a QuorumConfig for each destination-source chain selector pair.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
+	// Map structure: destination selector -> source selector -> QuorumConfig
+	QuorumConfigs map[DestinationSelector]map[SourceSelector]*QuorumConfig `toml:"quorumConfigs"`
 }
 
-func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) {
-	selectorStr := new(big.Int).SetUint64(chainSelector).String()
-	qc, exists := c.QuorumConfigs[selectorStr]
-	return qc, exists
+func (c *Committee) GetQuorumConfig(destChainSelector, sourceChainSelector uint64) (*QuorumConfig, bool) {
+	destSelectorStr := new(big.Int).SetUint64(destChainSelector).String()
+	sourceSelectorStr := new(big.Int).SetUint64(sourceChainSelector).String()
+
+	sourceConfigs, destExists := c.QuorumConfigs[destSelectorStr]
+	if !destExists {
+		return nil, false
+	}
+
+	qc, sourceExists := sourceConfigs[sourceSelectorStr]
+	return qc, sourceExists
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.
@@ -420,10 +433,98 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	return nil
 }
 
+// ValidateCommitteeConfig validates the committee configuration.
+func (c *AggregatorConfig) ValidateCommitteeConfig() error {
+	if c.Committee == nil {
+		return errors.New("committee configuration cannot be nil")
+	}
+
+	if len(c.Committee.QuorumConfigs) == 0 {
+		return errors.New("committee must have at least one quorum configuration")
+	}
+
+	// Validate each destination's source configurations
+	for destSelector, sourceConfigs := range c.Committee.QuorumConfigs {
+		if strings.TrimSpace(destSelector) == "" {
+			return errors.New("destination selector cannot be empty")
+		}
+
+		// Validate destination selector is a valid uint64 string
+		if _, err := strconv.ParseUint(destSelector, 10, 64); err != nil {
+			return fmt.Errorf("invalid destination selector '%s': must be a valid uint64 decimal string", destSelector)
+		}
+
+		if len(sourceConfigs) == 0 {
+			return fmt.Errorf("destination selector '%s' has no source configurations", destSelector)
+		}
+
+		// Validate each source configuration
+		for sourceSelector, quorumConfig := range sourceConfigs {
+			if strings.TrimSpace(sourceSelector) == "" {
+				return fmt.Errorf("source selector cannot be empty for destination '%s'", destSelector)
+			}
+
+			// Validate source selector is a valid uint64 string
+			if _, err := strconv.ParseUint(sourceSelector, 10, 64); err != nil {
+				return fmt.Errorf("invalid source selector '%s' for destination '%s': must be a valid uint64 decimal string", sourceSelector, destSelector)
+			}
+
+			// Validate that source and destination selectors are not the same
+			if sourceSelector == destSelector {
+				return fmt.Errorf("source selector and destination selector cannot be the same: '%s'", sourceSelector)
+			}
+
+			if quorumConfig == nil {
+				return fmt.Errorf("quorum config cannot be nil for destination '%s', source '%s'", destSelector, sourceSelector)
+			}
+
+			// Validate quorum config
+			if quorumConfig.Threshold == 0 {
+				return fmt.Errorf("threshold must be greater than 0 for destination '%s', source '%s'", destSelector, sourceSelector)
+			}
+
+			if len(quorumConfig.Signers) == 0 {
+				return fmt.Errorf("must have at least one signer for destination '%s', source '%s'", destSelector, sourceSelector)
+			}
+
+			if int(quorumConfig.Threshold) > len(quorumConfig.Signers) {
+				return fmt.Errorf("threshold (%d) cannot exceed number of signers (%d) for destination '%s', source '%s'",
+					quorumConfig.Threshold, len(quorumConfig.Signers), destSelector, sourceSelector)
+			}
+
+			// Validate CommitteeVerifierAddress is a valid hex address
+			if strings.TrimSpace(quorumConfig.CommitteeVerifierAddress) == "" {
+				return fmt.Errorf("committee verifier address cannot be empty for destination '%s', source '%s'", destSelector, sourceSelector)
+			}
+
+			// Validate no duplicate signers within this quorum
+			seenSigners := make(map[string]bool)
+			for i, signer := range quorumConfig.Signers {
+				if strings.TrimSpace(signer.Address) == "" {
+					return fmt.Errorf("signer address cannot be empty at index %d for destination '%s', source '%s'", i, destSelector, sourceSelector)
+				}
+
+				normalizedAddr := strings.ToLower(signer.Address)
+				if seenSigners[normalizedAddr] {
+					return fmt.Errorf("duplicate signer address '%s' for destination '%s', source '%s'", signer.Address, destSelector, sourceSelector)
+				}
+				seenSigners[normalizedAddr] = true
+			}
+		}
+	}
+
+	return nil
+}
+
 // Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
 	// Set defaults first
 	c.SetDefaults()
+
+	// Validate committee configuration
+	if err := c.ValidateCommitteeConfig(); err != nil {
+		return fmt.Errorf("committee configuration error: %w", err)
+	}
 
 	// Validate API key configuration
 	if err := c.ValidateAPIKeyConfig(); err != nil {
@@ -450,16 +551,6 @@ func (c *AggregatorConfig) Validate() error {
 		return fmt.Errorf("storage configuration error: %w", err)
 	}
 
-	// TODO: Add other validation logic
-	// Should validate:
-	// - No duplicate signers within the same QuorumConfig
-	// - StorageType is supported (memory, etc.)
-	// - AggregationStrategy is supported (stub, etc.)
-	// - F value follows N = 3F + 1 rule, so F = (N-1) // 3
-	// - Committee names are valid
-	// - QuorumConfig chain selectors are valid
-	// - Server address format is correct
-	// - Offramp address cannot be shared across same chain on different committees
 	return nil
 }
 

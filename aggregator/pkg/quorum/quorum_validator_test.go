@@ -17,7 +17,10 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-const destSelector = "2" // Using string keys for QuorumConfigs map
+const (
+	sourceSelector = "1" // Using string keys for QuorumConfigs map
+	destSelector   = "2" // Using string keys for QuorumConfigs map
+)
 
 // Helper function to create a commit verification record from protobuf message.
 func createCommitVerificationRecord(messageData *pb.MessageWithCCVNodeData) *model.CommitVerificationRecord {
@@ -110,11 +113,13 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 
 	return &model.AggregatorConfig{
 		Committee: &model.Committee{
-			QuorumConfigs: map[string]*model.QuorumConfig{
+			QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 				"1": {
-					CommitteeVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
-					Signers:                  signers,
-					Threshold:                b.threshold,
+					"1": {
+						CommitteeVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
+						Signers:                  signers,
+						Threshold:                b.threshold,
+					},
 				},
 			},
 		},
@@ -183,11 +188,13 @@ func TestValidateSignature(t *testing.T) {
 		// Setup validator with test configuration
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				QuorumConfigs: map[string]*model.QuorumConfig{
+				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 					destSelector: {
-						Signers:                  []model.Signer{signerFixture.Signer},
-						Threshold:                1,
-						CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+						sourceSelector: {
+							Signers:                  []model.Signer{signerFixture.Signer},
+							Threshold:                1,
+							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+						},
 					},
 				},
 			},
@@ -206,11 +213,13 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("missing signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				QuorumConfigs: map[string]*model.QuorumConfig{
+				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 					destSelector: {
-						Signers:                  []model.Signer{signerFixture.Signer},
-						Threshold:                1,
-						CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+						sourceSelector: {
+							Signers:                  []model.Signer{signerFixture.Signer},
+							Threshold:                1,
+							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+						},
 					},
 				},
 			},
@@ -233,11 +242,13 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("invalid signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				QuorumConfigs: map[string]*model.QuorumConfig{
+				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 					destSelector: {
-						Signers:                  []model.Signer{signerFixture.Signer},
-						Threshold:                1,
-						CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+						sourceSelector: {
+							Signers:                  []model.Signer{signerFixture.Signer},
+							Threshold:                1,
+							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+						},
 					},
 				},
 			},
@@ -277,11 +288,13 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("receipt blob is not part of the signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				QuorumConfigs: map[string]*model.QuorumConfig{
+				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 					destSelector: {
-						Signers:                  []model.Signer{signerFixture.Signer},
-						Threshold:                1,
-						CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+						sourceSelector: {
+							Signers:                  []model.Signer{signerFixture.Signer},
+							Threshold:                1,
+							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+						},
 					},
 				},
 			},

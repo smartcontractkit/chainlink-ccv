@@ -180,11 +180,18 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 	}
 
 	committeeConfig := &model.Committee{}
-	committeeConfig.QuorumConfigs = make(map[string]*model.QuorumConfig)
+	committeeConfig.QuorumConfigs = make(map[string]map[string]*model.QuorumConfig)
+
+	// Collect all chain selectors to use as both source and destination
+	allChainSelectors := make([]uint64, 0, len(in.CommitteeVerifierResolverProxyAddresses))
+	for chainSelector := range in.CommitteeVerifierResolverProxyAddresses {
+		allChainSelectors = append(allChainSelectors, chainSelector)
+	}
 
 	// Note: all verifiers are configured on all chains with the same pubkey.
-	for chainSelector, verifierAddress := range in.CommitteeVerifierResolverProxyAddresses {
-		chainSelStr := strconv.FormatUint(chainSelector, 10)
+	// Create quorum configs for all source-destination pairs (where source != destination)
+	for destChainSelector, verifierAddress := range in.CommitteeVerifierResolverProxyAddresses {
+		destChainSelStr := strconv.FormatUint(destChainSelector, 10)
 		threshold := uint8(0)
 		var signers []model.Signer
 		for _, v := range inV {
@@ -196,11 +203,24 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 				Address: v.SigningKeyPublic,
 			})
 		}
-		committeeConfig.QuorumConfigs[chainSelStr] = &model.QuorumConfig{
-			CommitteeVerifierAddress: verifierAddress,
-			Signers:                  signers,
-			Threshold:                threshold,
+
+		// Create a source configs map for this destination
+		sourceConfigs := make(map[string]*model.QuorumConfig)
+
+		// For each source chain (excluding when source == destination)
+		for _, sourceChainSelector := range allChainSelectors {
+			if sourceChainSelector == destChainSelector {
+				continue // Skip when source and destination are the same
+			}
+			sourceChainSelStr := strconv.FormatUint(sourceChainSelector, 10)
+			sourceConfigs[sourceChainSelStr] = &model.QuorumConfig{
+				CommitteeVerifierAddress: verifierAddress,
+				Signers:                  signers,
+				Threshold:                threshold,
+			}
 		}
+
+		committeeConfig.QuorumConfigs[destChainSelStr] = sourceConfigs
 	}
 
 	config.Committee = committeeConfig
@@ -355,12 +375,11 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		WaitingFor: wait.ForHTTP("/health/live").WithPort("8080/tcp"),
 	}
 
+	// Note: identical code to verifier.go -- will indexer/executor be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
-
-		// TODO: Generate config file, write it to a local path, and mount it here.
 		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
 			configFilePath,
 			aggregator.DefaultConfigFile,
