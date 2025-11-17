@@ -21,7 +21,7 @@ import (
 )
 
 // helper to build a proper committee with quorum config.
-func buildCommittee(destSel uint64, srcSel uint64, destVerifierAddr string, signers []model.Signer) *model.Committee {
+func buildCommittee(destSel, srcSel uint64, destVerifierAddr string, signers []model.Signer) *model.Committee {
 	return &model.Committee{
 		QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 			strconv.FormatUint(destSel, 10): {

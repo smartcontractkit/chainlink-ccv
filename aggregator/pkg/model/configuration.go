@@ -38,7 +38,7 @@ type Committee struct {
 	QuorumConfigs map[DestinationSelector]map[SourceSelector]*QuorumConfig `toml:"quorumConfigs"`
 }
 
-func (c *Committee) GetQuorumConfig(destChainSelector uint64, sourceChainSelector uint64) (*QuorumConfig, bool) {
+func (c *Committee) GetQuorumConfig(destChainSelector, sourceChainSelector uint64) (*QuorumConfig, bool) {
 	destSelectorStr := new(big.Int).SetUint64(destChainSelector).String()
 	sourceSelectorStr := new(big.Int).SetUint64(sourceChainSelector).String()
 
