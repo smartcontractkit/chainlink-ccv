@@ -41,8 +41,7 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 
 	signer := model.Signer{
-		ParticipantID: name,
-		Addresses:     []string{signerAddress.Hex()},
+		Address: signerAddress.Hex(),
 	}
 	return &SignerFixture{
 		Signer: signer,
@@ -130,7 +129,7 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		require.NoError(t, err, "failed to create signed hash")
 
 		r32, s32, signerAddr, err := protocol.SignV27(hash[:], signer.key)
-		require.NoError(t, err, "failed to sign message for signer %s", signer.Signer.ParticipantID)
+		require.NoError(t, err, "failed to sign message for signer %s", signer.Signer.Address)
 
 		sigData := protocol.Data{
 			R:      r32,

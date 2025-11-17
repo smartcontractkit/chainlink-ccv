@@ -147,7 +147,7 @@ func TestIdempotency(t *testing.T) {
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 		readResp1, err := aggregatorClient.ReadCommitCCVNodeData(t.Context(), &pb.ReadCommitCCVNodeDataRequest{
 			MessageId: messageId[:],
-			Address:   common.HexToAddress(signer1.Signer.Addresses[0]).Bytes(),
+			Address:   common.HexToAddress(signer1.Signer.Address).Bytes(),
 		})
 		require.NoError(t, err, "ReadCommitCCVNodeData failed")
 
@@ -157,7 +157,7 @@ func TestIdempotency(t *testing.T) {
 		require.Equal(t, pb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 		readResp2, err := aggregatorClient.ReadCommitCCVNodeData(t.Context(), &pb.ReadCommitCCVNodeDataRequest{
 			MessageId: messageId[:],
-			Address:   common.HexToAddress(signer1.Signer.Addresses[0]).Bytes(),
+			Address:   common.HexToAddress(signer1.Signer.Address).Bytes(),
 		})
 		require.NoError(t, err, "ReadCommitCCVNodeData failed")
 
@@ -189,7 +189,7 @@ func TestKeyRotation(t *testing.T) {
 	testFunc := func(t *testing.T, storageType string) {
 		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
 		signer1 := NewSignerFixture(t, "node1")
-		signer1Address1 := common.HexToAddress(signer1.Signer.Addresses[0])
+		signer1Address1 := common.HexToAddress(signer1.Signer.Address)
 		signer2 := NewSignerFixture(t, "node2")
 
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
@@ -215,7 +215,7 @@ func TestKeyRotation(t *testing.T) {
 			WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2))
 
 		signer1Rotated := NewSignerFixture(t, "node1")
-		signer1Address2 := common.HexToAddress(signer1Rotated.Signer.Addresses[0])
+		signer1Address2 := common.HexToAddress(signer1Rotated.Signer.Address)
 		require.NotEqual(t, signer1Address1, signer1Address2)
 
 		committee.QuorumConfigs["2"].Signers[0] = signer1Rotated.Signer
@@ -387,21 +387,19 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
-	expectedAddresses := make(map[common.Address]string)
+	expectedAddresses := make(map[common.Address]bool)
 	for _, expectedSigner := range config.expectedSigners {
-		require.NotEmpty(t, expectedSigner.Signer.Addresses, "expected signer should have at least one address")
-		addr := common.HexToAddress(expectedSigner.Signer.Addresses[0])
-		expectedAddresses[addr] = expectedSigner.Signer.ParticipantID
+		require.NotEmpty(t, expectedSigner.Signer.Address, "expected signer should have an address")
+		addr := common.HexToAddress(expectedSigner.Signer.Address)
+		expectedAddresses[addr] = true
 	}
 
-	// Verify that signature recovery works and produces valid addresses
 	require.Equal(t, len(rs), len(recoveredAddresses), "should recover one address per signature")
 	for _, addr := range recoveredAddresses {
 		require.NotEqual(t, common.Address{}, addr, "recovered address should not be zero")
 	}
 
-	// Verify that all expected signers are present in the recovered addresses
-	for expectedAddr, participantID := range expectedAddresses {
+	for expectedAddr := range expectedAddresses {
 		found := false
 		for _, recoveredAddr := range recoveredAddresses {
 			if recoveredAddr == expectedAddr {
@@ -409,7 +407,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 				break
 			}
 		}
-		require.True(t, found, "expected signer %s (participant %s) not found in recovered addresses", expectedAddr.Hex(), participantID)
+		require.True(t, found, "expected signer %s not found in recovered addresses", expectedAddr.Hex())
 	}
 
 	if config.exactNumberOfSignatures != nil {
@@ -1588,6 +1586,172 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 		require.Equal(t, sourceVerifierAddress, result.SourceVerifierAddress, "source verifier address should match")
 
 		t.Logf("✅ Batch mixed success/failure test completed: 1 success, 2 failures with 1:1 error correspondence")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestReadCommitCCVNodeData_ReturnsLatestAggregationKey verifies that when a signer
+// writes a verification and then the blob data changes, ReadCommitCCVNodeData returns
+// only the latest record (highest seq_num) for that signer.
+func TestReadCommitCCVNodeData_ReturnsLatestAggregationKey(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+
+		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer)
+
+		aggregatorClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := NewProtocolMessage(t)
+
+		// Step 1: Send verification from signer with old blob data
+		oldBlobData := []byte{0x01, 0x02, 0x03, 0x04}
+		ccvNodeData_old := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithBlobData(oldBlobData),
+			WithSignatureFrom(t, signer1))
+
+		resp, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData_old))
+		require.NoError(t, err)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+		// Step 2: Change blob data and send new verification from same signer
+		newBlobData := []byte{0x05, 0x06, 0x07, 0x08}
+		ccvNodeData_new := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithBlobData(newBlobData),
+			WithSignatureFrom(t, signer1))
+
+		resp, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData_new))
+		require.NoError(t, err)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+		// Step 3: Verify ReadCommitCCVNodeData returns only the latest one (with new blob data)
+		messageId, err := message.MessageID()
+		require.NoError(t, err)
+
+		readResp, err := aggregatorClient.ReadCommitCCVNodeData(t.Context(), &pb.ReadCommitCCVNodeDataRequest{
+			MessageId: messageId[:],
+			Address:   common.HexToAddress(signer1.Signer.Address).Bytes(),
+		})
+		require.NoError(t, err, "ReadCommitCCVNodeData should succeed")
+		require.NotNil(t, readResp.CcvNodeData, "should return node data")
+
+		// Verify the returned data has the NEW blob data (not the old one)
+		require.Equal(t, newBlobData, readResp.CcvNodeData.BlobData, "should return latest record with new blob data")
+		require.NotEqual(t, oldBlobData, readResp.CcvNodeData.BlobData, "should not return old blob data")
+
+		t.Log("✅ ReadCommitCCVNodeData returns only latest record after blob data change")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestKeyRotation_StopAggregationAfterQuorumThenRotate tests the scenario where:
+// 1. Committee has 3 signers with threshold 2
+// 2. First 2 signers verify → aggregation happens
+// 3. Third signer verifies → no re-aggregation (stop-aggregation-after-quorum)
+// 4. Committee rotation removes first signer
+// 5. Third signer verifies again → re-aggregation happens with new committee.
+func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		signer3 := NewSignerFixture(t, "node3")
+
+		// Start with all 3 signers in committee, threshold = 2
+		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
+		committee.QuorumConfigs["2"].Threshold = 2
+
+		aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := NewProtocolMessage(t)
+		messageId, err := message.MessageID()
+		require.NoError(t, err, "failed to compute message ID")
+
+		// Phase 1: Signer1 and Signer2 verify → aggregation happens (quorum reached)
+		t.Log("Phase 1: Signer1 and Signer2 verify")
+		ccvNodeData1 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer1))
+		resp, err := aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData1))
+		require.NoError(t, err)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+		ccvNodeData2 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer2))
+		resp, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData2))
+		require.NoError(t, err)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+		// Verify aggregation with signer1 + signer2
+		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(),
+			sourceVerifierAddress, destVerifierAddress,
+			WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2),
+			WithExactNumberOfSignatures(2))
+
+		// Phase 2: Signer3 verifies → no re-aggregation (stop-aggregation-after-quorum)
+		t.Log("Phase 2: Signer3 verifies (should not trigger re-aggregation)")
+		ccvNodeData3 := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer3))
+		resp, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData3))
+		require.NoError(t, err)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+		// Sleep briefly to allow any potential re-aggregation to occur
+		time.Sleep(200 * time.Millisecond)
+
+		// Verify still only 2 signatures (no re-aggregation happened)
+		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(),
+			sourceVerifierAddress, destVerifierAddress,
+			WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2),
+			WithExactNumberOfSignatures(2))
+
+		// Phase 3: Committee rotation - remove signer1, keep signer2 and signer3
+		t.Log("Phase 3: Rotate committee - remove signer1, keep signer2 and signer3")
+		committee.QuorumConfigs["2"] = &model.QuorumConfig{
+			Threshold: 2,
+			Signers: []model.Signer{
+				signer2.Signer,
+				signer3.Signer,
+			},
+			CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		}
+
+		// Phase 4: Signer3 verifies again → re-aggregation happens with new committee
+		t.Log("Phase 4: Signer3 verifies again (should trigger re-aggregation)")
+		ccvNodeData3New := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer3))
+		resp, err = aggregatorClient.WriteCommitCCVNodeData(t.Context(), NewWriteCommitCCVNodeDataRequest(ccvNodeData3New))
+		require.NoError(t, err)
+		require.Equal(t, pb.WriteStatus_SUCCESS, resp.Status)
+
+		// Verify re-aggregation with new committee (signer2 + signer3)
+		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData3New.GetMessage(),
+			sourceVerifierAddress, destVerifierAddress,
+			WithValidSignatureFrom(signer2), WithValidSignatureFrom(signer3),
+			WithExactNumberOfSignatures(2))
+
+		t.Log("✅ Key rotation after quorum: stop-aggregation-after-quorum works, then re-aggregation after rotation")
 	}
 
 	for _, storageType := range storageTypes {

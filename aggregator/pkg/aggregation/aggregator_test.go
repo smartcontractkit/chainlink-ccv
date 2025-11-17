@@ -366,27 +366,5 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 	})
 }
 
-func TestDeduplicateVerificationsByParticipant(t *testing.T) {
-	v1 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{ParticipantID: "A"}, Timestamp: time.UnixMilli(1)}
-	v2 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{ParticipantID: "A"}, Timestamp: time.UnixMilli(2)}
-	v3 := &model.CommitVerificationRecord{IdentifierSigner: &model.IdentifierSigner{ParticipantID: "B"}, Timestamp: time.UnixMilli(3)}
-	vNo := &model.CommitVerificationRecord{Timestamp: time.UnixMilli(5)}
-
-	got := deduplicateVerificationsByParticipant([]*model.CommitVerificationRecord{v1, v2, v3, vNo})
-	assert.Len(t, got, 2)
-	var aFound, bFound bool
-	for _, v := range got {
-		if v.IdentifierSigner.ParticipantID == "A" {
-			aFound = true
-			assert.True(t, v.GetTimestamp().Equal(time.UnixMilli(2)))
-		}
-		if v.IdentifierSigner.ParticipantID == "B" {
-			bFound = true
-			assert.True(t, v.GetTimestamp().Equal(time.UnixMilli(3)))
-		}
-	}
-	assert.True(t, aFound && bFound)
-}
-
 // helpers.
 var _ = time.Duration(0)

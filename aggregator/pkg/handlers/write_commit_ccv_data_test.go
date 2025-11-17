@@ -38,8 +38,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	t.Parallel()
 
 	signer1 := &model.IdentifierSigner{
-		ParticipantID: "p1",
-		Address:       []byte{0xAA},
+		Address: []byte{0xAA},
 	}
 
 	type testCase struct {

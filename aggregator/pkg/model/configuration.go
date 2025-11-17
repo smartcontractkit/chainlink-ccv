@@ -1,7 +1,6 @@
 package model
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,15 +14,13 @@ import (
 
 // Signer represents a participant in the commit verification process.
 type Signer struct {
-	ParticipantID string   `toml:"participantID"`
-	Addresses     []string `toml:"addresses"`
+	Address string `toml:"address"`
 }
 
 type IdentifierSigner struct {
-	ParticipantID string
-	Address       []byte
-	SignatureR    [32]byte
-	SignatureS    [32]byte
+	Address    []byte
+	SignatureR [32]byte
+	SignatureS [32]byte
 }
 
 // Committee represents a group of signers participating in the commit verification process.
@@ -46,19 +43,6 @@ type QuorumConfig struct {
 	CommitteeVerifierAddress string   `toml:"committeeVerifierAddress"`
 	Signers                  []Signer `toml:"signers"`
 	Threshold                uint8    `toml:"threshold"`
-}
-
-func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {
-	for _, signer := range q.Signers {
-		for _, addr := range signer.Addresses {
-			// TODO: Do not use go ethereum common package here
-			addrBytes := common.HexToAddress(addr).Bytes()
-			if bytes.Equal(addrBytes, address) {
-				return &signer
-			}
-		}
-	}
-	return nil
 }
 
 func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {

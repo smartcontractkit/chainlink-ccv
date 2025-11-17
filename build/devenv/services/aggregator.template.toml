@@ -62,31 +62,25 @@ TraceBatchTimeout = 10
 #       threshold = 2
 
 #       [[committee.quorumConfigs.12922642891491394802.signers]]
-#         participantID = "default-participant1"
-#         addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+#         address = "0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"
 
 #       [[committee.quorumConfigs.12922642891491394802.signers]]
-#         participantID = "default-participant2"
-#         addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
+#         address = "0x313624fd004760c40323476003ac7789dd534f94"
 #     [committee.quorumConfigs.3379446385462418246]
 #       committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
 #       threshold = 2
 
 #       [[committee.quorumConfigs.3379446385462418246.signers]]
-#         participantID = "default-participant1"
-#         addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+#         address = "0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"
 
 #       [[committee.quorumConfigs.3379446385462418246.signers]]
-#         participantID = "default-participant2"
-#         addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
+#         address = "0x313624fd004760c40323476003ac7789dd534f94"
 #     [committee.quorumConfigs.4793464827907405086]
 #       committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
 #       threshold = 2
 
 #       [[committee.quorumConfigs.4793464827907405086.signers]]
-#         participantID = "default-participant1"
-#         addresses = ["0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"]
+#         address = "0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"
       
 #       [[committee.quorumConfigs.4793464827907405086.signers]]
-#         participantID = "default-participant2"
-#         addresses = ["0x313624fd004760c40323476003ac7789dd534f94"]
+#         address = "0x313624fd004760c40323476003ac7789dd534f94"
