@@ -106,13 +106,7 @@ func NewVerificationCoordinator(
 			sourceReader, cfg.VerifierID, sel, verifierMonitoring,
 		)
 
-		// TODO: this seems wacky
-		headTracker, ok := observedSourceReader.(chainaccess.HeadTracker)
-		if !ok {
-			lggr.Errorw("Source reader does not implement HeadTracker interface", "chainID", sel)
-			return nil, fmt.Errorf("source reader does not implement HeadTracker interface: %w", err)
-		}
-		headTrackers[sel] = headTracker
+		headTrackers[sel] = observedSourceReader
 		sourceReaders[sel] = observedSourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress: verifierAddrs[sel],
