@@ -8,7 +8,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/utils"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -28,7 +27,7 @@ func NewCCVDataV1Handler(storage common.IndexerStorage, lggr logger.Logger, moni
 }
 
 func (h *CCVDataV1Handler) Handle(c *gin.Context) {
-	req := storageaccess.VerifierResultsRequest{
+	req := VerifierResultsV1Request{
 		Start:                0,
 		End:                  time.Now().UnixMilli(),
 		SourceChainSelectors: []protocol.ChainSelector{},
@@ -53,7 +52,7 @@ func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 	req.SourceChainSelectors = sourceChainSelectors
 	req.DestChainSelectors = destChainSelectors
 
-	ccvData, err := h.storage.QueryCCVData(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
+	ccvData, err := h.storage.QueryCCVData(c.Request.Context(), time.UnixMilli(req.Start), time.UnixMilli(req.End), req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

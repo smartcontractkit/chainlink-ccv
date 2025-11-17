@@ -15,3 +15,12 @@ type MessagesV1Request struct {
 	Limit                uint64                   `form:"limit"`
 	Offset               uint64                   `form:"offset"`
 }
+
+type VerifierResultsV1Request struct {
+	SourceChainSelectors []protocol.ChainSelector // Excluded from form due to gin parsing
+	DestChainSelectors   []protocol.ChainSelector // Excluded from form due to gin parsing
+	Start                int64                    `form:"start"`
+	End                  int64                    `form:"end"`
+	Limit                uint64                   `form:"limit"`
+	Offset               uint64                   `form:"offset"`
+}
