@@ -28,6 +28,7 @@ type Scanner struct {
 	readerLocks sync.Map // map[protocol.OffchainStorageReader]*sync.Mutex
 }
 
+// Config is handy
 type Config struct {
 	ScanInterval   time.Duration
 	MetricInterval time.Duration
