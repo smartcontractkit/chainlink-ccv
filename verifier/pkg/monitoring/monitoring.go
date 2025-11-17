@@ -66,68 +66,10 @@ func (v *VerifierBeholderMonitoring) Metrics() verifier.MetricLabeler {
 	return v.metrics
 }
 
-var _ verifier.Monitoring = (*NoopVerifierMonitoring)(nil)
-
-// NoopVerifierMonitoring provides a no-op implementation of VerifierMonitoring.
-type NoopVerifierMonitoring struct {
-	noop verifier.MetricLabeler
-}
-
-// NewNoopVerifierMonitoring creates a new noop monitoring instance.
-func NewNoopVerifierMonitoring() verifier.Monitoring {
-	return &NoopVerifierMonitoring{
-		noop: NewNoopVerifierMetricLabeler(),
-	}
-}
-
-func (n *NoopVerifierMonitoring) Metrics() verifier.MetricLabeler {
-	return n.noop
-}
-
-var _ verifier.MetricLabeler = (*NoopVerifierMetricLabeler)(nil)
-
-// NoopVerifierMetricLabeler provides a no-op implementation of VerifierMetricLabeler.
-type NoopVerifierMetricLabeler struct{}
-
-// NewNoopVerifierMetricLabeler creates a new noop metric labeler.
-func NewNoopVerifierMetricLabeler() verifier.MetricLabeler {
-	return &NoopVerifierMetricLabeler{}
-}
-
-func (n *NoopVerifierMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
-	return n
-}
-
-func (n *NoopVerifierMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopVerifierMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {}
-
-func (n *NoopVerifierMetricLabeler) IncrementMessagesVerificationFailed(ctx context.Context) {}
-
-func (n *NoopVerifierMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordSigningDuration(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64) {}
-
-func (n *NoopVerifierMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64) {}
-
-func (n *NoopVerifierMetricLabeler) IncrementStorageWriteErrors(ctx context.Context) {}
-
-func (n *NoopVerifierMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64) {
-}
-
-func (n *NoopVerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {
-}
+var (
+	_ verifier.Monitoring    = (*FakeVerifierMonitoring)(nil)
+	_ verifier.MetricLabeler = (*FakeVerifierMetricLabeler)(nil)
+)
 
 type FakeVerifierMonitoring struct {
 	Fake *FakeVerifierMetricLabeler

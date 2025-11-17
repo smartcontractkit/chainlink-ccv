@@ -136,7 +136,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	}
 	ts := newTestSetup(t)
 
-	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
+	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(t, err)
 
@@ -264,7 +264,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(ts *testSetup, config verifier.CoordinatorConfig, sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader, headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) (*verifier.Coordinator, error) {
-	noopMonitoring := monitoring.NewNoopVerifierMonitoring()
+	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(ts.t, err)
 
