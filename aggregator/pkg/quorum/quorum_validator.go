@@ -35,10 +35,10 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 		return false, fmt.Errorf("committee config not found")
 	}
 
-	quorumConfig, exists := q.Committee.GetQuorumConfig(aggregatedReport.GetDestinationSelector())
+	quorumConfig, exists := q.Committee.GetQuorumConfig(aggregatedReport.GetDestinationSelector(), aggregatedReport.GetSourceChainSelector())
 	if !exists {
-		q.logger(ctx).Errorf("Failed to get quorum config for chain selector: %d", aggregatedReport.GetDestinationSelector())
-		return false, fmt.Errorf("failed to get quorum config for chain selector: %d", aggregatedReport.GetDestinationSelector())
+		q.logger(ctx).Errorf("Failed to get quorum config for destination selector: %d, source selector: %d", aggregatedReport.GetDestinationSelector(), aggregatedReport.GetSourceChainSelector())
+		return false, fmt.Errorf("failed to get quorum config for destination selector: %d, source selector: %d", aggregatedReport.GetDestinationSelector(), aggregatedReport.GetSourceChainSelector())
 	}
 
 	if len(aggregatedReport.Verifications) < int(quorumConfig.Threshold) {
@@ -116,10 +116,10 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, nil, fmt.Errorf("committee config not found")
 	}
 
-	quorumConfig, exists := q.Committee.GetQuorumConfig(uint64(message.DestChainSelector))
+	quorumConfig, exists := q.Committee.GetQuorumConfig(uint64(message.DestChainSelector), uint64(message.SourceChainSelector))
 	if !exists {
-		q.logger(ctx).Errorf("Failed to get quorum config for chain selector: %d", message.DestChainSelector)
-		return nil, nil, fmt.Errorf("failed to get quorum config for chain selector: %d", message.DestChainSelector)
+		q.logger(ctx).Errorf("Failed to get quorum config for destination selector: %d, source selector: %d", message.DestChainSelector, message.SourceChainSelector)
+		return nil, nil, fmt.Errorf("failed to get quorum config for destination selector: %d, source selector: %d", message.DestChainSelector, message.SourceChainSelector)
 	}
 
 	// All signatures are normalized to v=27 by SignV27, so we only need to try v=0

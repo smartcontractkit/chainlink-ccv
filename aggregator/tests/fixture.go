@@ -50,13 +50,16 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 }
 
 // NewCommitteeFixture creates a test committee configuration with the given parameters.
+// Uses default test chain selectors: source=1, dest=2
 func NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress []byte, signers ...model.Signer) *model.Committee {
 	return &model.Committee{
-		QuorumConfigs: map[string]*model.QuorumConfig{
+		QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 			"2": {
-				Threshold:                uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
-				Signers:                  signers,
-				CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+				"1": {
+					Threshold:                uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
+					Signers:                  signers,
+					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+				},
 			},
 		},
 	}
