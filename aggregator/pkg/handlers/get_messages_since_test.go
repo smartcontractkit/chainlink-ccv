@@ -33,7 +33,7 @@ func TestGetMessagesSinceHandler_Success(t *testing.T) {
 	signerAddr := addrSigner
 	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
-	committee := buildCommittee(destSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
+	committee := buildCommittee(destSel, sourceSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
 
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	msgID, _ := msg.MessageID()
