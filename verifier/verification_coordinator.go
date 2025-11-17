@@ -121,24 +121,6 @@ func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainacc
 	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
 }
 
-// WithHeadTrackers sets multiple head trackers.
-func WithHeadTrackers(headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) Option {
-	return func(vc *Coordinator) {
-		if vc.headTrackers == nil {
-			vc.headTrackers = make(map[protocol.ChainSelector]chainaccess.HeadTracker)
-		}
-
-		for chainSelector, tracker := range headTrackers {
-			vc.headTrackers[chainSelector] = tracker
-		}
-	}
-}
-
-// AddHeadTracker adds a single head tracker to the existing map.
-func AddHeadTracker(chainSelector protocol.ChainSelector, headTracker chainaccess.HeadTracker) Option {
-	return WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{chainSelector: headTracker})
-}
-
 // WithStorage sets the storage writer.
 func WithStorage(storage protocol.CCVNodeDataWriter) Option {
 	return func(vc *Coordinator) {
@@ -284,16 +266,8 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				sourcePollInterval = sourceCfg.PollInterval
 			}
 
-			// Get the corresponding HeadTracker for this chain
-			headTracker, ok := vc.headTrackers[chainSelector]
-			if !ok {
-				vc.lggr.Errorw("skipping source reader: no head tracker found for chain selector", "chainSelector", chainSelector)
-				continue
-			}
-
 			service := NewSourceReaderService(
 				sourceReader,
-				headTracker,
 				chainSelector,
 				vc.chainStatusManager,
 				vc.lggr,
