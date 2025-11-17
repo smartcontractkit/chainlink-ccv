@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
@@ -33,19 +32,20 @@ const (
 
 // SourceReaderService wraps a SourceReader and converts MessageSentEvents to VerificationTasks.
 type SourceReaderService struct {
-	services.StateMachine
+	sync   services.StateMachine
+	stopCh services.StopChan
 	wg     sync.WaitGroup
-	stopCh chan struct{}
 
-	sourceReader         chainaccess.SourceReader
 	logger               logger.Logger
-	lastProcessedBlock   *big.Int
+	sourceReader         chainaccess.SourceReader
 	verificationTaskCh   chan batcher.BatchResult[VerificationTask]
 	ccipMessageSentTopic string
 	pollInterval         time.Duration
 	chainSelector        protocol.ChainSelector
-	mu                   sync.RWMutex
 
+	// State that requires synchronization
+	mu                 sync.RWMutex
+	lastProcessedBlock *big.Int
 	// Reset coordination using optimistic locking pattern.
 	// This version counter is incremented each time ResetToBlock() is called.
 	// The processEventCycle() captures the version at the start of its cycle,
@@ -53,7 +53,7 @@ type SourceReaderService struct {
 	// changed (indicating a reset occurred during the cycle's RPC calls),
 	// the cycle skips its update to avoid overwriting the reset value.
 	// This allows us to protect lastProcessedBlock without holding locks across I/O.
-	resetVersion atomic.Uint64
+	resetVersion uint64
 
 	// ChainStatus management
 	chainStatusManager   protocol.ChainStatusManager
@@ -101,7 +101,7 @@ func NewSourceReaderService(
 
 // Start begins reading messages and pushing them to the messages channel.
 func (r *SourceReaderService) Start(ctx context.Context) error {
-	return r.StartOnce("SourceReaderService", func() error {
+	return r.sync.StartOnce("SourceReaderService", func() error {
 		r.logger.Infow("Starting SourceReaderService",
 			"chainSelector", r.chainSelector,
 			"topic", r.ccipMessageSentTopic)
@@ -113,7 +113,10 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 		}
 
 		r.wg.Add(1)
-		go r.eventMonitoringLoop(ctx)
+		go func() {
+			defer r.wg.Done()
+			r.eventMonitoringLoop()
+		}()
 
 		r.logger.Infow("SourceReaderService started successfully")
 		return nil
@@ -122,9 +125,8 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 
 // Stop stops the reader and closes the messages channel.
 func (r *SourceReaderService) Stop() error {
-	return r.StopOnce("SourceReaderService", func() error {
+	return r.sync.StopOnce("SourceReaderService", func() error {
 		r.logger.Infow("Stopping SourceReaderService")
-
 		close(r.stopCh)
 
 		// Wait for goroutine WITHOUT holding lock to avoid deadlock
@@ -146,7 +148,7 @@ func (r *SourceReaderService) VerificationTaskChannel() <-chan batcher.BatchResu
 
 // HealthCheck returns the current health status of the reader.
 func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
-	if err := r.Ready(); err != nil {
+	if err := r.sync.Ready(); err != nil {
 		return err
 	}
 
@@ -187,11 +189,10 @@ func (r *SourceReaderService) ResetToBlock(block uint64) error {
 		"fromBlock", r.lastProcessedBlock,
 		"toBlock", resetBlock,
 		"lastChainStatus", r.lastChainStatusBlock,
-		"resetVersion", r.resetVersion.Load()+1)
+		"resetVersion", r.resetVersion+1)
 
 	// Increment version to signal in-flight cycles that their read is stale
-	r.resetVersion.Add(1)
-
+	r.resetVersion++
 	// Update to reset value (already holding lock from function entry)
 	r.lastProcessedBlock = resetBlock
 
@@ -431,7 +432,9 @@ func (r *SourceReaderService) updateChainStatus(ctx context.Context, lastProcess
 	}
 
 	// Capture version before starting chain status calculation
-	versionBeforeCalc := r.resetVersion.Load()
+	r.mu.RLock()
+	versionBeforeCalc := r.resetVersion
+	r.mu.RUnlock()
 
 	// Calculate safe chain status block (finalized - buffer)
 	// This may take time due to RPC calls
@@ -452,7 +455,7 @@ func (r *SourceReaderService) updateChainStatus(ctx context.Context, lastProcess
 	defer r.mu.Unlock()
 
 	// Check if a reset occurred during our calculation
-	currentVersion := r.resetVersion.Load()
+	currentVersion := r.resetVersion
 	if currentVersion != versionBeforeCalc {
 		r.logger.Debugw("Skipping stale chainStatus write due to concurrent reset",
 			"calculatedChainStatus", chainStatusBlock.String(),
@@ -493,8 +496,9 @@ func (r *SourceReaderService) updateChainStatus(ctx context.Context, lastProcess
 }
 
 // eventMonitoringLoop runs the continuous event monitoring.
-func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
-	defer r.wg.Done()
+func (r *SourceReaderService) eventMonitoringLoop() {
+	ctx, cancel := r.stopCh.NewCtx()
+	defer cancel()
 
 	// Add panic recovery
 	defer func() {
@@ -503,23 +507,16 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 		}
 	}()
 
-	// Initialize start block on first run
-	r.mu.RLock()
-	needsInit := r.lastProcessedBlock == nil
-	r.mu.RUnlock()
-
-	if needsInit {
-		startBlock, err := r.initializeStartBlock(ctx)
-		if err != nil {
-			r.logger.Errorw("Failed to initialize start block", "error", err)
-			// Use fallback
-			startBlock = big.NewInt(1)
-		}
-		r.mu.Lock()
-		r.lastProcessedBlock = startBlock
-		r.mu.Unlock()
-		r.logger.Infow("Initialized start block", "block", startBlock.String())
+	startBlock, err := r.initializeStartBlock(ctx)
+	if err != nil {
+		r.logger.Errorw("Failed to initialize start block", "error", err)
+		// Use fallback
+		startBlock = big.NewInt(1)
 	}
+	r.mu.Lock()
+	r.lastProcessedBlock = startBlock
+	r.mu.Unlock()
+	r.logger.Infow("Initialized start block", "block", startBlock.String())
 
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
@@ -527,13 +524,8 @@ func (r *SourceReaderService) eventMonitoringLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.logger.Infow("🛑 Context cancelled, stopping event monitoring")
+			r.logger.Infow("Close signal received, stopping event monitoring")
 			return
-
-		case <-r.stopCh:
-			r.logger.Infow("🛑 Close signal received, stopping event monitoring")
-			return
-
 		case <-ticker.C:
 			r.processEventCycle(ctx)
 		}
@@ -567,7 +559,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	// Capture resetVersion and lastProcessedBlock atomically under read lock.
 	// This establishes a "snapshot" that we'll validate before updating state later.
 	r.mu.RLock()
-	startVersion := r.resetVersion.Load()
+	startVersion := r.resetVersion
 	fromBlock := r.lastProcessedBlock
 	r.mu.RUnlock()
 
@@ -661,7 +653,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	// Update processed block with optimistic locking check
 	r.mu.Lock()
-	currentVersion := r.resetVersion.Load()
+	currentVersion := r.resetVersion
 	if currentVersion == startVersion {
 		// No reset occurred - safe to update
 		r.lastProcessedBlock = processedToBlock
@@ -680,7 +672,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		r.updateChainStatus(ctx, processedToBlock)
 	}
 
-	r.logger.Debugw("📈 Processed block range",
+	r.logger.Debugw("Processed block range",
 		"fromBlock", fromBlock.String(),
 		"toBlock", "latest",
 		"advancedTo", processedToBlock.String(),

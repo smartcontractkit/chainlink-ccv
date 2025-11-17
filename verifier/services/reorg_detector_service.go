@@ -59,15 +59,15 @@ type ReorgDetectorConfig struct {
 // - Runs alongside SourceReaderService for each chain
 // - Uses same SourceReader instance to share RPC connections.
 type ReorgDetectorService struct {
-	services.StateMachine
+	sync   services.StateMachine
+	stopCh services.StopChan
+	wg     sync.WaitGroup
 
 	sourceReader chainaccess.SourceReader
 	headTracker  chainaccess.HeadTracker
 	config       ReorgDetectorConfig
 	lggr         logger.Logger
 	statusCh     chan protocol.ChainStatus
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
 
 	// In-memory block tracking (keyed by block number for O(1) lookup)
 	// Single-writer: only accessed by pollAndCheckForReorgs goroutine
@@ -122,6 +122,7 @@ func NewReorgDetectorService(
 		config:       config,
 		lggr:         lggr,
 		statusCh:     make(chan protocol.ChainStatus, 1),
+		stopCh:       make(chan struct{}),
 		tailBlocks:   make(map[uint64]protocol.BlockHeader),
 		pollInterval: pollInterval,
 	}, nil
@@ -147,7 +148,7 @@ func NewReorgDetectorService(
 // - Safe to call once per instance
 // - Subsequent calls will return an error.
 func (r *ReorgDetectorService) Start(ctx context.Context) error {
-	return r.StartOnce("ReorgDetectorService", func() error {
+	return r.sync.StartOnce("ReorgDetectorService", func() error {
 		r.lggr.Infow("Starting reorg detector service",
 			"chainSelector", r.config.ChainSelector,
 			"pollInterval", r.pollInterval)
@@ -157,14 +158,11 @@ func (r *ReorgDetectorService) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to build initial tail: %w", err)
 		}
 
-		ctx1, cancel := context.WithCancel(context.Background())
-		r.cancel = cancel
-
 		// Start polling goroutine
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
-			r.pollAndCheckForReorgs(ctx1)
+			r.pollAndCheckForReorgs()
 		}()
 
 		r.lggr.Infow("Reorg detector service started successfully",
@@ -178,7 +176,10 @@ func (r *ReorgDetectorService) Start(ctx context.Context) error {
 
 // pollAndCheckForReorgs is the main polling loop that periodically checks for new blocks
 // and detects reorgs.
-func (r *ReorgDetectorService) pollAndCheckForReorgs(ctx context.Context) {
+func (r *ReorgDetectorService) pollAndCheckForReorgs() {
+	ctx, cancel := r.stopCh.NewCtx()
+	defer cancel()
+
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 
@@ -665,11 +666,11 @@ func (e *finalityViolationError) Error() string {
 // - Safe to call multiple times (subsequent calls are no-ops)
 // - Blocks until monitoring goroutine exits.
 func (r *ReorgDetectorService) Close() error {
-	return r.StopOnce("ReorgDetectorService", func() error {
+	return r.sync.StopOnce("ReorgDetectorService", func() error {
 		r.lggr.Infow("Closing reorg detector service", "chainSelector", r.config.ChainSelector)
 
 		// Signal cancellation
-		r.cancel()
+		close(r.stopCh)
 
 		// Wait for goroutines without holding lock
 		r.wg.Wait()

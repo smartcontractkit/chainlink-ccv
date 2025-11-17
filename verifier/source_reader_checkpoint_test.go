@@ -278,12 +278,12 @@ func TestSourceReaderService_ResetToBlock_IncrementsVersion(t *testing.T) {
 	reader.lastProcessedBlock = big.NewInt(2000)
 	reader.lastChainStatusBlock = big.NewInt(1980)
 
-	initialVersion := reader.resetVersion.Load()
+	initialVersion := reader.resetVersion
 
 	// Reset to block 1990 (no chain status write needed)
 	err := reader.ResetToBlock(1990)
 
 	require.NoError(t, err)
 	// Verify version was incremented
-	require.Equal(t, initialVersion+1, reader.resetVersion.Load())
+	require.Equal(t, initialVersion+1, reader.resetVersion)
 }
