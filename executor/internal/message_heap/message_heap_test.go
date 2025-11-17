@@ -18,9 +18,16 @@ func createTestMessage(nonce, sourceChain, destChain uint64) *protocol.Message {
 }
 
 func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimestamps {
+	msg := createTestMessage(nonce, 1, 2)
+	msgID, err := msg.MessageID()
+	if err != nil {
+		return nil
+	}
 	return &MessageWithTimestamps{
-		ReadyTime: readyTime,
-		Message:   createTestMessage(nonce, 1, 2),
+		ReadyTime:     readyTime,
+		Message:       msg,
+		MessageID:     &msgID,
+		RetryInterval: 0,
 	}
 }
 

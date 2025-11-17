@@ -201,7 +201,6 @@ func TestMessageExpiration(t *testing.T) {
 		initialReadyDelay int64
 		shouldRetry       bool
 		shouldExecute     bool
-		shouldExpire      bool
 	}{
 		{
 			name:              "message expires when retry time exceeds expiry",
@@ -210,7 +209,6 @@ func TestMessageExpiration(t *testing.T) {
 			initialReadyDelay: 0,  // ready immediately
 			shouldRetry:       true,
 			shouldExecute:     false,
-			shouldExpire:      true,
 		},
 		{
 			name:              "message retries when within expiry window",
@@ -219,7 +217,6 @@ func TestMessageExpiration(t *testing.T) {
 			initialReadyDelay: 0,
 			shouldRetry:       true,
 			shouldExecute:     false,
-			shouldExpire:      false,
 		},
 		{
 			name:              "message does not retry when shouldRetry is false",
@@ -228,7 +225,6 @@ func TestMessageExpiration(t *testing.T) {
 			initialReadyDelay: 0,
 			shouldRetry:       false,
 			shouldExecute:     false,
-			shouldExpire:      false,
 		},
 	}
 
@@ -262,9 +258,7 @@ func TestMessageExpiration(t *testing.T) {
 			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything).Return(time.Now().Unix() + tc.initialReadyDelay).Maybe()
 			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay).Maybe()
 
-			// Set up status checker mock
-			statusChecker := executor_mocks.NewMockStatusChecker(t)
-			statusChecker.EXPECT().GetMessageStatus(mock.Anything, mock.Anything, mock.Anything).
+			mockExecutor.EXPECT().GetMessageStatus(mock.Anything, mock.Anything, mock.Anything).
 				Return(tc.shouldRetry, tc.shouldExecute, nil).Maybe()
 
 			// Create coordinator with test expiry duration
@@ -311,7 +305,7 @@ func TestMessageExpiration(t *testing.T) {
 				}, 3*time.Second, 100*time.Millisecond, "expected to find 'message has expired' log entry")
 			}
 
-			if !tc.shouldExpire && tc.shouldRetry {
+			if tc.shouldRetry {
 				require.Eventuallyf(t, func() bool {
 					return found("message should be retried")
 				}, 3*time.Second, 100*time.Millisecond, "expected to find 'message should be retried' log entry")

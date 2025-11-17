@@ -145,9 +145,11 @@ func (ec *Coordinator) run(ctx context.Context) {
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
 
 				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamps{
-					Message:    &msg,
-					ReadyTime:  readyTimestamp,
-					ExpiryTime: readyTimestamp + int64(ec.expiryDuration.Seconds()),
+					Message:       &msg,
+					ReadyTime:     readyTimestamp,
+					ExpiryTime:    readyTimestamp + int64(ec.expiryDuration.Seconds()),
+					RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
+					MessageID:     &id,
 				})
 			}
 		case <-ticker.C:
@@ -155,9 +157,13 @@ func (ec *Coordinator) run(ctx context.Context) {
 			currentTime := time.Now().Unix()
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
 			for _, payload := range readyMessages {
+				if currentTime > payload.ExpiryTime {
+					ec.lggr.Infow("message has expired", "messageID", *payload.MessageID)
+					continue
+				}
+				// TODO: use a worker pool here to avoid unbounded memory allocation
 				go func() {
-					message, currentTime := *payload.Message, currentTime
-					id, _ := message.MessageID()
+					message, currentTime, id := *payload.Message, currentTime, *payload.MessageID
 
 					ec.lggr.Infow("processing message with ID", "messageID", id)
 					shouldRetry, shouldExecute, err := ec.executor.GetMessageStatus(ctx, message, currentTime)
@@ -166,16 +172,14 @@ func (ec *Coordinator) run(ctx context.Context) {
 					}
 
 					if shouldRetry {
-						retryTime := currentTime + ec.leaderElector.GetRetryDelay(message.DestChainSelector)
-						if retryTime > payload.ExpiryTime {
-							ec.lggr.Infow("message has expired", "messageID", id)
-							return
-						}
+						retryTime := currentTime + payload.RetryInterval
 						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
 						heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamps{
-							Message:    &message,
-							ReadyTime:  retryTime,
-							ExpiryTime: payload.ExpiryTime,
+							Message:       &message,
+							ReadyTime:     retryTime,
+							ExpiryTime:    payload.ExpiryTime,
+							RetryInterval: payload.RetryInterval,
+							MessageID:     &id,
 						})
 					}
 					if shouldExecute {

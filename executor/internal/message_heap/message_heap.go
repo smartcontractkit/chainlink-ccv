@@ -9,13 +9,24 @@ import (
 // We can make this more performant by bringing expiryTime and message into the set
 // the heap only needs to store the readyTime and messageID.
 type MessageHeap struct {
-	h   []*MessageWithTimestamps
-	set map[protocol.Bytes32]struct{}
+	h   []*MessageHeapEntry
+	set map[protocol.Bytes32]ExpiryWithMessage
+}
+type MessageHeapEntry struct {
+	ReadyTime int64
+	MessageID protocol.Bytes32
+}
+type ExpiryWithMessage struct {
+	Message       *protocol.Message
+	ExpiryTime    int64
+	RetryInterval int64
 }
 type MessageWithTimestamps struct {
-	ReadyTime  int64
-	Message    *protocol.Message
-	ExpiryTime int64
+	MessageID     *protocol.Bytes32
+	RetryInterval int64
+	ReadyTime     int64
+	Message       *protocol.Message
+	ExpiryTime    int64
 }
 
 func (mh MessageHeap) Len() int {
@@ -38,14 +49,17 @@ func (mh *MessageHeap) Push(x any) {
 		return
 	}
 	if mh.set == nil {
-		mh.set = make(map[protocol.Bytes32]struct{})
+		mh.set = make(map[protocol.Bytes32]ExpiryWithMessage)
 	}
-	id, err := val.Message.MessageID()
-	if err != nil {
-		return
+	mh.set[*val.MessageID] = ExpiryWithMessage{
+		Message:       val.Message,
+		ExpiryTime:    val.ExpiryTime,
+		RetryInterval: val.RetryInterval,
 	}
-	mh.set[id] = struct{}{}
-	mh.h = append(mh.h, val)
+	mh.h = append(mh.h, &MessageHeapEntry{
+		ReadyTime: val.ReadyTime,
+		MessageID: *val.MessageID,
+	})
 }
 
 func (mh *MessageHeap) Pop() any {
@@ -54,10 +68,15 @@ func (mh *MessageHeap) Pop() any {
 	x := old[n-1]
 	mh.h = old[0 : n-1]
 
-	id, _ := x.Message.MessageID()
-	delete(mh.set, id)
-
-	return x
+	ret := &MessageWithTimestamps{
+		ReadyTime:     x.ReadyTime,
+		Message:       mh.set[x.MessageID].Message,
+		ExpiryTime:    mh.set[x.MessageID].ExpiryTime,
+		RetryInterval: mh.set[x.MessageID].RetryInterval,
+		MessageID:     &x.MessageID,
+	}
+	delete(mh.set, x.MessageID)
+	return ret
 }
 
 func (mh *MessageHeap) IsEmpty() bool {
@@ -72,8 +91,7 @@ func (mh *MessageHeap) PopAllReady(timestamp int64) []MessageWithTimestamps {
 			continue
 		}
 		readyMessages = append(readyMessages, *msg)
-		id, _ := msg.Message.MessageID()
-		delete(mh.set, id)
+		delete(mh.set, *msg.MessageID)
 	}
 	return readyMessages
 }

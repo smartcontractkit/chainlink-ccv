@@ -122,16 +122,4 @@ func NewExecutorCoordinator(
 	}
 
 	return exec, nil
-	/*
-		err = exec.Start(ctx)
-		if err != nil {
-			lggr.Errorw("Failed to start execution coordinator.", "error", err)
-			return
-		}
-
-		for {
-			lggr.Info("Executor is running:", exec.HealthReport())
-			time.Sleep(10 * time.Second)
-		}
-	*/
 }
