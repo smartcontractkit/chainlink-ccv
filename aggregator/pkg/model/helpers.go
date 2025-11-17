@@ -1,8 +1,8 @@
 package model
 
 import (
-	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -38,18 +38,15 @@ func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
 	}
 }
 
-func compareStringCaseInsensitive(a, b string) bool {
-	return bytes.EqualFold([]byte(a), []byte(b))
-}
-
 func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Committee) (*pb.VerifierResult, error) {
-	participantSignatures := make(map[string]protocol.Data)
+	addressSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
 			return nil, fmt.Errorf("missing IdentifierSigner in verification record")
 		}
 
-		participantSignatures[verification.IdentifierSigner.ParticipantID] = protocol.Data{
+		addressKey := common.BytesToAddress(verification.IdentifierSigner.Address).Hex()
+		addressSignatures[addressKey] = protocol.Data{
 			R:      verification.IdentifierSigner.SignatureR,
 			S:      verification.IdentifierSigner.SignatureS,
 			Signer: common.Address(verification.IdentifierSigner.Address),
@@ -66,28 +63,30 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Commit
 	signatures := make([]protocol.Data, 0)
 
 	for _, signer := range signers {
-		sig, exists := participantSignatures[signer.ParticipantID]
-		if !exists {
-			// Skipping missing signatures (not all participants may have signed)
-			continue
+		// Normalize address format to match the map key format (with 0x prefix)
+		addr := signer.Address
+		if !strings.HasPrefix(addr, "0x") {
+			addr = "0x" + addr
 		}
 
-		recoveredAddress := sig.Signer
-		validAddresses := signer.Addresses
-		addressValid := false
-		for _, addr := range validAddresses {
-			if compareStringCaseInsensitive(addr, recoveredAddress.Hex()) {
-				addressValid = true
+		// Find matching signature by comparing addresses case-insensitively
+		var sig protocol.Data
+		var found bool
+		for key, s := range addressSignatures {
+			if strings.EqualFold(key, addr) {
+				sig = s
+				found = true
 				break
 			}
 		}
 
-		if addressValid {
-			signatures = append(signatures, sig)
+		if !found {
+			continue
 		}
+
+		signatures = append(signatures, sig)
 	}
 
-	// Encode signatures using simple format (sorting is handled internally)
 	encodedSignatures, err := protocol.EncodeSignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)

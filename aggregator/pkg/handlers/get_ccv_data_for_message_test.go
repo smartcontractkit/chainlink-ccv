@@ -33,7 +33,7 @@ func buildCommittee(destSel uint64, destVerifierAddr string, signers []model.Sig
 	}
 }
 
-func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr, sigAddr, participantID string) *model.CommitAggregatedReport {
+func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr, sigAddr string) *model.CommitAggregatedReport {
 	// minimal protocol message
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(srcSel), protocol.ChainSelector(dstSel), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	// blob data must be at least 4 bytes to account for version
@@ -45,8 +45,7 @@ func makeAggregatedReport(msgID model.MessageID, srcSel, dstSel uint64, srcAddr,
 		Message:               msg,
 		Timestamp:             time.Now(),
 		IdentifierSigner: &model.IdentifierSigner{
-			ParticipantID: participantID,
-			Address:       common.HexToAddress(sigAddr).Bytes(),
+			Address: common.HexToAddress(sigAddr).Bytes(),
 		},
 		BlobData: blobData,
 		ReceiptBlobs: []*model.ReceiptBlob{
@@ -82,15 +81,13 @@ func TestGetCCVDataForMessageHandler_Handle_Cases(t *testing.T) {
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	msgID, _ := msg.MessageID()
 
-	participantID := "p1"
-	// signer and committee addresses
 	signerAddr := addrSigner
 	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
 
-	committee := buildCommittee(destSel, destVerifierAddr, []model.Signer{{ParticipantID: participantID, Addresses: []string{signerAddr}}})
+	committee := buildCommittee(destSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
 
-	goodReport := makeAggregatedReport(msgID[:], sourceSel, destSel, sourceVerifierAddr, signerAddr, participantID)
+	goodReport := makeAggregatedReport(msgID[:], sourceSel, destSel, sourceVerifierAddr, signerAddr)
 
 	t.Run("success_returns_verifier_result", func(t *testing.T) {
 		store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
@@ -126,8 +123,7 @@ func TestGetCCVDataForMessageHandler_Handle_Cases(t *testing.T) {
 	})
 
 	t.Run("mapping_error_returns_internal", func(t *testing.T) {
-		// Create report with wrong dest selector to trigger "quorum config not found" error
-		badReport := makeAggregatedReport(msgID[:], sourceSel, 99999 /* wrong dest selector */, sourceVerifierAddr, signerAddr, participantID)
+		badReport := makeAggregatedReport(msgID[:], sourceSel, 99999, sourceVerifierAddr, signerAddr)
 		store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
 		store.EXPECT().GetCCVData(mock.Anything, mock.Anything).Return(badReport, nil)
 		h := NewGetCCVDataForMessageHandler(store, committee, lggr)

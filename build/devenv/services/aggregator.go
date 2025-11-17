@@ -89,8 +89,7 @@ type AggregatorOutput struct {
 }
 
 type Signer struct {
-	ParticipantID string   `toml:"participantID"`
-	Addresses     []string `toml:"addresses"`
+	Address string `toml:"address"`
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.
@@ -188,14 +187,13 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 		chainSelStr := strconv.FormatUint(chainSelector, 10)
 		threshold := uint8(0)
 		var signers []model.Signer
-		for i, v := range inV {
+		for _, v := range inV {
 			if v.CommitteeName != committeeName {
 				continue
 			}
 			threshold++
 			signers = append(signers, model.Signer{
-				ParticipantID: fmt.Sprintf("%s-participant%d", committeeName, i),
-				Addresses:     []string{v.SigningKeyPublic},
+				Address: v.SigningKeyPublic,
 			})
 		}
 		committeeConfig.QuorumConfigs[chainSelStr] = &model.QuorumConfig{

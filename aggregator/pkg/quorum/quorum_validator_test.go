@@ -29,7 +29,7 @@ func createCommitVerificationRecord(messageData *pb.MessageWithCCVNodeData) *mod
 type TestCaseBuilder struct {
 	committeeID           string
 	signerFixtures        []*fixtures.SignerFixture
-	verifications         []string
+	verifications         []int
 	sourceVerifierAddress []byte
 	destVerifierAddress   []byte
 	threshold             uint8
@@ -61,10 +61,10 @@ func WithCommitteeID(id string) TestCaseOption {
 	}
 }
 
-// WithVerifications sets which signers actually signed (by participant ID).
-func WithVerifications(participantIDs ...string) TestCaseOption {
+// WithVerifications sets which signers actually signed (by index in the signerFixtures array).
+func WithVerifications(indices ...int) TestCaseOption {
 	return func(b *TestCaseBuilder) {
-		b.verifications = participantIDs
+		b.verifications = indices
 	}
 }
 
@@ -125,27 +125,12 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedReport {
 	verifications := make([]*model.CommitVerificationRecord, len(b.verifications))
 
-	for i, participantID := range b.verifications {
-		// Find the fixture for this participant
-		var signerFixture *fixtures.SignerFixture
-		for _, fixture := range b.signerFixtures {
-			if fixture.Signer.ParticipantID == participantID {
-				signerFixture = fixture
-				break
-			}
+	for i, signerIdx := range b.verifications {
+		if signerIdx >= len(b.signerFixtures) {
+			t.Fatalf("Invalid signer index %d, only have %d fixtures", signerIdx, len(b.signerFixtures))
 		}
 
-		if signerFixture == nil {
-			// Create a dummy verification record for unknown signers
-			verifications[i] = &model.CommitVerificationRecord{
-				MessageID:             []byte{1},
-				SourceVerifierAddress: b.sourceVerifierAddress,
-				Message: &protocol.Message{
-					DestChainSelector: 1,
-				},
-			}
-			continue
-		}
+		signerFixture := b.signerFixtures[signerIdx]
 
 		// Create a proper signed verification record
 		protocolMessage := fixtures.NewProtocolMessage(t, func(m *protocol.Message) *protocol.Message {
@@ -215,8 +200,7 @@ func TestValidateSignature(t *testing.T) {
 		signer, _, err := validator.ValidateSignature(context.Background(), record)
 		assert.NoError(t, err)
 		assert.NotNil(t, signer)
-		assert.Equal(t, signerFixture.Signer.ParticipantID, signer.ParticipantID)
-		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signer.Address)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Address, "0x")), signer.Address)
 	})
 
 	t.Run("missing signature", func(t *testing.T) {
@@ -315,8 +299,7 @@ func TestValidateSignature(t *testing.T) {
 		signer, _, err := validator.ValidateSignature(context.Background(), recordNoBlob)
 		assert.NoError(t, err)
 		assert.NotNil(t, signer)
-		assert.Equal(t, signerFixture.Signer.ParticipantID, signer.ParticipantID)
-		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Addresses[0], "0x")), signer.Address)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Address, "0x")), signer.Address)
 	})
 }
 
@@ -324,7 +307,7 @@ func TestCheckQuorum(t *testing.T) {
 	tests := []struct {
 		name          string
 		signers       []string
-		verifications []string
+		verifications []int
 		threshold     uint8
 		expectedValid bool
 	}{
@@ -332,28 +315,28 @@ func TestCheckQuorum(t *testing.T) {
 			name:          "single signer, threshold=1, one verification",
 			signers:       []string{"signer1"},
 			threshold:     1,
-			verifications: []string{"signer1"},
+			verifications: []int{0},
 			expectedValid: true,
 		},
 		{
 			name:          "single signer, threshold=1, no verification",
 			signers:       []string{"signer1"},
 			threshold:     1,
-			verifications: []string{},
+			verifications: []int{},
 			expectedValid: false,
 		},
 		{
 			name:          "three signers, threshold=2, two verifications",
 			signers:       []string{"signer1", "signer2", "signer3"},
 			threshold:     2,
-			verifications: []string{"signer1", "signer2"},
+			verifications: []int{0, 1},
 			expectedValid: true,
 		},
 		{
 			name:          "three signers, threshold=2, one verification (insufficient)",
 			signers:       []string{"signer1", "signer2", "signer3"},
 			threshold:     2,
-			verifications: []string{"signer1"},
+			verifications: []int{0},
 			expectedValid: false,
 		},
 	}
