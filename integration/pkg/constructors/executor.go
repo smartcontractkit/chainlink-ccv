@@ -16,7 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
 
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
@@ -26,8 +25,8 @@ import (
 func NewExecutorCoordinator(
 	lggr logger.Logger,
 	cfg executor.Configuration,
-	// TODO: all these are EVM specific, shouldn't be.
-	relayers map[protocol.ChainSelector]legacyevm.Chain,
+	providers map[protocol.ChainSelector]CCVProvider,
+	// TODO: move to CCV provider. Keys are not part of the keystore, so a container object is needed.
 	keys map[protocol.ChainSelector]keys.RoundRobin,
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {
@@ -39,7 +38,7 @@ func NewExecutorCoordinator(
 
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
-	for sel, chain := range relayers {
+	for sel, chain := range providers {
 		if _, ok := offRampAddresses[sel]; !ok {
 			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
 			continue
