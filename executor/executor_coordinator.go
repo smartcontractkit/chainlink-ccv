@@ -125,7 +125,6 @@ func (ec *Coordinator) run(ctx context.Context) {
 			}
 
 			for _, msg := range streamResult.Messages {
-				ec.lggr.Infof("Found MessageID %s", msg.MustMessageID().String())
 				err := ec.executor.CheckValidMessage(ctx, msg)
 				if err != nil {
 					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)

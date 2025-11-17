@@ -217,6 +217,9 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 
+		// TODO: Update with message ingestion timestamp
+		response.Data.Timestamp = time.Now()
+
 		// Save the VerificationResult to the storage layer
 		if err := a.storageSink.InsertCCVData(ctx, response.Data); err != nil {
 			a.logger.Error("Error saving VerificationResult for MessageID %s to storage", response.Data.MessageID.String())
