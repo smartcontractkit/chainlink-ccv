@@ -1,7 +1,6 @@
 package model
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 	"time"
@@ -39,10 +38,6 @@ func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
 	}
 }
 
-func compareStringCaseInsensitive(a, b string) bool {
-	return bytes.EqualFold([]byte(a), []byte(b))
-}
-
 func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Committee) (*pb.VerifierResult, error) {
 	addressSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
@@ -73,8 +68,6 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Commit
 		if !strings.HasPrefix(addr, "0x") {
 			addr = "0x" + addr
 		}
-		// Use case-insensitive comparison for address lookup
-		addr = strings.ToLower(addr)
 
 		// Find matching signature by comparing addresses case-insensitively
 		var sig protocol.Data
@@ -88,12 +81,6 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Commit
 		}
 
 		if !found {
-			continue
-		}
-
-		recoveredAddress := sig.Signer
-		addressValid := compareStringCaseInsensitive(signer.Address, recoveredAddress.Hex())
-		if !addressValid {
 			continue
 		}
 
