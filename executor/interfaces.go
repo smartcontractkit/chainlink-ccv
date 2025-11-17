@@ -46,10 +46,6 @@ type Executor interface {
 	AttemptExecuteMessage(ctx context.Context, message protocol.Message) error
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
-}
-
-// StatusChecker tells us if a message should be executed and retried.
-type StatusChecker interface {
 	// GetMessageStatus checks if the message is expired, cursed, and if it should be retried and executed.
 	GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (bool, bool, error)
 }

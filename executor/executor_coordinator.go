@@ -29,7 +29,6 @@ type Coordinator struct {
 	cancel             context.CancelFunc
 	delayedMessageHeap *message_heap.MessageHeap
 	running            atomic.Bool
-	statusChecker      StatusChecker
 	expiryDuration     time.Duration
 }
 
@@ -40,7 +39,6 @@ func NewCoordinator(
 	messageSubscriber MessageSubscriber,
 	leaderElector LeaderElector,
 	monitoring Monitoring,
-	statusChecker StatusChecker,
 	expiryDuration time.Duration,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
@@ -52,7 +50,6 @@ func NewCoordinator(
 		ccvDataCh:         make(chan MessageWithCCVData, 100),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
-		statusChecker:  statusChecker,
 		expiryDuration: expiryDuration,
 	}
 
@@ -163,7 +160,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 					id, _ := message.MessageID()
 
 					ec.lggr.Infow("processing message with ID", "messageID", id)
-					shouldRetry, shouldExecute, err := ec.statusChecker.GetMessageStatus(ctx, message, currentTime)
+					shouldRetry, shouldExecute, err := ec.executor.GetMessageStatus(ctx, message, currentTime)
 					if err != nil {
 						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
 					}
@@ -213,7 +210,6 @@ func (ec *Coordinator) validate() error {
 	appendIfNil(ec.lggr, "logger")
 	appendIfNil(ec.messageSubscriber, "messageSubscriber")
 	appendIfNil(ec.monitoring, "monitoring")
-	appendIfNil(ec.statusChecker, "statusChecker")
 
 	return errors.Join(errs...)
 }

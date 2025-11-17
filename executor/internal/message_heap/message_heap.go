@@ -6,11 +6,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+// We can make this more performant by bringing expiryTime and message into the set
+// the heap only needs to store the readyTime and messageID.
 type MessageHeap struct {
 	h   []*MessageWithTimestamps
 	set map[protocol.Bytes32]struct{}
 }
-
 type MessageWithTimestamps struct {
 	ReadyTime  int64
 	Message    *protocol.Message
