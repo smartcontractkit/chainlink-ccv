@@ -2,11 +2,13 @@ package services
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"path/filepath"
 	"strconv"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -14,9 +16,13 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
+
+//go:embed verifier.template.toml
+var verifierConfigTemplate string
 
 const (
 	DefaultVerifierName    = "verifier"
@@ -94,7 +100,40 @@ type VerifierInput struct {
 	// SigningKey is generated during the deploy step.
 	SigningKey string `toml:"signing_key"`
 	// SigningKeyPublic is generated during the deploy step.
+	// Maps to signer_address in the verifier config toml.
 	SigningKeyPublic string `toml:"signing_key_public"`
+
+	// Contract addresses used to generate configs
+	// Maps to on_ramp_addresses in the verifier config toml.
+	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
+	// Maps to committee_verifier_addresses in the verifier config toml.
+	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
+	// Maps to default_executor_on_ramp_addresses in the verifier config toml.
+	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
+	// Maps to rmn_remote_addresses in the verifier config toml.
+	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+}
+
+func (v *VerifierInput) GenerateConfig() (verifierTomlConfig string, err error) {
+	var config verifier.Config
+	if _, err := toml.Decode(verifierConfigTemplate, &config); err != nil {
+		return "", fmt.Errorf("failed to decode verifier config template: %w", err)
+	}
+
+	config.VerifierID = v.ContainerName
+	config.AggregatorAddress = v.AggregatorAddress
+	config.SignerAddress = v.SigningKeyPublic
+	config.CommitteeVerifierAddresses = v.CommitteeVerifierAddresses
+	config.OnRampAddresses = v.OnRampAddresses
+	config.DefaultExecutorOnRampAddresses = v.DefaultExecutorOnRampAddresses
+	config.RMNRemoteAddresses = v.RMNRemoteAddresses
+
+	cfg, err := toml.Marshal(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
+	}
+
+	return string(cfg), nil
 }
 
 type VerifierOutput struct {
