@@ -245,3 +245,45 @@ func RecoverSigner(hash, r, s [32]byte) (common.Address, error) {
 
 	return signer, nil
 }
+
+// EncodeSingleSignature encodes a single signature as R||S||Signer (96 bytes).
+// This format is used by verifiers when sending individual signatures to the aggregator.
+// Format: [32 bytes R][32 bytes S][20 bytes Signer Address].
+func EncodeSingleSignature(sig Data) ([]byte, error) {
+	if sig.R == [32]byte{} || sig.S == [32]byte{} {
+		return nil, fmt.Errorf("signature R and S cannot be zero")
+	}
+
+	if sig.Signer == (common.Address{}) {
+		return nil, fmt.Errorf("signer address cannot be zero")
+	}
+
+	result := make([]byte, 96)
+	copy(result[0:32], sig.R[:])
+	copy(result[32:64], sig.S[:])
+	copy(result[64:84], sig.Signer[:])
+
+	return result, nil
+}
+
+// DecodeSingleSignature decodes a single signature from R||S||Signer format (96 bytes).
+// Returns the R, S components and the signer address.
+func DecodeSingleSignature(data []byte) (r, s [32]byte, signer common.Address, err error) {
+	if len(data) != 96 {
+		return r, s, signer, fmt.Errorf("signature data must be exactly 96 bytes, got %d", len(data))
+	}
+
+	copy(r[:], data[0:32])
+	copy(s[:], data[32:64])
+	copy(signer[:], data[64:84])
+
+	if r == [32]byte{} || s == [32]byte{} {
+		return r, s, signer, fmt.Errorf("signature R and S cannot be zero")
+	}
+
+	if signer == (common.Address{}) {
+		return r, s, signer, fmt.Errorf("signer address cannot be zero")
+	}
+
+	return r, s, signer, nil
+}
