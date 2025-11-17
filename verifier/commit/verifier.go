@@ -171,6 +171,19 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 			break
 		}
 	}
+	if len(verifierBlob) == 0 {
+		return fmt.Errorf("verifier blob not found for message %s, all issuers: %v, expected issuer: %s",
+			messageID.String(),
+			func() []string {
+				issuers := make([]string, len(verificationTask.ReceiptBlobs))
+				for i, receipt := range verificationTask.ReceiptBlobs {
+					issuers[i] = receipt.Issuer.String()
+				}
+				return issuers
+			}(),
+			sourceConfig.VerifierAddress.String(),
+		)
+	}
 	hash, err := committee.NewSignableHash(messageID, verifierBlob)
 	if err != nil {
 		return fmt.Errorf("failed to create signable hash for message %s: %w", messageID.String(), err)
