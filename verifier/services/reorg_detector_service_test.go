@@ -458,9 +458,8 @@ func TestStartAndClose(t *testing.T) {
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)
 
-		statusCh, err := service.Start(ctx)
+		err = service.Start(ctx)
 		require.NoError(t, err)
-		require.NotNil(t, statusCh)
 
 		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
 		assert.Equal(t, uint64(105), service.latestBlock)
@@ -484,13 +483,13 @@ func TestStartAndClose(t *testing.T) {
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)
 
-		_, err = service.Start(ctx)
+		err = service.Start(ctx)
 		require.NoError(t, err)
 
 		// Try to start again
-		_, err = service.Start(ctx)
+		err = service.Start(ctx)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already started")
+		assert.Contains(t, err.Error(), "ReorgDetectorService has already been started once; state=Started")
 
 		service.Close()
 	})
@@ -514,7 +513,7 @@ func TestStartAndClose(t *testing.T) {
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)
 
-		statusCh, err := service.Start(ctx)
+		err = service.Start(ctx)
 		require.NoError(t, err)
 
 		// Give it a moment to start
@@ -524,7 +523,7 @@ func TestStartAndClose(t *testing.T) {
 		require.NoError(t, err)
 
 		// Channel should be closed
-		_, ok := <-statusCh
+		_, ok := <-service.statusCh
 		assert.False(t, ok, "Channel should be closed")
 	})
 
@@ -543,14 +542,13 @@ func TestStartAndClose(t *testing.T) {
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)
 
-		_, err = service.Start(ctx)
+		err = service.Start(ctx)
 		require.NoError(t, err)
 
 		err = service.Close()
 		require.NoError(t, err)
 
-		// Close again should not error
 		err = service.Close()
-		require.NoError(t, err)
+		require.Error(t, err, "ReorgDetectorService has already been closed")
 	})
 }
