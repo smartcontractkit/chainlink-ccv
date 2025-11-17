@@ -57,16 +57,15 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 			q.logger(ctx).Warn("No valid signer found. Might be due to a config change")
 			continue
 		}
-		participantIDs[signer.ParticipantID] = struct{}{}
+		participantIDs[string(signer.Address)] = struct{}{}
 	}
 
-	// Check if we have enough unique participant IDs to meet the quorum
 	if len(participantIDs) < int(quorumConfig.Threshold) {
-		q.logger(ctx).Debugf("Quorum not met: have %d unique participant IDs, need %d", len(participantIDs), quorumConfig.Threshold)
+		q.logger(ctx).Debugf("Quorum not met: have %d unique signer addresses, need %d", len(participantIDs), quorumConfig.Threshold)
 		return false, nil
 	}
 
-	q.logger(ctx).Debugf("Quorum met with %d unique participant IDs", len(participantIDs))
+	q.logger(ctx).Debugf("Quorum met with %d unique signer addresses", len(participantIDs))
 	return true, nil
 }
 
@@ -135,18 +134,15 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 	q.logger(ctx).Tracef("Recovered address: %s", address.Hex())
 
 	for _, signer := range quorumConfig.Signers {
-		for _, signerAddrStr := range signer.Addresses {
-			signerAddress := common.HexToAddress(signerAddrStr)
+		signerAddress := common.HexToAddress(signer.Address)
 
-			if signerAddress == address {
-				q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
-				return &model.IdentifierSigner{
-					ParticipantID: signer.ParticipantID,
-					Address:       signerAddress.Bytes(),
-					SignatureR:    r,
-					SignatureS:    s,
-				}, quorumConfig, nil
-			}
+		if signerAddress == address {
+			q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
+			return &model.IdentifierSigner{
+				Address:    signerAddress.Bytes(),
+				SignatureR: r,
+				SignatureS: s,
+			}, quorumConfig, nil
 		}
 	}
 

@@ -14,19 +14,17 @@ import (
 type contextKey string
 
 const (
-	messageIDKey     contextKey = "messageID"
-	addressKey       contextKey = "address"
-	participantIDKey contextKey = "participantID"
-	requestIDKey     contextKey = "requestID"
-	committeeIDKey   contextKey = "committeeID"
-	apiName          contextKey = "apiName"
-	aggregationKey   contextKey = "aggregationKey"
+	messageIDKey   contextKey = "messageID"
+	addressKey     contextKey = "address"
+	requestIDKey   contextKey = "requestID"
+	committeeIDKey contextKey = "committeeID"
+	apiName        contextKey = "apiName"
+	aggregationKey contextKey = "aggregationKey"
 )
 
 var loggerContextKeys = []contextKey{
 	messageIDKey,
 	addressKey,
-	participantIDKey,
 	requestIDKey,
 	committeeIDKey,
 	apiName,
@@ -53,10 +51,6 @@ func WithMessageID(ctx context.Context, id []byte) context.Context {
 
 func WithAddress(ctx context.Context, address []byte) context.Context {
 	return context.WithValue(ctx, addressKey, hex.EncodeToString(address))
-}
-
-func WithParticipantID(ctx context.Context, participantID string) context.Context {
-	return context.WithValue(ctx, participantIDKey, participantID)
 }
 
 func WithCommitteeID(ctx context.Context, committeeID string) context.Context {
