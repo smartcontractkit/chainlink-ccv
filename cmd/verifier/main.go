@@ -201,7 +201,6 @@ func main() {
 
 	// Create source readers and head trackers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 
 	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)
 	// Try to create blockchain source readers if possible
@@ -241,7 +240,6 @@ func main() {
 
 		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
 		sourceReaders[selector] = evmSourceReader
-		headTrackers[selector] = evmSourceReader
 
 		lggr.Infow("Created blockchain source reader", "chain", selector)
 	}
@@ -320,7 +318,6 @@ func main() {
 	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithHeadTrackers(headTrackers),
 		verifier.WithChainStatusManager(chainStatusManager),
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
