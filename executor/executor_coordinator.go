@@ -183,6 +183,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 						})
 					}
 					if shouldExecute {
+						ec.lggr.Infow("attempting to execute message", "messageID", id)
 						err = ec.executor.AttemptExecuteMessage(ctx, message)
 						if errors.Is(err, ErrInsufficientVerifiers) {
 							ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
