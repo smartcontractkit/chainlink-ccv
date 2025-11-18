@@ -60,7 +60,7 @@ type ReorgDetectorConfig struct {
 // - Uses same SourceReader instance to share RPC connections.
 type ReorgDetectorService struct {
 	sync   services.StateMachine
-	stopCh services.StopChan
+	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
 	sourceReader chainaccess.SourceReader
@@ -116,7 +116,6 @@ func NewReorgDetectorService(
 		config:       config,
 		lggr:         lggr,
 		statusCh:     make(chan protocol.ChainStatus, 1),
-		stopCh:       make(chan struct{}),
 		tailBlocks:   make(map[uint64]protocol.BlockHeader),
 		pollInterval: pollInterval,
 	}, nil
@@ -152,11 +151,14 @@ func (r *ReorgDetectorService) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to build initial tail: %w", err)
 		}
 
+		ctx1, cancel := context.WithCancel(context.Background())
+		r.cancel = cancel
+
 		// Start polling goroutine
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
-			r.pollAndCheckForReorgs()
+			r.pollAndCheckForReorgs(ctx1)
 		}()
 
 		r.lggr.Infow("Reorg detector service started successfully",
@@ -170,10 +172,7 @@ func (r *ReorgDetectorService) Start(ctx context.Context) error {
 
 // pollAndCheckForReorgs is the main polling loop that periodically checks for new blocks
 // and detects reorgs.
-func (r *ReorgDetectorService) pollAndCheckForReorgs() {
-	ctx, cancel := r.stopCh.NewCtx()
-	defer cancel()
-
+func (r *ReorgDetectorService) pollAndCheckForReorgs(ctx context.Context) {
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 
@@ -664,7 +663,7 @@ func (r *ReorgDetectorService) Close() error {
 		r.lggr.Infow("Closing reorg detector service", "chainSelector", r.config.ChainSelector)
 
 		// Signal cancellation
-		close(r.stopCh)
+		r.cancel()
 
 		// Wait for goroutines without holding lock
 		r.wg.Wait()
