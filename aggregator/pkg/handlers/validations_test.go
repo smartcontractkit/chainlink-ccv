@@ -12,11 +12,11 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func makeValidWriteReq() *pb.WriteCommitCCVNodeDataRequest {
+func makeValidWriteReq() *pb.WriteCommitteeVerifierNodeResultRequest {
 	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	id, _ := msg.MessageID()
-	return &pb.WriteCommitCCVNodeDataRequest{
-		CcvNodeData: &pb.MessageWithCCVNodeData{
+	return &pb.WriteCommitteeVerifierNodeResultRequest{
+		CcvNodeData: &pb.CommitteeVerifierNodeResult{
 			MessageId: id[:],
 			CcvData:   []byte{0x1},
 			Timestamp: time.Now().UnixMilli(),
@@ -32,7 +32,7 @@ func TestValidateWriteRequest_Success(t *testing.T) {
 
 func TestValidateWriteRequest_Errors(t *testing.T) {
 	t.Run("nil_ccv_node_data", func(t *testing.T) {
-		req := &pb.WriteCommitCCVNodeDataRequest{CcvNodeData: nil}
+		req := &pb.WriteCommitteeVerifierNodeResultRequest{CcvNodeData: nil}
 		require.Error(t, validateWriteRequest(req))
 	})
 
@@ -51,12 +51,12 @@ func TestValidateWriteRequest_Errors(t *testing.T) {
 
 func TestValidateReadRequest(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		req := &pb.ReadCommitCCVNodeDataRequest{MessageId: make([]byte, 32)}
+		req := &pb.ReadCommitteeVerifierNodeResultRequest{MessageId: make([]byte, 32)}
 		require.NoError(t, validateReadRequest(req))
 	})
 
 	t.Run("bad_length", func(t *testing.T) {
-		req := &pb.ReadCommitCCVNodeDataRequest{MessageId: []byte{0x1}}
+		req := &pb.ReadCommitteeVerifierNodeResultRequest{MessageId: []byte{0x1}}
 		require.Error(t, validateReadRequest(req))
 	})
 }

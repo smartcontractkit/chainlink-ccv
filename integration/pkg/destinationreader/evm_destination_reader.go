@@ -16,13 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
-const (
-	MESSAGE_UNTOUCHED = iota
-	MESSAGE_IN_PROGRESS
-	MESSAGE_SUCCESS
-	MESSAGE_FAILURE
-)
-
 // Ensure ChainlinkExecutor implements the Executor interface.
 var _ executor.DestinationReader = &EvmDestinationReader{}
 
@@ -113,10 +106,8 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	return ccvInfo, nil
 }
 
-// IsMessageExecuted checks the destination chain to verify if a message has been executed.
-func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error) {
-	_ = ctx
-
+// GetMessageExecutionState checks the destination chain to verify if a message has been executed.
+func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, message protocol.Message) (executor.MessageExecutionState, error) {
 	rcv := common.BytesToAddress(message.Receiver)
 	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
@@ -128,15 +119,9 @@ func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message p
 		message.Sender,
 		rcv)
 	if err != nil {
-		return false, fmt.Errorf("failed to call getExecutionState: %w", err)
+		// expect that the error is checked by the caller so it doesn't accidentally assume success
+		return 0, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
 
-	if execState == MESSAGE_FAILURE || execState == MESSAGE_IN_PROGRESS || execState == MESSAGE_SUCCESS {
-		return true, nil
-	}
-	if execState == MESSAGE_UNTOUCHED {
-		return false, nil
-	}
-
-	return true, fmt.Errorf("unknown execution state: %d", execState)
+	return executor.MessageExecutionState(execState), nil
 }

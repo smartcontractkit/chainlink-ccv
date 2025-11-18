@@ -155,8 +155,8 @@ func MapProtocolMessageToProtoMessage(m *protocol.Message) *pb.Message {
 	}
 }
 
-// CommitVerificationRecordFromProto converts protobuf MessageWithCCVNodeData to domain model.
-func CommitVerificationRecordFromProto(proto *pb.MessageWithCCVNodeData) *CommitVerificationRecord {
+// CommitVerificationRecordFromProto converts protobuf CommitteeVerifierNodeResult to domain model.
+func CommitVerificationRecordFromProto(proto *pb.CommitteeVerifierNodeResult) *CommitVerificationRecord {
 	record := &CommitVerificationRecord{
 		MessageID:             proto.MessageId,
 		SourceVerifierAddress: proto.SourceVerifierAddress,
@@ -173,9 +173,9 @@ func CommitVerificationRecordFromProto(proto *pb.MessageWithCCVNodeData) *Commit
 	return record
 }
 
-// CommitVerificationRecordToProto converts domain model to protobuf MessageWithCCVNodeData.
-func CommitVerificationRecordToProto(record *CommitVerificationRecord) *pb.MessageWithCCVNodeData {
-	proto := &pb.MessageWithCCVNodeData{
+// CommitVerificationRecordToProto converts domain model to protobuf CommitteeVerifierNodeResult.
+func CommitVerificationRecordToProto(record *CommitVerificationRecord) *pb.CommitteeVerifierNodeResult {
+	proto := &pb.CommitteeVerifierNodeResult{
 		MessageId:             record.MessageID,
 		SourceVerifierAddress: record.SourceVerifierAddress,
 		BlobData:              record.BlobData,

@@ -227,12 +227,22 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 }
 
 func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, messageID [32]byte) (*pb.VerifierResult, error) {
-	resp, err := a.grpcClient.GetVerifierResultForMessage(ctx, &pb.GetVerifierResultForMessageRequest{
-		MessageId: messageID[:],
+	resp, err := a.grpcClient.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
+		MessageIds: [][]byte{messageID[:]},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get verifier result: %w", err)
 	}
 
-	return resp, nil
+	// Check for errors in the batch response
+	if len(resp.Errors) > 0 && resp.Errors[0].Code != 0 {
+		return nil, fmt.Errorf("verifier result error: %s", resp.Errors[0].Message)
+	}
+
+	// Return the first (and only) result
+	if len(resp.Results) > 0 {
+		return resp.Results[0], nil
+	}
+
+	return nil, fmt.Errorf("no verifier result found")
 }

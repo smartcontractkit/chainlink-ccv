@@ -40,12 +40,12 @@ func (h *WriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.Sugar
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.WriteCommitCCVNodeDataRequest) (*pb.WriteCommitCCVNodeDataResponse, error) {
+func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.WriteCommitteeVerifierNodeResultRequest) (*pb.WriteCommitteeVerifierNodeResultResponse, error) {
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received WriteCommitCCVNodeDataRequest")
 	if err := validateWriteRequest(req); err != nil {
 		reqLogger.Errorw("validation error", "error", err)
-		return &pb.WriteCommitCCVNodeDataResponse{
+		return &pb.WriteCommitteeVerifierNodeResultResponse{
 			Status: pb.WriteStatus_FAILED,
 		}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 	}
@@ -57,7 +57,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 	signer, _, err := h.signatureValidator.ValidateSignature(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("signature validation failed", "error", err)
-		return &pb.WriteCommitCCVNodeDataResponse{
+		return &pb.WriteCommitteeVerifierNodeResultResponse{
 			Status: pb.WriteStatus_FAILED,
 		}, status.Errorf(codes.Internal, "signature validation failed: %v", err)
 	}
@@ -67,7 +67,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 	aggregationKey, err := h.signatureValidator.DeriveAggregationKey(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("failed to derive aggregation key", err)
-		return &pb.WriteCommitCCVNodeDataResponse{
+		return &pb.WriteCommitteeVerifierNodeResultResponse{
 			Status: pb.WriteStatus_FAILED,
 		}, status.Errorf(codes.Internal, "failed to derive aggregation key: %v", err)
 	}
@@ -80,7 +80,7 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
 	if err != nil {
 		h.logger(signerCtx).Errorw("failed to save commit verification record", "error", err)
-		return &pb.WriteCommitCCVNodeDataResponse{
+		return &pb.WriteCommitteeVerifierNodeResultResponse{
 			Status: pb.WriteStatus_FAILED,
 		}, status.Errorf(codes.Internal, "failed to save commit verification record: %v", err)
 	}
@@ -89,19 +89,19 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey); err != nil {
 		if err == common.ErrAggregationChannelFull {
 			reqLogger.Errorf("Aggregation channel is full")
-			return &pb.WriteCommitCCVNodeDataResponse{
+			return &pb.WriteCommitteeVerifierNodeResultResponse{
 				Status: pb.WriteStatus_FAILED,
 			}, status.Errorf(codes.ResourceExhausted, "aggregation channel is full")
 		}
 
 		reqLogger.Errorw("failed to trigger aggregation", "error", err)
-		return &pb.WriteCommitCCVNodeDataResponse{
+		return &pb.WriteCommitteeVerifierNodeResultResponse{
 			Status: pb.WriteStatus_FAILED,
 		}, status.Errorf(codes.Internal, "failed to trigger aggregation: %v", err)
 	}
 	reqLogger.Infof("Triggered aggregation check")
 
-	return &pb.WriteCommitCCVNodeDataResponse{
+	return &pb.WriteCommitteeVerifierNodeResultResponse{
 		Status: pb.WriteStatus_SUCCESS,
 	}, nil
 }

@@ -29,25 +29,22 @@ func (h *GetBatchCCVDataForMessageHandler) logger(ctx context.Context) logger.Su
 }
 
 // Handle processes the batch get request and retrieves commit verification data for multiple message IDs.
-func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.BatchGetVerifierResultForMessageRequest) (*pb.BatchGetVerifierResultForMessageResponse, error) {
+func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
 	reqLogger := h.logger(ctx)
-	reqLogger.Infof("Received batch verifier result request for %d requests", len(req.GetRequests()))
+	reqLogger.Infof("Received batch verifier result request for %d message IDs", len(req.GetMessageIds()))
 
 	// Validate batch size limits
-	if len(req.GetRequests()) == 0 {
-		return nil, grpcstatus.Errorf(codes.InvalidArgument, "requests cannot be empty")
+	if len(req.GetMessageIds()) == 0 {
+		return nil, grpcstatus.Errorf(codes.InvalidArgument, "message_ids cannot be empty")
 	}
-	if len(req.GetRequests()) > h.maxMessageIDsPerBatch {
-		return nil, grpcstatus.Errorf(codes.InvalidArgument, "too many requests: %d, maximum allowed: %d", len(req.GetRequests()), h.maxMessageIDsPerBatch)
+	if len(req.GetMessageIds()) > h.maxMessageIDsPerBatch {
+		return nil, grpcstatus.Errorf(codes.InvalidArgument, "too many message_ids: %d, maximum allowed: %d", len(req.GetMessageIds()), h.maxMessageIDsPerBatch)
 	}
 
-	// Convert proto message IDs to model.MessageID and track original requests
-	messageIDs := make([]model.MessageID, len(req.GetRequests()))
-	originalRequests := make(map[string]*pb.GetVerifierResultForMessageRequest)
-	for i, request := range req.GetRequests() {
-		messageIDs[i] = request.GetMessageId()
-		messageIDHex := ethcommon.Bytes2Hex(request.GetMessageId())
-		originalRequests[messageIDHex] = request
+	// Convert proto message IDs to model.MessageID
+	messageIDs := make([]model.MessageID, len(req.GetMessageIds()))
+	for i, messageID := range req.GetMessageIds() {
+		messageIDs[i] = messageID
 	}
 
 	// Call storage for efficient batch retrieval
@@ -57,15 +54,15 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.B
 		return nil, grpcstatus.Errorf(codes.Internal, "failed to retrieve batch data: %v", err)
 	}
 
-	// Prepare response with 1:1 correspondence between requests and errors
-	response := &pb.BatchGetVerifierResultForMessageResponse{
-		Results: make([]*pb.VerifierResult, 0),
-		Errors:  NewBatchErrorArray(len(req.GetRequests())),
+	// Prepare response with 1:1 correspondence between message IDs and errors
+	response := &pb.GetVerifierResultsForMessageResponse{
+		Results: make([]*pb.VerifierResult, len(req.GetMessageIds())),
+		Errors:  NewBatchErrorArray(len(req.GetMessageIds())),
 	}
 
-	// Process each request in order to maintain index correspondence
-	for i, request := range req.GetRequests() {
-		messageIDHex := ethcommon.Bytes2Hex(request.GetMessageId())
+	// Process each message ID in order to maintain index correspondence
+	for i, messageID := range req.GetMessageIds() {
+		messageIDHex := ethcommon.Bytes2Hex(messageID)
 
 		if report, found := results[messageIDHex]; found {
 			// Map aggregated report to proto
@@ -86,14 +83,14 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.B
 				Sequence:              ccvData.Sequence,
 			}
 
-			response.Results = append(response.Results, verifierResult)
+			response.Results[i] = verifierResult
 			SetBatchSuccess(response.Errors, i)
 		} else {
 			SetBatchError(response.Errors, i, codes.NotFound, "message ID not found")
 		}
 	}
 
-	reqLogger.Infof("Batch request completed: %d found, %d errors", len(response.Results), len(response.Errors))
+	reqLogger.Infof("Batch request completed, %d message IDs processed", len(req.GetMessageIds()))
 	return response, nil
 }
 

@@ -98,7 +98,7 @@ func createTestProtocolMessage() *protocol.Message {
 	}
 }
 
-func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *testFixture) *pb.MessageWithCCVNodeData {
+func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *testFixture) *pb.CommitteeVerifierNodeResult {
 	messageID, err := message.MessageID()
 	require.NoError(t, err)
 
@@ -123,7 +123,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 	ccvData, err := protocol.EncodeSignatures(sigData)
 	require.NoError(t, err)
 
-	return &pb.MessageWithCCVNodeData{
+	return &pb.CommitteeVerifierNodeResult{
 		MessageId:             messageID[:],
 		SourceVerifierAddress: sourceVerifierAddress,
 		Message: &pb.Message{
@@ -153,7 +153,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 	}
 }
 
-func createTestCommitVerificationRecord(msgWithCCV *pb.MessageWithCCVNodeData, signer *testFixture) *model.CommitVerificationRecord {
+func createTestCommitVerificationRecord(msgWithCCV *pb.CommitteeVerifierNodeResult, signer *testFixture) *model.CommitVerificationRecord {
 	r32, s32 := [32]byte{}, [32]byte{}
 	copy(r32[:], []byte("r_signature_test_32_bytes_here!"))
 	copy(s32[:], []byte("s_signature_test_32_bytes_here!"))
@@ -170,7 +170,7 @@ func createTestCommitVerificationRecord(msgWithCCV *pb.MessageWithCCVNodeData, s
 	return record
 }
 
-func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *pb.MessageWithCCVNodeData) *model.CommitVerificationRecord {
+func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *pb.CommitteeVerifierNodeResult) *model.CommitVerificationRecord {
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)

@@ -12,7 +12,7 @@ import (
 )
 
 func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
-	aggregatorClient, ccvDataClient, cleanup, err := CreateServerAndClient(t,
+	aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t,
 		WithStorageType("memory"),
 		WithoutClientAuth(),
 	)
@@ -45,9 +45,9 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	t.Run("WriteCommitCCVNodeData requires authentication", func(t *testing.T) {
-		req := &pb.WriteCommitCCVNodeDataRequest{}
+		req := &pb.WriteCommitteeVerifierNodeResultRequest{}
 
-		_, err := aggregatorClient.WriteCommitCCVNodeData(ctx, req)
+		_, err := aggregatorClient.WriteCommitteeVerifierNodeResult(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
 
 		st, ok := status.FromError(err)
@@ -56,9 +56,9 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	t.Run("ReadCommitCCVNodeData requires authentication", func(t *testing.T) {
-		req := &pb.ReadCommitCCVNodeDataRequest{}
+		req := &pb.ReadCommitteeVerifierNodeResultRequest{}
 
-		_, err := aggregatorClient.ReadCommitCCVNodeData(ctx, req)
+		_, err := aggregatorClient.ReadCommitteeVerifierNodeResult(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
 
 		st, ok := status.FromError(err)
@@ -67,19 +67,26 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	// Test CCVData service APIs
-	t.Run("GetVerifierResultForMessage supports an anonymous authentication", func(t *testing.T) {
-		req := &pb.GetVerifierResultForMessageRequest{}
+	t.Run("GetVerifierResultsForMessage supports an anonymous authentication", func(t *testing.T) {
+		req := &pb.GetVerifierResultsForMessageRequest{
+			MessageIds: [][]byte{{}}, // Single empty message ID
+		}
 
-		_, err := ccvDataClient.GetVerifierResultForMessage(ctx, req)
-		st, ok := status.FromError(err)
-		require.True(t, ok, "error should be a gRPC status error")
-		require.Equal(t, codes.NotFound, st.Code(), "should return NotFound error")
+		resp, err := ccvDataClient.GetVerifierResultsForMessage(ctx, req)
+		require.NoError(t, err, "anonymous request should succeed")
+		require.Len(t, resp.Errors, 1, "should have one error entry")
+		st := status.FromProto(resp.Errors[0])
+		require.Equal(t, codes.NotFound, st.Code(), "should return NotFound error for the message")
 	})
 
-	t.Run("GetMessagesSince supports an anonymous authentication", func(t *testing.T) {
+	t.Run("GetMessagesSince requires authentication", func(t *testing.T) {
 		req := &pb.GetMessagesSinceRequest{}
 
-		_, err := ccvDataClient.GetMessagesSince(ctx, req)
-		require.NoError(t, err, "anonymous request should succeed")
+		_, err := messageDiscoveryClient.GetMessagesSince(ctx, req)
+		require.Error(t, err, "unauthenticated request should fail")
+
+		st, ok := status.FromError(err)
+		require.True(t, ok, "error should be a gRPC status error")
+		require.Equal(t, codes.Unauthenticated, st.Code(), "should return Unauthenticated error")
 	})
 }

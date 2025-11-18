@@ -58,26 +58,10 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 // AttemptExecuteMessage will try to get all supplementary information for a message required for execution, then attempt the execution.
 // If not all supplementary information is available (ie not enough verifierResults) it will return an error and the message will not be attempted.
 func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message protocol.Message) error {
+	destinationChain := message.DestChainSelector
 	messageID, err := message.MessageID()
 	if err != nil {
 		return fmt.Errorf("failed to get message ID: %w", err)
-	}
-
-	// Check if the message is already executed to not waste gas and time.
-	destinationChain := message.DestChainSelector
-	executed, err := cle.destinationReaders[destinationChain].IsMessageExecuted(
-		ctx,
-		message,
-	)
-	// todo: Check confirmed/finalized. If message is confirmed but not finalized, skip message but put back in heap
-	// if message is finalized, skip message entirely. If neither, proceed as normal. Avoid caching on IsMessageExecuted
-	// Maybe using logpoller to track finalized blocks?
-	if err != nil {
-		return fmt.Errorf("failed to check IsMessageExecuted: %w", err)
-	}
-	if executed {
-		cle.lggr.Infof("message %s (nonce %d) already executed on chain %d, skipping...", messageID.String(), message.Nonce, destinationChain)
-		return executor.ErrMsgAlreadyExecuted
 	}
 
 	// Fetch CCV data from the indexer and CCV info from the destination reader
@@ -296,4 +280,66 @@ func (cle *ChainlinkExecutor) Validate() error {
 		}
 	}
 	return nil
+}
+
+// GetMessageStatus checks if a message should be executed and/or retried.
+// Returns (shouldRetry bool, shouldExecute bool, error) to indicate whether the message should be retried (added back to heap) and executed.
+func (cle *ChainlinkExecutor) GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (executor.MessageStatusResults, error) {
+	messageID, err := message.MessageID()
+	if err != nil {
+		return executor.MessageStatusResults{}, fmt.Errorf("failed to get message ID: %w", err)
+	}
+	if cle.isCursed(message) {
+		cle.lggr.Infow("Lane is cursed, skipping execution for message", "messageID", messageID)
+		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, nil
+	}
+	return cle.GetExecutionState(ctx, message, messageID)
+}
+
+func (cle *ChainlinkExecutor) isCursed(message protocol.Message) bool {
+	// todo: implement
+	return false
+}
+
+// GetExecutionState checks the onchain execution state of a message and returns if it should be retried and executed.
+// It does not do any checks to determine if verifications are available or not.
+// UNTOUCHED: Message should be executed and retried later to confirm successful execution
+// IN_PROGRESS: Message reentrancy protection, should not be retried, should not be executed.
+// SUCCESS: Message was executed successfully, don't retry and don't execute.
+// FAILURE: Message failed to execute due to invalid verifier, don't retry and don't execute.
+func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message protocol.Message, id protocol.Bytes32) (ret executor.MessageStatusResults, err error) {
+	// Check if the message is already executed to not waste gas and time.
+	destinationChain := message.DestChainSelector
+
+	executionState, err := cle.destinationReaders[destinationChain].GetMessageExecutionState(
+		ctx,
+		message,
+	)
+	if err != nil {
+		// If we can't get execution state, don't execute, but put back in heap to retry later.
+		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, fmt.Errorf("failed to check GetMessageExecutionState: %w", err)
+	}
+	switch executionState {
+	// We only retry and execute if the message is UNTOUCHED.
+	case executor.UNTOUCHED:
+		ret.ShouldRetry = true
+		ret.ShouldExecute = true
+		err = nil
+
+	// All other states should not be retried and should not be executed.
+	// this is for SUCCESS, IN_PROGRESS, and FAILURE.
+	default:
+		ret.ShouldRetry = false
+		ret.ShouldExecute = false
+		err = nil
+	}
+
+	cle.lggr.Infow("message status",
+		"messageID", id,
+		"executionState", executionState,
+		"shouldRetry", ret.ShouldRetry,
+		"shouldExecute", ret.ShouldExecute,
+	)
+
+	return ret, err
 }

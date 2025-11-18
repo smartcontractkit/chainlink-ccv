@@ -29,22 +29,21 @@ key_prefix = "ratelimit"
 
 # Default rate limits (applied to all callers unless overridden)
 [rateLimiting.defaultLimits]
-"/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 1200 }
-"/chainlink_ccv.v1.VerifierResultAPI/GetVerifierResultForMessage" = { limit_per_minute = 6000 }
+"/chainlink_ccv.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 1200 }
+"/chainlink_ccv.v1.VerifierResultAPI/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
 
 # Group-based rate limits (more restrictive than defaults for specific groups)
 [rateLimiting.groupLimits.verifiers]
-"/chainlink_ccv.v1.Aggregator/BatchWriteCommitCCVNodeData" = { limit_per_minute = 6000 }
+"/chainlink_ccv.v1.Aggregator/BatchWriteCommitteeVerifierNodeResult" = { limit_per_minute = 6000 }
 "/chainlink_ccv.v1.Aggregator/WriteChainStatus" = { limit_per_minute = 60 }
 "/chainlink_ccv.v1.Aggregator/ReadChainStatus" = { limit_per_minute = 60 }
 
 [rateLimiting.groupLimits.monitoring]
-"/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 200 }
+"/chainlink_ccv.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 200 }
 
 [rateLimiting.groupLimits.indexer]
-"/chainlink_ccv.v1.VerifierResultAPI/GetVerifierResultForMessage" = { limit_per_minute = 6000 }
-"/chainlink_ccv.v1.VerifierResultAPI/BatchGetVerifierResultForMessage" = { limit_per_minute = 6000 }
-"/chainlink_ccv.v1.VerifierResultAPI/GetMessagesSince" = { limit_per_minute = 1200 }
+"/chainlink_ccv.v1.VerifierResultAPI/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
+"/chainlink_ccv.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 1200 }
 
 
 [Monitoring]
