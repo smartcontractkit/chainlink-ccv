@@ -1,0 +1,37 @@
+# This is a template configuration file for the Griddle Github App.
+# Modify the values according to your environment needs.
+# Environments: Define configurations for different environments such as dev, stage, and prod.
+# Metadata: Information about the application such as owner, and support contact.
+
+version: 1
+metadata:
+  account: my-account
+  project: my-project
+  service: my-service
+  owner: team-a
+  contact: team-a@smartcontract.com
+build:
+  charts:
+    path: deploy/charts
+    inventory:
+    - <your-chart>
+  containers:
+    inventory: []
+deploytemplates: null
+deploy:
+  dev:
+    instances:
+    - name: app-instance-1
+      namespace: workload-ns
+      path: deploy/charts/<your-chart>
+      config:
+      - deploy/config/dev.yaml
+      - deploy/config/instance1/dev.yaml
+      settings:
+        install_timeout: 5m0s
+        rollback_timeout: 5m0s
+        upgrade_timeout: 5m0s
+    path: ""
+observability:
+  dashboards: []
+settings: {}
