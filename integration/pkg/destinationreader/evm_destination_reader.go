@@ -2,6 +2,7 @@ package destinationreader
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -17,35 +19,68 @@ import (
 )
 
 // Ensure ChainlinkExecutor implements the Executor interface.
-var _ executor.DestinationReader = &EvmDestinationReader{}
+var (
+	// Ensure EvmDestinationReader implements the DestinationReader interface.
+	_ = executor.DestinationReader(&EvmDestinationReader{})
+	// We use 100 entries for the curse cache because we're bounded by number of source chains.
+	CURSE_CACHE_MAX_ENTRIES = 100
+	// This 1000 number is arbitrary, it can be adjusted as needed depending on usage pattern.
+	VERIFIER_QUORUM_CACHE_MAX_ENTRIES = 1000
+)
 
-type cacheKey struct {
+type verifierQuorumCacheKey struct {
 	sourceChainSelector protocol.ChainSelector
 	receiverAddress     string
 }
-type EvmDestinationReader struct {
-	offRampCaller offramp.OffRampCaller
-	lggr          logger.Logger
-	client        bind.ContractCaller
-	chainSelector protocol.ChainSelector
-	ccvCache      *expirable.LRU[cacheKey, executor.CCVAddressInfo]
+
+type curseCacheKey struct {
+	sourceChainSelector protocol.ChainSelector
 }
 
-func NewEvmDestinationReader(lggr logger.Logger, chainSelector protocol.ChainSelector, chainClient client.Client, offrampAddress string, cacheExpiry time.Duration) *EvmDestinationReader {
-	offRampAddr := common.HexToAddress(offrampAddress)
-	offRamp, err := offramp.NewOffRampCaller(offRampAddr, chainClient)
+type EvmDestinationReader struct {
+	offRampCaller   offramp.OffRampCaller
+	rmnRemoteCaller rmn_remote.RMNRemoteCaller
+	lggr            logger.Logger
+	client          bind.ContractCaller
+	chainSelector   protocol.ChainSelector
+	ccvCache        *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
+	curseCache      *expirable.LRU[curseCacheKey, bool]
+}
+
+type Params struct {
+	Lggr             logger.Logger
+	ChainSelector    protocol.ChainSelector
+	ChainClient      client.Client
+	OfframpAddress   string
+	RmnRemoteAddress string
+	CacheExpiry      time.Duration
+}
+
+func NewEvmDestinationReader(params Params) *EvmDestinationReader {
+	offRampAddr := common.HexToAddress(params.OfframpAddress)
+	offRamp, err := offramp.NewOffRampCaller(offRampAddr, params.ChainClient)
 	if err != nil {
-		lggr.Errorw("Failed to create Off Ramp caller", "error", err, "address", offRampAddr.Hex(), "chainSelector", chainSelector)
+		params.Lggr.Errorw("Failed to create Off Ramp caller", "error", err, "address", offRampAddr.Hex(), "chainSelector", params.ChainSelector)
 	}
-	// Create cache with max 1000 entries and configurable expiry
-	ccvCache := expirable.NewLRU[cacheKey, executor.CCVAddressInfo](1000, nil, cacheExpiry)
+
+	rmnRemoteAddr := common.HexToAddress(params.RmnRemoteAddress)
+	rmnRemote, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddr, params.ChainClient)
+	if err != nil {
+		params.Lggr.Errorw("Failed to create RMN Remote caller", "error", err, "address", rmnRemoteAddr.Hex(), "chainSelector", params.ChainSelector)
+	}
+
+	// Create cache with max 1000 entries and configurable expiry for verifier quorum info.
+	ccvCache := expirable.NewLRU[verifierQuorumCacheKey, executor.CCVAddressInfo](VERIFIER_QUORUM_CACHE_MAX_ENTRIES, nil, params.CacheExpiry)
+	curseCache := expirable.NewLRU[curseCacheKey, bool](CURSE_CACHE_MAX_ENTRIES, nil, params.CacheExpiry)
 
 	return &EvmDestinationReader{
-		offRampCaller: *offRamp,
-		lggr:          lggr,
-		chainSelector: chainSelector,
-		client:        chainClient,
-		ccvCache:      ccvCache,
+		offRampCaller:   *offRamp,
+		rmnRemoteCaller: *rmnRemote,
+		lggr:            params.Lggr,
+		chainSelector:   params.ChainSelector,
+		client:          params.ChainClient,
+		ccvCache:        ccvCache,
+		curseCache:      curseCache,
 	}
 }
 
@@ -55,9 +90,8 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	_ = ctx
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 	// Try to get CCV info from cache first
-	// TODO: Do we need custom cache eviction logic beyond ttl?
 	// TODO: We need to find a way to cache token transfer CCV info as well
-	ccvInfo, found := dr.ccvCache.Get(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()})
+	ccvInfo, found := dr.ccvCache.Get(verifierQuorumCacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()})
 	if found && message.TokenTransferLength == 0 {
 		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s on source chain %d",
 			receiverAddress.String(), sourceSelector)
@@ -99,7 +133,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	)
 
 	// Store in expirable cache for future use
-	dr.ccvCache.Add(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()}, ccvInfo)
+	dr.ccvCache.Add(verifierQuorumCacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()}, ccvInfo)
 	dr.lggr.Debugf("CCV info cached for receiver %s on source chain %d: %+v",
 		receiverAddress.String(), sourceSelector, ccvInfo)
 
@@ -124,4 +158,26 @@ func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, me
 	}
 
 	return executor.MessageExecutionState(execState), nil
+}
+
+// IsCursed checks if the message lane is cursed, or if there is a global curse on the destination.
+// We use a 5 minute cache for this check as an optimization for surge message scenarios.
+// If we have a stale cache state, message will eventually be retried either by another executor or by this one.
+func (dr *EvmDestinationReader) IsCursed(_ context.Context, message protocol.Message) (bool, error) {
+	var sourceSelectorBytes [16]byte
+	curseInfo, found := dr.curseCache.Get(curseCacheKey{sourceChainSelector: message.SourceChainSelector})
+	if found {
+		dr.lggr.Debugf("curse state retried from cache for source chain %s dest chain %d pair",
+			message.SourceChainSelector, message.DestChainSelector)
+		return curseInfo, nil
+	}
+	binary.BigEndian.PutUint64(sourceSelectorBytes[8:], uint64(message.SourceChainSelector))
+
+	curseInfo, err := dr.rmnRemoteCaller.IsCursed(nil, sourceSelectorBytes)
+	if err != nil {
+		return false, fmt.Errorf("failed to call GetRmnCurseInfo: %w", err)
+	}
+
+	dr.curseCache.Add(curseCacheKey{sourceChainSelector: message.SourceChainSelector}, curseInfo)
+	return curseInfo, nil
 }

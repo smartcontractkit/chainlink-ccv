@@ -73,6 +73,8 @@ type DestinationReader interface {
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
 	// GetMessageExecutionState returns true if message is executed
 	GetMessageExecutionState(ctx context.Context, message protocol.Message) (MessageExecutionState, error)
+	// Iscursed checks if the message lane is cursed, or if there is a global curse on the destination.
+	IsCursed(ctx context.Context, message protocol.Message) (bool, error)
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.

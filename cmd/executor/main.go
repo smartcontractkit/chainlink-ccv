@@ -122,12 +122,14 @@ func main() {
 
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		dr := destinationreader.NewEvmDestinationReader(
-			lggr,
-			protocol.ChainSelector(selector),
-			chainClient,
-			executorConfig.OffRampAddresses[strSel],
-			executorConfig.GetCCVInfoCacheExpiry(),
-		)
+			destinationreader.Params{
+				Lggr:             lggr,
+				ChainSelector:    protocol.ChainSelector(selector),
+				ChainClient:      chainClient,
+				OfframpAddress:   executorConfig.OffRampAddresses[strSel],
+				RmnRemoteAddress: executorConfig.RmnAddresses[strSel],
+				CacheExpiry:      executorConfig.GetReaderCacheExpiry(),
+			})
 
 		pk := os.Getenv(PK_ENV_VAR)
 		if pk == "" {

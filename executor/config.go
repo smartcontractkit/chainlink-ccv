@@ -41,13 +41,16 @@ type Configuration struct {
 	MinWait string `toml:"min_wait"`
 	// Monitoring is the configuration for how Executor emits metrics.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
-	// CcvInfoCacheExpiry is the duration to cache CCV information for each destination chain.
+	// ReaderCacheExpiry is the duration to cache CCV information for each destination chain.
 	// Cached information includes the Verifier Quorum per receiver address.
 	// Defaults to 5 minutes.
-	CcvInfoCacheExpiry string `toml:"ccv_info_cache_expiry"`
+	ReaderCacheExpiry string `toml:"reader_cache_expiry"`
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before giving up.
 	// Defaults to 8 hours.
 	MaxRetryDuration string `toml:"max_retry_duration"`
+	// RMN addresses is a map of chain selector to RMN address to check for curse state.
+	// Will eventually combine with the same config in Verifier.
+	RmnAddresses map[string]string `toml:"rmn_addresses"`
 }
 
 func (c *Configuration) Validate() error {
@@ -195,8 +198,8 @@ func (b *BeholderConfig) Validate() error {
 	return nil
 }
 
-func (c *Configuration) GetCCVInfoCacheExpiry() time.Duration {
-	d, err := time.ParseDuration(c.CcvInfoCacheExpiry)
+func (c *Configuration) GetReaderCacheExpiry() time.Duration {
+	d, err := time.ParseDuration(c.ReaderCacheExpiry)
 	if err != nil {
 		return 5 * time.Minute
 	}

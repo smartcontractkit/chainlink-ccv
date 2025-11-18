@@ -32,6 +32,7 @@ func NewExecutorCoordinator(
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {
 	offRampAddresses, err := mapAddresses(cfg.OffRampAddresses)
+	rmnAddresses, err := mapAddresses(cfg.RmnAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map offramp addresses.", "error", err)
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map offramp addresses: %w", err)
@@ -55,11 +56,14 @@ func NewExecutorCoordinator(
 		)
 
 		destReaders[sel] = destinationreader.NewEvmDestinationReader(
-			logger.With(lggr, "component", "DestinationReader"),
-			sel,
-			chain.Client(),
-			offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
-			cfg.GetCCVInfoCacheExpiry())
+			destinationreader.Params{
+				Lggr:             logger.With(lggr, "component", "DestinationReader"),
+				ChainSelector:    sel,
+				ChainClient:      chain.Client(),
+				OfframpAddress:   offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
+				RmnRemoteAddress: rmnAddresses[sel].String(),
+				CacheExpiry:      cfg.GetReaderCacheExpiry(),
+			})
 	}
 
 	// TODO: monitoring config home

@@ -138,6 +138,63 @@ func (_c *MockDestinationReader_GetMessageExecutionState_Call) RunAndReturn(run 
 	return _c
 }
 
+// IsCursed provides a mock function with given fields: ctx, message
+func (_m *MockDestinationReader) IsCursed(ctx context.Context, message protocol.Message) (bool, error) {
+	ret := _m.Called(ctx, message)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsCursed")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (bool, error)); ok {
+		return rf(ctx, message)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) bool); ok {
+		r0 = rf(ctx, message)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) error); ok {
+		r1 = rf(ctx, message)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockDestinationReader_IsCursed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsCursed'
+type MockDestinationReader_IsCursed_Call struct {
+	*mock.Call
+}
+
+// IsCursed is a helper method to define mock.On call
+//   - ctx context.Context
+//   - message protocol.Message
+func (_e *MockDestinationReader_Expecter) IsCursed(ctx interface{}, message interface{}) *MockDestinationReader_IsCursed_Call {
+	return &MockDestinationReader_IsCursed_Call{Call: _e.mock.On("IsCursed", ctx, message)}
+}
+
+func (_c *MockDestinationReader_IsCursed_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_IsCursed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.Message))
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_IsCursed_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_IsCursed_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockDestinationReader_IsCursed_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockDestinationReader_IsCursed_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockDestinationReader creates a new instance of MockDestinationReader. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockDestinationReader(t interface {
