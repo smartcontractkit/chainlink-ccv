@@ -10,7 +10,7 @@ import (
 )
 
 type observedStorageWriter struct {
-	delegate protocol.CCVNodeDataWriter
+	protocol.CCVNodeDataWriter
 
 	verifierID string
 	lggr       logger.Logger
@@ -24,17 +24,17 @@ func NewObservedStorageWriter(
 	monitoring verifier.Monitoring,
 ) protocol.CCVNodeDataWriter {
 	return &observedStorageWriter{
-		delegate:   delegate,
-		verifierID: verifierID,
-		lggr:       lggr,
-		monitoring: monitoring,
+		CCVNodeDataWriter: delegate,
+		verifierID:        verifierID,
+		lggr:              lggr,
+		monitoring:        monitoring,
 	}
 }
 
 func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	start := time.Now()
 
-	err := o.delegate.WriteCCVNodeData(ctx, ccvDataList)
+	err := o.CCVNodeDataWriter.WriteCCVNodeData(ctx, ccvDataList)
 	if err != nil {
 		o.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 		o.lggr.Errorw("Error storing CCV data batch",
