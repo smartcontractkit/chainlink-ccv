@@ -7,16 +7,10 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"strconv"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -390,14 +384,21 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 
-	_, err = launchStandaloneExecutor(in)
+	if in.Executor != nil {
+		exec, err := services.ResolveContractsForExecutor(e.DataStore, in.Blockchains, in.Executor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to lookup contracts for executor: %w", err)
+		}
+		in.Executor = exec
+	}
+	_, err = launchStandaloneExecutor(in.Executor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
 	}
 
 	// Populate verifier input with contract addresses from the CLDF datastore.
 	for i := range in.Verifier {
-		ver, err := lookupContractsForVerifier(e.DataStore, in.Blockchains, *in.Verifier[i])
+		ver, err := services.ResolveContractsForVerifier(e.DataStore, in.Blockchains, *in.Verifier[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup contracts for verifier %s: %w", in.Verifier[i].CommitteeName, err)
 		}
@@ -423,67 +424,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	return in, Store(in)
-}
-
-func lookupContractsForVerifier(ds datastore.DataStore, blockchains []*blockchain.Input, ver services.VerifierInput) (services.VerifierInput, error) {
-	ver.OnRampAddresses = make(map[string]string)
-	ver.CommitteeVerifierAddresses = make(map[string]string)
-	ver.DefaultExecutorOnRampAddresses = make(map[string]string)
-	ver.RMNRemoteAddresses = make(map[string]string)
-
-	for _, chain := range blockchains {
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
-		if err != nil {
-			return services.VerifierInput{}, err
-		}
-		selectorStr := strconv.FormatUint(networkInfo.ChainSelector, 10)
-
-		onRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(onrampoperations.ContractType),
-			semver.MustParse(onrampoperations.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return services.VerifierInput{}, fmt.Errorf("failed to get on ramp address for chain %s: %w", chain.ChainID, err)
-		}
-		ver.OnRampAddresses[selectorStr] = onRampAddressRef.Address
-
-		committeeVerifierAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(committee_verifier.ResolverProxyType),
-			semver.MustParse(committee_verifier.Deploy.Version()),
-			ver.CommitteeName,
-		))
-		if err != nil {
-			return services.VerifierInput{}, fmt.Errorf("failed to get committee verifier address for chain %s: %w", chain.ChainID, err)
-		}
-		ver.CommitteeVerifierAddresses[selectorStr] = committeeVerifierAddressRef.Address
-
-		defaultExecutorOnRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(executor.ContractType),
-			semver.MustParse(executor.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return services.VerifierInput{}, fmt.Errorf("failed to get default executor on ramp address for chain %s: %w", chain.ChainID, err)
-		}
-		ver.DefaultExecutorOnRampAddresses[selectorStr] = defaultExecutorOnRampAddressRef.Address
-
-		rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(rmn_remote.ContractType),
-			semver.MustParse(rmn_remote.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return services.VerifierInput{}, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
-		}
-		ver.RMNRemoteAddresses[selectorStr] = rmnRemoteAddressRef.Address
-	}
-
-	return ver, nil
 }
 
 // launchCLNodes encapsulates the logic required to launch the core node. It may be better to wrap this in a service.
@@ -571,11 +511,11 @@ func launchCLNodes(ctx context.Context, in *Cfg, impls []cciptestinterfaces.CCIP
 	return onchainPublicKeys, nil
 }
 
-func launchStandaloneExecutor(in *Cfg) ([]*services.ExecutorOutput, error) {
+func launchStandaloneExecutor(in *services.ExecutorInput) ([]*services.ExecutorOutput, error) {
 	var outs []*services.ExecutorOutput
 	// Start standalone executor if in standalone mode.
-	if in.Executor != nil && in.Executor.Mode == services.Standalone {
-		out, err := services.NewExecutor(in.Executor)
+	if in != nil && in.Mode == services.Standalone {
+		out, err := services.NewExecutor(in)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create executor service: %w", err)
 		}

@@ -36,10 +36,15 @@ const (
 )
 
 func main() {
-	configPath, ok := os.LookupEnv(CONFIG_PATH)
-	if !ok {
-		configPath = "executor_config.toml"
+	configPath := executor.DefaultConfigFile
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
 	}
+	envConfig := os.Getenv(CONFIG_PATH)
+	if envConfig != "" {
+		configPath = envConfig
+	}
+
 	executorConfig, err := loadConfiguration(configPath)
 	if err != nil {
 		os.Exit(1)
