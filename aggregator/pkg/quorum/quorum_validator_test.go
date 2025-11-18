@@ -23,7 +23,7 @@ const (
 )
 
 // Helper function to create a commit verification record from protobuf message.
-func createCommitVerificationRecord(messageData *pb.MessageWithCCVNodeData) *model.CommitVerificationRecord {
+func createCommitVerificationRecord(messageData *pb.CommitteeVerifierNodeResult) *model.CommitVerificationRecord {
 	record := model.CommitVerificationRecordFromProto(messageData)
 	return record
 }

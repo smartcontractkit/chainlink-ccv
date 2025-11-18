@@ -104,24 +104,24 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 	return msg
 }
 
-type MessageWithCCVNodeDataOption = func(*pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData
+type MessageWithCCVNodeDataOption = func(*pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult
 
 func WithCustomTimestamp(timestamp int64) MessageWithCCVNodeDataOption {
-	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
+	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
 		m.Timestamp = timestamp
 		return m
 	}
 }
 
 func WithReceiptBlobs(receiptBlobs []*pb.ReceiptBlob) MessageWithCCVNodeDataOption {
-	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
+	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
 		m.ReceiptBlobs = receiptBlobs
 		return m
 	}
 }
 
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
-	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
+	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
 
 		messageID, err := protocolMessage.MessageID()
@@ -148,20 +148,20 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 }
 
 func WithBlobData(blobData []byte) MessageWithCCVNodeDataOption {
-	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
+	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
 		m.BlobData = blobData
 		return m
 	}
 }
 
-func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *pb.MessageWithCCVNodeData {
+func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *pb.CommitteeVerifierNodeResult {
 	messageID, err := message.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 
 	// blob data must be at least 4 bytes to account for version
 	blobData := []byte{0x01, 0x02, 0x03, 0x04}
 
-	ccvNodeData := &pb.MessageWithCCVNodeData{
+	ccvNodeData := &pb.CommitteeVerifierNodeResult{
 		MessageId:             messageID[:],
 		SourceVerifierAddress: sourceVerifierAddress,
 		Message: &pb.Message{
@@ -202,8 +202,8 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 	return ccvNodeData
 }
 
-func NewWriteCommitCCVNodeDataRequest(ccvNodeData *pb.MessageWithCCVNodeData) *pb.WriteCommitCCVNodeDataRequest {
-	return &pb.WriteCommitCCVNodeDataRequest{
+func NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData *pb.CommitteeVerifierNodeResult) *pb.WriteCommitteeVerifierNodeResultRequest {
+	return &pb.WriteCommitteeVerifierNodeResultRequest{
 		CcvNodeData: ccvNodeData,
 	}
 }
