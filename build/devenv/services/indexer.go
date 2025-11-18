@@ -87,7 +87,7 @@ func defaults(in *IndexerInput) {
 			},
 			Scheduler: config.SchedulerConfig{
 				TickerInterval:               50,
-				VerificationVisabilityWindow: 28800,
+				VerificationVisibilityWindow: 28800,
 				BaseDelay:                    50,        // 50 milliseconds
 				MaxDelay:                     30 * 1000, // 30 Seconds
 			},

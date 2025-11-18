@@ -87,8 +87,7 @@ func (a *AggregatorMessageDiscovery) validate() error {
 		return errors.New("invalid poll interval")
 	}
 
-	// Timeout in seconds, poll interval in milliseconds
-	if a.config.Timeout <= a.config.PollInterval/1000 {
+	if a.config.Timeout <= a.config.PollInterval {
 		return errors.New("invalid timeout, needs to be greater then poll interval")
 	}
 

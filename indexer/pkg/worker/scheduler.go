@@ -68,8 +68,8 @@ func (s *Scheduler) run(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) VerificationVisabilityWindow() time.Duration {
-	return time.Duration(s.config.VerificationVisabilityWindow) * time.Second
+func (s *Scheduler) VerificationVisibilityWindow() time.Duration {
+	return time.Duration(s.config.VerificationVisibilityWindow) * time.Second
 }
 
 func (s *Scheduler) shouldEnqueue(t *Task) (bool, time.Duration) {

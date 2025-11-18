@@ -29,8 +29,8 @@ type Config struct {
 type SchedulerConfig struct {
 	// TickerInterval defines the number of milliseconds to wait before running the next scheduling loop.
 	TickerInterval int `toml:"TickerInterval"`
-	// VerificationVisabilityWindow defines the number of seconds before we will no longer attempt to retrieve verifications.
-	VerificationVisabilityWindow int `toml:"VerificationVisabilityWindow"`
+	// VerificationVisibilityWindow defines the number of seconds before we will no longer attempt to retrieve verifications.
+	VerificationVisibilityWindow int `toml:"VerificationVisabilityWindow"`
 	// BaseDelay defines the minimum number of milliseconds to wait before retrying the message.
 	BaseDelay int `toml:"BaseDelay"`
 	// MaxDelay defines the maximum number of milliseconds to wait before retrying the message.
@@ -259,7 +259,7 @@ func (s *SchedulerConfig) Validate() error {
 		return fmt.Errorf("ticker interval must be greater than 20 milliseconds")
 	}
 
-	if s.VerificationVisabilityWindow <= (s.MaxDelay / 1000) {
+	if s.VerificationVisibilityWindow <= (s.MaxDelay / 1000) {
 		return fmt.Errorf("verification visability window must be greater than max delay after seconds conversion")
 	}
 
