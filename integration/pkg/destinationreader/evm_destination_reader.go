@@ -119,7 +119,7 @@ func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, me
 		message.Sender,
 		rcv)
 	if err != nil {
-		// expect that the error is checked by the caller so it doesn't accidently assume success
+		// expect that the error is checked by the caller so it doesn't accidentally assume success
 		return 0, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
 

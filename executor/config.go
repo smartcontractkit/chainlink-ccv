@@ -76,6 +76,7 @@ func (c *Configuration) Validate() error {
 	return nil
 }
 
+// TODO: update all these config getters to use a time.Duration, applyDefaults, and define constants
 func (c *Configuration) GetBackoffDuration() time.Duration {
 	d, err := time.ParseDuration(c.BackoffDuration)
 	if err != nil {
