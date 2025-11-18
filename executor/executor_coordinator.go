@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -143,7 +142,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 				// get message delay from leader elector
 				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
 
-				heap.Push(&ec.delayedMessageHeap, &message_heap.MessageWithTimestamps{
+				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 					Message:       &msg,
 					ReadyTime:     readyTimestamp,
 					ExpiryTime:    readyTimestamp + int64(ec.expiryDuration.Seconds()),
@@ -174,7 +173,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 						// todo: add exponential backoff here
 						retryTime := currentTime + payload.RetryInterval
 						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
-						heap.Push(&ec.delayedMessageHeap, &message_heap.MessageWithTimestamps{
+						ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 							Message:       &message,
 							ReadyTime:     retryTime,
 							ExpiryTime:    payload.ExpiryTime,

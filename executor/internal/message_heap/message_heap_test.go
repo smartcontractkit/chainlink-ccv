@@ -61,10 +61,10 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 			mh := NewMessageHeap()
 
 			for _, msg := range tt.messages {
-				heap.Push(mh, msg)
+				mh.Push(*msg)
 			}
 
-			if got := mh.peekTime(); got != tt.expected {
+			if got := mh.Peek().ReadyTime; got != tt.expected {
 				t.Errorf("MessageHeap.PeekTime() = %v, want %v", got, tt.expected)
 			}
 		})
@@ -131,7 +131,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 			// Initialize heap to maintain heap property
 			mh := NewMessageHeap()
 			for _, msg := range tt.messages {
-				heap.Push(mh, msg)
+				mh.Push(*msg)
 			}
 
 			result := mh.PopAllReady(tt.timestamp)
@@ -160,11 +160,12 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 	}
 }
 
-func TestMessageHeap_Integration(t *testing.T) {
-	mh := NewMessageHeap()
+func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
+	mh := &ReadyTimestampHeap{}
+	heap.Init(mh)
 
 	// Test that heap is initially empty
-	if !mh.IsEmpty() {
+	if mh.Len() != 0 {
 		t.Errorf("New heap should be empty")
 	}
 
@@ -177,41 +178,43 @@ func TestMessageHeap_Integration(t *testing.T) {
 	}
 
 	for _, msg := range messages {
-		heap.Push(mh, msg)
+		heap.Push(mh, MessageHeapEntry{
+			ReadyTime: msg.ReadyTime,
+			MessageID: msg.MessageID,
+		})
 		// Verify heap property - should always return earliest time
-		if mh.peekTime() != 50 {
-			t.Errorf("peekTime() = %v, want 50", mh.peekTime())
+		if mh.Peek().ReadyTime != 50 {
+			t.Errorf("peekTime() = %v, want 50", mh.Peek().ReadyTime)
 		}
 	}
 
 	// Pop all messages and verify they come out in timestamp order
-	expectedOrder := []int64{50, 100, 200, 300}
-	expectedNonces := []uint64{0, 1, 2, 3}
+	expectedOrder := []int{0, 2, 3, 1}
 
 	for i := 0; i < len(expectedOrder); i++ {
-		if mh.IsEmpty() {
+		if mh.Len() == 0 {
 			t.Errorf("Heap is empty at iteration %v", i)
 			break
 		}
+		expectedMessage := messages[expectedOrder[i]]
 
-		if mh.peekTime() != expectedOrder[i] {
-			t.Errorf("peekTime() at iteration %v = %v, want %v", i, mh.peekTime(), expectedOrder[i])
+		if mh.Peek().ReadyTime != expectedMessage.ReadyTime {
+			t.Errorf("peekTime() at iteration %v = %v, want %v", i, mh.Peek().ReadyTime, expectedMessage.ReadyTime)
 		}
 
-		result := heap.Pop(mh)
-		msg, ok := result.(*MessageWithTimestamps)
+		msg, ok := heap.Pop(mh).(MessageHeapEntry)
 		if !ok {
-			t.Errorf("Pop() returned wrong type: %T", result)
+			t.Errorf("Pop() returned wrong type: %T", msg)
 			continue
 		}
 
-		if uint64(msg.Message.Nonce) != expectedNonces[i] {
-			t.Errorf("Pop() at iteration %v returned nonce %v, want %v", i, msg.Message.Nonce, expectedNonces[i])
+		if msg.MessageID != expectedMessage.MessageID {
+			t.Errorf("Pop() at iteration %v returned message ID %v, want %v", i, msg.MessageID, expectedMessage.MessageID)
 		}
 	}
 
 	// Verify heap is empty
-	if !mh.IsEmpty() {
+	if mh.Len() != 0 {
 		t.Errorf("Heap should be empty after popping all elements")
 	}
 }
