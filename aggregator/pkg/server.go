@@ -128,8 +128,10 @@ func (s *Server) Start(lis net.Listener) error {
 		s.grpcServer.Stop()
 	})
 
+	// capture stopChan to avoid data race on struct field access in goroutine
+	stopCh := s.stopChan
 	g.Add(func() error {
-		<-s.stopChan
+		<-stopCh
 		s.l.Info("stop signal received, shutting down")
 		return nil
 	}, func(error) {})
