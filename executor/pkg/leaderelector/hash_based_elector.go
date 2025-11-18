@@ -21,6 +21,7 @@ type HashBasedLeaderElector struct {
 }
 
 // NewHashBasedLeaderElector creates a new hash-based leader elector.
+// TODO: Support variable executors per destination chain selector.
 func NewHashBasedLeaderElector(
 	lggr logger.Logger,
 	executorIDs []string,
@@ -98,4 +99,8 @@ func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
 		return int64(sliceLen - startIndex + selectedIndex)
 	}
 	return int64(selectedIndex - startIndex)
+}
+
+func (h *HashBasedLeaderElector) GetRetryDelay(_ protocol.ChainSelector) int64 {
+	return int64(len(h.executorIDs)) * int64(h.executionInterval.Seconds())
 }
