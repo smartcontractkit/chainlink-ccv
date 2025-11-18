@@ -56,7 +56,7 @@ func (s *sourceState) Close() error {
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
 	sync         services.StateMachine
-	stopCh       services.StopChan
+	cancel       context.CancelFunc
 	verifyingWg  sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
 	backgroundWg sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
 
@@ -185,7 +185,6 @@ func WithCurseDetector(detector common.CurseChecker) Option {
 func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		stopCh:                make(chan struct{}),
 		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
 	}
 
@@ -210,7 +209,8 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 // Start begins the verification coordinator processing.
 func (vc *Coordinator) Start(_ context.Context) error {
 	return vc.sync.StartOnce("Coordinator", func() error {
-		ctx, _ := vc.stopCh.NewCtx()
+		ctx, cancel := context.WithCancel(context.Background())
+		vc.cancel = cancel
 
 		// Check for disabled chains before initialization
 		statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
@@ -361,7 +361,7 @@ func (vc *Coordinator) Close() error {
 	return vc.sync.StopOnce("Coordinator", func() error {
 		// Signal all goroutines to stop processing new work.
 		// This will also trigger the batcher to flush remaining items.
-		close(vc.stopCh)
+		vc.cancel()
 
 		// Wait for any in-flight verification tasks to complete.
 		vc.verifyingWg.Wait()
