@@ -56,10 +56,10 @@ type MessageExecutionState uint8
 // Reference here if changes are needed.
 // https://github.com/smartcontractkit/chainlink-ccip/blob/develop/chains/evm/contracts/libraries/Internal.sol#L148.
 const (
-	MESSAGE_UNTOUCHED MessageExecutionState = iota
-	MESSAGE_IN_PROGRESS
-	MESSAGE_SUCCESS
-	MESSAGE_FAILURE
+	UNTOUCHED MessageExecutionState = iota
+	IN_PROGRESS
+	SUCCESS
+	FAILURE
 )
 
 // MessageStatusResults is the translation of onchain execution state to executor's business logic behavior.

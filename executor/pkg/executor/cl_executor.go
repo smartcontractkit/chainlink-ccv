@@ -303,10 +303,10 @@ func (cle *ChainlinkExecutor) isCursed(message protocol.Message) bool {
 
 // GetExecutionState checks the onchain execution state of a message and returns if it should be retried and executed.
 // It does not do any checks to determine if verifications are available or not.
-// MESSAGE_UNTOUCHED: Message should be executed and retried.
-// MESSAGE_IN_PROGRESS: Message reentrancy protection, should not be retried, should not be executed.
-// MESSAGE_SUCCESS: Message was executed successfully, don't retry and don't execute.
-// MESSAGE_FAILURE: Message failed to execute, don't retry and don't execute.
+// UNTOUCHED: Message should be executed and retried later to confirm successful execution
+// IN_PROGRESS: Message reentrancy protection, should not be retried, should not be executed.
+// SUCCESS: Message was executed successfully, don't retry and don't execute.
+// FAILURE: Message failed to execute due to invalid verifier, don't retry and don't execute.
 func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message protocol.Message, id protocol.Bytes32) (ret executor.MessageStatusResults, err error) {
 	// Check if the message is already executed to not waste gas and time.
 	destinationChain := message.DestChainSelector
@@ -320,27 +320,17 @@ func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message pro
 		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, fmt.Errorf("failed to check GetMessageExecutionState: %w", err)
 	}
 	switch executionState {
-	case executor.MESSAGE_SUCCESS:
-		ret.ShouldRetry = false
-		ret.ShouldExecute = false
-		err = nil
-
-		// In progress is a status code for reentrancy protection
-	case executor.MESSAGE_IN_PROGRESS:
-		ret.ShouldRetry = false
-		ret.ShouldExecute = false
-		err = nil
-
-	// If message has failed to execute in the past, don't retry and don't execute.
-	// Any changes to VerifierResults should be manually executed.
-	case executor.MESSAGE_FAILURE:
-		ret.ShouldRetry = false
-		ret.ShouldExecute = false
-		err = nil
-
-	case executor.MESSAGE_UNTOUCHED:
+	// We only retry and execute if the message is UNTOUCHED.
+	case executor.UNTOUCHED:
 		ret.ShouldRetry = true
 		ret.ShouldExecute = true
+		err = nil
+
+	// All other states should not be retried and should not be executed.
+	// this is for SUCCESS, IN_PROGRESS, and FAILURE.
+	default:
+		ret.ShouldRetry = false
+		ret.ShouldExecute = false
 		err = nil
 	}
 

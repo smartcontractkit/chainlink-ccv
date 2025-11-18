@@ -16,13 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
-const (
-	MESSAGE_UNTOUCHED = iota
-	MESSAGE_IN_PROGRESS
-	MESSAGE_SUCCESS
-	MESSAGE_FAILURE
-)
-
 // Ensure ChainlinkExecutor implements the Executor interface.
 var _ executor.DestinationReader = &EvmDestinationReader{}
 
@@ -126,7 +119,8 @@ func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, me
 		message.Sender,
 		rcv)
 	if err != nil {
-		return MESSAGE_FAILURE, fmt.Errorf("failed to call getExecutionState: %w", err)
+		// expect that the error is checked by the caller so it doesn't accidently assume success
+		return 0, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
 
 	return executor.MessageExecutionState(execState), nil
