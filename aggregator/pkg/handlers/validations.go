@@ -14,7 +14,7 @@ import (
 
 var hundredYears = 100 * 365 * 24 * time.Hour
 
-func validateWriteRequest(req *pb.WriteCommitCCVNodeDataRequest) error {
+func validateWriteRequest(req *pb.WriteCommitteeVerifierNodeResultRequest) error {
 	err := validation.ValidateStruct(
 		req,
 		validation.Field(&req.CcvNodeData, validation.Required))
@@ -63,7 +63,7 @@ func isValidMillisecondTimestamp(timestamp int64) bool {
 	return timestamp >= past.UnixMilli() && timestamp <= future.UnixMilli()
 }
 
-func validateReadRequest(req *pb.ReadCommitCCVNodeDataRequest) error {
+func validateReadRequest(req *pb.ReadCommitteeVerifierNodeResultRequest) error {
 	err := validation.ValidateStruct(
 		req,
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),

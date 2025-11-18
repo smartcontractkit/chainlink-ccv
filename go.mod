@@ -29,7 +29,7 @@ require (
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-evm v0.3.3
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3 // indirect
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251114201537-62d6299149d2
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251117205419-c71b66f8aade
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/ulule/limiter/v3 v3.11.2

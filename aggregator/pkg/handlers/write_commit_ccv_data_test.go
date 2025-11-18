@@ -20,12 +20,12 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func makeValidProtoRequest() *pb.WriteCommitCCVNodeDataRequest {
+func makeValidProtoRequest() *pb.WriteCommitteeVerifierNodeResultRequest {
 	msg, _ := protocol.NewMessage(1, 2, 1, nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
 	id, _ := msg.MessageID()
 	pbMsg := model.MapProtocolMessageToProtoMessage(msg)
-	return &pb.WriteCommitCCVNodeDataRequest{
-		CcvNodeData: &pb.MessageWithCCVNodeData{
+	return &pb.WriteCommitteeVerifierNodeResultRequest{
+		CcvNodeData: &pb.CommitteeVerifierNodeResult{
 			MessageId: id[:],
 			CcvData:   []byte("x"),
 			Timestamp: time.Now().UnixMilli(),
@@ -43,7 +43,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 
 	type testCase struct {
 		name             string
-		req              *pb.WriteCommitCCVNodeDataRequest
+		req              *pb.WriteCommitteeVerifierNodeResultRequest
 		signer           *model.IdentifierSigner
 		sigErr           error
 		saveErr          error
@@ -66,7 +66,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		},
 		{
 			name: "validation_enabled_missing_payload_invalid_argument",
-			req: &pb.WriteCommitCCVNodeDataRequest{
+			req: &pb.WriteCommitteeVerifierNodeResultRequest{
 				CcvNodeData: nil,
 			},
 			// Signature validation is never called
