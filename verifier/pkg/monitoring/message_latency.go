@@ -44,7 +44,7 @@ func NewMessageLatencyTracker(
 func (m *inmemoryMessageLatencyTracker) MarkMessageAsSeen(task *verifier.VerificationTask) {
 	messageID, err := task.Message.MessageID()
 	if err != nil {
-		m.lggr.Errorw("Failed to compute message ID for queuing", "error", err)
+		m.lggr.Errorw("Failed to compute message ID for latency tracking", "error", err)
 		return
 	}
 
