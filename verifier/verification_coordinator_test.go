@@ -133,6 +133,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	ts := newTestSetup(t)
 
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
+	noopLatencyTracker := verifier.NoopLatencyTracker{}
 	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(t, err)
 
@@ -162,6 +163,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
+				verifier.WithMessageTracker(noopLatencyTracker),
 			},
 			err: nil,
 		},
@@ -173,6 +175,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
+				verifier.WithMessageTracker(noopLatencyTracker),
 			},
 			err: []string{"coordinator ID cannot be empty"},
 		},
@@ -184,6 +187,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
+				verifier.WithMessageTracker(noopLatencyTracker),
 			},
 			err: []string{
 				"at least one source reader is required",
@@ -198,6 +202,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithStorage(ts.storage),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
+				verifier.WithMessageTracker(noopLatencyTracker),
 			},
 			err: []string{"verifier is not set"},
 		},
@@ -209,6 +214,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithLogger(ts.logger),
 				verifier.WithMonitoring(noopMonitoring),
+				verifier.WithMessageTracker(noopLatencyTracker),
 			},
 			err: []string{"storage is not set"},
 		},
@@ -220,6 +226,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithStorage(ts.storage),
 				verifier.WithMonitoring(noopMonitoring),
+				verifier.WithMessageTracker(noopLatencyTracker),
 			},
 			err: []string{"logger is not set"},
 		},
@@ -231,6 +238,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				verifier.WithVerifier(commitVerifier),
 				verifier.WithLogger(ts.logger),
 				verifier.WithStorage(ts.storage),
+				verifier.WithMessageTracker(noopLatencyTracker),
 			},
 			err: []string{"monitoring is not set"},
 		},
@@ -265,6 +273,7 @@ func createVerificationCoordinator(
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 ) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
+	noopLatencyTracker := verifier.NoopLatencyTracker{}
 	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(ts.t, err)
 
@@ -275,6 +284,7 @@ func createVerificationCoordinator(
 		verifier.WithStorage(ts.storage),
 		verifier.WithLogger(ts.logger),
 		verifier.WithMonitoring(noopMonitoring),
+		verifier.WithMessageTracker(noopLatencyTracker),
 	)
 }
 

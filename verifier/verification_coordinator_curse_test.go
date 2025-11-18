@@ -124,6 +124,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		}),
 		WithCurseDetector(mockCurseDetector), // Inject mock for testing
 		WithMonitoring(&noopMonitoring{}),
+		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(finalityCheckInterval),
 	)
 	require.NoError(t, err)

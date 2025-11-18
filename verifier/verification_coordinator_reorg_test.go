@@ -134,6 +134,7 @@ func (s *reorgTestSetup) createCoordinator() *Coordinator {
 			s.chainSelector: s.mockReorgDetector,
 		}),
 		WithMonitoring(&noopMonitoring{}),
+		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(s.finalityCheckInterval),
 	)
 	require.NoError(s.t, err)

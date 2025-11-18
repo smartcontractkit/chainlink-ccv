@@ -9,8 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/patrickmn/go-cache"
-
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -21,9 +19,7 @@ import (
 )
 
 const (
-	DefaultSourceReaderPollInterval       = 2 * time.Second
-	DefaultE2ELatencyCacheExpiration      = 2 * time.Hour
-	DefaultE2ELatencyCacheCleanupInterval = 5 * time.Minute
+	DefaultSourceReaderPollInterval = 2 * time.Second
 )
 
 // sourceState manages state for a single source chain reader.
@@ -68,11 +64,10 @@ type Coordinator struct {
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
 	monitoring            Monitoring
+	messageTracker        MessageLatencyTracker
 	sourceStates          map[protocol.ChainSelector]*sourceState
 	config                CoordinatorConfig
 	finalityCheckInterval time.Duration
-	// Timestamp tracking for E2E latency measurement
-	messageTimestamps *cache.Cache
 
 	// Storage batching
 	storageBatcher   *batcher.Batcher[protocol.CCVData]
@@ -155,6 +150,12 @@ func WithMonitoring(monitoring Monitoring) Option {
 	}
 }
 
+func WithMessageTracker(tracker MessageLatencyTracker) Option {
+	return func(vc *Coordinator) {
+		vc.messageTracker = tracker
+	}
+}
+
 // WithReorgDetectors sets the reorg detectors for each source chain.
 func WithReorgDetectors(reorgDetectors map[protocol.ChainSelector]protocol.ReorgDetector) Option {
 	return func(vc *Coordinator) {
@@ -186,10 +187,6 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		stopCh:                make(chan struct{}),
 		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
-		messageTimestamps: cache.New(
-			DefaultE2ELatencyCacheExpiration,
-			DefaultE2ELatencyCacheCleanupInterval,
-		),
 	}
 
 	// Apply all options
@@ -438,22 +435,6 @@ func (vc *Coordinator) run(ctx context.Context) {
 
 			// Write batch of CCVData to offchain storage
 			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err == nil {
-				for _, ccvData := range ccvDataBatch.Items {
-					messageID := ccvData.MessageID.String()
-
-					if rawSeenAt, exists := vc.messageTimestamps.Get(messageID); exists {
-						seenAt, ok1 := rawSeenAt.(time.Time)
-						if !ok1 {
-							vc.lggr.Errorw("Invalid timestamp type in cache for message")
-							continue
-						}
-						vc.monitoring.Metrics().
-							With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
-							RecordMessageE2ELatency(ctx, time.Since(seenAt))
-						vc.messageTimestamps.Delete(messageID)
-					}
-				}
-
 				vc.lggr.Infow("CCV data batch stored successfully",
 					"batchSize", len(ccvDataBatch.Items),
 				)
@@ -619,19 +600,7 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	// Set QueuedAt timestamp for finality wait duration tracking
 	task.QueuedAt = time.Now()
 	state.pendingTasks = append(state.pendingTasks, task)
-
-	messageID, err := task.Message.MessageID()
-	if err != nil {
-		vc.lggr.Errorw("Failed to compute message ID for queuing", "error", err)
-		return
-	}
-
-	// Track message creation time for E2E latency measurement
-	if task.FirstSeenAt.IsZero() {
-		// If FirstSeenAt was not set by source reader, set it now
-		task.FirstSeenAt = time.Now()
-	}
-	vc.messageTimestamps.SetDefault(messageID.String(), task.FirstSeenAt)
+	vc.messageTracker.MarkMessageAsSeen(&task)
 
 	messageContextLggr.Infow("Message added to finality queue",
 		"blockNumber", task.BlockNumber,

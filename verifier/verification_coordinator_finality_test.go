@@ -252,7 +252,6 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		VerifierID: verifierID,
 	}
 
-	noopMonitoring := &noopMonitoring{}
 	coordinator, err := NewCoordinator(
 		WithVerifier(mockVerifier),
 		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
@@ -262,7 +261,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		WithChainStatusManager(mockChainStatusManager),
 		WithConfig(config),
 		WithLogger(lggr),
-		WithMonitoring(noopMonitoring),
+		WithMonitoring(&noopMonitoring{}),
+		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)

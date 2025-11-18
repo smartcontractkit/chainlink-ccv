@@ -321,6 +321,12 @@ func main() {
 		verifierMonitoring,
 	)
 
+	messageTracker := monitoring.NewMessageLatencyTracker(
+		lggr,
+		config.VerifierID,
+		verifierMonitoring,
+	)
+
 	// Create verification coordinator
 	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(commitVerifier),
@@ -330,6 +336,7 @@ func main() {
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(verifierMonitoring),
+		verifier.WithMessageTracker(messageTracker),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
