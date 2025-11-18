@@ -11,7 +11,7 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	//
 	// The storage uses a write-through cache so this should be
 	// a low cost call.
-	exisitingVerifiers, _ := task.getExistingVerifiers(ctx)
+	existingVerifiers, _ := task.getExistingVerifiers(ctx)
 	missing, err := task.getMissingVerifiers(ctx)
 	totalVerifiers := task.getVerifiers()
 	if err != nil {
@@ -34,7 +34,7 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 
 	// Log out useful information about this run
 	task.logger.Infof("Source Specified CCVs %s", totalVerifiers)
-	task.logger.Infof("Exisiting Verifications %s", exisitingVerifiers)
+	task.logger.Infof("Exisiting Verifications %s", existingVerifiers)
 	task.logger.Infof("Attempting to Retrieve %s", attemptingToRetrieve)
 	task.logger.Infof("Unknown CCVs %s", unknownCCVs)
 
