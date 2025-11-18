@@ -387,13 +387,13 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 }
 
 func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
-	messageIds := make([][]byte, 0, len(messageIDs))
+	messageIDsBytes := make([][]byte, 0, len(messageIDs))
 	for _, id := range messageIDs {
-		messageIds = append(messageIds, id[:])
+		messageIDsBytes = append(messageIDsBytes, id[:])
 	}
 
 	resp, err := a.client.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
-		MessageIds: messageIds,
+		MessageIds: messageIDsBytes,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error calling GetVerifierResultsForMessage: %s", err)
