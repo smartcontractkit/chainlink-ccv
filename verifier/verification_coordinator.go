@@ -437,32 +437,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 
 			// Write batch of CCVData to offchain storage
-			// FIXME: Entire write batch to offchain storage should be extracted to a separate method
-			storageStart := time.Now()
-
-			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err != nil {
-				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
-				vc.lggr.Errorw("Error storing CCV data batch",
-					"error", err,
-					"batchSize", len(ccvDataBatch.Items),
-				)
-				// Log individual messageIDs in failed batch
-				for _, ccvData := range ccvDataBatch.Items {
-					vc.lggr.Errorw("Failed to store CCV data in batch",
-						"messageID", ccvData.MessageID,
-						"nonce", ccvData.Nonce,
-						"sourceChain", ccvData.SourceChainSelector,
-					)
-				}
-			} else {
-				storageDuration := time.Since(storageStart)
-
-				// Record storage write duration
-				// FIXME: Ideally business logic shouldn't be polluted with monitoring calls (but that might be hard to achieve with current architecture)
-				vc.monitoring.Metrics().
-					With("verifier_id", vc.config.VerifierID).
-					RecordStorageWriteDuration(ctx, storageDuration)
-
+			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err == nil {
 				for _, ccvData := range ccvDataBatch.Items {
 					messageID := ccvData.MessageID.String()
 

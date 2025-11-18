@@ -314,12 +314,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	observedStorageWriter := storageaccess.NewObservedStorageWriter(
+		aggregatorWriter,
+		config.VerifierID,
+		lggr,
+		verifierMonitoring,
+	)
+
 	// Create verification coordinator
 	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
 		verifier.WithChainStatusManager(chainStatusManager),
-		verifier.WithStorage(aggregatorWriter),
+		verifier.WithStorage(observedStorageWriter),
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(verifierMonitoring),
