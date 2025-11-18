@@ -146,8 +146,9 @@ func NewReorgDetectorService(
 // Thread-safety:
 // - Safe to call once per instance
 // - Subsequent calls will return an error.
-func (r *ReorgDetectorService) Start(ctx context.Context) error {
-	return r.StartOnce("ReorgDetectorService", func() error {
+func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
+	var resultCh <-chan protocol.ChainStatus
+	err := r.StartOnce("ReorgDetectorService", func() error {
 		r.lggr.Infow("Starting reorg detector service",
 			"chainSelector", r.config.ChainSelector,
 			"pollInterval", r.pollInterval)
@@ -172,8 +173,10 @@ func (r *ReorgDetectorService) Start(ctx context.Context) error {
 			"latestFinalizedBlock", r.latestFinalizedBlock,
 			"latestBlock", r.latestBlock)
 
+		resultCh = r.statusCh
 		return nil
 	})
+	return resultCh, err
 }
 
 // pollAndCheckForReorgs is the main polling loop that periodically checks for new blocks
@@ -253,6 +256,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 
 		// Find LCA and handle reorg using finalized block number
 		if err := r.handleReorg(ctx, *latest, finalized.Number); err != nil {
+			// FIXME: Should we continue to operate on reorg detection failure?
 			r.lggr.Errorw("Failed to handle reorg",
 				"chainSelector", r.config.ChainSelector,
 				"error", err)

@@ -16,6 +16,16 @@ type VerificationTask struct {
 	QueuedAt     time.Time                  `json:"queued_at"`     // When added to finality queue (for finality wait duration)
 }
 
+// FinalityMode specifies how finalized blocks are determined.
+type FinalityMode string
+
+const (
+	// FinalityModeTag uses the chain's native finality tag (e.g., "finalized" block tag).
+	FinalityModeTag FinalityMode = "finality_tag"
+	// FinalityModeConfirmationDepth calculates finalized blocks using confirmation depth from latest block.
+	FinalityModeConfirmationDepth FinalityMode = "confirmation_depth"
+)
+
 // SourceConfig contains configuration for a single source chain.
 type SourceConfig struct {
 	VerifierAddress        protocol.UnknownAddress `json:"verifier_address"`
@@ -23,6 +33,8 @@ type SourceConfig struct {
 	ChainSelector          protocol.ChainSelector  `json:"chain_selector"`
 	PollInterval           time.Duration           `json:"poll_interval"`
 	RMNRemoteAddress       protocol.UnknownAddress `json:"rmn_remote_address"` // RMN Remote contract address for curse detection
+	FinalityMode           FinalityMode            `json:"finality_mode"`      // How to determine finalized blocks
+	FinalityDepth          uint64                  `json:"finality_depth"`     // Blocks behind latest for confirmation_depth mode
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator.

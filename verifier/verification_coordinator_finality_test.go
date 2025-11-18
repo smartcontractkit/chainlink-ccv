@@ -227,18 +227,16 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		finalizedBlockMu.RUnlock()
 
 		latest := &protocol.BlockHeader{
-			Number:               InitialLatestBlock,
-			Hash:                 protocol.Bytes32{byte(InitialLatestBlock % 256)},
-			ParentHash:           protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
-			Timestamp:            time.Now(),
-			FinalizedBlockNumber: finalizedNum,
+			Number:     InitialLatestBlock,
+			Hash:       protocol.Bytes32{byte(InitialLatestBlock % 256)},
+			ParentHash: protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
+			Timestamp:  time.Now(),
 		}
 		finalized := &protocol.BlockHeader{
-			Number:               finalizedNum,
-			Hash:                 protocol.Bytes32{byte(finalizedNum % 256)},
-			ParentHash:           protocol.Bytes32{byte((finalizedNum - 1) % 256)},
-			Timestamp:            time.Now(),
-			FinalizedBlockNumber: finalizedNum,
+			Number:     finalizedNum,
+			Hash:       protocol.Bytes32{byte(finalizedNum % 256)},
+			ParentHash: protocol.Bytes32{byte((finalizedNum - 1) % 256)},
+			Timestamp:  time.Now(),
 		}
 		return latest, finalized, nil
 	}).Maybe()

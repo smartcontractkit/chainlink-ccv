@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
@@ -70,18 +71,19 @@ const (
 )
 
 type Cfg struct {
-	Mode               services.Mode               `toml:"mode"`
-	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
-	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
-	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
-	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
-	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
-	Indexer            *services.IndexerInput      `toml:"indexer"               validate:"required"`
-	Aggregator         []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
-	Blockchains        []*blockchain.Input         `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                 `toml:"nodesets"              validate:"required"`
-	CLNodesFundingETH  float64                     `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                     `toml:"cl_nodes_funding_link"`
+	Mode               services.Mode                       `toml:"mode"`
+	CLDF               CLDF                                `toml:"cldf"                  validate:"required"`
+	JD                 *jd.Input                           `toml:"jd"                    validate:"required"`
+	Fake               *services.FakeInput                 `toml:"fake"                  validate:"required"`
+	Finality           map[string]*services.FinalityConfig `toml:"finality"`
+	Verifier           []*services.VerifierInput           `toml:"verifier"              validate:"required"`
+	Executor           *services.ExecutorInput             `toml:"executor"              validate:"required"`
+	Indexer            *services.IndexerInput              `toml:"indexer"               validate:"required"`
+	Aggregator         []*services.AggregatorInput         `toml:"aggregator"            validate:"required"`
+	Blockchains        []*blockchain.Input                 `toml:"blockchains"           validate:"required"`
+	NodeSets           []*ns.Input                         `toml:"nodesets"              validate:"required"`
+	CLNodesFundingETH  float64                             `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64                             `toml:"cl_nodes_funding_link"`
 }
 
 func checkKeys(in *Cfg) error {
@@ -176,6 +178,11 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	// Enable automine for Anvil chains during setup to ensure transactions can be processed
+	if err = enableAutomineForAnvilChains(in.Blockchains); err != nil {
+		return nil, fmt.Errorf("failed to enable automine: %w", err)
+	}
+
 	////////////////////////////
 	// Start: Launch CL Nodes //
 	// We launch the CL nodes first because they don't require any configuration from
@@ -200,6 +207,11 @@ func NewEnvironment() (in *Cfg, err error) {
 	currIndex := 0
 	for i := range in.Verifier {
 		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
+
+		// Inject global finality configuration into each verifier
+		if in.Finality != nil {
+			ver.Finality = in.Finality
+		}
 
 		switch ver.Mode {
 		case services.CL:
@@ -544,4 +556,55 @@ func prefixWith0xIfNeeded(s string) string {
 		return s
 	}
 	return "0x" + s
+}
+
+// enableAutomineForAnvilChains enables automine for all Anvil chains during setup.
+// This is necessary when Anvil is started with the --no-mining flag,
+// as transactions won't be mined automatically.
+func enableAutomineForAnvilChains(blockchains []*blockchain.Input) error {
+	for _, bc := range blockchains {
+		if bc.Type != "anvil" {
+			continue
+		}
+
+		// Check if --no-mining flag is present in docker_cmd_params
+		hasNoMining := false
+		for _, param := range bc.DockerCmdParamsOverrides {
+			if param == "--no-mining" {
+				hasNoMining = true
+				break
+			}
+		}
+
+		// If --no-mining is set, we need to enable automine
+		if hasNoMining {
+			Plog.Info().
+				Str("chain", bc.ChainID).
+				Msg("Enabling automine for Anvil chain (--no-mining flag detected)")
+
+			if bc.Out == nil || len(bc.Out.Nodes) == 0 {
+				return fmt.Errorf("blockchain output not initialized for chain %s", bc.ChainID)
+			}
+
+			// Use the HTTP URL to send RPC call
+			httpURL := bc.Out.Nodes[0].ExternalHTTPUrl
+			client, err := ethclient.Dial(httpURL)
+			if err != nil {
+				return fmt.Errorf("failed to connect to chain %s: %w", bc.ChainID, err)
+			}
+			defer client.Close()
+
+			// Enable automine using anvil_setAutomine RPC
+			var result any
+			err = client.Client().CallContext(context.Background(), &result, "anvil_setAutomine", true)
+			if err != nil {
+				return fmt.Errorf("failed to enable automine for chain %s: %w", bc.ChainID, err)
+			}
+
+			Plog.Info().
+				Str("chain", bc.ChainID).
+				Msg("Successfully enabled automine for Anvil chain")
+		}
+	}
+	return nil
 }

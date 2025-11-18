@@ -222,8 +222,18 @@ func main() {
 			continue
 		}
 
-		// Create mock head tracker for this chain
-		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr)
+		// Get finality configuration for this chain
+		finalityMode := verifier.FinalityModeTag
+		if mode, ok := config.FinalityModes[strSelector]; ok && mode != "" {
+			finalityMode = verifier.FinalityMode(mode)
+		}
+		finalityDepth := uint64(0)
+		if depth, ok := config.FinalityDepths[strSelector]; ok {
+			finalityDepth = depth
+		}
+
+		// Create head tracker with finality configuration
+		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr, finalityMode, finalityDepth)
 
 		evmSourceReader, err := sourcereader.NewEVMSourceReader(
 			chainClients[selector],
@@ -260,13 +270,32 @@ func main() {
 
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
+
+		// Parse finality configuration with defaults
+		finalityMode := verifier.FinalityModeTag // Default to finality tag
+		if mode, ok := config.FinalityModes[strSelector]; ok && mode != "" {
+			finalityMode = verifier.FinalityMode(mode)
+		}
+
+		finalityDepth := uint64(0) // Default depth
+		if depth, ok := config.FinalityDepths[strSelector]; ok {
+			finalityDepth = depth
+		}
+
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddresses[strSelector],
 			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
 			PollInterval:           1 * time.Second,
 			ChainSelector:          selector,
 			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
+			FinalityMode:           finalityMode,
+			FinalityDepth:          finalityDepth,
 		}
+
+		lggr.Infow("Configured finality for chain",
+			"chainSelector", selector,
+			"finalityMode", finalityMode,
+			"finalityDepth", finalityDepth)
 	}
 
 	coordinatorConfig := verifier.CoordinatorConfig{
@@ -403,15 +432,19 @@ func main() {
 // This provides a HeadTracker interface without requiring the full EVM head tracker setup.
 // It implements the heads.Tracker interface by delegating to the chain client.
 type simpleHeadTrackerWrapper struct {
-	chainClient client.Client
-	lggr        logger.Logger
+	chainClient   client.Client
+	lggr          logger.Logger
+	finalityMode  verifier.FinalityMode
+	finalityDepth uint64
 }
 
 // newSimpleHeadTrackerWrapper creates a new mock head tracker that delegates to the chain client.
-func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger) *simpleHeadTrackerWrapper {
+func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger, finalityMode verifier.FinalityMode, finalityDepth uint64) *simpleHeadTrackerWrapper {
 	return &simpleHeadTrackerWrapper{
-		chainClient: chainClient,
-		lggr:        lggr,
+		chainClient:   chainClient,
+		lggr:          lggr,
+		finalityMode:  finalityMode,
+		finalityDepth: finalityDepth,
 	}
 }
 
@@ -434,13 +467,18 @@ func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) 
 		latestHead = head
 	}()
 
-	// Fetch finalized block in parallel
+	// Fetch finalized block in parallel (or wait for latest if using confirmation depth)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		if m.finalityMode == verifier.FinalityModeConfirmationDepth {
+			// For confirmation depth mode, we need to wait for latest block first
+			// This goroutine will complete after the latest block goroutine
+			return
+		}
+		// Use chain's native finality tag
 		head, err := m.chainClient.LatestFinalizedBlock(ctx)
 		if err != nil {
-			// Fallback: if finalized block not available, use genesis
 			m.lggr.Debugw("Failed to get finalized block, falling back to genesis", "error", err)
 			head, err = m.chainClient.HeadByNumber(ctx, big.NewInt(0))
 			if err != nil {
@@ -460,6 +498,29 @@ func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) 
 		if err != nil {
 			return nil, nil, err
 		}
+	}
+
+	// If using confirmation depth mode, calculate finalized block after getting latest
+	if m.finalityMode == verifier.FinalityModeConfirmationDepth {
+		if latestHead == nil {
+			return nil, nil, fmt.Errorf("failed to get latest block for confirmation depth calculation")
+		}
+		// Calculate finalized block number based on confirmation depth
+		var finalizedBlockNum int64
+		if latestHead.Number >= int64(m.finalityDepth) {
+			finalizedBlockNum = latestHead.Number - int64(m.finalityDepth)
+		} else {
+			finalizedBlockNum = 0
+		}
+		m.lggr.Debugw("Using confirmation depth for finality",
+			"latestBlock", latestHead.Number,
+			"finalityDepth", m.finalityDepth,
+			"finalizedBlock", finalizedBlockNum)
+		head, err := m.chainClient.HeadByNumber(ctx, big.NewInt(finalizedBlockNum))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get block at depth %d: %w", finalizedBlockNum, err)
+		}
+		finalizedHead = head
 	}
 
 	return latestHead, finalizedHead, nil
