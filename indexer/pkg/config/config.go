@@ -17,7 +17,7 @@ type Config struct {
 	// Scheduler is the configuration for the scheduling component inside the indexer.
 	Scheduler SchedulerConfig `toml:"Scheduler"`
 	// Pool is the configuration for the worker pool within the indexer.
-	Pool PoolConfig `toml:"PoolConfig"`
+	Pool PoolConfig `toml:"Pool"`
 	// Verifiers contains the configured verifiers known to the indexer.
 	Verifiers []VerifierConfig `toml:"Verifier"`
 	// Storage is the configuration for the storage inside the indexer.
