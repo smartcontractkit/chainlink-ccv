@@ -55,18 +55,16 @@ func setupMockHeadTracker(t *testing.T) *protocol_mocks.MockHeadTracker {
 	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 
 	latestHeader := &protocol.BlockHeader{
-		Number:               latestBlockHeight,
-		Hash:                 protocol.Bytes32{byte(latestBlockHeight % 256)},
-		ParentHash:           protocol.Bytes32{byte((latestBlockHeight - 1) % 256)},
-		Timestamp:            time.Now(),
-		FinalizedBlockNumber: finalizedBlockHeight,
+		Number:     latestBlockHeight,
+		Hash:       protocol.Bytes32{byte(latestBlockHeight % 256)},
+		ParentHash: protocol.Bytes32{byte((latestBlockHeight - 1) % 256)},
+		Timestamp:  time.Now(),
 	}
 	finalizedHeader := &protocol.BlockHeader{
-		Number:               finalizedBlockHeight,
-		Hash:                 protocol.Bytes32{byte(finalizedBlockHeight % 256)},
-		ParentHash:           protocol.Bytes32{byte((finalizedBlockHeight - 1) % 256)},
-		Timestamp:            time.Now(),
-		FinalizedBlockNumber: finalizedBlockHeight,
+		Number:     finalizedBlockHeight,
+		Hash:       protocol.Bytes32{byte(finalizedBlockHeight % 256)},
+		ParentHash: protocol.Bytes32{byte((finalizedBlockHeight - 1) % 256)},
+		Timestamp:  time.Now(),
 	}
 	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latestHeader, finalizedHeader, nil).Maybe()
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
@@ -169,4 +170,65 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	}
 
 	return result, nil
+}
+
+// AnvilRPCHelper provides access to Anvil-specific RPC methods
+type AnvilRPCHelper struct {
+	client *ethclient.Client
+	logger zerolog.Logger
+}
+
+// NewAnvilRPCHelper creates a new helper for Anvil RPC operations
+func NewAnvilRPCHelper(client *ethclient.Client, logger zerolog.Logger) *AnvilRPCHelper {
+	return &AnvilRPCHelper{
+		client: client,
+		logger: logger,
+	}
+}
+
+// SetAutomine enables or disables automine mode
+func (a *AnvilRPCHelper) SetAutomine(ctx context.Context, enabled bool) error {
+	var result interface{}
+	err := a.client.Client().CallContext(ctx, &result, "anvil_setAutomine", enabled)
+	if err != nil {
+		return fmt.Errorf("failed to set automine to %v: %w", enabled, err)
+	}
+	a.logger.Info().Bool("enabled", enabled).Msg("Set automine")
+	return nil
+}
+
+// Mine mines the specified number of blocks
+func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
+	var result interface{}
+	err := a.client.Client().CallContext(ctx, &result, "anvil_mine", numBlocks, "0x0")
+	if err != nil {
+		return fmt.Errorf("failed to mine %d blocks: %w", numBlocks, err)
+	}
+	a.logger.Info().Int("numBlocks", numBlocks).Msg("Mined blocks")
+	return nil
+}
+
+// Snapshot creates a snapshot of the current blockchain state
+func (a *AnvilRPCHelper) Snapshot(ctx context.Context) (string, error) {
+	var snapshotID string
+	err := a.client.Client().CallContext(ctx, &snapshotID, "evm_snapshot")
+	if err != nil {
+		return "", fmt.Errorf("failed to create snapshot: %w", err)
+	}
+	a.logger.Info().Str("snapshotID", snapshotID).Msg("Created snapshot")
+	return snapshotID, nil
+}
+
+// Revert reverts the blockchain to a previous snapshot
+func (a *AnvilRPCHelper) Revert(ctx context.Context, snapshotID string) error {
+	var result bool
+	err := a.client.Client().CallContext(ctx, &result, "evm_revert", snapshotID)
+	if err != nil {
+		return fmt.Errorf("failed to revert to snapshot %s: %w", snapshotID, err)
+	}
+	if !result {
+		return fmt.Errorf("revert to snapshot %s returned false", snapshotID)
+	}
+	a.logger.Info().Str("snapshotID", snapshotID).Msg("Reverted to snapshot")
+	return nil
 }

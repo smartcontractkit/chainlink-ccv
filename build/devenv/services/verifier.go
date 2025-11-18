@@ -46,6 +46,12 @@ const (
 	DefaultVerifierDBImage = "postgres:16-alpine"
 )
 
+// FinalityConfig holds finality configuration for a specific chain.
+type FinalityConfig struct {
+	Mode  string `toml:"mode"`  // finality_tag or confirmation_depth
+	Depth uint64 `toml:"depth"` // only used when mode is confirmation_depth
+}
+
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
@@ -121,6 +127,9 @@ type VerifierInput struct {
 	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
 	// Maps to rmn_remote_addresses in the verifier config toml.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+	// Finality holds finality configuration for each chain selector.
+	// This is populated from the global finality configuration during setup.
+	Finality map[string]*FinalityConfig `toml:"finality"`
 }
 
 func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
@@ -136,6 +145,20 @@ func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) 
 	config.OnRampAddresses = v.OnRampAddresses
 	config.DefaultExecutorOnRampAddresses = v.DefaultExecutorOnRampAddresses
 	config.RMNRemoteAddresses = v.RMNRemoteAddresses
+
+	// Set finality configuration: use finality_tag as default for all chains
+	config.FinalityModes = make(map[string]string)
+	config.FinalityDepths = make(map[string]uint64)
+
+	for chainSelector := range v.OnRampAddresses {
+		if v.Finality != nil && v.Finality[chainSelector] != nil {
+			// Use configured finality settings
+			config.FinalityModes[chainSelector] = v.Finality[chainSelector].Mode
+			config.FinalityDepths[chainSelector] = v.Finality[chainSelector].Depth
+		} else {
+			config.FinalityModes[chainSelector] = "finality_tag"
+		}
+	}
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {
