@@ -403,7 +403,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		// find the verifier in the indexer config that references this aggregator
-		var idx int = -1
+		idx := -1
 		for i, ver := range in.Indexer.IndexerConfig.Verifiers {
 			if strings.HasPrefix(ver.Address, agg.CommitteeName) {
 				idx = i
@@ -549,6 +549,7 @@ executorConfig = """
 `, tomlConfig,
 	)
 }
+
 func committeeVerifierSpec(tomlConfig string) string {
 	return fmt.Sprintf(
 		`
