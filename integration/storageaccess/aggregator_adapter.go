@@ -46,14 +46,14 @@ func mapReceiptBlobs(receiptBlobs []protocol.ReceiptWithBlob) ([]*pb.ReceiptBlob
 	return result, nil
 }
 
-func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitCCVNodeDataRequest, error) {
+func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitteeVerifierNodeResultRequest, error) {
 	receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.WriteCommitCCVNodeDataRequest{
-		CcvNodeData: &pb.MessageWithCCVNodeData{
+	return &pb.WriteCommitteeVerifierNodeResultRequest{
+		CcvNodeData: &pb.CommitteeVerifierNodeResult{
 			MessageId:             ccvData.MessageID[:],
 			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
 			CcvData:               ccvData.CCVData,
@@ -94,11 +94,11 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 		if err != nil {
 			return err
 		}
-		responses, err := a.client.BatchWriteCommitCCVNodeData(ctx, &pb.BatchWriteCommitCCVNodeDataRequest{
-			Requests: []*pb.WriteCommitCCVNodeDataRequest{req},
+		responses, err := a.client.BatchWriteCommitteeVerifierNodeResult(ctx, &pb.BatchWriteCommitteeVerifierNodeResultRequest{
+			Requests: []*pb.WriteCommitteeVerifierNodeResultRequest{req},
 		})
 		if err != nil {
-			return fmt.Errorf("error calling BatchWriteCommitCCVNodeData: %w", err)
+			return fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
 		}
 		for _, resp := range responses.Responses {
 			if resp.Status != pb.WriteStatus_SUCCESS {

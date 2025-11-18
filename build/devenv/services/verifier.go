@@ -10,16 +10,23 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/Masterminds/semver/v3"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -268,7 +275,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			WithPollInterval(3 * time.Second),
 	}
 
-	// Note: identical code to aggregator.go -- will indexer/executor be identical as well?
+	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
@@ -323,4 +330,65 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultVerifierDBConnectionString,
 	}, nil
+}
+
+func ResolveContractsForVerifier(ds datastore.DataStore, blockchains []*blockchain.Input, ver VerifierInput) (VerifierInput, error) {
+	ver.OnRampAddresses = make(map[string]string)
+	ver.CommitteeVerifierAddresses = make(map[string]string)
+	ver.DefaultExecutorOnRampAddresses = make(map[string]string)
+	ver.RMNRemoteAddresses = make(map[string]string)
+
+	for _, chain := range blockchains {
+		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
+		if err != nil {
+			return VerifierInput{}, err
+		}
+		selectorStr := strconv.FormatUint(networkInfo.ChainSelector, 10)
+
+		onRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(onrampoperations.ContractType),
+			semver.MustParse(onrampoperations.Deploy.Version()),
+			"",
+		))
+		if err != nil {
+			return VerifierInput{}, fmt.Errorf("failed to get on ramp address for chain %s: %w", chain.ChainID, err)
+		}
+		ver.OnRampAddresses[selectorStr] = onRampAddressRef.Address
+
+		committeeVerifierAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(committee_verifier.ResolverProxyType),
+			semver.MustParse(committee_verifier.Deploy.Version()),
+			ver.CommitteeName,
+		))
+		if err != nil {
+			return VerifierInput{}, fmt.Errorf("failed to get committee verifier address for chain %s: %w", chain.ChainID, err)
+		}
+		ver.CommitteeVerifierAddresses[selectorStr] = committeeVerifierAddressRef.Address
+
+		defaultExecutorOnRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(executor.ContractType),
+			semver.MustParse(executor.Deploy.Version()),
+			"",
+		))
+		if err != nil {
+			return VerifierInput{}, fmt.Errorf("failed to get default executor on ramp address for chain %s: %w", chain.ChainID, err)
+		}
+		ver.DefaultExecutorOnRampAddresses[selectorStr] = defaultExecutorOnRampAddressRef.Address
+
+		rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(rmn_remote.ContractType),
+			semver.MustParse(rmn_remote.Deploy.Version()),
+			"",
+		))
+		if err != nil {
+			return VerifierInput{}, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
+		}
+		ver.RMNRemoteAddresses[selectorStr] = rmnRemoteAddressRef.Address
+	}
+
+	return ver, nil
 }

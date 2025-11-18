@@ -24,16 +24,16 @@ func (h *BatchWriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.BatchWriteCommitCCVNodeDataRequest) (*pb.BatchWriteCommitCCVNodeDataResponse, error) {
+func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.BatchWriteCommitteeVerifierNodeResultRequest) (*pb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
 	requests := req.GetRequests()
-	responses := make([]*pb.WriteCommitCCVNodeDataResponse, len(requests))
+	responses := make([]*pb.WriteCommitteeVerifierNodeResultResponse, len(requests))
 	errors := NewBatchErrorArray(len(requests))
 
 	wg := sync.WaitGroup{}
 
 	for i, r := range requests {
 		wg.Add(1)
-		go func(i int, r *pb.WriteCommitCCVNodeDataRequest) {
+		go func(i int, r *pb.WriteCommitteeVerifierNodeResultRequest) {
 			defer wg.Done()
 			resp, err := h.handler.Handle(ctx, r)
 			if err != nil {
@@ -53,7 +53,7 @@ func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb
 	}
 
 	wg.Wait()
-	return &pb.BatchWriteCommitCCVNodeDataResponse{
+	return &pb.BatchWriteCommitteeVerifierNodeResultResponse{
 		Responses: responses,
 		Errors:    errors,
 	}, nil

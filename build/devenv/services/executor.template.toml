@@ -10,11 +10,6 @@ execution_interval="15s"
 min_wait="3s"
 ccv_info_cache_expiry="5m"
 
-[offramp_addresses]
-    3379446385462418246 = "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318"
-    12922642891491394802 = "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318"
-    4793464827907405086 = "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318"
-
 [blockchain_infos]
     [blockchain_infos.3379446385462418246]
         ChainID = "1337"
@@ -48,14 +43,14 @@ ccv_info_cache_expiry="5m"
             InternalWSUrl = "ws://blockchain-3rd:8565"
 
 [Monitoring]
-Enabled = true
-Type = "beholder"
-[Monitoring.Beholder]
-InsecureConnection = true
-CACertFile = ""
-OtelExporterGRPCEndpoint = ""
-OtelExporterHTTPEndpoint = "otel-collector:4318"
-LogStreamingEnabled = true
-MetricReaderInterval = 5
-TraceSampleRatio = 1.0
-TraceBatchTimeout = 10
+    Enabled = true
+    Type = "beholder"
+    [Monitoring.Beholder]
+        InsecureConnection = true
+        CACertFile = ""
+        OtelExporterGRPCEndpoint = ""
+        OtelExporterHTTPEndpoint = "otel-collector:4318"
+        LogStreamingEnabled = true
+        MetricReaderInterval = 5
+        TraceSampleRatio = 1.0
+        TraceBatchTimeout = 10
