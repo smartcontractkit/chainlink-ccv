@@ -224,7 +224,7 @@ MessageChannelSize = 1000
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# To be filled in dynamically
+# Filled in dynamically after contract deployments
 IssuerAddresses = [""]
 Address = "default-aggregator:50051"
 Since = 0
@@ -233,7 +233,7 @@ Secret = "dev-secret-indexer"
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# To be filled in dynamically
+# Filled in dynamically after contract deployments
 IssuerAddresses = [""]
 Address = "secondary-aggregator:50051"
 Since = 0
@@ -242,7 +242,7 @@ Secret = "dev-secret-indexer"
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# To be filled in dynamically
+# Filled in dynamically after contract deployments
 IssuerAddresses = [""]
 Address = "tertiary-aggregator:50051"
 Since = 0
