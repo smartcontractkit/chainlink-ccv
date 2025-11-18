@@ -438,6 +438,7 @@ func (vc *Coordinator) run(ctx context.Context) {
 				vc.lggr.Infow("CCV data batch stored successfully",
 					"batchSize", len(ccvDataBatch.Items),
 				)
+				vc.messageTracker.TrackMessageLatencies(ctx, ccvDataBatch.Items)
 			}
 		}
 	}
