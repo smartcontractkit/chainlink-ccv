@@ -375,7 +375,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		WaitingFor: wait.ForHTTP("/health/live").WithPort("8080/tcp"),
 	}
 
-	// Note: identical code to verifier.go -- will indexer/executor be identical as well?
+	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
