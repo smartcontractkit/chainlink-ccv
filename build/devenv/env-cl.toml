@@ -1,6 +1,34 @@
 cl_nodes_funding_eth = 50
 cl_nodes_funding_link = 50
 
+[[nodesets]]
+  name = "don"
+  nodes = 2
+  override_mode = "each"
+
+  [nodesets.db]
+    image = "postgres:15.0"
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
+      CL_EVM_CMD=""
+
 [cldf]
 
 [jd]
@@ -39,6 +67,7 @@ cl_nodes_funding_link = 50
 
 ## Default Verifier Setup
 [[verifier]]
+  mode = "cl"
   image = "verifier:dev"
   container_name = "default-verifier-1"
   port = 8100
@@ -58,6 +87,7 @@ cl_nodes_funding_link = 50
     aggregator_secret_key = "dev-secret-verifier-1"
 
 [[verifier]]
+  mode = "cl"
   image = "verifier:dev"
   container_name = "default-verifier-2"
   port = 8200
@@ -77,6 +107,7 @@ cl_nodes_funding_link = 50
 
 # Secondary Verifier Setup
 [[verifier]]
+  mode = "cl"
   image = "verifier:dev"
   container_name = "secondary-verifier-1"
   port = 8300
@@ -95,6 +126,7 @@ cl_nodes_funding_link = 50
     aggregator_secret_key = "dev-secret-secondary-verifier-1"
 
 [[verifier]]
+  mode = "cl"
   image = "verifier:dev"
   container_name = "secondary-verifier-2"
   port = 8400
@@ -114,6 +146,7 @@ cl_nodes_funding_link = 50
 
 # Tertiary Verifier Setup
 [[verifier]]
+  mode = "cl"
   image = "verifier:dev"
   container_name = "tertiary-verifier-1"
   port = 8500
@@ -132,6 +165,7 @@ cl_nodes_funding_link = 50
     aggregator_secret_key = "dev-secret-tertiary-verifier-1"
 
 [[verifier]]
+  mode = "cl"
   image = "verifier:dev"
   container_name = "tertiary-verifier-2"
   port = 8600
@@ -150,6 +184,7 @@ cl_nodes_funding_link = 50
     aggregator_secret_key = "dev-secret-tertiary-verifier-2"
 
 [executor]
+  mode = "cl"
   image = "executor:dev"
   port = 8101
   source_code_path = "../executor"
@@ -189,7 +224,7 @@ MessageChannelSize = 1000
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# Filled in dynamically after contract deployments
+# To be filled in dynamically
 IssuerAddresses = [""]
 Address = "default-aggregator:50051"
 Since = 0
@@ -198,7 +233,7 @@ Secret = "dev-secret-indexer"
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# Filled in dynamically after contract deployments
+# To be filled in dynamically
 IssuerAddresses = [""]
 Address = "secondary-aggregator:50051"
 Since = 0
@@ -207,7 +242,7 @@ Secret = "dev-secret-indexer"
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# Filled in dynamically after contract deployments
+# To be filled in dynamically
 IssuerAddresses = [""]
 Address = "tertiary-aggregator:50051"
 Since = 0
