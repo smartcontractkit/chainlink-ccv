@@ -39,7 +39,7 @@ type Configuration struct {
 	// MinWait is the minimum wait time before the first executor in the turn taking pool begins processing a message.
 	// Defaults to 10 seconds.
 	MinWait string `toml:"min_wait"`
-	// Monitoring is the configuration for how Execuotr emits metrics.
+	// Monitoring is the configuration for how Executor emits metrics.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// CcvInfoCacheExpiry is the duration to cache CCV information for each destination chain.
 	// Cached information includes the Verifier Quorum per receiver address.

@@ -311,7 +311,7 @@ func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message pro
 	// Check if the message is already executed to not waste gas and time.
 	destinationChain := message.DestChainSelector
 
-	execuctionState, err := cle.destinationReaders[destinationChain].GetMessageExecutionState(
+	executionState, err := cle.destinationReaders[destinationChain].GetMessageExecutionState(
 		ctx,
 		message,
 	)
@@ -319,7 +319,7 @@ func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message pro
 		// If we can't get execution state, don't execute, but put back in heap to retry later.
 		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, fmt.Errorf("failed to check GetMessageExecutionState: %w", err)
 	}
-	switch execuctionState {
+	switch executionState {
 	case executor.MESSAGE_SUCCESS:
 		ret.ShouldRetry = false
 		ret.ShouldExecute = false
@@ -346,7 +346,7 @@ func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message pro
 
 	cle.lggr.Infow("message status",
 		"messageID", id,
-		"executionState", execuctionState,
+		"executionState", executionState,
 		"shouldRetry", ret.ShouldRetry,
 		"shouldExecute", ret.ShouldExecute,
 	)
