@@ -1,0 +1,38 @@
+name: Finish griddle deployment
+
+# This workflow is triggered by the `repository_dispatch` event and is responsible for
+# finishing the deployment process. It updates the deployment status based on the
+# results of the fluxcd deployment.
+
+on:
+  repository_dispatch:
+    types:
+      - HelmRelease/app-instance-1.workload-ns
+
+permissions:
+  pull-requests: write
+  deployments: write
+  contents: write
+  checks: read
+  statuses: read
+  id-token: write
+  actions: write
+  packages: read
+
+jobs:
+  finish-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: smartcontractkit/.github-internal/actions/finish-deploy@finish-deploy/1.0.0
+        id: finish-deploy
+        with:
+          trigger_result: ${{ github.event.client_payload.metadata.result }}
+          deployment_id: ${{ github.event.client_payload.metadata.deployment_id }}
+          environment: ${{ github.event.client_payload.metadata.environment }}
+          deployment_result: ${{ github.event.client_payload.metadata.result }}
+          deployment_message: ${{ github.event.client_payload.message }}
+          comment_id: ${{ github.event.client_payload.metadata.comment_id }}
+          initial_reaction_id: ${{ github.event.client_payload.metadata.initial_reaction_id }}
+          issue_number: ${{ github.event.client_payload.metadata.issue_number }}
+          actor_handle: ${{ github.event.client_payload.metadata.actor_handle }}
+          sha: ${{ github.event.client_payload.metadata.sha }}
