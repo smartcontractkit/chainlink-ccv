@@ -8,12 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type Scheduler struct {
 	lggr      logger.Logger
-	config    SchedulerConfig
+	config    config.SchedulerConfig
 	stopCh    chan struct{}
 	mu        sync.Mutex
 	delayHeap *DelayHeap
@@ -21,22 +22,9 @@ type Scheduler struct {
 	dlq       chan *Task
 }
 
-type SchedulerConfig struct {
-	TickerInterval time.Duration
-	MaxAttempts    int
-	BaseDelay      time.Duration
-	MaxDelay       time.Duration
-	ReadyQueueSize int
-	DLQSize        int
-	JitterFrac     float64
-}
-
-func NewScheduler(lggr logger.Logger, config SchedulerConfig) (*Scheduler, error) {
+func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler, error) {
 	delayHeap := &DelayHeap{}
 	heap.Init(delayHeap)
-	if err := config.validate(); err != nil {
-		return nil, err
-	}
 
 	return &Scheduler{
 		lggr:      lggr,
@@ -44,29 +32,9 @@ func NewScheduler(lggr logger.Logger, config SchedulerConfig) (*Scheduler, error
 		mu:        sync.Mutex{},
 		delayHeap: delayHeap,
 		stopCh:    make(chan struct{}),
-		ready:     make(chan *Task, config.ReadyQueueSize),
-		dlq:       make(chan *Task, config.DLQSize),
+		ready:     make(chan *Task),
+		dlq:       make(chan *Task),
 	}, nil
-}
-
-func (c *SchedulerConfig) validate() error {
-	if c.TickerInterval < time.Millisecond*10 {
-		return errors.New("ticker interval must be larger than 10 milliseconds, will cause excess resource consumption")
-	}
-
-	if c.BaseDelay >= c.MaxDelay {
-		return errors.New("max delay must be greater than base delay")
-	}
-
-	if c.MaxAttempts <= 0 {
-		return errors.New("max attempts must be a positive non-zero integer")
-	}
-
-	if c.JitterFrac <= 0 {
-		return errors.New("jitter frac must be a positive non-zero float")
-	}
-
-	return nil
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
@@ -78,7 +46,7 @@ func (s *Scheduler) Stop() {
 }
 
 func (s *Scheduler) run(ctx context.Context) {
-	ticker := time.NewTicker(s.config.TickerInterval)
+	ticker := time.NewTicker(time.Duration(s.config.TickerInterval) * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -101,9 +69,14 @@ func (s *Scheduler) run(ctx context.Context) {
 	}
 }
 
+func (s *Scheduler) VerificationVisabilityWindow() time.Duration {
+	return time.Duration(s.config.VerificationVisabilityWindow) * time.Second
+}
+
 func (s *Scheduler) shouldEnqueue(t *Task) (bool, time.Duration) {
-	if t.attempt+1 >= s.config.MaxAttempts {
-		return false, 0
+	// If the TTL has expired, we won't retry the message
+	if t.ttl.Before(time.Now()) {
+		return false, time.Duration(0)
 	}
 
 	return true, s.backoff(t.attempt + 1)
@@ -127,7 +100,7 @@ func (s *Scheduler) backoff(attempt int) time.Duration {
 	if s.config.JitterFrac > 0 && attempt > 0 {
 		j := s.config.JitterFrac * float64(d)
 		// #nosec G404 - only used for jitter, not secure rand generation
-		delta := time.Duration(rand.Int64N(int64(2*j))) - time.Duration(j)
+		delta := int(rand.Int64N(int64(2*j)) - int64(j))
 		d += delta
 	}
 
@@ -138,7 +111,7 @@ func (s *Scheduler) backoff(attempt int) time.Duration {
 		d = 0
 	}
 
-	return d
+	return time.Duration(d) * time.Millisecond
 }
 
 func (s *Scheduler) Ready() <-chan *Task {
