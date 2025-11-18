@@ -65,17 +65,17 @@ type Server struct {
 	started                            bool
 }
 
-// WriteCommitCCVNodeData handles requests to write commit verification records.
-func (s *Server) WriteCommitCCVNodeData(ctx context.Context, req *pb.WriteCommitCCVNodeDataRequest) (*pb.WriteCommitCCVNodeDataResponse, error) {
+// WriteCommitteeVerifierNodeResult handles requests to write commit verification records.
+func (s *Server) WriteCommitteeVerifierNodeResult(ctx context.Context, req *pb.WriteCommitteeVerifierNodeResultRequest) (*pb.WriteCommitteeVerifierNodeResultResponse, error) {
 	return s.writeCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-func (s *Server) BatchWriteCommitCCVNodeData(ctx context.Context, req *pb.BatchWriteCommitCCVNodeDataRequest) (*pb.BatchWriteCommitCCVNodeDataResponse, error) {
+func (s *Server) BatchWriteCommitteeVerifierNodeResult(ctx context.Context, req *pb.BatchWriteCommitteeVerifierNodeResultRequest) (*pb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
 	return s.batchWriteCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-// ReadCommitCCVNodeData handles requests to read commit verification records.
-func (s *Server) ReadCommitCCVNodeData(ctx context.Context, req *pb.ReadCommitCCVNodeDataRequest) (*pb.ReadCommitCCVNodeDataResponse, error) {
+// ReadCommitteeVerifierNodeResult handles requests to read commit verification records.
+func (s *Server) ReadCommitteeVerifierNodeResult(ctx context.Context, req *pb.ReadCommitteeVerifierNodeResultRequest) (*pb.ReadCommitteeVerifierNodeResultResponse, error) {
 	return s.readCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
