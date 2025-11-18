@@ -3,14 +3,43 @@ package registry
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
+
+// mockVerifierResultsAPI is a simple mock implementation of VerifierResultsAPI for testing.
+type mockVerifierResultsAPI struct {
+	results map[protocol.Bytes32]protocol.CCVData
+	err     error
+}
+
+func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+	if m.err != nil {
+		return m.results, m.err
+	}
+	return m.results, nil
+}
+
+// newMockVerifierReader creates a new VerifierReader instance for testing.
+func newMockVerifierReader() *readers.VerifierReader {
+	ctx := context.Background()
+	mockVerifier := &mockVerifierResultsAPI{
+		results: make(map[protocol.Bytes32]protocol.CCVData),
+	}
+	config := readers.VerifierReaderConfig{
+		BatchSize:         10,
+		MaxWaitTime:       100 * time.Millisecond,
+		MaxPendingBatches: 5,
+	}
+	return readers.NewVerifierReader(ctx, mockVerifier, config)
+}
 
 func TestNewVerifierRegistry(t *testing.T) {
 	reg := NewVerifierRegistry()
@@ -20,6 +49,7 @@ func TestNewVerifierRegistry(t *testing.T) {
 	addr, err := protocol.NewUnknownAddressFromHex("0x1234")
 	require.NoError(t, err)
 	mockVerifier := newMockVerifierReader()
+	defer mockVerifier.Close()
 	err = reg.AddVerifier(addr, mockVerifier)
 	assert.NoError(t, err)
 }
@@ -30,6 +60,7 @@ func TestAddVerifier_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	mockVerifier := newMockVerifierReader()
+	defer mockVerifier.Close()
 	err = reg.AddVerifier(addr, mockVerifier)
 	assert.NoError(t, err)
 
@@ -43,6 +74,7 @@ func TestAddVerifier_Duplicate(t *testing.T) {
 	require.NoError(t, err)
 
 	mockVerifier := newMockVerifierReader()
+	defer mockVerifier.Close()
 	err = reg.AddVerifier(addr, mockVerifier)
 	require.NoError(t, err)
 
@@ -67,6 +99,7 @@ func TestRemoveVerifier_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	mockVerifier := newMockVerifierReader()
+	defer mockVerifier.Close()
 	err = reg.AddVerifier(addr, mockVerifier)
 	require.NoError(t, err)
 
@@ -105,7 +138,9 @@ func TestGetVerifier_MultipleVerifiers(t *testing.T) {
 	require.NoError(t, err)
 
 	mockVerifier1 := newMockVerifierReader()
+	defer mockVerifier1.Close()
 	mockVerifier2 := newMockVerifierReader()
+	defer mockVerifier2.Close()
 
 	err = reg.AddVerifier(addr1, mockVerifier1)
 	require.NoError(t, err)
@@ -126,6 +161,8 @@ func TestGetVerifier_MultipleVerifiers(t *testing.T) {
 func TestConcurrentAccess(t *testing.T) {
 	reg := NewVerifierRegistry()
 	done := make(chan bool)
+	var verifiersMu sync.Mutex
+	verifiers := make([]*readers.VerifierReader, 0, 10)
 
 	// Concurrent adds
 	go func() {
@@ -133,6 +170,9 @@ func TestConcurrentAccess(t *testing.T) {
 			hexAddr := fmt.Sprintf("0x%04x", i)
 			addr, _ := protocol.NewUnknownAddressFromHex(hexAddr)
 			mockVerifier := newMockVerifierReader()
+			verifiersMu.Lock()
+			verifiers = append(verifiers, mockVerifier)
+			verifiersMu.Unlock()
 			_ = reg.AddVerifier(addr, mockVerifier)
 		}
 		done <- true
@@ -150,19 +190,13 @@ func TestConcurrentAccess(t *testing.T) {
 
 	<-done
 	<-done
-}
 
-// mockVerifierReader is a minimal implementation of VerifierReader for testing.
-type mockVerifierReader struct{}
-
-func (m *mockVerifierReader) Start(ctx context.Context) error { return nil }
-func (m *mockVerifierReader) Close() error                    { return nil }
-func (m *mockVerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common.Result[protocol.CCVData], error) {
-	return nil, nil
-}
-
-// newMockVerifierReader creates a pointer to a VerifierReader interface value.
-func newMockVerifierReader() *common.VerifierReader {
-	var vr common.VerifierReader = &mockVerifierReader{}
-	return &vr
+	// Clean up all verifiers
+	verifiersMu.Lock()
+	for _, verifier := range verifiers {
+		if verifier != nil {
+			_ = verifier.Close()
+		}
+	}
+	verifiersMu.Unlock()
 }

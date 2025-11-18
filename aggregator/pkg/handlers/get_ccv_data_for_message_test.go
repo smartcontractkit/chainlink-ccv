@@ -21,13 +21,15 @@ import (
 )
 
 // helper to build a proper committee with quorum config.
-func buildCommittee(destSel uint64, destVerifierAddr string, signers []model.Signer) *model.Committee {
+func buildCommittee(destSel, srcSel uint64, destVerifierAddr string, signers []model.Signer) *model.Committee {
 	return &model.Committee{
-		QuorumConfigs: map[string]*model.QuorumConfig{
+		QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 			strconv.FormatUint(destSel, 10): {
-				CommitteeVerifierAddress: destVerifierAddr,
-				Signers:                  signers,
-				Threshold:                1,
+				strconv.FormatUint(srcSel, 10): {
+					CommitteeVerifierAddress: destVerifierAddr,
+					Signers:                  signers,
+					Threshold:                1,
+				},
 			},
 		},
 	}
@@ -85,7 +87,7 @@ func TestGetCCVDataForMessageHandler_Handle_Cases(t *testing.T) {
 	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
 
-	committee := buildCommittee(destSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
+	committee := buildCommittee(destSel, sourceSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
 
 	goodReport := makeAggregatedReport(msgID[:], sourceSel, destSel, sourceVerifierAddr, signerAddr)
 

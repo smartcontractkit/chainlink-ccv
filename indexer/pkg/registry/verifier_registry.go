@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -16,14 +16,14 @@ import (
 //
 // VerifierRegistry is safe for concurrent use by multiple goroutines.
 type VerifierRegistry struct {
-	verifiers map[string]*common.VerifierReader
+	verifiers map[string]*readers.VerifierReader
 	mu        sync.RWMutex
 }
 
 // NewVerifierRegistry creates and returns a new VerifierRegistry instance.
 func NewVerifierRegistry() *VerifierRegistry {
 	return &VerifierRegistry{
-		verifiers: make(map[string]*common.VerifierReader),
+		verifiers: make(map[string]*readers.VerifierReader),
 	}
 }
 
@@ -31,7 +31,7 @@ func NewVerifierRegistry() *VerifierRegistry {
 // If a verifier with the same address already exists, AddVerifier returns an error.
 //
 // AddVerifier is safe for concurrent use.
-func (v *VerifierRegistry) AddVerifier(address protocol.UnknownAddress, verifier *common.VerifierReader) error {
+func (v *VerifierRegistry) AddVerifier(address protocol.UnknownAddress, verifier *readers.VerifierReader) error {
 	if verifier == nil {
 		return errors.New("verifier cannot be nil")
 	}
@@ -71,7 +71,7 @@ func (v *VerifierRegistry) RemoveVerifier(address protocol.UnknownAddress) error
 // If no verifier exists for the address, GetVerifier returns nil.
 //
 // GetVerifier is safe for concurrent use.
-func (v *VerifierRegistry) GetVerifier(address protocol.UnknownAddress) *common.VerifierReader {
+func (v *VerifierRegistry) GetVerifier(address protocol.UnknownAddress) *readers.VerifierReader {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 

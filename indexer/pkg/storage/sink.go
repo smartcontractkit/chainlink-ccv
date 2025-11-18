@@ -15,7 +15,7 @@ var _ common.IndexerStorage = (*Sink)(nil)
 // For reads, it tries each storage in order (if read condition allows) until data is found.
 // For writes, it writes to all storages in order (first storage written to first).
 type Sink struct {
-	storages []WithCondition
+	storages []common.IndexerStorage
 	lggr     logger.Logger
 }
 
@@ -24,7 +24,7 @@ type Sink struct {
 // The order of storages determines the read and write priority:
 // - Reads: Try first eligible storage, if not found try second, etc.
 // - Writes: Write to first storage, then second, etc.
-func NewSink(lggr logger.Logger, storages ...WithCondition) (*Sink, error) {
+func NewSink(lggr logger.Logger, storages ...common.IndexerStorage) (*Sink, error) {
 	if len(storages) == 0 {
 		return nil, fmt.Errorf("at least one storage is required")
 	}
@@ -35,49 +35,18 @@ func NewSink(lggr logger.Logger, storages ...WithCondition) (*Sink, error) {
 	}, nil
 }
 
-// NewSinkSimple creates a storage sink with all storages set to always read.
-// This is a convenience function for backward compatibility.
-func NewSinkSimple(lggr logger.Logger, storages ...common.IndexerStorage) (*Sink, error) {
-	if len(storages) == 0 {
-		return nil, fmt.Errorf("at least one storage is required")
-	}
-
-	withConditions := make([]WithCondition, len(storages))
-	for i, storage := range storages {
-		withConditions[i] = WithCondition{
-			Storage:   storage,
-			Condition: AlwaysRead(),
-		}
-	}
-
-	return NewSink(lggr, withConditions...)
-}
-
 // GetCCVData tries to retrieve data from each storage in order until found.
 // Returns the first successful result, or the last error if all storages fail.
 func (d *Sink) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
 	var lastErr error
-	attemptedCount := 0
 
-	for i, storageWithCond := range d.storages {
-		// Check if we should read from this storage
-		// For GetCCVData (no time range), pass nil for both start and end
-		if !storageWithCond.Condition.shouldRead(nil, nil) {
-			d.lggr.Debugw("Skipping storage based on read condition",
-				"storageIndex", i,
-				"messageID", messageID.String(),
-				"conditionType", storageWithCond.Condition.Type,
-			)
-			continue
-		}
-
-		attemptedCount++
+	for i, storage := range d.storages {
 		d.lggr.Debugw("Attempting to read from storage",
 			"storageIndex", i,
 			"messageID", messageID.String(),
 		)
 
-		data, err := storageWithCond.Storage.GetCCVData(ctx, messageID)
+		data, err := storage.GetCCVData(ctx, messageID)
 		if err == nil {
 			d.lggr.Debugw("Successfully read from storage",
 				"storageIndex", i,
@@ -104,12 +73,37 @@ func (d *Sink) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]pr
 		lastErr = err
 	}
 
-	// If we didn't attempt any storages, return a specific error
-	if attemptedCount == 0 {
-		return nil, fmt.Errorf("no storages eligible for read based on conditions")
+	// All eligible storages failed, return the last error
+	return nil, lastErr
+}
+
+func (d *Sink) GetCCVDataSkipCache(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+	var lastErr error
+
+	storageLength := len(d.storages)
+	for i, storage := range d.storages {
+		if storageLength > 1 && i == 0 {
+			d.lggr.Debugw("Skipping cache read", "storageIndex", i, "messageID", messageID.String())
+			continue
+		}
+
+		d.lggr.Debugw("Attemptting to read from storage", "storageIndex", i, "messageID", messageID.String())
+
+		data, err := storage.GetCCVData(ctx, messageID)
+		if err == nil {
+			d.lggr.Debugw("Successfully read from storage", "storageIndex", i, "messageID", messageID.String(), "dataCount", len(data))
+			return data, nil
+		}
+
+		if err != ErrCCVDataNotFound {
+			d.lggr.Warnw("Error reading from storage", "storageIndex", i, "messageID", messageID.String(), "error", err)
+		} else {
+			d.lggr.Debugw("Data not found in storage", "storageIndex", i, "messageID", messageID.String(), "error", err)
+		}
+
+		lastErr = err
 	}
 
-	// All eligible storages failed, return the last error
 	return nil, lastErr
 }
 
@@ -126,20 +120,7 @@ func (d *Sink) QueryCCVData(
 	var lastErr error
 	attemptedCount := 0
 
-	for i, storageWithCond := range d.storages {
-		// Check if we should read from this storage based on the query time range
-		if !storageWithCond.Condition.shouldRead(&start, &end) {
-			d.lggr.Debugw("Skipping storage based on read condition",
-				"storageIndex", i,
-				"queryStart", start,
-				"queryEnd", end,
-				"conditionType", storageWithCond.Condition.Type,
-				"conditionStart", storageWithCond.Condition.StartUnix,
-				"conditionEnd", storageWithCond.Condition.EndUnix,
-			)
-			continue
-		}
-
+	for i, storage := range d.storages {
 		attemptedCount++
 		d.lggr.Debugw("Attempting to query from storage",
 			"storageIndex", i,
@@ -149,7 +130,7 @@ func (d *Sink) QueryCCVData(
 			"offset", offset,
 		)
 
-		data, err := storageWithCond.Storage.QueryCCVData(ctx, start, end, sourceChainSelectors, destChainSelectors, limit, offset)
+		data, err := storage.QueryCCVData(ctx, start, end, sourceChainSelectors, destChainSelectors, limit, offset)
 		if err == ErrCCVDataNotFound || len(data) == 0 {
 			d.lggr.Debugw("No data found in storage",
 				"storageIndex", i,
@@ -193,13 +174,13 @@ func (d *Sink) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) erro
 	var errs []error
 	successCount := 0
 
-	for i, storageWithCond := range d.storages {
+	for i, storage := range d.storages {
 		d.lggr.Debugw("Attempting to write to storage",
 			"storageIndex", i,
 			"messageID", ccvData.MessageID.String(),
 		)
 
-		err := storageWithCond.Storage.InsertCCVData(ctx, ccvData)
+		err := storage.InsertCCVData(ctx, ccvData)
 		if err != nil {
 			// If it's a duplicate error, log it as debug and continue
 			if err == ErrDuplicateCCVData {
@@ -253,13 +234,13 @@ func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CC
 	var errs []error
 	successCount := 0
 
-	for i, storageWithCond := range d.storages {
+	for i, storage := range d.storages {
 		d.lggr.Debugw("Attempting batch write to storage",
 			"storageIndex", i,
 			"batchSize", len(ccvDataList),
 		)
 
-		err := storageWithCond.Storage.BatchInsertCCVData(ctx, ccvDataList)
+		err := storage.BatchInsertCCVData(ctx, ccvDataList)
 		if err != nil {
 			// For batch inserts, we don't have individual duplicate errors
 			// so we just log warnings for any errors
@@ -296,8 +277,8 @@ func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CC
 func (d *Sink) Close() error {
 	var errs []error
 
-	for i, storageWithCond := range d.storages {
-		if closer, ok := storageWithCond.Storage.(interface{ Close() error }); ok {
+	for i, storage := range d.storages {
+		if closer, ok := storage.(interface{ Close() error }); ok {
 			if err := closer.Close(); err != nil {
 				d.lggr.Warnw("Failed to close storage",
 					"storageIndex", i,

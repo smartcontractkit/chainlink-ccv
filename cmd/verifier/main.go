@@ -95,7 +95,7 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	filePath := "verifier-1.toml"
+	filePath := verifier.DefaultConfigFile
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}

@@ -6,18 +6,19 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewAggregatorReader(address string, lggr logger.Logger, since int64) (*ResilientReader, error) {
-	reader, err := storageaccess.NewAggregatorReader(address, lggr, since, nil)
+func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig hmac.ClientConfig) (*ResilientReader, error) {
+	reader, err := storageaccess.NewAggregatorReader(address, lggr, since, &hmacConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
 	}
 
 	config := DefaultResilienceConfig()
-	config.RetryPolicyErrorHandler = aggregatorRetryPolicyErrorHandler
-	config.CircuitBreakerErrorHandler = aggregatorCircuitBreakerErrorHandler
+	config.DiscoveryRetryPolicyErrorHandler = aggregatorRetryPolicyErrorHandler
+	config.DiscoveryCircuitBreakerErrorHandler = aggregatorCircuitBreakerErrorHandler
 
 	return NewResilientReader(reader, lggr, config), nil
 }

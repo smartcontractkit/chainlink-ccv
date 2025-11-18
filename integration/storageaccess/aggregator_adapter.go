@@ -13,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -350,6 +349,18 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 			tempSince = sequence + 1
 		}
 
+		receiptBlobs := []protocol.ReceiptWithBlob{}
+		for _, receipt := range result.GetReceiptBlobsFromMajority() {
+			receiptBlobs = append(receiptBlobs, protocol.ReceiptWithBlob{
+				Issuer:            protocol.UnknownAddress(receipt.Issuer),
+				Blob:              protocol.ByteSlice(receipt.Blob),
+				ExtraArgs:         protocol.ByteSlice(receipt.ExtraArgs),
+				DestGasLimit:      receipt.DestGasLimit,
+				DestBytesOverhead: receipt.DestBytesOverhead,
+				FeeTokenAmount:    big.NewInt(0), // for some reason doesn't exist in the pb message
+			})
+		}
+
 		results = append(results, protocol.QueryResponse{
 			Timestamp: nil,
 			Data: protocol.CCVData{
@@ -357,6 +368,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 				DestVerifierAddress:   result.GetDestVerifierAddress(),
 				CCVData:               result.CcvData,
 				// BlobData & ReceiptBlobs need to be added
+				ReceiptBlobs:        receiptBlobs,
 				Message:             msg,
 				Nonce:               msg.Nonce,
 				SourceChainSelector: msg.SourceChainSelector,
@@ -368,6 +380,52 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	}
 
 	a.since = tempSince
+
+	return results, nil
+}
+
+func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+	requests := make([]*pb.GetVerifierResultForMessageRequest, 0, len(messageIDs))
+	for _, id := range messageIDs {
+		requests = append(requests, &pb.GetVerifierResultForMessageRequest{
+			MessageId: id[:],
+		})
+	}
+
+	resp, err := a.client.BatchGetVerifierResultForMessage(ctx, &pb.BatchGetVerifierResultForMessageRequest{
+		Requests: requests,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error calling BatchGetVerifierResultsForMessage: %s", err)
+	}
+
+	a.lggr.Debugw("BatchGetVerifierResultForMessage", "count", len(resp.Results), "messageIDs", messageIDs)
+	results := make(map[protocol.Bytes32]protocol.CCVData)
+	for i, result := range resp.Results {
+		msg, err := mapMessage(result.Message)
+		if err != nil {
+			return nil, fmt.Errorf("error mapping message at index %d: %w", i, err)
+		}
+
+		messageID, err := msg.MessageID()
+		if err != nil {
+			return nil, fmt.Errorf("error computing message ID at index %d: %w", i, err)
+		}
+
+		results[messageID] = protocol.CCVData{
+			SourceVerifierAddress: protocol.UnknownAddress(result.SourceVerifierAddress),
+			DestVerifierAddress:   protocol.UnknownAddress(result.DestVerifierAddress),
+			CCVData:               protocol.ByteSlice(result.CcvData),
+			BlobData:              protocol.ByteSlice{},         // Unavailable in API
+			ReceiptBlobs:          []protocol.ReceiptWithBlob{}, // Unavailable in API
+			Message:               msg,
+			Nonce:                 msg.Nonce,
+			SourceChainSelector:   msg.SourceChainSelector,
+			DestChainSelector:     msg.DestChainSelector,
+			Timestamp:             time.UnixMilli(result.Timestamp),
+			MessageID:             messageID,
+		}
+	}
 
 	return results, nil
 }

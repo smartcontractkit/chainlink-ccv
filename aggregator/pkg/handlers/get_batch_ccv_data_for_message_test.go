@@ -57,7 +57,7 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 	signerAddr := addrSigner
 	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
-	committee := buildCommittee(destSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
+	committee := buildCommittee(destSel, sourceSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
 
 	h := NewGetBatchCCVDataForMessageHandler(store, committee, 10, lggr)
 
