@@ -87,7 +87,8 @@ func (a *AggregatorMessageDiscovery) validate() error {
 		return errors.New("invalid poll interval")
 	}
 
-	if a.config.Timeout <= a.config.PollInterval {
+	// Timeout in seconds, poll interval in milliseconds
+	if a.config.Timeout <= a.config.PollInterval/1000 {
 		return errors.New("invalid timeout, needs to be greater then poll interval")
 	}
 
@@ -147,7 +148,7 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Create a child context with a timeout to prevent a single call from blocking the entire discovery process
-			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Second)
+			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.

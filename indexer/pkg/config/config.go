@@ -35,8 +35,6 @@ type SchedulerConfig struct {
 	BaseDelay int `toml:"BaseDelay"`
 	// MaxDelay defines the maximum number of milliseconds to wait before retrying the message.
 	MaxDelay int `toml:"MaxDelay"`
-	// JitterFrac is a floating point fraction to add configurable jitter on retry attempts to prevent load spikes on verifiers.
-	JitterFrac float64 `toml:"JitterFrac"`
 }
 
 type PoolConfig struct {
@@ -251,10 +249,6 @@ func (c *Config) Validate() error {
 func (s *SchedulerConfig) Validate() error {
 	if s.BaseDelay <= 0 {
 		return fmt.Errorf("base delay must be greater than 0")
-	}
-
-	if s.JitterFrac <= 0 {
-		return fmt.Errorf("jitter frac must be greater than 0")
 	}
 
 	if s.MaxDelay <= s.BaseDelay {

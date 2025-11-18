@@ -90,7 +90,6 @@ func defaults(in *IndexerInput) {
 				VerificationVisabilityWindow: 28800,
 				BaseDelay:                    50,        // 50 milliseconds
 				MaxDelay:                     30 * 1000, // 30 Seconds
-				JitterFrac:                   0.1,       // ± 10%
 			},
 			Pool: config.PoolConfig{
 				ConcurrentWorkers: 1000,   // 1000 concurrent messages
@@ -103,8 +102,8 @@ func defaults(in *IndexerInput) {
 					APIKey:  "dev-api-key-indexer",
 					Secret:  "dev-secret-indexer",
 				},
-				PollInterval: 1,
-				Timeout:      5,
+				PollInterval: 500,
+				Timeout:      5000,
 			},
 			Verifiers: []config.VerifierConfig{
 				{

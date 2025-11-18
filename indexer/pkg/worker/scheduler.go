@@ -4,7 +4,6 @@ import (
 	"container/heap"
 	"context"
 	"errors"
-	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -32,8 +31,8 @@ func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler
 		mu:        sync.Mutex{},
 		delayHeap: delayHeap,
 		stopCh:    make(chan struct{}),
-		ready:     make(chan *Task),
-		dlq:       make(chan *Task),
+		ready:     make(chan *Task, 1),
+		dlq:       make(chan *Task, 1),
 	}, nil
 }
 
@@ -94,21 +93,11 @@ func (s *Scheduler) backoff(attempt int) time.Duration {
 		d = s.config.MaxDelay
 	}
 
-	// To prevent a flood of messages from overwhelming the verifiers we'll add
-	// a small percentage of the delay time. This should help favor smaller but
-	// more frquent batches to the verifiers.
-	if s.config.JitterFrac > 0 && attempt > 0 {
-		j := s.config.JitterFrac * float64(d)
-		// #nosec G404 - only used for jitter, not secure rand generation
-		delta := int(rand.Int64N(int64(2*j)) - int64(j))
-		d += delta
-	}
-
 	// Invairant check to ensure only positive integers are returned
 	// Shouldn't ever be triggered but to prevent downstream issues, we'll just assert on it.
 	if d < 0 {
 		s.lggr.Warn("Invairant Check triggered in Scheduler, messages will still be scheduled however no delay will be added.")
-		d = 0
+		d = s.config.BaseDelay
 	}
 
 	return time.Duration(d) * time.Millisecond

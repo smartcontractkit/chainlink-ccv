@@ -75,7 +75,7 @@ func (p *Pool) run(ctx context.Context) {
 				continue
 			}
 
-			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout))
+			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
 			p.logger.Infof("Starting Worker for %s", task.messageID.String())
 
 			if err := p.pool.Submit(func() {
