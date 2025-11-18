@@ -45,9 +45,9 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	t.Run("WriteCommitCCVNodeData requires authentication", func(t *testing.T) {
-		req := &pb.WriteCommitCCVNodeDataRequest{}
+		req := &pb.WriteCommitteeVerifierNodeResultRequest{}
 
-		_, err := aggregatorClient.WriteCommitCCVNodeData(ctx, req)
+		_, err := aggregatorClient.WriteCommitteeVerifierNodeResult(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
 
 		st, ok := status.FromError(err)
@@ -56,9 +56,9 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	t.Run("ReadCommitCCVNodeData requires authentication", func(t *testing.T) {
-		req := &pb.ReadCommitCCVNodeDataRequest{}
+		req := &pb.ReadCommitteeVerifierNodeResultRequest{}
 
-		_, err := aggregatorClient.ReadCommitCCVNodeData(ctx, req)
+		_, err := aggregatorClient.ReadCommitteeVerifierNodeResult(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
 
 		st, ok := status.FromError(err)
