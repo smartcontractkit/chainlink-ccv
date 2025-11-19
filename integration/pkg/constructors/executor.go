@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -19,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
@@ -40,6 +42,7 @@ func NewExecutorCoordinator(
 
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
+	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	for sel, chain := range relayers {
 		if _, ok := offRampAddresses[sel]; !ok {
 			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
@@ -55,7 +58,7 @@ func NewExecutorCoordinator(
 			fromAddresses[sel],
 		)
 
-		destReaders[sel] = destinationreader.NewEvmDestinationReader(
+		evmDestReader := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
 				Lggr:             logger.With(lggr, "component", "DestinationReader"),
 				ChainSelector:    sel,
@@ -64,7 +67,15 @@ func NewExecutorCoordinator(
 				RmnRemoteAddress: rmnAddresses[sel].String(),
 				CacheExpiry:      cfg.GetReaderCacheExpiry(),
 			})
+		destReaders[sel] = evmDestReader
+		rmnReaders[sel] = evmDestReader
 	}
+
+	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
+		Lggr:        lggr,
+		RmnReaders:  rmnReaders,
+		CacheExpiry: cfg.GetReaderCacheExpiry(),
+	})
 
 	// TODO: monitoring config home
 	executorMonitoring, err := monitoring.InitMonitoring(beholder.Config{
@@ -89,6 +100,7 @@ func NewExecutorCoordinator(
 		logger.With(lggr, "component", "Executor"),
 		transmitters,
 		destReaders,
+		curseChecker,
 		indexerClient,
 		executorMonitoring,
 	)

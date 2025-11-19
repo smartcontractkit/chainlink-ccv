@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -27,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
@@ -112,6 +114,7 @@ func main() {
 
 	contractTransmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
+	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	// create executor components
 	for strSel, chain := range executorConfig.BlockchainInfos {
 		selector, err := strconv.ParseUint(strSel, 10, 64)
@@ -151,14 +154,21 @@ func main() {
 		}
 
 		destReaders[protocol.ChainSelector(selector)] = dr
+		rmnReaders[protocol.ChainSelector(selector)] = dr
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
 	}
+
+	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
+		Lggr:        lggr,
+		RmnReaders:  rmnReaders,
+		CacheExpiry: executorConfig.GetReaderCacheExpiry(),
+	})
 
 	// create indexer client which implements MessageReader and VerifierResultReader
 	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
 
 	// create executor
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient, executorMonitoring)
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, indexerClient, executorMonitoring)
 
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(

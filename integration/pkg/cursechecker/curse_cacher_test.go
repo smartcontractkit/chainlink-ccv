@@ -85,14 +85,13 @@ func TestCachedCurseChecker_CacheHit(t *testing.T) {
 				Once()
 
 			// Create cached curse checker
-			checker, err := NewCachedCurseChecker(Params{
+			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
 				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: tt.cacheExpiry,
 			})
-			assert.NoError(t, err)
 
 			// First call - should hit the reader
 			result1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
@@ -184,14 +183,13 @@ func TestCachedCurseChecker_CacheExpiry(t *testing.T) {
 				Once()
 
 			// Create cached curse checker
-			checker, err := NewCachedCurseChecker(Params{
+			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
 				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: tt.cacheExpiry,
 			})
-			assert.NoError(t, err)
 
 			// First call - should hit the reader
 			result1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
@@ -257,14 +255,13 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 				Return(tt.secondResult, nil).
 				Once()
 
-			checker, err := NewCachedCurseChecker(Params{
+			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
 				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
 			})
-			assert.NoError(t, err)
 
 			// First call should assume cursed since the reader errors,
 			// and must not populate the cache, so another underlying call will happen next time.
@@ -332,12 +329,11 @@ func TestCachedCurseChecker_MultipleChains(t *testing.T) {
 			}
 
 			// Create cached curse checker
-			checker, err := NewCachedCurseChecker(Params{
+			checker := NewCachedCurseChecker(Params{
 				Lggr:        lggr,
 				RmnReaders:  mockReaders,
 				CacheExpiry: tt.cacheExpiry,
 			})
-			assert.NoError(t, err)
 
 			// Perform all checks
 			for _, check := range tt.checks {
@@ -416,14 +412,13 @@ func TestCachedCurseChecker_GlobalCurseDetection(t *testing.T) {
 				Once()
 
 			// Create cached curse checker
-			checker, err := NewCachedCurseChecker(Params{
+			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
 				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
 			})
-			assert.NoError(t, err)
 
 			// Check each chain
 			for i, remoteChain := range tt.checkChains {
@@ -466,14 +461,13 @@ func TestCachedCurseChecker_NilCursedSubjects(t *testing.T) {
 				Once()
 
 			// Create cached curse checker
-			checker, err := NewCachedCurseChecker(Params{
+			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
 				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
 			})
-			assert.NoError(t, err)
 
 			// Call should return false (no curses)
 			result := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)

@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -22,6 +23,7 @@ type ChainlinkExecutor struct {
 	lggr                  logger.Logger
 	contractTransmitters  map[protocol.ChainSelector]executor.ContractTransmitter
 	destinationReaders    map[protocol.ChainSelector]executor.DestinationReader
+	curseChecker          common.CurseChecker
 	verifierResultsReader executor.VerifierResultReader
 	monitoring            executor.Monitoring
 }
@@ -30,6 +32,7 @@ func NewChainlinkExecutor(
 	lggr logger.Logger,
 	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter,
 	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
+	curseChecker common.CurseChecker,
 	verifierResultReader executor.VerifierResultReader,
 	monitoring executor.Monitoring,
 ) *ChainlinkExecutor {
@@ -37,6 +40,7 @@ func NewChainlinkExecutor(
 		lggr:                  lggr,
 		contractTransmitters:  contractTransmitters,
 		destinationReaders:    destinationReaders,
+		curseChecker:          curseChecker,
 		verifierResultsReader: verifierResultReader,
 		monitoring:            monitoring,
 	}
@@ -289,11 +293,11 @@ func (cle *ChainlinkExecutor) GetMessageStatus(ctx context.Context, message prot
 	if err != nil {
 		return executor.MessageStatusResults{}, fmt.Errorf("failed to get message ID: %w", err)
 	}
-	// cursed, err := cle.destinationReaders[message.DestChainSelector].IsCursed(ctx, message)
-	// if err != nil || cursed {
-	// 	cle.lggr.Infow("skipping execution for message due to curse state check", "messageID", messageID, "error", err, "cursed", cursed)
-	// 	return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, nil
-	// }
+	cursed := cle.curseChecker.IsRemoteChainCursed(ctx, message.DestChainSelector, message.SourceChainSelector)
+	if cursed {
+		cle.lggr.Infow("skipping execution for message due to curse", "messageID", messageID, "cursed", cursed)
+		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, nil
+	}
 	return cle.GetExecutionState(ctx, message, messageID)
 }
 

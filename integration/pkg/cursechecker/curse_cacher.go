@@ -35,17 +35,17 @@ type Params struct {
 }
 
 // NewCachedCurseChecker creates a new CachedCurseChecker.
-func NewCachedCurseChecker(params Params) (CachedCurseChecker, error) {
+func NewCachedCurseChecker(params Params) CachedCurseChecker {
 	curseCache := expirable.NewLRU[protocol.ChainSelector, cacheValue](curseCacheMaxEntries, nil, params.CacheExpiry)
 	return CachedCurseChecker{
 		lggr:       params.Lggr,
 		rmnReaders: params.RmnReaders,
 		curseCache: curseCache,
-	}, nil
+	}
 }
 
 // IsRemoteChainCursed checks if the remote chain is cursed for the local chain.
-func (c *CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) bool {
+func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) bool {
 	cursedSubjects := make(map[protocol.Bytes16]struct{})
 	// Use Peek instead of Get to avoid refreshing the cache entry.
 	curseInfo, found := c.curseCache.Peek(localChain)
