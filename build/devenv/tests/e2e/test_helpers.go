@@ -199,10 +199,12 @@ func (a *AnvilRPCHelper) SetAutomine(ctx context.Context, enabled bool) error {
 
 // Mine mines the specified number of blocks
 func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
-	var result interface{}
-	err := a.client.Client().CallContext(ctx, &result, "anvil_mine", numBlocks, "0x0")
-	if err != nil {
-		return fmt.Errorf("failed to mine %d blocks: %w", numBlocks, err)
+	for i := 0; i < numBlocks; i++ {
+		var result interface{}
+		err := a.client.Client().CallContext(ctx, &result, "evm_mine")
+		if err != nil {
+			return fmt.Errorf("failed to mine %d blocks: %w", numBlocks, err)
+		}
 	}
 	a.logger.Info().Int("numBlocks", numBlocks).Msg("Mined blocks")
 	return nil

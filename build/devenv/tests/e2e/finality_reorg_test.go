@@ -70,14 +70,67 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 	anvilHelper := NewAnvilRPCHelper(ethClient, *l)
 
+	receiver := mustGetEOAReceiverAddress(t, c, destSelector)
+
+	executorAddr := getContractAddress(t, in, srcSelector,
+		datastore.ContractType(executor.ContractType),
+		executor.Deploy.Version(),
+		"",
+		"executor")
+
+	ccvAddr := getContractAddress(t, in, srcSelector,
+		datastore.ContractType(committee_verifier.ResolverProxyType),
+		committee_verifier.Deploy.Version(),
+		evm.DefaultCommitteeVerifierQualifier,
+		"committee verifier proxy")
+
+	mustSendMessageFunc := func(data string) [32]byte {
+		// Start goroutine to mine block after 2 seconds to confirm the transaction
+		go func() {
+			time.Sleep(1 * time.Second)
+			err := anvilHelper.Mine(ctx, 2) // one for the msg, one afterwards so verifier doesn't get stuck in a infinite reading for the msg
+			if err != nil {
+				l.Warn().Err(err).Msgf("Failed to mine block for message %s", data)
+			}
+		}()
+		event, err := c.SendMessage(ctx, srcSelector, destSelector,
+			cciptestinterfaces.MessageFields{
+				Receiver: receiver,
+				Data:     []byte(data),
+			},
+			cciptestinterfaces.MessageOptions{
+				Version:        3,
+				GasLimit:       200_000,
+				Executor:       executorAddr,
+				FinalityConfig: 10,
+				CCVs: []protocol.CCV{
+					{
+						CCVAddress: ccvAddr,
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+			})
+		require.NoError(t, err)
+		l.Info().
+			Str("data", data).
+			Int("seqNumber", int(event.SequenceNumber)).
+			Msg("Sending message")
+		return event.MessageID
+	}
+
 	t.Run("Disable automine", func(t *testing.T) {
 		err = anvilHelper.SetAutomine(ctx, false)
 		require.NoError(t, err)
+		mustSendMessageFunc("test msg")
 	})
 
 	t.Run("Enable automine", func(t *testing.T) {
 		err = anvilHelper.SetAutomine(ctx, true)
 		require.NoError(t, err)
+	})
+	t.Run("Send a msg", func(t *testing.T) {
+		mustSendMessageFunc("test msg")
 	})
 
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
@@ -92,20 +145,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 				l.Warn().Err(err).Msg("Failed to re-enable automine")
 			}
 		})
-
-		receiver := mustGetEOAReceiverAddress(t, c, destSelector)
-
-		executorAddr := getContractAddress(t, in, srcSelector,
-			datastore.ContractType(executor.ContractType),
-			executor.Deploy.Version(),
-			"",
-			"executor")
-
-		ccvAddr := getContractAddress(t, in, srcSelector,
-			datastore.ContractType(committee_verifier.ResolverProxyType),
-			committee_verifier.Deploy.Version(),
-			evm.DefaultCommitteeVerifierQualifier,
-			"committee verifier proxy")
 
 		err = anvilHelper.Mine(ctx, 3)
 		require.NoError(t, err)
@@ -128,41 +167,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		require.NoError(t, err)
 
 		time.Sleep(2 * time.Second)
-
-		mustSendMessageFunc := func(data string) [32]byte {
-			// Start goroutine to mine block after 2 seconds to confirm the transaction
-			go func() {
-				time.Sleep(2 * time.Second)
-				err := anvilHelper.Mine(ctx, 1)
-				if err != nil {
-					l.Warn().Err(err).Msgf("Failed to mine block for message %s", data)
-				}
-			}()
-			event, err := c.SendMessage(ctx, srcSelector, destSelector,
-				cciptestinterfaces.MessageFields{
-					Receiver: receiver,
-					Data:     []byte(data),
-				},
-				cciptestinterfaces.MessageOptions{
-					Version:        3,
-					GasLimit:       200_000,
-					Executor:       executorAddr,
-					FinalityConfig: 10,
-					CCVs: []protocol.CCV{
-						{
-							CCVAddress: ccvAddr,
-							Args:       []byte{},
-							ArgsLen:    0,
-						},
-					},
-				})
-			require.NoError(t, err)
-			l.Info().
-				Str("data", data).
-				Int("seqNumber", int(event.SequenceNumber)).
-				Msg("Sending message")
-			return event.MessageID
-		}
 
 		// Block 6
 		l.Info().Msg("📨 Sending message 1")
