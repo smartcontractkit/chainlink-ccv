@@ -108,7 +108,11 @@ func NewDefaultResilientAggregatorWriter(
 	delegate protocol.CCVNodeDataWriter,
 	lggr logger.Logger,
 ) *ResilientAggregatorWriter {
-	return NewResilientAggregatorWriter(delegate, lggr, DefaultWriterResilienceConfig())
+	return NewResilientAggregatorWriter(
+		delegate,
+		lggr,
+		DefaultWriterResilienceConfig(),
+	)
 }
 
 // WriteCCVNodeData writes CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.

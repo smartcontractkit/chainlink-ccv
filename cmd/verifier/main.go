@@ -315,7 +315,10 @@ func main() {
 	}
 
 	observedStorageWriter := storageaccess.NewObservedStorageWriter(
-		aggregatorWriter,
+		storageaccess.NewDefaultResilientAggregatorWriter(
+			aggregatorWriter,
+			lggr,
+		),
 		config.VerifierID,
 		lggr,
 		verifierMonitoring,
