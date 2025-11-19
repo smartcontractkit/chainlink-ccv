@@ -89,23 +89,40 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitteeV
 // WriteCCVNodeData writes CCV data to the aggregator via gRPC.
 func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
+
+	requests := make([]*pb.WriteCommitteeVerifierNodeResultRequest, 0, len(ccvDataList))
 	for _, ccvData := range ccvDataList {
 		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
+		// FIXME: Single bad entry shouldn't fail the whole batch, it might lead to infinitely retrying the same bad entry
+		// and making no progress
 		if err != nil {
 			return err
 		}
-		responses, err := a.client.BatchWriteCommitteeVerifierNodeResult(ctx, &pb.BatchWriteCommitteeVerifierNodeResultRequest{
-			Requests: []*pb.WriteCommitteeVerifierNodeResultRequest{req},
-		})
-		if err != nil {
-			return fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
+		requests = append(requests, req)
+	}
+
+	responses, err := a.client.BatchWriteCommitteeVerifierNodeResult(
+		ctx, &pb.BatchWriteCommitteeVerifierNodeResultRequest{
+			Requests: requests,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
+	}
+
+	// FIXME: AggregatorWriter should expose underlying errors (per single ccvDataRequest) to the caller,
+	// so that caller can decide what to do with failed entries (i.e., retry only failed ones).
+	for i, resp := range responses.Responses {
+		messageID := "unknown"
+		if i < len(ccvDataList) {
+			messageID = ccvDataList[i].MessageID.String()
 		}
-		for _, resp := range responses.Responses {
-			if resp.Status != pb.WriteStatus_SUCCESS {
-				return fmt.Errorf("failed to write CCV data for message ID %s: status %s", ccvData.MessageID.String(), resp.Status.String())
-			}
-			a.lggr.Infow("Successfully stored CCV data", "messageID", ccvData.MessageID)
+
+		if resp.Status != pb.WriteStatus_SUCCESS {
+			a.lggr.Info("BatchWriteCommitteeVerifierNodeResult", "status", resp.Status)
+			continue
 		}
+		a.lggr.Infow("Successfully stored CCV data", "messageID", messageID)
 	}
 	return nil
 }

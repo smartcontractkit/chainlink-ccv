@@ -143,14 +143,17 @@ func Test_UnderlyingCacheTTL(t *testing.T) {
 		Message:     message,
 		FirstSeenAt: time.Now(),
 	}
-
 	tracker.MarkMessageAsSeen(&task)
-	time.Sleep(100 * time.Millisecond)
 
-	tracker.TrackMessageLatencies(context.Background(), []protocol.CCVData{
+	// Wait for message to evaporate from the cache
+	require.Eventually(t, func() bool {
+		_, ok := tracker.messageTimestamps.Get(task.Message.MustMessageID().String())
+		return !ok
+	}, 1*time.Second, 10*time.Millisecond)
+
+	tracker.TrackMessageLatencies(t.Context(), []protocol.CCVData{
 		messageToCCVData(message),
 	})
-
 	require.Len(t, monitoring.Fake.E2ELatencyCalls, 0)
 }
 
