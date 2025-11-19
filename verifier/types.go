@@ -33,8 +33,6 @@ type SourceConfig struct {
 	ChainSelector          protocol.ChainSelector  `json:"chain_selector"`
 	PollInterval           time.Duration           `json:"poll_interval"`
 	RMNRemoteAddress       protocol.UnknownAddress `json:"rmn_remote_address"` // RMN Remote contract address for curse detection
-	FinalityMode           FinalityMode            `json:"finality_mode"`      // How to determine finalized blocks
-	FinalityDepth          uint64                  `json:"finality_depth"`     // Blocks behind latest for confirmation_depth mode
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator.

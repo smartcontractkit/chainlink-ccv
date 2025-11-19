@@ -222,18 +222,10 @@ func main() {
 			continue
 		}
 
-		// Get finality configuration for this chain
-		finalityMode := verifier.FinalityModeTag
-		if mode, ok := config.FinalityModes[strSelector]; ok && mode != "" {
-			finalityMode = verifier.FinalityMode(mode)
-		}
-		finalityDepth := uint64(0)
-		if depth, ok := config.FinalityDepths[strSelector]; ok {
-			finalityDepth = depth
-		}
-
-		// Create head tracker with finality configuration
-		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr, finalityMode, finalityDepth)
+		// Create head tracker with hardcoded finality configuration
+		// This is only for standalone mode and for testing purposes. We'll use finality depth of 10. In CL node it'll be using
+		// HeadTracker which already abstracts away this per chain.
+		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr, verifier.FinalityModeConfirmationDepth, 10)
 
 		evmSourceReader, err := sourcereader.NewEVMSourceReader(
 			chainClients[selector],
@@ -271,31 +263,15 @@ func main() {
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 
-		// Parse finality configuration with defaults
-		finalityMode := verifier.FinalityModeTag // Default to finality tag
-		if mode, ok := config.FinalityModes[strSelector]; ok && mode != "" {
-			finalityMode = verifier.FinalityMode(mode)
-		}
-
-		finalityDepth := uint64(0) // Default depth
-		if depth, ok := config.FinalityDepths[strSelector]; ok {
-			finalityDepth = depth
-		}
-
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddresses[strSelector],
 			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
 			PollInterval:           1 * time.Second,
 			ChainSelector:          selector,
 			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
-			FinalityMode:           finalityMode,
-			FinalityDepth:          finalityDepth,
 		}
 
-		lggr.Infow("Configured finality for chain",
-			"chainSelector", selector,
-			"finalityMode", finalityMode,
-			"finalityDepth", finalityDepth)
+		lggr.Infow("Configured source chain", "chainSelector", selector)
 	}
 
 	coordinatorConfig := verifier.CoordinatorConfig{

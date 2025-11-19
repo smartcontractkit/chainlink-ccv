@@ -209,6 +209,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	mockStorage := &NoopStorage{}
 	verificationTaskCh := mockSetup.Channel
 
+	mockSourceReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
 	// Return empty map to indicate no prior chain status (forces fallback to lookback calculation)

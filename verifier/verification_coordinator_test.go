@@ -129,6 +129,8 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	mockReader := mockSetup.Reader
 	mockSetup.ExpectFetchMessageSentEvent(true)
 
+	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockReader,
 	}

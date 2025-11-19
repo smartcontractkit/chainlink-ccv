@@ -50,6 +50,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	// Create mocks using the test helper pattern
 	mockSetup := SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
+	mockSetup.Reader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 

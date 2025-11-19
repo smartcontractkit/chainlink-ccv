@@ -71,19 +71,18 @@ const (
 )
 
 type Cfg struct {
-	Mode               services.Mode                       `toml:"mode"`
-	CLDF               CLDF                                `toml:"cldf"                  validate:"required"`
-	JD                 *jd.Input                           `toml:"jd"                    validate:"required"`
-	Fake               *services.FakeInput                 `toml:"fake"                  validate:"required"`
-	Finality           map[string]*services.FinalityConfig `toml:"finality"`
-	Verifier           []*services.VerifierInput           `toml:"verifier"              validate:"required"`
-	Executor           *services.ExecutorInput             `toml:"executor"              validate:"required"`
-	Indexer            *services.IndexerInput              `toml:"indexer"               validate:"required"`
-	Aggregator         []*services.AggregatorInput         `toml:"aggregator"            validate:"required"`
-	Blockchains        []*blockchain.Input                 `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                         `toml:"nodesets"              validate:"required"`
-	CLNodesFundingETH  float64                             `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                             `toml:"cl_nodes_funding_link"`
+	Mode               services.Mode               `toml:"mode"`
+	CLDF               CLDF                        `toml:"cldf"     validate:"required"`
+	JD                 *jd.Input                   `toml:"jd"       validate:"required"`
+	Fake               *services.FakeInput         `toml:"fake"     validate:"required"`
+	Verifier           []*services.VerifierInput   `toml:"verifier" validate:"required"`
+	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
+	Indexer            *services.IndexerInput      `toml:"indexer"               validate:"required"`
+	Aggregator         []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
+	Blockchains        []*blockchain.Input         `toml:"blockchains"           validate:"required"`
+	NodeSets           []*ns.Input                 `toml:"nodesets"              validate:"required"`
+	CLNodesFundingETH  float64                     `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64                     `toml:"cl_nodes_funding_link"`
 }
 
 func checkKeys(in *Cfg) error {
@@ -207,11 +206,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	currIndex := 0
 	for i := range in.Verifier {
 		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
-
-		// Inject global finality configuration into each verifier
-		if in.Finality != nil {
-			ver.Finality = in.Finality
-		}
 
 		switch ver.Mode {
 		case services.CL:

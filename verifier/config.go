@@ -26,13 +26,7 @@ type Config struct {
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
-	// FinalityModes is a map of finality modes for each chain selector.
-	// Valid values: "finality_tag" (default), "confirmation_depth".
-	FinalityModes map[string]string `toml:"finality_modes"`
-	// FinalityDepths is a map of finality depths for each chain selector.
-	// Only used when FinalityMode is "confirmation_depth".
-	FinalityDepths map[string]uint64 `toml:"finality_depths"`
-	Monitoring     MonitoringConfig  `toml:"monitoring"`
+	Monitoring         MonitoringConfig  `toml:"monitoring"`
 }
 
 // MonitoringConfig provides monitoring configuration for executor.

@@ -83,7 +83,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			}
 		})
 
-		finalityBlocks := uint16(10)
 		receiver := mustGetEOAReceiverAddress(t, c, destSelector)
 
 		executorAddr := getContractAddress(t, in, srcSelector,
@@ -133,10 +132,9 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 					Data:     []byte(data),
 				},
 				cciptestinterfaces.MessageOptions{
-					Version:        3,
-					GasLimit:       200_000,
-					FinalityConfig: finalityBlocks,
-					Executor:       executorAddr,
+					Version:  3,
+					GasLimit: 200_000,
+					Executor: executorAddr,
 					CCVs: []protocol.CCV{
 						{
 							CCVAddress: ccvAddr,
@@ -248,7 +246,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		l.Info().
 			Uint64("reorgDepth", blockBeforeReorg-blockAfterRevert).
-			Uint64("finalityBlocks", uint64(finalityBlocks)).
 			Msg("✨ Test completed: Messages sent in swapped order after reorg and verified after finality")
 	})
 }
