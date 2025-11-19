@@ -16,49 +16,70 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var _ protocol.CCVNodeDataWriter = (*ResilientAggregatorWriter)(nil)
+var (
+	_ protocol.CCVNodeDataWriter     = (*ResilientAggregator)(nil)
+	_ protocol.OffchainStorageReader = (*ResilientAggregator)(nil)
+)
 
-type WriterResilienceConfig struct {
+// AggregatorResilienceConfig contains configuration for aggregator resiliency policies.
+// Since both reader and writer communicate with the same server, they share circuit breaker,
+// bulkhead, and rate limiter, but have separate timeouts.
+type AggregatorResilienceConfig struct {
 	CircuitBreakerErrorHandler func(any, error) bool
 
+	// Shared settings
 	FailureThreshold      uint
 	SuccessThreshold      uint
 	CircuitBreakerDelay   time.Duration
-	RequestTimeout        time.Duration
 	MaxConcurrentRequests uint
 	MaxRequestsPerSecond  uint
+
+	// Operation-specific timeouts
+	WriteTimeout time.Duration
+	ReadTimeout  time.Duration
 }
 
-// DefaultWriterResilienceConfig returns a configuration with sensible defaults for gRPC writer.
-func DefaultWriterResilienceConfig() WriterResilienceConfig {
-	return WriterResilienceConfig{
+// DefaultAggregatorResilienceConfig returns a configuration with sensible defaults for gRPC aggregator.
+func DefaultAggregatorResilienceConfig() AggregatorResilienceConfig {
+	return AggregatorResilienceConfig{
 		FailureThreshold:      5,
 		SuccessThreshold:      3,
 		CircuitBreakerDelay:   2 * time.Second,
-		RequestTimeout:        5 * time.Second,
 		MaxConcurrentRequests: 10,
 		MaxRequestsPerSecond:  10,
+		WriteTimeout:          2 * time.Second,
+		ReadTimeout:           5 * time.Second,
 	}
 }
 
-// ResilientAggregatorWriter decorates a protocol.CCVNodeDataWriter
-// with failsafe-go policies: circuit breaker, timeout, rate limiter, and bulkhead.
-type ResilientAggregatorWriter struct {
-	delegate protocol.CCVNodeDataWriter
-	executor failsafe.Executor[any]
-	breaker  circuitbreaker.CircuitBreaker[any]
+// ResilientAggregator decorates both protocol.CCVNodeDataWriter and protocol.OffchainStorageReader
+// with failsafe-go policies. Since both communicate with the same server, they share circuit breaker,
+// rate limiter, and bulkhead, but have separate timeout policies for read vs write operations.
+type ResilientAggregator struct {
+	writer protocol.CCVNodeDataWriter
+	reader protocol.OffchainStorageReader
+
+	// Shared policies
+	circuitBreaker circuitbreaker.CircuitBreaker[any]
+	rateLimiter    ratelimiter.RateLimiter[any]
+	bulkhead       bulkhead.Bulkhead[any]
+
+	// Separate timeout policies for read and write
+	writeTimeout timeout.Timeout[any]
+	readTimeout  timeout.Timeout[any]
 
 	lggr                 logger.Logger
 	consecutiveErrors    atomic.Int32
 	maxConsecutiveErrors int32
 }
 
-// NewResilientAggregatorWriter creates a new resilient writer with custom configuration.
-func NewResilientAggregatorWriter(
-	delegate protocol.CCVNodeDataWriter,
+// NewResilientAggregator creates a new resilient aggregator with custom configuration.
+func NewResilientAggregator(
+	writer protocol.CCVNodeDataWriter,
+	reader protocol.OffchainStorageReader,
 	lggr logger.Logger,
-	config WriterResilienceConfig,
-) *ResilientAggregatorWriter {
+	config AggregatorResilienceConfig,
+) *ResilientAggregator {
 	handleIf := func(_ any, err error) bool { return err != nil }
 	if config.CircuitBreakerErrorHandler != nil {
 		handleIf = config.CircuitBreakerErrorHandler
@@ -68,13 +89,13 @@ func NewResilientAggregatorWriter(
 		WithDelay(config.CircuitBreakerDelay).
 		HandleIf(handleIf).
 		OnOpen(func(circuitbreaker.StateChangedEvent) {
-			lggr.Warnw("WriteCCVNodeData circuit breaker opened", "failures", config.FailureThreshold)
+			lggr.Warnw("Aggregator circuit breaker opened", "failures", config.FailureThreshold)
 		}).
 		OnHalfOpen(func(circuitbreaker.StateChangedEvent) {
-			lggr.Info("WriteCCVNodeData circuit breaker entering half-open state")
+			lggr.Info("Aggregator circuit breaker entering half-open state")
 		}).
 		OnClose(func(circuitbreaker.StateChangedEvent) {
-			lggr.Infow("WriteCCVNodeData circuit breaker closed", "successes", config.SuccessThreshold)
+			lggr.Infow("Aggregator circuit breaker closed", "successes", config.SuccessThreshold)
 		}).
 		WithFailureThreshold(config.FailureThreshold).
 		WithSuccessThreshold(config.SuccessThreshold).
@@ -84,45 +105,59 @@ func NewResilientAggregatorWriter(
 
 	bh := bulkhead.NewBuilder[any](config.MaxConcurrentRequests).
 		OnFull(func(failsafe.ExecutionEvent[any]) {
-			lggr.Warnw("WriteCCVNodeData bulkhead is full", "max_concurrent_requests", config.MaxConcurrentRequests)
+			lggr.Warnw("Aggregator bulkhead is full", "max_concurrent_requests", config.MaxConcurrentRequests)
 		}).
 		Build()
 
-	to := timeout.NewBuilder[any](config.RequestTimeout).
+	writeTO := timeout.NewBuilder[any](config.WriteTimeout).
 		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[any]) {
-			lggr.Warnw("WriteCCVNodeData request timeout exceeded", "timeout", config.RequestTimeout)
+			lggr.Warnw("Aggregator write request timeout exceeded", "timeout", config.WriteTimeout)
 		}).
 		Build()
 
-	return &ResilientAggregatorWriter{
-		delegate:             delegate,
-		executor:             failsafe.With(rl, bh, cb, to),
-		breaker:              cb,
+	readTO := timeout.NewBuilder[any](config.ReadTimeout).
+		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[any]) {
+			lggr.Warnw("Aggregator read request timeout exceeded", "timeout", config.ReadTimeout)
+		}).
+		Build()
+
+	return &ResilientAggregator{
+		writer:               writer,
+		reader:               reader,
+		circuitBreaker:       cb,
+		rateLimiter:          rl,
+		bulkhead:             bh,
+		writeTimeout:         writeTO,
+		readTimeout:          readTO,
 		lggr:                 lggr,
 		maxConsecutiveErrors: 10,
 	}
 }
 
-// NewDefaultResilientAggregatorWriter creates a new resilient writer with sensible defaults.
-func NewDefaultResilientAggregatorWriter(
-	delegate protocol.CCVNodeDataWriter,
+// NewDefaultResilientAggregator creates a new resilient aggregator with sensible defaults.
+func NewDefaultResilientAggregator(
+	writer protocol.CCVNodeDataWriter,
+	reader protocol.OffchainStorageReader,
 	lggr logger.Logger,
-) *ResilientAggregatorWriter {
-	return NewResilientAggregatorWriter(
-		delegate,
+) *ResilientAggregator {
+	return NewResilientAggregator(
+		writer,
+		reader,
 		lggr,
-		DefaultWriterResilienceConfig(),
+		DefaultAggregatorResilienceConfig(),
 	)
 }
 
 // WriteCCVNodeData writes CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.
-func (r *ResilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
-	_, err := r.executor.GetWithExecution(func(failsafe.Execution[any]) (any, error) {
-		return nil, r.delegate.WriteCCVNodeData(ctx, ccvDataList)
+func (r *ResilientAggregator) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
+
+	_, err := executor.GetWithExecution(func(failsafe.Execution[any]) (any, error) {
+		return nil, r.writer.WriteCCVNodeData(ctx, ccvDataList)
 	})
 	if err != nil {
 		r.recordError()
-		if r.breaker.State() == circuitbreaker.OpenState {
+		if r.circuitBreaker.State() == circuitbreaker.OpenState {
 			return fmt.Errorf("circuit breaker is open, aggregator service unavailable: %w", err)
 		}
 		return fmt.Errorf("failed to write CCV data: %w", err)
@@ -132,18 +167,41 @@ func (r *ResilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDat
 	return nil
 }
 
-// GetCircuitBreakerState returns the current state of the circuit breaker.
-func (r *ResilientAggregatorWriter) GetCircuitBreakerState() circuitbreaker.State {
-	return r.breaker.State()
+// ReadCCVData reads CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.
+func (r *ResilientAggregator) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
+	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.readTimeout)
+
+	result, err := executor.GetWithExecution(func(failsafe.Execution[any]) (any, error) {
+		return r.reader.ReadCCVData(ctx)
+	})
+	if err != nil {
+		r.recordError()
+		if r.circuitBreaker.State() == circuitbreaker.OpenState {
+			return nil, fmt.Errorf("circuit breaker is open, aggregator service unavailable: %w", err)
+		}
+		return nil, fmt.Errorf("failed to read CCV data: %w", err)
+	}
+
+	r.recordSuccess()
+	casted, ok := result.([]protocol.QueryResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type from ReadCCVData: %T", result)
+	}
+	return casted, nil
 }
 
-func (r *ResilientAggregatorWriter) recordError() {
+// GetCircuitBreakerState returns the current state of the circuit breaker.
+func (r *ResilientAggregator) GetCircuitBreakerState() circuitbreaker.State {
+	return r.circuitBreaker.State()
+}
+
+func (r *ResilientAggregator) recordError() {
 	count := r.consecutiveErrors.Add(1)
 	if count >= r.maxConsecutiveErrors {
-		r.lggr.Warnw("Max consecutive write errors reached", "consecutive_errors", count)
+		r.lggr.Warnw("Max consecutive aggregator errors reached", "consecutive_errors", count)
 	}
 }
 
-func (r *ResilientAggregatorWriter) recordSuccess() {
+func (r *ResilientAggregator) recordSuccess() {
 	r.consecutiveErrors.Store(0)
 }

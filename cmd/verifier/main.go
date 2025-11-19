@@ -314,11 +314,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	storageAccess := storageaccess.NewDefaultResilientAggregator(
+		aggregatorWriter,
+		aggregatorReader,
+		lggr,
+	)
+
 	observedStorageWriter := storageaccess.NewObservedStorageWriter(
-		storageaccess.NewDefaultResilientAggregatorWriter(
-			aggregatorWriter,
-			lggr,
-		),
+		storageAccess,
 		config.VerifierID,
 		lggr,
 		verifierMonitoring,
