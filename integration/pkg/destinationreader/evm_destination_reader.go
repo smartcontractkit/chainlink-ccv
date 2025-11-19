@@ -18,22 +18,17 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
-// Ensure ChainlinkExecutor implements the Executor interface.
 var (
 	// Ensure EvmDestinationReader implements the DestinationReader interface.
-	_                    = executor.DestinationReader(&EvmDestinationReader{})
-	curseCacheMaxEntries = 100
+	_ = executor.DestinationReader(&EvmDestinationReader{})
+
 	// This 1000 number is arbitrary, it can be adjusted as needed depending on usage pattern.
-	VERIFIER_QUORUM_CACHE_MAX_ENTRIES = 1000
+	VerifierQuorumCacheMaxEntries = 1000
 )
 
 type verifierQuorumCacheKey struct {
 	sourceChainSelector protocol.ChainSelector
 	receiverAddress     string
-}
-
-type curseCacheKey struct {
-	sourceChainSelector protocol.ChainSelector
 }
 
 type EvmDestinationReader struct {
@@ -43,7 +38,6 @@ type EvmDestinationReader struct {
 	client          bind.ContractCaller
 	chainSelector   protocol.ChainSelector
 	ccvCache        *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
-	curseCache      *expirable.LRU[protocol.ChainSelector, bool]
 }
 
 type Params struct {
@@ -69,8 +63,7 @@ func NewEvmDestinationReader(params Params) *EvmDestinationReader {
 	}
 
 	// Create cache with max 1000 entries and configurable expiry for verifier quorum info.
-	ccvCache := expirable.NewLRU[verifierQuorumCacheKey, executor.CCVAddressInfo](VERIFIER_QUORUM_CACHE_MAX_ENTRIES, nil, params.CacheExpiry)
-	curseCache := expirable.NewLRU[protocol.ChainSelector, bool](curseCacheMaxEntries, nil, params.CacheExpiry)
+	ccvCache := expirable.NewLRU[verifierQuorumCacheKey, executor.CCVAddressInfo](VerifierQuorumCacheMaxEntries, nil, params.CacheExpiry)
 
 	return &EvmDestinationReader{
 		offRampCaller:   *offRamp,
@@ -79,7 +72,6 @@ func NewEvmDestinationReader(params Params) *EvmDestinationReader {
 		chainSelector:   params.ChainSelector,
 		client:          params.ChainClient,
 		ccvCache:        ccvCache,
-		curseCache:      curseCache,
 	}
 }
 
@@ -159,9 +151,8 @@ func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, me
 	return executor.MessageExecutionState(execState), nil
 }
 
-// IsCursed checks if the message lane is cursed, or if there is a global curse on the destination.
-// We use a 5 minute cache for this check as an optimization for surge message scenarios.
-// If we have a stale cache state, message will eventually be retried either by another executor or by this one.
+// GetRMNCursedSubjects gets all the cursed subjects for the destination chain including global curse.
+// Used in conjunction with common.CurseChecker to persist information. This EVMReadRMNCursedSubjects is shared with verifier.
 func (dr *EvmDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// We use an abstracted function to reuse code between verifier and executor.
 	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, dr.rmnRemoteCaller)

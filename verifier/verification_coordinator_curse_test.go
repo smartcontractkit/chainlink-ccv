@@ -158,7 +158,7 @@ func (s *curseTestSetup) curseLane(destChain protocol.ChainSelector) {
 	// Keep other lanes uncursed
 	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, mock.MatchedBy(func(chain protocol.ChainSelector) bool {
 		return chain != destChain
-	}), mock.Anything).Return(false).Maybe()
+	})).Return(false).Maybe()
 }
 
 func (s *curseTestSetup) curseGlobally() {
