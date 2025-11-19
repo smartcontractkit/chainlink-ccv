@@ -34,10 +34,14 @@ func NewExecutorCoordinator(
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {
 	offRampAddresses, err := mapAddresses(cfg.OffRampAddresses)
-	rmnAddresses, err := mapAddresses(cfg.RmnAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map offramp addresses.", "error", err)
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map offramp addresses: %w", err)
+	}
+	rmnAddresses, err := mapAddresses(cfg.RmnAddresses)
+	if err != nil {
+		lggr.Errorw("Invalid CCV configuration, failed to map rmn addresses.", "error", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map rmn addresses: %w", err)
 	}
 
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
