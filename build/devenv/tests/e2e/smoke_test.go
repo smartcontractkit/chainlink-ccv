@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"math/big"
-	"os"
 	"testing"
 	"time"
 
@@ -60,17 +59,10 @@ type testcase struct {
 }
 
 func TestE2ESmoke(t *testing.T) {
-	outFile := os.Getenv("ENV_OUT_FILE")
-	if outFile == "" {
-		outFile = "../../env-out.toml"
-	}
-
+	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
+	require.NoError(t, err)
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
-	l.Info().Str("outFile", outFile).Msg("loading environment output")
-
-	in, err := ccv.LoadOutput[ccv.Cfg](outFile)
-	require.NoError(t, err)
 
 	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
 	for _, bc := range in.Blockchains {
