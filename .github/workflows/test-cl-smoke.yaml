@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         test: [
-          { name: "TestE2ESmoke", config: "env.toml,env-cl.toml" },
+          { name: "TestE2ESmoke", config: "env.toml,env-cl.toml,env-cl-ci.toml" },
         ]
       fail-fast: false
     steps:
@@ -87,7 +87,7 @@ jobs:
       - name: Run Observability Stack
         run: |
           cd cmd/ccv && go install . && cd -
-          ccv obs u -f
+          ccv obs u -m loki
 
       - name: Run CCV environment with config
         run: |
