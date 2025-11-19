@@ -30,7 +30,7 @@ type SchedulerConfig struct {
 	// TickerInterval defines the number of milliseconds to wait before running the next scheduling loop.
 	TickerInterval int `toml:"TickerInterval"`
 	// VerificationVisibilityWindow defines the number of seconds before we will no longer attempt to retrieve verifications.
-	VerificationVisibilityWindow int `toml:"VerificationVisabilityWindow"`
+	VerificationVisibilityWindow int `toml:"VerificationVisibilityWindow"`
 	// BaseDelay defines the minimum number of milliseconds to wait before retrying the message.
 	BaseDelay int `toml:"BaseDelay"`
 	// MaxDelay defines the maximum number of milliseconds to wait before retrying the message.
