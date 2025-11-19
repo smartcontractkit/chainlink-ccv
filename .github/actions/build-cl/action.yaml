@@ -30,6 +30,7 @@ runs:
         go-version-file: ${{ steps.go-mod.outputs.path }}
     
     - name: Upgrade chainlink-ccv dependency to current commit
+      shell: bash
       run: |
         cd chainlink-repo
         go get github.com/smartcontractkit/chainlink-ccv@${{ github.event.pull_request.head.sha || github.sha }}
