@@ -9,8 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/patrickmn/go-cache"
-
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -21,9 +19,7 @@ import (
 )
 
 const (
-	DefaultSourceReaderPollInterval       = 2 * time.Second
-	DefaultE2ELatencyCacheExpiration      = 2 * time.Hour
-	DefaultE2ELatencyCacheCleanupInterval = 5 * time.Minute
+	DefaultSourceReaderPollInterval = 2 * time.Second
 )
 
 // sourceState manages state for a single source chain reader.
@@ -59,7 +55,7 @@ func (s *sourceState) Close() error {
 
 // Coordinator orchestrates the verification workflow using the new message format with finality awareness.
 type Coordinator struct {
-	services.StateMachine
+	sync         services.StateMachine
 	cancel       context.CancelFunc
 	verifyingWg  sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
 	backgroundWg sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
@@ -68,11 +64,10 @@ type Coordinator struct {
 	storage               protocol.CCVNodeDataWriter
 	lggr                  logger.Logger
 	monitoring            Monitoring
+	messageTracker        MessageLatencyTracker
 	sourceStates          map[protocol.ChainSelector]*sourceState
 	config                CoordinatorConfig
 	finalityCheckInterval time.Duration
-	// Timestamp tracking for E2E latency measurement
-	messageTimestamps *cache.Cache
 
 	// Storage batching
 	storageBatcher   *batcher.Batcher[protocol.CCVData]
@@ -81,7 +76,6 @@ type Coordinator struct {
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
 	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
-	headTrackers       map[protocol.ChainSelector]chainaccess.HeadTracker
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
 	curseDetector      common.CurseChecker
 }
@@ -121,24 +115,6 @@ func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainacc
 	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
 }
 
-// WithHeadTrackers sets multiple head trackers.
-func WithHeadTrackers(headTrackers map[protocol.ChainSelector]chainaccess.HeadTracker) Option {
-	return func(vc *Coordinator) {
-		if vc.headTrackers == nil {
-			vc.headTrackers = make(map[protocol.ChainSelector]chainaccess.HeadTracker)
-		}
-
-		for chainSelector, tracker := range headTrackers {
-			vc.headTrackers[chainSelector] = tracker
-		}
-	}
-}
-
-// AddHeadTracker adds a single head tracker to the existing map.
-func AddHeadTracker(chainSelector protocol.ChainSelector, headTracker chainaccess.HeadTracker) Option {
-	return WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{chainSelector: headTracker})
-}
-
 // WithStorage sets the storage writer.
 func WithStorage(storage protocol.CCVNodeDataWriter) Option {
 	return func(vc *Coordinator) {
@@ -174,6 +150,12 @@ func WithMonitoring(monitoring Monitoring) Option {
 	}
 }
 
+func WithMessageTracker(tracker MessageLatencyTracker) Option {
+	return func(vc *Coordinator) {
+		vc.messageTracker = tracker
+	}
+}
+
 // WithReorgDetectors sets the reorg detectors for each source chain.
 func WithReorgDetectors(reorgDetectors map[protocol.ChainSelector]protocol.ReorgDetector) Option {
 	return func(vc *Coordinator) {
@@ -204,10 +186,6 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
 		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
-		messageTimestamps: cache.New(
-			DefaultE2ELatencyCacheExpiration,
-			DefaultE2ELatencyCacheCleanupInterval,
-		),
 	}
 
 	// Apply all options
@@ -230,7 +208,7 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 // Maybe we can split into smaller methods related to initialization of different components?
 // Start begins the verification coordinator processing.
 func (vc *Coordinator) Start(_ context.Context) error {
-	return vc.StartOnce("Coordinator", func() error {
+	return vc.sync.StartOnce("Coordinator", func() error {
 		ctx, cancel := context.WithCancel(context.Background())
 		vc.cancel = cancel
 
@@ -284,16 +262,8 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				sourcePollInterval = sourceCfg.PollInterval
 			}
 
-			// Get the corresponding HeadTracker for this chain
-			headTracker, ok := vc.headTrackers[chainSelector]
-			if !ok {
-				vc.lggr.Errorw("skipping source reader: no head tracker found for chain selector", "chainSelector", chainSelector)
-				continue
-			}
-
 			service := NewSourceReaderService(
 				sourceReader,
-				headTracker,
 				chainSelector,
 				vc.chainStatusManager,
 				vc.lggr,
@@ -388,7 +358,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 
 // Close stops the verification coordinator processing.
 func (vc *Coordinator) Close() error {
-	return vc.StopOnce("Coordinator", func() error {
+	return vc.sync.StopOnce("Coordinator", func() error {
 		// Signal all goroutines to stop processing new work.
 		// This will also trigger the batcher to flush remaining items.
 		vc.cancel()
@@ -464,51 +434,11 @@ func (vc *Coordinator) run(ctx context.Context) {
 			}
 
 			// Write batch of CCVData to offchain storage
-			// FIXME: Entire write batch to offchain storage should be extracted to a separate method
-			storageStart := time.Now()
-
-			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err != nil {
-				vc.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
-				vc.lggr.Errorw("Error storing CCV data batch",
-					"error", err,
-					"batchSize", len(ccvDataBatch.Items),
-				)
-				// Log individual messageIDs in failed batch
-				for _, ccvData := range ccvDataBatch.Items {
-					vc.lggr.Errorw("Failed to store CCV data in batch",
-						"messageID", ccvData.MessageID,
-						"nonce", ccvData.Nonce,
-						"sourceChain", ccvData.SourceChainSelector,
-					)
-				}
-			} else {
-				storageDuration := time.Since(storageStart)
-
-				// Record storage write duration
-				// FIXME: Ideally business logic shouldn't be polluted with monitoring calls (but that might be hard to achieve with current architecture)
-				vc.monitoring.Metrics().
-					With("verifier_id", vc.config.VerifierID).
-					RecordStorageWriteDuration(ctx, storageDuration)
-
-				for _, ccvData := range ccvDataBatch.Items {
-					messageID := ccvData.MessageID.String()
-
-					if rawSeenAt, exists := vc.messageTimestamps.Get(messageID); exists {
-						seenAt, ok1 := rawSeenAt.(time.Time)
-						if !ok1 {
-							vc.lggr.Errorw("Invalid timestamp type in cache for message")
-							continue
-						}
-						vc.monitoring.Metrics().
-							With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
-							RecordMessageE2ELatency(ctx, time.Since(seenAt))
-						vc.messageTimestamps.Delete(messageID)
-					}
-				}
-
+			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err == nil {
 				vc.lggr.Infow("CCV data batch stored successfully",
 					"batchSize", len(ccvDataBatch.Items),
 				)
+				vc.messageTracker.TrackMessageLatencies(ctx, ccvDataBatch.Items)
 			}
 		}
 	}
@@ -628,7 +558,7 @@ func (vc *Coordinator) validate() error {
 // HealthReport returns a full health report of the coordinator and its dependencies.
 func (vc *Coordinator) HealthReport() map[string]error {
 	report := make(map[string]error)
-	report[vc.Name()] = vc.Ready()
+	report[vc.Name()] = vc.sync.Ready()
 	return report
 }
 
@@ -671,19 +601,7 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	// Set QueuedAt timestamp for finality wait duration tracking
 	task.QueuedAt = time.Now()
 	state.pendingTasks = append(state.pendingTasks, task)
-
-	messageID, err := task.Message.MessageID()
-	if err != nil {
-		vc.lggr.Errorw("Failed to compute message ID for queuing", "error", err)
-		return
-	}
-
-	// Track message creation time for E2E latency measurement
-	if task.FirstSeenAt.IsZero() {
-		// If FirstSeenAt was not set by source reader, set it now
-		task.FirstSeenAt = time.Now()
-	}
-	vc.messageTimestamps.SetDefault(messageID.String(), task.FirstSeenAt)
+	vc.messageTracker.MarkMessageAsSeen(&task)
 
 	messageContextLggr.Infow("Message added to finality queue",
 		"blockNumber", task.BlockNumber,

@@ -26,7 +26,6 @@ type curseTestSetup struct {
 	cancel             context.CancelFunc
 	coordinator        *Coordinator
 	mockSourceReader   *protocol_mocks.MockSourceReader
-	mockHeadTracker    *protocol_mocks.MockHeadTracker
 	mockCurseChecker   *ccv_common.MockCurseChecker
 	chainStatusManager *InMemoryChainStatusManager
 	testVerifier       *TestVerifier
@@ -50,8 +49,6 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	// Create mocks using the test helper pattern
 	mockSetup := SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
-
-	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 
 	// Initialize block state
 	initialLatest := &protocol.BlockHeader{
@@ -83,7 +80,6 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		ctx:                ctx,
 		cancel:             cancel,
 		mockSourceReader:   mockSetup.Reader,
-		mockHeadTracker:    mockHeadTracker,
 		mockCurseChecker:   mockCurseDetector,
 		chainStatusManager: NewInMemoryChainStatusManager(),
 		sourceChain:        sourceChain,
@@ -97,7 +93,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	}
 
 	// Setup mock head tracker to return current state
-	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(
+	mockSetup.Reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(
 		func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
 			setup.blocksMu.RLock()
 			defer setup.blocksMu.RUnlock()
@@ -126,11 +122,9 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
 			sourceChain: setup.mockSourceReader,
 		}),
-		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
-			sourceChain: mockHeadTracker,
-		}),
 		WithCurseDetector(mockCurseDetector), // Inject mock for testing
 		WithMonitoring(&noopMonitoring{}),
+		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(finalityCheckInterval),
 	)
 	require.NoError(t, err)

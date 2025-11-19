@@ -216,10 +216,9 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	// Allow writes for chain status updates
 	mockChainStatusManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+	mockSetup.Reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
 		// Return latest and finalized headers with proper synchronization
 		// Must lock before accessing big.Int to avoid concurrent access issues
 		finalizedBlockMu.RLock()
@@ -253,20 +252,17 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		VerifierID: verifierID,
 	}
 
-	noopMonitoring := &noopMonitoring{}
 	coordinator, err := NewCoordinator(
 		WithVerifier(mockVerifier),
 		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
 			1337: mockSourceReader,
 		}),
-		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
-			1337: mockHeadTracker,
-		}),
 		WithStorage(mockStorage),
 		WithChainStatusManager(mockChainStatusManager),
 		WithConfig(config),
 		WithLogger(lggr),
-		WithMonitoring(noopMonitoring),
+		WithMonitoring(&noopMonitoring{}),
+		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
