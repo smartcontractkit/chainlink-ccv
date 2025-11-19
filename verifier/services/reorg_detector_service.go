@@ -519,7 +519,7 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 
 		if exists && ourBlock.Hash == parent.Hash {
 			// Found LCA! Return blockAfterLCA
-			r.lggr.Debugw("Found matching block (LCA)",
+			r.lggr.Infow("Found matching block (LCA)",
 				"chainSelector", r.config.ChainSelector,
 				"lcaBlock", parent.Number,
 				"lcaHash", parent.Hash)

@@ -292,12 +292,14 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				continue
 			}
 
+			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
+
 			service := NewSourceReaderService(
 				sourceReader,
 				headTracker,
 				chainSelector,
 				vc.chainStatusManager,
-				vc.lggr,
+				readerLogger,
 				sourcePollInterval,
 			)
 

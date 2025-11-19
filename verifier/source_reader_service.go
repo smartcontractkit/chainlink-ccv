@@ -595,6 +595,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
 	// Fetch message events from blockchain
 	events, err := r.sourceReader.FetchMessageSentEvents(logsCtx, fromBlock, nil)
 	if err != nil {

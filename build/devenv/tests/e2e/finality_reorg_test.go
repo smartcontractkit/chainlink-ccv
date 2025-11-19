@@ -70,6 +70,16 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 	anvilHelper := NewAnvilRPCHelper(ethClient, *l)
 
+	t.Run("Disable automine", func(t *testing.T) {
+		err = anvilHelper.SetAutomine(ctx, false)
+		require.NoError(t, err)
+	})
+
+	t.Run("Enable automine", func(t *testing.T) {
+		err = anvilHelper.SetAutomine(ctx, true)
+		require.NoError(t, err)
+	})
+
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
 		err = anvilHelper.SetAutomine(ctx, false)
 		require.NoError(t, err)
@@ -102,6 +112,7 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		time.Sleep(2 * time.Second)
 
+		// Block 3
 		snapshotID, err := anvilHelper.Snapshot(ctx)
 		require.NoError(t, err)
 
@@ -112,6 +123,7 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Uint64("snapshotBlock", snapshotBlock).
 			Msg("💾 Snapshot created (2 blocks before messages)")
 
+		// Block 5
 		err = anvilHelper.Mine(ctx, 2)
 		require.NoError(t, err)
 
@@ -132,9 +144,10 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 					Data:     []byte(data),
 				},
 				cciptestinterfaces.MessageOptions{
-					Version:  3,
-					GasLimit: 200_000,
-					Executor: executorAddr,
+					Version:        3,
+					GasLimit:       200_000,
+					Executor:       executorAddr,
+					FinalityConfig: 10,
 					CCVs: []protocol.CCV{
 						{
 							CCVAddress: ccvAddr,
@@ -144,9 +157,14 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 					},
 				})
 			require.NoError(t, err)
+			l.Info().
+				Str("data", data).
+				Int("seqNumber", int(event.SequenceNumber)).
+				Msg("Sending message")
 			return event.MessageID
 		}
 
+		// Block 6
 		l.Info().Msg("📨 Sending message 1")
 		msg1ID := mustSendMessageFunc("message 1")
 		l.Info().
@@ -155,6 +173,7 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		time.Sleep(2 * time.Second)
 
+		// Block 7
 		// Step 9: Send second message with data "message 2"
 		l.Info().Msg("📨 Sending message 2")
 		msg2ID := mustSendMessageFunc("message 2")
@@ -162,6 +181,7 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Str("messageID", fmt.Sprintf("%x", msg2ID)).
 			Msg("✅ Message 2 sent")
 
+		// Block 10
 		err = anvilHelper.Mine(ctx, 3)
 		require.NoError(t, err)
 
@@ -183,9 +203,11 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		l.Info().Msg("✅ Confirmed messages not in aggregator")
 
 		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot")
+		// Block 3
 		err = anvilHelper.Revert(ctx, snapshotID)
 		require.NoError(t, err)
 
+		// Block 4
 		err = anvilHelper.Mine(ctx, 1)
 		require.NoError(t, err)
 
@@ -218,7 +240,7 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		err = anvilHelper.Mine(ctx, 11)
 		require.NoError(t, err)
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(10 * time.Second)
 
 		finalBlock, err := ethClient.BlockNumber(ctx)
 		require.NoError(t, err)
@@ -230,17 +252,17 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		l.Info().Msg("🔍 Verifying messages are in aggregator (after finality)")
 
 		// FIXME: The swapped message ID should be found instead but they are not currently
-		result1, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg1ID)
+		result1, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg1IDSwapped)
 		require.NoError(t, err, "Message 1 should be found after finality")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1ID)).
+			Str("messageID", fmt.Sprintf("%x", msg1IDSwapped)).
 			Str("verifierResult", fmt.Sprintf("%x", result1)).
 			Msg("✅ Message 1 verified in aggregator after finality")
 
-		result2, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg2ID)
+		result2, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg2IDSwapped)
 		require.NoError(t, err, "Message 2 should be found after finality")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg2ID)).
+			Str("messageID", fmt.Sprintf("%x", msg2IDSwapped)).
 			Str("verifierResult", fmt.Sprintf("%x", result2)).
 			Msg("✅ Message 2 verified in aggregator after finality")
 

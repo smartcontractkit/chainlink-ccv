@@ -1,13 +1,3 @@
-[finality."3379446385462418246"]
-  mode = "confirmation_depth"
-  depth = 10
-[finality."12922642891491394802"]
-  mode = "confirmation_depth"
-  depth = 10
-[finality."4793464827907405086"]
-  mode = "confirmation_depth"
-  depth = 10
-
 [[blockchains]]
   container_name = "blockchain-src"
   chain_id = "1337"
