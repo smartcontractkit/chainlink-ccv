@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/sony/gobreaker"
+	"github.com/sony/gobreaker/v2"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -449,11 +449,11 @@ func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []pr
 	return results, nil
 }
 
-// CircuitBreakerAggregatorWriter decorates a protocol.CCVNodeDataWriter with a circuit
-// breaker and request timeout for WriteCCVNodeData.
+// CircuitBreakerAggregatorWriter decorates a protocol.CCVNodeDataWriter
+// with a circuit breaker and request timeout for WriteCCVNodeData.
 type CircuitBreakerAggregatorWriter struct {
 	delegate protocol.CCVNodeDataWriter
-	breaker  *gobreaker.CircuitBreaker
+	breaker  *gobreaker.CircuitBreaker[any]
 	timeout  time.Duration
 }
 
@@ -464,7 +464,7 @@ func NewCircuitBreakerAggregatorWriter(
 ) *CircuitBreakerAggregatorWriter {
 	return &CircuitBreakerAggregatorWriter{
 		delegate: delegate,
-		breaker:  gobreaker.NewCircuitBreaker(settings),
+		breaker:  gobreaker.NewCircuitBreaker[any](settings),
 		timeout:  timeout,
 	}
 }
