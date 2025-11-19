@@ -591,6 +591,7 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 
 	// Check if lane is cursed (source -> dest)
 	if vc.curseDetector.IsRemoteChainCursed(
+		nil,
 		task.Message.SourceChainSelector,
 		task.Message.DestChainSelector,
 	) {
@@ -690,6 +691,7 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 		// Check if lane is cursed before processing finalized tasks
 		if vc.curseDetector.IsRemoteChainCursed(
+			nil,
 			task.Message.SourceChainSelector,
 			task.Message.DestChainSelector,
 		) {
