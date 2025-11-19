@@ -9,6 +9,7 @@ executor_id="cl_node_executor_a"
 execution_interval="15s"
 min_wait="3s"
 ccv_info_cache_expiry="5m"
+max_retry_duration="8h"
 
 [blockchain_infos]
     [blockchain_infos.3379446385462418246]

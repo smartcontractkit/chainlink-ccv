@@ -184,6 +184,7 @@ func main() {
 		indexerStream,
 		le,
 		executorMonitoring,
+		executorConfig.GetMaxRetryDuration(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)

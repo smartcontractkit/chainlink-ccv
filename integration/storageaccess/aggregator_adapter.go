@@ -182,10 +182,11 @@ func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.Cl
 }
 
 type AggregatorReader struct {
-	client pb.VerifierResultAPIClient
-	lggr   logger.Logger
-	conn   *grpc.ClientConn
-	since  int64
+	client                 pb.VerifierResultAPIClient
+	messageDiscoveryClient pb.MessageDiscoveryClient
+	lggr                   logger.Logger
+	conn                   *grpc.ClientConn
+	since                  int64
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
@@ -208,10 +209,11 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacCo
 	}
 
 	return &AggregatorReader{
-		client: pb.NewVerifierResultAPIClient(conn),
-		conn:   conn,
-		lggr:   logger.With(lggr, "aggregatorAddress", address),
-		since:  since,
+		client:                 pb.NewVerifierResultAPIClient(conn),
+		messageDiscoveryClient: pb.NewMessageDiscoveryClient(conn),
+		conn:                   conn,
+		lggr:                   logger.With(lggr, "aggregatorAddress", address),
+		since:                  since,
 	}, nil
 }
 
@@ -321,7 +323,7 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
-	resp, err := a.client.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
+	resp, err := a.messageDiscoveryClient.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
 		SinceSequence: a.since,
 	})
 	if err != nil {
@@ -385,21 +387,19 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 }
 
 func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
-	requests := make([]*pb.GetVerifierResultForMessageRequest, 0, len(messageIDs))
+	messageIDsBytes := make([][]byte, 0, len(messageIDs))
 	for _, id := range messageIDs {
-		requests = append(requests, &pb.GetVerifierResultForMessageRequest{
-			MessageId: id[:],
-		})
+		messageIDsBytes = append(messageIDsBytes, id[:])
 	}
 
-	resp, err := a.client.BatchGetVerifierResultForMessage(ctx, &pb.BatchGetVerifierResultForMessageRequest{
-		Requests: requests,
+	resp, err := a.client.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
+		MessageIds: messageIDsBytes,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error calling BatchGetVerifierResultsForMessage: %s", err)
+		return nil, fmt.Errorf("error calling GetVerifierResultsForMessage: %s", err)
 	}
 
-	a.lggr.Debugw("BatchGetVerifierResultForMessage", "count", len(resp.Results), "messageIDs", messageIDs)
+	a.lggr.Debugw("GetVerifierResultsForMessage", "count", len(resp.Results), "messageIDs", messageIDs)
 	results := make(map[protocol.Bytes32]protocol.CCVData)
 	for i, result := range resp.Results {
 		msg, err := mapMessage(result.Message)

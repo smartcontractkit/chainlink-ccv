@@ -108,13 +108,13 @@ func TestChainStatusClientIsolation(t *testing.T) {
 		defer cleanup()
 
 		// Create separate clients with different credentials
-		client1, _, cleanup1 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-1", "secret-isolation-client-1"))
+		client1, _, _, cleanup1 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-1", "secret-isolation-client-1"))
 		defer cleanup1()
 
-		client2, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-2", "secret-isolation-client-2"))
+		client2, _, _, cleanup2 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-2", "secret-isolation-client-2"))
 		defer cleanup2()
 
-		client3, _, cleanup3 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-3", "secret-isolation-client-3"))
+		client3, _, _, cleanup3 := CreateAuthenticatedClient(t, listener, WithClientAuth("isolation-client-3", "secret-isolation-client-3"))
 		defer cleanup3()
 
 		// Client 1 stores chain status
@@ -187,7 +187,7 @@ func TestChainStatusClientIsolation(t *testing.T) {
 		clients := make([]*clientInfo, numClients)
 		for i := 0; i < numClients; i++ {
 			clientID := "same-chain-client-" + string(rune('A'+i))
-			aggClient, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth(clientID, "secret-"+clientID))
+			aggClient, _, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth(clientID, "secret-"+clientID))
 			clients[i] = &clientInfo{
 				client:   aggClient,
 				clientID: clientID,
@@ -231,9 +231,9 @@ func TestChainStatusClientIsolation(t *testing.T) {
 		defer cleanup()
 
 		// Create two separate clients
-		clientA, _, cleanupA := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-A", "secret-update-client-A"))
+		clientA, _, _, cleanupA := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-A", "secret-update-client-A"))
 		defer cleanupA()
-		clientB, _, cleanupB := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-B", "secret-update-client-B"))
+		clientB, _, _, cleanupB := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-B", "secret-update-client-B"))
 		defer cleanupB()
 
 		// Both clients store initial data
@@ -276,7 +276,7 @@ func TestChainStatusBehavior(t *testing.T) {
 		defer cleanup()
 
 		// Create two separate clients
-		clientA, _, cleanupA := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-A", "secret-update-client-A"))
+		clientA, _, _, cleanupA := CreateAuthenticatedClient(t, listener, WithClientAuth("update-client-A", "secret-update-client-A"))
 		defer cleanupA()
 
 		// Clients store initial data
@@ -313,7 +313,7 @@ func TestChainStatusBehavior(t *testing.T) {
 func TestChainStatusConcurrency(t *testing.T) {
 	t.Run("concurrent_writes_same_client", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
+		client, _, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
@@ -378,7 +378,7 @@ func TestChainStatusConcurrency(t *testing.T) {
 		clients := make([]*clientInfo, numClients)
 		for i := 0; i < numClients; i++ {
 			clientID := "concurrent-client-" + string(rune('A'+i%26)) + string(rune('A'+i/26))
-			aggClient, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth(clientID, "secret-"+clientID))
+			aggClient, _, _, clientCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth(clientID, "secret-"+clientID))
 			clients[i] = &clientInfo{
 				client:   aggClient,
 				clientID: clientID,
@@ -452,7 +452,7 @@ func TestChainStatusConcurrency(t *testing.T) {
 
 	t.Run("concurrent_read_write_operations", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
+		client, _, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
@@ -533,7 +533,7 @@ func TestChainStatusConcurrency(t *testing.T) {
 
 	t.Run("high_frequency_updates_same_chain", func(t *testing.T) {
 		// Setup
-		client, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
+		client, _, _, cleanup, err := CreateServerAndClient(t, WithChainStatusTestClients())
 		require.NoError(t, err, "failed to create test server and client")
 		defer cleanup()
 
@@ -584,7 +584,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create verifier client
-		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifierClient, _, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
 		defer verifierCleanup()
 
 		// Create admin client
@@ -650,7 +650,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create two verifier clients
-		verifier1Client, _, verifier1Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifier1Client, _, _, verifier1Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
 		defer verifier1Cleanup()
 
 		// We don't need to create verifier2Client, we only need to test the attack attempt
@@ -693,7 +693,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create verifier client
-		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifierClient, _, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
 		defer verifierCleanup()
 
 		// Admin sets extreme configuration values on behalf of verifier
@@ -735,11 +735,11 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create multiple verifier clients
-		verifier1Client, _, verifier1Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifier1Client, _, _, verifier1Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
 		defer verifier1Cleanup()
-		verifier2Client, _, verifier2Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-2", "secret-verifier-client-2"))
+		verifier2Client, _, _, verifier2Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-2", "secret-verifier-client-2"))
 		defer verifier2Cleanup()
-		verifier3Client, _, verifier3Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-3", "secret-verifier-client-3"))
+		verifier3Client, _, _, verifier3Cleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-3", "secret-verifier-client-3"))
 		defer verifier3Cleanup()
 
 		// Each verifier stores initial data
@@ -796,7 +796,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer adminCleanup()
 
 		// Create verifier client
-		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifierClient, _, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
 		defer verifierCleanup()
 
 		// Verifier stores data
@@ -838,7 +838,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer cleanup()
 
 		// Create verifier client
-		verifierClient, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
+		verifierClient, _, _, verifierCleanup := CreateAuthenticatedClient(t, listener, WithClientAuth("verifier-client-1", "secret-verifier-client-1"))
 		defer verifierCleanup()
 
 		// Create admin client
