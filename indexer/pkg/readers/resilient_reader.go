@@ -3,7 +3,7 @@ package readers
 import (
 	"context"
 	"fmt"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -66,9 +66,8 @@ type ResilientReader struct {
 	verificationsPolicies executorPolicies[map[protocol.Bytes32]protocol.CCVData]
 
 	lggr                 logger.Logger
-	mu                   sync.RWMutex
-	consecutiveErrors    int
-	maxConsecutiveErrors int
+	consecutiveErrors    atomic.Int32
+	maxConsecutiveErrors int32
 }
 
 // NewResilientReader wraps a reader with resiliency policies.
@@ -165,16 +164,12 @@ func (r *ResilientReader) GetDiscoveryCircuitBreakerState() circuitbreaker.State
 }
 
 func (r *ResilientReader) recordError() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.consecutiveErrors++
-	if r.consecutiveErrors >= r.maxConsecutiveErrors {
-		r.lggr.Warnw("Max consecutive errors reached", "consecutive_errors", r.consecutiveErrors)
+	count := r.consecutiveErrors.Add(1)
+	if count >= r.maxConsecutiveErrors {
+		r.lggr.Warnw("Max consecutive write errors reached", "consecutive_errors", count)
 	}
 }
 
 func (r *ResilientReader) recordSuccess() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.consecutiveErrors = 0
+	r.consecutiveErrors.Store(0)
 }
