@@ -28,6 +28,12 @@ runs:
       uses: actions/setup-go@v6 # v6
       with:
         go-version-file: ${{ steps.go-mod.outputs.path }}
+    
+    - name: Upgrade chainlink-ccv dependency to current commit
+      run: |
+        cd chainlink-repo
+        go get github.com/smartcontractkit/chainlink-ccv@${{ github.event.pull_request.head.sha || github.sha }}
+        make gomodtidy
 
     - name: Cache Go modules
       uses: actions/cache@v4
