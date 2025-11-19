@@ -10,6 +10,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/sony/gobreaker"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -445,4 +447,63 @@ func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []pr
 	}
 
 	return results, nil
+}
+
+// CircuitBreakerAggregatorWriter decorates a protocol.CCVNodeDataWriter with a circuit
+// breaker and request timeout for WriteCCVNodeData.
+type CircuitBreakerAggregatorWriter struct {
+	delegate protocol.CCVNodeDataWriter
+	breaker  *gobreaker.CircuitBreaker
+	timeout  time.Duration
+}
+
+func NewCircuitBreakerAggregatorWriter(
+	delegate protocol.CCVNodeDataWriter,
+	settings gobreaker.Settings,
+	timeout time.Duration,
+) *CircuitBreakerAggregatorWriter {
+	return &CircuitBreakerAggregatorWriter{
+		delegate: delegate,
+		breaker:  gobreaker.NewCircuitBreaker(settings),
+		timeout:  timeout,
+	}
+}
+
+func NewDefaultCircuitBreakerAggregatorWriter(
+	delegate protocol.CCVNodeDataWriter,
+) *CircuitBreakerAggregatorWriter {
+	settings := gobreaker.Settings{
+		Name:        "AggregatorWriterCircuitBreaker",
+		MaxRequests: 3,
+		Interval:    0,
+		Timeout:     2 * time.Second,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= 5
+		},
+		IsSuccessful: func(err error) bool {
+			if err == nil {
+				return true
+			}
+
+			// TODO: Consider only certain error types as failures
+			// probably only network errors + internal server errors
+			return false
+		},
+	}
+	return NewCircuitBreakerAggregatorWriter(
+		delegate,
+		settings,
+		2*time.Second,
+	)
+}
+
+func (c *CircuitBreakerAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+	ctxTimeout, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.breaker.Execute(func() (any, error) {
+		return nil, c.delegate.WriteCCVNodeData(ctxTimeout, ccvDataList)
+	})
+
+	return err
 }
