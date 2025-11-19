@@ -13,6 +13,7 @@ runs:
       uses: actions/checkout@v5
       with:
         repository: smartcontractkit/chainlink
+        ref: ${{ inputs.ref }}
         path: chainlink-repo
 
     - name: Setup path to go.mod
@@ -27,21 +28,19 @@ runs:
       uses: actions/setup-go@v6 # v6
       with:
         go-version-file: ${{ steps.go-mod.outputs.path }}
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-cl-${{ hashFiles(steps.go-mod.outputs.path) }}
-        restore-keys: |
-          ${{ runner.os }}-go-cl-
+        cache: true
 
     - name: Download Go modules
       working-directory: ${{ github.workspace }}/chainlink-repo
       shell: bash
       run: go mod download
+    
+    - name: Upgrade chainlink-ccv dependency to current commit
+      working-directory: ${{ github.workspace }}/chainlink-repo
+      shell: bash
+      run: |
+        go get github.com/smartcontractkit/chainlink-ccv@${{ github.event.pull_request.head.sha || github.sha }}
+        make gomodtidy
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
