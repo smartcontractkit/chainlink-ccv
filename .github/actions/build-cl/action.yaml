@@ -54,5 +54,3 @@ runs:
         file: ${{ github.workspace }}/chainlink-repo/plugins/chainlink.Dockerfile
         load: true
         tags: local
-        build-args: |
-          BUILDKIT_INLINE_CACHE=1
