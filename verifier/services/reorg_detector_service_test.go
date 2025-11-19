@@ -52,7 +52,6 @@ func mockGetBlocksHeaders(mockSR *protocol_mocks.MockSourceReader, blocks []prot
 func TestNewReorgDetectorService(t *testing.T) {
 	lggr := logger.Test(t)
 	mockSR := protocol_mocks.NewMockSourceReader(t)
-	mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 	t.Run("creates service with valid config", func(t *testing.T) {
 		config := ReorgDetectorConfig{
@@ -60,7 +59,7 @@ func TestNewReorgDetectorService(t *testing.T) {
 			PollInterval:  5 * time.Second,
 		}
 
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 		require.NotNil(t, service)
 		assert.Equal(t, protocol.ChainSelector(1337), service.config.ChainSelector)
@@ -73,35 +72,28 @@ func TestNewReorgDetectorService(t *testing.T) {
 			PollInterval:  0,
 		}
 
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 		assert.Equal(t, 2000*time.Millisecond, service.pollInterval)
 	})
 
 	t.Run("returns error if source reader is nil", func(t *testing.T) {
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		_, err := NewReorgDetectorService(nil, mockHT, config, lggr)
+		_, err := NewReorgDetectorService(nil, config, lggr)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "source reader is required")
 	})
 
-	t.Run("returns error if head tracker is nil", func(t *testing.T) {
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		_, err := NewReorgDetectorService(mockSR, nil, config, lggr)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "head tracker is required")
-	})
-
 	t.Run("returns error if chain selector is zero", func(t *testing.T) {
 		config := ReorgDetectorConfig{ChainSelector: 0}
-		_, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		_, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "chain selector is required")
 	})
 
 	t.Run("returns error if logger is nil", func(t *testing.T) {
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		_, err := NewReorgDetectorService(mockSR, mockHT, config, nil)
+		_, err := NewReorgDetectorService(mockSR, config, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "logger is required")
 	})
@@ -113,20 +105,19 @@ func TestBuildEntireTail(t *testing.T) {
 
 	t.Run("builds tail from finalized to latest", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{
 			ChainSelector: 1337,
 			PollInterval:  1 * time.Second,
 		}
 
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		// Setup mocks
 		latest := &protocol.BlockHeader{Number: 105, Hash: protocol.Bytes32{0x69}}
 		finalized := &protocol.BlockHeader{Number: 100, Hash: protocol.Bytes32{0x64}}
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
 
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)
@@ -141,13 +132,12 @@ func TestBuildEntireTail(t *testing.T) {
 
 	t.Run("returns error if HeadTracker fails", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(nil, nil, errors.New("rpc error"))
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(nil, nil, errors.New("rpc error"))
 
 		err = service.buildEntireTail(ctx)
 		require.Error(t, err)
@@ -156,15 +146,14 @@ func TestBuildEntireTail(t *testing.T) {
 
 	t.Run("returns error if GetBlocksHeaders fails", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		latest := &protocol.BlockHeader{Number: 105}
 		finalized := &protocol.BlockHeader{Number: 100}
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
 		mockSR.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, errors.New("fetch error"))
 
 		err = service.buildEntireTail(ctx)
@@ -179,10 +168,9 @@ func TestBackfillBlocks(t *testing.T) {
 
 	t.Run("successfully backfills gap", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		// Initialize tail state
@@ -206,10 +194,9 @@ func TestBackfillBlocks(t *testing.T) {
 
 	t.Run("trims old finalized blocks during backfill", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		// Initialize tail with old blocks
@@ -240,10 +227,9 @@ func TestBackfillBlocks(t *testing.T) {
 
 	t.Run("returns error for invalid range", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		err = service.backfillBlocks(ctx, 105, 100, 100)
@@ -257,10 +243,9 @@ func TestTrimOlderBlocks(t *testing.T) {
 
 	t.Run("trims blocks older than finalized", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		service.latestFinalizedBlock = 95
@@ -283,10 +268,9 @@ func TestTrimOlderBlocks(t *testing.T) {
 
 	t.Run("does nothing if finalized is not newer", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		service.latestFinalizedBlock = 100
@@ -307,10 +291,9 @@ func TestAddBlockToTail(t *testing.T) {
 
 	t.Run("adds block and updates tail max", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		service.latestFinalizedBlock = 100
@@ -334,10 +317,9 @@ func TestAddBlockToTail(t *testing.T) {
 
 	t.Run("trims old blocks when adding new block", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		service.latestFinalizedBlock = 95
@@ -361,10 +343,9 @@ func TestSendNotifications(t *testing.T) {
 
 	t.Run("sendReorgNotification sends correct status", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		// Initialize state
@@ -386,10 +367,9 @@ func TestSendNotifications(t *testing.T) {
 
 	t.Run("sendFinalityViolation sends correct status", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		violatedBlock := protocol.BlockHeader{
@@ -408,10 +388,9 @@ func TestSendNotifications(t *testing.T) {
 
 	t.Run("drops notification if channel is full", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		// Fill the channel (capacity is 1)
@@ -440,20 +419,19 @@ func TestStartAndClose(t *testing.T) {
 
 	t.Run("start builds initial tail and returns channel", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{
 			ChainSelector: 1337,
 			PollInterval:  100 * time.Millisecond,
 		}
 
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		// Setup mocks for initial tail
 		latest := &protocol.BlockHeader{Number: 105}
 		finalized := &protocol.BlockHeader{Number: 100}
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
 
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)
@@ -470,15 +448,14 @@ func TestStartAndClose(t *testing.T) {
 
 	t.Run("start fails if already started", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		latest := &protocol.BlockHeader{Number: 105}
 		finalized := &protocol.BlockHeader{Number: 100}
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
 
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)
@@ -496,19 +473,18 @@ func TestStartAndClose(t *testing.T) {
 
 	t.Run("close stops polling and closes channel", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{
 			ChainSelector: 1337,
 			PollInterval:  50 * time.Millisecond,
 		}
 
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		latest := &protocol.BlockHeader{Number: 105}
 		finalized := &protocol.BlockHeader{Number: 100}
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
 
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)
@@ -529,15 +505,14 @@ func TestStartAndClose(t *testing.T) {
 
 	t.Run("close is idempotent", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, mockHT, config, lggr)
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
 		require.NoError(t, err)
 
 		latest := &protocol.BlockHeader{Number: 105}
 		finalized := &protocol.BlockHeader{Number: 100}
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
 
 		blocks := createTestBlocks(100, 105)
 		mockGetBlocksHeaders(mockSR, blocks)

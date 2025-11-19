@@ -23,13 +23,13 @@ type observedSourceReader struct {
 }
 
 func NewObservedSourceReader(
-	sourceReader chainaccess.SourceReader,
+	delegate chainaccess.SourceReader,
 	verifierID string,
 	chainSelector protocol.ChainSelector,
 	monitoring verifier.Monitoring,
 ) chainaccess.SourceReader {
 	return observedSourceReader{
-		SourceReader:  sourceReader,
+		SourceReader:  delegate,
 		verifierID:    verifierID,
 		chainSelector: chainSelector.String(),
 		monitoring:    monitoring,

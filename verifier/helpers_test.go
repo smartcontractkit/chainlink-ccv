@@ -153,6 +153,11 @@ func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)    
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
 
+type NoopLatencyTracker struct{}
+
+func (n NoopLatencyTracker) MarkMessageAsSeen(*VerificationTask)                       {}
+func (n NoopLatencyTracker) TrackMessageLatencies(context.Context, []protocol.CCVData) {}
+
 // TestVerifier keeps track of all processed messages for testing.
 type TestVerifier struct {
 	processedTasks []VerificationTask
