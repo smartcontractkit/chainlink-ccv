@@ -1,7 +1,7 @@
 package common
 
 import (
-	"context"
+	context "context"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -18,11 +18,14 @@ type CurseChecker interface {
 	// Usage:
 	//   Verifier: IsRemoteChainCursed(sourceChain, destChain)
 	//   Executor: IsRemoteChainCursed(destChain, sourceChain)
-	IsRemoteChainCursed(localChain, remoteChain protocol.ChainSelector) bool
+	IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) bool
+}
 
-	// Start begins polling RMN Remote contracts for curse updates.
-	Start(ctx context.Context) error
+type CurseCheckerService interface {
+	protocol.Service
+	CurseChecker
+}
 
-	// Close stops the curse detector.
-	Close() error
+type RMNRemoteReader interface {
+	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }

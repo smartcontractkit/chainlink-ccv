@@ -77,7 +77,7 @@ type Coordinator struct {
 	chainStatusManager protocol.ChainStatusManager
 	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
 	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
-	curseDetector      common.CurseChecker
+	curseDetector      common.CurseCheckerService
 }
 
 // Option is the functional option type for Coordinator.
@@ -175,7 +175,7 @@ func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.Re
 
 // WithCurseDetector sets the curse detector for monitoring RMN Remote contracts.
 // This is primarily for testing - in production, the coordinator creates its own curse detector.
-func WithCurseDetector(detector common.CurseChecker) Option {
+func WithCurseDetector(detector common.CurseCheckerService) Option {
 	return func(vc *Coordinator) {
 		vc.curseDetector = detector
 	}

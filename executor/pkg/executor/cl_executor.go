@@ -289,11 +289,11 @@ func (cle *ChainlinkExecutor) GetMessageStatus(ctx context.Context, message prot
 	if err != nil {
 		return executor.MessageStatusResults{}, fmt.Errorf("failed to get message ID: %w", err)
 	}
-	cursed, err := cle.destinationReaders[message.DestChainSelector].IsCursed(ctx, message)
-	if err != nil || cursed {
-		cle.lggr.Infow("skipping execution for message, due to curse state check", "messageID", messageID, "error", err, "cursed", cursed)
-		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, nil
-	}
+	// cursed, err := cle.destinationReaders[message.DestChainSelector].IsCursed(ctx, message)
+	// if err != nil || cursed {
+	// 	cle.lggr.Infow("skipping execution for message due to curse state check", "messageID", messageID, "error", err, "cursed", cursed)
+	// 	return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, nil
+	// }
 	return cle.GetExecutionState(ctx, message, messageID)
 }
 

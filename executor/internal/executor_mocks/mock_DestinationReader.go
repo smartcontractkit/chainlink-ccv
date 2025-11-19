@@ -138,27 +138,29 @@ func (_c *MockDestinationReader_GetMessageExecutionState_Call) RunAndReturn(run 
 	return _c
 }
 
-// IsCursed provides a mock function with given fields: ctx, message
-func (_m *MockDestinationReader) IsCursed(ctx context.Context, message protocol.Message) (bool, error) {
-	ret := _m.Called(ctx, message)
+// GetRMNCursedSubjects provides a mock function with given fields: ctx
+func (_m *MockDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for IsCursed")
+		panic("no return value specified for GetRMNCursedSubjects")
 	}
 
-	var r0 bool
+	var r0 []protocol.Bytes16
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (bool, error)); ok {
-		return rf(ctx, message)
+	if rf, ok := ret.Get(0).(func(context.Context) ([]protocol.Bytes16, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) bool); ok {
-		r0 = rf(ctx, message)
+	if rf, ok := ret.Get(0).(func(context.Context) []protocol.Bytes16); ok {
+		r0 = rf(ctx)
 	} else {
-		r0 = ret.Get(0).(bool)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]protocol.Bytes16)
+		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) error); ok {
-		r1 = rf(ctx, message)
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -166,31 +168,30 @@ func (_m *MockDestinationReader) IsCursed(ctx context.Context, message protocol.
 	return r0, r1
 }
 
-// MockDestinationReader_IsCursed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsCursed'
-type MockDestinationReader_IsCursed_Call struct {
+// MockDestinationReader_GetRMNCursedSubjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRMNCursedSubjects'
+type MockDestinationReader_GetRMNCursedSubjects_Call struct {
 	*mock.Call
 }
 
-// IsCursed is a helper method to define mock.On call
+// GetRMNCursedSubjects is a helper method to define mock.On call
 //   - ctx context.Context
-//   - message protocol.Message
-func (_e *MockDestinationReader_Expecter) IsCursed(ctx interface{}, message interface{}) *MockDestinationReader_IsCursed_Call {
-	return &MockDestinationReader_IsCursed_Call{Call: _e.mock.On("IsCursed", ctx, message)}
+func (_e *MockDestinationReader_Expecter) GetRMNCursedSubjects(ctx interface{}) *MockDestinationReader_GetRMNCursedSubjects_Call {
+	return &MockDestinationReader_GetRMNCursedSubjects_Call{Call: _e.mock.On("GetRMNCursedSubjects", ctx)}
 }
 
-func (_c *MockDestinationReader_IsCursed_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_IsCursed_Call {
+func (_c *MockDestinationReader_GetRMNCursedSubjects_Call) Run(run func(ctx context.Context)) *MockDestinationReader_GetRMNCursedSubjects_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(protocol.Message))
+		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockDestinationReader_IsCursed_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_IsCursed_Call {
+func (_c *MockDestinationReader_GetRMNCursedSubjects_Call) Return(_a0 []protocol.Bytes16, _a1 error) *MockDestinationReader_GetRMNCursedSubjects_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockDestinationReader_IsCursed_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockDestinationReader_IsCursed_Call {
+func (_c *MockDestinationReader_GetRMNCursedSubjects_Call) RunAndReturn(run func(context.Context) ([]protocol.Bytes16, error)) *MockDestinationReader_GetRMNCursedSubjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
