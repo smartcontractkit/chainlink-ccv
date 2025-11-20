@@ -2,6 +2,7 @@ package destinationreader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -49,17 +50,36 @@ type Params struct {
 	CacheExpiry      time.Duration
 }
 
-func NewEvmDestinationReader(params Params) *EvmDestinationReader {
+func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
+
+	var errs []error
+	appendIfNil := func(field any, fieldName string) {
+		if field == nil {
+			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
+		}
+	}
+
+	appendIfNil(params.ChainSelector, "chainSelector")
+	appendIfNil(params.OfframpAddress, "offrampAddress")
+	appendIfNil(params.RmnRemoteAddress, "rmnRemoteAddress")
+	appendIfNil(params.CacheExpiry, "cacheExpiry")
+	appendIfNil(params.ChainClient, "chainClient")
+	appendIfNil(params.Lggr, "logger")
+
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+
 	offRampAddr := common.HexToAddress(params.OfframpAddress)
 	offRamp, err := offramp.NewOffRampCaller(offRampAddr, params.ChainClient)
 	if err != nil {
-		params.Lggr.Errorw("Failed to create Off Ramp caller", "error", err, "address", offRampAddr.Hex(), "chainSelector", params.ChainSelector)
+		return nil, fmt.Errorf("failed to create offramp caller for chain %d: %w", params.ChainSelector, err)
 	}
 
 	rmnRemoteAddr := common.HexToAddress(params.RmnRemoteAddress)
 	rmnRemote, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddr, params.ChainClient)
 	if err != nil {
-		params.Lggr.Errorw("Failed to create RMN Remote caller", "error", err, "address", rmnRemoteAddr.Hex(), "chainSelector", params.ChainSelector)
+		return nil, fmt.Errorf("failed to create rmn remote caller for chain %d: %w", params.ChainSelector, err)
 	}
 
 	// Create cache with max 1000 entries and configurable expiry for verifier quorum info.
@@ -72,7 +92,7 @@ func NewEvmDestinationReader(params Params) *EvmDestinationReader {
 		chainSelector:   params.ChainSelector,
 		client:          params.ChainClient,
 		ccvCache:        ccvCache,
-	}
+	}, nil
 }
 
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.

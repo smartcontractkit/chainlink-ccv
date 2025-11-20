@@ -62,7 +62,7 @@ func NewExecutorCoordinator(
 			fromAddresses[sel],
 		)
 
-		evmDestReader := destinationreader.NewEvmDestinationReader(
+		evmDestReader, err := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
 				Lggr:             logger.With(lggr, "component", "DestinationReader"),
 				ChainSelector:    sel,
@@ -71,6 +71,10 @@ func NewExecutorCoordinator(
 				RmnRemoteAddress: rmnAddresses[sel].String(),
 				CacheExpiry:      cfg.GetReaderCacheExpiry(),
 			})
+		if err != nil {
+			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)
+			continue
+		}
 		destReaders[sel] = evmDestReader
 		rmnReaders[sel] = evmDestReader
 	}

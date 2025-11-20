@@ -1,7 +1,7 @@
 package common
 
 import (
-	context "context"
+	"context"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )

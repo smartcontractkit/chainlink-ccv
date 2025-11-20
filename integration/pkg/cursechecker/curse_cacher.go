@@ -12,7 +12,7 @@ import (
 )
 
 // We use 100 entries for the curse cache because we're bounded by number of source chains.
-var curseCacheMaxEntries = 100
+const curseCacheMaxEntries = 100
 
 // CachedCurseChecker is a wrapper around the RMNCurseReader that caches the curse state for each destination chain.
 // It uses an LRU cache to store the curse state for each destination chain.

@@ -124,7 +124,7 @@ func main() {
 		}
 
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
-		dr := destinationreader.NewEvmDestinationReader(
+		dr, err := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
 				Lggr:             lggr,
 				ChainSelector:    protocol.ChainSelector(selector),
@@ -133,6 +133,9 @@ func main() {
 				RmnRemoteAddress: executorConfig.RmnAddresses[strSel],
 				CacheExpiry:      executorConfig.GetReaderCacheExpiry(),
 			})
+		if err != nil {
+			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+		}
 
 		pk := os.Getenv(PK_ENV_VAR)
 		if pk == "" {
@@ -152,9 +155,10 @@ func main() {
 			lggr.Errorw("Failed to create contract transmitter", "error", err)
 			os.Exit(1)
 		}
-
-		destReaders[protocol.ChainSelector(selector)] = dr
-		rmnReaders[protocol.ChainSelector(selector)] = dr
+		if dr != nil {
+			destReaders[protocol.ChainSelector(selector)] = dr
+			rmnReaders[protocol.ChainSelector(selector)] = dr
+		}
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
 	}
 
