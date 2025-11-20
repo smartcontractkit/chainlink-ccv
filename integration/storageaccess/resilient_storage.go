@@ -16,30 +16,21 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var (
-	_ protocol.CCVNodeDataWriter     = (*ResilientAggregator)(nil)
-	_ protocol.OffchainStorageReader = (*ResilientAggregator)(nil)
-)
+var _ protocol.CCVNodeDataWriter = (*ResilientAggregator)(nil)
 
-// AggregatorResilienceConfig contains configuration for aggregator resiliency policies.
-// Since both reader and writer communicate with the same server, they share circuit breaker,
-// bulkhead, and rate limiter, but have separate timeouts.
+// AggregatorResilienceConfig contains configuration for aggregator writer resiliency policies.
 type AggregatorResilienceConfig struct {
 	CircuitBreakerErrorHandler func(any, error) bool
 
-	// Shared settings
 	FailureThreshold      uint
 	SuccessThreshold      uint
 	CircuitBreakerDelay   time.Duration
 	MaxConcurrentRequests uint
 	MaxRequestsPerSecond  uint
-
-	// Operation-specific timeouts
-	WriteTimeout time.Duration
-	ReadTimeout  time.Duration
+	WriteTimeout          time.Duration
 }
 
-// DefaultAggregatorResilienceConfig returns a configuration with sensible defaults for gRPC aggregator.
+// DefaultAggregatorResilienceConfig returns a configuration with sensible defaults for gRPC aggregator writer.
 func DefaultAggregatorResilienceConfig() AggregatorResilienceConfig {
 	return AggregatorResilienceConfig{
 		FailureThreshold:      5,
@@ -48,35 +39,28 @@ func DefaultAggregatorResilienceConfig() AggregatorResilienceConfig {
 		MaxConcurrentRequests: 10,
 		MaxRequestsPerSecond:  10,
 		WriteTimeout:          2 * time.Second,
-		ReadTimeout:           5 * time.Second,
 	}
 }
 
-// ResilientAggregator decorates both protocol.CCVNodeDataWriter and protocol.OffchainStorageReader
-// with failsafe-go policies. Since both communicate with the same server, they share circuit breaker,
-// rate limiter, and bulkhead, but have separate timeout policies for read vs write operations.
+// ResilientAggregator decorates protocol.CCVNodeDataWriter
+// with failsafe-go policies: circuit breaker, timeout, rate limiter, and bulkhead.
 type ResilientAggregator struct {
 	writer protocol.CCVNodeDataWriter
-	reader protocol.OffchainStorageReader
 
 	// Shared policies
 	circuitBreaker circuitbreaker.CircuitBreaker[any]
 	rateLimiter    ratelimiter.RateLimiter[any]
 	bulkhead       bulkhead.Bulkhead[any]
-
-	// Separate timeout policies for read and write
-	writeTimeout timeout.Timeout[any]
-	readTimeout  timeout.Timeout[any]
+	writeTimeout   timeout.Timeout[any]
 
 	lggr                 logger.Logger
 	consecutiveErrors    atomic.Int32
 	maxConsecutiveErrors int32
 }
 
-// NewResilientAggregator creates a new resilient aggregator with custom configuration.
+// NewResilientAggregator creates a new resilient aggregator writer with custom configuration.
 func NewResilientAggregator(
 	writer protocol.CCVNodeDataWriter,
-	reader protocol.OffchainStorageReader,
 	lggr logger.Logger,
 	config AggregatorResilienceConfig,
 ) *ResilientAggregator {
@@ -115,34 +99,24 @@ func NewResilientAggregator(
 		}).
 		Build()
 
-	readTO := timeout.NewBuilder[any](config.ReadTimeout).
-		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[any]) {
-			lggr.Warnw("Aggregator read request timeout exceeded", "timeout", config.ReadTimeout)
-		}).
-		Build()
-
 	return &ResilientAggregator{
 		writer:               writer,
-		reader:               reader,
 		circuitBreaker:       cb,
 		rateLimiter:          rl,
 		bulkhead:             bh,
 		writeTimeout:         writeTO,
-		readTimeout:          readTO,
 		lggr:                 lggr,
 		maxConsecutiveErrors: 10,
 	}
 }
 
-// NewDefaultResilientAggregator creates a new resilient aggregator with sensible defaults.
+// NewDefaultResilientAggregator creates a new resilient aggregator writer with sensible defaults.
 func NewDefaultResilientAggregator(
 	writer protocol.CCVNodeDataWriter,
-	reader protocol.OffchainStorageReader,
 	lggr logger.Logger,
 ) *ResilientAggregator {
 	return NewResilientAggregator(
 		writer,
-		reader,
 		lggr,
 		DefaultAggregatorResilienceConfig(),
 	)
@@ -165,29 +139,6 @@ func (r *ResilientAggregator) WriteCCVNodeData(ctx context.Context, ccvDataList 
 
 	r.recordSuccess()
 	return nil
-}
-
-// ReadCCVData reads CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.
-func (r *ResilientAggregator) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
-	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.readTimeout)
-
-	result, err := executor.GetWithExecution(func(failsafe.Execution[any]) (any, error) {
-		return r.reader.ReadCCVData(ctx)
-	})
-	if err != nil {
-		r.recordError()
-		if r.circuitBreaker.State() == circuitbreaker.OpenState {
-			return nil, fmt.Errorf("circuit breaker is open, aggregator service unavailable: %w", err)
-		}
-		return nil, fmt.Errorf("failed to read CCV data: %w", err)
-	}
-
-	r.recordSuccess()
-	casted, ok := result.([]protocol.QueryResponse)
-	if !ok {
-		return nil, fmt.Errorf("unexpected type from ReadCCVData: %T", result)
-	}
-	return casted, nil
 }
 
 // GetCircuitBreakerState returns the current state of the circuit breaker.
