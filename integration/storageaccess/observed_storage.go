@@ -9,9 +9,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var _ protocol.CCVNodeDataWriter = (*observedStorage)(nil)
+var _ protocol.CCVNodeDataWriter = (*observedStorageWriter)(nil)
 
-type observedStorage struct {
+type observedStorageWriter struct {
 	protocol.CCVNodeDataWriter
 
 	verifierID string
@@ -25,7 +25,7 @@ func NewObservedStorageWriter(
 	lggr logger.Logger,
 	monitoring verifier.Monitoring,
 ) protocol.CCVNodeDataWriter {
-	return &observedStorage{
+	return &observedStorageWriter{
 		CCVNodeDataWriter: delegate,
 		verifierID:        verifierID,
 		lggr:              lggr,
@@ -33,7 +33,7 @@ func NewObservedStorageWriter(
 	}
 }
 
-func (o *observedStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	start := time.Now()
 
 	err := o.CCVNodeDataWriter.WriteCCVNodeData(ctx, ccvDataList)

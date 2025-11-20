@@ -16,35 +16,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var _ protocol.CCVNodeDataWriter = (*ResilientAggregator)(nil)
+var _ protocol.CCVNodeDataWriter = (*resilientAggregatorWriter)(nil)
 
-// AggregatorResilienceConfig contains configuration for aggregator writer resiliency policies.
-type AggregatorResilienceConfig struct {
-	CircuitBreakerErrorHandler func(any, error) bool
-
-	FailureThreshold      uint
-	SuccessThreshold      uint
-	CircuitBreakerDelay   time.Duration
-	MaxConcurrentRequests uint
-	MaxRequestsPerSecond  uint
-	WriteTimeout          time.Duration
-}
-
-// DefaultAggregatorResilienceConfig returns a configuration with sensible defaults for gRPC aggregator writer.
-func DefaultAggregatorResilienceConfig() AggregatorResilienceConfig {
-	return AggregatorResilienceConfig{
-		FailureThreshold:      5,
-		SuccessThreshold:      3,
-		CircuitBreakerDelay:   2 * time.Second,
-		MaxConcurrentRequests: 10,
-		MaxRequestsPerSecond:  10,
-		WriteTimeout:          2 * time.Second,
-	}
-}
-
-// ResilientAggregator decorates protocol.CCVNodeDataWriter
+// resilientAggregatorWriter decorates protocol.CCVNodeDataWriter
 // with failsafe-go policies: circuit breaker, timeout, rate limiter, and bulkhead.
-type ResilientAggregator struct {
+type resilientAggregatorWriter struct {
 	writer protocol.CCVNodeDataWriter
 
 	// Shared policies
@@ -58,12 +34,24 @@ type ResilientAggregator struct {
 	maxConsecutiveErrors int32
 }
 
+// NewDefaultResilientStorageWriter creates a new resilient aggregator writer with sensible defaults.
+func NewDefaultResilientStorageWriter(
+	writer protocol.CCVNodeDataWriter,
+	lggr logger.Logger,
+) protocol.CCVNodeDataWriter {
+	return NewResilientAggregator(
+		writer,
+		lggr,
+		defaultAggregatorResilienceConfig(),
+	)
+}
+
 // NewResilientAggregator creates a new resilient aggregator writer with custom configuration.
 func NewResilientAggregator(
 	writer protocol.CCVNodeDataWriter,
 	lggr logger.Logger,
-	config AggregatorResilienceConfig,
-) *ResilientAggregator {
+	config aggregatorResilienceConfig,
+) protocol.CCVNodeDataWriter {
 	handleIf := func(_ any, err error) bool { return err != nil }
 	if config.CircuitBreakerErrorHandler != nil {
 		handleIf = config.CircuitBreakerErrorHandler
@@ -99,7 +87,7 @@ func NewResilientAggregator(
 		}).
 		Build()
 
-	return &ResilientAggregator{
+	return &resilientAggregatorWriter{
 		writer:               writer,
 		circuitBreaker:       cb,
 		rateLimiter:          rl,
@@ -110,20 +98,8 @@ func NewResilientAggregator(
 	}
 }
 
-// NewDefaultResilientAggregator creates a new resilient aggregator writer with sensible defaults.
-func NewDefaultResilientAggregator(
-	writer protocol.CCVNodeDataWriter,
-	lggr logger.Logger,
-) *ResilientAggregator {
-	return NewResilientAggregator(
-		writer,
-		lggr,
-		DefaultAggregatorResilienceConfig(),
-	)
-}
-
 // WriteCCVNodeData writes CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.
-func (r *ResilientAggregator) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
 
 	_, err := executor.GetWithExecution(func(failsafe.Execution[any]) (any, error) {
@@ -141,18 +117,37 @@ func (r *ResilientAggregator) WriteCCVNodeData(ctx context.Context, ccvDataList 
 	return nil
 }
 
-// GetCircuitBreakerState returns the current state of the circuit breaker.
-func (r *ResilientAggregator) GetCircuitBreakerState() circuitbreaker.State {
-	return r.circuitBreaker.State()
-}
-
-func (r *ResilientAggregator) recordError() {
+func (r *resilientAggregatorWriter) recordError() {
 	count := r.consecutiveErrors.Add(1)
 	if count >= r.maxConsecutiveErrors {
 		r.lggr.Warnw("Max consecutive aggregator errors reached", "consecutive_errors", count)
 	}
 }
 
-func (r *ResilientAggregator) recordSuccess() {
+func (r *resilientAggregatorWriter) recordSuccess() {
 	r.consecutiveErrors.Store(0)
+}
+
+// aggregatorResilienceConfig contains configuration for aggregator writer resiliency policies.
+type aggregatorResilienceConfig struct {
+	CircuitBreakerErrorHandler func(any, error) bool
+
+	FailureThreshold      uint
+	SuccessThreshold      uint
+	CircuitBreakerDelay   time.Duration
+	MaxConcurrentRequests uint
+	MaxRequestsPerSecond  uint
+	WriteTimeout          time.Duration
+}
+
+// defaultAggregatorResilienceConfig returns a configuration with sensible defaults for gRPC aggregator writer.
+func defaultAggregatorResilienceConfig() aggregatorResilienceConfig {
+	return aggregatorResilienceConfig{
+		FailureThreshold:      5,
+		SuccessThreshold:      3,
+		CircuitBreakerDelay:   2 * time.Second,
+		MaxConcurrentRequests: 10,
+		MaxRequestsPerSecond:  10,
+		WriteTimeout:          2 * time.Second,
+	}
 }

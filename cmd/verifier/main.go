@@ -197,7 +197,13 @@ func main() {
 		os.Exit(1)
 	}
 	// Create chain status manager (includes both writer and reader)
-	chainStatusManager := storageaccess.NewAggregatorChainStatusManager(aggregatorWriter, aggregatorReader)
+	chainStatusManager := storageaccess.NewDefaultResilientChainStatusManager(
+		storageaccess.NewAggregatorChainStatusManager(
+			aggregatorWriter,
+			aggregatorReader,
+		),
+		lggr,
+	)
 
 	// Create source readers and head trackers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
@@ -315,7 +321,7 @@ func main() {
 	}
 
 	observedStorageWriter := storageaccess.NewObservedStorageWriter(
-		storageaccess.NewDefaultResilientAggregator(
+		storageaccess.NewDefaultResilientStorageWriter(
 			aggregatorWriter,
 			lggr,
 		),
