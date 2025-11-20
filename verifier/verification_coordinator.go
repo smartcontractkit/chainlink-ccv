@@ -497,7 +497,7 @@ func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitG
 
 			for _, verificationTask := range taskBatch.Items {
 				// Add to pending queue for finality checking
-				vc.addToPendingQueue(verificationTask, state)
+				vc.addToPendingQueue(ctx, verificationTask, state)
 			}
 		}
 	}
@@ -568,7 +568,7 @@ func (vc *Coordinator) Name() string {
 }
 
 // addToPendingQueue adds a verification task to the per-chain pending queue for finality checking.
-func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceState) {
+func (vc *Coordinator) addToPendingQueue(ctx context.Context, task VerificationTask, state *sourceState) {
 	state.pendingMu.Lock()
 	defer state.pendingMu.Unlock()
 
@@ -592,7 +592,7 @@ func (vc *Coordinator) addToPendingQueue(task VerificationTask, state *sourceSta
 	// Check if lane is cursed (source -> dest)
 	// Use context.TODO() to avoid passing nil context, underlying function does not use it.
 	if vc.curseDetector.IsRemoteChainCursed(
-		context.TODO(),
+		ctx,
 		task.Message.SourceChainSelector,
 		task.Message.DestChainSelector,
 	) {
