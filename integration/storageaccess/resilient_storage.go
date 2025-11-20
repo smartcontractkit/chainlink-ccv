@@ -47,6 +47,7 @@ func NewResilientAggregator(
 	lggr logger.Logger,
 	config aggregatorResilienceConfig,
 ) protocol.CCVNodeDataWriter {
+	// TODO: Consider making error handler to react only upon network errors.
 	handleIf := func(_ any, err error) bool { return err != nil }
 	if config.CircuitBreakerErrorHandler != nil {
 		handleIf = config.CircuitBreakerErrorHandler
