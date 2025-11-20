@@ -3,7 +3,6 @@ package storageaccess
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -22,16 +21,12 @@ var _ protocol.CCVNodeDataWriter = (*resilientAggregatorWriter)(nil)
 // with failsafe-go policies: circuit breaker, timeout, rate limiter, and bulkhead.
 type resilientAggregatorWriter struct {
 	writer protocol.CCVNodeDataWriter
+	lggr   logger.Logger
 
-	// Shared policies
 	circuitBreaker circuitbreaker.CircuitBreaker[any]
 	rateLimiter    ratelimiter.RateLimiter[any]
 	bulkhead       bulkhead.Bulkhead[any]
 	writeTimeout   timeout.Timeout[any]
-
-	lggr                 logger.Logger
-	consecutiveErrors    atomic.Int32
-	maxConsecutiveErrors int32
 }
 
 // NewDefaultResilientStorageWriter creates a new resilient aggregator writer with sensible defaults.
@@ -88,13 +83,12 @@ func NewResilientAggregator(
 		Build()
 
 	return &resilientAggregatorWriter{
-		writer:               writer,
-		circuitBreaker:       cb,
-		rateLimiter:          rl,
-		bulkhead:             bh,
-		writeTimeout:         writeTO,
-		lggr:                 lggr,
-		maxConsecutiveErrors: 10,
+		writer:         writer,
+		circuitBreaker: cb,
+		rateLimiter:    rl,
+		bulkhead:       bh,
+		writeTimeout:   writeTO,
+		lggr:           lggr,
 	}
 }
 
@@ -106,26 +100,12 @@ func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDat
 		return nil, r.writer.WriteCCVNodeData(ctx, ccvDataList)
 	})
 	if err != nil {
-		r.recordError()
 		if r.circuitBreaker.State() == circuitbreaker.OpenState {
 			return fmt.Errorf("circuit breaker is open, aggregator service unavailable: %w", err)
 		}
 		return fmt.Errorf("failed to write CCV data: %w", err)
 	}
-
-	r.recordSuccess()
 	return nil
-}
-
-func (r *resilientAggregatorWriter) recordError() {
-	count := r.consecutiveErrors.Add(1)
-	if count >= r.maxConsecutiveErrors {
-		r.lggr.Warnw("Max consecutive aggregator errors reached", "consecutive_errors", count)
-	}
-}
-
-func (r *resilientAggregatorWriter) recordSuccess() {
-	r.consecutiveErrors.Store(0)
 }
 
 // aggregatorResilienceConfig contains configuration for aggregator writer resiliency policies.

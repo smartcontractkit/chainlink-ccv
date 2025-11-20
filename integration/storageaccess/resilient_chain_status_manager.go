@@ -3,7 +3,6 @@ package storageaccess
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -23,6 +22,7 @@ var _ protocol.ChainStatusManager = (*resilientChainStatusManager)(nil)
 // they share circuit breaker, rate limiter, and bulkhead, but have separate timeout policies.
 type resilientChainStatusManager struct {
 	delegate protocol.ChainStatusManager
+	lggr     logger.Logger
 
 	// Shared policies
 	circuitBreaker circuitbreaker.CircuitBreaker[any]
@@ -32,10 +32,6 @@ type resilientChainStatusManager struct {
 	// Separate timeout policies for read and write
 	writeTimeout timeout.Timeout[any]
 	readTimeout  timeout.Timeout[any]
-
-	lggr                 logger.Logger
-	consecutiveErrors    atomic.Int32
-	maxConsecutiveErrors int32
 }
 
 // NewDefaultResilientChainStatusManager creates a new resilient chain status manager with sensible defaults.
@@ -98,14 +94,13 @@ func NewResilientChainStatusManager(
 		Build()
 
 	return &resilientChainStatusManager{
-		delegate:             delegate,
-		circuitBreaker:       cb,
-		rateLimiter:          rl,
-		bulkhead:             bh,
-		writeTimeout:         writeTO,
-		readTimeout:          readTO,
-		lggr:                 lggr,
-		maxConsecutiveErrors: 10,
+		delegate:       delegate,
+		circuitBreaker: cb,
+		rateLimiter:    rl,
+		bulkhead:       bh,
+		writeTimeout:   writeTO,
+		readTimeout:    readTO,
+		lggr:           lggr,
 	}
 }
 
@@ -117,14 +112,12 @@ func (r *resilientChainStatusManager) WriteChainStatuses(ctx context.Context, st
 		return nil, r.delegate.WriteChainStatuses(ctx, statuses)
 	})
 	if err != nil {
-		r.recordError()
 		if r.circuitBreaker.State() == circuitbreaker.OpenState {
 			return fmt.Errorf("circuit breaker is open, chain status service unavailable: %w", err)
 		}
 		return fmt.Errorf("failed to write chain statuses: %w", err)
 	}
 
-	r.recordSuccess()
 	return nil
 }
 
@@ -136,30 +129,17 @@ func (r *resilientChainStatusManager) ReadChainStatuses(ctx context.Context, cha
 		return r.delegate.ReadChainStatuses(ctx, chainSelectors)
 	})
 	if err != nil {
-		r.recordError()
 		if r.circuitBreaker.State() == circuitbreaker.OpenState {
 			return nil, fmt.Errorf("circuit breaker is open, chain status service unavailable: %w", err)
 		}
 		return nil, fmt.Errorf("failed to read chain statuses: %w", err)
 	}
 
-	r.recordSuccess()
 	casted, ok := result.(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 	if !ok {
 		return nil, fmt.Errorf("unexpected result type from ReadChainStatuses")
 	}
 	return casted, nil
-}
-
-func (r *resilientChainStatusManager) recordError() {
-	count := r.consecutiveErrors.Add(1)
-	if count >= r.maxConsecutiveErrors {
-		r.lggr.Warnw("Max consecutive chain status errors reached", "consecutive_errors", count)
-	}
-}
-
-func (r *resilientChainStatusManager) recordSuccess() {
-	r.consecutiveErrors.Store(0)
 }
 
 // chainStatusManagerResilienceConfig contains configuration for chain status manager resiliency policies.
