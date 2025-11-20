@@ -9,6 +9,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+var _ protocol.CCVNodeDataWriter = (*observedStorageWriter)(nil)
+
 type observedStorageWriter struct {
 	protocol.CCVNodeDataWriter
 
