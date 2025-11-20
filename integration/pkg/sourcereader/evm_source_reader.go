@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -30,6 +31,7 @@ type EVMSourceReader struct {
 	headTracker          heads.Tracker
 	onRampAddress        common.Address
 	rmnRemoteAddress     common.Address
+	rmnRemoteCaller      rmn_remote.RMNRemoteCaller
 	ccipMessageSentTopic string
 	chainSelector        protocol.ChainSelector
 	lggr                 logger.Logger
@@ -72,11 +74,19 @@ func NewEVMSourceReader(
 		return nil, errors.Join(errs...)
 	}
 
+	// Bind to RMN Remote contract
+	rmnRemoteCaller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind RMN Remote contract at %s: %w",
+			rmnRemoteAddress.Hex(), err)
+	}
+
 	return &EVMSourceReader{
 		chainClient:          chainClient,
 		headTracker:          headTracker,
 		onRampAddress:        onRampAddress,
 		rmnRemoteAddress:     rmnRemoteAddress,
+		rmnRemoteCaller:      *rmnRemoteCaller,
 		ccipMessageSentTopic: ccipMessageSentTopic,
 		chainSelector:        chainSelector,
 		lggr:                 lggr,
@@ -358,5 +368,5 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Use the common helper function from cursechecker package
 	// This avoids code duplication with EVMDestinationReader
-	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.chainClient, r.rmnRemoteAddress)
+	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.rmnRemoteCaller)
 }
