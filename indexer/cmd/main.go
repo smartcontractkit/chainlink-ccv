@@ -73,22 +73,14 @@ func main() {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
 
-	scheduler, err := worker.NewScheduler(lggr, worker.SchedulerConfig{
-		TickerInterval: time.Millisecond * 50,
-		MaxAttempts:    960, // 8 Hours, assuming 30 second delay
-		BaseDelay:      time.Millisecond * 100,
-		MaxDelay:       time.Second * 30,
-		ReadyQueueSize: 1000,
-		DLQSize:        1000,
-		JitterFrac:     0.02,
-	})
+	scheduler, err := worker.NewScheduler(lggr, config.Scheduler)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize scheduler: %v", err)
 	}
 	scheduler.Start(ctx)
 
 	discoveryCh := messageDiscovery.Start(ctx)
-	pool := worker.NewWorkerPool(lggr, worker.Config{WorkerTimeout: time.Minute * 5}, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	pool := worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
 	pool.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
@@ -116,11 +108,7 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 		return err
 	}
 
-	verifierReader := readers.NewVerifierReader(ctx, reader, readers.VerifierReaderConfig{
-		BatchSize:         20,                     // Make configurable
-		MaxWaitTime:       250 * time.Millisecond, // Make configurable
-		MaxPendingBatches: 10,                     // Make configurable
-	})
+	verifierReader := readers.NewVerifierReader(ctx, reader, verifierConfig)
 
 	if err := verifierReader.Start(ctx); err != nil {
 		return err
@@ -172,11 +160,7 @@ func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.Inde
 		discovery.WithStorage(storage),
 		discovery.WithMonitoring(monitoring),
 		discovery.WithLogger(lggr),
-		discovery.WithConfig(discovery.Config{
-			PollInterval:       time.Duration(cfg.Discovery.PollInterval) * time.Second,
-			Timeout:            time.Duration(cfg.Discovery.Timeout) * time.Second,
-			MessageChannelSize: cfg.Discovery.MessageChannelSize,
-		}))
+		discovery.WithConfig(cfg.Discovery))
 }
 
 // createStorage creates the storage backend connection based on the configuration.

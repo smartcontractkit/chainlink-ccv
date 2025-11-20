@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -26,16 +27,15 @@ func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageID
 }
 
 // newTestVerifierReader creates a new VerifierReader instance for testing.
-func newTestVerifierReader(mockVerifier *mockVerifierResultsAPI, config VerifierReaderConfig) *VerifierReader {
+func newTestVerifierReader(mockVerifier *mockVerifierResultsAPI, config *config.VerifierConfig) *VerifierReader {
 	ctx := context.Background()
 	return NewVerifierReader(ctx, mockVerifier, config)
 }
 
 func TestNewVerifierReader(t *testing.T) {
-	config := VerifierReaderConfig{
-		BatchSize:         10,
-		MaxWaitTime:       100 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        100,
+		MaxBatchWaitTime: 100,
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
@@ -47,10 +47,9 @@ func TestNewVerifierReader(t *testing.T) {
 }
 
 func TestVerifierReader_ProcessMessage_Success(t *testing.T) {
-	config := VerifierReaderConfig{
-		BatchSize:         10,
-		MaxWaitTime:       100 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        100,
+		MaxBatchWaitTime: 100,
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
@@ -74,12 +73,10 @@ func TestVerifierReader_ProcessMessage_Success(t *testing.T) {
 
 func TestVerifierReader_ProcessMessage_BatcherClosed(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	config := VerifierReaderConfig{
-		BatchSize:         10,
-		MaxWaitTime:       100 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        100,
+		MaxBatchWaitTime: 100,
 	}
-
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
@@ -101,10 +98,9 @@ func TestVerifierReader_ProcessMessage_BatcherClosed(t *testing.T) {
 
 func TestVerifierReader_Start(t *testing.T) {
 	ctx := context.Background()
-	config := VerifierReaderConfig{
-		BatchSize:         2, // Small batch size for testing
-		MaxWaitTime:       50 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        2, // Small batch size for testing
+		MaxBatchWaitTime: 50,
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
@@ -126,12 +122,11 @@ func TestVerifierReader_Start(t *testing.T) {
 }
 
 func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
-	ctx := t.Context()
+	ctx := context.Background()
 
-	config := VerifierReaderConfig{
-		BatchSize:         2, // Small batch size to trigger batch quickly
-		MaxWaitTime:       50 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        2, // Small batch size to trigger batch quickly
+		MaxBatchWaitTime: 50,
 	}
 
 	messageID1 := protocol.Bytes32{1, 2, 3}
@@ -150,6 +145,9 @@ func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)
+
+	// Give the run goroutine a moment to start and be ready to receive batches
+	time.Sleep(10 * time.Millisecond)
 
 	// Process two messages to trigger a batch
 	resultCh1, err := reader.ProcessMessage(messageID1)
@@ -174,15 +172,18 @@ func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("timeout waiting for result2")
 	}
+
+	// Clean up to ensure goroutines finish properly
+	err = reader.Close()
+	require.NoError(t, err)
 }
 
 func TestVerifierReader_Run_HandlesVerifierError(t *testing.T) {
-	ctx := t.Context()
+	ctx := context.Background()
 
-	config := VerifierReaderConfig{
-		BatchSize:         1, // Process immediately
-		MaxWaitTime:       50 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        1, // Process immediately
+		MaxBatchWaitTime: 50,
 	}
 
 	messageID := protocol.Bytes32{1, 2, 3}
@@ -197,6 +198,9 @@ func TestVerifierReader_Run_HandlesVerifierError(t *testing.T) {
 	err := reader.Start(ctx)
 	require.NoError(t, err)
 
+	// Give the run goroutine a moment to start and be ready to receive batches
+	time.Sleep(10 * time.Millisecond)
+
 	resultCh, err := reader.ProcessMessage(messageID)
 	require.NoError(t, err)
 
@@ -208,14 +212,17 @@ func TestVerifierReader_Run_HandlesVerifierError(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("timeout waiting for result")
 	}
+
+	// Clean up to ensure goroutines finish properly
+	err = reader.Close()
+	require.NoError(t, err)
 }
 
 func TestVerifierReader_Close_GracefulShutdown(t *testing.T) {
 	ctx := context.Background()
-	config := VerifierReaderConfig{
-		BatchSize:         10,
-		MaxWaitTime:       100 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        10,
+		MaxBatchWaitTime: 100,
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
@@ -250,10 +257,9 @@ func TestVerifierReader_Close_GracefulShutdown(t *testing.T) {
 
 func TestVerifierReader_Close_MultipleCalls(t *testing.T) {
 	ctx := context.Background()
-	config := VerifierReaderConfig{
-		BatchSize:         10,
-		MaxWaitTime:       100 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        10,
+		MaxBatchWaitTime: 100,
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
@@ -280,10 +286,9 @@ func TestVerifierReader_Close_MultipleCalls(t *testing.T) {
 
 func TestVerifierReader_Close_WithPendingBatches(t *testing.T) {
 	ctx := context.Background()
-	config := VerifierReaderConfig{
-		BatchSize:         10, // Large batch size so items don't auto-flush
-		MaxWaitTime:       200 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        10, // Large batch size so items don't auto-flush
+		MaxBatchWaitTime: 200,
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
@@ -321,12 +326,11 @@ func TestVerifierReader_Close_WithPendingBatches(t *testing.T) {
 }
 
 func TestVerifierReader_Run_ChannelClosed(t *testing.T) {
-	ctx := t.Context()
+	ctx := context.Background()
 
-	config := VerifierReaderConfig{
-		BatchSize:         10,
-		MaxWaitTime:       100 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        10,
+		MaxBatchWaitTime: 100,
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{

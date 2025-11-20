@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -33,10 +33,9 @@ func newMockVerifierReader() *readers.VerifierReader {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.CCVData),
 	}
-	config := readers.VerifierReaderConfig{
-		BatchSize:         10,
-		MaxWaitTime:       100 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        10,
+		MaxBatchWaitTime: 100,
 	}
 	return readers.NewVerifierReader(ctx, mockVerifier, config)
 }

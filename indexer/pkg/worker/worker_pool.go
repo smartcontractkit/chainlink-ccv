@@ -7,13 +7,14 @@ import (
 	"github.com/panjf2000/ants/v2"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type Pool struct {
-	config           Config
+	config           config.PoolConfig
 	logger           logger.Logger
 	pool             *ants.Pool
 	discoveryChannel <-chan protocol.CCVData
@@ -22,14 +23,9 @@ type Pool struct {
 	storage          common.IndexerStorage
 }
 
-type Config struct {
-	WorkerTimeout time.Duration
-	NumWorkers    int
-}
-
 // NewWorkerPool creates a new WorkerPool with the given configuration.
-func NewWorkerPool(logger logger.Logger, config Config, discoveryChannel <-chan protocol.CCVData, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
-	pool, err := ants.NewPool(config.NumWorkers, ants.WithMaxBlockingTasks(1024), ants.WithNonblocking(false))
+func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChannel <-chan protocol.CCVData, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
+	pool, err := ants.NewPool(config.ConcurrentWorkers, ants.WithMaxBlockingTasks(1024), ants.WithNonblocking(false))
 	if err != nil {
 		logger.Fatalf("Unable to start worker pool: %v", err)
 	}
@@ -62,7 +58,7 @@ func (p *Pool) run(ctx context.Context) {
 				continue
 			}
 			p.logger.Infow("Enqueueing new Message", "messageID", message.MessageID.String())
-			task, err := NewTask(p.logger, message, p.registry, p.storage)
+			task, err := NewTask(p.logger, message, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.
 			if err != nil {
@@ -79,7 +75,7 @@ func (p *Pool) run(ctx context.Context) {
 				continue
 			}
 
-			workerCtx, cancel := context.WithTimeout(ctx, p.config.WorkerTimeout)
+			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
 			p.logger.Infof("Starting Worker for %s", task.messageID.String())
 
 			if err := p.pool.Submit(func() {
