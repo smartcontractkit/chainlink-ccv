@@ -35,7 +35,9 @@ jobs:
       - name: Build CL Image For Ref
         uses: ./.github/actions/build-cl
         with:
-          ref: develop
+          # Prefer a SHA from the develop branch, since branches that get deleted on remote will cause this
+          # checkout to fail.
+          ref: a1349e278c3a015b145849a31a518dc1e8812f5e
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
