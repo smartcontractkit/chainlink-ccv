@@ -82,13 +82,13 @@ func NewResilientChainStatusManager(
 		}).
 		Build()
 
-	writeTO := timeout.NewBuilder[any](config.WriteTimeout).
+	writeTimeout := timeout.NewBuilder[any](config.WriteTimeout).
 		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[any]) {
 			lggr.Warnw("ChainStatusManager write request timeout exceeded", "timeout", config.WriteTimeout)
 		}).
 		Build()
 
-	readTO := timeout.NewBuilder[any](config.ReadTimeout).
+	readTimeout := timeout.NewBuilder[any](config.ReadTimeout).
 		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[any]) {
 			lggr.Warnw("ChainStatusManager read request timeout exceeded", "timeout", config.ReadTimeout)
 		}).
@@ -99,8 +99,8 @@ func NewResilientChainStatusManager(
 		circuitBreaker: cb,
 		rateLimiter:    rl,
 		bulkhead:       bh,
-		writeTimeout:   writeTO,
-		readTimeout:    readTO,
+		writeTimeout:   writeTimeout,
+		readTimeout:    readTimeout,
 		lggr:           lggr,
 	}
 }

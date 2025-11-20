@@ -34,15 +34,15 @@ func NewDefaultResilientStorageWriter(
 	writer protocol.CCVNodeDataWriter,
 	lggr logger.Logger,
 ) protocol.CCVNodeDataWriter {
-	return NewResilientAggregator(
+	return NewResilientStorageWriter(
 		writer,
 		lggr,
 		defaultAggregatorResilienceConfig(),
 	)
 }
 
-// NewResilientAggregator creates a new resilient aggregator writer with custom configuration.
-func NewResilientAggregator(
+// NewResilientStorageWriter creates a new resilient aggregator writer with custom configuration.
+func NewResilientStorageWriter(
 	writer protocol.CCVNodeDataWriter,
 	lggr logger.Logger,
 	config aggregatorResilienceConfig,
@@ -77,7 +77,7 @@ func NewResilientAggregator(
 		}).
 		Build()
 
-	writeTO := timeout.NewBuilder[any](config.WriteTimeout).
+	writeTimeout := timeout.NewBuilder[any](config.WriteTimeout).
 		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[any]) {
 			lggr.Warnw("Aggregator write request timeout exceeded", "timeout", config.WriteTimeout)
 		}).
@@ -88,7 +88,7 @@ func NewResilientAggregator(
 		circuitBreaker: cb,
 		rateLimiter:    rl,
 		bulkhead:       bh,
-		writeTimeout:   writeTO,
+		writeTimeout:   writeTimeout,
 		lggr:           lggr,
 	}
 }
