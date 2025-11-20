@@ -25,14 +25,16 @@ type resilientChainStatusManager struct {
 	lggr     logger.Logger
 
 	// Shared policies
-	circuitBreaker circuitbreaker.CircuitBreaker[any]
-	rateLimiter    ratelimiter.RateLimiter[any]
-	bulkhead       bulkhead.Bulkhead[any]
+	circuitBreaker circuitbreaker.CircuitBreaker[readResult]
+	rateLimiter    ratelimiter.RateLimiter[readResult]
+	bulkhead       bulkhead.Bulkhead[readResult]
 
 	// Separate timeout policies for read and write
-	writeTimeout timeout.Timeout[any]
-	readTimeout  timeout.Timeout[any]
+	writeTimeout timeout.Timeout[readResult]
+	readTimeout  timeout.Timeout[readResult]
 }
+
+type readResult map[protocol.ChainSelector]*protocol.ChainStatusInfo
 
 // NewDefaultResilientChainStatusManager creates a new resilient chain status manager with sensible defaults.
 func NewDefaultResilientChainStatusManager(
@@ -53,12 +55,12 @@ func NewResilientChainStatusManager(
 	config chainStatusManagerResilienceConfig,
 ) protocol.ChainStatusManager {
 	// TODO: Consider making error handler to react only upon network errors.
-	handleIf := func(_ any, err error) bool { return err != nil }
+	handleIf := func(_ readResult, err error) bool { return err != nil }
 	if config.CircuitBreakerErrorHandler != nil {
 		handleIf = config.CircuitBreakerErrorHandler
 	}
 
-	cb := circuitbreaker.NewBuilder[any]().
+	cb := circuitbreaker.NewBuilder[readResult]().
 		WithDelay(config.CircuitBreakerDelay).
 		HandleIf(handleIf).
 		OnOpen(func(circuitbreaker.StateChangedEvent) {
@@ -74,22 +76,22 @@ func NewResilientChainStatusManager(
 		WithSuccessThreshold(config.SuccessThreshold).
 		Build()
 
-	rl := ratelimiter.NewBursty[any](config.MaxRequestsPerSecond, time.Second)
+	rl := ratelimiter.NewBursty[readResult](config.MaxRequestsPerSecond, time.Second)
 
-	bh := bulkhead.NewBuilder[any](config.MaxConcurrentRequests).
-		OnFull(func(failsafe.ExecutionEvent[any]) {
+	bh := bulkhead.NewBuilder[readResult](config.MaxConcurrentRequests).
+		OnFull(func(failsafe.ExecutionEvent[readResult]) {
 			lggr.Warnw("ChainStatusManager bulkhead is full", "max_concurrent_requests", config.MaxConcurrentRequests)
 		}).
 		Build()
 
-	writeTimeout := timeout.NewBuilder[any](config.WriteTimeout).
-		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[any]) {
+	writeTimeout := timeout.NewBuilder[readResult](config.WriteTimeout).
+		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[readResult]) {
 			lggr.Warnw("ChainStatusManager write request timeout exceeded", "timeout", config.WriteTimeout)
 		}).
 		Build()
 
-	readTimeout := timeout.NewBuilder[any](config.ReadTimeout).
-		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[any]) {
+	readTimeout := timeout.NewBuilder[readResult](config.ReadTimeout).
+		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[readResult]) {
 			lggr.Warnw("ChainStatusManager read request timeout exceeded", "timeout", config.ReadTimeout)
 		}).
 		Build()
@@ -109,8 +111,8 @@ func NewResilientChainStatusManager(
 func (r *resilientChainStatusManager) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
 	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
 
-	_, err := executor.GetWithExecution(func(failsafe.Execution[any]) (any, error) {
-		return nil, r.delegate.WriteChainStatuses(ctx, statuses)
+	err := executor.RunWithExecution(func(failsafe.Execution[readResult]) error {
+		return r.delegate.WriteChainStatuses(ctx, statuses)
 	})
 	if err != nil {
 		if r.circuitBreaker.State() == circuitbreaker.OpenState {
@@ -126,7 +128,7 @@ func (r *resilientChainStatusManager) WriteChainStatuses(ctx context.Context, st
 func (r *resilientChainStatusManager) ReadChainStatuses(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
 	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.readTimeout)
 
-	result, err := executor.GetWithExecution(func(failsafe.Execution[any]) (any, error) {
+	result, err := executor.GetWithExecution(func(failsafe.Execution[readResult]) (readResult, error) {
 		return r.delegate.ReadChainStatuses(ctx, chainSelectors)
 	})
 	if err != nil {
@@ -135,19 +137,14 @@ func (r *resilientChainStatusManager) ReadChainStatuses(ctx context.Context, cha
 		}
 		return nil, fmt.Errorf("failed to read chain statuses: %w", err)
 	}
-
-	casted, ok := result.(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-	if !ok {
-		return nil, fmt.Errorf("unexpected result type from ReadChainStatuses")
-	}
-	return casted, nil
+	return result, nil
 }
 
 // chainStatusManagerResilienceConfig contains configuration for chain status manager resiliency policies.
 // Since both read and write communicate with the same server, they share circuit breaker,
 // bulkhead, and rate limiter, but have separate timeouts.
 type chainStatusManagerResilienceConfig struct {
-	CircuitBreakerErrorHandler func(any, error) bool
+	CircuitBreakerErrorHandler func(readResult, error) bool
 
 	// Shared settings
 	FailureThreshold      uint

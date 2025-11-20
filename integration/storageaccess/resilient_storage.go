@@ -97,8 +97,8 @@ func NewResilientStorageWriter(
 func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
 	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
 
-	_, err := executor.GetWithExecution(func(failsafe.Execution[any]) (any, error) {
-		return nil, r.writer.WriteCCVNodeData(ctx, ccvDataList)
+	err := executor.RunWithExecution(func(failsafe.Execution[any]) error {
+		return r.writer.WriteCCVNodeData(ctx, ccvDataList)
 	})
 	if err != nil {
 		if r.circuitBreaker.State() == circuitbreaker.OpenState {
