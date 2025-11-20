@@ -51,7 +51,6 @@ type Params struct {
 }
 
 func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
-
 	var errs []error
 	appendIfNil := func(field any, fieldName string) {
 		if field == nil {
