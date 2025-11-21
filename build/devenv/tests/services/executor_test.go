@@ -9,7 +9,15 @@ import (
 )
 
 func TestServiceExecutor(t *testing.T) {
-	out, err := services.NewExecutor(&services.ExecutorInput{SourceCodePath: "../../../executor", RootPath: "../../../../"})
+	out, err := services.NewExecutor(&services.ExecutorInput{
+		SourceCodePath: "../../../executor",
+		RootPath:       "../../../../",
+		ContainerName:  "executor-test",
+		Port:           8101,
+		Mode:           services.Standalone,
+		ExecutorID:     "executor-test",
+		ExecutorPool:   []string{"executor-test"},
+	})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
 		_ = out

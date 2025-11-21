@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -79,7 +80,7 @@ type Cfg struct {
 	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
 	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
-	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
+	Executor           []*services.ExecutorInput   `toml:"executor"              validate:"required"`
 	Indexer            *services.IndexerInput      `toml:"indexer"               validate:"required"`
 	Aggregator         []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
 	Blockchains        []*blockchain.Input         `toml:"blockchains"           validate:"required"`
@@ -101,7 +102,7 @@ func checkKeys(in *Cfg) error {
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
-		return &evm.CCIP17EVM{}, nil
+		return evm.NewEmptyCCIP17EVM(), nil
 	case "canton":
 		// see devenv-evm implementation and add Canton
 		return nil, nil
@@ -146,7 +147,9 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Executor config...
 	if in.Executor != nil {
-		services.ApplyExecutorDefaults(in.Executor)
+		for _, exec := range in.Executor {
+			services.ApplyExecutorDefaults(exec)
+		}
 	}
 
 	/////////////////////////////
@@ -429,14 +432,38 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 
-	if in.Executor != nil {
-		exec, err := services.ResolveContractsForExecutor(e.DataStore, in.Blockchains, in.Executor)
+	if len(in.Executor) > 0 {
+		execs, err := services.ResolveContractsForExecutor(e.DataStore, in.Blockchains, in.Executor)
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup contracts for executor: %w", err)
 		}
-		in.Executor = exec
+		execs, err = services.SetExecutorPoolAndID(execs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set executor pool and ID: %w", err)
+		}
+		execs, err = services.SetTransmitterPrivateKey(execs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set transmitter private key: %w", err)
+		}
+
+		// fund the keys used by the executors to send transactions in standalone mode.
+		addresses := make([]protocol.UnknownAddress, 0, len(execs))
+		for _, exec := range execs {
+			addresses = append(addresses, exec.GetTransmitterAddress())
+		}
+		Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
+		for i, impl := range impls {
+			Plog.Info().Int("ImplIndex", i).Msg("Funding executor")
+			err = impl.FundAddresses(ctx, in.Blockchains[i], addresses, big.NewInt(5))
+			if err != nil {
+				return nil, fmt.Errorf("failed to fund addresses for executors: %w", err)
+			}
+			Plog.Info().Int("ImplIndex", i).Msg("Funded executors")
+		}
+
+		in.Executor = execs
 	}
-	_, err = launchStandaloneExecutor(in.Executor)
+	_, err = launchStandaloneExecutors(in.Executor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
 	}
@@ -477,7 +504,7 @@ func NewEnvironment() (in *Cfg, err error) {
 }
 
 // createJobs creates the jobs for the verifiers and executors on the CL nodes if they're in CL mode.
-func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn *services.ExecutorInput) error {
+func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.ExecutorInput) error {
 	// Exit early, there are no nodes configured.
 	if len(in.NodeSets) == 0 {
 		return nil
@@ -514,25 +541,30 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn *services.Exe
 		}
 	}
 
-	if executorIn != nil && executorIn.Mode == services.CL {
-		index, clClient := roundRobin.GetNext()
+	for _, exec := range executorIn {
+		switch exec.Mode {
+		case services.CL:
+			index, clClient := roundRobin.GetNext()
 
-		tomlConfig, err := executorIn.GenerateConfig()
-		if err != nil {
-			return fmt.Errorf("failed to generate executor config: %w", err)
-		}
+			tomlConfig, err := exec.GenerateConfig()
+			if err != nil {
+				return fmt.Errorf("failed to generate executor config: %w", err)
+			}
 
-		jb, resp, err := clClient.CreateJobRaw(executorSpec(string(tomlConfig)))
-		if err != nil {
-			return fmt.Errorf("failed to create executor job: %w", err)
+			jb, resp, err := clClient.CreateJobRaw(executorSpec(string(tomlConfig)))
+			if err != nil {
+				return fmt.Errorf("failed to create executor job: %w", err)
+			}
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+				return fmt.Errorf("failed to create executor job: %s", resp.Status)
+			}
+			Plog.Info().
+				Int("CurrentIndex", index).
+				Any("ExecutorJob", jb).
+				Msg("Created executor job on node")
+		case services.Standalone:
+			continue
 		}
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			return fmt.Errorf("failed to create executor job: %s", resp.Status)
-		}
-		Plog.Info().
-			Int("CurrentIndex", index).
-			Any("ExecutorJob", jb).
-			Msg("Created executor job on node")
 	}
 
 	return nil
@@ -586,8 +618,8 @@ func launchCLNodes(
 		hasAService = hasAService || (ver.Mode == services.CL)
 	}
 
-	if in.Executor != nil {
-		hasAService = hasAService || (in.Executor.Mode == services.CL)
+	for _, exec := range in.Executor {
+		hasAService = hasAService || (exec.Mode == services.CL)
 	}
 
 	// Exit early, there are no services configured to deploy on a CL node.
@@ -710,15 +742,17 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-func launchStandaloneExecutor(in *services.ExecutorInput) ([]*services.ExecutorOutput, error) {
+func launchStandaloneExecutors(in []*services.ExecutorInput) ([]*services.ExecutorOutput, error) {
 	var outs []*services.ExecutorOutput
-	// Start standalone executor if in standalone mode.
-	if in != nil && in.Mode == services.Standalone {
-		out, err := services.NewExecutor(in)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create executor service: %w", err)
+	// Start standalone executors if they are in standalone mode.
+	for _, exec := range in {
+		if exec != nil && exec.Mode == services.Standalone {
+			out, err := services.NewExecutor(exec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create executor service: %w", err)
+			}
+			outs = append(outs, out)
 		}
-		outs = append(outs, out)
 	}
 	return outs, nil
 }
