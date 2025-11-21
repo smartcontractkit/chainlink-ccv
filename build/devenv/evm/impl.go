@@ -1557,14 +1557,12 @@ func (m *CCIP17EVM) FundAddresses(ctx context.Context, bc *blockchain.Input, add
 		return fmt.Errorf("could not get chain details: %w", err)
 	}
 	for _, addr := range addresses {
-		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Any("Address", addr).Msg("Funding address")
 		a, _ := nativeAmount.Float64()
 		addrStr := common.BytesToAddress(addr).Hex()
 		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Msg("Funding address")
 		if err := FundNodeEIP1559(ctx, client, getNetworkPrivateKey(), addrStr, a); err != nil {
 			return fmt.Errorf("failed to fund address %s: %w", addrStr, err)
 		}
-		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Msg("Funded address")
 		bal, err := client.BalanceAt(ctx, common.HexToAddress(addrStr), nil)
 		if err != nil {
 			return fmt.Errorf("failed to get balance: %w", err)
