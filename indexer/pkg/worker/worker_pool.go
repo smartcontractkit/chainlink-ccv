@@ -8,7 +8,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -16,7 +15,7 @@ type Pool struct {
 	config           Config
 	logger           logger.Logger
 	pool             *ants.Pool
-	discoveryChannel <-chan protocol.CCVData
+	discoveryChannel <-chan common.VerifierResultWithMetadata
 	scheduler        *Scheduler
 	registry         *registry.VerifierRegistry
 	storage          common.IndexerStorage
@@ -28,7 +27,7 @@ type Config struct {
 }
 
 // NewWorkerPool creates a new WorkerPool with the given configuration.
-func NewWorkerPool(logger logger.Logger, config Config, discoveryChannel <-chan protocol.CCVData, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
+func NewWorkerPool(logger logger.Logger, config Config, discoveryChannel <-chan common.VerifierResultWithMetadata, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
 	pool, err := ants.NewPool(config.NumWorkers, ants.WithMaxBlockingTasks(1024), ants.WithNonblocking(false))
 	if err != nil {
 		logger.Fatalf("Unable to start worker pool: %v", err)
@@ -61,8 +60,8 @@ func (p *Pool) run(ctx context.Context) {
 			if !ok {
 				continue
 			}
-			p.logger.Infow("Enqueueing new Message", "messageID", message.MessageID.String())
-			task, err := NewTask(p.logger, message, p.registry, p.storage)
+			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
+			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage)
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.
 			if err != nil {

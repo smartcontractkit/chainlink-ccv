@@ -10,7 +10,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -22,7 +21,7 @@ type AggregatorMessageDiscovery struct {
 	aggregatorReader *readers.ResilientReader
 	storageSink      common.IndexerStorage
 	monitoring       common.IndexerMonitoring
-	messageCh        chan protocol.CCVData
+	messageCh        chan common.VerifierResultWithMetadata
 	stopCh           chan struct{}
 	doneCh           chan struct{}
 	readerLock       *sync.Mutex
@@ -79,7 +78,7 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	}
 
 	// Create the buffered message channel
-	a.messageCh = make(chan protocol.CCVData, a.config.MessageChannelSize)
+	a.messageCh = make(chan common.VerifierResultWithMetadata, a.config.MessageChannelSize)
 
 	// Validata the configuration
 	if err := a.validate(); err != nil {
@@ -121,7 +120,7 @@ func (a *AggregatorMessageDiscovery) validate() error {
 	return nil
 }
 
-func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan protocol.CCVData {
+func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
 	go a.run(ctx)
 	a.logger.Info("MessageDiscovery Started")
 
@@ -217,17 +216,22 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 
-		// TODO: Update with message ingestion timestamp
-		response.Data.Timestamp = time.Now()
+		verifierResultWithMetadata := common.VerifierResultWithMetadata{
+			VerifierResult: response.Data,
+			Metadata: common.VerifierResultMetadata{
+				IngestionTimestamp:   time.Now(),
+				AttestationTimestamp: response.Data.Timestamp,
+			},
+		}
 
 		// Save the VerificationResult to the storage layer
-		if err := a.storageSink.InsertCCVData(ctx, response.Data); err != nil {
+		if err := a.storageSink.InsertCCVData(ctx, verifierResultWithMetadata); err != nil {
 			a.logger.Error("Error saving VerificationResult for MessageID %s to storage", response.Data.MessageID.String())
 			continue
 		}
 
 		// Emit the Message into the message channel for downstream components to consume
-		a.messageCh <- response.Data
+		a.messageCh <- verifierResultWithMetadata
 	}
 
 	// Return true if we processed any data, false if the slice was empty

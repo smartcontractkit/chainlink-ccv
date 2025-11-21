@@ -54,7 +54,7 @@ func (h *MessagesV1Handler) Handle(c *gin.Context) {
 	// Convert the verifications to a map of messageID to message
 	messages := make(map[string]protocol.Message)
 	for _, verification := range verifications {
-		messages[verification[0].MessageID.String()] = verification[0].Message
+		messages[verification[0].VerifierResult.MessageID.String()] = verification[0].VerifierResult.Message
 	}
 
 	h.lggr.Debugw("/v1/messages", "number of messages returned", len(messages))

@@ -21,3 +21,6 @@ clean:
 
 clean-dev:
     docker rmi indexer:dev
+
+create-migration name:
+    goose create {{name}} sql -dir ./migrations
