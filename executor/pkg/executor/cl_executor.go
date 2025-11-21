@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -22,6 +23,7 @@ type ChainlinkExecutor struct {
 	lggr                  logger.Logger
 	contractTransmitters  map[protocol.ChainSelector]executor.ContractTransmitter
 	destinationReaders    map[protocol.ChainSelector]executor.DestinationReader
+	curseChecker          common.CurseChecker
 	verifierResultsReader executor.VerifierResultReader
 	monitoring            executor.Monitoring
 }
@@ -30,6 +32,7 @@ func NewChainlinkExecutor(
 	lggr logger.Logger,
 	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter,
 	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
+	curseChecker common.CurseChecker,
 	verifierResultReader executor.VerifierResultReader,
 	monitoring executor.Monitoring,
 ) *ChainlinkExecutor {
@@ -37,6 +40,7 @@ func NewChainlinkExecutor(
 		lggr:                  lggr,
 		contractTransmitters:  contractTransmitters,
 		destinationReaders:    destinationReaders,
+		curseChecker:          curseChecker,
 		verifierResultsReader: verifierResultReader,
 		monitoring:            monitoring,
 	}
@@ -289,20 +293,17 @@ func (cle *ChainlinkExecutor) GetMessageStatus(ctx context.Context, message prot
 	if err != nil {
 		return executor.MessageStatusResults{}, fmt.Errorf("failed to get message ID: %w", err)
 	}
-	if cle.isCursed(message) {
-		cle.lggr.Infow("Lane is cursed, skipping execution for message", "messageID", messageID)
+	cursed := cle.curseChecker.IsRemoteChainCursed(ctx, message.DestChainSelector, message.SourceChainSelector)
+	if cursed {
+		cle.lggr.Infow("skipping execution for message due to curse", "messageID", messageID, "cursed", cursed)
 		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, nil
 	}
 	return cle.GetExecutionState(ctx, message, messageID)
 }
 
-func (cle *ChainlinkExecutor) isCursed(message protocol.Message) bool {
-	// todo: implement
-	return false
-}
-
 // GetExecutionState checks the onchain execution state of a message and returns if it should be retried and executed.
 // It does not do any checks to determine if verifications are available or not.
+// Note these states might not be applicable for nonevm integrations. Should we add a translation layer or move them to destination reader?
 // UNTOUCHED: Message should be executed and retried later to confirm successful execution
 // IN_PROGRESS: Message reentrancy protection, should not be retried, should not be executed.
 // SUCCESS: Message was executed successfully, don't retry and don't execute.

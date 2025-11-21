@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -19,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
@@ -36,9 +38,15 @@ func NewExecutorCoordinator(
 		lggr.Errorw("Invalid CCV configuration, failed to map offramp addresses.", "error", err)
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map offramp addresses: %w", err)
 	}
+	rmnAddresses, err := mapAddresses(cfg.RmnAddresses)
+	if err != nil {
+		lggr.Errorw("Invalid CCV configuration, failed to map rmn addresses.", "error", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map rmn addresses: %w", err)
+	}
 
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
+	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	for sel, chain := range relayers {
 		if _, ok := offRampAddresses[sel]; !ok {
 			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
@@ -54,13 +62,28 @@ func NewExecutorCoordinator(
 			fromAddresses[sel],
 		)
 
-		destReaders[sel] = destinationreader.NewEvmDestinationReader(
-			logger.With(lggr, "component", "DestinationReader"),
-			sel,
-			chain.Client(),
-			offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
-			cfg.GetCCVInfoCacheExpiry())
+		evmDestReader, err := destinationreader.NewEvmDestinationReader(
+			destinationreader.Params{
+				Lggr:             logger.With(lggr, "component", "DestinationReader"),
+				ChainSelector:    sel,
+				ChainClient:      chain.Client(),
+				OfframpAddress:   offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
+				RmnRemoteAddress: rmnAddresses[sel].String(),
+				CacheExpiry:      cfg.GetReaderCacheExpiry(),
+			})
+		if err != nil {
+			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)
+			continue
+		}
+		destReaders[sel] = evmDestReader
+		rmnReaders[sel] = evmDestReader
 	}
+
+	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
+		Lggr:        lggr,
+		RmnReaders:  rmnReaders,
+		CacheExpiry: cfg.GetReaderCacheExpiry(),
+	})
 
 	// TODO: monitoring config home
 	executorMonitoring, err := monitoring.InitMonitoring(beholder.Config{
@@ -85,6 +108,7 @@ func NewExecutorCoordinator(
 		logger.With(lggr, "component", "Executor"),
 		transmitters,
 		destReaders,
+		curseChecker,
 		indexerClient,
 		executorMonitoring,
 	)

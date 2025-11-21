@@ -73,6 +73,8 @@ type DestinationReader interface {
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
 	// GetMessageExecutionState returns true if message is executed
 	GetMessageExecutionState(ctx context.Context, message protocol.Message) (MessageExecutionState, error)
+	// GetRMNCursedSubjects returns the full list of cursed subjects for the chain. These can be Bytes16 ChainSelectors or the GlobalCurseSubject.
+	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.

@@ -18,11 +18,21 @@ type CurseChecker interface {
 	// Usage:
 	//   Verifier: IsRemoteChainCursed(sourceChain, destChain)
 	//   Executor: IsRemoteChainCursed(destChain, sourceChain)
-	IsRemoteChainCursed(localChain, remoteChain protocol.ChainSelector) bool
+	IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) bool
+}
 
-	// Start begins polling RMN Remote contracts for curse updates.
-	Start(ctx context.Context) error
+// CurseCheckerService is an interface that combines a CurseChecker and a Service.
+// Used in the verifier that wants to consistently poll chains rather than executor which wants to query on demand.
+type CurseCheckerService interface {
+	protocol.Service
+	CurseChecker
+}
 
-	// Close stops the curse detector.
-	Close() error
+// RMNRemoteReader provides read-only access to RMN Remote curse state.
+type RMNRemoteReader interface {
+	// GetRMNCursedSubjects queries the configured RMN Remote contract. Shared between verifier and executor.
+	// Returns cursed subjects as bytes16, which can be:
+	// - Global curse constant (0x0100000000000000000000000000000001)
+	// - Chain selectors as bytes16s
+	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }

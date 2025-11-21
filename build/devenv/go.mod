@@ -37,7 +37,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251107170647-25947f0bb4cb
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251118134523-5a74dc8189a8
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251119214842-48620ea319ea
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 	google.golang.org/grpc v1.76.0
 )
@@ -126,6 +126,7 @@ require (
 	github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/facette/natsort v0.0.0-20181210072756-2cd4dd1e2dcb // indirect
+	github.com/failsafe-go/failsafe-go v0.9.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fbsobreira/gotron-sdk v0.0.0-20250403083053-2943ce8c759b // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -158,7 +159,6 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.28.0 // indirect
-	github.com/go-redsync/redsync/v4 v4.13.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gofrs/flock v0.12.1 // indirect
@@ -202,6 +202,7 @@ require (
 	github.com/hashicorp/go-rootcerts v1.0.2 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.7 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/hashicorp/memberlist v0.5.2 // indirect
 	github.com/hashicorp/serf v0.10.1 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
@@ -213,6 +214,7 @@ require (
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/influxdata/tdigest v0.0.2-0.20210216194612-fc98d27c9e8b // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
 	github.com/jackc/pgconn v1.14.3 // indirect
@@ -283,7 +285,6 @@ require (
 	github.com/opentracing-contrib/go-grpc v0.1.1 // indirect
 	github.com/opentracing-contrib/go-stdlib v1.1.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
-	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/logging v0.2.2 // indirect
@@ -334,7 +335,7 @@ require (
 	github.com/smartcontractkit/grpc-proxy v0.0.0-20240830132753-a7e17fec5ab7 // indirect
 	github.com/smartcontractkit/libocr v0.0.0-20250905115425-2785a5cee79d // indirect
 	github.com/smartcontractkit/mcms v0.30.2 // indirect
-	github.com/sony/gobreaker/v2 v2.1.0 // indirect
+	github.com/sony/gobreaker/v2 v2.3.0 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect

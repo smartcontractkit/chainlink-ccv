@@ -59,15 +59,14 @@ type ReorgDetectorConfig struct {
 // - Runs alongside SourceReaderService for each chain
 // - Uses same SourceReader instance to share RPC connections.
 type ReorgDetectorService struct {
-	services.StateMachine
+	sync   services.StateMachine
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
 	sourceReader chainaccess.SourceReader
-	headTracker  chainaccess.HeadTracker
 	config       ReorgDetectorConfig
 	lggr         logger.Logger
 	statusCh     chan protocol.ChainStatus
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
 
 	// In-memory block tracking (keyed by block number for O(1) lookup)
 	// Single-writer: only accessed by pollAndCheckForReorgs goroutine
@@ -92,16 +91,12 @@ type ReorgDetectorService struct {
 // - error if configuration is invalid.
 func NewReorgDetectorService(
 	sourceReader chainaccess.SourceReader,
-	headTracker chainaccess.HeadTracker,
 	config ReorgDetectorConfig,
 	lggr logger.Logger,
 ) (*ReorgDetectorService, error) {
 	// Validate configuration
 	if sourceReader == nil {
 		return nil, fmt.Errorf("source reader is required")
-	}
-	if headTracker == nil {
-		return nil, fmt.Errorf("head tracker is required")
 	}
 	if config.ChainSelector == 0 {
 		return nil, fmt.Errorf("chain selector is required")
@@ -118,7 +113,6 @@ func NewReorgDetectorService(
 
 	return &ReorgDetectorService{
 		sourceReader: sourceReader,
-		headTracker:  headTracker,
 		config:       config,
 		lggr:         lggr,
 		statusCh:     make(chan protocol.ChainStatus, 1),
@@ -147,7 +141,7 @@ func NewReorgDetectorService(
 // - Safe to call once per instance
 // - Subsequent calls will return an error.
 func (r *ReorgDetectorService) Start(ctx context.Context) error {
-	return r.StartOnce("ReorgDetectorService", func() error {
+	return r.sync.StartOnce("ReorgDetectorService", func() error {
 		r.lggr.Infow("Starting reorg detector service",
 			"chainSelector", r.config.ChainSelector,
 			"pollInterval", r.pollInterval)
@@ -202,7 +196,7 @@ func (r *ReorgDetectorService) pollAndCheckForReorgs(ctx context.Context) {
 // Based on logpoller's getCurrentBlockMaybeHandleReorg pattern.
 func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	// Get current chain state in a single RPC call
-	latest, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		r.lggr.Debugw("Failed to fetch latest blocks",
 			"chainSelector", r.config.ChainSelector,
@@ -321,7 +315,7 @@ func (r *ReorgDetectorService) buildEntireTail(ctx context.Context) error {
 		"chainSelector", r.config.ChainSelector)
 
 	// Get current chain state
-	latest, finalized, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get latest and finalized blocks: %w", err)
 	}
@@ -552,7 +546,7 @@ func (r *ReorgDetectorService) rebuildTailFromBlock(ctx context.Context, startBl
 		"startBlock", startBlock.Number)
 
 	// Get current latest block to know how far to fetch
-	latest, _, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+	latest, _, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get latest block: %w", err)
 	}
@@ -665,7 +659,7 @@ func (e *finalityViolationError) Error() string {
 // - Safe to call multiple times (subsequent calls are no-ops)
 // - Blocks until monitoring goroutine exits.
 func (r *ReorgDetectorService) Close() error {
-	return r.StopOnce("ReorgDetectorService", func() error {
+	return r.sync.StopOnce("ReorgDetectorService", func() error {
 		r.lggr.Infow("Closing reorg detector service", "chainSelector", r.config.ChainSelector)
 
 		// Signal cancellation

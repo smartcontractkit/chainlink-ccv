@@ -26,8 +26,7 @@ type curseTestSetup struct {
 	cancel             context.CancelFunc
 	coordinator        *Coordinator
 	mockSourceReader   *protocol_mocks.MockSourceReader
-	mockHeadTracker    *protocol_mocks.MockHeadTracker
-	mockCurseChecker   *ccv_common.MockCurseChecker
+	mockCurseChecker   *ccv_common.MockCurseCheckerService
 	chainStatusManager *InMemoryChainStatusManager
 	testVerifier       *TestVerifier
 	storage            *common.InMemoryOffchainStorage
@@ -51,8 +50,6 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	mockSetup := SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 
-	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
-
 	// Initialize block state
 	initialLatest := &protocol.BlockHeader{
 		Number:     105,
@@ -71,10 +68,10 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	testVer := NewTestVerifier()
 
 	// Create mock curse detector
-	mockCurseDetector := ccv_common.NewMockCurseChecker(t)
+	mockCurseDetector := ccv_common.NewMockCurseCheckerService(t)
 
 	// Setup default behavior: no curses initially
-	mockCurseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything).Return(false).Maybe()
+	mockCurseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	mockCurseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	mockCurseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -83,7 +80,6 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		ctx:                ctx,
 		cancel:             cancel,
 		mockSourceReader:   mockSetup.Reader,
-		mockHeadTracker:    mockHeadTracker,
 		mockCurseChecker:   mockCurseDetector,
 		chainStatusManager: NewInMemoryChainStatusManager(),
 		sourceChain:        sourceChain,
@@ -97,7 +93,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	}
 
 	// Setup mock head tracker to return current state
-	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(
+	mockSetup.Reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(
 		func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
 			setup.blocksMu.RLock()
 			defer setup.blocksMu.RUnlock()
@@ -126,11 +122,9 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
 			sourceChain: setup.mockSourceReader,
 		}),
-		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
-			sourceChain: mockHeadTracker,
-		}),
 		WithCurseDetector(mockCurseDetector), // Inject mock for testing
 		WithMonitoring(&noopMonitoring{}),
+		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(finalityCheckInterval),
 	)
 	require.NoError(t, err)
@@ -159,26 +153,26 @@ func (s *curseTestSetup) mustStartCoordinator() {
 func (s *curseTestSetup) curseLane(destChain protocol.ChainSelector) {
 	s.t.Logf("🔒 Cursing lane: %d -> %d", s.sourceChain, destChain)
 	// Update mock to return true for this specific lane
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything).Unset()
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(s.sourceChain, destChain).Return(true).Maybe()
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Unset()
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, destChain).Return(true).Maybe()
 	// Keep other lanes uncursed
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(s.sourceChain, mock.MatchedBy(func(chain protocol.ChainSelector) bool {
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, mock.MatchedBy(func(chain protocol.ChainSelector) bool {
 		return chain != destChain
 	})).Return(false).Maybe()
 }
 
 func (s *curseTestSetup) curseGlobally() {
 	s.t.Logf("🔒 Applying global curse on source chain: %d", s.sourceChain)
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything).Unset()
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Unset()
 	// Global curse: all destinations from this source are cursed
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(s.sourceChain, mock.Anything).Return(true)
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, mock.Anything).Return(true)
 }
 
 func (s *curseTestSetup) liftCurse() {
 	s.t.Log("🔓 Lifting curse")
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything).Unset()
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Unset()
 	// Reset to no curses
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything).Return(false).Maybe()
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 }
 
 func (s *curseTestSetup) sendEvents(events []protocol.MessageSentEvent) {

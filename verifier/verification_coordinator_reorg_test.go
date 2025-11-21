@@ -25,7 +25,6 @@ type reorgTestSetup struct {
 	cancel             context.CancelFunc
 	coordinator        *Coordinator
 	mockSourceReader   *protocol_mocks.MockSourceReader
-	mockHeadTracker    *protocol_mocks.MockHeadTracker
 	mockReorgDetector  *mockReorgDetector
 	chainStatusManager *InMemoryChainStatusManager
 	testVerifier       *TestVerifier
@@ -52,8 +51,6 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	// Create mocks using the test helper pattern
 	mockSetup := SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
-
-	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 
 	// Initialize block state
 	initialLatest := &protocol.BlockHeader{
@@ -88,7 +85,6 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 		ctx:                   ctx,
 		cancel:                cancel,
 		mockSourceReader:      mockSetup.Reader,
-		mockHeadTracker:       mockHeadTracker,
 		chainStatusManager:    NewInMemoryChainStatusManager(),
 		chainSelector:         chainSelector,
 		lggr:                  lggr,
@@ -102,7 +98,7 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 	}
 
 	// Setup mock head tracker to return current state
-	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(
+	mockSetup.Reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(
 		func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
 			setup.blocksMu.RLock()
 			defer setup.blocksMu.RUnlock()
@@ -134,13 +130,11 @@ func (s *reorgTestSetup) createCoordinator() *Coordinator {
 		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
 			s.chainSelector: s.mockSourceReader,
 		}),
-		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
-			s.chainSelector: s.mockHeadTracker,
-		}),
 		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{
 			s.chainSelector: s.mockReorgDetector,
 		}),
 		WithMonitoring(&noopMonitoring{}),
+		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(s.finalityCheckInterval),
 	)
 	require.NoError(s.t, err)
