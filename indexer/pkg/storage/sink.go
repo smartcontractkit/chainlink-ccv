@@ -37,7 +37,7 @@ func NewSink(lggr logger.Logger, storages ...common.IndexerStorage) (*Sink, erro
 
 // GetCCVData tries to retrieve data from each storage in order until found.
 // Returns the first successful result, or the last error if all storages fail.
-func (d *Sink) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+func (d *Sink) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
 	var lastErr error
 
 	for i, storage := range d.storages {
@@ -77,7 +77,7 @@ func (d *Sink) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]pr
 	return nil, lastErr
 }
 
-func (d *Sink) GetCCVDataSkipCache(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+func (d *Sink) GetCCVDataSkipCache(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
 	var lastErr error
 
 	storageLength := len(d.storages)
@@ -116,7 +116,7 @@ func (d *Sink) QueryCCVData(
 	start, end int64,
 	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
 	limit, offset uint64,
-) (map[string][]protocol.CCVData, error) {
+) (map[string][]common.VerifierResultWithMetadata, error) {
 	var lastErr error
 	attemptedCount := 0
 
@@ -170,14 +170,14 @@ func (d *Sink) QueryCCVData(
 // InsertCCVData writes data to all storages in order.
 // If any storage fails (except duplicate errors), it continues to the next storage
 // and returns an error at the end indicating which storages failed.
-func (d *Sink) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error {
+func (d *Sink) InsertCCVData(ctx context.Context, ccvData common.VerifierResultWithMetadata) error {
 	var errs []error
 	successCount := 0
 
 	for i, storage := range d.storages {
 		d.lggr.Debugw("Attempting to write to storage",
 			"storageIndex", i,
-			"messageID", ccvData.MessageID.String(),
+			"messageID", ccvData.VerifierResult.MessageID.String(),
 		)
 
 		err := storage.InsertCCVData(ctx, ccvData)
@@ -186,7 +186,7 @@ func (d *Sink) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) erro
 			if err == ErrDuplicateCCVData {
 				d.lggr.Debugw("Duplicate data in storage (expected if syncing)",
 					"storageIndex", i,
-					"messageID", ccvData.MessageID.String(),
+					"messageID", ccvData.VerifierResult.MessageID.String(),
 				)
 				// Don't count duplicates as errors since the data is already there
 				successCount++
@@ -196,7 +196,7 @@ func (d *Sink) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) erro
 			// For other errors, log as warning and track the error
 			d.lggr.Warnw("Failed to write to storage",
 				"storageIndex", i,
-				"messageID", ccvData.MessageID.String(),
+				"messageID", ccvData.VerifierResult.MessageID.String(),
 				"error", err,
 			)
 			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
@@ -205,7 +205,7 @@ func (d *Sink) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) erro
 
 		d.lggr.Debugw("Successfully wrote to storage",
 			"storageIndex", i,
-			"messageID", ccvData.MessageID.String(),
+			"messageID", ccvData.VerifierResult.MessageID.String(),
 		)
 		successCount++
 	}
@@ -226,7 +226,7 @@ func (d *Sink) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) erro
 // BatchInsertCCVData writes multiple CCVData entries to all storages in order.
 // If any storage fails (except duplicate errors), it continues to the next storage
 // and returns an error at the end indicating which storages failed.
-func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []common.VerifierResultWithMetadata) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}

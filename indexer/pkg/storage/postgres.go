@@ -39,7 +39,7 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 }
 
 // GetCCVData performs a lookup by messageID in the database.
-func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -48,7 +48,8 @@ func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 			message_id,
 			source_verifier_address,
 			dest_verifier_address,
-			timestamp,
+			attestation_timestamp,
+	    ingestion_timestamp,
 			source_chain_selector,
 			dest_chain_selector,
 			nonce,
@@ -72,7 +73,7 @@ func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 		}
 	}()
 
-	var results []protocol.CCVData
+	var results []common.VerifierResultWithMetadata
 	for rows.Next() {
 		ccvData, err := d.scanCCVData(rows)
 		if err != nil {
@@ -98,7 +99,7 @@ func (d *PostgresStorage) QueryCCVData(
 	start, end int64,
 	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
 	limit, offset uint64,
-) (map[string][]protocol.CCVData, error) {
+) (map[string][]common.VerifierResultWithMetadata, error) {
 	startQueryMetric := time.Now()
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -109,7 +110,8 @@ func (d *PostgresStorage) QueryCCVData(
 			message_id,
 			source_verifier_address,
 			dest_verifier_address,
-			timestamp,
+			attestation_timestamp,
+	    ingestion_timestamp,
 			source_chain_selector,
 			dest_chain_selector,
 			nonce,
@@ -118,7 +120,7 @@ func (d *PostgresStorage) QueryCCVData(
 			message,
 			receipt_blobs
 		FROM indexer.verifier_results
-		WHERE timestamp >= $1 AND timestamp <= $2
+		WHERE ingestion_timestamp >= $1 AND ingestion_timestamp <= $2
 	`
 
 	args := []any{time.UnixMilli(start), time.UnixMilli(end)}
@@ -139,7 +141,7 @@ func (d *PostgresStorage) QueryCCVData(
 	}
 
 	// Add ordering and pagination
-	query += fmt.Sprintf(" ORDER BY timestamp ASC LIMIT $%d OFFSET $%d", argCounter, argCounter+1)
+	query += fmt.Sprintf(" ORDER BY ingestion_timestamp ASC LIMIT $%d OFFSET $%d", argCounter, argCounter+1)
 	args = append(args, limit, offset)
 
 	rows, err := d.queryContext(ctx, query, args...)
@@ -155,14 +157,14 @@ func (d *PostgresStorage) QueryCCVData(
 	}()
 
 	// Group results by messageID
-	results := make(map[string][]protocol.CCVData)
+	results := make(map[string][]common.VerifierResultWithMetadata)
 	for rows.Next() {
 		ccvData, err := d.scanCCVData(rows)
 		if err != nil {
 			d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 			return nil, fmt.Errorf("failed to scan CCV data: %w", err)
 		}
-		messageID := ccvData.MessageID.String()
+		messageID := ccvData.VerifierResult.MessageID.String()
 		results[messageID] = append(results[messageID], ccvData)
 	}
 
@@ -176,20 +178,20 @@ func (d *PostgresStorage) QueryCCVData(
 }
 
 // InsertCCVData inserts a new CCVData entry into the database.
-func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error {
+func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.VerifierResultWithMetadata) error {
 	startInsertMetric := time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	// Serialize message to JSON
-	messageJSON, err := json.Marshal(ccvData.Message)
+	messageJSON, err := json.Marshal(ccvData.VerifierResult.Message)
 	if err != nil {
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
 		return fmt.Errorf("failed to marshal message to JSON: %w", err)
 	}
 
 	// Serialize receipt blobs to JSON
-	receiptBlobsJSON, err := json.Marshal(ccvData.ReceiptBlobs)
+	receiptBlobsJSON, err := json.Marshal(ccvData.VerifierResult.ReceiptBlobs)
 	if err != nil {
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
 		return fmt.Errorf("failed to marshal receipt blobs to JSON: %w", err)
@@ -200,7 +202,8 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 			message_id,
 			source_verifier_address,
 			dest_verifier_address,
-			timestamp,
+			attestation_timestamp,
+	    ingestion_timestamp,
 			source_chain_selector,
 			dest_chain_selector,
 			nonce,
@@ -213,20 +216,21 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 	`
 
 	result, err := d.execContext(ctx, query,
-		ccvData.MessageID.String(),
-		ccvData.SourceVerifierAddress.String(),
-		ccvData.DestVerifierAddress.String(),
-		ccvData.Timestamp,
-		ccvData.SourceChainSelector,
-		ccvData.DestChainSelector,
-		ccvData.Nonce,
-		ccvData.CCVData,
-		ccvData.BlobData,
+		ccvData.VerifierResult.MessageID.String(),
+		ccvData.VerifierResult.SourceVerifierAddress.String(),
+		ccvData.VerifierResult.DestVerifierAddress.String(),
+		ccvData.Metadata.AttestationTimestamp,
+		ccvData.Metadata.IngestionTimestamp,
+		ccvData.VerifierResult.SourceChainSelector,
+		ccvData.VerifierResult.DestChainSelector,
+		ccvData.VerifierResult.Nonce,
+		ccvData.VerifierResult.CCVData,
+		ccvData.VerifierResult.BlobData,
 		messageJSON,
 		receiptBlobsJSON,
 	)
 	if err != nil {
-		d.lggr.Errorw("Failed to insert CCV data", "error", err, "messageID", ccvData.MessageID.String())
+		d.lggr.Errorw("Failed to insert CCV data", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to insert CCV data: %w", err)
@@ -246,8 +250,8 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 	}
 
 	// Check if this is a new unique message
-	if err := d.trackUniqueMessage(ctx, ccvData.MessageID); err != nil {
-		d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", ccvData.MessageID.String())
+	if err := d.trackUniqueMessage(ctx, ccvData.VerifierResult.MessageID); err != nil {
+		d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
 		// Don't fail the insert if we can't track the unique message
 	}
 
@@ -259,7 +263,7 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 }
 
 // BatchInsertCCVData inserts multiple CCVData entries into the database efficiently using a batch insert.
-func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []common.VerifierResultWithMetadata) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -274,7 +278,8 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 			message_id,
 			source_verifier_address,
 			dest_verifier_address,
-			timestamp,
+			attestation_timestamp,
+	    ingestion_timestamp,
 			source_chain_selector,
 			dest_chain_selector,
 			nonce,
@@ -290,14 +295,14 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 
 	for i, ccvData := range ccvDataList {
 		// Serialize message to JSON
-		messageJSON, err := json.Marshal(ccvData.Message)
+		messageJSON, err := json.Marshal(ccvData.VerifierResult.Message)
 		if err != nil {
 			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
 			return fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
 		}
 
 		// Serialize receipt blobs to JSON
-		receiptBlobsJSON, err := json.Marshal(ccvData.ReceiptBlobs)
+		receiptBlobsJSON, err := json.Marshal(ccvData.VerifierResult.ReceiptBlobs)
 		if err != nil {
 			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
 			return fmt.Errorf("failed to marshal receipt blobs to JSON at index %d: %w", i, err)
@@ -312,15 +317,16 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 
 		// Add arguments for this row
 		args = append(args,
-			ccvData.MessageID.String(),
-			ccvData.SourceVerifierAddress.String(),
-			ccvData.DestVerifierAddress.String(),
-			ccvData.Timestamp,
-			ccvData.SourceChainSelector,
-			ccvData.DestChainSelector,
-			ccvData.Nonce,
-			ccvData.CCVData,
-			ccvData.BlobData,
+			ccvData.VerifierResult.MessageID.String(),
+			ccvData.VerifierResult.SourceVerifierAddress.String(),
+			ccvData.VerifierResult.DestVerifierAddress.String(),
+			ccvData.Metadata.AttestationTimestamp,
+			ccvData.Metadata.IngestionTimestamp,
+			ccvData.VerifierResult.SourceChainSelector,
+			ccvData.VerifierResult.DestChainSelector,
+			ccvData.VerifierResult.Nonce,
+			ccvData.VerifierResult.CCVData,
+			ccvData.VerifierResult.BlobData,
 			messageJSON,
 			receiptBlobsJSON,
 		)
@@ -354,7 +360,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	// Track unique messages and update metrics
 	uniqueMessages := make(map[string]bool)
 	for _, ccvData := range ccvDataList {
-		uniqueMessages[ccvData.MessageID.String()] = true
+		uniqueMessages[ccvData.VerifierResult.MessageID.String()] = true
 	}
 
 	// Check which message IDs are new
@@ -403,12 +409,13 @@ func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID prot
 func (d *PostgresStorage) scanCCVData(row interface {
 	Scan(dest ...any) error
 },
-) (protocol.CCVData, error) {
+) (common.VerifierResultWithMetadata, error) {
 	var (
 		messageIDStr          string
 		sourceVerifierAddrStr string
 		destVerifierAddrStr   string
-		timestamp             time.Time
+		attestationTimestamp  time.Time
+		ingestionTimestamp    time.Time
 		sourceChainSelector   uint64
 		destChainSelector     uint64
 		nonce                 uint64
@@ -422,7 +429,8 @@ func (d *PostgresStorage) scanCCVData(row interface {
 		&messageIDStr,
 		&sourceVerifierAddrStr,
 		&destVerifierAddrStr,
-		&timestamp,
+		&attestationTimestamp,
+		&ingestionTimestamp,
 		&sourceChainSelector,
 		&destChainSelector,
 		&nonce,
@@ -432,50 +440,56 @@ func (d *PostgresStorage) scanCCVData(row interface {
 		&receiptBlobsJSON,
 	)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to scan row: %w", err)
+		return common.VerifierResultWithMetadata{}, fmt.Errorf("failed to scan row: %w", err)
 	}
 
 	// Parse messageID from hex string to Bytes32
 	messageID, err := protocol.NewBytes32FromString(messageIDStr)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to parse message ID: %w", err)
+		return common.VerifierResultWithMetadata{}, fmt.Errorf("failed to parse message ID: %w", err)
 	}
 
 	// Parse verifier addresses from hex strings
 	sourceVerifierAddress, err := protocol.NewUnknownAddressFromHex(sourceVerifierAddrStr)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to parse source verifier address: %w", err)
+		return common.VerifierResultWithMetadata{}, fmt.Errorf("failed to parse source verifier address: %w", err)
 	}
 
 	destVerifierAddress, err := protocol.NewUnknownAddressFromHex(destVerifierAddrStr)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to parse dest verifier address: %w", err)
+		return common.VerifierResultWithMetadata{}, fmt.Errorf("failed to parse dest verifier address: %w", err)
 	}
 
 	// Deserialize message from JSON
 	var message protocol.Message
 	if err := json.Unmarshal(messageJSON, &message); err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to unmarshal message: %w", err)
+		return common.VerifierResultWithMetadata{}, fmt.Errorf("failed to unmarshal message: %w", err)
 	}
 
 	// Deserialize receipt blobs from JSON
 	var receiptBlobs []protocol.ReceiptWithBlob
 	if err := json.Unmarshal(receiptBlobsJSON, &receiptBlobs); err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to unmarshal receipt blobs: %w", err)
+		return common.VerifierResultWithMetadata{}, fmt.Errorf("failed to unmarshal receipt blobs: %w", err)
 	}
 
-	return protocol.CCVData{
-		MessageID:             messageID,
-		SourceVerifierAddress: sourceVerifierAddress,
-		DestVerifierAddress:   destVerifierAddress,
-		Timestamp:             timestamp,
-		SourceChainSelector:   protocol.ChainSelector(sourceChainSelector),
-		DestChainSelector:     protocol.ChainSelector(destChainSelector),
-		Nonce:                 protocol.Nonce(nonce),
-		CCVData:               ccvDataBytes,
-		BlobData:              blobDataBytes,
-		Message:               message,
-		ReceiptBlobs:          receiptBlobs,
+	return common.VerifierResultWithMetadata{
+		VerifierResult: protocol.CCVData{
+			MessageID:             messageID,
+			SourceVerifierAddress: sourceVerifierAddress,
+			DestVerifierAddress:   destVerifierAddress,
+			Timestamp:             attestationTimestamp,
+			SourceChainSelector:   protocol.ChainSelector(sourceChainSelector),
+			DestChainSelector:     protocol.ChainSelector(destChainSelector),
+			Nonce:                 protocol.Nonce(nonce),
+			CCVData:               ccvDataBytes,
+			BlobData:              blobDataBytes,
+			Message:               message,
+			ReceiptBlobs:          receiptBlobs,
+		},
+		Metadata: common.VerifierResultMetadata{
+			AttestationTimestamp: attestationTimestamp,
+			IngestionTimestamp:   ingestionTimestamp,
+		},
 	}, nil
 }
 
