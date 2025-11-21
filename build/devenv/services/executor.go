@@ -20,6 +20,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -51,6 +52,7 @@ type ExecutorInput struct {
 	OfframpAddresses map[uint64]string `toml:"offramp_addresses"`
 	ExecutorPool     []string          `toml:"executor_pool"`
 	ExecutorID       string            `toml:"executor_id"`
+	RmnAddresses     map[uint64]string `toml:"rmn_addresses"`
 
 	// Only used in standalone mode.
 	TransmitterPrivateKey string `toml:"transmitter_private_key"`
@@ -72,6 +74,10 @@ func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) 
 	config.OffRampAddresses = make(map[string]string)
 	for chainID, address := range v.OfframpAddresses {
 		config.OffRampAddresses[strconv.FormatUint(chainID, 10)] = address
+	}
+	config.RmnAddresses = make(map[string]string)
+	for chainID, address := range v.RmnAddresses {
+		config.RmnAddresses[strconv.FormatUint(chainID, 10)] = address
 	}
 
 	if v.ExecutorID == "" {
@@ -243,6 +249,7 @@ func SetExecutorPoolAndID(execs []*ExecutorInput) ([]*ExecutorInput, error) {
 func ResolveContractsForExecutor(ds datastore.DataStore, blockchains []*blockchain.Input, execs []*ExecutorInput) ([]*ExecutorInput, error) {
 	for _, exec := range execs {
 		exec.OfframpAddresses = make(map[uint64]string)
+		exec.RmnAddresses = make(map[uint64]string)
 	}
 
 	for _, chain := range blockchains {
@@ -252,7 +259,7 @@ func ResolveContractsForExecutor(ds datastore.DataStore, blockchains []*blockcha
 			return nil, err
 		}
 
-		onRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		offRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
 			datastore.ContractType(offrampoperations.ContractType),
 			semver.MustParse(offrampoperations.Deploy.Version()),
@@ -262,8 +269,19 @@ func ResolveContractsForExecutor(ds datastore.DataStore, blockchains []*blockcha
 			return nil, fmt.Errorf("failed to get off ramp address for chain %s: %w", chain.ChainID, err)
 		}
 
+		rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(rmn_remote.ContractType),
+			semver.MustParse(rmn_remote.Deploy.Version()),
+			"",
+		))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
+		}
+
 		for _, exec := range execs {
-			exec.OfframpAddresses[networkInfo.ChainSelector] = onRampAddressRef.Address
+			exec.OfframpAddresses[networkInfo.ChainSelector] = offRampAddressRef.Address
+			exec.RmnAddresses[networkInfo.ChainSelector] = rmnRemoteAddressRef.Address
 		}
 	}
 

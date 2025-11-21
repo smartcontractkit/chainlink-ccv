@@ -33,7 +33,6 @@ type EVMContractTransmitter struct {
 	mu            sync.Mutex
 }
 
-// todo: this is a stub before we use real txm
 func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, chainSelector protocol.ChainSelector, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
 	// create a client for the off ramp contract
 	client, err := ethclient.Dial(rpc)

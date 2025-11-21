@@ -11,9 +11,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	coordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 )
 
@@ -173,11 +175,18 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			}
 
 			allDestinationReaders := make(map[protocol.ChainSelector]coordinator.DestinationReader)
+			allRMNReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 			dr := tc.dr()
 			for _, chain := range tc.drChains {
 				allDestinationReaders[chain] = dr
+				allRMNReaders[chain] = dr
 			}
-			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, tc.vr(), monitoring.NewNoopExecutorMonitoring())
+			curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
+				Lggr:        logger.Test(t),
+				RmnReaders:  allRMNReaders,
+				CacheExpiry: 1 * time.Second,
+			})
+			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, curseChecker, tc.vr(), monitoring.NewNoopExecutorMonitoring())
 			err := executor.Validate()
 			if tc.validateShouldError {
 				assert.Error(t, err)

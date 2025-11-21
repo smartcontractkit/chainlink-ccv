@@ -5,11 +5,9 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
 // EVMReadRMNCursedSubjects queries an RMN Remote contract and returns cursed subjects.
@@ -20,18 +18,10 @@ import (
 // - Chain selector (last 8 bytes) of a cursed remote chain.
 func EVMReadRMNCursedSubjects(
 	ctx context.Context,
-	chainClient client.Client,
-	rmnRemoteAddress common.Address,
+	rmnRemoteCaller rmn_remote.RMNRemoteCaller,
 ) ([]protocol.Bytes16, error) {
-	// Bind to RMN Remote contract
-	rmnRemote, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to bind RMN Remote contract at %s: %w",
-			rmnRemoteAddress.Hex(), err)
-	}
-
 	// Call GetCursedSubjects()
-	subjects, err := rmnRemote.GetCursedSubjects(&bind.CallOpts{Context: ctx})
+	subjects, err := rmnRemoteCaller.GetCursedSubjects(&bind.CallOpts{Context: ctx})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call GetCursedSubjects: %w", err)
 	}
