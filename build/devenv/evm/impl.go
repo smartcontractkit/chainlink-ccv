@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -248,6 +250,18 @@ type CCIP17EVM struct {
 	ethClients             map[uint64]*ethclient.Client
 	onRampBySelector       map[uint64]*onramp.OnRamp
 	offRampBySelector      map[uint64]*offramp.OffRamp
+}
+
+// NewEmptyCCIP17EVM creates a new CCIP17EVM with a logger that logs to the console.
+func NewEmptyCCIP17EVM() *CCIP17EVM {
+	return &CCIP17EVM{
+		logger: log.
+			Output(zerolog.ConsoleWriter{Out: os.Stderr}).
+			Level(zerolog.DebugLevel).
+			With().
+			Fields(map[string]any{"component": "CCIP17EVM"}).
+			Logger(),
+	}
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
@@ -1527,6 +1541,36 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		}
 	}
 
+	return nil
+}
+
+func (m *CCIP17EVM) FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error {
+	client, _, _, err := ETHClient(ctx, bc.Out.Nodes[0].ExternalWSUrl, &GasSettings{
+		FeeCapMultiplier: 2,
+		TipCapMultiplier: 2,
+	})
+	if err != nil {
+		return fmt.Errorf("could not create basic eth client: %w", err)
+	}
+	chainInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, chainsel.FamilyEVM)
+	if err != nil {
+		return fmt.Errorf("could not get chain details: %w", err)
+	}
+	for _, addr := range addresses {
+		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Any("Address", addr).Msg("Funding address")
+		a, _ := nativeAmount.Float64()
+		addrStr := common.BytesToAddress(addr).Hex()
+		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Msg("Funding address")
+		if err := FundNodeEIP1559(ctx, client, getNetworkPrivateKey(), addrStr, a); err != nil {
+			return fmt.Errorf("failed to fund address %s: %w", addrStr, err)
+		}
+		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Msg("Funded address")
+		bal, err := client.BalanceAt(ctx, common.HexToAddress(addrStr), nil)
+		if err != nil {
+			return fmt.Errorf("failed to get balance: %w", err)
+		}
+		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Int64("Balance", bal.Int64()).Msg("Address balance")
+	}
 	return nil
 }
 
