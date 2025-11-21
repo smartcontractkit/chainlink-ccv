@@ -273,6 +273,137 @@ func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []common.Veri
 	return nil
 }
 
+// InsertMessage writes a message to all storages in order.
+func (d *Sink) InsertMessage(ctx context.Context, message common.MessageWithMetadata) error {
+	var errs []error
+	successCount := 0
+
+	for i, storage := range d.storages {
+		d.lggr.Debugw("Attempting to write message to storage",
+			"storageIndex", i,
+			"messageID", message.Message.MustMessageID().String(),
+		)
+
+		err := storage.InsertMessage(ctx, message)
+		if err != nil {
+			d.lggr.Warnw("Failed to write message to storage",
+				"storageIndex", i,
+				"messageID", message.Message.MustMessageID().String(),
+				"error", err,
+			)
+			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
+			continue
+		}
+
+		d.lggr.Debugw("Successfully wrote message to storage",
+			"storageIndex", i,
+			"messageID", message.Message.MustMessageID().String(),
+		)
+		successCount++
+	}
+
+	// If no storages succeeded, return an error
+	if successCount == 0 {
+		return fmt.Errorf("failed to write message to any storage: %v", errs)
+	}
+
+	// If some storages failed, return an error but mention partial success
+	if len(errs) > 0 {
+		return fmt.Errorf("partial write failure (%d/%d succeeded): %v", successCount, len(d.storages), errs)
+	}
+
+	return nil
+}
+
+// BatchInsertMessages writes multiple messages to all storages in order.
+func (d *Sink) BatchInsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	var errs []error
+	successCount := 0
+
+	for i, storage := range d.storages {
+		d.lggr.Debugw("Attempting batch write messages to storage",
+			"storageIndex", i,
+			"batchSize", len(messages),
+		)
+
+		err := storage.BatchInsertMessages(ctx, messages)
+		if err != nil {
+			d.lggr.Warnw("Failed to batch write messages to storage",
+				"storageIndex", i,
+				"batchSize", len(messages),
+				"error", err,
+			)
+			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
+			continue
+		}
+
+		d.lggr.Debugw("Successfully batch wrote messages to storage",
+			"storageIndex", i,
+			"batchSize", len(messages),
+		)
+		successCount++
+	}
+
+	// If no storages succeeded, return an error
+	if successCount == 0 {
+		return fmt.Errorf("failed to batch write messages to any storage: %v", errs)
+	}
+
+	// If some storages failed, return an error but mention partial success
+	if len(errs) > 0 {
+		return fmt.Errorf("partial batch write failure (%d/%d succeeded): %v", successCount, len(d.storages), errs)
+	}
+
+	return nil
+}
+
+// UpdateMessageStatus updates the status of a message in all storages.
+func (d *Sink) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
+	var errs []error
+	successCount := 0
+
+	for i, storage := range d.storages {
+		d.lggr.Debugw("Attempting to update message status in storage",
+			"storageIndex", i,
+			"messageID", messageID.String(),
+			"status", status.String(),
+		)
+
+		err := storage.UpdateMessageStatus(ctx, messageID, status, lastErr)
+		if err != nil {
+			d.lggr.Warnw("Failed to update message status in storage",
+				"storageIndex", i,
+				"messageID", messageID.String(),
+				"error", err,
+			)
+			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
+			continue
+		}
+
+		d.lggr.Debugw("Successfully updated message status in storage",
+			"storageIndex", i,
+			"messageID", messageID.String(),
+		)
+		successCount++
+	}
+
+	// If no storages succeeded, return an error
+	if successCount == 0 {
+		return fmt.Errorf("failed to update message status in any storage: %v", errs)
+	}
+
+	// If some storages failed, return an error but mention partial success
+	if len(errs) > 0 {
+		return fmt.Errorf("partial update failure (%d/%d succeeded): %v", successCount, len(d.storages), errs)
+	}
+
+	return nil
+}
+
 // Close closes all underlying storages that implement the Closer interface.
 func (d *Sink) Close() error {
 	var errs []error

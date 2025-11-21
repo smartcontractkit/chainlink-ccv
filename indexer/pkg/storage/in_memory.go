@@ -18,6 +18,7 @@ var _ common.IndexerStorage = (*InMemoryStorage)(nil)
 type InMemoryStorage struct {
 	// Storage
 	verifierResultStorage *InMemoryVerifierResultStorage
+	messageStorage        *InMemoryMessageStorage
 
 	// Eviction configuration
 	ttl         time.Duration // 0 means no TTL-based eviction
@@ -46,6 +47,18 @@ type InMemoryVerifierResultStorage struct {
 	uniqueKeys map[string]bool
 }
 
+type InMemoryMessageStorage struct {
+	// Primary storage: messageID -> MessageWithMetadata (for O(1) lookup by messageID)
+	byMessageID map[string]common.MessageWithMetadata
+
+	// Timestamp-sorted slice for O(log n) range queries
+	byTimestamp []common.MessageWithMetadata
+
+	// Chain selector indexes: selector -> indices into byTimestamp slice
+	bySourceChain map[protocol.ChainSelector][]int
+	byDestChain   map[protocol.ChainSelector][]int
+}
+
 // InMemoryStorageConfig holds configuration for InMemoryStorage.
 type InMemoryStorageConfig struct {
 	// TTL is the time-to-live for items. Items older than this will be evicted.
@@ -72,6 +85,12 @@ func NewInMemoryStorageWithConfig(lggr logger.Logger, monitoring common.IndexerM
 			bySourceChain: make(map[protocol.ChainSelector][]int),
 			byDestChain:   make(map[protocol.ChainSelector][]int),
 			uniqueKeys:    make(map[string]bool),
+		},
+		messageStorage: &InMemoryMessageStorage{
+			byMessageID:   make(map[string]common.MessageWithMetadata),
+			byTimestamp:   make([]common.MessageWithMetadata, 0),
+			bySourceChain: make(map[protocol.ChainSelector][]int),
+			byDestChain:   make(map[protocol.ChainSelector][]int),
 		},
 		ttl:        config.TTL,
 		maxSize:    config.MaxSize,
@@ -104,6 +123,116 @@ func NewInMemoryStorageWithConfig(lggr logger.Logger, monitoring common.IndexerM
 	}
 
 	return storage
+}
+
+// InsertMessage inserts a message into storage.
+func (i *InMemoryStorage) InsertMessage(ctx context.Context, message common.MessageWithMetadata) error {
+	startInsertMetric := time.Now()
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	messageID := message.Message.MustMessageID().String()
+
+	// Check if message already exists
+	if _, exists := i.messageStorage.byMessageID[messageID]; exists {
+		// Message already exists, don't overwrite (idempotent behavior)
+		return nil
+	}
+
+	// Store in messageID index
+	i.messageStorage.byMessageID[messageID] = message
+
+	// Insert into timestamp-sorted index
+	insertPos := i.findMessageTimestampIndex(message.Metadata.IngestionTimestamp, func(ts, target int64) bool { return ts > target })
+	i.messageStorage.byTimestamp = append(i.messageStorage.byTimestamp, common.MessageWithMetadata{})
+	copy(i.messageStorage.byTimestamp[insertPos+1:], i.messageStorage.byTimestamp[insertPos:])
+	i.messageStorage.byTimestamp[insertPos] = message
+
+	// Update chain selector indexes with index into timestamp slice
+	i.addToChainIndex(i.messageStorage.bySourceChain, message.Message.SourceChainSelector, insertPos)
+	i.addToChainIndex(i.messageStorage.byDestChain, message.Message.DestChainSelector, insertPos)
+
+	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+	return nil
+}
+
+// BatchInsertMessages inserts multiple messages efficiently.
+func (i *InMemoryStorage) BatchInsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	startInsertMetric := time.Now()
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	insertedCount := 0
+
+	for _, message := range messages {
+		messageID := message.Message.MustMessageID().String()
+
+		// Check if message already exists
+		if _, exists := i.messageStorage.byMessageID[messageID]; exists {
+			continue // Skip duplicates
+		}
+
+		// Store in messageID index
+		i.messageStorage.byMessageID[messageID] = message
+
+		// Insert into timestamp-sorted index
+		insertPos := i.findMessageTimestampIndex(message.Metadata.IngestionTimestamp, func(ts, target int64) bool { return ts > target })
+		i.messageStorage.byTimestamp = append(i.messageStorage.byTimestamp, common.MessageWithMetadata{})
+		copy(i.messageStorage.byTimestamp[insertPos+1:], i.messageStorage.byTimestamp[insertPos:])
+		i.messageStorage.byTimestamp[insertPos] = message
+
+		// Update chain selector indexes with index into timestamp slice
+		i.addToChainIndex(i.messageStorage.bySourceChain, message.Message.SourceChainSelector, insertPos)
+		i.addToChainIndex(i.messageStorage.byDestChain, message.Message.DestChainSelector, insertPos)
+
+		insertedCount++
+	}
+
+	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+	return nil
+}
+
+// UpdateMessageStatus updates the status of a message in storage.
+func (i *InMemoryStorage) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
+	startUpdateMetric := time.Now()
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	messageIDStr := messageID.String()
+	message, exists := i.messageStorage.byMessageID[messageIDStr]
+	if !exists {
+		return fmt.Errorf("message not found: %s", messageIDStr)
+	}
+
+	// Update the status and lastErr
+	message.Metadata.Status = status
+	message.Metadata.LastErr = lastErr
+
+	// Update in the byMessageID index
+	i.messageStorage.byMessageID[messageIDStr] = message
+
+	// Update in the timestamp-sorted slice
+	// Find the message in the slice and update it
+	for idx := range i.messageStorage.byTimestamp {
+		if i.messageStorage.byTimestamp[idx].Message.MustMessageID().String() == messageIDStr {
+			i.messageStorage.byTimestamp[idx] = message
+			break
+		}
+	}
+
+	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
+	return nil
+}
+
+// findMessageTimestampIndex finds the first index where timestamp satisfies the condition for messages.
+func (i *InMemoryStorage) findMessageTimestampIndex(timestamp time.Time, condition func(int64, int64) bool) int {
+	return sort.Search(len(i.messageStorage.byTimestamp), func(idx int) bool {
+		return condition(i.messageStorage.byTimestamp[idx].Metadata.IngestionTimestamp.UnixMilli(), timestamp.UnixMilli())
+	})
 }
 
 // GetCCVData performs a O(1) lookup by messageID.

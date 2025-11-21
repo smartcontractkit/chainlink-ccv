@@ -7,22 +7,23 @@ import (
 )
 
 type VerifierResultWithMetadata struct {
-	VerifierResult protocol.CCVData
-	Metadata       VerifierResultMetadata
+	VerifierResult protocol.CCVData       `json:"verifierResult"`
+	Metadata       VerifierResultMetadata `json:"metadata"`
 }
 
 type VerifierResultMetadata struct {
-	VerifierName         string
-	AttestationTimestamp time.Time
-	IngestionTimestamp   time.Time
+	VerifierName         string    `json:"verifierName"`
+	AttestationTimestamp time.Time `json:"attestationTimestamp"`
+	IngestionTimestamp   time.Time `json:"ingestionTimestamp"`
 }
 
 type MessageWithMetadata struct {
-	Message  protocol.CCVData
-	Metadata MessageMetadata
+	Message  protocol.Message `json:"message"`
+	Metadata MessageMetadata  `json:"metadata"`
 }
 
 type MessageMetadata struct {
-	Status             MessageStatus
-	IngestionTimestamp time.Time
+	Status             MessageStatus `json:"status"`
+	IngestionTimestamp time.Time     `json:"ingestionTimestamp"`
+	LastErr            string        `json:"lastError"`
 }
