@@ -223,10 +223,18 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 				continue // Skip when source and destination are the same
 			}
 			sourceChainSelStr := strconv.FormatUint(sourceChainSelector, 10)
+
+			// Lookup source verifier address
+			sourceVerifierAddress, exists := in.CommitteeVerifierResolverProxyAddresses[sourceChainSelector]
+			if !exists {
+				return nil, fmt.Errorf("source verifier address not found for chain selector %d", sourceChainSelector)
+			}
+
 			sourceConfigs[sourceChainSelStr] = &model.QuorumConfig{
-				CommitteeVerifierAddress: verifierAddress,
-				Signers:                  signers,
-				Threshold:                threshold,
+				DestinationVerifierAddress: verifierAddress,
+				SourceVerifierAddress:      sourceVerifierAddress,
+				Signers:                    signers,
+				Threshold:                  threshold,
 			}
 		}
 

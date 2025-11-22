@@ -70,8 +70,8 @@ type Coordinator struct {
 	finalityCheckInterval time.Duration
 
 	// Storage batching
-	storageBatcher   *batcher.Batcher[protocol.CCVData]
-	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVData]
+	storageBatcher   *batcher.Batcher[protocol.CCVNodeData]
+	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVNodeData]
 
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
@@ -327,7 +327,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 		}
 
 		// Initialize storage batcher (will automatically flush when ctx is canceled)
-		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
+		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVNodeData], 10)
 		vc.storageBatcher = batcher.NewBatcher(
 			ctx,
 			vc.config.StorageBatchSize,
@@ -607,7 +607,7 @@ func (vc *Coordinator) addToPendingQueue(ctx context.Context, task VerificationT
 
 	messageContextLggr.Infow("Message added to finality queue",
 		"blockNumber", task.BlockNumber,
-		"nonce", task.Message.Nonce,
+		"nonce", task.Message.SequenceNumber,
 		"queueSize", len(state.pendingTasks),
 	)
 }
@@ -821,7 +821,7 @@ func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch 
 		vc.lggr.Errorw("Message verification failed",
 			"error", verificationError.Error,
 			"messageID", message.MustMessageID(),
-			"nonce", message.Nonce,
+			"nonce", message.SequenceNumber,
 			"sourceChain", message.SourceChainSelector,
 			"destChain", message.DestChainSelector,
 			"timestamp", verificationError.Timestamp,

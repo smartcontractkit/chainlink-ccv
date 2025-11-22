@@ -10,7 +10,7 @@ import (
 
 func createTestMessage(nonce, sourceChain, destChain uint64) *protocol.Message {
 	return &protocol.Message{
-		Nonce:               protocol.Nonce(nonce),
+		SequenceNumber:      protocol.SequenceNumber(nonce),
 		SourceChainSelector: protocol.ChainSelector(sourceChain),
 		DestChainSelector:   protocol.ChainSelector(destChain),
 		Version:             1,
@@ -147,7 +147,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 			// Check that returned messages have expected nonces
 			var actualNonces []uint64
 			for _, payload := range result {
-				actualNonces = append(actualNonces, uint64(payload.Message.Nonce))
+				actualNonces = append(actualNonces, uint64(payload.Message.SequenceNumber))
 			}
 
 			if !reflect.DeepEqual(actualNonces, tt.expectedNonces) {

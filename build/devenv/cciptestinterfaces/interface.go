@@ -68,9 +68,8 @@ type MessageFields struct {
 type MessageOptions struct {
 	// Version indicates the version of the extraArgs.
 	Version uint8
-	// GasLimit is the gas limit for the message
-	// Equivalent to ComputeLimit for solana.
-	GasLimit uint32
+	// ExecutionGasLimit is the execution gas limit for the message
+	ExecutionGasLimit uint32
 	// OutOfOrderExecution is whether to execute the message out of order
 	OutOfOrderExecution bool
 	// CCVs are the CCVs for the message

@@ -28,7 +28,7 @@ func TestMockReader_EmitsMessagesImmediately(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, responses, 1)
 		assert.NotNil(t, responses[0].Timestamp)
-		assert.Equal(t, protocol.Nonce(i+1), responses[0].Data.Nonce)
+		assert.Equal(t, protocol.SequenceNumber(i+1), responses[0].Data.Message.SequenceNumber)
 	}
 
 	assert.Equal(t, 3, reader.GetMessagesEmitted())
@@ -93,10 +93,12 @@ func TestMockReader_ReturnsErrorAfterCalls(t *testing.T) {
 }
 
 func TestMockReader_CustomMessageGenerator(t *testing.T) {
-	customNonce := protocol.Nonce(999)
+	customNonce := uint64(999)
 	customGenerator := func(callCount int) protocol.CCVData {
 		return protocol.CCVData{
-			Nonce: customNonce,
+			Message: protocol.Message{
+				SequenceNumber: protocol.SequenceNumber(customNonce),
+			},
 		}
 	}
 
@@ -111,7 +113,7 @@ func TestMockReader_CustomMessageGenerator(t *testing.T) {
 	responses, err := reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
-	assert.Equal(t, customNonce, responses[0].Data.Nonce)
+	assert.Equal(t, protocol.SequenceNumber(customNonce), responses[0].Data.Message.SequenceNumber)
 }
 
 func TestMockReader_InfiniteMessages(t *testing.T) {
@@ -194,7 +196,7 @@ func TestMockReader_EmitsMultipleMessagesWhenTimeHasPassed(t *testing.T) {
 	responses, err := reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
-	assert.Equal(t, protocol.Nonce(1), responses[0].Data.Nonce)
+	assert.Equal(t, protocol.SequenceNumber(1), responses[0].Data.Message.SequenceNumber)
 
 	// Wait for 250ms (2.5 intervals)
 	time.Sleep(250 * time.Millisecond)
@@ -203,8 +205,8 @@ func TestMockReader_EmitsMultipleMessagesWhenTimeHasPassed(t *testing.T) {
 	responses, err = reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 2)
-	assert.Equal(t, protocol.Nonce(2), responses[0].Data.Nonce)
-	assert.Equal(t, protocol.Nonce(3), responses[1].Data.Nonce)
+	assert.Equal(t, protocol.SequenceNumber(2), responses[0].Data.Message.SequenceNumber)
+	assert.Equal(t, protocol.SequenceNumber(3), responses[1].Data.Message.SequenceNumber)
 
 	// Verify timestamps are spaced correctly (100ms = 0.1 seconds in Unix timestamp)
 	// Since we're using UnixMilli() which gives seconds, the difference should be at least 0

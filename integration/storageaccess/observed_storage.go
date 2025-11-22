@@ -33,7 +33,7 @@ func NewObservedStorageWriter(
 	}
 }
 
-func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVNodeData) error {
 	start := time.Now()
 
 	err := o.CCVNodeDataWriter.WriteCCVNodeData(ctx, ccvDataList)
@@ -46,8 +46,8 @@ func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataLis
 		for _, ccvData := range ccvDataList {
 			o.lggr.Errorw("Failed to store CCV data in batch",
 				"messageID", ccvData.MessageID,
-				"nonce", ccvData.Nonce,
-				"sourceChain", ccvData.SourceChainSelector,
+				"sequenceNumber", ccvData.Message.SequenceNumber,
+				"sourceChain", ccvData.Message.SourceChainSelector,
 			)
 		}
 		return err

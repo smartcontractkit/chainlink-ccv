@@ -29,13 +29,16 @@ func TestStorageSink_ReadFromFirstStorage(t *testing.T) {
 
 	// Create test data
 	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
+		MessageID:              protocol.Bytes32{0x01},
+		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
+		MessageExecutorAddress: protocol.UnknownAddress{0x03},
+		VerifierDestAddress:    protocol.UnknownAddress{0x03},
+		Timestamp:              time.UnixMilli(1000),
+		Message: protocol.Message{
+			SourceChainSelector: protocol.ChainSelector(1),
+			DestChainSelector:   protocol.ChainSelector(2),
+			SequenceNumber:      protocol.SequenceNumber(1),
+		},
 	}
 
 	// Insert into first storage only
@@ -64,13 +67,16 @@ func TestStorageSink_ReadFromSecondStorageOnMiss(t *testing.T) {
 
 	// Create test data
 	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
+		MessageID:              protocol.Bytes32{0x01},
+		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
+		MessageExecutorAddress: protocol.UnknownAddress{0x03},
+		VerifierDestAddress:    protocol.UnknownAddress{0x03},
+		Timestamp:              time.UnixMilli(1000),
+		Message: protocol.Message{
+			SourceChainSelector: protocol.ChainSelector(1),
+			DestChainSelector:   protocol.ChainSelector(2),
+			SequenceNumber:      protocol.SequenceNumber(1),
+		},
 	}
 
 	// Insert into second storage only
@@ -119,13 +125,16 @@ func TestStorageSink_WriteToAllStorages(t *testing.T) {
 
 	// Create test data
 	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
+		MessageID:              protocol.Bytes32{0x01},
+		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
+		MessageExecutorAddress: protocol.UnknownAddress{0x03},
+		VerifierDestAddress:    protocol.UnknownAddress{0x03},
+		Timestamp:              time.UnixMilli(1000),
+		Message: protocol.Message{
+			SourceChainSelector: protocol.ChainSelector(1),
+			DestChainSelector:   protocol.ChainSelector(2),
+			SequenceNumber:      protocol.SequenceNumber(1),
+		},
 	}
 
 	// Write through chain
@@ -157,13 +166,16 @@ func TestStorageSink_QueryFromFirstStorage(t *testing.T) {
 
 	// Create test data
 	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
+		MessageID:              protocol.Bytes32{0x01},
+		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
+		MessageExecutorAddress: protocol.UnknownAddress{0x03},
+		VerifierDestAddress:    protocol.UnknownAddress{0x03},
+		Timestamp:              time.UnixMilli(1000),
+		Message: protocol.Message{
+			SourceChainSelector: protocol.ChainSelector(1),
+			DestChainSelector:   protocol.ChainSelector(2),
+			SequenceNumber:      protocol.SequenceNumber(1),
+		},
 	}
 
 	// Insert into first storage
@@ -191,13 +203,16 @@ func TestStorageSink_WriteDuplicateHandling(t *testing.T) {
 
 	// Create test data
 	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
+		MessageID:              protocol.Bytes32{0x01},
+		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
+		MessageExecutorAddress: protocol.UnknownAddress{0x03},
+		VerifierDestAddress:    protocol.UnknownAddress{0x03},
+		Timestamp:              time.UnixMilli(1000),
+		Message: protocol.Message{
+			SourceChainSelector: protocol.ChainSelector(1),
+			DestChainSelector:   protocol.ChainSelector(2),
+			SequenceNumber:      protocol.SequenceNumber(1),
+		},
 	}
 
 	// Write first time

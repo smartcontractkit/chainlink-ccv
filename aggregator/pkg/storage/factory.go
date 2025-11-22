@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -16,8 +17,11 @@ import (
 )
 
 const (
-	postgresDriver      = "postgres"
-	defaultMaxOpenConns = 25
+	postgresDriver         = "postgres"
+	defaultMaxOpenConns    = 25
+	defaultMaxIdleConns    = 10
+	defaultConnMaxLifetime = 3600 // 1 hour in seconds
+	defaultConnMaxIdleTime = 300  // 5 minutes in seconds
 )
 
 // CommitVerificationStorage combines all storage interfaces for production use.
@@ -64,7 +68,31 @@ func (f *Factory) CreateChainStatusStorage(config *model.StorageConfig, monitori
 		if err != nil {
 			return nil, fmt.Errorf("failed to open PostgreSQL database: %w", err)
 		}
-		db.SetMaxOpenConns(defaultMaxOpenConns)
+
+		// Configure connection pool settings
+		maxOpenConns := config.MaxOpenConns
+		if maxOpenConns <= 0 {
+			maxOpenConns = defaultMaxOpenConns
+		}
+		db.SetMaxOpenConns(maxOpenConns)
+
+		maxIdleConns := config.MaxIdleConns
+		if maxIdleConns <= 0 {
+			maxIdleConns = defaultMaxIdleConns
+		}
+		db.SetMaxIdleConns(maxIdleConns)
+
+		connMaxLifetime := config.ConnMaxLifetime
+		if connMaxLifetime <= 0 {
+			connMaxLifetime = defaultConnMaxLifetime
+		}
+		db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+
+		connMaxIdleTime := config.ConnMaxIdleTime
+		if connMaxIdleTime <= 0 {
+			connMaxIdleTime = defaultConnMaxIdleTime
+		}
+		db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
 
 		if err := db.Ping(); err != nil {
 			return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
@@ -93,7 +121,31 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 	if err != nil {
 		return nil, fmt.Errorf("failed to open PostgreSQL database: %w", err)
 	}
-	db.SetMaxOpenConns(defaultMaxOpenConns)
+
+	// Configure connection pool settings
+	maxOpenConns := config.MaxOpenConns
+	if maxOpenConns <= 0 {
+		maxOpenConns = defaultMaxOpenConns
+	}
+	db.SetMaxOpenConns(maxOpenConns)
+
+	maxIdleConns := config.MaxIdleConns
+	if maxIdleConns <= 0 {
+		maxIdleConns = defaultMaxIdleConns
+	}
+	db.SetMaxIdleConns(maxIdleConns)
+
+	connMaxLifetime := config.ConnMaxLifetime
+	if connMaxLifetime <= 0 {
+		connMaxLifetime = defaultConnMaxLifetime
+	}
+	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+
+	connMaxIdleTime := config.ConnMaxIdleTime
+	if connMaxIdleTime <= 0 {
+		connMaxIdleTime = defaultConnMaxIdleTime
+	}
+	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)

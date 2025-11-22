@@ -280,7 +280,7 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 		Receiver:             []byte{0x1f, 0x20, 0x21},
 		SourceChainSelector:  sourceChain,
 		DestChainSelector:    destChain,
-		Nonce:                protocol.Nonce(1),
+		SequenceNumber:       protocol.SequenceNumber(1),
 		Finality:             1,
 		DestBlobLength:       3,
 		TokenTransferLength:  3,
@@ -293,17 +293,14 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 	}
 
 	return protocol.CCVData{
-		MessageID:             messageID,
-		Timestamp:             time.UnixMilli(timestamp),
-		SourceChainSelector:   sourceChain,
-		DestChainSelector:     destChain,
-		Nonce:                 protocol.Nonce(1),
-		SourceVerifierAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-		DestVerifierAddress:   protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-		CCVData:               []byte{0x07, 0x08, 0x09},
-		BlobData:              []byte{0x0a, 0x0b, 0x0c},
-		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Message:               message,
+		MessageID:              messageID,
+		Timestamp:              time.UnixMilli(timestamp),
+		Message:                message,
+		MessageCCVAddresses:    []protocol.UnknownAddress{{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))}},
+		MessageExecutorAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+		VerifierDestAddress:    protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+		VerifierSourceAddress:  protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+		CCVData:                []byte{0x07, 0x08, 0x09},
 	}
 }
 

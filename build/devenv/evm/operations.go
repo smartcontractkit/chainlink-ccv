@@ -3,10 +3,10 @@ package evm
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -86,93 +86,132 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 	return report.Output, nil
 }
 
+var (
+	GenericExtraArgsV3Tag = []byte{0x30, 0x23, 0x26, 0xcb}
+)
+
+const (
+	// MaxCCVsPerMessage is the maximum number of CCVs that can be included in a single message.
+	// Limited by uint8 encoding in GenericExtraArgsV3 format.
+	MaxCCVsPerMessage = 255
+
+	// EVMAddressLength is the standard length of an EVM address in bytes.
+	EVMAddressLength = 20
+
+	// MaxCCVArgsLength is the maximum length of CCV-specific arguments.
+	// Limited by uint16 encoding in GenericExtraArgsV3 format.
+	MaxCCVArgsLength = 65535
+
+	// MaxExecutorArgsLength is the maximum length of executor arguments.
+	// Limited by uint16 encoding in GenericExtraArgsV3 format.
+	MaxExecutorArgsLength = 65535
+
+	// MaxTokenArgsLength is the maximum length of token arguments.
+	// Limited by uint16 encoding in GenericExtraArgsV3 format.
+	MaxTokenArgsLength = 65535
+)
+
 // NewV3ExtraArgs encodes v3 extra args params.
 func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
-	// ABI definition matching the exact Solidity struct EVMExtraArgsV3
-	const clientABI = `
-    [
-        {
-            "name": "encodeEVMExtraArgsV3",
-            "type": "function",
-            "inputs": [
-                {
-                    "components": [
-                        {
-                            "name": "ccvs", 
-                            "type": "tuple[]",
-                            "components": [
-                                {"name": "ccvAddress", "type": "address"},
-                                {"name": "args", "type": "bytes"}
-                            ]
-                        },
-                        {"name": "finalityConfig", "type": "uint16"},
-                        {"name": "gasLimit", "type": "uint32"},
-                        {"name": "executor", "type": "address"},
-                        {"name": "executorArgs", "type": "bytes"},
-						{"name": "tokenReceiver", "type": "bytes"},
-                        {"name": "tokenArgs", "type": "bytes"}
-                    ],
-                    "name": "extraArgs",
-                    "type": "tuple"
-                }
-            ],
-            "outputs": [{"type": "bytes"}],
-            "stateMutability": "pure"
-        }
-    ]
-    `
+	// Manual encoding to match GenericExtraArgsV3 compact binary format
+	// Format (from ExtraArgsCodec.sol):
+	// - tag (4 bytes): 0x302326cb
+	// - gasLimit (4 bytes): uint32
+	// - blockConfirmations (2 bytes): uint16
+	// - ccvsLength (1 byte): uint8
+	// For each CCV (repeated ccvsLength times):
+	//   - ccvAddressLength (1 byte): uint8 (0 or 20)
+	//   - ccvAddress (variable): bytes (20 bytes if non-zero)
+	//   - ccvArgsLength (2 bytes): uint16
+	//   - ccvArgs (variable): bytes
+	// - executorLength (1 byte): uint8 (0 or 20)
+	// - executor (variable): bytes (20 bytes if non-zero)
+	// - executorArgsLength (2 bytes): uint16
+	// - executorArgs (variable): bytes
+	// - tokenReceiverLength (1 byte): uint8 (0 or 20)
+	// - tokenReceiver (variable): bytes (20 bytes if non-zero)
+	// - tokenArgsLength (2 bytes): uint16
+	// - tokenArgs (variable): bytes
 
-	parsedABI, err := abi.JSON(bytes.NewReader([]byte(clientABI)))
-	if err != nil {
-		return nil, err
+	buf := new(bytes.Buffer)
+
+	// Write tag
+	buf.Write(GenericExtraArgsV3Tag)
+
+	// Write gasLimit (uint32, big-endian)
+	binary.Write(buf, binary.BigEndian, gasLimit)
+
+	// Write blockConfirmations (uint16, big-endian)
+	binary.Write(buf, binary.BigEndian, finalityConfig)
+
+	// Write ccvsLength (uint8)
+	if len(ccvs) > MaxCCVsPerMessage {
+		return nil, fmt.Errorf("too many CCVs: %d (max %d)", len(ccvs), MaxCCVsPerMessage)
 	}
+	buf.WriteByte(uint8(len(ccvs)))
 
-	// Convert CCV slices to match Solidity CCV struct exactly
-	ccvStructs := make([]struct {
-		CcvAddress common.Address
-		Args       []byte
-	}, len(ccvs))
-
+	// Write each CCV
 	for i, ccv := range ccvs {
-		ccvStructs[i] = struct {
-			CcvAddress common.Address
-			Args       []byte
-		}{
-			CcvAddress: common.BytesToAddress(ccv.CCVAddress),
-			Args:       ccv.Args,
+		ccvAddr := common.BytesToAddress(ccv.CCVAddress)
+		isZeroAddr := ccvAddr == (common.Address{})
+
+		if isZeroAddr {
+			// Write ccvAddressLength = 0
+			buf.WriteByte(0)
+		} else {
+			// Write ccvAddressLength = EVMAddressLength
+			buf.WriteByte(EVMAddressLength)
+			// Write ccvAddress (20 bytes)
+			buf.Write(ccvAddr.Bytes())
 		}
-	}
 
-	// Struct matching exactly the Solidity EVMExtraArgsV3 order and types
-	extraArgs := struct {
-		Ccvs []struct {
-			CcvAddress common.Address
-			Args       []byte
+		// Write ccvArgsLength (uint16, big-endian)
+		if len(ccv.Args) > MaxCCVArgsLength {
+			return nil, fmt.Errorf("CCV[%d] args too long: %d bytes (max %d)", i, len(ccv.Args), MaxCCVArgsLength)
 		}
-		FinalityConfig uint16
-		GasLimit       uint32
-		Executor       common.Address
-		ExecutorArgs   []byte
-		TokenReceiver  []byte
-		TokenArgs      []byte
-	}{
-		Ccvs:           ccvStructs,
-		FinalityConfig: finalityConfig,
-		GasLimit:       gasLimit,
-		Executor:       common.HexToAddress(execAddr),
-		ExecutorArgs:   execArgs,
-		TokenReceiver:  []byte{},
-		TokenArgs:      tokenArgs,
+		binary.Write(buf, binary.BigEndian, uint16(len(ccv.Args)))
+
+		// Write ccvArgs
+		buf.Write(ccv.Args)
 	}
 
-	encoded, err := parsedABI.Methods["encodeEVMExtraArgsV3"].Inputs.Pack(extraArgs)
-	if err != nil {
-		return nil, err
+	// Write executor
+	execAddress := common.HexToAddress(execAddr)
+	isZeroExec := execAddress == (common.Address{})
+
+	if isZeroExec {
+		// Write executorLength = 0
+		buf.WriteByte(0)
+	} else {
+		// Write executorLength = EVMAddressLength
+		buf.WriteByte(EVMAddressLength)
+		// Write executor (20 bytes)
+		buf.Write(execAddress.Bytes())
 	}
 
-	// Prepend the GENERIC_EXTRA_ARGS_V3_TAG
-	tag := []byte{0x30, 0x23, 0x26, 0xcb}
-	return append(tag, encoded...), nil
+	// Write executorArgsLength (uint16, big-endian)
+	if len(execArgs) > MaxExecutorArgsLength {
+		return nil, fmt.Errorf("executor args too long: %d bytes (max %d)", len(execArgs), MaxExecutorArgsLength)
+	}
+	binary.Write(buf, binary.BigEndian, uint16(len(execArgs)))
+
+	// Write executorArgs
+	buf.Write(execArgs)
+
+	// Write tokenReceiver (always empty for now)
+	// Write tokenReceiverLength = 0
+	buf.WriteByte(0)
+
+	// Write tokenArgsLength (uint16, big-endian)
+	if len(tokenArgs) > MaxTokenArgsLength {
+		return nil, fmt.Errorf("token args too long: %d bytes (max %d)", len(tokenArgs), MaxTokenArgsLength)
+	}
+	binary.Write(buf, binary.BigEndian, uint16(len(tokenArgs)))
+
+	// Write tokenArgs
+	buf.Write(tokenArgs)
+
+	return buf.Bytes(), nil
 }
 
 func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresses []string, selector uint64, args mock_receiver.ConstructorArgs) ([]string, error) {

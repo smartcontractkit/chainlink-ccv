@@ -280,7 +280,7 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 		Version:              protocol.MessageVersion,
 		SourceChainSelector:  protocol.ChainSelector(1),
 		DestChainSelector:    protocol.ChainSelector(2),
-		Nonce:                protocol.Nonce(messageNumber),
+		SequenceNumber:       protocol.SequenceNumber(messageNumber),
 		OnRampAddressLength:  uint8(len(onRampAddr)),
 		OnRampAddress:        onRampAddr,
 		OffRampAddressLength: uint8(len(offRampAddr)),
@@ -301,17 +301,13 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 	messageID, _ := message.MessageID()
 
 	return protocol.CCVData{
-		SourceVerifierAddress: sourceAddr,
-		DestVerifierAddress:   destAddr,
-		Message:               message,
-		Nonce:                 message.Nonce,
-		SourceChainSelector:   message.SourceChainSelector,
-		DestChainSelector:     message.DestChainSelector,
-		MessageID:             messageID,
-		CCVData:               []byte{},
-		BlobData:              []byte{},
-		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Timestamp:             time.Now(),
+		MessageID:              messageID,
+		Message:                message,
+		MessageCCVAddresses:    []protocol.UnknownAddress{sourceAddr},
+		MessageExecutorAddress: destAddr,
+		CCVData:                []byte{},
+		Timestamp:              time.Now(),
+		VerifierDestAddress:    destAddr,
 	}
 }
 

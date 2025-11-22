@@ -168,8 +168,8 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 func (i *InMemoryStorage) generateUniqueKey(ccvData protocol.CCVData) string {
 	return fmt.Sprintf("%s:%s:%s",
 		ccvData.MessageID.String(),
-		ccvData.SourceVerifierAddress.String(),
-		ccvData.DestVerifierAddress.String(),
+		ccvData.VerifierSourceAddress.String(),
+		ccvData.VerifierDestAddress.String(),
 	)
 }
 
@@ -208,8 +208,8 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 	i.byTimestamp[insertPos] = ccvData
 
 	// Update chain selector indexes with index into timestamp slice
-	i.addToChainIndex(i.bySourceChain, ccvData.SourceChainSelector, insertPos)
-	i.addToChainIndex(i.byDestChain, ccvData.DestChainSelector, insertPos)
+	i.addToChainIndex(i.bySourceChain, ccvData.Message.SourceChainSelector, insertPos)
+	i.addToChainIndex(i.byDestChain, ccvData.Message.DestChainSelector, insertPos)
 
 	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 	return nil
@@ -257,8 +257,8 @@ func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 		i.byTimestamp[insertPos] = ccvData
 
 		// Update chain selector indexes with index into timestamp slice
-		i.addToChainIndex(i.bySourceChain, ccvData.SourceChainSelector, insertPos)
-		i.addToChainIndex(i.byDestChain, ccvData.DestChainSelector, insertPos)
+		i.addToChainIndex(i.bySourceChain, ccvData.Message.SourceChainSelector, insertPos)
+		i.addToChainIndex(i.byDestChain, ccvData.Message.DestChainSelector, insertPos)
 	}
 
 	// Update metrics
@@ -478,8 +478,8 @@ func (i *InMemoryStorage) rebuildChainIndexes() {
 	i.byDestChain = make(map[protocol.ChainSelector][]int)
 
 	for idx, data := range i.byTimestamp {
-		i.bySourceChain[data.SourceChainSelector] = append(i.bySourceChain[data.SourceChainSelector], idx)
-		i.byDestChain[data.DestChainSelector] = append(i.byDestChain[data.DestChainSelector], idx)
+		i.bySourceChain[data.Message.SourceChainSelector] = append(i.bySourceChain[data.Message.SourceChainSelector], idx)
+		i.byDestChain[data.Message.DestChainSelector] = append(i.byDestChain[data.Message.DestChainSelector], idx)
 	}
 }
 

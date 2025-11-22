@@ -185,7 +185,7 @@ func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID pro
 func sourceVerifierAddresses(verifierResults []protocol.CCVData) []string {
 	sourceVerifierAddresses := make([]string, 0, len(verifierResults))
 	for _, verifierResult := range verifierResults {
-		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.SourceVerifierAddress.String())
+		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.VerifierSourceAddress.String())
 	}
 	return sourceVerifierAddresses
 }

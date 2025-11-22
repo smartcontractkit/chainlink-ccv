@@ -30,10 +30,10 @@ type IndexerLoadGun struct {
 }
 
 type Metrics struct {
-	Nonce     protocol.Nonce
-	MessageID protocol.Bytes32
-	SentTime  time.Time
-	Latency   time.Duration
+	SequenceNumber uint64
+	MessageID      protocol.Bytes32
+	SentTime       time.Time
+	Latency        time.Duration
 }
 
 func NewIndexerLoadGun() *IndexerLoadGun {
@@ -176,7 +176,7 @@ func (i *IndexerLoadGun) handleMessage(ctx context.Context, msg protocol.QueryRe
 	defer i.wg.Done()
 
 	messageID := msg.Data.MessageID
-	nonce := msg.Data.Nonce
+	sequenceNumber := msg.Data.Message.SequenceNumber
 
 	// Get the sent time for this message
 	i.mu.RLock()
@@ -210,15 +210,13 @@ func (i *IndexerLoadGun) handleMessage(ctx context.Context, msg protocol.QueryRe
 				// Message found! Calculate latency and record metrics
 				latency := time.Since(sentTime)
 				i.metricsCh <- Metrics{
-					Nonce:     nonce,
-					MessageID: messageID,
-					SentTime:  sentTime,
-					Latency:   latency,
+					SequenceNumber: uint64(sequenceNumber),
+					MessageID:      messageID,
+					SentTime:       sentTime,
+					Latency:        latency,
 				}
 				return
-			}
-
-			// Message not found yet, wait before retrying
+			} // Message not found yet, wait before retrying
 			// Add significant jitter (0-200ms) to prevent request waves
 			jitter := time.Duration(rand.Int64N(200)) * time.Millisecond
 			time.Sleep(retryInterval + jitter)
@@ -266,7 +264,7 @@ func (i *IndexerLoadGun) CloseSentChannel() {
 	})
 }
 
-func defaultMessageGenerator(nonce uint64) protocol.CCVData {
+func defaultMessageGenerator(sequenceNumber uint64) protocol.CCVData {
 	sourceAddr, _ := protocol.RandomAddress()
 	destAddr, _ := protocol.RandomAddress()
 	onRampAddr, _ := protocol.RandomAddress()
@@ -280,7 +278,7 @@ func defaultMessageGenerator(nonce uint64) protocol.CCVData {
 		Version:              protocol.MessageVersion,
 		SourceChainSelector:  protocol.ChainSelector(sourceChainSelector),
 		DestChainSelector:    protocol.ChainSelector(destChainSelector),
-		Nonce:                protocol.Nonce(nonce),
+		SequenceNumber:       protocol.SequenceNumber(sequenceNumber),
 		OnRampAddressLength:  uint8(len(onRampAddr)),
 		OnRampAddress:        onRampAddr,
 		OffRampAddressLength: uint8(len(offRampAddr)),
@@ -301,16 +299,13 @@ func defaultMessageGenerator(nonce uint64) protocol.CCVData {
 	messageID, _ := message.MessageID()
 
 	return protocol.CCVData{
-		SourceVerifierAddress: sourceAddr,
-		DestVerifierAddress:   destAddr,
-		Message:               message,
-		Nonce:                 message.Nonce,
-		SourceChainSelector:   message.SourceChainSelector,
-		DestChainSelector:     message.DestChainSelector,
-		MessageID:             messageID,
-		CCVData:               []byte{},
-		BlobData:              []byte{},
-		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Timestamp:             time.Now(),
+		MessageID:              messageID,
+		Message:                message,
+		MessageCCVAddresses:    []protocol.UnknownAddress{sourceAddr},
+		MessageExecutorAddress: destAddr,
+		VerifierDestAddress:    destAddr,
+		VerifierSourceAddress:  sourceAddr,
+		CCVData:                []byte{},
+		Timestamp:              time.Now(),
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
@@ -24,7 +25,7 @@ const (
 
 // Helper function to create a commit verification record from protobuf message.
 func createCommitVerificationRecord(messageData *pb.CommitteeVerifierNodeResult) *model.CommitVerificationRecord {
-	record := model.CommitVerificationRecordFromProto(messageData)
+	record, _ := model.CommitVerificationRecordFromProto(messageData)
 	return record
 }
 
@@ -116,9 +117,9 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 			QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 				"1": {
 					"1": {
-						CommitteeVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
-						Signers:                  signers,
-						Threshold:                b.threshold,
+						DestinationVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
+						Signers:                    signers,
+						Threshold:                  b.threshold,
 					},
 				},
 			},
@@ -143,7 +144,7 @@ func (b *TestCaseBuilder) BuildReport(t *testing.T) *model.CommitAggregatedRepor
 			return m
 		})
 
-		messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, b.sourceVerifierAddress,
+		messageData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, b.sourceVerifierAddress,
 			fixtures.WithSignatureFrom(t, signerFixture))
 
 		verificationRecord := createCommitVerificationRecord(messageData)
@@ -181,7 +182,7 @@ func TestValidateSignature(t *testing.T) {
 	protocolMessage := fixtures.NewProtocolMessage(t)
 
 	// Create MessageWithCCVNodeData using fixtures with signature
-	messageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
+	messageData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
 		fixtures.WithSignatureFrom(t, signerFixture))
 
 	t.Run("valid signature", func(t *testing.T) {
@@ -191,9 +192,9 @@ func TestValidateSignature(t *testing.T) {
 				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 					destSelector: {
 						sourceSelector: {
-							Signers:                  []model.Signer{signerFixture.Signer},
-							Threshold:                1,
-							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+							Signers:                    []model.Signer{signerFixture.Signer},
+							Threshold:                  1,
+							DestinationVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 						},
 					},
 				},
@@ -203,9 +204,10 @@ func TestValidateSignature(t *testing.T) {
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Convert protobuf to domain model for validation
-		record := model.CommitVerificationRecordFromProto(messageData)
+		record, err := model.CommitVerificationRecordFromProto(messageData)
+		require.NoError(t, err)
 		signer, _, err := validator.ValidateSignature(context.Background(), record)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotNil(t, signer)
 		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Address, "0x")), signer.Address)
 	})
@@ -216,9 +218,9 @@ func TestValidateSignature(t *testing.T) {
 				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 					destSelector: {
 						sourceSelector: {
-							Signers:                  []model.Signer{signerFixture.Signer},
-							Threshold:                1,
-							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+							Signers:                    []model.Signer{signerFixture.Signer},
+							Threshold:                  1,
+							DestinationVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 						},
 					},
 				},
@@ -228,11 +230,12 @@ func TestValidateSignature(t *testing.T) {
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Create message data without signature
-		messageDataNoSig := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress)
-		messageDataNoSig.CcvData = nil // Remove signature
+		messageDataNoSig, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress)
+		messageDataNoSig.Signature = nil // Remove signature
 
 		// Convert protobuf to domain model for validation
-		recordNoSig := model.CommitVerificationRecordFromProto(messageDataNoSig)
+		recordNoSig, err := model.CommitVerificationRecordFromProto(messageDataNoSig)
+		require.NoError(t, err)
 		signer, _, err := validator.ValidateSignature(context.Background(), recordNoSig)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
@@ -245,9 +248,9 @@ func TestValidateSignature(t *testing.T) {
 				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 					destSelector: {
 						sourceSelector: {
-							Signers:                  []model.Signer{signerFixture.Signer},
-							Threshold:                1,
-							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
+							Signers:                    []model.Signer{signerFixture.Signer},
+							Threshold:                  1,
+							DestinationVerifierAddress: common.Bytes2Hex(destVerifierAddress),
 						},
 					},
 				},
@@ -258,11 +261,12 @@ func TestValidateSignature(t *testing.T) {
 
 		// Create different signer for invalid signature
 		invalidSignerFixture := fixtures.NewSignerFixture(t, "invalid_signer")
-		invalidMessageData := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
+		invalidMessageData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
 			fixtures.WithSignatureFrom(t, invalidSignerFixture))
 
 		// Convert protobuf to domain model for validation
-		invalidRecord := model.CommitVerificationRecordFromProto(invalidMessageData)
+		invalidRecord, err := model.CommitVerificationRecordFromProto(invalidMessageData)
+		require.NoError(t, err)
 		signer, _, err := validator.ValidateSignature(context.Background(), invalidRecord)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
@@ -278,41 +282,12 @@ func TestValidateSignature(t *testing.T) {
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 		// Convert protobuf to domain model for validation
-		record := model.CommitVerificationRecordFromProto(messageData)
+		record, err := model.CommitVerificationRecordFromProto(messageData)
+		require.NoError(t, err)
 		signer, _, err := validator.ValidateSignature(context.Background(), record)
 		assert.Error(t, err)
 		assert.Nil(t, signer)
 		assert.Contains(t, err.Error(), "committee config not found")
-	})
-
-	t.Run("receipt blob is not part of the signature", func(t *testing.T) {
-		config := &model.AggregatorConfig{
-			Committee: &model.Committee{
-				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
-					destSelector: {
-						sourceSelector: {
-							Signers:                  []model.Signer{signerFixture.Signer},
-							Threshold:                1,
-							CommitteeVerifierAddress: common.Bytes2Hex(destVerifierAddress),
-						},
-					},
-				},
-			},
-		}
-
-		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
-
-		// Create message data without receipt blobs
-		messageDataNoBlob := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
-			fixtures.WithSignatureFrom(t, signerFixture))
-		messageDataNoBlob.ReceiptBlobs = []*pb.ReceiptBlob{} // Empty receipt blobs
-
-		// Convert protobuf to domain model for validation
-		recordNoBlob := model.CommitVerificationRecordFromProto(messageDataNoBlob)
-		signer, _, err := validator.ValidateSignature(context.Background(), recordNoBlob)
-		assert.NoError(t, err)
-		assert.NotNil(t, signer)
-		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Address, "0x")), signer.Address)
 	})
 }
 
