@@ -2,30 +2,52 @@ package commit
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
-// CreateCCVData creates CCVData from verification task and signature using the new format.
-func CreateCCVData(verificationTask *verifier.VerificationTask, signature, verifierBlob []byte, sourceVerifierAddress protocol.UnknownAddress) (*protocol.CCVData, error) {
+// CreateCCVNodeData creates CCVNodeData from verification task and signature.
+func CreateCCVNodeData(verificationTask *verifier.VerificationTask, signature, verifierBlob []byte) (*protocol.CCVNodeData, error) {
 	message := verificationTask.Message
+
 	messageID, err := message.MessageID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute message ID: %w", err)
 	}
-	return &protocol.CCVData{
-		MessageID:             messageID,
-		Nonce:                 message.Nonce,
-		SourceChainSelector:   message.SourceChainSelector,
-		DestChainSelector:     message.DestChainSelector,
-		SourceVerifierAddress: sourceVerifierAddress,
-		DestVerifierAddress:   protocol.UnknownAddress{}, // Will be set by the caller if needed
-		CCVData:               signature,
-		BlobData:              verifierBlob, // Additional verifier-specific data
-		Timestamp:             time.Now(),
-		Message:               message,
-		ReceiptBlobs:          verificationTask.ReceiptBlobs, // Include all receipt blobs for executors
+
+	// Calculate number of CCV receipts from the receipt structure.
+	// Structure: [CCVs...] + [Token at length-2 (if exists)] + [Executor at length-1]
+	// Therefore: numCCVs = totalReceipts - numTokens - 1 (executor)
+	// OnRamp allows 0 or 1 token. Check if TokenTransferLength indicates actual token data.
+	// Empty token transfer is MinSizeRequiredMsgTokenFields (39 bytes), actual token is larger.
+	numTokenTransfers := 0
+	if message.TokenTransferLength > protocol.MinSizeRequiredMsgTokenFields {
+		numTokenTransfers = 1
+	}
+	numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 1
+
+	if numCCVBlobs < 0 {
+		return nil, fmt.Errorf("invalid receipt structure: insufficient receipts (got %d, need at least %d for tokens + executor)",
+			len(verificationTask.ReceiptBlobs), numTokenTransfers+1)
+	}
+
+	// Parse receipt structure using the helper function
+	receiptStructure, err := protocol.ParseReceiptStructure(
+		verificationTask.ReceiptBlobs,
+		numCCVBlobs,
+		numTokenTransfers,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse receipt structure: %w", err)
+	}
+
+	return &protocol.CCVNodeData{
+		MessageID:       messageID,
+		Message:         message,
+		CCVVersion:      verifierBlob,
+		CCVAddresses:    receiptStructure.CCVAddresses,
+		ExecutorAddress: receiptStructure.ExecutorAddress,
+		Signature:       signature,
 	}, nil
 }

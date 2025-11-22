@@ -23,11 +23,13 @@ func TestMessageEncodeDecode(t *testing.T) {
 	msg1, err := NewMessage(
 		ChainSelector(1337),
 		ChainSelector(2337),
-		Nonce(123),
+		SequenceNumber(123), // sequence number
 		onRampAddr,
 		offRampAddr,
-		10,      // finality
-		300_000, // gas limit
+		10,        // finality
+		200_000,   // execution gas limit
+		100_000,   // ccip receive gas limit
+		Bytes32{}, // ccvAndExecutorHash
 		sender,
 		receiver,
 		[]byte("test dest blob"),
@@ -40,11 +42,13 @@ func TestMessageEncodeDecode(t *testing.T) {
 	msg2, err := NewMessage(
 		ChainSelector(1337),
 		ChainSelector(2337),
-		Nonce(123),
+		123, // sequence number
 		onRampAddr,
 		offRampAddr,
-		10,      // finality
-		300_000, // gas limit
+		10,        // finality
+		200_000,   // execution gas limit
+		100_000,   // ccip receive gas limit
+		Bytes32{}, // ccvAndExecutorHash
 		sender,
 		receiver,
 		[]byte("test dest blob"),
@@ -67,7 +71,7 @@ func TestMessageEncodeDecode(t *testing.T) {
 		assert.Equal(t, msg.Version, decoded.Version)
 		assert.Equal(t, msg.SourceChainSelector, decoded.SourceChainSelector)
 		assert.Equal(t, msg.DestChainSelector, decoded.DestChainSelector)
-		assert.Equal(t, msg.Nonce, decoded.Nonce)
+		assert.Equal(t, msg.SequenceNumber, decoded.SequenceNumber)
 		assert.Equal(t, msg.OnRampAddressLength, decoded.OnRampAddressLength)
 		assert.Equal(t, msg.OnRampAddress, decoded.OnRampAddress)
 		assert.Equal(t, msg.OffRampAddressLength, decoded.OffRampAddressLength)
@@ -80,7 +84,11 @@ func TestMessageEncodeDecode(t *testing.T) {
 		assert.Equal(t, msg.DestBlobLength, decoded.DestBlobLength)
 		assert.Equal(t, msg.DestBlob, decoded.DestBlob)
 		assert.Equal(t, msg.TokenTransferLength, decoded.TokenTransferLength)
-		assert.Equal(t, msg.TokenTransfer, decoded.TokenTransfer)
+		// TokenTransfer may be empty slice in input but nil after decode (or vice versa)
+		assert.Equal(t, len(msg.TokenTransfer), len(decoded.TokenTransfer))
+		if len(msg.TokenTransfer) > 0 {
+			assert.Equal(t, msg.TokenTransfer, decoded.TokenTransfer)
+		}
 		assert.Equal(t, msg.DataLength, decoded.DataLength)
 		assert.Equal(t, msg.Data, decoded.Data)
 	}
@@ -101,11 +109,13 @@ func TestMessageID(t *testing.T) {
 	msg1, err := NewMessage(
 		ChainSelector(1337),
 		ChainSelector(2337),
-		Nonce(123),
+		123, // sequence number
 		onRampAddr,
 		offRampAddr,
-		10,
-		300_000,
+		10,        // finality
+		200_000,   // execution gas limit
+		100_000,   // ccip receive gas limit
+		Bytes32{}, // ccvAndExecutorHash
 		sender,
 		receiver,
 		[]byte("test data"),
@@ -117,11 +127,13 @@ func TestMessageID(t *testing.T) {
 	msg2, err := NewMessage(
 		ChainSelector(1337),
 		ChainSelector(2337),
-		Nonce(123),
+		123, // sequence number
 		onRampAddr,
 		offRampAddr,
-		10,
-		300_000,
+		10,        // finality
+		200_000,   // execution gas limit
+		100_000,   // ccip receive gas limit
+		Bytes32{}, // ccvAndExecutorHash
 		sender,
 		receiver,
 		[]byte("test data"),
@@ -137,15 +149,17 @@ func TestMessageID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, id1, id2)
 
-	// Different nonce should give different message ID
+	// Different sequence number should give different message ID
 	msg3, err := NewMessage(
 		ChainSelector(1337),
 		ChainSelector(2337),
-		Nonce(124), // Different nonce
+		SequenceNumber(124), // Different sequence number
 		onRampAddr,
 		offRampAddr,
-		10,
-		300_000,
+		10,        // finality
+		200_000,   // execution gas limit
+		100_000,   // ccip receive gas limit
+		Bytes32{}, // ccvAndExecutorHash
 		sender,
 		receiver,
 		[]byte("test data"),
@@ -195,7 +209,7 @@ func TestMessageDecodingErrors(t *testing.T) {
 				data[26] = 0                               // but only provide 0 bytes for off-ramp
 				return data
 			}(),
-			expectErr: "failed to read on-ramp address",
+			expectErr: "failed to read execution gas limit",
 		},
 	}
 

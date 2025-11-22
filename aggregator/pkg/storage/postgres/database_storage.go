@@ -106,9 +106,9 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 
 	stmt := `INSERT INTO commit_verification_records 
 		(message_id, signer_address, 
-		 signature_r, signature_s, verification_timestamp, aggregation_key,
-		 source_verifier_address, blob_data, ccv_data, message_data, receipt_blobs) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 signature_r, signature_s, aggregation_key,
+		 ccv_version, signature, message_ccv_addresses, message_executor_address, message_data) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (message_id, signer_address, aggregation_key) 
 		DO NOTHING
 		RETURNING id`
@@ -119,13 +119,12 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		params["signer_address"],
 		params["signature_r"],
 		params["signature_s"],
-		params["verification_timestamp"],
 		params["aggregation_key"],
-		params["source_verifier_address"],
-		params["blob_data"],
-		params["ccv_data"],
+		params["ccv_version"],
+		params["signature"],
+		params["message_ccv_addresses"],
+		params["message_executor_address"],
 		params["message_data"],
-		params["receipt_blobs"],
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -195,7 +194,6 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			car.message_id,
 			car.created_at,
 			car.seq_num,
-			car.winning_receipt_blobs,
 			%s
 		FROM commit_aggregated_reports car
 		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
@@ -221,26 +219,25 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		var messageIDReport string
 		var createdAt time.Time
 		var seqNum int64
-		var winningReceiptBlobsStr sql.NullString
+
 		var verRow commitVerificationRecordRow
 
 		err := rows.Scan(
 			&messageIDReport,
 			&createdAt,
 			&seqNum,
-			&winningReceiptBlobsStr,
 			&verRow.MessageID,
 			&verRow.SignerAddress,
 			&verRow.SignatureR,
 			&verRow.SignatureS,
-			&verRow.VerificationTimestamp,
 			&verRow.AggregationKey,
-			&verRow.SourceVerifierAddress,
-			&verRow.BlobData,
-			&verRow.CcvData,
+			&verRow.CCVVersion,
+			&verRow.Signature,
+			&verRow.MessageCCVAddresses,
+			&verRow.MessageExecutorAddress,
 			&verRow.MessageData,
-			&verRow.ReceiptBlobs,
 			&verRow.ID,
+			&verRow.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -254,21 +251,11 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 				break
 			}
 
-			var winningReceiptBlobs []*model.ReceiptBlob
-			if winningReceiptBlobsStr.Valid && winningReceiptBlobsStr.String != "" {
-				var err error
-				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(winningReceiptBlobsStr.String))
-				if err != nil {
-					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
-				}
-			}
-
 			reportsMap[reportKey] = &model.CommitAggregatedReport{
-				MessageID:           common.Hex2Bytes(messageIDReport),
-				Verifications:       []*model.CommitVerificationRecord{},
-				Sequence:            seqNum,
-				WrittenAt:           createdAt,
-				WinningReceiptBlobs: winningReceiptBlobs,
+				MessageID:     common.Hex2Bytes(messageIDReport),
+				Verifications: []*model.CommitVerificationRecord{},
+				Sequence:      seqNum,
+				WrittenAt:     createdAt,
 			}
 			reportOrder = append(reportOrder, reportKey)
 			reportCount++
@@ -327,7 +314,6 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
             car.message_id,
             car.created_at,
             car.seq_num,
-            car.winning_receipt_blobs,
             %s
         FROM commit_aggregated_reports car
         LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
@@ -352,47 +338,35 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 		var messageIDReport string
 		var createdAt time.Time
 		var seqNum int64
-		var winningReceiptBlobsStr sql.NullString
 		var verRow commitVerificationRecordRow
 
 		err := rows.Scan(
 			&messageIDReport,
 			&createdAt,
 			&seqNum,
-			&winningReceiptBlobsStr,
 			&verRow.MessageID,
 			&verRow.SignerAddress,
 			&verRow.SignatureR,
 			&verRow.SignatureS,
-			&verRow.VerificationTimestamp,
 			&verRow.AggregationKey,
-			&verRow.SourceVerifierAddress,
-			&verRow.BlobData,
-			&verRow.CcvData,
+			&verRow.CCVVersion,
+			&verRow.Signature,
+			&verRow.MessageCCVAddresses,
+			&verRow.MessageExecutorAddress,
 			&verRow.MessageData,
-			&verRow.ReceiptBlobs,
 			&verRow.ID,
+			&verRow.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		if report == nil {
-			var winningReceiptBlobs []*model.ReceiptBlob
-			if winningReceiptBlobsStr.Valid && winningReceiptBlobsStr.String != "" {
-				var err error
-				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(winningReceiptBlobsStr.String))
-				if err != nil {
-					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
-				}
-			}
-
 			report = &model.CommitAggregatedReport{
-				MessageID:           common.Hex2Bytes(messageIDReport),
-				Verifications:       []*model.CommitVerificationRecord{},
-				Sequence:            seqNum,
-				WrittenAt:           createdAt,
-				WinningReceiptBlobs: winningReceiptBlobs,
+				MessageID:     common.Hex2Bytes(messageIDReport),
+				Verifications: []*model.CommitVerificationRecord{},
+				Sequence:      seqNum,
+				WrittenAt:     createdAt,
 			}
 		}
 
@@ -442,7 +416,6 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 			car.message_id,
 			car.created_at,
 			car.seq_num,
-			car.winning_receipt_blobs,
 			%s
 		FROM commit_aggregated_reports car
 		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
@@ -466,26 +439,24 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 		var messageIDReport string
 		var createdAt time.Time
 		var seqNum int64
-		var winningReceiptBlobsStr sql.NullString
 		var verRow commitVerificationRecordRow
 
 		err := rows.Scan(
 			&messageIDReport,
 			&createdAt,
 			&seqNum,
-			&winningReceiptBlobsStr,
 			&verRow.MessageID,
 			&verRow.SignerAddress,
 			&verRow.SignatureR,
 			&verRow.SignatureS,
-			&verRow.VerificationTimestamp,
 			&verRow.AggregationKey,
-			&verRow.SourceVerifierAddress,
-			&verRow.BlobData,
-			&verRow.CcvData,
+			&verRow.CCVVersion,
+			&verRow.Signature,
+			&verRow.MessageCCVAddresses,
+			&verRow.MessageExecutorAddress,
 			&verRow.MessageData,
-			&verRow.ReceiptBlobs,
 			&verRow.ID,
+			&verRow.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -494,20 +465,11 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 		_, exists := reports[messageIDReport]
 		if !exists {
 			messageIDBytes := common.Hex2Bytes(messageIDReport)
-			var winningReceiptBlobs []*model.ReceiptBlob
-			if winningReceiptBlobsStr.Valid && winningReceiptBlobsStr.String != "" {
-				var err error
-				winningReceiptBlobs, err = model.DeserializeReceiptBlobsJSON([]byte(winningReceiptBlobsStr.String))
-				if err != nil {
-					return nil, fmt.Errorf("failed to deserialize winning receipt blobs from JSON: %w", err)
-				}
-			}
 			reports[messageIDReport] = &model.CommitAggregatedReport{
-				MessageID:           messageIDBytes,
-				Verifications:       []*model.CommitVerificationRecord{},
-				Sequence:            seqNum,
-				WrittenAt:           createdAt,
-				WinningReceiptBlobs: winningReceiptBlobs,
+				MessageID:     messageIDBytes,
+				Verifications: []*model.CommitVerificationRecord{},
+				Sequence:      seqNum,
+				WrittenAt:     createdAt,
 			}
 		}
 
@@ -566,26 +528,14 @@ func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.Commit
 		return verificationRecordIDs[i] < verificationRecordIDs[j]
 	})
 
-	// Serialize winning receipt blobs using JSON for better debugging visibility
-	var winningReceiptBlobsData any
-	if len(report.WinningReceiptBlobs) > 0 {
-		jsonBytes, err := model.SerializeReceiptBlobsJSON(report.WinningReceiptBlobs)
-		if err != nil {
-			return fmt.Errorf("failed to serialize winning receipt blobs to JSON: %w", err)
-		}
-		// Convert to string for JSONB column
-		winningReceiptBlobsData = string(jsonBytes)
-	}
-
 	stmt := `INSERT INTO commit_aggregated_reports 
-		(message_id, verification_record_ids, winning_receipt_blobs) 
-		VALUES ($1, $2, $3)
+		(message_id, verification_record_ids) 
+		VALUES ($1, $2)
 		ON CONFLICT (message_id, verification_record_ids) DO NOTHING`
 
 	result, err := d.ds.ExecContext(ctx, stmt,
 		messageIDHex,
 		pq.Array(verificationRecordIDs),
-		winningReceiptBlobsData,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to submit aggregated report: %w", err)

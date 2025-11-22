@@ -55,7 +55,7 @@ func TestEmptyTokenTransfer(t *testing.T) {
 	assert.Empty(t, tt.DestTokenAddress)
 	assert.Equal(t, uint8(0), tt.TokenReceiverLength)
 	assert.Empty(t, tt.TokenReceiver)
-	assert.Equal(t, uint8(0), tt.ExtraDataLength)
+	assert.Equal(t, uint16(0), tt.ExtraDataLength)
 	assert.Empty(t, tt.ExtraData)
 
 	// Should be able to encode/decode
@@ -176,11 +176,11 @@ func TestTokenTransferDecodingErrors(t *testing.T) {
 				// Create valid header but with mismatched length
 				data := make([]byte, 34)
 				data[0] = 1   // version
-				data[33] = 10 // claim 10 bytes for source address
+				data[33] = 10 // claim 10 bytes for source pool address
 				// but don't provide 10 bytes
 				return data
 			}(),
-			expectErr: "failed to read source token address",
+			expectErr: "failed to read source pool address",
 		},
 	}
 

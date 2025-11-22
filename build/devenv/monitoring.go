@@ -96,9 +96,9 @@ type GetVerificationsForMessageIDResponse struct {
 }
 
 func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protocol.UnknownAddress {
-	sourceVerifierAddresses := make([]protocol.UnknownAddress, 0, len(g.VerifierResults))
+	sourceVerifierAddresses := make([]protocol.UnknownAddress, 0)
 	for _, verifierResult := range g.VerifierResults {
-		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.SourceVerifierAddress)
+		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.MessageCCVAddresses...)
 	}
 	return sourceVerifierAddresses
 }

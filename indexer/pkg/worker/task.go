@@ -79,7 +79,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 				}
 				if result.Err() == nil {
 					mu.Lock()
-					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().SourceVerifierAddress, t.messageID.String())
+					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().VerifierDestAddress, t.messageID.String())
 					results = append(results, result.Value())
 					mu.Unlock()
 				}
@@ -142,7 +142,7 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 	}
 
 	for _, r := range results {
-		existing = append(existing, strings.ToLower(r.SourceVerifierAddress.String()))
+		existing = append(existing, strings.ToLower(r.VerifierSourceAddress.String()))
 	}
 
 	return existing, nil
@@ -150,11 +150,9 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 
 func (t *Task) getVerifiers() []string {
 	verifiers := []string{}
-	// This should be -1 off length, however bug exists somewhere pre-indexer such that this returns twice
-	// As we're migrating away from this structure anyway, temp placeholder
-	blobsExcludingExecutor := t.message.ReceiptBlobs[:len(t.message.ReceiptBlobs)-2]
-	for _, receipt := range blobsExcludingExecutor {
-		verifiers = append(verifiers, strings.ToLower(receipt.Issuer.String()))
+	// Extract verifiers from MessageCCVAddresses
+	for _, addr := range t.message.MessageCCVAddresses {
+		verifiers = append(verifiers, strings.ToLower(addr.String()))
 	}
 
 	return verifiers

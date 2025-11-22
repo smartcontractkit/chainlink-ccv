@@ -53,13 +53,18 @@ func (c *Committee) GetQuorumConfig(destChainSelector, sourceChainSelector uint6
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	CommitteeVerifierAddress string   `toml:"committeeVerifierAddress"`
-	Signers                  []Signer `toml:"signers"`
-	Threshold                uint8    `toml:"threshold"`
+	DestinationVerifierAddress string   `toml:"destinationVerifierAddress"`
+	SourceVerifierAddress      string   `toml:"sourceVerifierAddress"`
+	Signers                    []Signer `toml:"signers"`
+	Threshold                  uint8    `toml:"threshold"`
 }
 
 func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {
-	return common.HexToAddress(q.CommitteeVerifierAddress).Bytes()
+	return common.HexToAddress(q.DestinationVerifierAddress).Bytes()
+}
+
+func (q *QuorumConfig) GetSourceVerifierAddressBytes() []byte {
+	return common.HexToAddress(q.SourceVerifierAddress).Bytes()
 }
 
 // StorageType represents the type of storage backend to use.
@@ -72,9 +77,13 @@ const (
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType   StorageType `toml:"type"`
-	ConnectionURL string      `toml:"-"`
-	PageSize      int         `toml:"pageSize"`
+	StorageType     StorageType `toml:"type"`
+	ConnectionURL   string      `toml:"-"`
+	PageSize        int         `toml:"pageSize"`
+	MaxOpenConns    int         `toml:"maxOpenConns"`
+	MaxIdleConns    int         `toml:"maxIdleConns"`
+	ConnMaxLifetime int         `toml:"connMaxLifetime"` // in seconds
+	ConnMaxIdleTime int         `toml:"connMaxIdleTime"` // in seconds
 }
 
 // ServerConfig represents the configuration for the server.
@@ -493,7 +502,7 @@ func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 			}
 
 			// Validate CommitteeVerifierAddress is a valid hex address
-			if strings.TrimSpace(quorumConfig.CommitteeVerifierAddress) == "" {
+			if strings.TrimSpace(quorumConfig.DestinationVerifierAddress) == "" {
 				return fmt.Errorf("committee verifier address cannot be empty for destination '%s', source '%s'", destSelector, sourceSelector)
 			}
 

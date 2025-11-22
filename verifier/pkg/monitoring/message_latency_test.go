@@ -27,7 +27,7 @@ func Test_MessageLatency(t *testing.T) {
 	tests := []struct {
 		name              string
 		tasks             []verifier.VerificationTask
-		messages          []protocol.CCVData
+		messages          []protocol.CCVNodeData
 		expectedLatencies []E2ELatencyCall
 	}{
 		{
@@ -36,9 +36,9 @@ func Test_MessageLatency(t *testing.T) {
 				{Message: message1, FirstSeenAt: twoSeconds},
 				{Message: message2, FirstSeenAt: tenMinutes},
 			},
-			messages: []protocol.CCVData{
-				messageToCCVData(message1),
-				messageToCCVData(message2),
+			messages: []protocol.CCVNodeData{
+				messageToCCVNodeData(message1),
+				messageToCCVNodeData(message2),
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
@@ -56,8 +56,8 @@ func Test_MessageLatency(t *testing.T) {
 			tasks: []verifier.VerificationTask{
 				{Message: message1},
 			},
-			messages: []protocol.CCVData{
-				messageToCCVData(message1),
+			messages: []protocol.CCVNodeData{
+				messageToCCVNodeData(message1),
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
@@ -71,9 +71,9 @@ func Test_MessageLatency(t *testing.T) {
 			tasks: []verifier.VerificationTask{
 				{Message: message1, FirstSeenAt: twoSeconds},
 			},
-			messages: []protocol.CCVData{
-				messageToCCVData(message2),
-				messageToCCVData(message3),
+			messages: []protocol.CCVNodeData{
+				messageToCCVNodeData(message2),
+				messageToCCVNodeData(message3),
 			},
 			expectedLatencies: []E2ELatencyCall{},
 		},
@@ -83,8 +83,8 @@ func Test_MessageLatency(t *testing.T) {
 				{Message: message1, FirstSeenAt: twoSeconds},
 				{Message: message1, FirstSeenAt: tenMinutes},
 			},
-			messages: []protocol.CCVData{
-				messageToCCVData(message1),
+			messages: []protocol.CCVNodeData{
+				messageToCCVNodeData(message1),
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
@@ -151,8 +151,8 @@ func Test_UnderlyingCacheTTL(t *testing.T) {
 		return !ok
 	}, 1*time.Second, 10*time.Millisecond)
 
-	tracker.TrackMessageLatencies(t.Context(), []protocol.CCVData{
-		messageToCCVData(message),
+	tracker.TrackMessageLatencies(t.Context(), []protocol.CCVNodeData{
+		messageToCCVNodeData(message),
 	})
 	require.Len(t, monitoring.Fake.E2ELatencyCalls, 0)
 }
@@ -171,10 +171,9 @@ func generateMessage(t *testing.T) protocol.Message {
 	}
 }
 
-func messageToCCVData(msg protocol.Message) protocol.CCVData {
-	return protocol.CCVData{
-		Message:             msg,
-		MessageID:           msg.MustMessageID(),
-		SourceChainSelector: msg.SourceChainSelector,
+func messageToCCVNodeData(msg protocol.Message) protocol.CCVNodeData {
+	return protocol.CCVNodeData{
+		Message:   msg,
+		MessageID: msg.MustMessageID(),
 	}
 }

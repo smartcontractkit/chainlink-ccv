@@ -136,17 +136,31 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 }
 
 func ccvDataDestVerifiers(ccvDatas []protocol.CCVData) []string {
-	destVerifiers := make([]string, 0, len(ccvDatas))
+	destVerifiersSet := make(map[string]struct{})
 	for _, ccvData := range ccvDatas {
-		destVerifiers = append(destVerifiers, ccvData.DestVerifierAddress.String())
+		destVerifiersSet[ccvData.VerifierDestAddress.String()] = struct{}{}
+	}
+
+	destVerifiers := make([]string, 0, len(destVerifiersSet))
+	for verifier := range destVerifiersSet {
+		destVerifiers = append(destVerifiers, verifier)
 	}
 	return destVerifiers
 }
 
 func ccvDataSourceVerifiers(ccvDatas []protocol.CCVData) []string {
-	sourceVerifiers := make([]string, 0, len(ccvDatas))
+	sourceVerifiersSet := make(map[string]struct{})
 	for _, ccvData := range ccvDatas {
-		sourceVerifiers = append(sourceVerifiers, ccvData.SourceVerifierAddress.String())
+		// MessageCCVAddresses contains the source verifier addresses
+		// Collect all unique source verifiers
+		for _, addr := range ccvData.MessageCCVAddresses {
+			sourceVerifiersSet[addr.String()] = struct{}{}
+		}
+	}
+
+	sourceVerifiers := make([]string, 0, len(sourceVerifiersSet))
+	for verifier := range sourceVerifiersSet {
+		sourceVerifiers = append(sourceVerifiers, verifier)
 	}
 	return sourceVerifiers
 }
@@ -171,7 +185,7 @@ func orderCCVData(
 	// This is to facilitate fast lookups in the loops below.
 	destVerifierToCCVData := make(map[string]protocol.CCVData)
 	for _, ccvData := range ccvDatas {
-		destVerifierToCCVData[ccvData.DestVerifierAddress.String()] = ccvData
+		destVerifierToCCVData[ccvData.VerifierDestAddress.String()] = ccvData
 	}
 
 	// Check that all the required CCVs are present in the CCV data retrieved.
