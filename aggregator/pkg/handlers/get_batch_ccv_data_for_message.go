@@ -73,17 +73,7 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.G
 				continue
 			}
 
-			// Create VerifierResult
-			verifierResult := &pb.VerifierResult{
-				Message:               ccvData.Message,
-				SourceVerifierAddress: ccvData.SourceVerifierAddress,
-				DestVerifierAddress:   ccvData.DestVerifierAddress,
-				CcvData:               ccvData.CcvData,
-				Timestamp:             ccvData.Timestamp,
-				Sequence:              ccvData.Sequence,
-			}
-
-			response.Results[i] = verifierResult
+			response.Results[i] = ccvData
 			SetBatchSuccess(response.Errors, i)
 		} else {
 			SetBatchError(response.Errors, i, codes.NotFound, "message ID not found")

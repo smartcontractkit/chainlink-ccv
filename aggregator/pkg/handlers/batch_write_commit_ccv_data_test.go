@@ -41,7 +41,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 
 	validReq := makeValidProtoRequest()
 	invalidReq := makeValidProtoRequest()
-	invalidReq.CcvNodeData = nil
+	invalidReq.CommitteeVerifierNodeResult = nil
 
 	resp, err := batchHandler.Handle(context.Background(), &pb.BatchWriteCommitteeVerifierNodeResultRequest{
 		Requests: []*pb.WriteCommitteeVerifierNodeResultRequest{validReq, invalidReq},

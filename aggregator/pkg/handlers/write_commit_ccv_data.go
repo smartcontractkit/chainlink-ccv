@@ -49,11 +49,15 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 			Status: pb.WriteStatus_FAILED,
 		}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 	}
-	// After successful validation, CcvNodeData is guaranteed non-nil
-	ctx = scope.WithMessageID(ctx, req.CcvNodeData.MessageId)
+
+	record, err := model.CommitVerificationRecordFromProto(req.GetCommitteeVerifierNodeResult())
+	if err != nil {
+		h.logger(ctx).Errorw("Failed to convert proto to domain model", "error", err)
+		return nil, status.Errorf(codes.InvalidArgument, "failed to convert proto to domain model: %v", err)
+	}
+	ctx = scope.WithMessageID(ctx, record.MessageID)
 	reqLogger = h.logger(ctx)
 
-	record := model.CommitVerificationRecordFromProto(req.GetCcvNodeData())
 	signer, _, err := h.signatureValidator.ValidateSignature(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("signature validation failed", "error", err)

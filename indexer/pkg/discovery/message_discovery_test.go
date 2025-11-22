@@ -605,7 +605,7 @@ func createTestCCVData(uniqueID int, timestamp int64, sourceChain, destChain pro
 		Receiver:             []byte{0x1f, 0x20, 0x21},
 		SourceChainSelector:  sourceChain,
 		DestChainSelector:    destChain,
-		Nonce:                protocol.Nonce(uniqueID),
+		SequenceNumber:       protocol.SequenceNumber(uniqueID),
 		Finality:             1,
 		DestBlobLength:       3,
 		TokenTransferLength:  3,
@@ -621,17 +621,13 @@ func createTestCCVData(uniqueID int, timestamp int64, sourceChain, destChain pro
 	messageID, _ := message.MessageID()
 
 	return protocol.CCVData{
-		MessageID:             messageID,
-		Timestamp:             time.UnixMilli(timestamp),
-		SourceChainSelector:   sourceChain,
-		DestChainSelector:     destChain,
-		Nonce:                 protocol.Nonce(uniqueID),
-		SourceVerifierAddress: protocol.UnknownAddress{0x01, 0x02, 0x03},
-		DestVerifierAddress:   protocol.UnknownAddress{0x04, 0x05, 0x06},
-		CCVData:               []byte{0x07, 0x08, 0x09},
-		BlobData:              []byte{0x0a, 0x0b, 0x0c},
-		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Message:               message,
+		MessageID:              messageID,
+		Timestamp:              time.UnixMilli(timestamp),
+		Message:                message,
+		MessageCCVAddresses:    []protocol.UnknownAddress{{0x01, 0x02, 0x03}},
+		MessageExecutorAddress: protocol.UnknownAddress{0x04, 0x05, 0x06},
+		VerifierDestAddress:    protocol.UnknownAddress{0x04, 0x05, 0x06},
+		CCVData:                []byte{0x07, 0x08, 0x09},
 	}
 }
 

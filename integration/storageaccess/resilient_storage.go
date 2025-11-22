@@ -94,7 +94,7 @@ func NewResilientStorageWriter(
 }
 
 // WriteCCVNodeData writes CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.
-func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVNodeData) error {
 	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
 
 	err := executor.RunWithExecution(func(failsafe.Execution[any]) error {

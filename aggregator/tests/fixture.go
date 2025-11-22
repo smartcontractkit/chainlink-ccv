@@ -3,7 +3,6 @@ package tests
 import (
 	"crypto/ecdsa"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -56,9 +55,10 @@ func NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress []byte, sign
 		QuorumConfigs: map[string]map[string]*model.QuorumConfig{
 			"2": {
 				"1": {
-					Threshold:                uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
-					Signers:                  signers,
-					CommitteeVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+					Threshold:                  uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
+					Signers:                    signers,
+					SourceVerifierAddress:      common.BytesToAddress(sourceVerifierAddress).Hex(),
+					DestinationVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
 				},
 			},
 		},
@@ -67,9 +67,9 @@ func NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress []byte, sign
 
 type ProtocolMessageOption = func(*protocol.Message) *protocol.Message
 
-func WithNonce(nonce uint64) ProtocolMessageOption {
+func WithSequenceNumber(seq uint64) ProtocolMessageOption {
 	return func(m *protocol.Message) *protocol.Message {
-		m.Nonce = protocol.Nonce(nonce)
+		m.SequenceNumber = protocol.SequenceNumber(seq)
 		return m
 	}
 }
@@ -79,7 +79,7 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 		Version:              1,
 		SourceChainSelector:  1,
 		DestChainSelector:    2,
-		Nonce:                123,
+		SequenceNumber:       123,
 		OnRampAddressLength:  20,
 		OnRampAddress:        make([]byte, 20),
 		OffRampAddressLength: 20,
@@ -106,20 +106,6 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 
 type MessageWithCCVNodeDataOption = func(*pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult
 
-func WithCustomTimestamp(timestamp int64) MessageWithCCVNodeDataOption {
-	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
-		m.Timestamp = timestamp
-		return m
-	}
-}
-
-func WithReceiptBlobs(receiptBlobs []*pb.ReceiptBlob) MessageWithCCVNodeDataOption {
-	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
-		m.ReceiptBlobs = receiptBlobs
-		return m
-	}
-}
-
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
 	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
 		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
@@ -127,8 +113,8 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 		messageID, err := protocolMessage.MessageID()
 		require.NoError(t, err, "failed to get message ID")
 
-		require.Len(t, m.BlobData, 4, "blob data must be at least 4 bytes to account for version")
-		hash, err := committee.NewSignableHash(messageID, m.BlobData)
+		require.Len(t, m.CcvVersion, 4, "ccv version must be at least 4 bytes")
+		hash, err := committee.NewSignableHash(messageID, m.CcvVersion)
 		require.NoError(t, err, "failed to create signed hash")
 
 		r32, s32, signerAddr, err := protocol.SignV27(hash[:], signer.key)
@@ -140,41 +126,43 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 			Signer: signerAddr,
 		}
 
-		m.CcvData, err = protocol.EncodeSingleSignature(sigData)
+		m.Signature, err = protocol.EncodeSingleSignature(sigData)
 		require.NoError(t, err, "failed to encode single signature")
 
 		return m
 	}
 }
 
-func WithBlobData(blobData []byte) MessageWithCCVNodeDataOption {
+func WithCcvVersion(ccvVersion []byte) MessageWithCCVNodeDataOption {
 	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
-		m.BlobData = blobData
+		m.CcvVersion = ccvVersion
 		return m
 	}
 }
 
-func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *pb.CommitteeVerifierNodeResult {
-	messageID, err := message.MessageID()
-	require.NoError(t, err, "failed to compute message ID")
+func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) (*pb.CommitteeVerifierNodeResult, protocol.Bytes32) {
+	ccvVersion := []byte{0x01, 0x02, 0x03, 0x04}
+	executorAddr := make([]byte, 20)
 
-	// blob data must be at least 4 bytes to account for version
-	blobData := []byte{0x01, 0x02, 0x03, 0x04}
+	// Compute the CCV and executor hash
+	ccvAddrs := []protocol.UnknownAddress{protocol.UnknownAddress(sourceVerifierAddress)}
+	ccvAndExecutorHash, err := protocol.ComputeCCVAndExecutorHash(ccvAddrs, protocol.UnknownAddress(executorAddr))
+	require.NoError(t, err, "failed to compute CCV and executor hash")
 
 	ccvNodeData := &pb.CommitteeVerifierNodeResult{
-		MessageId:             messageID[:],
-		SourceVerifierAddress: sourceVerifierAddress,
 		Message: &pb.Message{
 			Version:              uint32(message.Version),
 			SourceChainSelector:  uint64(message.SourceChainSelector),
 			DestChainSelector:    uint64(message.DestChainSelector),
-			Nonce:                uint64(message.Nonce),
+			SequenceNumber:       uint64(message.SequenceNumber),
 			OnRampAddressLength:  uint32(message.OnRampAddressLength),
 			OnRampAddress:        message.OnRampAddress[:],
 			OffRampAddressLength: uint32(message.OffRampAddressLength),
 			OffRampAddress:       message.OffRampAddress[:],
 			Finality:             uint32(message.Finality),
-			GasLimit:             message.GasLimit,
+			ExecutionGasLimit:    message.ExecutionGasLimit,
+			CcipReceiveGasLimit:  message.CcipReceiveGasLimit,
+			CcvAndExecutorHash:   ccvAndExecutorHash[:],
 			SenderLength:         uint32(message.SenderLength),
 			Sender:               message.Sender[:],
 			ReceiverLength:       uint32(message.ReceiverLength),
@@ -186,24 +174,25 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 			DataLength:           uint32(message.DataLength),
 			Data:                 message.Data[:],
 		},
-		BlobData:  blobData,
-		CcvData:   []byte("test ccv data"),
-		Timestamp: time.Now().UnixMilli(),
-		ReceiptBlobs: []*pb.ReceiptBlob{
-			{
-				Issuer: sourceVerifierAddress,
-				Blob:   blobData,
-			},
-		},
+		CcvVersion:      ccvVersion,
+		CcvAddresses:    [][]byte{sourceVerifierAddress},
+		ExecutorAddress: executorAddr,
+		Signature:       []byte("placeholder signature"),
 	}
 	for _, opt := range options {
 		ccvNodeData = opt(ccvNodeData)
 	}
-	return ccvNodeData
+
+	// Compute and return the message ID
+	protocolMessage := model.MapProtoMessageToProtocolMessage(ccvNodeData.GetMessage())
+	messageID, err := protocolMessage.MessageID()
+	require.NoError(t, err, "failed to compute message ID")
+
+	return ccvNodeData, messageID
 }
 
 func NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData *pb.CommitteeVerifierNodeResult) *pb.WriteCommitteeVerifierNodeResultRequest {
 	return &pb.WriteCommitteeVerifierNodeResultRequest{
-		CcvNodeData: ccvNodeData,
+		CommitteeVerifierNodeResult: ccvNodeData,
 	}
 }
