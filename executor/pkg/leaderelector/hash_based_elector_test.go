@@ -124,7 +124,7 @@ func TestHashBasedLeaderElectorSingleChain(t *testing.T) {
 
 func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 	sel := protocol.ChainSelector(1)
-	executorIds := map[protocol.ChainSelector][]string{sel: []string{"executor-c", "executor-a", "executor-b"}}
+	executorIds := map[protocol.ChainSelector][]string{sel: {"executor-c", "executor-a", "executor-b"}}
 	executionInterval := map[protocol.ChainSelector]time.Duration{sel: 30 * time.Second}
 	baseTimestamp := int64(1000)
 
@@ -216,6 +216,111 @@ func TestHashBasedLeaderElector_ExecutorNotInList(t *testing.T) {
 	assert.Equal(t, expectedTimestamp, readyTimestamp,
 		"When executor not in list, should return baseTimestamp + minWaitPeriod")
 }
+func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testing.T) {
+	type testConfig struct {
+		executorIds       map[protocol.ChainSelector][]string
+		thisExecutorId    string
+		expectedIndices   map[protocol.ChainSelector]int
+		expectedSortedIds map[protocol.ChainSelector][]string
+	}
+	tests := []struct {
+		name string
+		cfg  testConfig
+	}{
+		{
+			name: "single selector, unsorted list gets sorted",
+			cfg: testConfig{
+				executorIds: map[protocol.ChainSelector][]string{
+					1: {"executor-z", "executor-a", "executor-m"},
+				},
+				thisExecutorId: "executor-m",
+				expectedIndices: map[protocol.ChainSelector]int{
+					1: 1, // executor-m is at index 1 after sort
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					1: {"executor-a", "executor-m", "executor-z"},
+				},
+			},
+		},
+		{
+			name: "multiple selectors, all sorted independently",
+			cfg: testConfig{
+				executorIds: map[protocol.ChainSelector][]string{
+					1: {"executor-c", "executor-a", "executor-b"},
+					2: {"x", "a", "m", "z"},
+				},
+				thisExecutorId: "executor-b",
+				expectedIndices: map[protocol.ChainSelector]int{
+					1: 1,  // executor-b at index 1 after sort (["executor-a", "executor-b", "executor-c"])
+					2: -1, // executor-b not present in selector 2
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					1: {"executor-a", "executor-b", "executor-c"},
+					2: {"a", "m", "x", "z"},
+				},
+			},
+		},
+		{
+			name: "multi selector, unique executor per selector",
+			cfg: testConfig{
+				executorIds: map[protocol.ChainSelector][]string{
+					42: {"alpha"},
+					35: {"b", "a", "d", "c"},
+				},
+				thisExecutorId: "a",
+				expectedIndices: map[protocol.ChainSelector]int{
+					42: -1, // "a" not present in selector 42
+					35: 0,  // "a" is index 0 after sort ["a", "b", "c", "d"]
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					42: {"alpha"},
+					35: {"a", "b", "c", "d"},
+				},
+			},
+		},
+		{
+			name: "multiple selectors, duplicate executor id in both selectors",
+			cfg: testConfig{
+				executorIds: map[protocol.ChainSelector][]string{
+					13: {"exec-b", "exec-a", "exec-c"},
+					99: {"exec-c", "exec-b", "exec-a"},
+				},
+				thisExecutorId: "exec-c",
+				expectedIndices: map[protocol.ChainSelector]int{
+					13: 2, // ["exec-a", "exec-b", "exec-c"], exec-c is index 2
+					99: 2, // ["exec-a", "exec-b", "exec-c"], exec-c is index 2
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					13: {"exec-a", "exec-b", "exec-c"},
+					99: {"exec-a", "exec-b", "exec-c"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			intervals := make(map[protocol.ChainSelector]time.Duration)
+			for sel := range tc.cfg.executorIds {
+				intervals[sel] = 10 * time.Second
+			}
+			elector := NewHashBasedLeaderElector(
+				logger.Test(t),
+				tc.cfg.executorIds,
+				tc.cfg.thisExecutorId,
+				intervals,
+			)
+
+			for sel, expectedSorted := range tc.cfg.expectedSortedIds {
+				assert.Equal(t, expectedSorted, elector.executorIDs[sel], "ExecutorIDs should be sorted for selector %d", sel)
+			}
+			for sel, expectedIdx := range tc.cfg.expectedIndices {
+				assert.Equal(t, expectedIdx, elector.executorIndices[sel], "Executor index should match for selector %d", sel)
+			}
+		})
+	}
+}
 
 func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
 	testCases := []struct {
@@ -255,7 +360,7 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
 
 			assert.Equal(t, tc.expectedIndex, elector.executorIndices[tc.chainSel],
 				"Executor index should match expected position in sorted array")
-			assert.Equal(t, tc.expectedSortedIds, elector.executorIDs,
+			assert.Equal(t, tc.expectedSortedIds, elector.executorIDs[tc.chainSel],
 				"Executor IDs should be sorted")
 		})
 	}

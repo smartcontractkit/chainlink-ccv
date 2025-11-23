@@ -38,22 +38,22 @@ func NewExecutorCoordinator(
 	rmnAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	execPool := make(map[protocol.ChainSelector][]string, len(cfg.ChainConfiguration))
 	execIntervals := make(map[protocol.ChainSelector]time.Duration, len(cfg.ChainConfiguration))
-	for selStr, addr := range cfg.ChainConfiguration {
+	for selStr, chainConfig := range cfg.ChainConfiguration {
 		intSel, err := strconv.ParseUint(selStr, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse selector '%s': %w", selStr, err)
 		}
 		sel := protocol.ChainSelector(intSel)
-		offRampAddresses[sel], err = protocol.NewUnknownAddressFromHex(addr.OffRampAddress)
+		offRampAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.OffRampAddress)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse offramp address '%s': %w", addr.OffRampAddress, err)
+			return nil, fmt.Errorf("failed to parse offramp address '%s': %w", chainConfig.OffRampAddress, err)
 		}
-		rmnAddresses[sel], err = protocol.NewUnknownAddressFromHex(addr.RmnAddress)
+		rmnAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.RmnAddress)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse rmn address '%s': %w", addr.RmnAddress, err)
+			return nil, fmt.Errorf("failed to parse rmn address '%s': %w", chainConfig.RmnAddress, err)
 		}
-		execPool[sel] = addr.ExecutorPool
-		execIntervals[sel] = addr.ExecutionInterval
+		execPool[sel] = chainConfig.ExecutorPool
+		execIntervals[sel] = chainConfig.ExecutionInterval
 	}
 
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
