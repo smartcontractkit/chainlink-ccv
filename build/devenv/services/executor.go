@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
@@ -26,6 +27,7 @@ import (
 
 const (
 	DefaultExecutorName  = "executor"
+	DefaultExecutorID    = "cl_node_executor_a"
 	DefaultExecutorImage = "executor:dev"
 	DefaultExecutorPort  = 8101
 	DefaultExecutorMode  = Standalone
@@ -59,14 +61,14 @@ func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) 
 	if _, err := toml.Decode(executorConfigTemplate, &config); err != nil {
 		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
-
-	config.OffRampAddresses = make(map[string]string)
+	config.ChainConfiguration = make(map[string]executor.ChainConfiguration, len(v.OfframpAddresses))
 	for chainID, address := range v.OfframpAddresses {
-		config.OffRampAddresses[strconv.FormatUint(chainID, 10)] = address
-	}
-	config.RmnAddresses = make(map[string]string)
-	for chainID, address := range v.RmnAddresses {
-		config.RmnAddresses[strconv.FormatUint(chainID, 10)] = address
+		config.ChainConfiguration[strconv.FormatUint(chainID, 10)] = executor.ChainConfiguration{
+			OffRampAddress:    address,
+			RmnAddress:        v.RmnAddresses[chainID],
+			ExecutionInterval: 15 * time.Second,
+			ExecutorPool:      []string{DefaultExecutorID},
+		}
 	}
 
 	cfg, err := toml.Marshal(config)

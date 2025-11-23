@@ -259,7 +259,7 @@ func TestMessageExpiration(t *testing.T) {
 
 			// Set up leader elector mock
 			leaderElector := executor_mocks.NewMockLeaderElector(t)
-			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything).Return(time.Now().Unix() + tc.initialReadyDelay).Maybe()
+			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(time.Now().Unix() + tc.initialReadyDelay).Maybe()
 			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay).Maybe()
 
 			mockExecutor.EXPECT().GetMessageStatus(mock.Anything, mock.Anything, mock.Anything).
