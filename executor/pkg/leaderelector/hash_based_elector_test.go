@@ -201,7 +201,7 @@ func getExecutorOrderFromTimestamps(timestamps map[string]int64) []string {
 
 func TestHashBasedLeaderElector_ExecutorNotInList(t *testing.T) {
 	sel := protocol.ChainSelector(1)
-	executorIds := map[protocol.ChainSelector][]string{sel: []string{"executor-a", "executor-b"}}
+	executorIds := map[protocol.ChainSelector][]string{sel: {"executor-a", "executor-b"}}
 	thisExecutorId := "executor-not-in-list"
 	executionInterval := map[protocol.ChainSelector]time.Duration{sel: 30 * time.Second}
 	messageID := protocol.Bytes32{0x01, 0x02, 0x03}
@@ -216,6 +216,7 @@ func TestHashBasedLeaderElector_ExecutorNotInList(t *testing.T) {
 	assert.Equal(t, expectedTimestamp, readyTimestamp,
 		"When executor not in list, should return baseTimestamp + minWaitPeriod")
 }
+
 func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testing.T) {
 	type testConfig struct {
 		executorIds       map[protocol.ChainSelector][]string
@@ -299,7 +300,6 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testin
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			intervals := make(map[protocol.ChainSelector]time.Duration)
 			for sel := range tc.cfg.executorIds {
