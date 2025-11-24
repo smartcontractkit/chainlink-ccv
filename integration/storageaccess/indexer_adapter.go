@@ -159,7 +159,13 @@ func (i *IndexerAPIReader) ReadMessages(
 	}
 
 	i.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(response.Messages))
-	return response.Messages, nil
+
+	withoutMeta := make(map[string]protocol.Message)
+	for k, v := range response.Messages {
+		withoutMeta[k] = v.Message
+	}
+
+	return withoutMeta, nil
 }
 
 func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {

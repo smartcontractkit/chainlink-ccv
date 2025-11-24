@@ -166,3 +166,7 @@ func (t *Task) getVerifiers() []string {
 
 	return verifiers
 }
+
+func (t *Task) SetMessageStatus(ctx context.Context, messageStatus common.MessageStatus, lastErr string) error {
+	return t.storage.UpdateMessageStatus(ctx, t.messageID, messageStatus, lastErr)
+}

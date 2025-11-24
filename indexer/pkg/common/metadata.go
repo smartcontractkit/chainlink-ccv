@@ -25,5 +25,5 @@ type MessageWithMetadata struct {
 type MessageMetadata struct {
 	Status             MessageStatus `json:"status"`
 	IngestionTimestamp time.Time     `json:"ingestionTimestamp"`
-	LastErr            string        `json:"lastError"`
+	LastErr            string        `json:"-"` // we want to exclude potentionally sensitive errors
 }

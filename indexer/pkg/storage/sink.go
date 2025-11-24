@@ -354,6 +354,82 @@ func (d *Sink) BatchInsertMessages(ctx context.Context, messages []common.Messag
 	})
 }
 
+// GetMessage tries to retrieve a message from each storage in order until found.
+func (d *Sink) GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error) {
+	var lastErr error
+
+	for i, storage := range d.storages {
+		d.lggr.Debugw("Attempting to read message from storage",
+			"storageIndex", i,
+			"messageID", messageID.String(),
+		)
+
+		message, err := storage.GetMessage(ctx, messageID)
+		if err == nil {
+			d.lggr.Debugw("Successfully read message from storage",
+				"storageIndex", i,
+				"messageID", messageID.String(),
+			)
+			return message, nil
+		}
+
+		if err != ErrMessageNotFound {
+			d.lggr.Warnw("Error reading message from storage",
+				"storageIndex", i,
+				"messageID", messageID.String(),
+				"error", err,
+			)
+		} else {
+			d.lggr.Debugw("Message not found in storage",
+				"storageIndex", i,
+				"messageID", messageID.String(),
+			)
+		}
+
+		lastErr = err
+	}
+
+	return common.MessageWithMetadata{}, lastErr
+}
+
+// QueryMessages tries to retrieve messages from each storage in order until successful.
+func (d *Sink) QueryMessages(
+	ctx context.Context,
+	start, end int64,
+	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
+	limit, offset uint64,
+) ([]common.MessageWithMetadata, error) {
+	var lastErr error
+
+	for i, storage := range d.storages {
+		d.lggr.Debugw("Attempting to query messages from storage",
+			"storageIndex", i,
+			"start", start,
+			"end", end,
+			"limit", limit,
+			"offset", offset,
+		)
+
+		messages, err := storage.QueryMessages(ctx, start, end, sourceChainSelectors, destChainSelectors, limit, offset)
+		if err == nil {
+			d.lggr.Debugw("Successfully queried messages from storage",
+				"storageIndex", i,
+				"resultCount", len(messages),
+			)
+			return messages, nil
+		}
+
+		d.lggr.Warnw("Error querying messages from storage",
+			"storageIndex", i,
+			"error", err,
+		)
+
+		lastErr = err
+	}
+
+	return nil, lastErr
+}
+
 // UpdateMessageStatus updates the status of a message in all storages.
 func (d *Sink) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
 	var errs []error

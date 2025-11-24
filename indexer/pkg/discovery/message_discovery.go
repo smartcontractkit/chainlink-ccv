@@ -224,6 +224,16 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 			},
 		}
 
+		if err := a.storageSink.InsertMessage(ctx, common.MessageWithMetadata{
+			Message: response.Data.Message,
+			Metadata: common.MessageMetadata{
+				IngestionTimestamp: time.Now(),
+			},
+		}); err != nil {
+			a.logger.Error("Error saving Message for MessageID %s to storage", response.Data.MessageID.String())
+			continue
+		}
+
 		// Save the VerificationResult to the storage layer
 		if err := a.storageSink.InsertCCVData(ctx, verifierResultWithMetadata); err != nil {
 			a.logger.Error("Error saving VerificationResult for MessageID %s to storage", response.Data.MessageID.String())

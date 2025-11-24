@@ -12,9 +12,18 @@ type MessagesV1Request struct {
 }
 
 type MessagesV1Response struct {
-	Messages map[string]Message `json:"messages"`
-	Error    string             `json:"error,omitempty"`
-	Success  bool               `json:"success"`
+	Messages map[string]MessageWithMetadata `json:"messages"`
+	Error    string                         `json:"error,omitempty"`
+	Success  bool                           `json:"success"`
+}
+
+type MessageWithMetadata struct {
+	Message  Message         `json:"message"`
+	Metadata MessageMetadata `json:"metadata"`
+}
+
+type MessageMetadata struct {
+	IngestionTimestamp time.Time `json:"ingestionTimestamp"`
 }
 
 type MessageIDV1Response struct {

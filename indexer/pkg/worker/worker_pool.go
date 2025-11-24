@@ -84,6 +84,13 @@ func (p *Pool) run(ctx context.Context) {
 			if err := p.pool.Submit(func() {
 				defer cancel()
 				result, err := Execute(workerCtx, task)
+
+				if p.wasSuccessful(result) {
+					if err := task.SetMessageStatus(ctx, common.MessageSuccessful, ""); err != nil {
+						p.logger.Errorf("Unable to update Message Status for MessageID %s", task.messageID.String())
+					}
+				}
+
 				if p.shouldRetry(result, err) {
 					if err != nil {
 						task.lastErr = err
@@ -113,4 +120,8 @@ func (p *Pool) run(ctx context.Context) {
 
 func (p *Pool) shouldRetry(result *TaskResult, err error) bool {
 	return err != nil || result.UnavailableCCVs > 0
+}
+
+func (p *Pool) wasSuccessful(result *TaskResult) bool {
+	return result.UnavailableCCVs == 0
 }

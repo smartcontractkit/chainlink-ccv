@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -523,6 +524,110 @@ func (d *PostgresStorage) InsertMessage(ctx context.Context, message common.Mess
 	return nil
 }
 
+// GetMessage performs a lookup by messageID in the database.
+func (d *PostgresStorage) GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `
+		SELECT 
+			message_id,
+			message,
+			status,
+			lastErr,
+			source_chain_selector,
+			dest_chain_selector,
+			ingestion_timestamp
+		FROM indexer.messages
+		WHERE message_id = $1
+	`
+
+	row := d.queryRowContext(ctx, query, messageID.String())
+	message, err := d.scanMessage(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return common.MessageWithMetadata{}, ErrMessageNotFound
+		}
+		d.lggr.Errorw("Failed to query message", "error", err, "messageID", messageID.String())
+		return common.MessageWithMetadata{}, fmt.Errorf("failed to query message: %w", err)
+	}
+
+	return message, nil
+}
+
+// QueryMessages retrieves all messages that match the filter set with pagination.
+func (d *PostgresStorage) QueryMessages(
+	ctx context.Context,
+	start, end int64,
+	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
+	limit, offset uint64,
+) ([]common.MessageWithMetadata, error) {
+	startQueryMetric := time.Now()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `
+		SELECT 
+			message_id,
+			message,
+			status,
+			lastErr,
+			source_chain_selector,
+			dest_chain_selector,
+			ingestion_timestamp
+		FROM indexer.messages
+		WHERE ingestion_timestamp >= $1 AND ingestion_timestamp <= $2
+	`
+
+	args := []any{time.UnixMilli(start), time.UnixMilli(end)}
+	argCounter := 3
+
+	if len(sourceChainSelectors) > 0 {
+		query += fmt.Sprintf(" AND source_chain_selector = ANY($%d)", argCounter)
+		args = append(args, convertChainSelectorsToUint64Array(sourceChainSelectors))
+		argCounter++
+	}
+
+	if len(destChainSelectors) > 0 {
+		query += fmt.Sprintf(" AND dest_chain_selector = ANY($%d)", argCounter)
+		args = append(args, convertChainSelectorsToUint64Array(destChainSelectors))
+		argCounter++
+	}
+
+	query += fmt.Sprintf(" ORDER BY ingestion_timestamp ASC LIMIT $%d OFFSET $%d", argCounter, argCounter+1)
+	args = append(args, limit, offset)
+
+	rows, err := d.queryContext(ctx, query, args...)
+	if err != nil {
+		d.lggr.Errorw("Failed to query messages", "error", err)
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+		return nil, fmt.Errorf("failed to query messages: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			d.lggr.Errorw("Failed to close rows", "error", cerr)
+		}
+	}()
+
+	var results []common.MessageWithMetadata
+	for rows.Next() {
+		message, err := d.scanMessage(rows)
+		if err != nil {
+			d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+			return nil, fmt.Errorf("failed to scan message: %w", err)
+		}
+		results = append(results, message)
+	}
+
+	if err := rows.Err(); err != nil {
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
+	}
+
+	d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+	return results, nil
+}
+
 // UpdateMessageStatus implements common.IndexerStorage.
 func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
 	startUpdateMetric := time.Now()
@@ -719,4 +824,52 @@ func (d *PostgresStorage) execContext(ctx context.Context, query string, args ..
 		return execer.ExecContext(ctx, query, args...)
 	}
 	return nil, fmt.Errorf("DataSource does not support ExecContext")
+}
+
+// scanMessage scans a database row into a MessageWithMetadata struct.
+func (d *PostgresStorage) scanMessage(row interface {
+	Scan(dest ...any) error
+},
+) (common.MessageWithMetadata, error) {
+	var (
+		messageIDStr        string
+		messageJSON         []byte
+		statusStr           string
+		lastErr             string
+		sourceChainSelector uint64
+		destChainSelector   uint64
+		ingestionTimestamp  time.Time
+	)
+
+	err := row.Scan(
+		&messageIDStr,
+		&messageJSON,
+		&statusStr,
+		&lastErr,
+		&sourceChainSelector,
+		&destChainSelector,
+		&ingestionTimestamp,
+	)
+	if err != nil {
+		return common.MessageWithMetadata{}, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	var message protocol.Message
+	if err := json.Unmarshal(messageJSON, &message); err != nil {
+		return common.MessageWithMetadata{}, fmt.Errorf("failed to unmarshal message: %w", err)
+	}
+
+	status, err := common.NewMessageStatusFromString(statusStr)
+	if err != nil {
+		return common.MessageWithMetadata{}, fmt.Errorf("failed to parse status: %w", err)
+	}
+
+	return common.MessageWithMetadata{
+		Message: message,
+		Metadata: common.MessageMetadata{
+			Status:             status,
+			IngestionTimestamp: ingestionTimestamp,
+			LastErr:            lastErr,
+		},
+	}, nil
 }

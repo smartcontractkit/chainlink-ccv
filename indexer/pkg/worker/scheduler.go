@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -153,6 +154,15 @@ func (s *Scheduler) Enqueue(ctx context.Context, t *Task) error {
 	shouldEnqueue, delay := s.shouldEnqueue(t)
 	if !shouldEnqueue {
 		s.dlq <- t
+		lastErrStr := ""
+		if t.lastErr != nil {
+			lastErrStr = t.lastErr.Error()
+		}
+
+		if err := t.SetMessageStatus(ctx, common.MessageTimeout, lastErrStr); err != nil {
+			return errors.New("unable to update message status to timeout. message is already in dlq")
+		}
+
 		return errors.New("unable to enqueue, max attempts reached. sending to dlq")
 	}
 

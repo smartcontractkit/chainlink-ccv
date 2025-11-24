@@ -196,6 +196,61 @@ func (i *InMemoryStorage) BatchInsertMessages(ctx context.Context, messages []co
 	return nil
 }
 
+// GetMessage performs a O(1) lookup by messageID.
+func (i *InMemoryStorage) GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	message, ok := i.messageStorage.byMessageID[messageID.String()]
+	if !ok {
+		return common.MessageWithMetadata{}, ErrMessageNotFound
+	}
+	return message, nil
+}
+
+// QueryMessages retrieves all messages that match the filter set.
+func (i *InMemoryStorage) QueryMessages(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) ([]common.MessageWithMetadata, error) {
+	startQueryMetric := time.Now()
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	// Get chain selector indices if filters provided
+	var chainIndices []int
+	if len(sourceChainSelectors) > 0 || len(destChainSelectors) > 0 {
+		chainIndices = i.getMessageChainSelectorIndices(sourceChainSelectors, destChainSelectors)
+		if len(chainIndices) == 0 {
+			return []common.MessageWithMetadata{}, nil
+		}
+	}
+
+	// Binary search for timestamp range
+	startIdx := i.findMessageTimestampIndex(time.UnixMilli(start), func(ts, target int64) bool { return ts >= target })
+	endIdx := i.findMessageTimestampIndex(time.UnixMilli(end), func(ts, target int64) bool { return ts > target })
+	if startIdx >= endIdx {
+		return []common.MessageWithMetadata{}, nil
+	}
+
+	// Get candidates and apply pagination
+	var candidates []common.MessageWithMetadata
+	if len(chainIndices) > 0 {
+		candidates = i.intersectMessageTimestampAndChainIndices(startIdx, endIdx, chainIndices)
+	} else {
+		candidates = i.messageStorage.byTimestamp[startIdx:endIdx]
+	}
+
+	if offset >= uint64(len(candidates)) {
+		return []common.MessageWithMetadata{}, nil
+	}
+
+	startPos, endPos := int(offset), int(offset+limit) // #nosec G115
+	if endPos > len(candidates) {
+		endPos = len(candidates)
+	}
+
+	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+	return candidates[startPos:endPos], nil
+}
+
 // UpdateMessageStatus updates the status of a message in storage.
 func (i *InMemoryStorage) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
 	startUpdateMetric := time.Now()
@@ -618,6 +673,52 @@ func (i *InMemoryStorage) rebuildChainIndexes() {
 		i.verifierResultStorage.bySourceChain[data.VerifierResult.SourceChainSelector] = append(i.verifierResultStorage.bySourceChain[data.VerifierResult.SourceChainSelector], idx)
 		i.verifierResultStorage.byDestChain[data.VerifierResult.DestChainSelector] = append(i.verifierResultStorage.byDestChain[data.VerifierResult.DestChainSelector], idx)
 	}
+}
+
+// getMessageChainSelectorIndices gets indices for chain selector filters for messages.
+func (i *InMemoryStorage) getMessageChainSelectorIndices(sourceChains, destChains []protocol.ChainSelector) []int {
+	if len(sourceChains) > 0 && len(destChains) > 0 {
+		sourceIndices := i.collectMessageIndices(i.messageStorage.bySourceChain, sourceChains)
+		destIndices := i.collectMessageIndices(i.messageStorage.byDestChain, destChains)
+		return i.intersectIndices(sourceIndices, destIndices)
+	} else if len(sourceChains) > 0 {
+		return i.collectMessageIndices(i.messageStorage.bySourceChain, sourceChains)
+	} else if len(destChains) > 0 {
+		return i.collectMessageIndices(i.messageStorage.byDestChain, destChains)
+	}
+	return nil
+}
+
+// collectMessageIndices collects all indices for the given chain selectors for messages.
+func (i *InMemoryStorage) collectMessageIndices(index map[protocol.ChainSelector][]int, selectors []protocol.ChainSelector) []int {
+	var result []int
+	for _, selector := range selectors {
+		if indices, exists := index[selector]; exists {
+			result = append(result, indices...)
+		}
+	}
+	return result
+}
+
+// intersectMessageTimestampAndChainIndices finds messages that are both in timestamp range AND chain selector set.
+func (i *InMemoryStorage) intersectMessageTimestampAndChainIndices(startIdx, endIdx int, chainIndices []int) []common.MessageWithMetadata {
+	expectedSize := len(chainIndices)
+	if expectedSize > endIdx-startIdx {
+		expectedSize = endIdx - startIdx
+	}
+	candidates := make([]common.MessageWithMetadata, 0, expectedSize)
+
+	chainIndexSet := make(map[int]bool, len(chainIndices))
+	for _, idx := range chainIndices {
+		chainIndexSet[idx] = true
+	}
+
+	for idx := startIdx; idx < endIdx; idx++ {
+		if chainIndexSet[idx] {
+			candidates = append(candidates, i.messageStorage.byTimestamp[idx])
+		}
+	}
+	return candidates
 }
 
 // Close stops the background cleanup goroutine and releases resources.

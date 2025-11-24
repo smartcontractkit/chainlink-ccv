@@ -15,6 +15,7 @@ type IndexerStorage interface {
 
 type IndexerStorageReader interface {
 	VerifierResultsStorageReader
+	MessageStorageReader
 }
 
 type IndexerStorageWriter interface {
@@ -43,7 +44,7 @@ type MessageStorageReader interface {
 	// GetMessage using the messageID for a o(1) lookup
 	GetMessage(ctx context.Context, messageID protocol.Bytes32) (MessageWithMetadata, error)
 	// QueryMessages retrieves all messages that matches the filter set
-	QueryMessages(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (MessageWithMetadata, error)
+	QueryMessages(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) ([]MessageWithMetadata, error)
 }
 
 // MessageStorageWriter provides the interface to insert messages to storage.
