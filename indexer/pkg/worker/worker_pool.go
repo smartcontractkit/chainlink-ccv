@@ -56,7 +56,7 @@ func (p *Pool) run(ctx context.Context) {
 			if !ok {
 				continue
 			}
-			p.logger.Infow("Enqueueing new Message", "messageID", message.MessageID.String())
+			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
 			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.
