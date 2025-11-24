@@ -62,15 +62,15 @@ func main() {
 
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
-	messageDiscovery, err := createDiscovery(lggr, config, indexerStorage, indexerMonitoring)
-	if err != nil {
-		lggr.Fatalf("Failed to initialize message discovery: %v", err)
-	}
-
 	verifierRegistry := createRegistry()
 	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
+	}
+
+	messageDiscovery, err := createDiscovery(lggr, config, indexerStorage, indexerMonitoring, verifierRegistry)
+	if err != nil {
+		lggr.Fatalf("Failed to initialize message discovery: %v", err)
 	}
 
 	scheduler, err := worker.NewScheduler(lggr, worker.SchedulerConfig{
@@ -158,7 +158,7 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 	}
 }
 
-func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) (common.MessageDiscovery, error) {
+func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
 	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, cfg.Discovery.Since, hmac.ClientConfig{
 		APIKey: cfg.Discovery.APIKey,
 		Secret: cfg.Discovery.Secret,
@@ -170,6 +170,7 @@ func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.Inde
 	return discovery.NewAggregatorMessageDiscovery(
 		discovery.WithAggregator(aggregator),
 		discovery.WithStorage(storage),
+		discovery.WithRegistry(registry),
 		discovery.WithMonitoring(monitoring),
 		discovery.WithLogger(lggr),
 		discovery.WithConfig(discovery.Config{
