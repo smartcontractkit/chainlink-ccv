@@ -74,25 +74,24 @@ func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) 
 	}
 	config.ChainConfiguration = make(map[string]executor.ChainConfiguration, len(v.OfframpAddresses))
 	for chainID, address := range v.OfframpAddresses {
+		if len(v.ExecutorPool) == 0 {
+			return nil, errors.New("invalid ExecutorPool, should be non-empty")
+		}
+		if !slices.Contains(v.ExecutorPool, v.ExecutorID) {
+			return nil, fmt.Errorf("invalid ExecutorID %s, should be in ExecutorPool %+v", v.ExecutorID, v.ExecutorPool)
+		}
 		config.ChainConfiguration[strconv.FormatUint(chainID, 10)] = executor.ChainConfiguration{
 			OffRampAddress:    address,
 			RmnAddress:        v.RmnAddresses[chainID],
 			ExecutionInterval: 15 * time.Second,
-			ExecutorPool:      []string{DefaultExecutorID},
+			ExecutorPool:      v.ExecutorPool,
 		}
 	}
 
 	if v.ExecutorID == "" {
 		return nil, errors.New("invalid ExecutorID, should be non-empty")
 	}
-	if len(v.ExecutorPool) == 0 {
-		return nil, errors.New("invalid ExecutorPool, should be non-empty")
-	}
-	if !slices.Contains(v.ExecutorPool, v.ExecutorID) {
-		return nil, fmt.Errorf("invalid ExecutorID %s, should be in ExecutorPool %+v", v.ExecutorID, v.ExecutorPool)
-	}
-
-	config.ExecutorPool = v.ExecutorPool
+	
 	config.ExecutorID = v.ExecutorID
 
 	cfg, err := toml.Marshal(config)
