@@ -551,7 +551,8 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 				return fmt.Errorf("failed to generate executor config: %w", err)
 			}
 
-			fmt.Println(tomlConfig)
+			fmt.Println(string(tomlConfig))
+			fmt.Println(executorSpec(string(tomlConfig)))
 			jb, resp, err := clClient.CreateJobRaw(executorSpec(string(tomlConfig)))
 			if err != nil {
 				return fmt.Errorf("failed to create executor job: %w", err)
