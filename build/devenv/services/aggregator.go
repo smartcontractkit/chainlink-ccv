@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,6 +79,15 @@ type AggregatorInput struct {
 
 	// Chain selector -> Committee Verifier Resolver Proxy Address
 	CommitteeVerifierResolverProxyAddresses map[uint64]string `toml:"committee_verifier_resolver_proxy_addresses"`
+}
+
+func (a *AggregatorInput) GetAPIKeys() (model.APIKeyConfig, error) {
+	var apiKeyConfig model.APIKeyConfig
+	err := json.Unmarshal([]byte(a.Env.APIKeysJSON), &apiKeyConfig)
+	if err != nil {
+		return model.APIKeyConfig{}, fmt.Errorf("failed to unmarshal API keys JSON: %w", err)
+	}
+	return apiKeyConfig, nil
 }
 
 type AggregatorOutput struct {

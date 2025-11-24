@@ -93,6 +93,13 @@ type FakeVerifierMetricLabeler struct {
 
 	SourceChainLatestBLock    atomic.Int64
 	SourceChainFinalizedBlock atomic.Int64
+
+	E2ELatencyCalls []E2ELatencyCall
+}
+
+type E2ELatencyCall struct {
+	Labels  []string
+	Latency time.Duration
 }
 
 func (f *FakeVerifierMetricLabeler) Labels() []string {
@@ -110,7 +117,15 @@ func (f *FakeVerifierMetricLabeler) With(keyValues ...string) verifier.MetricLab
 	return f
 }
 
-func (f *FakeVerifierMetricLabeler) RecordMessageE2ELatency(context.Context, time.Duration) {}
+func (f *FakeVerifierMetricLabeler) RecordMessageE2ELatency(_ context.Context, latency time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.E2ELatencyCalls = append(f.E2ELatencyCalls, E2ELatencyCall{
+		Labels:  append([]string(nil), f.labels...),
+		Latency: latency,
+	})
+}
 
 func (f *FakeVerifierMetricLabeler) IncrementMessagesProcessed(context.Context) {}
 

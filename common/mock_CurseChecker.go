@@ -22,62 +22,17 @@ func (_m *MockCurseChecker) EXPECT() *MockCurseChecker_Expecter {
 	return &MockCurseChecker_Expecter{mock: &_m.Mock}
 }
 
-// Close provides a mock function with no fields
-func (_m *MockCurseChecker) Close() error {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for Close")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockCurseChecker_Close_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Close'
-type MockCurseChecker_Close_Call struct {
-	*mock.Call
-}
-
-// Close is a helper method to define mock.On call
-func (_e *MockCurseChecker_Expecter) Close() *MockCurseChecker_Close_Call {
-	return &MockCurseChecker_Close_Call{Call: _e.mock.On("Close")}
-}
-
-func (_c *MockCurseChecker_Close_Call) Run(run func()) *MockCurseChecker_Close_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockCurseChecker_Close_Call) Return(_a0 error) *MockCurseChecker_Close_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockCurseChecker_Close_Call) RunAndReturn(run func() error) *MockCurseChecker_Close_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// IsRemoteChainCursed provides a mock function with given fields: localChain, remoteChain
-func (_m *MockCurseChecker) IsRemoteChainCursed(localChain protocol.ChainSelector, remoteChain protocol.ChainSelector) bool {
-	ret := _m.Called(localChain, remoteChain)
+// IsRemoteChainCursed provides a mock function with given fields: ctx, localChain, remoteChain
+func (_m *MockCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain protocol.ChainSelector, remoteChain protocol.ChainSelector) bool {
+	ret := _m.Called(ctx, localChain, remoteChain)
 
 	if len(ret) == 0 {
 		panic("no return value specified for IsRemoteChainCursed")
 	}
 
 	var r0 bool
-	if rf, ok := ret.Get(0).(func(protocol.ChainSelector, protocol.ChainSelector) bool); ok {
-		r0 = rf(localChain, remoteChain)
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.ChainSelector, protocol.ChainSelector) bool); ok {
+		r0 = rf(ctx, localChain, remoteChain)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
@@ -91,15 +46,16 @@ type MockCurseChecker_IsRemoteChainCursed_Call struct {
 }
 
 // IsRemoteChainCursed is a helper method to define mock.On call
+//   - ctx context.Context
 //   - localChain protocol.ChainSelector
 //   - remoteChain protocol.ChainSelector
-func (_e *MockCurseChecker_Expecter) IsRemoteChainCursed(localChain interface{}, remoteChain interface{}) *MockCurseChecker_IsRemoteChainCursed_Call {
-	return &MockCurseChecker_IsRemoteChainCursed_Call{Call: _e.mock.On("IsRemoteChainCursed", localChain, remoteChain)}
+func (_e *MockCurseChecker_Expecter) IsRemoteChainCursed(ctx interface{}, localChain interface{}, remoteChain interface{}) *MockCurseChecker_IsRemoteChainCursed_Call {
+	return &MockCurseChecker_IsRemoteChainCursed_Call{Call: _e.mock.On("IsRemoteChainCursed", ctx, localChain, remoteChain)}
 }
 
-func (_c *MockCurseChecker_IsRemoteChainCursed_Call) Run(run func(localChain protocol.ChainSelector, remoteChain protocol.ChainSelector)) *MockCurseChecker_IsRemoteChainCursed_Call {
+func (_c *MockCurseChecker_IsRemoteChainCursed_Call) Run(run func(ctx context.Context, localChain protocol.ChainSelector, remoteChain protocol.ChainSelector)) *MockCurseChecker_IsRemoteChainCursed_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(protocol.ChainSelector), args[1].(protocol.ChainSelector))
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector), args[2].(protocol.ChainSelector))
 	})
 	return _c
 }
@@ -109,53 +65,7 @@ func (_c *MockCurseChecker_IsRemoteChainCursed_Call) Return(_a0 bool) *MockCurse
 	return _c
 }
 
-func (_c *MockCurseChecker_IsRemoteChainCursed_Call) RunAndReturn(run func(protocol.ChainSelector, protocol.ChainSelector) bool) *MockCurseChecker_IsRemoteChainCursed_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Start provides a mock function with given fields: ctx
-func (_m *MockCurseChecker) Start(ctx context.Context) error {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Start")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(ctx)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockCurseChecker_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
-type MockCurseChecker_Start_Call struct {
-	*mock.Call
-}
-
-// Start is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockCurseChecker_Expecter) Start(ctx interface{}) *MockCurseChecker_Start_Call {
-	return &MockCurseChecker_Start_Call{Call: _e.mock.On("Start", ctx)}
-}
-
-func (_c *MockCurseChecker_Start_Call) Run(run func(ctx context.Context)) *MockCurseChecker_Start_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockCurseChecker_Start_Call) Return(_a0 error) *MockCurseChecker_Start_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockCurseChecker_Start_Call) RunAndReturn(run func(context.Context) error) *MockCurseChecker_Start_Call {
+func (_c *MockCurseChecker_IsRemoteChainCursed_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, protocol.ChainSelector) bool) *MockCurseChecker_IsRemoteChainCursed_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -27,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
@@ -112,6 +114,7 @@ func main() {
 
 	contractTransmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
+	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	// create executor components
 	for strSel, chain := range executorConfig.BlockchainInfos {
 		selector, err := strconv.ParseUint(strSel, 10, 64)
@@ -121,13 +124,18 @@ func main() {
 		}
 
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
-		dr := destinationreader.NewEvmDestinationReader(
-			lggr,
-			protocol.ChainSelector(selector),
-			chainClient,
-			executorConfig.OffRampAddresses[strSel],
-			executorConfig.GetCCVInfoCacheExpiry(),
-		)
+		dr, err := destinationreader.NewEvmDestinationReader(
+			destinationreader.Params{
+				Lggr:             lggr,
+				ChainSelector:    protocol.ChainSelector(selector),
+				ChainClient:      chainClient,
+				OfframpAddress:   executorConfig.OffRampAddresses[strSel],
+				RmnRemoteAddress: executorConfig.RmnAddresses[strSel],
+				CacheExpiry:      executorConfig.GetReaderCacheExpiry(),
+			})
+		if err != nil {
+			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+		}
 
 		pk := os.Getenv(PK_ENV_VAR)
 		if pk == "" {
@@ -147,16 +155,24 @@ func main() {
 			lggr.Errorw("Failed to create contract transmitter", "error", err)
 			os.Exit(1)
 		}
-
-		destReaders[protocol.ChainSelector(selector)] = dr
+		if dr != nil {
+			destReaders[protocol.ChainSelector(selector)] = dr
+			rmnReaders[protocol.ChainSelector(selector)] = dr
+		}
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
 	}
+
+	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
+		Lggr:        lggr,
+		RmnReaders:  rmnReaders,
+		CacheExpiry: executorConfig.GetReaderCacheExpiry(),
+	})
 
 	// create indexer client which implements MessageReader and VerifierResultReader
 	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
 
 	// create executor
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient, executorMonitoring)
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, indexerClient, executorMonitoring)
 
 	// create hash-based leader elector
 	le := leaderelector.NewHashBasedLeaderElector(
@@ -184,6 +200,7 @@ func main() {
 		indexerStream,
 		le,
 		executorMonitoring,
+		executorConfig.GetMaxRetryDuration(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)

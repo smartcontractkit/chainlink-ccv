@@ -46,6 +46,8 @@ type Executor interface {
 	AttemptExecuteMessage(ctx context.Context, message protocol.Message) error
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
+	// GetMessageStatus checks if the message is expired, cursed, and if it should be retried and executed.
+	GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (MessageStatusResults, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains
@@ -57,7 +59,10 @@ type ContractTransmitter interface {
 
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
+	// todo: Switch this to GetReadyDelay instead of GetReadyTimestamp
 	GetReadyTimestamp(messageID protocol.Bytes32, verifierTimestamp int64) int64
+	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
+	GetRetryDelay(destinationChain protocol.ChainSelector) int64
 }
 
 // DestinationReader is an interface for reading message status and data from a single destination chain
@@ -66,8 +71,10 @@ type LeaderElector interface {
 type DestinationReader interface {
 	// GetCCVSForMessage return cross-chain verifications for selected message
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
-	// IsMessageExecuted returns true if message is executed
-	IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error)
+	// GetMessageExecutionState returns true if message is executed
+	GetMessageExecutionState(ctx context.Context, message protocol.Message) (MessageExecutionState, error)
+	// GetRMNCursedSubjects returns the full list of cursed subjects for the chain. These can be Bytes16 ChainSelectors or the GlobalCurseSubject.
+	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.

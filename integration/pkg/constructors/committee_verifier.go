@@ -76,7 +76,6 @@ func NewVerificationCoordinator(
 	// Initialize chain components.
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
-	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 	for sel, chain := range relayers {
 		if _, ok := onRampAddrs[sel]; !ok {
 			lggr.Warnw("No onramp address for chain, skipping.", "chainID", sel)
@@ -106,7 +105,6 @@ func NewVerificationCoordinator(
 			sourceReader, cfg.VerifierID, sel, verifierMonitoring,
 		)
 
-		headTrackers[sel] = observedSourceReader
 		sourceReaders[sel] = observedSourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress: verifierAddrs[sel],
@@ -154,6 +152,12 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	messageTracker := monitoring.NewMessageLatencyTracker(
+		lggr,
+		coordinatorConfig.VerifierID,
+		verifierMonitoring,
+	)
+
 	// Create verification coordinator
 	verifierCoordinator, err := verifier.NewCoordinator(
 		verifier.WithLogger(lggr),
@@ -163,7 +167,7 @@ func NewVerificationCoordinator(
 		verifier.WithStorage(aggregatorWriter),
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithMonitoring(verifierMonitoring),
-		verifier.WithHeadTrackers(headTrackers),
+		verifier.WithMessageTracker(messageTracker),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

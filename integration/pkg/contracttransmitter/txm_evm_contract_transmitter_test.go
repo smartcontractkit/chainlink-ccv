@@ -74,7 +74,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(1000000) &&
+						req.FeeLimit == uint64(2_500_000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -135,7 +135,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(1000000) &&
+						req.FeeLimit == uint64(2_500_000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -166,7 +166,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(5000000) &&
+						req.FeeLimit == uint64(2_500_000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
