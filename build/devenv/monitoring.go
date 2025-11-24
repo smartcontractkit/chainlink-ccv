@@ -156,7 +156,7 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to decode response into struct: %w", err)
 	}
 
-	if response.MessageID != msgIDHex {
+	if response.MessageID.String() != msgIDHex {
 		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("messageID mismatch: got %s, wanted %s", response.MessageID, msgIDHex)
 	}
 
