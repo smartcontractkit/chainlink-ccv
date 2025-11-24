@@ -47,8 +47,8 @@ func (h *MessageIDV1Handler) Handle(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":         true,
-		"verifierResults": verifications,
-		"messageID":       messageID,
+		"success":   true,
+		"results":   verifications,
+		"messageID": messageID,
 	})
 }

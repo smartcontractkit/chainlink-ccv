@@ -18,7 +18,7 @@ import (
 type Task struct {
 	logger    logger.Logger
 	messageID protocol.Bytes32
-	message   protocol.CCVData
+	message   protocol.VerifierResult
 	registry  *registry.VerifierRegistry
 	storage   common.IndexerStorage
 	attempt   int // 1-indexed
@@ -34,7 +34,7 @@ type TaskResult struct {
 	UnavailableCCVs         int
 }
 
-func NewTask(lggr logger.Logger, message protocol.CCVData, registry *registry.VerifierRegistry, storage common.IndexerStorage, verificationVisabilityWindow time.Duration) (*Task, error) {
+func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage, verificationVisabilityWindow time.Duration) (*Task, error) {
 	return &Task{
 		logger:    logger.Named(logger.With(lggr, "messageID", message.MessageID), "Task"),
 		messageID: message.MessageID,
@@ -48,14 +48,14 @@ func NewTask(lggr logger.Logger, message protocol.CCVData, registry *registry.Ve
 }
 
 // collectVerifierResults processes all verifier readers concurrently and collects successful results.
-func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*readers.VerifierReader) []protocol.CCVData {
+func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*readers.VerifierReader) []common.VerifierResultWithMetadata {
 	if len(verifierReaders) == 0 {
 		return nil
 	}
 
 	var (
 		mu      sync.Mutex
-		results []protocol.CCVData
+		results []common.VerifierResultWithMetadata
 		wg      sync.WaitGroup
 	)
 
@@ -72,7 +72,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 			continue
 		}
 
-		go func(ch <-chan common.Result[protocol.CCVData]) {
+		go func(ch <-chan common.Result[protocol.VerifierResult]) {
 			defer wg.Done()
 			select {
 			case result, ok := <-ch:
@@ -81,8 +81,16 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 				}
 				if result.Err() == nil {
 					mu.Lock()
-					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().SourceVerifierAddress, t.messageID.String())
-					results = append(results, result.Value())
+					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().VerifierSourceAddress, t.messageID.String())
+					verifierResultWithMetadata := common.VerifierResultWithMetadata{
+						VerifierResult: result.Value(),
+						Metadata: common.VerifierResultMetadata{
+							AttestationTimestamp: result.Value().Timestamp,
+							IngestionTimestamp:   time.Now(),
+							VerifierName:         t.registry.GetVerifierNameFromAddress(result.Value().VerifierSourceAddress),
+						},
+					}
+					results = append(results, verifierResultWithMetadata)
 					mu.Unlock()
 				}
 			case <-ctx.Done():
@@ -130,7 +138,7 @@ func (t *Task) getMissingVerifiers(ctx context.Context) (missing []string, err e
 }
 
 func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err error) {
-	var results []protocol.CCVData
+	var results []common.VerifierResultWithMetadata
 
 	// If we're using the sink, ignore the cache and use the persistent stores
 	if sink, ok := t.storage.(*storage.Sink); ok {
@@ -144,7 +152,7 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 	}
 
 	for _, r := range results {
-		existing = append(existing, strings.ToLower(r.SourceVerifierAddress.String()))
+		existing = append(existing, strings.ToLower(r.VerifierResult.VerifierSourceAddress.String()))
 	}
 
 	return existing, nil
@@ -152,12 +160,14 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 
 func (t *Task) getVerifiers() []string {
 	verifiers := []string{}
-	// This should be -1 off length, however bug exists somewhere pre-indexer such that this returns twice
-	// As we're migrating away from this structure anyway, temp placeholder
-	blobsExcludingExecutor := t.message.ReceiptBlobs[:len(t.message.ReceiptBlobs)-2]
-	for _, receipt := range blobsExcludingExecutor {
-		verifiers = append(verifiers, strings.ToLower(receipt.Issuer.String()))
+	// Extract verifiers from MessageCCVAddresses
+	for _, addr := range t.message.MessageCCVAddresses {
+		verifiers = append(verifiers, strings.ToLower(addr.String()))
 	}
 
 	return verifiers
+}
+
+func (t *Task) SetMessageStatus(ctx context.Context, messageStatus common.MessageStatus, lastErr string) error {
+	return t.storage.UpdateMessageStatus(ctx, t.messageID, messageStatus, lastErr)
 }

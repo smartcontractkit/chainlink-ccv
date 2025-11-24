@@ -37,7 +37,7 @@ type MessageReader interface {
 // VerifierResultReader reads verifier results from a storage backend based on messageID. It is implemented by the IndexerAPI.
 type VerifierResultReader interface {
 	// GetVerifierResults returns all verifierResults for a given messageID
-	GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error)
+	GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error)
 }
 
 // Executor is responsible for executing validating messages.

@@ -162,16 +162,17 @@ func AllTokenCombinations() []TokenCombination {
 			expectedReceiptIssuers:  3, // default CCV, token pool, executor
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 lock -> 1.7.0 release
-			sourcePoolType:          string(lock_release_token_pool.ContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(lock_release_token_pool.ContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  3, // default CCV, token pool, executor
-			expectedVerifierResults: 1, // default CCV
-		},
+		// TODO: Re-enable when chainlink-ccip repo adds ERC20LockBox deployment support
+		// { // 1.7.0 lock -> 1.7.0 release
+		// 	sourcePoolType:          string(lock_release_token_pool.ContractType),
+		// 	sourcePoolVersion:       "1.7.0",
+		// 	sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+		// 	destPoolType:            string(lock_release_token_pool.ContractType),
+		// 	destPoolVersion:         "1.7.0",
+		// 	destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+		// 	expectedReceiptIssuers:  3, // default CCV, token pool, executor
+		// 	expectedVerifierResults: 1, // default CCV
+		// },
 		{ // 1.7.0 burn -> 1.7.0 mint
 			sourcePoolType:          string(burn_mint_token_pool.ContractType),
 			sourcePoolVersion:       "1.7.0",
@@ -905,7 +906,7 @@ func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
 		GasLimit *big.Int
 	}
 
-	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.GasLimit))})
+	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.ExecutionGasLimit))})
 	if err != nil {
 		panic(fmt.Sprintf("failed to pack extraArgs: %v", err))
 	}
@@ -936,7 +937,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 	}
 
 	packed, err := arguments.Pack(GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(int64(opts.GasLimit)),
+		GasLimit:                 big.NewInt(int64(opts.ExecutionGasLimit)),
 		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
 	})
 	if err != nil {
@@ -950,7 +951,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
 		opts.FinalityConfig,
-		opts.GasLimit,
+		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
 		opts.TokenArgs,
@@ -1122,7 +1123,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				},
 				// Deploy multiple committee verifiers in order to test different receiver
 				// configurations.
-				CommitteeVerifier: toCommitteeVerifierParams(committees),
+				CommitteeVerifiers: toCommitteeVerifierParams(committees),
 				OnRamp: sequences.OnRampParams{
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),

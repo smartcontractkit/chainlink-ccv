@@ -54,7 +54,7 @@ func NewRestReader(config RestReaderConfig) *ResilientReader {
 	return NewResilientReader(underlying, config.Logger, DefaultResilienceConfig())
 }
 
-func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	url := r.buildRequestURL(messageIDs)
 
 	// Create HTTP request
@@ -84,7 +84,7 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	var queryResponses map[protocol.Bytes32]protocol.CCVData
+	var queryResponses map[protocol.Bytes32]protocol.VerifierResult
 	if err := json.Unmarshal(body, &queryResponses); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}

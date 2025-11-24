@@ -649,7 +649,7 @@ var sendCmd = &cobra.Command{
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
 				Version:             2,
-				GasLimit:            200_000,
+				ExecutionGasLimit:   200_000,
 				OutOfOrderExecution: true,
 			})
 			if err != nil {

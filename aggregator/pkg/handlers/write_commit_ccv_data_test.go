@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -21,15 +20,15 @@ import (
 )
 
 func makeValidProtoRequest() *pb.WriteCommitteeVerifierNodeResultRequest {
-	msg, _ := protocol.NewMessage(1, 2, 1, nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
-	id, _ := msg.MessageID()
+	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
 	pbMsg := model.MapProtocolMessageToProtoMessage(msg)
 	return &pb.WriteCommitteeVerifierNodeResultRequest{
-		CcvNodeData: &pb.CommitteeVerifierNodeResult{
-			MessageId: id[:],
-			CcvData:   []byte("x"),
-			Timestamp: time.Now().UnixMilli(),
-			Message:   pbMsg,
+		CommitteeVerifierNodeResult: &pb.CommitteeVerifierNodeResult{
+			Signature:       []byte("signature_bytes"),
+			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
+			Message:         pbMsg,
+			CcvAddresses:    [][]byte{},
+			ExecutorAddress: makeTestExecutorAddress(),
 		},
 	}
 }
@@ -67,7 +66,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		{
 			name: "validation_enabled_missing_payload_invalid_argument",
 			req: &pb.WriteCommitteeVerifierNodeResultRequest{
-				CcvNodeData: nil,
+				CommitteeVerifierNodeResult: nil,
 			},
 			// Signature validation is never called
 			expectGRPCCode:   codes.InvalidArgument,

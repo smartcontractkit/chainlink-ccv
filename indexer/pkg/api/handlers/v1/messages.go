@@ -45,22 +45,22 @@ func (h *MessagesV1Handler) Handle(c *gin.Context) {
 	req.SourceChainSelectors = sourceChainSelectors
 	req.DestChainSelectors = destChainSelectors
 
-	verifications, err := h.storage.QueryCCVData(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
+	messages, err := h.storage.QueryMessages(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Convert the verifications to a map of messageID to message
-	messages := make(map[string]protocol.Message)
-	for _, verification := range verifications {
-		messages[verification[0].MessageID.String()] = verification[0].Message
+	// Convert the messages to a map of messageID to message
+	messageMap := make(map[string]common.MessageWithMetadata)
+	for _, msg := range messages {
+		messageMap[msg.Message.MustMessageID().String()] = msg
 	}
 
-	h.lggr.Debugw("/v1/messages", "number of messages returned", len(messages))
+	h.lggr.Debugw("/v1/messages", "number of messages returned", len(messageMap))
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
-		"messages": messages,
+		"messages": messageMap,
 	})
 }
 

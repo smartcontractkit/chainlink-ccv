@@ -150,6 +150,7 @@ type DiscoveryConfig struct {
 type VerifierConfig struct {
 	Type            ReaderType `toml:"Type"`
 	IssuerAddresses []string   `toml:"IssuerAddresses"`
+	Name            string     `toml:"Name"`
 	// BatchSize is the maximum batch size to send to the verifier.
 	BatchSize int `toml:"BatchSize"`
 	// MaxBatchWaitTime is the maximum time to wait in milliseconds before sending a batch to the verifier.

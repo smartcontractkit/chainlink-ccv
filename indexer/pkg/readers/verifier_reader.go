@@ -19,7 +19,7 @@ import (
 // It provides a one-shot results channel for every call to ProcessMessage;
 // this channel will emit a message once the batch has been completed.
 type VerifierReader struct {
-	demux         *common.Demultiplexer[protocol.Bytes32, protocol.CCVData]
+	demux         *common.Demultiplexer[protocol.Bytes32, protocol.VerifierResult]
 	batchCh       chan batcher.BatchResult[protocol.Bytes32]
 	batcher       *batcher.Batcher[protocol.Bytes32]
 	batcherCtx    context.Context
@@ -40,7 +40,7 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 
 	return &VerifierReader{
 		verifier:      verifier,
-		demux:         common.NewDemultiplexer[protocol.Bytes32, protocol.CCVData](),
+		demux:         common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),
 		batchCh:       batchCh,
 		batcher:       batcher.NewBatcher(batcherCtx, config.BatchSize, time.Duration(config.MaxBatchWaitTime)*time.Millisecond, batchCh),
 		batcherCtx:    batcherCtx,
@@ -58,7 +58,7 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 // ProcessMessage returns an error if the message cannot be added to the batch,
 // typically because the batcher has been closed or the context has been
 // canceled.
-func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common.Result[protocol.CCVData], error) {
+func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common.Result[protocol.VerifierResult], error) {
 	err := v.batcher.Add(messageID)
 	if err != nil {
 		return nil, err
@@ -133,13 +133,13 @@ func (v *VerifierReader) run(ctx context.Context) {
 // If the verifier API returns an error, that error is associated with all
 // message IDs in the batch. Individual message IDs may still have associated
 // data in the response map if the verifier was able to return partial results.
-func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Bytes32) map[protocol.Bytes32]common.Result[protocol.CCVData] {
-	respMap := make(map[protocol.Bytes32]common.Result[protocol.CCVData])
+func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Bytes32) map[protocol.Bytes32]common.Result[protocol.VerifierResult] {
+	respMap := make(map[protocol.Bytes32]common.Result[protocol.VerifierResult])
 
 	if v.verifier == nil {
 		// If verifier is not set, return error for all items
 		for _, messageID := range batch {
-			respMap[messageID] = common.NewResult(protocol.CCVData{}, context.DeadlineExceeded)
+			respMap[messageID] = common.NewResult(protocol.VerifierResult{}, context.DeadlineExceeded)
 		}
 		return respMap
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -33,7 +34,7 @@ func TestInsertCCVData(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify data was inserted
-	retrieved, err := storage.GetCCVData(ctx, ccvData.MessageID)
+	retrieved, err := storage.GetCCVData(ctx, ccvData.VerifierResult.MessageID)
 	require.NoError(t, err)
 	require.Len(t, retrieved, 1)
 	assert.Equal(t, ccvData, retrieved[0])
@@ -54,7 +55,7 @@ func TestInsertCCVDataMultiple(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify both were inserted
-	retrieved, err := storage.GetCCVData(ctx, ccvData1.MessageID)
+	retrieved, err := storage.GetCCVData(ctx, ccvData1.VerifierResult.MessageID)
 	require.NoError(t, err)
 	require.Len(t, retrieved, 2)
 	assert.Contains(t, retrieved, ccvData1)
@@ -82,7 +83,7 @@ func TestQueryCCVDataTimestampRange(t *testing.T) {
 	ccvData3 := createTestCCVData("0x333", 3000, 1, 2)
 	ccvData4 := createTestCCVData("0x444", 4000, 1, 2)
 
-	for _, data := range []protocol.CCVData{ccvData1, ccvData2, ccvData3, ccvData4} {
+	for _, data := range []common.VerifierResultWithMetadata{ccvData1, ccvData2, ccvData3, ccvData4} {
 		err := storage.InsertCCVData(ctx, data)
 		require.NoError(t, err)
 	}
@@ -106,7 +107,7 @@ func TestQueryCCVDataWithSourceChainFilter(t *testing.T) {
 	ccvData2 := createTestCCVData("0x222", 2000, 2, 2) // source: 2
 	ccvData3 := createTestCCVData("0x333", 3000, 1, 2) // source: 1
 
-	for _, data := range []protocol.CCVData{ccvData1, ccvData2, ccvData3} {
+	for _, data := range []common.VerifierResultWithMetadata{ccvData1, ccvData2, ccvData3} {
 		err := storage.InsertCCVData(ctx, data)
 		require.NoError(t, err)
 	}
@@ -131,7 +132,7 @@ func TestQueryCCVDataWithDestChainFilter(t *testing.T) {
 	ccvData2 := createTestCCVData("0x222", 2000, 1, 3) // dest: 3
 	ccvData3 := createTestCCVData("0x333", 3000, 1, 2) // dest: 2
 
-	for _, data := range []protocol.CCVData{ccvData1, ccvData2, ccvData3} {
+	for _, data := range []common.VerifierResultWithMetadata{ccvData1, ccvData2, ccvData3} {
 		err := storage.InsertCCVData(ctx, data)
 		require.NoError(t, err)
 	}
@@ -157,7 +158,7 @@ func TestQueryCCVDataWithBothChainFilters(t *testing.T) {
 	ccvData3 := createTestCCVData("0x333", 3000, 2, 2) // source: 2, dest: 2
 	ccvData4 := createTestCCVData("0x444", 4000, 1, 2) // source: 1, dest: 2
 
-	for _, data := range []protocol.CCVData{ccvData1, ccvData2, ccvData3, ccvData4} {
+	for _, data := range []common.VerifierResultWithMetadata{ccvData1, ccvData2, ccvData3, ccvData4} {
 		err := storage.InsertCCVData(ctx, data)
 		require.NoError(t, err)
 	}
@@ -179,7 +180,7 @@ func TestQueryCCVDataPagination(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert 5 test records
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i*100), 1, 2)
 		err := storage.InsertCCVData(ctx, ccvData)
 		require.NoError(t, err)
@@ -240,7 +241,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Test concurrent inserts
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(i int) {
 			ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i), 1, 2)
 			err := storage.InsertCCVData(ctx, ccvData)
@@ -250,7 +251,7 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -260,9 +261,174 @@ func TestConcurrentAccess(t *testing.T) {
 	assert.Len(t, results, 10)
 }
 
+// Message storage tests
+
+func TestInsertMessage(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	message := createTestMessage("0x123", 1000, 1, 2, common.MessageProcessing)
+
+	err := storage.InsertMessage(ctx, message)
+	require.NoError(t, err)
+
+	// Verify message was inserted by checking it can be retrieved
+	// Note: GetMessage is not yet implemented, but we can verify via UpdateMessageStatus
+	err = storage.UpdateMessageStatus(ctx, message.Message.MustMessageID(), common.MessageSuccessful, "")
+	require.NoError(t, err)
+}
+
+func TestInsertMessageDuplicate(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	message := createTestMessage("0x123", 1000, 1, 2, common.MessageProcessing)
+
+	// Insert first time
+	err := storage.InsertMessage(ctx, message)
+	require.NoError(t, err)
+
+	// Try to insert again (should be idempotent)
+	err = storage.InsertMessage(ctx, message)
+	require.NoError(t, err)
+
+	// Verify status can still be updated
+	err = storage.UpdateMessageStatus(ctx, message.Message.MustMessageID(), common.MessageSuccessful, "")
+	require.NoError(t, err)
+}
+
+func TestBatchInsertMessages(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	messages := []common.MessageWithMetadata{
+		createTestMessage("0x111", 1000, 1, 2, common.MessageProcessing),
+		createTestMessage("0x222", 2000, 1, 2, common.MessageProcessing),
+		createTestMessage("0x333", 3000, 1, 2, common.MessageProcessing),
+	}
+
+	err := storage.BatchInsertMessages(ctx, messages)
+	require.NoError(t, err)
+
+	// Verify all messages were inserted by updating their statuses
+	for _, msg := range messages {
+		err = storage.UpdateMessageStatus(ctx, msg.Message.MustMessageID(), common.MessageSuccessful, "")
+		require.NoError(t, err)
+	}
+}
+
+func TestBatchInsertMessagesEmpty(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	err := storage.BatchInsertMessages(ctx, []common.MessageWithMetadata{})
+	require.NoError(t, err)
+}
+
+func TestBatchInsertMessagesDuplicate(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	message1 := createTestMessage("0x111", 1000, 1, 2, common.MessageProcessing)
+	message2 := createTestMessage("0x111", 2000, 1, 2, common.MessageProcessing) // Same messageID
+
+	// Insert first message
+	err := storage.InsertMessage(ctx, message1)
+	require.NoError(t, err)
+
+	// Batch insert including duplicate
+	messages := []common.MessageWithMetadata{message1, message2}
+	err = storage.BatchInsertMessages(ctx, messages)
+	require.NoError(t, err)
+
+	// Verify status can be updated
+	err = storage.UpdateMessageStatus(ctx, message1.Message.MustMessageID(), common.MessageSuccessful, "")
+	require.NoError(t, err)
+}
+
+func TestUpdateMessageStatus(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	message := createTestMessage("0x123", 1000, 1, 2, common.MessageProcessing)
+
+	// Insert message first
+	err := storage.InsertMessage(ctx, message)
+	require.NoError(t, err)
+
+	// Update status to successful
+	err = storage.UpdateMessageStatus(ctx, message.Message.MustMessageID(), common.MessageSuccessful, "")
+	require.NoError(t, err)
+
+	// Update status to timeout with error
+	err = storage.UpdateMessageStatus(ctx, message.Message.MustMessageID(), common.MessageTimeout, "test error")
+	require.NoError(t, err)
+}
+
+func TestUpdateMessageStatusNotFound(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	messageID := createTestBytes32("0x999")
+	err := storage.UpdateMessageStatus(ctx, messageID, common.MessageSuccessful, "")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "message not found")
+}
+
+func TestInsertMessageMultiple(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	// Insert multiple messages with different messageIDs
+	message1 := createTestMessage("0x111", 1000, 1, 2, common.MessageProcessing)
+	message2 := createTestMessage("0x222", 2000, 2, 3, common.MessageProcessing)
+	message3 := createTestMessage("0x333", 3000, 3, 4, common.MessageProcessing)
+
+	err := storage.InsertMessage(ctx, message1)
+	require.NoError(t, err)
+
+	err = storage.InsertMessage(ctx, message2)
+	require.NoError(t, err)
+
+	err = storage.InsertMessage(ctx, message3)
+	require.NoError(t, err)
+
+	// Verify all can be updated
+	err = storage.UpdateMessageStatus(ctx, message1.Message.MustMessageID(), common.MessageSuccessful, "")
+	require.NoError(t, err)
+
+	err = storage.UpdateMessageStatus(ctx, message2.Message.MustMessageID(), common.MessageSuccessful, "")
+	require.NoError(t, err)
+
+	err = storage.UpdateMessageStatus(ctx, message3.Message.MustMessageID(), common.MessageSuccessful, "")
+	require.NoError(t, err)
+}
+
+func TestConcurrentMessageInserts(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	// Test concurrent message inserts
+	done := make(chan bool, 10)
+	for i := range 10 {
+		go func(i int) {
+			message := createTestMessage(fmt.Sprintf("0x%03d", i), int64(1000+i), 1, 2, common.MessageProcessing)
+			err := storage.InsertMessage(ctx, message)
+			assert.NoError(t, err)
+			done <- true
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	for range 10 {
+		<-done
+	}
+}
+
 // Helper functions
 
-func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destChain protocol.ChainSelector) protocol.CCVData {
+func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destChain protocol.ChainSelector) common.VerifierResultWithMetadata {
 	// Ensure the messageID is properly padded to 64 hex characters
 	if len(messageIDHex) < 66 { // "0x" + 64 hex chars
 		messageIDHex = fmt.Sprintf("0x%064s", messageIDHex[2:])
@@ -280,7 +446,7 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 		Receiver:             []byte{0x1f, 0x20, 0x21},
 		SourceChainSelector:  sourceChain,
 		DestChainSelector:    destChain,
-		Nonce:                protocol.Nonce(1),
+		SequenceNumber:       protocol.SequenceNumber(1),
 		Finality:             1,
 		DestBlobLength:       3,
 		TokenTransferLength:  3,
@@ -292,18 +458,21 @@ func createTestCCVData(messageIDHex string, timestamp int64, sourceChain, destCh
 		OnRampAddressLength:  3,
 	}
 
-	return protocol.CCVData{
-		MessageID:             messageID,
-		Timestamp:             time.UnixMilli(timestamp),
-		SourceChainSelector:   sourceChain,
-		DestChainSelector:     destChain,
-		Nonce:                 protocol.Nonce(1),
-		SourceVerifierAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-		DestVerifierAddress:   protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-		CCVData:               []byte{0x07, 0x08, 0x09},
-		BlobData:              []byte{0x0a, 0x0b, 0x0c},
-		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Message:               message,
+	return common.VerifierResultWithMetadata{
+		VerifierResult: protocol.VerifierResult{
+			MessageID:              messageID,
+			Timestamp:              time.UnixMilli(timestamp),
+			VerifierSourceAddress:  protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			VerifierDestAddress:    protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			CCVData:                []byte{0x07, 0x08, 0x09},
+			MessageCCVAddresses:    []protocol.UnknownAddress{{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))}},
+			MessageExecutorAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			Message:                message,
+		},
+		Metadata: common.VerifierResultMetadata{
+			IngestionTimestamp:   time.UnixMilli(timestamp),
+			AttestationTimestamp: time.UnixMilli(timestamp),
+		},
 	}
 }
 
@@ -312,14 +481,26 @@ func createTestBytes32(hex string) protocol.Bytes32 {
 	return bytes32
 }
 
+func createTestMessage(messageIDHex string, timestamp int64, sourceChain, destChain protocol.ChainSelector, status common.MessageStatus) common.MessageWithMetadata {
+	ccvData := createTestCCVData(messageIDHex, timestamp, sourceChain, destChain)
+
+	return common.MessageWithMetadata{
+		Message: ccvData.VerifierResult.Message,
+		Metadata: common.MessageMetadata{
+			Status:             status,
+			IngestionTimestamp: time.UnixMilli(timestamp),
+			LastErr:            "",
+		},
+	}
+}
+
 // Benchmark tests
 
 func BenchmarkInsertCCVData(b *testing.B) {
 	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		ccvData := createTestCCVData(fmt.Sprintf("0x%x", i), int64(1000+i), 1, 2)
 		storage.InsertCCVData(ctx, ccvData)
 	}
@@ -333,9 +514,8 @@ func BenchmarkGetCCVData(b *testing.B) {
 	ccvData := createTestCCVData("0x123", 1000, 1, 2)
 	storage.InsertCCVData(ctx, ccvData)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		storage.GetCCVData(ctx, ccvData.MessageID)
+	for b.Loop() {
+		storage.GetCCVData(ctx, ccvData.VerifierResult.MessageID)
 	}
 }
 
@@ -344,13 +524,12 @@ func BenchmarkQueryCCVDataTimestampRange(b *testing.B) {
 	ctx := context.Background()
 
 	// Pre-populate with 1000 records
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i), 1, 2)
 		storage.InsertCCVData(ctx, ccvData)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		storage.QueryCCVData(ctx, 1500, 2500, nil, nil, 100, 0)
 	}
 }
@@ -360,7 +539,7 @@ func BenchmarkQueryCCVDataWithChainFilter(b *testing.B) {
 	ctx := context.Background()
 
 	// Pre-populate with 1000 records with mixed chain selectors
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		sourceChain := protocol.ChainSelector(i % 5)     // 0-4
 		destChain := protocol.ChainSelector((i + 1) % 5) // 1-5
 		ccvData := createTestCCVData(fmt.Sprintf("0x%03d", i), int64(1000+i), sourceChain, destChain)
@@ -370,8 +549,7 @@ func BenchmarkQueryCCVDataWithChainFilter(b *testing.B) {
 	sourceChains := []protocol.ChainSelector{1, 2}
 	destChains := []protocol.ChainSelector{3, 4}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		storage.QueryCCVData(ctx, 0, 9999, destChains, sourceChains, 100, 0)
 	}
 }
