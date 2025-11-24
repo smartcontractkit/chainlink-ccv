@@ -9,6 +9,7 @@ import (
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -18,7 +19,7 @@ var _ common.MessageDiscovery = (*AggregatorMessageDiscovery)(nil)
 
 type AggregatorMessageDiscovery struct {
 	logger           logger.Logger
-	config           Config
+	config           config.DiscoveryConfig
 	aggregatorReader *readers.ResilientReader
 	registry         *registry.VerifierRegistry
 	storageSink      common.IndexerStorage
@@ -27,12 +28,6 @@ type AggregatorMessageDiscovery struct {
 	stopCh           chan struct{}
 	doneCh           chan struct{}
 	readerLock       *sync.Mutex
-}
-
-type Config struct {
-	PollInterval       time.Duration
-	Timeout            time.Duration
-	MessageChannelSize int
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -67,7 +62,7 @@ func WithLogger(lggr logger.Logger) Option {
 	}
 }
 
-func WithConfig(config Config) Option {
+func WithConfig(config config.DiscoveryConfig) Option {
 	return func(a *AggregatorMessageDiscovery) {
 		a.config = config
 	}
@@ -77,6 +72,7 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	a := &AggregatorMessageDiscovery{
 		stopCh:     make(chan struct{}),
 		doneCh:     make(chan struct{}),
+		messageCh:  make(chan common.VerifierResultWithMetadata),
 		readerLock: &sync.Mutex{},
 	}
 
@@ -84,9 +80,6 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	for _, opt := range opts {
 		opt(a)
 	}
-
-	// Create the buffered message channel
-	a.messageCh = make(chan common.VerifierResultWithMetadata, a.config.MessageChannelSize)
 
 	// Validata the configuration
 	if err := a.validate(); err != nil {
@@ -97,10 +90,6 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 }
 
 func (a *AggregatorMessageDiscovery) validate() error {
-	if a.config.MessageChannelSize <= 0 {
-		return errors.New("invalid message channel size")
-	}
-
 	if a.config.PollInterval <= 0 {
 		return errors.New("invalid poll interval")
 	}
@@ -156,7 +145,7 @@ func (a *AggregatorMessageDiscovery) Replay(ctx context.Context, start, end uint
 func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 	defer close(a.doneCh)
 	// Create a ticker based on the scan interval configured
-	ticker := time.NewTicker(a.config.PollInterval)
+	ticker := time.NewTicker(time.Duration(a.config.PollInterval) * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -169,7 +158,7 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Create a child context with a timeout to prevent a single call from blocking the entire discovery process
-			readCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
+			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.
