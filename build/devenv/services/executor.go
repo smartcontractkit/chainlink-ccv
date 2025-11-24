@@ -91,7 +91,7 @@ func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) 
 	if v.ExecutorID == "" {
 		return nil, errors.New("invalid ExecutorID, should be non-empty")
 	}
-	
+
 	config.ExecutorID = v.ExecutorID
 
 	cfg, err := toml.Marshal(config)
