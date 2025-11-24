@@ -86,9 +86,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 	return report.Output, nil
 }
 
-var (
-	GenericExtraArgsV3Tag = []byte{0x30, 0x23, 0x26, 0xcb}
-)
+var GenericExtraArgsV3Tag = []byte{0x30, 0x23, 0x26, 0xcb}
 
 const (
 	// MaxCCVsPerMessage is the maximum number of CCVs that can be included in a single message.
