@@ -264,7 +264,7 @@ func (i *IndexerLoadGun) CloseSentChannel() {
 	})
 }
 
-func defaultMessageGenerator(sequenceNumber uint64) protocol.CCVData {
+func defaultMessageGenerator(sequenceNumber uint64) protocol.VerifierResult {
 	sourceAddr, _ := protocol.RandomAddress()
 	destAddr, _ := protocol.RandomAddress()
 	onRampAddr, _ := protocol.RandomAddress()
@@ -298,7 +298,7 @@ func defaultMessageGenerator(sequenceNumber uint64) protocol.CCVData {
 
 	messageID, _ := message.MessageID()
 
-	return protocol.CCVData{
+	return protocol.VerifierResult{
 		MessageID:              messageID,
 		Message:                message,
 		MessageCCVAddresses:    []protocol.UnknownAddress{sourceAddr},

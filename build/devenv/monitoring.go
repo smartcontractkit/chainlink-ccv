@@ -90,9 +90,9 @@ func NewIndexerClient(logger zerolog.Logger, url string) *IndexerClient {
 
 // TODO: this should probably be exported by the indexer package?
 type GetVerificationsForMessageIDResponse struct {
-	Success         bool               `json:"success"`
-	VerifierResults []protocol.CCVData `json:"verifierResults"`
-	MessageID       string             `json:"messageID"`
+	Success         bool                      `json:"success"`
+	VerifierResults []protocol.VerifierResult `json:"verifierResults"`
+	MessageID       string                    `json:"messageID"`
 }
 
 func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protocol.UnknownAddress {
