@@ -430,9 +430,17 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 			receiver:    mustGetEOAReceiverAddress(t, c, dest),
 			ccvs: []protocol.CCV{
 				{
-					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverProxyType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
-					Args:       []byte{},
-					ArgsLen:    0,
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						src,
+						datastore.ContractType(committee_verifier.ResolverProxyType),
+						committee_verifier.Deploy.Version(),
+						evm.DefaultCommitteeVerifierQualifier,
+						"committee verifier proxy",
+					),
+					Args:    []byte{},
+					ArgsLen: 0,
 				},
 			},
 			// default verifier
@@ -473,9 +481,9 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 					),
 				},
 			},
-			// default verifier and secondary verifier will verify so should be two verifications.
+			// default and secondary verifiers will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor, default verifier and secondary committee verifier.
+			// default executor, default and secondary committee verifiers.
 			numExpectedReceipts: 3,
 		},
 		{
@@ -506,23 +514,13 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 					Args:    []byte{},
 					ArgsLen: 0,
 				},
-				// still include default verifier, because the default aggregator client gets queried in this test.
-				{
-					CCVAddress: getContractAddress(
-						t,
-						in,
-						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
-						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
-						"default committee verifier proxy",
-					),
-				},
 			},
 			// default verifier and secondary verifier will verify so should be two verifications.
+			// default verifies because its the message discovery mechanism, despite there being no onchain
+			// receipt for the default verifier.
 			numExpectedVerifications: 2,
-			// default executor, default verifier and secondary committee verifier.
-			numExpectedReceipts: 3,
+			// default executor and secondary committee verifier.
+			numExpectedReceipts: 2,
 		},
 		{
 			name:        "receiver w/ secondary required and tertiary optional threshold=1",
@@ -558,23 +556,13 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c *evm.
 					Args:    []byte{},
 					ArgsLen: 0,
 				},
-				// still include default verifier, because the default aggregator client gets queried in this test.
-				{
-					CCVAddress: getContractAddress(
-						t,
-						in,
-						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
-						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
-						"default committee verifier proxy",
-					),
-				},
 			},
 			// default, secondary and tertiary verifiers will verify so should be three verifications.
+			// default verifies because its the message discovery mechanism, despite there being no onchain
+			// receipt for the default verifier.
 			numExpectedVerifications: 3,
-			// default executor, default verifier, secondary and tertiary committee verifiers.
-			numExpectedReceipts: 4,
+			// default executor, secondary and tertiary committee verifiers.
+			numExpectedReceipts: 3,
 		},
 		{
 			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies all three",
