@@ -360,8 +360,8 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 func (i *InMemoryStorage) generateUniqueKey(ccvData common.VerifierResultWithMetadata) string {
 	return fmt.Sprintf("%s:%s:%s",
 		ccvData.VerifierResult.MessageID.String(),
-		ccvData.VerifierResult.SourceVerifierAddress.String(),
-		ccvData.VerifierResult.DestVerifierAddress.String(),
+		ccvData.VerifierResult.VerifierSourceAddress.String(),
+		ccvData.VerifierResult.VerifierDestAddress.String(),
 	)
 }
 
@@ -400,8 +400,8 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData common.Veri
 	i.verifierResultStorage.byTimestamp[insertPos] = ccvData
 
 	// Update chain selector indexes with index into timestamp slice
-	i.addToChainIndex(i.verifierResultStorage.bySourceChain, ccvData.VerifierResult.SourceChainSelector, insertPos)
-	i.addToChainIndex(i.verifierResultStorage.byDestChain, ccvData.VerifierResult.DestChainSelector, insertPos)
+	i.addToChainIndex(i.verifierResultStorage.bySourceChain, ccvData.VerifierResult.Message.SourceChainSelector, insertPos)
+	i.addToChainIndex(i.verifierResultStorage.byDestChain, ccvData.VerifierResult.Message.DestChainSelector, insertPos)
 
 	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 	return nil
@@ -449,8 +449,8 @@ func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 		i.verifierResultStorage.byTimestamp[insertPos] = ccvData
 
 		// Update chain selector indexes with index into timestamp slice
-		i.addToChainIndex(i.verifierResultStorage.bySourceChain, ccvData.VerifierResult.SourceChainSelector, insertPos)
-		i.addToChainIndex(i.verifierResultStorage.byDestChain, ccvData.VerifierResult.DestChainSelector, insertPos)
+		i.addToChainIndex(i.verifierResultStorage.bySourceChain, ccvData.VerifierResult.Message.SourceChainSelector, insertPos)
+		i.addToChainIndex(i.verifierResultStorage.byDestChain, ccvData.VerifierResult.Message.DestChainSelector, insertPos)
 	}
 
 	// Update metrics
@@ -670,8 +670,8 @@ func (i *InMemoryStorage) rebuildChainIndexes() {
 	i.verifierResultStorage.byDestChain = make(map[protocol.ChainSelector][]int)
 
 	for idx, data := range i.verifierResultStorage.byTimestamp {
-		i.verifierResultStorage.bySourceChain[data.VerifierResult.SourceChainSelector] = append(i.verifierResultStorage.bySourceChain[data.VerifierResult.SourceChainSelector], idx)
-		i.verifierResultStorage.byDestChain[data.VerifierResult.DestChainSelector] = append(i.verifierResultStorage.byDestChain[data.VerifierResult.DestChainSelector], idx)
+		i.verifierResultStorage.bySourceChain[data.VerifierResult.Message.SourceChainSelector] = append(i.verifierResultStorage.bySourceChain[data.VerifierResult.Message.SourceChainSelector], idx)
+		i.verifierResultStorage.byDestChain[data.VerifierResult.Message.DestChainSelector] = append(i.verifierResultStorage.byDestChain[data.VerifierResult.Message.DestChainSelector], idx)
 	}
 }
 

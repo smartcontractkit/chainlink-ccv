@@ -32,12 +32,10 @@ type MessageIDV1Response struct {
 	MessageID Bytes32                      `json:"messageID"`
 	Results   []VerifierResultWithMetadata `json:"results"`
 }
-
 type VerifierResultWithMetadata struct {
-	VerifierResult CCVData          `json:"verifierResult"`
+	VerifierResult VerifierResult   `json:"verifierResult"`
 	Metadata       VerifierMetadata `json:"metadata"`
 }
-
 type VerifierMetadata struct {
 	VerifierName         string    `json:"verifierName"`
 	AttestationTimestamp time.Time `json:"attestationTimestamp"`

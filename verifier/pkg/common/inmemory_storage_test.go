@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func createTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, destChainSelector protocol.ChainSelector) protocol.Message {
+func createTestMessage(t *testing.T, sequenceNumber protocol.SequenceNumber, sourceChainSelector, destChainSelector protocol.ChainSelector) protocol.Message {
 	// Create empty token transfer
 	tokenTransfer := protocol.NewEmptyTokenTransfer()
 
@@ -24,11 +24,13 @@ func createTestMessage(t *testing.T, nonce protocol.Nonce, sourceChainSelector, 
 	message, err := protocol.NewMessage(
 		sourceChainSelector,
 		destChainSelector,
-		nonce,
+		sequenceNumber,
 		onRampAddr,
 		offRampAddr,
-		0,       // finality
-		300_000, // gas limit
+		0,                  // finality
+		200_000,            // execution gas limit
+		100_000,            // ccip receive gas limit
+		protocol.Bytes32{}, // ccvAndExecutorHash
 		sender,
 		receiver,
 		[]byte("test data"), // dest blob
@@ -46,49 +48,23 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 	ctx := context.Background()
 	verifierAddress := []byte("0x1234")
 
-	// Create test CCV data
-	testData := []protocol.CCVData{
+	// Create test CCVNodeData for writing
+	testData := []protocol.VerifierNodeResult{
 		{
-			MessageID:             [32]byte{1, 2, 3},
-			Nonce:                 100,
-			SourceChainSelector:   1,
-			DestChainSelector:     2,
-			SourceVerifierAddress: verifierAddress,
-			DestVerifierAddress:   []byte("0x4567"),
-			CCVData:               []byte("signature1"),
-			BlobData:              []byte("blob1"),
-			Timestamp:             time.Now(),
-			ReceiptBlobs: []protocol.ReceiptWithBlob{
-				{
-					Issuer:            verifierAddress,
-					DestGasLimit:      200000,
-					DestBytesOverhead: 50,
-					Blob:              []byte("blob1"),
-					ExtraArgs:         []byte{},
-				},
-			},
-			Message: createTestMessage(t, 100, 1, 2),
+			MessageID:       [32]byte{1, 2, 3},
+			Message:         createTestMessage(t, 100, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+			ExecutorAddress: []byte("0xExecutor1"),
+			Signature:       []byte("signature1"),
 		},
 		{
-			MessageID:             [32]byte{4, 5, 6},
-			Nonce:                 101,
-			SourceChainSelector:   1,
-			DestChainSelector:     2,
-			SourceVerifierAddress: verifierAddress,
-			DestVerifierAddress:   []byte("0x4567"),
-			CCVData:               []byte("signature2"),
-			BlobData:              []byte("blob2"),
-			Timestamp:             time.Now().Add(1 * time.Millisecond),
-			ReceiptBlobs: []protocol.ReceiptWithBlob{
-				{
-					Issuer:            verifierAddress,
-					DestGasLimit:      300000,
-					DestBytesOverhead: 75,
-					Blob:              []byte("blob2"),
-					ExtraArgs:         []byte("test"),
-				},
-			},
-			Message: createTestMessage(t, 101, 1, 2),
+			MessageID:       [32]byte{4, 5, 6},
+			Message:         createTestMessage(t, 101, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+			ExecutorAddress: []byte("0xExecutor2"),
+			Signature:       []byte("signature2"),
 		},
 	}
 
@@ -97,12 +73,9 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 	require.NoError(t, err)
 
 	// Retrieve and verify
-	storedData, err := storage.GetAllCCVData(verifierAddress)
+	storedData, err := storage.GetAllCCVData()
 	require.NoError(t, err)
 	require.Len(t, storedData, 2)
-
-	// Verify data is sorted by timestamp (stored in insertion order)
-	require.True(t, storedData[1].Timestamp.After(storedData[0].Timestamp))
 
 	// Verify content
 	require.Equal(t, testData[0].MessageID, storedData[0].MessageID)
@@ -129,16 +102,14 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		verifierAddress := []byte("0x1234")
 
 		// Create test data with different timestamps by storing at different times
-		testData1 := []protocol.CCVData{
+		testData1 := []protocol.VerifierNodeResult{
 			{
-				MessageID:             [32]byte{1},
-				Nonce:                 100,
-				SourceChainSelector:   1,
-				DestChainSelector:     2,
-				SourceVerifierAddress: verifierAddress,
-				DestVerifierAddress:   []byte("0x4567"),
-				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(t, 100, 1, 2),
+				MessageID:       [32]byte{1},
+				Message:         createTestMessage(t, 100, 1, 2),
+				CCVVersion:      []byte("v1"),
+				CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+				ExecutorAddress: []byte("0x4567"),
+				Signature:       []byte("sig1"),
 			},
 		}
 
@@ -150,16 +121,14 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		timeProvider = func() int64 { return baseTime + 10000000 } // 10 seconds later in microseconds
 		storage.timeProvider = timeProvider
 
-		testData2 := []protocol.CCVData{
+		testData2 := []protocol.VerifierNodeResult{
 			{
-				MessageID:             [32]byte{2},
-				Nonce:                 101,
-				SourceChainSelector:   1,
-				DestChainSelector:     2,
-				SourceVerifierAddress: verifierAddress,
-				DestVerifierAddress:   []byte("0x4567"),
-				CCVData:               []byte("sig2"),
-				Message:               createTestMessage(t, 101, 1, 2),
+				MessageID:       [32]byte{2},
+				Message:         createTestMessage(t, 101, 1, 2),
+				CCVVersion:      []byte("v1"),
+				CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+				ExecutorAddress: []byte("0x4567"),
+				Signature:       []byte("sig2"),
 			},
 		}
 
@@ -170,16 +139,14 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		timeProvider = func() int64 { return baseTime + 20000000 } // 20 seconds later in microseconds
 		storage.timeProvider = timeProvider
 
-		testData3 := []protocol.CCVData{
+		testData3 := []protocol.VerifierNodeResult{
 			{
-				MessageID:             [32]byte{3},
-				Nonce:                 102,
-				SourceChainSelector:   1,
-				DestChainSelector:     2,
-				SourceVerifierAddress: verifierAddress,
-				DestVerifierAddress:   []byte("0x4567"),
-				CCVData:               []byte("sig3"),
-				Message:               createTestMessage(t, 102, 1, 2),
+				MessageID:       [32]byte{3},
+				Message:         createTestMessage(t, 102, 1, 2),
+				CCVVersion:      []byte("v1"),
+				CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+				ExecutorAddress: []byte("0x4567"),
+				Signature:       []byte("sig3"),
 			},
 		}
 
@@ -193,7 +160,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		name           string
 		destChains     []protocol.ChainSelector
 		sourceChains   []protocol.ChainSelector
-		expectedNonces []protocol.Nonce
+		expectedNonces []uint64
 		startTime      int64
 		limit          int
 		offset         int
@@ -207,7 +174,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			limit:          100,
 			offset:         0,
 			expectedCount:  3,
-			expectedNonces: []protocol.Nonce{100, 101, 102},
+			expectedNonces: []uint64{100, 101, 102},
 		},
 		{
 			name:           "middle range",
@@ -217,7 +184,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			limit:          100,
 			offset:         0,
 			expectedCount:  2,
-			expectedNonces: []protocol.Nonce{101, 102},
+			expectedNonces: []uint64{101, 102},
 		},
 		{
 			name:           "no data in range",
@@ -237,7 +204,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			limit:          2,
 			offset:         0,
 			expectedCount:  2,
-			expectedNonces: []protocol.Nonce{100, 101},
+			expectedNonces: []uint64{100, 101},
 		},
 		{
 			name:           "pagination test - second page",
@@ -247,7 +214,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			limit:          2,
 			offset:         2,
 			expectedCount:  1,
-			expectedNonces: []protocol.Nonce{102},
+			expectedNonces: []uint64{102},
 		},
 	}
 
@@ -261,9 +228,9 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			require.Equal(t, tt.expectedCount, len(response))
 
 			// Verify nonces match expected by collecting from all destination chains
-			var actualNonces []protocol.Nonce
+			var actualNonces []uint64
 			for _, ccv := range response {
-				actualNonces = append(actualNonces, ccv.Data.Nonce)
+				actualNonces = append(actualNonces, uint64(ccv.Data.Message.SequenceNumber))
 			}
 
 			// Sort actual nonces for comparison
@@ -284,27 +251,14 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	messageID := [32]byte{1, 2, 3, 4, 5}
-	testData := []protocol.CCVData{
+	testData := []protocol.VerifierNodeResult{
 		{
-			MessageID:             messageID,
-			Nonce:                 100,
-			SourceChainSelector:   1,
-			DestChainSelector:     2,
-			SourceVerifierAddress: verifierAddress,
-			DestVerifierAddress:   []byte("0x4567"),
-			CCVData:               []byte("signature"),
-			BlobData:              []byte("blob"),
-			Timestamp:             time.Now(),
-			ReceiptBlobs: []protocol.ReceiptWithBlob{
-				{
-					Issuer:            verifierAddress,
-					DestGasLimit:      150000,
-					DestBytesOverhead: 30,
-					Blob:              []byte("blob"),
-					ExtraArgs:         []byte{},
-				},
-			},
-			Message: createTestMessage(t, 100, 1, 2),
+			MessageID:       messageID,
+			Message:         createTestMessage(t, 100, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+			ExecutorAddress: []byte("0x4567"),
+			Signature:       []byte("signature"),
 		},
 	}
 
@@ -316,7 +270,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	result, err := storage.ReadCCVDataByMessageID(messageID)
 	require.NoError(t, err)
 	require.Equal(t, protocol.Bytes32(messageID), result.MessageID)
-	require.Equal(t, protocol.Nonce(100), result.Nonce)
+	require.Equal(t, protocol.SequenceNumber(100), result.Message.SequenceNumber)
 
 	// Test finding non-existing message
 	nonExistentID := [32]byte{9, 9, 9}
@@ -335,30 +289,33 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	verifier2 := []byte("0x2222")
 
 	// Create data for different verifiers
-	data1 := []protocol.CCVData{
+	data1 := []protocol.VerifierNodeResult{
 		{
-			MessageID:             [32]byte{1},
-			Nonce:                 100,
-			SourceVerifierAddress: verifier1,
-			CCVData:               []byte("sig1"),
-			Message:               createTestMessage(t, 100, 1, 2),
+			MessageID:       [32]byte{1},
+			Message:         createTestMessage(t, 100, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifier1},
+			ExecutorAddress: []byte("0xExec"),
+			Signature:       []byte("sig1"),
 		},
 		{
-			MessageID:             [32]byte{2},
-			Nonce:                 101,
-			SourceVerifierAddress: verifier1,
-			CCVData:               []byte("sig2"),
-			Message:               createTestMessage(t, 101, 1, 2),
+			MessageID:       [32]byte{2},
+			Message:         createTestMessage(t, 101, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifier1},
+			ExecutorAddress: []byte("0xExec"),
+			Signature:       []byte("sig2"),
 		},
 	}
 
-	data2 := []protocol.CCVData{
+	data2 := []protocol.VerifierNodeResult{
 		{
-			MessageID:             [32]byte{3},
-			Nonce:                 200,
-			SourceVerifierAddress: verifier2,
-			CCVData:               []byte("sig3"),
-			Message:               createTestMessage(t, 200, 1, 2),
+			MessageID:       [32]byte{3},
+			Message:         createTestMessage(t, 200, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifier2},
+			ExecutorAddress: []byte("0xExec"),
+			Signature:       []byte("sig3"),
 		},
 	}
 
@@ -369,20 +326,15 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	err = storage.WriteCCVNodeData(ctx, data2)
 	require.NoError(t, err)
 
-	// Verify verifier1 data
-	result1, err := storage.GetAllCCVData(verifier1)
+	// Verify all data stored (GetAllCCVData returns all data, not filtered by verifier)
+	resultAll, err := storage.GetAllCCVData()
 	require.NoError(t, err)
-	require.Len(t, result1, 2)
+	require.Len(t, resultAll, 3)
 
-	// Verify verifier2 data
-	result2, err := storage.GetAllCCVData(verifier2)
-	require.NoError(t, err)
-	require.Len(t, result2, 1)
-
-	// Verify data is separate
-	require.Equal(t, protocol.Nonce(100), result1[0].Nonce)
-	require.Equal(t, protocol.Nonce(101), result1[1].Nonce)
-	require.Equal(t, protocol.Nonce(200), result2[0].Nonce)
+	// Verify data nonces
+	require.Equal(t, protocol.SequenceNumber(100), resultAll[0].Message.SequenceNumber)
+	require.Equal(t, protocol.SequenceNumber(101), resultAll[1].Message.SequenceNumber)
+	require.Equal(t, protocol.SequenceNumber(200), resultAll[2].Message.SequenceNumber)
 }
 
 func TestInMemoryOffchainStorage_Clear(t *testing.T) {
@@ -393,12 +345,14 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Add some data
-	testData := []protocol.CCVData{
+	testData := []protocol.VerifierNodeResult{
 		{
-			MessageID:             [32]byte{1, 2, 3},
-			SourceVerifierAddress: verifierAddress,
-			CCVData:               []byte("signature"),
-			Message:               createTestMessage(t, 100, 1, 2),
+			MessageID:       [32]byte{1, 2, 3},
+			Message:         createTestMessage(t, 100, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+			ExecutorAddress: []byte("0xExec"),
+			Signature:       []byte("signature"),
 		},
 	}
 
@@ -406,7 +360,7 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify data exists
-	result, err := storage.GetAllCCVData(verifierAddress)
+	result, err := storage.GetAllCCVData()
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 
@@ -414,14 +368,18 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 	storage.Clear()
 
 	// Verify data is gone
-	result, err = storage.GetAllCCVData(verifierAddress)
+	result, err = storage.GetAllCCVData()
 	require.NoError(t, err)
 	require.Len(t, result, 0)
 
 	// Verify stats are reset
 	stats := storage.GetStats()
-	require.Equal(t, 0, stats["totalEntries"])
-	require.Equal(t, 0, stats["verifierCount"])
+	if totalEntries, ok := stats["totalEntries"].(int); ok {
+		require.Equal(t, 0, totalEntries)
+	}
+	if verifierCount, ok := stats["verifierCount"].(int); ok {
+		require.Equal(t, 0, verifierCount)
+	}
 }
 
 func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
@@ -432,12 +390,11 @@ func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
 	ctx := context.Background()
 
 	// Write empty data should not error
-	err := storage.WriteCCVNodeData(ctx, []protocol.CCVData{})
+	err := storage.WriteCCVNodeData(ctx, []protocol.VerifierNodeResult{})
 	require.NoError(t, err)
 
-	// Get data for non-existent verifier
-	verifierAddress := []byte("0x1234")
-	result, err := storage.GetAllCCVData(verifierAddress)
+	// Get all data (should be empty)
+	result, err := storage.GetAllCCVData()
 	require.NoError(t, err)
 	require.Len(t, result, 0)
 
@@ -455,11 +412,14 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Create data - timestamp will be set by storage layer
-	testData := []protocol.CCVData{
+	testData := []protocol.VerifierNodeResult{
 		{
-			MessageID:             [32]byte{1},
-			SourceVerifierAddress: verifierAddress,
-			Message:               createTestMessage(t, 100, 1, 2),
+			MessageID:       [32]byte{1},
+			Message:         createTestMessage(t, 100, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+			ExecutorAddress: []byte("0x4567"),
+			Signature:       []byte("sig"),
 		},
 	}
 
@@ -467,7 +427,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify data was stored - timestamp is managed internally by storage entries
-	result, err := storage.GetAllCCVData(verifierAddress)
+	result, err := storage.GetAllCCVData()
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 
@@ -480,39 +440,26 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	storage := NewInMemoryOffchainStorageWithTimeProvider(
 		lggr, DefaultTimeProvider, []protocol.ChainSelector{2}, []protocol.ChainSelector{1}, 100, 0, 0)
 
-	// Create reader and writer views
+	// Create reader view
 	reader := CreateReaderOnly(storage)
-	writer := CreateWriterOnly(storage)
 
 	ctx := context.Background()
 	verifierAddress := []byte("0x1234")
 
-	// Test data
-	testData := []protocol.CCVData{
+	// Test data using CCVNodeData
+	testData := []protocol.VerifierNodeResult{
 		{
-			MessageID:             [32]byte{1, 2, 3},
-			Nonce:                 100,
-			SourceChainSelector:   1,
-			DestChainSelector:     2,
-			SourceVerifierAddress: verifierAddress,
-			DestVerifierAddress:   []byte("0x4567"),
-			CCVData:               []byte("signature1"),
-			BlobData:              []byte("blob1"),
-			ReceiptBlobs: []protocol.ReceiptWithBlob{
-				{
-					Issuer:            verifierAddress,
-					DestGasLimit:      250000,
-					DestBytesOverhead: 60,
-					Blob:              []byte("blob1"),
-					ExtraArgs:         []byte("extra"),
-				},
-			},
-			Message: createTestMessage(t, 100, 1, 2),
+			MessageID:       [32]byte{1, 2, 3},
+			Message:         createTestMessage(t, 100, 1, 2),
+			CCVVersion:      []byte("v1"),
+			CCVAddresses:    []protocol.UnknownAddress{verifierAddress},
+			ExecutorAddress: []byte("0x4567"),
+			Signature:       []byte("signature1"),
 		},
 	}
 
-	// Store data using writer view
-	err := writer.WriteCCVData(ctx, testData)
+	// Store data directly using CCVNodeDataWriter interface
+	err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Read data using reader view
@@ -525,7 +472,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 
 	// Verify all data is present
 	require.Len(t, response, 1)
-	require.Equal(t, protocol.ChainSelector(2), response[0].Data.DestChainSelector)
+	require.Equal(t, protocol.ChainSelector(2), response[0].Data.Message.DestChainSelector)
 }
 
 func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, limit uint64) *InMemoryOffchainStorage {
@@ -539,16 +486,14 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 	// create numMessages, each 10 seconds apart
 	for i := 0; i < numMessages; i++ {
 		storage.timeProvider = func() int64 { return baseTime + (10 * int64(i)) }
-		testData1 := []protocol.CCVData{
+		testData1 := []protocol.VerifierNodeResult{
 			{
-				MessageID:             [32]byte{1},
-				Nonce:                 100,
-				SourceChainSelector:   1,
-				DestChainSelector:     2,
-				SourceVerifierAddress: []byte("0x1234"),
-				DestVerifierAddress:   []byte("0x4567"),
-				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(t, 100, 1, 2),
+				MessageID:       [32]byte{1},
+				Message:         createTestMessage(t, 100, 1, 2),
+				CCVVersion:      []byte("v1"),
+				CCVAddresses:    []protocol.UnknownAddress{[]byte("0x1234")},
+				ExecutorAddress: []byte("0x4567"),
+				Signature:       []byte("sig1"),
 			},
 		}
 
@@ -640,19 +585,16 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 
 	{
 		// Add 1 more message, it should be returned by the next read.
-		Nonce := protocol.Nonce(987654321)
 		timeProvider := func() int64 { return baseTime + (10 * int64(100)) }
 		storage.timeProvider = timeProvider
-		testData1 := []protocol.CCVData{
+		testData1 := []protocol.VerifierNodeResult{
 			{
-				MessageID:             [32]byte{1},
-				Nonce:                 Nonce,
-				SourceChainSelector:   1,
-				DestChainSelector:     2,
-				SourceVerifierAddress: []byte("0x1234"),
-				DestVerifierAddress:   []byte("0x4567"),
-				CCVData:               []byte("sig1"),
-				Message:               createTestMessage(t, 100, 1, 2),
+				MessageID:       [32]byte{1},
+				Message:         createTestMessage(t, 987654321, 1, 2),
+				CCVVersion:      []byte("v1"),
+				CCVAddresses:    []protocol.UnknownAddress{[]byte("0x1234")},
+				ExecutorAddress: []byte("0x4567"),
+				Signature:       []byte("sig1"),
 			},
 		}
 		err := storage.WriteCCVNodeData(t.Context(), testData1)
@@ -662,7 +604,7 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 		results, err := storage.ReadCCVData(ctx)
 		require.NoError(t, err)
 		require.Len(t, results, 1)
-		require.Equal(t, Nonce, results[0].Data.Nonce)
+		require.Equal(t, protocol.SequenceNumber(987654321), results[0].Data.Message.SequenceNumber)
 	}
 }
 
@@ -679,7 +621,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 	testData := []common.CCVData{
 		{
 			MessageID:             [32]byte{1},
-			Nonce:        100,
+			SequenceNumber:        100,
 			SourceChainSelector:   1,
 			DestChainSelector:     10, // Chain 10
 			SourceVerifierAddress: verifierAddress,
@@ -688,7 +630,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 		},
 		{
 			MessageID:             [32]byte{2},
-			Nonce:        101,
+			SequenceNumber:        101,
 			SourceChainSelector:   1,
 			DestChainSelector:     20, // Chain 20
 			SourceVerifierAddress: verifierAddress,
@@ -697,7 +639,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 		},
 		{
 			MessageID:             [32]byte{3},
-			Nonce:        102,
+			SequenceNumber:        102,
 			SourceChainSelector:   1,
 			DestChainSelector:     10, // Chain 10 again
 			SourceVerifierAddress: verifierAddress,

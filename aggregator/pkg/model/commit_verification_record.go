@@ -32,14 +32,14 @@ func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
 
 // CommitVerificationRecord represents a record of a commit verification.
 type CommitVerificationRecord struct {
-	MessageID             MessageID
-	SourceVerifierAddress []byte
-	Message               *protocol.Message
-	BlobData              []byte
-	CcvData               []byte
-	Timestamp             time.Time
-	ReceiptBlobs          []*ReceiptBlob
-	IdentifierSigner      *IdentifierSigner
+	MessageID              MessageID
+	Message                *protocol.Message
+	CCVVersion             []byte
+	Signature              []byte
+	MessageCCVAddresses    []protocol.UnknownAddress
+	MessageExecutorAddress protocol.UnknownAddress
+	IdentifierSigner       *IdentifierSigner
+	createdAt              time.Time // Internal field for tracking creation time from DB
 }
 
 // GetID retrieves the unique identifier for the commit verification record.
@@ -57,12 +57,12 @@ func (c *CommitVerificationRecord) GetID() (*CommitVerificationRecordIdentifier,
 	}, nil
 }
 
-// SetTimestampFromMillis sets the timestamp from milliseconds since Unix epoch.
+// SetTimestampFromMillis sets the internal timestamp from milliseconds since Unix epoch.
 func (c *CommitVerificationRecord) SetTimestampFromMillis(timestampMillis int64) {
-	c.Timestamp = time.UnixMilli(timestampMillis).UTC()
+	c.createdAt = time.UnixMilli(timestampMillis).UTC()
 }
 
-// GetTimestamp returns the domain model's Timestamp field.
+// GetTimestamp returns the internal creation timestamp.
 func (c *CommitVerificationRecord) GetTimestamp() time.Time {
-	return c.Timestamp
+	return c.createdAt
 }

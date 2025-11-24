@@ -7,8 +7,8 @@ import (
 )
 
 type VerifierResultWithMetadata struct {
-	VerifierResult protocol.CCVData       `json:"verifierResult"`
-	Metadata       VerifierResultMetadata `json:"metadata"`
+	VerifierResult protocol.VerifierResult `json:"verifierResult"`
+	Metadata       VerifierResultMetadata  `json:"metadata"`
 }
 
 type VerifierResultMetadata struct {

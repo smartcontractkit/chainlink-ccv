@@ -15,11 +15,11 @@ import (
 
 // mockVerifierResultsAPI is a simple mock implementation of VerifierResultsAPI for testing.
 type mockVerifierResultsAPI struct {
-	results map[protocol.Bytes32]protocol.CCVData
+	results map[protocol.Bytes32]protocol.VerifierResult
 	err     error
 }
 
-func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	if m.err != nil {
 		return m.results, m.err
 	}
@@ -39,7 +39,7 @@ func TestNewVerifierReader(t *testing.T) {
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 
 	reader := newTestVerifierReader(mockVerifier, config)
@@ -53,7 +53,7 @@ func TestVerifierReader_ProcessMessage_Success(t *testing.T) {
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	reader := newTestVerifierReader(mockVerifier, config)
 	messageID := protocol.Bytes32{1, 2, 3}
@@ -78,7 +78,7 @@ func TestVerifierReader_ProcessMessage_BatcherClosed(t *testing.T) {
 		MaxBatchWaitTime: 100,
 	}
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	reader := NewVerifierReader(ctx, mockVerifier, config)
 
@@ -104,7 +104,7 @@ func TestVerifierReader_Start(t *testing.T) {
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	reader := newTestVerifierReader(mockVerifier, config)
 
@@ -132,11 +132,11 @@ func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
 	messageID1 := protocol.Bytes32{1, 2, 3}
 	messageID2 := protocol.Bytes32{4, 5, 6}
 
-	ccvData1 := protocol.CCVData{MessageID: messageID1}
-	ccvData2 := protocol.CCVData{MessageID: messageID2}
+	ccvData1 := protocol.VerifierResult{MessageID: messageID1}
+	ccvData2 := protocol.VerifierResult{MessageID: messageID2}
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: map[protocol.Bytes32]protocol.CCVData{
+		results: map[protocol.Bytes32]protocol.VerifierResult{
 			messageID1: ccvData1,
 			messageID2: ccvData2,
 		},
@@ -190,7 +190,7 @@ func TestVerifierReader_Run_HandlesVerifierError(t *testing.T) {
 	expectedError := errors.New("verifier error")
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 		err:     expectedError,
 	}
 	reader := NewVerifierReader(ctx, mockVerifier, config)
@@ -226,7 +226,7 @@ func TestVerifierReader_Close_GracefulShutdown(t *testing.T) {
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	reader := newTestVerifierReader(mockVerifier, config)
 
@@ -263,7 +263,7 @@ func TestVerifierReader_Close_MultipleCalls(t *testing.T) {
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	reader := newTestVerifierReader(mockVerifier, config)
 
@@ -292,7 +292,7 @@ func TestVerifierReader_Close_WithPendingBatches(t *testing.T) {
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	reader := newTestVerifierReader(mockVerifier, config)
 
@@ -334,7 +334,7 @@ func TestVerifierReader_Run_ChannelClosed(t *testing.T) {
 	}
 
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	reader := NewVerifierReader(ctx, mockVerifier, config)
 

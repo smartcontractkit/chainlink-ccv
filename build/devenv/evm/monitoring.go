@@ -144,7 +144,7 @@ func ProcessLaneEvents(ctx context.Context, c *CCIP17EVM, lp *LokiPusher, tp *Te
 func StreamsToSpans(srcSelector, destSelector string, streams *LaneStreams) []Span {
 	idToMsgSent := make(map[protocol.Bytes32]*onramp.OnRampCCIPMessageSent)
 	idToMsgExec := make(map[protocol.Bytes32]*offramp.OffRampExecutionStateChanged)
-	idToReport := make(map[protocol.Bytes32]*protocol.CCVData)
+	idToReport := make(map[protocol.Bytes32]*protocol.VerifierResult)
 	for _, event := range streams.SentEvents {
 		idToMsgSent[event.MessageId] = event
 	}

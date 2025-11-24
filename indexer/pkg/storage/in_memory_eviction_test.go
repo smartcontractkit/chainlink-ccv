@@ -266,7 +266,7 @@ func createTestCCVDataForEviction(messageIDHex string, timestamp time.Time, sour
 		Receiver:             []byte{0x1f, 0x20, 0x21},
 		SourceChainSelector:  sourceChain,
 		DestChainSelector:    destChain,
-		Nonce:                protocol.Nonce(1),
+		SequenceNumber:       protocol.SequenceNumber(1),
 		Finality:             1,
 		DestBlobLength:       3,
 		TokenTransferLength:  3,
@@ -279,18 +279,15 @@ func createTestCCVDataForEviction(messageIDHex string, timestamp time.Time, sour
 	}
 
 	return common.VerifierResultWithMetadata{
-		VerifierResult: protocol.CCVData{
-			MessageID:             messageID,
-			Timestamp:             timestamp,
-			SourceChainSelector:   sourceChain,
-			DestChainSelector:     destChain,
-			Nonce:                 protocol.Nonce(1),
-			SourceVerifierAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-			DestVerifierAddress:   protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-			CCVData:               []byte{0x07, 0x08, 0x09},
-			BlobData:              []byte{0x0a, 0x0b, 0x0c},
-			ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-			Message:               message,
+		VerifierResult: protocol.VerifierResult{
+			MessageID:              messageID,
+			Timestamp:              timestamp,
+			VerifierSourceAddress:  protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			VerifierDestAddress:    protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			CCVData:                []byte{0x07, 0x08, 0x09},
+			MessageCCVAddresses:    []protocol.UnknownAddress{{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))}},
+			MessageExecutorAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			Message:                message,
 		},
 		Metadata: common.VerifierResultMetadata{
 			AttestationTimestamp: timestamp,

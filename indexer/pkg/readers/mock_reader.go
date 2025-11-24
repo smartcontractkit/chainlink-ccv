@@ -87,7 +87,7 @@ func NewMockReader(config MockReaderConfig) *MockReader {
 	}
 }
 
-func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	return nil, nil
 }
 
@@ -284,7 +284,7 @@ func DefaultMessageGenerator(messageNumber int) common.VerifierResultWithMetadat
 		Version:              protocol.MessageVersion,
 		SourceChainSelector:  protocol.ChainSelector(1),
 		DestChainSelector:    protocol.ChainSelector(2),
-		Nonce:                protocol.Nonce(messageNumber),
+		SequenceNumber:       protocol.SequenceNumber(messageNumber),
 		OnRampAddressLength:  uint8(len(onRampAddr)),
 		OnRampAddress:        onRampAddr,
 		OffRampAddressLength: uint8(len(offRampAddr)),
@@ -305,18 +305,15 @@ func DefaultMessageGenerator(messageNumber int) common.VerifierResultWithMetadat
 	messageID, _ := message.MessageID()
 
 	return common.VerifierResultWithMetadata{
-		VerifierResult: protocol.CCVData{
-			SourceVerifierAddress: sourceAddr,
-			DestVerifierAddress:   destAddr,
-			Message:               message,
-			Nonce:                 message.Nonce,
-			SourceChainSelector:   message.SourceChainSelector,
-			DestChainSelector:     message.DestChainSelector,
-			MessageID:             messageID,
-			CCVData:               []byte{},
-			BlobData:              []byte{},
-			ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-			Timestamp:             time.Now(),
+		VerifierResult: protocol.VerifierResult{
+			VerifierSourceAddress:  sourceAddr,
+			VerifierDestAddress:    destAddr,
+			Message:                message,
+			MessageID:              messageID,
+			CCVData:                []byte{},
+			MessageCCVAddresses:    []protocol.UnknownAddress{},
+			MessageExecutorAddress: protocol.UnknownAddress{},
+			Timestamp:              time.Now(),
 		},
 		Metadata: common.VerifierResultMetadata{
 			AttestationTimestamp: time.Now(),

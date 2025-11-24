@@ -16,11 +16,11 @@ import (
 
 // mockVerifierResultsAPI is a simple mock implementation of VerifierResultsAPI for testing.
 type mockVerifierResultsAPI struct {
-	results map[protocol.Bytes32]protocol.CCVData
+	results map[protocol.Bytes32]protocol.VerifierResult
 	err     error
 }
 
-func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	if m.err != nil {
 		return m.results, m.err
 	}
@@ -31,7 +31,7 @@ func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageID
 func newMockVerifierReader() *readers.VerifierReader {
 	ctx := context.Background()
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	config := &config.VerifierConfig{
 		BatchSize:        10,

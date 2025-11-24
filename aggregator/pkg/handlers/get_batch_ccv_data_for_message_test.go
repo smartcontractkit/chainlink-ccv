@@ -49,13 +49,12 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 		destSel   = uint64(2)
 	)
 	// two messages
-	m1, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
+	m1 := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
 	m1ID, _ := m1.MessageID()
-	m2, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(2), nil, nil, 0, 500_000, nil, nil, []byte{0x1}, []byte{}, nil)
+	m2 := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(2), []byte{0x1})
 	m2ID, _ := m2.MessageID()
 
 	signerAddr := addrSigner
-	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
 	committee := buildCommittee(destSel, sourceSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
 
@@ -63,10 +62,10 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 
 	// For report2, we need a message with destSel=99999 to trigger the mapping error
 	// The original message has destSel=2, so create a different message for report2
-	m2WithWrongDest, _ := protocol.NewMessage(protocol.ChainSelector(sourceSel), protocol.ChainSelector(99999), protocol.Nonce(2), nil, nil, 0, 500_000, nil, nil, []byte{0x1}, []byte{}, nil)
+	m2WithWrongDest := makeTestMessage(protocol.ChainSelector(sourceSel), protocol.ChainSelector(99999), protocol.SequenceNumber(2), []byte{0x1})
 
-	report1 := makeAggregatedReport(m1, m1ID[:], sourceVerifierAddr, signerAddr)
-	report2 := makeAggregatedReport(m2WithWrongDest, m2ID[:], sourceVerifierAddr, signerAddr)
+	report1 := makeAggregatedReport(m1, m1ID[:], signerAddr)
+	report2 := makeAggregatedReport(m2WithWrongDest, m2ID[:], signerAddr)
 
 	store.EXPECT().GetBatchCCVData(mock.Anything, mock.Anything).Return(map[string]*model.CommitAggregatedReport{
 		common.Bytes2Hex(m1ID[:]): report1,

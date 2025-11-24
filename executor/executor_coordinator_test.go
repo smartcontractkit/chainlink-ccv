@@ -243,7 +243,7 @@ func TestMessageExpiration(t *testing.T) {
 					{
 						DestChainSelector:   1,
 						SourceChainSelector: 2,
-						Nonce:               1,
+						SequenceNumber:      1,
 					},
 				},
 			}

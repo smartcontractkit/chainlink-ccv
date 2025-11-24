@@ -19,11 +19,11 @@ All storage implementations satisfy the `IndexerStorage` interface, which consis
 
 ### IndexerStorageReader
 
-#### `GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error)`
+#### `GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error)`
 
 Performs a fast lookup of all known verifications by message ID.
 
-#### `QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]protocol.CCVData, error)`
+#### `QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]protocol.VerifierResult, error)`
 
 Performs a filtered query across multiple dimensions with pagination support. Typically used for discovery queries (Get all messages across these chains between these timestamps)
 
@@ -36,7 +36,7 @@ Performs a filtered query across multiple dimensions with pagination support. Ty
 
 ### IndexerStorageWriter
 
-#### `InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error`
+#### `InsertCCVData(ctx context.Context, ccvData protocol.VerifierResult) error`
 
 Inserts a new verification into storage.
 
