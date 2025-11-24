@@ -482,8 +482,8 @@ type CCV struct {
 	ArgsLen    uint16
 }
 
-// CCVData represents Cross-Chain Verification data (corresponds to VerifierResult proto).
-type CCVData struct {
+// VerifierResult represents Cross-Chain Verification data (corresponds to VerifierResult proto).
+type VerifierResult struct {
 	MessageID              Bytes32          `json:"message_id"`
 	Message                Message          `json:"message"`
 	MessageCCVAddresses    []UnknownAddress `json:"message_ccv_addresses"`
@@ -494,8 +494,8 @@ type CCVData struct {
 	VerifierDestAddress    UnknownAddress   `json:"verifier_dest_address"`
 }
 
-// CCVNodeData represents node-level verification data (corresponds to CommitteeVerifierNodeResult proto).
-type CCVNodeData struct {
+// VerifierNodeResult represents node-level verification data (corresponds to CommitteeVerifierNodeResult proto).
+type VerifierNodeResult struct {
 	MessageID       Bytes32          `json:"message_id"`
 	Message         Message          `json:"message"`
 	CCVVersion      ByteSlice        `json:"ccv_version"`
@@ -506,14 +506,14 @@ type CCVNodeData struct {
 
 // QueryResponse represents the response from CCV data queries.
 type QueryResponse struct {
-	Timestamp *int64  `json:"timestamp,omitempty"`
-	Data      CCVData `json:"data"`
+	Timestamp *int64         `json:"timestamp,omitempty"`
+	Data      VerifierResult `json:"data"`
 }
 
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
 type CCVNodeDataWriter interface {
 	// WriteCCVNodeData stores multiple CCV node data entries
-	WriteCCVNodeData(ctx context.Context, ccvDataList []CCVNodeData) error
+	WriteCCVNodeData(ctx context.Context, ccvDataList []VerifierNodeResult) error
 }
 
 // OffchainStorageReader defines the interface for executors to query CCV data by timestamp.
@@ -529,7 +529,7 @@ type OffchainStorageReader interface {
 // responsibility should be delegated to the underlying implementation.
 type VerifierResultsAPI interface {
 	// GetVerifications retrieves verifications for a set of provided messages.
-	GetVerifications(ctx context.Context, messageIDs []Bytes32) (map[Bytes32]CCVData, error)
+	GetVerifications(ctx context.Context, messageIDs []Bytes32) (map[Bytes32]VerifierResult, error)
 }
 
 // Helper functions for creating empty/default values

@@ -41,7 +41,7 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 }
 
 // GetCCVData performs a lookup by messageID in the database.
-func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	query := `
@@ -72,7 +72,7 @@ func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 		}
 	}()
 
-	var results []protocol.CCVData
+	var results []protocol.VerifierResult
 	for rows.Next() {
 		ccvData, err := d.scanCCVData(rows)
 		if err != nil {
@@ -98,7 +98,7 @@ func (d *PostgresStorage) QueryCCVData(
 	start, end int64,
 	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
 	limit, offset uint64,
-) (map[string][]protocol.CCVData, error) {
+) (map[string][]protocol.VerifierResult, error) {
 	startQueryMetric := time.Now()
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -154,7 +154,7 @@ func (d *PostgresStorage) QueryCCVData(
 	}()
 
 	// Group results by messageID
-	results := make(map[string][]protocol.CCVData)
+	results := make(map[string][]protocol.VerifierResult)
 	for rows.Next() {
 		ccvData, err := d.scanCCVData(rows)
 		if err != nil {
@@ -175,7 +175,7 @@ func (d *PostgresStorage) QueryCCVData(
 }
 
 // InsertCCVData inserts a new CCVData entry into the database.
-func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error {
+func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.VerifierResult) error {
 	startInsertMetric := time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -255,7 +255,7 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 }
 
 // BatchInsertCCVData inserts multiple CCVData entries into the database efficiently using a batch insert.
-func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.VerifierResult) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -395,7 +395,7 @@ func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID prot
 func (d *PostgresStorage) scanCCVData(row interface {
 	Scan(dest ...any) error
 },
-) (protocol.CCVData, error) {
+) (protocol.VerifierResult, error) {
 	var (
 		messageIDStr           string
 		verifierSourceAddrStr  string
@@ -422,31 +422,31 @@ func (d *PostgresStorage) scanCCVData(row interface {
 		&destChainSelector,
 	)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to scan row: %w", err)
+		return protocol.VerifierResult{}, fmt.Errorf("failed to scan row: %w", err)
 	}
 
 	// Parse messageID from hex string to Bytes32
 	messageID, err := protocol.NewBytes32FromString(messageIDStr)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to parse message ID: %w", err)
+		return protocol.VerifierResult{}, fmt.Errorf("failed to parse message ID: %w", err)
 	}
 
 	// Parse verifier source address from hex string
 	verifierSourceAddress, err := protocol.NewUnknownAddressFromHex(verifierSourceAddrStr)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to parse verifier source address: %w", err)
+		return protocol.VerifierResult{}, fmt.Errorf("failed to parse verifier source address: %w", err)
 	}
 
 	// Parse verifier dest address from hex string
 	verifierDestAddress, err := protocol.NewUnknownAddressFromHex(verifierDestAddrStr)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to parse verifier dest address: %w", err)
+		return protocol.VerifierResult{}, fmt.Errorf("failed to parse verifier dest address: %w", err)
 	}
 
 	// Deserialize message from JSON
 	var message protocol.Message
 	if err := json.Unmarshal(messageJSON, &message); err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to unmarshal message: %w", err)
+		return protocol.VerifierResult{}, fmt.Errorf("failed to unmarshal message: %w", err)
 	}
 
 	// Parse CCV addresses from hex strings
@@ -454,7 +454,7 @@ func (d *PostgresStorage) scanCCVData(row interface {
 	for i, hexStr := range ccvAddressesHex {
 		addr, err := protocol.NewUnknownAddressFromHex(hexStr)
 		if err != nil {
-			return protocol.CCVData{}, fmt.Errorf("failed to parse CCV address at index %d: %w", i, err)
+			return protocol.VerifierResult{}, fmt.Errorf("failed to parse CCV address at index %d: %w", i, err)
 		}
 		messageCCVAddresses[i] = addr
 	}
@@ -462,10 +462,10 @@ func (d *PostgresStorage) scanCCVData(row interface {
 	// Parse executor address from hex string
 	messageExecutorAddress, err := protocol.NewUnknownAddressFromHex(messageExecutorAddrStr)
 	if err != nil {
-		return protocol.CCVData{}, fmt.Errorf("failed to parse executor address: %w", err)
+		return protocol.VerifierResult{}, fmt.Errorf("failed to parse executor address: %w", err)
 	}
 
-	return protocol.CCVData{
+	return protocol.VerifierResult{
 		MessageID:              messageID,
 		Message:                message,
 		MessageCCVAddresses:    messageCCVAddresses,

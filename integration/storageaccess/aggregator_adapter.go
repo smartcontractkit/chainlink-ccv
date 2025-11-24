@@ -22,7 +22,7 @@ type AggregatorWriter struct {
 	lggr   logger.Logger
 }
 
-func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVNodeData) (*pb.WriteCommitteeVerifierNodeResultRequest, error) {
+func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*pb.WriteCommitteeVerifierNodeResultRequest, error) {
 	// Convert CCV addresses to byte slices
 	ccvAddresses := make([][]byte, len(ccvData.CCVAddresses))
 	for i, addr := range ccvData.CCVAddresses {
@@ -62,7 +62,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVNodeData) (*pb.WriteCommit
 		},
 	}, nil
 } // WriteCCVNodeData writes CCV data to the aggregator via gRPC.
-func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVNodeData) error {
+func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 
 	requests := make([]*pb.WriteCommitteeVerifierNodeResultRequest, 0, len(ccvDataList))
@@ -374,7 +374,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 
 		results = append(results, protocol.QueryResponse{
 			Timestamp: nil,
-			Data: protocol.CCVData{
+			Data: protocol.VerifierResult{
 				MessageID:              messageID,
 				Message:                msg,
 				MessageCCVAddresses:    messageCCVAddresses,
@@ -392,7 +392,7 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	return results, nil
 }
 
-func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	messageIDsBytes := make([][]byte, 0, len(messageIDs))
 	for _, id := range messageIDs {
 		messageIDsBytes = append(messageIDsBytes, id[:])
@@ -406,7 +406,7 @@ func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []pr
 	}
 
 	a.lggr.Debugw("GetVerifierResultsForMessage", "count", len(resp.Results), "messageIDs", messageIDs)
-	results := make(map[protocol.Bytes32]protocol.CCVData)
+	results := make(map[protocol.Bytes32]protocol.VerifierResult)
 	for i, result := range resp.Results {
 		msg, err := mapMessage(result.Message)
 		if err != nil {
@@ -431,7 +431,7 @@ func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []pr
 			verifierDestAddress = protocol.UnknownAddress(result.Metadata.VerifierDestAddress)
 		}
 
-		results[messageID] = protocol.CCVData{
+		results[messageID] = protocol.VerifierResult{
 			MessageID:              messageID,
 			Message:                msg,
 			MessageCCVAddresses:    messageCCVAddresses,

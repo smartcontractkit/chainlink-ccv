@@ -70,8 +70,8 @@ type Coordinator struct {
 	finalityCheckInterval time.Duration
 
 	// Storage batching
-	storageBatcher   *batcher.Batcher[protocol.CCVNodeData]
-	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVNodeData]
+	storageBatcher   *batcher.Batcher[protocol.VerifierNodeResult]
+	batchedCCVDataCh chan batcher.BatchResult[protocol.VerifierNodeResult]
 
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
@@ -327,7 +327,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 		}
 
 		// Initialize storage batcher (will automatically flush when ctx is canceled)
-		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVNodeData], 10)
+		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
 		vc.storageBatcher = batcher.NewBatcher(
 			ctx,
 			vc.config.StorageBatchSize,

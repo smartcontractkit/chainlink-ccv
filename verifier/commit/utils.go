@@ -7,8 +7,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
-// CreateCCVNodeData creates CCVNodeData from verification task and signature.
-func CreateCCVNodeData(verificationTask *verifier.VerificationTask, signature, verifierBlob []byte) (*protocol.CCVNodeData, error) {
+// CreateVerifierNodeResult creates CCVNodeData from verification task and signature.
+func CreateVerifierNodeResult(verificationTask *verifier.VerificationTask, signature, verifierBlob []byte) (*protocol.VerifierNodeResult, error) {
 	message := verificationTask.Message
 
 	messageID, err := message.MessageID()
@@ -22,7 +22,7 @@ func CreateCCVNodeData(verificationTask *verifier.VerificationTask, signature, v
 	// OnRamp allows 0 or 1 token. Check if TokenTransferLength indicates actual token data.
 	// Empty token transfer is MinSizeRequiredMsgTokenFields (39 bytes), actual token is larger.
 	numTokenTransfers := 0
-	if message.TokenTransferLength > protocol.MinSizeRequiredMsgTokenFields {
+	if message.TokenTransferLength != 0 {
 		numTokenTransfers = 1
 	}
 	numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 1
@@ -42,7 +42,7 @@ func CreateCCVNodeData(verificationTask *verifier.VerificationTask, signature, v
 		return nil, fmt.Errorf("failed to parse receipt structure: %w", err)
 	}
 
-	return &protocol.CCVNodeData{
+	return &protocol.VerifierNodeResult{
 		MessageID:       messageID,
 		Message:         message,
 		CCVVersion:      verifierBlob,

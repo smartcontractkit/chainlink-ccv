@@ -28,7 +28,7 @@ func TestStorageSink_ReadFromFirstStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test data
-	testData := protocol.CCVData{
+	testData := protocol.VerifierResult{
 		MessageID:              protocol.Bytes32{0x01},
 		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
 		MessageExecutorAddress: protocol.UnknownAddress{0x03},
@@ -66,7 +66,7 @@ func TestStorageSink_ReadFromSecondStorageOnMiss(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test data
-	testData := protocol.CCVData{
+	testData := protocol.VerifierResult{
 		MessageID:              protocol.Bytes32{0x01},
 		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
 		MessageExecutorAddress: protocol.UnknownAddress{0x03},
@@ -124,7 +124,7 @@ func TestStorageSink_WriteToAllStorages(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test data
-	testData := protocol.CCVData{
+	testData := protocol.VerifierResult{
 		MessageID:              protocol.Bytes32{0x01},
 		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
 		MessageExecutorAddress: protocol.UnknownAddress{0x03},
@@ -165,7 +165,7 @@ func TestStorageSink_QueryFromFirstStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test data
-	testData := protocol.CCVData{
+	testData := protocol.VerifierResult{
 		MessageID:              protocol.Bytes32{0x01},
 		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
 		MessageExecutorAddress: protocol.UnknownAddress{0x03},
@@ -202,7 +202,7 @@ func TestStorageSink_WriteDuplicateHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test data
-	testData := protocol.CCVData{
+	testData := protocol.VerifierResult{
 		MessageID:              protocol.Bytes32{0x01},
 		MessageCCVAddresses:    []protocol.UnknownAddress{{0x02}},
 		MessageExecutorAddress: protocol.UnknownAddress{0x03},

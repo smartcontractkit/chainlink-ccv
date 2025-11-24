@@ -17,10 +17,10 @@ var _ common.IndexerStorage = (*InMemoryStorage)(nil)
 // InMemoryStorage provides efficient in-memory storage optimized for query performance.
 type InMemoryStorage struct {
 	// Primary storage: messageID -> []CCVData (for O(1) lookup by messageID)
-	byMessageID map[string][]protocol.CCVData
+	byMessageID map[string][]protocol.VerifierResult
 
 	// Timestamp-sorted slice for O(log n) range queries
-	byTimestamp []protocol.CCVData
+	byTimestamp []protocol.VerifierResult
 
 	// Chain selector indexes: selector -> indices into byTimestamp slice
 	bySourceChain map[protocol.ChainSelector][]int
@@ -60,8 +60,8 @@ func NewInMemoryStorage(lggr logger.Logger, monitoring common.IndexerMonitoring)
 
 func NewInMemoryStorageWithConfig(lggr logger.Logger, monitoring common.IndexerMonitoring, config InMemoryStorageConfig) common.IndexerStorage {
 	storage := &InMemoryStorage{
-		byMessageID:   make(map[string][]protocol.CCVData),
-		byTimestamp:   make([]protocol.CCVData, 0),
+		byMessageID:   make(map[string][]protocol.VerifierResult),
+		byTimestamp:   make([]protocol.VerifierResult, 0),
 		bySourceChain: make(map[protocol.ChainSelector][]int),
 		byDestChain:   make(map[protocol.ChainSelector][]int),
 		uniqueKeys:    make(map[string]bool),
@@ -99,7 +99,7 @@ func NewInMemoryStorageWithConfig(lggr logger.Logger, monitoring common.IndexerM
 }
 
 // GetCCVData performs a O(1) lookup by messageID.
-func (i *InMemoryStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+func (i *InMemoryStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -111,7 +111,7 @@ func (i *InMemoryStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 }
 
 // QueryCCVData retrieves all CCVData that matches the filter set.
-func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]protocol.CCVData, error) {
+func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]protocol.VerifierResult, error) {
 	startQueryMetric := time.Now()
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -121,7 +121,7 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	if len(sourceChainSelectors) > 0 || len(destChainSelectors) > 0 {
 		chainIndices = i.getChainSelectorIndices(sourceChainSelectors, destChainSelectors)
 		if len(chainIndices) == 0 {
-			return make(map[string][]protocol.CCVData), nil
+			return make(map[string][]protocol.VerifierResult), nil
 		}
 	}
 
@@ -129,11 +129,11 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	startIdx := i.findTimestampIndex(time.UnixMilli(start), func(ts, target int64) bool { return ts >= target })
 	endIdx := i.findTimestampIndex(time.UnixMilli(end), func(ts, target int64) bool { return ts > target })
 	if startIdx >= endIdx {
-		return make(map[string][]protocol.CCVData), nil
+		return make(map[string][]protocol.VerifierResult), nil
 	}
 
 	// Get candidates and apply pagination
-	var candidates []protocol.CCVData
+	var candidates []protocol.VerifierResult
 	if len(chainIndices) > 0 {
 		candidates = i.intersectTimestampAndChainIndices(startIdx, endIdx, chainIndices)
 	} else {
@@ -141,7 +141,7 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	}
 
 	if offset >= uint64(len(candidates)) {
-		return make(map[string][]protocol.CCVData), nil
+		return make(map[string][]protocol.VerifierResult), nil
 	}
 
 	startPos, endPos := int(offset), int(offset+limit) // #nosec G115
@@ -150,7 +150,7 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 	}
 
 	// Group results by messageID
-	results := make(map[string][]protocol.CCVData)
+	results := make(map[string][]protocol.VerifierResult)
 	for _, candidate := range candidates[startPos:endPos] {
 		messageID := candidate.MessageID.String()
 		results[messageID] = append(results[messageID], candidate)
@@ -165,7 +165,7 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 }
 
 // generateUniqueKey creates a unique key for CCVData based on critical fields.
-func (i *InMemoryStorage) generateUniqueKey(ccvData protocol.CCVData) string {
+func (i *InMemoryStorage) generateUniqueKey(ccvData protocol.VerifierResult) string {
 	return fmt.Sprintf("%s:%s:%s",
 		ccvData.MessageID.String(),
 		ccvData.VerifierSourceAddress.String(),
@@ -174,7 +174,7 @@ func (i *InMemoryStorage) generateUniqueKey(ccvData protocol.CCVData) string {
 }
 
 // InsertCCVData appends a new CCVData to the storage for the given messageID.
-func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error {
+func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.VerifierResult) error {
 	startInsertMetric := time.Now()
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -203,7 +203,7 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 
 	// Insert into timestamp-sorted index
 	insertPos := i.findTimestampIndex(ccvData.Timestamp, func(ts, target int64) bool { return ts > target })
-	i.byTimestamp = append(i.byTimestamp, protocol.CCVData{})
+	i.byTimestamp = append(i.byTimestamp, protocol.VerifierResult{})
 	copy(i.byTimestamp[insertPos+1:], i.byTimestamp[insertPos:])
 	i.byTimestamp[insertPos] = ccvData
 
@@ -216,7 +216,7 @@ func (i *InMemoryStorage) InsertCCVData(ctx context.Context, ccvData protocol.CC
 }
 
 // BatchInsertCCVData inserts multiple CCVData entries efficiently.
-func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.VerifierResult) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -252,7 +252,7 @@ func (i *InMemoryStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 
 		// Insert into timestamp-sorted index
 		insertPos := i.findTimestampIndex(ccvData.Timestamp, func(ts, target int64) bool { return ts > target })
-		i.byTimestamp = append(i.byTimestamp, protocol.CCVData{})
+		i.byTimestamp = append(i.byTimestamp, protocol.VerifierResult{})
 		copy(i.byTimestamp[insertPos+1:], i.byTimestamp[insertPos:])
 		i.byTimestamp[insertPos] = ccvData
 
@@ -325,13 +325,13 @@ func (i *InMemoryStorage) intersectIndices(slice1, slice2 []int) []int {
 }
 
 // intersectTimestampAndChainIndices finds data that is both in timestamp range AND chain selector set (optimized).
-func (i *InMemoryStorage) intersectTimestampAndChainIndices(startIdx, endIdx int, chainIndices []int) []protocol.CCVData {
+func (i *InMemoryStorage) intersectTimestampAndChainIndices(startIdx, endIdx int, chainIndices []int) []protocol.VerifierResult {
 	// Pre-allocate with expected capacity
 	expectedSize := len(chainIndices)
 	if expectedSize > endIdx-startIdx {
 		expectedSize = endIdx - startIdx
 	}
-	candidates := make([]protocol.CCVData, 0, expectedSize)
+	candidates := make([]protocol.VerifierResult, 0, expectedSize)
 
 	// Create a set of valid indices for O(1) lookup
 	chainIndexSet := make(map[int]bool, len(chainIndices))
@@ -449,7 +449,7 @@ func (i *InMemoryStorage) evictOldestItems(n int) {
 		// Remove from byMessageID
 		if existing, ok := i.byMessageID[messageID]; ok {
 			// Find and remove this specific entry
-			newList := make([]protocol.CCVData, 0, len(existing)-1)
+			newList := make([]protocol.VerifierResult, 0, len(existing)-1)
 			for _, item := range existing {
 				if i.generateUniqueKey(item) != uniqueKey {
 					newList = append(newList, item)

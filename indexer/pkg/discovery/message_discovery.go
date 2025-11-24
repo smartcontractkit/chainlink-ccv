@@ -23,7 +23,7 @@ type AggregatorMessageDiscovery struct {
 	aggregatorReader *readers.ResilientReader
 	storageSink      common.IndexerStorage
 	monitoring       common.IndexerMonitoring
-	messageCh        chan protocol.CCVData
+	messageCh        chan protocol.VerifierResult
 	stopCh           chan struct{}
 	doneCh           chan struct{}
 	readerLock       *sync.Mutex
@@ -65,7 +65,7 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	a := &AggregatorMessageDiscovery{
 		stopCh:     make(chan struct{}),
 		doneCh:     make(chan struct{}),
-		messageCh:  make(chan protocol.CCVData),
+		messageCh:  make(chan protocol.VerifierResult),
 		readerLock: &sync.Mutex{},
 	}
 
@@ -110,7 +110,7 @@ func (a *AggregatorMessageDiscovery) validate() error {
 	return nil
 }
 
-func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan protocol.CCVData {
+func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan protocol.VerifierResult {
 	go a.run(ctx)
 	a.logger.Info("MessageDiscovery Started")
 

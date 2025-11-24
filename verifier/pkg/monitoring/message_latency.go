@@ -61,7 +61,7 @@ func (m *inmemoryMessageLatencyTracker) MarkMessageAsSeen(task *verifier.Verific
 	m.messageTimestamps.SetDefault(messageID.String(), task.FirstSeenAt)
 }
 
-func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Context, messages []protocol.CCVNodeData) {
+func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Context, messages []protocol.VerifierNodeResult) {
 	for _, ccvNodeData := range messages {
 		messageID := ccvNodeData.MessageID.String()
 

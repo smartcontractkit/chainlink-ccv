@@ -16,7 +16,7 @@ type MockReaderConfig struct {
 	// MessageGenerator is a function that generates CCVData for the mock reader.
 	// If nil, a default generator will be used.
 	// The parameter is the message number (1-indexed), not the call count.
-	MessageGenerator func(messageNumber int) protocol.CCVData
+	MessageGenerator func(messageNumber int) protocol.VerifierResult
 
 	// EmitInterval is the interval at which messages should be emitted.
 	// If zero, messages are emitted on every call to ReadCCVData.
@@ -83,7 +83,7 @@ func NewMockReader(config MockReaderConfig) *MockReader {
 	}
 }
 
-func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	return nil, nil
 }
 
@@ -267,7 +267,7 @@ func (m *MockReader) GetMessagesEmitted() int {
 // DefaultMessageGenerator is the default message generator function.
 // It creates a simple CCVData with predictable values for testing.
 // The parameter represents the message number (not call count).
-func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
+func DefaultMessageGenerator(messageNumber int) protocol.VerifierResult {
 	sourceAddr, _ := protocol.RandomAddress()
 	destAddr, _ := protocol.RandomAddress()
 	onRampAddr, _ := protocol.RandomAddress()
@@ -300,7 +300,7 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 
 	messageID, _ := message.MessageID()
 
-	return protocol.CCVData{
+	return protocol.VerifierResult{
 		MessageID:              messageID,
 		Message:                message,
 		MessageCCVAddresses:    []protocol.UnknownAddress{sourceAddr},

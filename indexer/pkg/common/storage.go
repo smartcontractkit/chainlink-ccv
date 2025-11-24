@@ -15,14 +15,14 @@ type IndexerStorage interface {
 
 type IndexerStorageReader interface {
 	// GetCCVData using the messageID for a o(1) lookup
-	GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error)
+	GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error)
 	// QueryCCVData retrieves all CCVData that matches the filter set
-	QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]protocol.CCVData, error)
+	QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]protocol.VerifierResult, error)
 }
 
 type IndexerStorageWriter interface {
 	// InsertCCVData appends a new CCVData to the storage for the given messageID
-	InsertCCVData(ctx context.Context, ccvData protocol.CCVData) error
+	InsertCCVData(ctx context.Context, ccvData protocol.VerifierResult) error
 	// BatchInsertCCVData appends a list of CCVData to the storage
-	BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.CCVData) error
+	BatchInsertCCVData(ctx context.Context, ccvDataList []protocol.VerifierResult) error
 }

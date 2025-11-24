@@ -33,7 +33,7 @@ func NewObservedStorageWriter(
 	}
 }
 
-func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVNodeData) error {
+func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
 	start := time.Now()
 
 	err := o.CCVNodeDataWriter.WriteCCVNodeData(ctx, ccvDataList)

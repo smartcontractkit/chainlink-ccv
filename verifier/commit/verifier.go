@@ -81,7 +81,7 @@ func (cv *Verifier) ValidateMessage(message protocol.Message) error {
 // VerifyMessages verifies a batch of messages using the new chain-agnostic format.
 // It processes tasks concurrently and adds results directly to the batcher.
 // Returns a BatchResult containing any verification errors that occurred.
-func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVNodeData]) batcher.BatchResult[verifier.VerificationError] {
+func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult]) batcher.BatchResult[verifier.VerificationError] {
 	if len(tasks) == 0 {
 		return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
 	}
@@ -121,7 +121,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 
 // verifyMessage verifies a single message (internal helper)
 // Returns an error if verification fails, nil if successful.
-func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVNodeData]) error {
+func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult]) error {
 	start := time.Now()
 	message := verificationTask.Message
 
@@ -199,7 +199,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	)
 
 	// 4. Create CCV node data with all required fields
-	ccvNodeData, err := CreateCCVNodeData(&verificationTask, encodedSignature, verifierBlob)
+	ccvNodeData, err := CreateVerifierNodeResult(&verificationTask, encodedSignature, verifierBlob)
 	if err != nil {
 		return fmt.Errorf("failed to create CCV node data for message %s: %w", messageID.String(), err)
 	}

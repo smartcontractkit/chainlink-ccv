@@ -17,14 +17,14 @@ type Pool struct {
 	config           config.PoolConfig
 	logger           logger.Logger
 	pool             *ants.Pool
-	discoveryChannel <-chan protocol.CCVData
+	discoveryChannel <-chan protocol.VerifierResult
 	scheduler        *Scheduler
 	registry         *registry.VerifierRegistry
 	storage          common.IndexerStorage
 }
 
 // NewWorkerPool creates a new WorkerPool with the given configuration.
-func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChannel <-chan protocol.CCVData, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
+func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChannel <-chan protocol.VerifierResult, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
 	pool, err := ants.NewPool(config.ConcurrentWorkers, ants.WithMaxBlockingTasks(1024), ants.WithNonblocking(false))
 	if err != nil {
 		logger.Fatalf("Unable to start worker pool: %v", err)

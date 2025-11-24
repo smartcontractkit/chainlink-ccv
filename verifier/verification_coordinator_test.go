@@ -312,7 +312,7 @@ func sendEventsAsync(events []protocol.MessageSentEvent, channel chan<- protocol
 }
 
 // verifyStoredTasks is a helper to verify stored data matches expected tasks.
-func verifyStoredTasks(t *testing.T, storedData []protocol.CCVData, expectedTasks []protocol.MessageSentEvent, expectedChain protocol.ChainSelector) {
+func verifyStoredTasks(t *testing.T, storedData []protocol.VerifierResult, expectedTasks []protocol.MessageSentEvent, expectedChain protocol.ChainSelector) {
 	expectedIDs := make(map[[32]byte]bool)
 	for _, task := range expectedTasks {
 		messageID, err := task.Message.MessageID()
@@ -326,8 +326,8 @@ func verifyStoredTasks(t *testing.T, storedData []protocol.CCVData, expectedTask
 }
 
 // filterBySourceChain filters CCVData by source chain selector.
-func filterBySourceChain(data []protocol.CCVData, sourceChain protocol.ChainSelector) []protocol.CCVData {
-	var filtered []protocol.CCVData
+func filterBySourceChain(data []protocol.VerifierResult, sourceChain protocol.ChainSelector) []protocol.VerifierResult {
+	var filtered []protocol.VerifierResult
 	for _, d := range data {
 		if d.Message.SourceChainSelector == sourceChain {
 			filtered = append(filtered, d)

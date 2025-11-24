@@ -94,8 +94,8 @@ func TestMockReader_ReturnsErrorAfterCalls(t *testing.T) {
 
 func TestMockReader_CustomMessageGenerator(t *testing.T) {
 	customNonce := uint64(999)
-	customGenerator := func(callCount int) protocol.CCVData {
-		return protocol.CCVData{
+	customGenerator := func(callCount int) protocol.VerifierResult {
+		return protocol.VerifierResult{
 			Message: protocol.Message{
 				SequenceNumber: protocol.SequenceNumber(customNonce),
 			},

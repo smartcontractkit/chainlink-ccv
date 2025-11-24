@@ -18,7 +18,7 @@ import (
 type Task struct {
 	logger    logger.Logger
 	messageID protocol.Bytes32
-	message   protocol.CCVData
+	message   protocol.VerifierResult
 	registry  *registry.VerifierRegistry
 	storage   common.IndexerStorage
 	attempt   int // 1-indexed
@@ -34,7 +34,7 @@ type TaskResult struct {
 	UnavailableCCVs         int
 }
 
-func NewTask(lggr logger.Logger, message protocol.CCVData, registry *registry.VerifierRegistry, storage common.IndexerStorage, verificationVisabilityWindow time.Duration) (*Task, error) {
+func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage, verificationVisabilityWindow time.Duration) (*Task, error) {
 	return &Task{
 		logger:    logger.Named(logger.With(lggr, "messageID", message.MessageID), "Task"),
 		messageID: message.MessageID,
@@ -48,14 +48,14 @@ func NewTask(lggr logger.Logger, message protocol.CCVData, registry *registry.Ve
 }
 
 // collectVerifierResults processes all verifier readers concurrently and collects successful results.
-func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*readers.VerifierReader) []protocol.CCVData {
+func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*readers.VerifierReader) []protocol.VerifierResult {
 	if len(verifierReaders) == 0 {
 		return nil
 	}
 
 	var (
 		mu      sync.Mutex
-		results []protocol.CCVData
+		results []protocol.VerifierResult
 		wg      sync.WaitGroup
 	)
 
@@ -72,7 +72,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 			continue
 		}
 
-		go func(ch <-chan common.Result[protocol.CCVData]) {
+		go func(ch <-chan common.Result[protocol.VerifierResult]) {
 			defer wg.Done()
 			select {
 			case result, ok := <-ch:
@@ -130,7 +130,7 @@ func (t *Task) getMissingVerifiers(ctx context.Context) (missing []string, err e
 }
 
 func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err error) {
-	var results []protocol.CCVData
+	var results []protocol.VerifierResult
 
 	// If we're using the sink, ignore the cache and use the persistent stores
 	if sink, ok := t.storage.(*storage.Sink); ok {

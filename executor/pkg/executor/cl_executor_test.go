@@ -28,7 +28,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 
 	mockVerifierResultCreator := func() *executor_mocks.MockVerifierResultReader {
 		vr := executor_mocks.NewMockVerifierResultReader(t)
-		vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.CCVData{
+		vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
 			{VerifierDestAddress: protocol.UnknownAddress{}, CCVData: []byte("data")},
 		}, nil).Maybe()
 		return vr
@@ -125,7 +125,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			drChains: []protocol.ChainSelector{1},
 			vr: func() *executor_mocks.MockVerifierResultReader {
 				vr := executor_mocks.NewMockVerifierResultReader(t)
-				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.CCVData{
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
 					{VerifierDestAddress: address1, CCVData: []byte("data")},
 					{VerifierDestAddress: address2, CCVData: []byte("data")},
 				}, nil).Maybe()
@@ -156,7 +156,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			drChains: []protocol.ChainSelector{1},
 			vr: func() *executor_mocks.MockVerifierResultReader {
 				vr := executor_mocks.NewMockVerifierResultReader(t)
-				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.CCVData{
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
 					{VerifierDestAddress: address1, CCVData: []byte("data")},
 					{VerifierDestAddress: address2, CCVData: []byte("data")},
 				}, nil).Maybe()
@@ -227,16 +227,16 @@ func Test_orderCCVData(t *testing.T) {
 	otherAddr, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 
-	reqData1 := protocol.CCVData{VerifierDestAddress: reqAddr1, CCVData: []byte("req1"), Timestamp: time.UnixMilli(10)}
-	reqData2 := protocol.CCVData{VerifierDestAddress: reqAddr2, CCVData: []byte("req2"), Timestamp: time.UnixMilli(20)}
-	optData1 := protocol.CCVData{VerifierDestAddress: optAddr1, CCVData: []byte("opt1"), Timestamp: time.UnixMilli(5)}
-	optData2 := protocol.CCVData{VerifierDestAddress: optAddr2, CCVData: []byte("opt2"), Timestamp: time.UnixMilli(25)}
-	optData3 := protocol.CCVData{VerifierDestAddress: optAddr3, CCVData: []byte("opt3"), Timestamp: time.UnixMilli(15)}
-	otherData := protocol.CCVData{VerifierDestAddress: otherAddr, CCVData: []byte("other"), Timestamp: time.UnixMilli(100)}
+	reqData1 := protocol.VerifierResult{VerifierDestAddress: reqAddr1, CCVData: []byte("req1"), Timestamp: time.UnixMilli(10)}
+	reqData2 := protocol.VerifierResult{VerifierDestAddress: reqAddr2, CCVData: []byte("req2"), Timestamp: time.UnixMilli(20)}
+	optData1 := protocol.VerifierResult{VerifierDestAddress: optAddr1, CCVData: []byte("opt1"), Timestamp: time.UnixMilli(5)}
+	optData2 := protocol.VerifierResult{VerifierDestAddress: optAddr2, CCVData: []byte("opt2"), Timestamp: time.UnixMilli(25)}
+	optData3 := protocol.VerifierResult{VerifierDestAddress: optAddr3, CCVData: []byte("opt3"), Timestamp: time.UnixMilli(15)}
+	otherData := protocol.VerifierResult{VerifierDestAddress: otherAddr, CCVData: []byte("other"), Timestamp: time.UnixMilli(100)}
 
 	testcases := []struct {
 		name                string
-		ccvDatas            []protocol.CCVData
+		ccvDatas            []protocol.VerifierResult
 		receiverCCVInfo     coordinator.CCVAddressInfo
 		expectedOrderedData [][]byte
 		expectedOfframps    []protocol.UnknownAddress
@@ -246,7 +246,7 @@ func Test_orderCCVData(t *testing.T) {
 	}{
 		{
 			name:     "happy path",
-			ccvDatas: []protocol.CCVData{reqData1, reqData2, optData1, optData2, optData3, otherData},
+			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3, otherData},
 			receiverCCVInfo: coordinator.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
@@ -259,7 +259,7 @@ func Test_orderCCVData(t *testing.T) {
 		},
 		{
 			name:     "missing required ccv",
-			ccvDatas: []protocol.CCVData{reqData1, optData1, optData2, optData3},
+			ccvDatas: []protocol.VerifierResult{reqData1, optData1, optData2, optData3},
 			receiverCCVInfo: coordinator.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
@@ -270,7 +270,7 @@ func Test_orderCCVData(t *testing.T) {
 		},
 		{
 			name:     "insufficient optional ccvs",
-			ccvDatas: []protocol.CCVData{reqData1, reqData2, optData1},
+			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1},
 			receiverCCVInfo: coordinator.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
@@ -281,7 +281,7 @@ func Test_orderCCVData(t *testing.T) {
 		},
 		{
 			name:     "optional threshold is 0",
-			ccvDatas: []protocol.CCVData{reqData1, reqData2, optData1, optData2, optData3},
+			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3},
 			receiverCCVInfo: coordinator.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
@@ -294,7 +294,7 @@ func Test_orderCCVData(t *testing.T) {
 		},
 		{
 			name:     "no required ccvs",
-			ccvDatas: []protocol.CCVData{reqData1, reqData2, optData1, optData2, optData3},
+			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3},
 			receiverCCVInfo: coordinator.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
@@ -307,7 +307,7 @@ func Test_orderCCVData(t *testing.T) {
 		},
 		{
 			name:     "only takes up to threshold of optional ccvs",
-			ccvDatas: []protocol.CCVData{reqData1, reqData2, optData1, optData2, optData3},
+			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3},
 			receiverCCVInfo: coordinator.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
@@ -320,7 +320,7 @@ func Test_orderCCVData(t *testing.T) {
 		},
 		{
 			name:     "correct timestamp calculation",
-			ccvDatas: []protocol.CCVData{reqData1, reqData2, optData1, optData2, optData3},
+			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3},
 			receiverCCVInfo: coordinator.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},           // timestamps 10, 20. max is 20
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr3, optAddr2}, // timestamps 5, 15, 25

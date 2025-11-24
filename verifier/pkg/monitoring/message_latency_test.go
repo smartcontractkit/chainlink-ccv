@@ -27,7 +27,7 @@ func Test_MessageLatency(t *testing.T) {
 	tests := []struct {
 		name              string
 		tasks             []verifier.VerificationTask
-		messages          []protocol.CCVNodeData
+		messages          []protocol.VerifierNodeResult
 		expectedLatencies []E2ELatencyCall
 	}{
 		{
@@ -36,7 +36,7 @@ func Test_MessageLatency(t *testing.T) {
 				{Message: message1, FirstSeenAt: twoSeconds},
 				{Message: message2, FirstSeenAt: tenMinutes},
 			},
-			messages: []protocol.CCVNodeData{
+			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message1),
 				messageToCCVNodeData(message2),
 			},
@@ -56,7 +56,7 @@ func Test_MessageLatency(t *testing.T) {
 			tasks: []verifier.VerificationTask{
 				{Message: message1},
 			},
-			messages: []protocol.CCVNodeData{
+			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message1),
 			},
 			expectedLatencies: []E2ELatencyCall{
@@ -71,7 +71,7 @@ func Test_MessageLatency(t *testing.T) {
 			tasks: []verifier.VerificationTask{
 				{Message: message1, FirstSeenAt: twoSeconds},
 			},
-			messages: []protocol.CCVNodeData{
+			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message2),
 				messageToCCVNodeData(message3),
 			},
@@ -83,7 +83,7 @@ func Test_MessageLatency(t *testing.T) {
 				{Message: message1, FirstSeenAt: twoSeconds},
 				{Message: message1, FirstSeenAt: tenMinutes},
 			},
-			messages: []protocol.CCVNodeData{
+			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message1),
 			},
 			expectedLatencies: []E2ELatencyCall{
@@ -151,7 +151,7 @@ func Test_UnderlyingCacheTTL(t *testing.T) {
 		return !ok
 	}, 1*time.Second, 10*time.Millisecond)
 
-	tracker.TrackMessageLatencies(t.Context(), []protocol.CCVNodeData{
+	tracker.TrackMessageLatencies(t.Context(), []protocol.VerifierNodeResult{
 		messageToCCVNodeData(message),
 	})
 	require.Len(t, monitoring.Fake.E2ELatencyCalls, 0)
@@ -171,8 +171,8 @@ func generateMessage(t *testing.T) protocol.Message {
 	}
 }
 
-func messageToCCVNodeData(msg protocol.Message) protocol.CCVNodeData {
-	return protocol.CCVNodeData{
+func messageToCCVNodeData(msg protocol.Message) protocol.VerifierNodeResult {
+	return protocol.VerifierNodeResult{
 		Message:   msg,
 		MessageID: msg.MustMessageID(),
 	}

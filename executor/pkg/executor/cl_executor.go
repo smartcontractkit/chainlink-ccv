@@ -71,7 +71,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	// Fetch CCV data from the indexer and CCV info from the destination reader
 	// concurrently.
 	g, errGroupCtx := errgroup.WithContext(ctx)
-	ccvData := make([]protocol.CCVData, 0)
+	ccvData := make([]protocol.VerifierResult, 0)
 	g.Go(func() error {
 		res, err := cle.verifierResultsReader.GetVerifierResults(errGroupCtx, messageID)
 		if err != nil {
@@ -135,7 +135,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	return nil
 }
 
-func ccvDataDestVerifiers(ccvDatas []protocol.CCVData) []string {
+func ccvDataDestVerifiers(ccvDatas []protocol.VerifierResult) []string {
 	destVerifiersSet := make(map[string]struct{})
 	for _, ccvData := range ccvDatas {
 		destVerifiersSet[ccvData.VerifierDestAddress.String()] = struct{}{}
@@ -148,7 +148,7 @@ func ccvDataDestVerifiers(ccvDatas []protocol.CCVData) []string {
 	return destVerifiers
 }
 
-func ccvDataSourceVerifiers(ccvDatas []protocol.CCVData) []string {
+func ccvDataSourceVerifiers(ccvDatas []protocol.VerifierResult) []string {
 	sourceVerifiersSet := make(map[string]struct{})
 	for _, ccvData := range ccvDatas {
 		// MessageCCVAddresses contains the source verifier addresses
@@ -170,7 +170,7 @@ func ccvDataSourceVerifiers(ccvDatas []protocol.CCVData) []string {
 // that the number of optional CCVs is sufficient. It also determines the latest
 // timestamp among all CCV datas for monitoring purposes.
 func orderCCVData(
-	ccvDatas []protocol.CCVData,
+	ccvDatas []protocol.VerifierResult,
 	receiverCCVInfo executor.CCVAddressInfo,
 ) (
 	orderedCCVData [][]byte,
@@ -183,7 +183,7 @@ func orderCCVData(
 
 	// Map the destination verifier addresses to the CCV data associated with them.
 	// This is to facilitate fast lookups in the loops below.
-	destVerifierToCCVData := make(map[string]protocol.CCVData)
+	destVerifierToCCVData := make(map[string]protocol.VerifierResult)
 	for _, ccvData := range ccvDatas {
 		destVerifierToCCVData[ccvData.VerifierDestAddress.String()] = ccvData
 	}

@@ -168,8 +168,8 @@ func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context,
 
 type NoopLatencyTracker struct{}
 
-func (n NoopLatencyTracker) MarkMessageAsSeen(*VerificationTask)                           {}
-func (n NoopLatencyTracker) TrackMessageLatencies(context.Context, []protocol.CCVNodeData) {}
+func (n NoopLatencyTracker) MarkMessageAsSeen(*VerificationTask)                                  {}
+func (n NoopLatencyTracker) TrackMessageLatencies(context.Context, []protocol.VerifierNodeResult) {}
 
 // TestVerifier keeps track of all processed messages for testing.
 type TestVerifier struct {
@@ -186,7 +186,7 @@ func NewTestVerifier() *TestVerifier {
 func (t *TestVerifier) VerifyMessages(
 	_ context.Context,
 	tasks []VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.CCVNodeData],
+	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
 ) batcher.BatchResult[VerificationError] {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
@@ -218,7 +218,7 @@ func (t *TestVerifier) VerifyMessages(
 			}
 		}
 
-		ccvNodeData := protocol.CCVNodeData{
+		ccvNodeData := protocol.VerifierNodeResult{
 			MessageID:       messageID,
 			Message:         verificationTask.Message,
 			CCVVersion:      []byte("mock-version"),
@@ -258,7 +258,7 @@ func (t *TestVerifier) GetProcessedTasks() []VerificationTask {
 // NoopStorage for testing.
 type NoopStorage struct{}
 
-func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.CCVNodeData) error {
+func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.VerifierNodeResult) error {
 	return nil
 }
 

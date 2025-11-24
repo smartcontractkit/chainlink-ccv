@@ -19,7 +19,7 @@ type MessageSigner interface {
 type Verifier interface {
 	// VerifyMessages performs verification of a batch of messages, adding successful results to the batcher.
 	// Returns a BatchResult containing any verification errors that occurred.
-	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVNodeData]) batcher.BatchResult[VerificationError]
+	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult]) batcher.BatchResult[VerificationError]
 }
 
 // MessageLatencyTracker defines the interface for tracking message latencies from with the verifier.
@@ -28,7 +28,7 @@ type MessageLatencyTracker interface {
 	MarkMessageAsSeen(task *VerificationTask)
 	// TrackMessageLatencies computes and records latencies for a batch of messages that have been processed.
 	// Message has to be marked as seen before calling this method. Otherwise, latency won't be recorded.
-	TrackMessageLatencies(ctx context.Context, messages []protocol.CCVNodeData)
+	TrackMessageLatencies(ctx context.Context, messages []protocol.VerifierNodeResult)
 }
 
 // Monitoring provides all core monitoring functionality for the verifier.

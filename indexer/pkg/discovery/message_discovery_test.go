@@ -308,7 +308,7 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	// Configure mock to return one message
 	ccvData := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
-		MessageGenerator: func(messageNumber int) protocol.CCVData {
+		MessageGenerator: func(messageNumber int) protocol.VerifierResult {
 			return ccvData
 		},
 		EmitEmptyResponses: false,
@@ -321,7 +321,7 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	messageCh := ts.Discovery.Start(ts.Context)
 
 	// Wait for message to be discovered
-	var receivedMessage protocol.CCVData
+	var receivedMessage protocol.VerifierResult
 	select {
 	case msg := <-messageCh:
 		receivedMessage = msg
@@ -345,7 +345,7 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 	defer ts.Cleanup()
 
 	// Create multiple messages
-	messages := []protocol.CCVData{
+	messages := []protocol.VerifierResult{
 		createTestCCVData(1, time.Now().UnixMilli(), 1, 2),
 		createTestCCVData(2, time.Now().UnixMilli(), 1, 2),
 		createTestCCVData(3, time.Now().UnixMilli(), 1, 2),
@@ -353,7 +353,7 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 
 	messageIndex := 0
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
-		MessageGenerator: func(messageNumber int) protocol.CCVData {
+		MessageGenerator: func(messageNumber int) protocol.VerifierResult {
 			if messageIndex < len(messages) {
 				msg := messages[messageIndex]
 				messageIndex++
@@ -436,7 +436,7 @@ func TestMessageDiscovery_ContinuesAfterEmptyResponse(t *testing.T) {
 	callCount := 0
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
 		EmitEmptyResponses: true,
-		MessageGenerator: func(messageNumber int) protocol.CCVData {
+		MessageGenerator: func(messageNumber int) protocol.VerifierResult {
 			callCount++
 			// Return a message after a few empty calls
 			if callCount >= 3 {
@@ -453,7 +453,7 @@ func TestMessageDiscovery_ContinuesAfterEmptyResponse(t *testing.T) {
 	messageCh := ts.Discovery.Start(ts.Context)
 
 	// Wait for message (polling should continue even after empty responses)
-	var receivedMessage protocol.CCVData
+	var receivedMessage protocol.VerifierResult
 	select {
 	case msg := <-messageCh:
 		receivedMessage = msg
@@ -556,7 +556,7 @@ func TestConsumeReader_MultipleBatches(t *testing.T) {
 	callCount := 0
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
 		EmitEmptyResponses: false,
-		MessageGenerator: func(messageNumber int) protocol.CCVData {
+		MessageGenerator: func(messageNumber int) protocol.VerifierResult {
 			return createTestCCVData(messageNumber, time.Now().UnixMilli(), 1, 2)
 		},
 		MaxMessages: 6, // Return 6 messages total
@@ -568,7 +568,7 @@ func TestConsumeReader_MultipleBatches(t *testing.T) {
 	messageCh := ts.Discovery.Start(ts.Context)
 
 	// Collect messages - consumeReader should loop until no more data
-	receivedMessages := make([]protocol.CCVData, 0)
+	receivedMessages := make([]protocol.VerifierResult, 0)
 	timeout := time.After(500 * time.Millisecond)
 	done := false
 	for !done {
@@ -591,7 +591,7 @@ func TestConsumeReader_MultipleBatches(t *testing.T) {
 // Helper function to create test CCVData with automatically computed message ID.
 // The messageID is computed from the message contents using keccak256.
 // uniqueID can be used to create different messages (by varying the Nonce).
-func createTestCCVData(uniqueID int, timestamp int64, sourceChain, destChain protocol.ChainSelector) protocol.CCVData {
+func createTestCCVData(uniqueID int, timestamp int64, sourceChain, destChain protocol.ChainSelector) protocol.VerifierResult {
 	// Create a unique message for each CCVData
 	// Use uniqueID to vary the Nonce to ensure different messages have different IDs
 	message := protocol.Message{
@@ -619,7 +619,7 @@ func createTestCCVData(uniqueID int, timestamp int64, sourceChain, destChain pro
 	// Compute message ID from message contents
 	messageID, _ := message.MessageID()
 
-	return protocol.CCVData{
+	return protocol.VerifierResult{
 		MessageID:              messageID,
 		Timestamp:              time.UnixMilli(timestamp),
 		Message:                message,
@@ -641,7 +641,7 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 
 	// Configure mock reader to return this message
 	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
-		MessageGenerator: func(messageNumber int) protocol.CCVData {
+		MessageGenerator: func(messageNumber int) protocol.VerifierResult {
 			return ccvData
 		},
 		EmitEmptyResponses: false,
@@ -655,7 +655,7 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	messageCh := ts.Discovery.Start(ts.Context)
 
 	// Wait for the message to be emitted to the channel
-	var receivedMessage protocol.CCVData
+	var receivedMessage protocol.VerifierResult
 	select {
 	case msg := <-messageCh:
 		receivedMessage = msg

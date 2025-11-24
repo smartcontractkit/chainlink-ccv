@@ -15,7 +15,7 @@ import (
 // This encapsulates the metadata needed for timestamp-based querying
 // while keeping the storage implementation details clean and maintainable.
 type StorageEntry struct {
-	CCVData        protocol.CCVData
+	CCVData        protocol.VerifierResult
 	CreatedAt      int64
 	InsertionOrder int64
 }
@@ -100,7 +100,7 @@ func (s *InMemoryOffchainStorage) WaitForStore(ctx context.Context) error {
 
 // WriteCCVNodeData stores multiple CCV node data entries in the offchain storage.
 // Converts CCVNodeData to CCVData format for storage.
-func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVNodeData) error {
+func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
 	if len(ccvDataList) == 0 {
 		return nil
 	}
@@ -118,7 +118,7 @@ func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataL
 		// Convert CCVNodeData to CCVData for storage
 		// In a real aggregator, this would combine multiple node data entries
 		// For the in-memory verifier storage, we just create individual CCVData entries
-		ccvData := protocol.CCVData{
+		ccvData := protocol.VerifierResult{
 			MessageID:              ccvNodeData.MessageID,
 			Message:                ccvNodeData.Message,
 			MessageCCVAddresses:    ccvNodeData.CCVAddresses,
@@ -238,11 +238,11 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]protocol.Q
 }
 
 // GetAllCCVData retrieves all CCV data (for testing/debugging).
-func (s *InMemoryOffchainStorage) GetAllCCVData() ([]protocol.CCVData, error) {
+func (s *InMemoryOffchainStorage) GetAllCCVData() ([]protocol.VerifierResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make([]protocol.CCVData, 0, len(s.storage))
+	result := make([]protocol.VerifierResult, 0, len(s.storage))
 	for _, entry := range s.storage {
 		result = append(result, entry.CCVData)
 	}
@@ -251,7 +251,7 @@ func (s *InMemoryOffchainStorage) GetAllCCVData() ([]protocol.CCVData, error) {
 }
 
 // ReadCCVDataByMessageID retrieves CCV data by message ID (for testing/debugging).
-func (s *InMemoryOffchainStorage) ReadCCVDataByMessageID(messageID protocol.Bytes32) (*protocol.CCVData, error) {
+func (s *InMemoryOffchainStorage) ReadCCVDataByMessageID(messageID protocol.Bytes32) (*protocol.VerifierResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

@@ -82,7 +82,7 @@ func validateCCVAndExecutorHash(verificationTask *verifier.VerificationTask) err
 
 	// Calculate number of token transfers and CCV receipts
 	numTokenTransfers := 0
-	if message.TokenTransferLength > protocol.MinSizeRequiredMsgTokenFields {
+	if message.TokenTransferLength != 0 {
 		numTokenTransfers = 1
 	}
 	numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 1

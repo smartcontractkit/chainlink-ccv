@@ -49,7 +49,7 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Create test CCVNodeData for writing
-	testData := []protocol.CCVNodeData{
+	testData := []protocol.VerifierNodeResult{
 		{
 			MessageID:       [32]byte{1, 2, 3},
 			Message:         createTestMessage(t, 100, 1, 2),
@@ -102,7 +102,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		verifierAddress := []byte("0x1234")
 
 		// Create test data with different timestamps by storing at different times
-		testData1 := []protocol.CCVNodeData{
+		testData1 := []protocol.VerifierNodeResult{
 			{
 				MessageID:       [32]byte{1},
 				Message:         createTestMessage(t, 100, 1, 2),
@@ -121,7 +121,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		timeProvider = func() int64 { return baseTime + 10000000 } // 10 seconds later in microseconds
 		storage.timeProvider = timeProvider
 
-		testData2 := []protocol.CCVNodeData{
+		testData2 := []protocol.VerifierNodeResult{
 			{
 				MessageID:       [32]byte{2},
 				Message:         createTestMessage(t, 101, 1, 2),
@@ -139,7 +139,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		timeProvider = func() int64 { return baseTime + 20000000 } // 20 seconds later in microseconds
 		storage.timeProvider = timeProvider
 
-		testData3 := []protocol.CCVNodeData{
+		testData3 := []protocol.VerifierNodeResult{
 			{
 				MessageID:       [32]byte{3},
 				Message:         createTestMessage(t, 102, 1, 2),
@@ -251,7 +251,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	messageID := [32]byte{1, 2, 3, 4, 5}
-	testData := []protocol.CCVNodeData{
+	testData := []protocol.VerifierNodeResult{
 		{
 			MessageID:       messageID,
 			Message:         createTestMessage(t, 100, 1, 2),
@@ -289,7 +289,7 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	verifier2 := []byte("0x2222")
 
 	// Create data for different verifiers
-	data1 := []protocol.CCVNodeData{
+	data1 := []protocol.VerifierNodeResult{
 		{
 			MessageID:       [32]byte{1},
 			Message:         createTestMessage(t, 100, 1, 2),
@@ -308,7 +308,7 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 		},
 	}
 
-	data2 := []protocol.CCVNodeData{
+	data2 := []protocol.VerifierNodeResult{
 		{
 			MessageID:       [32]byte{3},
 			Message:         createTestMessage(t, 200, 1, 2),
@@ -345,7 +345,7 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Add some data
-	testData := []protocol.CCVNodeData{
+	testData := []protocol.VerifierNodeResult{
 		{
 			MessageID:       [32]byte{1, 2, 3},
 			Message:         createTestMessage(t, 100, 1, 2),
@@ -390,7 +390,7 @@ func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
 	ctx := context.Background()
 
 	// Write empty data should not error
-	err := storage.WriteCCVNodeData(ctx, []protocol.CCVNodeData{})
+	err := storage.WriteCCVNodeData(ctx, []protocol.VerifierNodeResult{})
 	require.NoError(t, err)
 
 	// Get all data (should be empty)
@@ -412,7 +412,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Create data - timestamp will be set by storage layer
-	testData := []protocol.CCVNodeData{
+	testData := []protocol.VerifierNodeResult{
 		{
 			MessageID:       [32]byte{1},
 			Message:         createTestMessage(t, 100, 1, 2),
@@ -447,7 +447,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	verifierAddress := []byte("0x1234")
 
 	// Test data using CCVNodeData
-	testData := []protocol.CCVNodeData{
+	testData := []protocol.VerifierNodeResult{
 		{
 			MessageID:       [32]byte{1, 2, 3},
 			Message:         createTestMessage(t, 100, 1, 2),
@@ -486,7 +486,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 	// create numMessages, each 10 seconds apart
 	for i := 0; i < numMessages; i++ {
 		storage.timeProvider = func() int64 { return baseTime + (10 * int64(i)) }
-		testData1 := []protocol.CCVNodeData{
+		testData1 := []protocol.VerifierNodeResult{
 			{
 				MessageID:       [32]byte{1},
 				Message:         createTestMessage(t, 100, 1, 2),
@@ -587,7 +587,7 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 		// Add 1 more message, it should be returned by the next read.
 		timeProvider := func() int64 { return baseTime + (10 * int64(100)) }
 		storage.timeProvider = timeProvider
-		testData1 := []protocol.CCVNodeData{
+		testData1 := []protocol.VerifierNodeResult{
 			{
 				MessageID:       [32]byte{1},
 				Message:         createTestMessage(t, 987654321, 1, 2),

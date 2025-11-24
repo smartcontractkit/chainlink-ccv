@@ -31,7 +31,7 @@ func TestInMemoryStorage_TTLEviction(t *testing.T) {
 
 	// Insert some test data
 	now := time.Now().UnixMilli()
-	testData := []protocol.CCVData{
+	testData := []protocol.VerifierResult{
 		createTestCCVDataForEviction("0x001", time.UnixMilli(now-10000), 1, 2), // 10 seconds old (should be evicted)
 		createTestCCVDataForEviction("0x002", time.UnixMilli(now-1000), 1, 2),  // 1 second old (should remain)
 		createTestCCVDataForEviction("0x003", time.UnixMilli(now), 1, 2),       // just now (should remain)
@@ -247,7 +247,7 @@ func TestInMemoryStorage_CleanupStopsOnClose(t *testing.T) {
 }
 
 // Helper function to create test CCVData for eviction tests.
-func createTestCCVDataForEviction(messageIDHex string, timestamp time.Time, sourceChain, destChain protocol.ChainSelector) protocol.CCVData {
+func createTestCCVDataForEviction(messageIDHex string, timestamp time.Time, sourceChain, destChain protocol.ChainSelector) protocol.VerifierResult {
 	// Ensure the messageID is properly padded to 64 hex characters.
 	if len(messageIDHex) < 66 { // "0x" + 64 hex chars
 		messageIDHex = fmt.Sprintf("0x%064s", messageIDHex[2:])
@@ -277,7 +277,7 @@ func createTestCCVDataForEviction(messageIDHex string, timestamp time.Time, sour
 		OnRampAddressLength:  3,
 	}
 
-	return protocol.CCVData{
+	return protocol.VerifierResult{
 		MessageID:              messageID,
 		Timestamp:              timestamp,
 		Message:                message,
