@@ -223,46 +223,61 @@ func (d *Sink) InsertCCVData(ctx context.Context, ccvData common.VerifierResultW
 	return nil
 }
 
-// BatchInsertCCVData writes multiple CCVData entries to all storages in order.
-// If any storage fails (except duplicate errors), it continues to the next storage
-// and returns an error at the end indicating which storages failed.
-func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []common.VerifierResultWithMetadata) error {
-	if len(ccvDataList) == 0 {
-		return nil
-	}
-
+// batchWriteToStorages is a helper function that performs batch writes to all storages
+// and handles error collection and logging. It returns an error if all storages fail
+// or if some storages fail (with partial success indication).
+func (d *Sink) batchWriteToStorages(
+	ctx context.Context,
+	batchSize int,
+	operationName string,
+	writeFunc func(context.Context, common.IndexerStorage) error,
+) error {
 	var errs []error
 	successCount := 0
 
 	for i, storage := range d.storages {
-		d.lggr.Debugw("Attempting batch write to storage",
+		logMsg := "Attempting batch write to storage"
+		if operationName != "" {
+			logMsg = fmt.Sprintf("Attempting batch write %s to storage", operationName)
+		}
+		d.lggr.Debugw(logMsg,
 			"storageIndex", i,
-			"batchSize", len(ccvDataList),
+			"batchSize", batchSize,
 		)
 
-		err := storage.BatchInsertCCVData(ctx, ccvDataList)
+		err := writeFunc(ctx, storage)
 		if err != nil {
-			// For batch inserts, we don't have individual duplicate errors
-			// so we just log warnings for any errors
-			d.lggr.Warnw("Failed to batch write to storage",
+			logMsg = "Failed to batch write to storage"
+			if operationName != "" {
+				logMsg = fmt.Sprintf("Failed to batch write %s to storage", operationName)
+			}
+			d.lggr.Warnw(logMsg,
 				"storageIndex", i,
-				"batchSize", len(ccvDataList),
+				"batchSize", batchSize,
 				"error", err,
 			)
 			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
 			continue
 		}
 
-		d.lggr.Debugw("Successfully batch wrote to storage",
+		logMsg = "Successfully batch wrote to storage"
+		if operationName != "" {
+			logMsg = fmt.Sprintf("Successfully batch wrote %s to storage", operationName)
+		}
+		d.lggr.Debugw(logMsg,
 			"storageIndex", i,
-			"batchSize", len(ccvDataList),
+			"batchSize", batchSize,
 		)
 		successCount++
 	}
 
 	// If no storages succeeded, return an error
+	errMsg := "failed to batch write to any storage"
+	if operationName != "" {
+		errMsg = fmt.Sprintf("failed to batch write %s to any storage", operationName)
+	}
 	if successCount == 0 {
-		return fmt.Errorf("failed to batch write to any storage: %v", errs)
+		return fmt.Errorf("%s: %v", errMsg, errs)
 	}
 
 	// If some storages failed, return an error but mention partial success
@@ -271,6 +286,19 @@ func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []common.Veri
 	}
 
 	return nil
+}
+
+// BatchInsertCCVData writes multiple CCVData entries to all storages in order.
+// If any storage fails (except duplicate errors), it continues to the next storage
+// and returns an error at the end indicating which storages failed.
+func (d *Sink) BatchInsertCCVData(ctx context.Context, ccvDataList []common.VerifierResultWithMetadata) error {
+	if len(ccvDataList) == 0 {
+		return nil
+	}
+
+	return d.batchWriteToStorages(ctx, len(ccvDataList), "BatchInsertCCVData", func(ctx context.Context, storage common.IndexerStorage) error {
+		return storage.BatchInsertCCVData(ctx, ccvDataList)
+	})
 }
 
 // InsertMessage writes a message to all storages in order.
@@ -321,44 +349,9 @@ func (d *Sink) BatchInsertMessages(ctx context.Context, messages []common.Messag
 		return nil
 	}
 
-	var errs []error
-	successCount := 0
-
-	for i, storage := range d.storages {
-		d.lggr.Debugw("Attempting batch write messages to storage",
-			"storageIndex", i,
-			"batchSize", len(messages),
-		)
-
-		err := storage.BatchInsertMessages(ctx, messages)
-		if err != nil {
-			d.lggr.Warnw("Failed to batch write messages to storage",
-				"storageIndex", i,
-				"batchSize", len(messages),
-				"error", err,
-			)
-			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
-			continue
-		}
-
-		d.lggr.Debugw("Successfully batch wrote messages to storage",
-			"storageIndex", i,
-			"batchSize", len(messages),
-		)
-		successCount++
-	}
-
-	// If no storages succeeded, return an error
-	if successCount == 0 {
-		return fmt.Errorf("failed to batch write messages to any storage: %v", errs)
-	}
-
-	// If some storages failed, return an error but mention partial success
-	if len(errs) > 0 {
-		return fmt.Errorf("partial batch write failure (%d/%d succeeded): %v", successCount, len(d.storages), errs)
-	}
-
-	return nil
+	return d.batchWriteToStorages(ctx, len(messages), "BatchInsertMessages", func(ctx context.Context, storage common.IndexerStorage) error {
+		return storage.BatchInsertMessages(ctx, messages)
+	})
 }
 
 // UpdateMessageStatus updates the status of a message in all storages.

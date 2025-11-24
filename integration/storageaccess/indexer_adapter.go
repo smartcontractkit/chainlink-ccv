@@ -174,12 +174,18 @@ func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID pro
 		return nil, fmt.Errorf("indexer GetVerifierResults returned error: %s", response.Error)
 	}
 
+	withoutMeta := make([]protocol.CCVData, len(response.Results))
+	for _, result := range response.Results {
+		withoutMeta = append(withoutMeta, result.VerifierResult)
+	}
+
 	i.lggr.Infow("Successfully retrieved VerifierResults",
 		"messageID", messageID,
-		"numberOfResults", len(response.VerifierResults),
-		"verifierAddresses", sourceVerifierAddresses(response.VerifierResults),
+		"numberOfResults", len(response.Results),
+		"verifierAddresses", sourceVerifierAddresses(withoutMeta),
 	)
-	return response.VerifierResults, nil
+
+	return withoutMeta, nil
 }
 
 func sourceVerifierAddresses(verifierResults []protocol.CCVData) []string {

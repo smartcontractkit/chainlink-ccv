@@ -1,5 +1,7 @@
 package protocol
 
+import "time"
+
 type MessagesV1Request struct {
 	SourceChainSelectors []ChainSelector // Excluded from form due to gin parsing
 	DestChainSelectors   []ChainSelector // Excluded from form due to gin parsing
@@ -16,7 +18,18 @@ type MessagesV1Response struct {
 }
 
 type MessageIDV1Response struct {
-	Error           string    `json:"error,omitempty"`
-	Success         bool      `json:"success"`
-	VerifierResults []CCVData `json:"verifierResults"`
+	Error   string                       `json:"error,omitempty"`
+	Success bool                         `json:"success"`
+	Results []VerifierResultWithMetadata `json:"results"`
+}
+
+type VerifierResultWithMetadata struct {
+	VerifierResult CCVData          `json:"verifierResult"`
+	Metadata       VerifierMetadata `json:"metadata"`
+}
+
+type VerifierMetadata struct {
+	VerifierName         string    `json:"verifierName"`
+	AttestationTimestamp time.Time `json:"attestationTimestamp"`
+	IngestionTimestamp   time.Time `json:"ingestionTimestamp"`
 }
