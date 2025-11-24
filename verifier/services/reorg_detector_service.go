@@ -16,7 +16,7 @@ import (
 
 const (
 	MAX_GAP_BLOCKS        = 10 // Maximum allowed gap in blocks before rebuilding entire tail
-	DEFAULT_POLL_INTERVAL = 2000 * time.Millisecond
+	DEFAULT_POLL_INTERVAL = 1000 * time.Millisecond
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -220,21 +220,55 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		return
 	}
 
-	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
-
 	if latest.Number < finalized.Number {
 		r.lggr.Warnw("Latest block number is less than finalized block number")
 		r.sendFinalityViolation(*latest, finalized.Number)
 		return
 	}
-	// Check if chain has progressed
-	if latest.Number <= r.latestBlock {
-		r.lggr.Infow("No new blocks",
+
+	// Handle case where chain went backwards (reorg to earlier block)
+	if latest.Number < r.latestBlock {
+		r.lggr.Infow("Chain went backwards - reorg detected",
 			"chainSelector", r.config.ChainSelector,
-			"latestBlock", latest.Number,
-			"latestBlock", r.latestBlock)
+			"previousLatest", r.latestBlock,
+			"newLatest", latest.Number,
+			"blocksReorged", r.latestBlock-latest.Number)
+
+		if err := r.handleReorg(ctx, *latest, finalized.Number); err != nil {
+			r.lggr.Errorw("Failed to handle backwards reorg",
+				"chainSelector", r.config.ChainSelector,
+				"error", err)
+			return
+		}
 		return
 	}
+
+	// Check if we should process this block
+	if latest.Number == r.latestBlock {
+		// Same block number - check if it's actually the same block or a competing fork
+		storedBlock, exists := r.tailBlocks[latest.Number]
+
+		if !exists {
+			// First time seeing this block number - add it and we're done
+			r.addBlockToTail(*latest, finalized.Number)
+			return
+		}
+
+		if storedBlock.Hash == latest.Hash {
+			// Same block we already have - no new blocks
+			r.lggr.Infow("No new blocks",
+				"chainSelector", r.config.ChainSelector,
+				"latestBlock", latest.Number)
+			return
+		}
+
+		// Different hash at same height - this is a reorg, fall through to parent hash check
+	}
+
+	// At this point: latest.Number >= r.latestBlock and we need to verify chain consistency
+	// For same height: we'll check against the stored block (which will show hash mismatch)
+	// For new height: we'll check parent hash matches expected parent
+	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
 
 	// If we don't have the parent block, backfill the gap
 	// Ideally this should not happen unless pollInterval is misconfigured to be more than block time
