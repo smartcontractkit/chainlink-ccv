@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -74,8 +75,11 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config Config, timeout t
 	// Wrap mock reader with ResilientReader for testing
 	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
 
+	registry := registry.NewVerifierRegistry()
+
 	discovery, _ := NewAggregatorMessageDiscovery(
 		WithLogger(lggr),
+		WithRegistry(registry),
 		WithMonitoring(mon),
 		WithStorage(store),
 		WithAggregator(resilientReader),
@@ -109,9 +113,11 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config Config) *testSetup 
 	})
 
 	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
+	registry := registry.NewVerifierRegistry()
 
 	discovery, _ := NewAggregatorMessageDiscovery(
 		WithLogger(lggr),
+		WithRegistry(registry),
 		WithMonitoring(mon),
 		WithStorage(store),
 		WithAggregator(resilientReader),
@@ -147,10 +153,12 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	mockReader := readers.NewMockReader(readers.MockReaderConfig{})
 	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
 	config := defaultTestConfig()
+	registry := registry.NewVerifierRegistry()
 
 	discovery, _ := NewAggregatorMessageDiscovery(
 		WithLogger(lggr),
 		WithMonitoring(mon),
+		WithRegistry(registry),
 		WithStorage(store),
 		WithAggregator(resilientReader),
 		WithConfig(config),

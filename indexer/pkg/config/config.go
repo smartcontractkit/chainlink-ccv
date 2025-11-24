@@ -128,6 +128,7 @@ type DiscoveryConfig struct {
 type VerifierConfig struct {
 	Type            ReaderType `toml:"Type"`
 	IssuerAddresses []string   `toml:"IssuerAddresses"`
+	Name            string     `toml:"Name"`
 	AggregatorReaderConfig
 	RestReaderConfig
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -19,6 +20,7 @@ type AggregatorMessageDiscovery struct {
 	logger           logger.Logger
 	config           Config
 	aggregatorReader *readers.ResilientReader
+	registry         *registry.VerifierRegistry
 	storageSink      common.IndexerStorage
 	monitoring       common.IndexerMonitoring
 	messageCh        chan common.VerifierResultWithMetadata
@@ -38,6 +40,12 @@ type Option func(*AggregatorMessageDiscovery)
 func WithAggregator(aggregator *readers.ResilientReader) Option {
 	return func(a *AggregatorMessageDiscovery) {
 		a.aggregatorReader = aggregator
+	}
+}
+
+func WithRegistry(registry *registry.VerifierRegistry) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.registry = registry
 	}
 }
 
@@ -103,6 +111,10 @@ func (a *AggregatorMessageDiscovery) validate() error {
 
 	if a.aggregatorReader == nil {
 		return errors.New("aggregator must be specified")
+	}
+
+	if a.registry == nil {
+		return errors.New("registry must be specified")
 	}
 
 	if a.logger == nil {
@@ -221,6 +233,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 			Metadata: common.VerifierResultMetadata{
 				IngestionTimestamp:   time.Now(),
 				AttestationTimestamp: response.Data.Timestamp,
+				VerifierName:         a.registry.GetVerifierNameFromAddress(response.Data.SourceVerifierAddress),
 			},
 		}
 

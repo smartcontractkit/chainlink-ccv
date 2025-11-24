@@ -27,9 +27,10 @@ type MessageMetadata struct {
 }
 
 type MessageIDV1Response struct {
-	Error   string                       `json:"error,omitempty"`
-	Success bool                         `json:"success"`
-	Results []VerifierResultWithMetadata `json:"results"`
+	Error     string                       `json:"error,omitempty"`
+	Success   bool                         `json:"success"`
+	MessageID Bytes32                      `json:"messageID"`
+	Results   []VerifierResultWithMetadata `json:"results"`
 }
 
 type VerifierResultWithMetadata struct {

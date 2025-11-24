@@ -106,6 +106,7 @@ func defaults(in *IndexerInput) {
 						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses: []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"},
+					Name:            "CommiteeVerifier (Primary)",
 				},
 				{
 					Type: config.ReaderTypeAggregator,
@@ -116,6 +117,7 @@ func defaults(in *IndexerInput) {
 						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses: []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"},
+					Name:            "CommiteeVerifier (Secondary)",
 				},
 				{
 					Type: config.ReaderTypeAggregator,
@@ -126,6 +128,7 @@ func defaults(in *IndexerInput) {
 						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses: []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"},
+					Name:            "CommiteeVerifier (Tertiary)",
 				},
 			},
 			Storage: config.StorageConfig{

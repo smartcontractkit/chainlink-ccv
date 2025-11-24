@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -88,17 +87,14 @@ func NewIndexerClient(logger zerolog.Logger, url string) *IndexerClient {
 	}
 }
 
-// TODO: this should probably be exported by the indexer package?
 type GetVerificationsForMessageIDResponse struct {
-	Success         bool               `json:"success"`
-	VerifierResults []protocol.CCVData `json:"verifierResults"`
-	MessageID       string             `json:"messageID"`
+	protocol.MessageIDV1Response
 }
 
 func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protocol.UnknownAddress {
-	sourceVerifierAddresses := make([]protocol.UnknownAddress, 0, len(g.VerifierResults))
-	for _, verifierResult := range g.VerifierResults {
-		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.SourceVerifierAddress)
+	sourceVerifierAddresses := make([]protocol.UnknownAddress, 0, len(g.Results))
+	for _, verifierResult := range g.Results {
+		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.VerifierResult.SourceVerifierAddress)
 	}
 	return sourceVerifierAddresses
 }
@@ -123,16 +119,16 @@ func (i *IndexerClient) WaitForVerificationsForMessageID(
 				i.logger.Error().Err(err).Msgf("failed to get verifications for messageID: %s, retrying", msgIDHex)
 				continue
 			}
-			if response.Success && len(response.VerifierResults) == expectedVerifierResults {
+			if response.Success && len(response.Results) == expectedVerifierResults {
 				i.logger.Info().
 					Str("messageID", msgIDHex).
-					Int("verifierResultsLen", len(response.VerifierResults)).
+					Int("verifierResultsLen", len(response.Results)).
 					Any("verifierAddresses", response.SourceVerifierAddresses()).
 					Int("expectedVerifierResults", expectedVerifierResults).
 					Msg("found verifications for messageID in indexer")
 				return response, nil
 			}
-			i.logger.Error().Msgf("not enough verifications found for messageID: %s, expected %d, got %d, retrying", msgIDHex, expectedVerifierResults, len(response.VerifierResults))
+			i.logger.Error().Msgf("not enough verifications found for messageID: %s, expected %d, got %d, retrying", msgIDHex, expectedVerifierResults, len(response.Results))
 		}
 	}
 }

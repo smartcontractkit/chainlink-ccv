@@ -132,7 +132,7 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 			return err
 		}
 
-		err = verifierRegistry.AddVerifier(unknownAddress, verifierReader)
+		err = verifierRegistry.AddVerifier(unknownAddress, verifierConfig.Name, verifierReader)
 		if err != nil {
 			return err
 		}

@@ -85,6 +85,7 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 						Metadata: common.VerifierResultMetadata{
 							AttestationTimestamp: result.Value().Timestamp,
 							IngestionTimestamp:   time.Now(),
+							VerifierName:         t.registry.GetVerifierNameFromAddress(result.Value().SourceVerifierAddress),
 						},
 					}
 					results = append(results, verifierResultWithMetadata)
