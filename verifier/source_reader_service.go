@@ -576,7 +576,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	// Get current block (potentially slow RPC call - no locks held)
 	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	_, finalized, err := r.headTracker.LatestAndFinalizedBlock(blockCtx)
+	latest, finalized, err := r.headTracker.LatestAndFinalizedBlock(blockCtx)
 	cancel()
 
 	if err != nil {
@@ -585,9 +585,16 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
 		return
 	}
-	if finalized == nil {
-		r.logger.Errorw("Finalized block is nil")
+	if finalized == nil || latest == nil {
+		r.logger.Errorw("nil block found during latest/finalized retrieval",
+			"finalized=Nil", finalized == nil, "latest=Nil", latest == nil)
 		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
+		return
+	}
+
+	if latest.Number == r.lastProcessedBlock.Uint64() {
+		r.logger.Debugw("No new blocks to process",
+			"lastProcessedBlock", r.lastProcessedBlock.String())
 		return
 	}
 
