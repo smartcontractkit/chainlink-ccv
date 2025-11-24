@@ -260,7 +260,7 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 				tc.T.Logf("Message %d verified - aggregator entries, indexer: %d verifications",
 					msg.SeqNo,
-					len(result.IndexedVerifications.VerifierResults))
+					len(result.IndexedVerifications.Results))
 
 				execEvent, err := tc.Impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, tc.Timeout)
 
