@@ -5,6 +5,12 @@ import (
 	"errors"
 )
 
+// MessageStatus is used internally to determine if we should continue to attempt indexing verifications for a given message.
+// Consists of 3 potentional states
+//
+// PROCESSING - Message is currently being indexed for verifications.
+// SUCCESS    - Indexer has successfully retrieved all verifications for the message.
+// TIMEOUT    - TTL has expired and we no longer attempt to index verifications for this message.
 type MessageStatus int
 
 const (

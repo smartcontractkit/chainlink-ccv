@@ -225,13 +225,14 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	a.logger.Debug("Called Aggregator")
 
+	ingestionTimestamp := time.Now()
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 
 		verifierResultWithMetadata := common.VerifierResultWithMetadata{
 			VerifierResult: response.Data,
 			Metadata: common.VerifierResultMetadata{
-				IngestionTimestamp:   time.Now(),
+				IngestionTimestamp:   ingestionTimestamp,
 				AttestationTimestamp: response.Data.Timestamp,
 				VerifierName:         a.registry.GetVerifierNameFromAddress(response.Data.SourceVerifierAddress),
 			},
@@ -240,7 +241,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		if err := a.storageSink.InsertMessage(ctx, common.MessageWithMetadata{
 			Message: response.Data.Message,
 			Metadata: common.MessageMetadata{
-				IngestionTimestamp: time.Now(),
+				IngestionTimestamp: ingestionTimestamp,
 			},
 		}); err != nil {
 			a.logger.Error("Error saving Message for MessageID %s to storage", response.Data.MessageID.String())
