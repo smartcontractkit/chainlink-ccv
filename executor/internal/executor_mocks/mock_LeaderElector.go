@@ -20,17 +20,17 @@ func (_m *MockLeaderElector) EXPECT() *MockLeaderElector_Expecter {
 	return &MockLeaderElector_Expecter{mock: &_m.Mock}
 }
 
-// GetReadyTimestamp provides a mock function with given fields: messageID, verifierTimestamp
-func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, verifierTimestamp int64) int64 {
-	ret := _m.Called(messageID, verifierTimestamp)
+// GetReadyTimestamp provides a mock function with given fields: messageID, chainSel, verifierTimestamp
+func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, verifierTimestamp int64) int64 {
+	ret := _m.Called(messageID, chainSel, verifierTimestamp)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetReadyTimestamp")
 	}
 
 	var r0 int64
-	if rf, ok := ret.Get(0).(func(protocol.Bytes32, int64) int64); ok {
-		r0 = rf(messageID, verifierTimestamp)
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector, int64) int64); ok {
+		r0 = rf(messageID, chainSel, verifierTimestamp)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
@@ -45,14 +45,15 @@ type MockLeaderElector_GetReadyTimestamp_Call struct {
 
 // GetReadyTimestamp is a helper method to define mock.On call
 //   - messageID protocol.Bytes32
+//   - chainSel protocol.ChainSelector
 //   - verifierTimestamp int64
-func (_e *MockLeaderElector_Expecter) GetReadyTimestamp(messageID interface{}, verifierTimestamp interface{}) *MockLeaderElector_GetReadyTimestamp_Call {
-	return &MockLeaderElector_GetReadyTimestamp_Call{Call: _e.mock.On("GetReadyTimestamp", messageID, verifierTimestamp)}
+func (_e *MockLeaderElector_Expecter) GetReadyTimestamp(messageID interface{}, chainSel interface{}, verifierTimestamp interface{}) *MockLeaderElector_GetReadyTimestamp_Call {
+	return &MockLeaderElector_GetReadyTimestamp_Call{Call: _e.mock.On("GetReadyTimestamp", messageID, chainSel, verifierTimestamp)}
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID protocol.Bytes32, verifierTimestamp int64)) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID protocol.Bytes32, chainSel protocol.ChainSelector, verifierTimestamp int64)) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(protocol.Bytes32), args[1].(int64))
+		run(args[0].(protocol.Bytes32), args[1].(protocol.ChainSelector), args[2].(int64))
 	})
 	return _c
 }
@@ -62,7 +63,7 @@ func (_c *MockLeaderElector_GetReadyTimestamp_Call) Return(_a0 int64) *MockLeade
 	return _c
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protocol.Bytes32, int64) int64) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protocol.Bytes32, protocol.ChainSelector, int64) int64) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Return(run)
 	return _c
 }

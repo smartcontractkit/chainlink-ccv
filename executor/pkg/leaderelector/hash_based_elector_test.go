@@ -12,14 +12,14 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func TestHashBasedLeaderElector(t *testing.T) {
+func TestHashBasedLeaderElectorSingleChain(t *testing.T) {
 	testCases := []struct {
 		name              string
 		executorIds       []string
 		thisExecutorId    string
 		executionInterval time.Duration
-		minWaitPeriod     time.Duration
 		messageID         protocol.Bytes32
+		chainSel          protocol.ChainSelector
 		baseTimestamp     int64
 		readyTimestamp    int64
 	}{
@@ -28,80 +28,63 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			executorIds:       []string{"executor-c", "executor-a", "executor-b"},
 			thisExecutorId:    "executor-a",
 			executionInterval: 30 * time.Second,
-			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     1000,
-			readyTimestamp:    1000 + 10 + 30*0, // executor-a is at index 0 in sorted order
+			readyTimestamp:    1000 + 30*0, // executor-a is at index 0 in sorted order
 		},
 		{
 			name:              "different message will change order for same executor",
 			executorIds:       []string{"executor-c", "executor-a", "executor-b"},
 			thisExecutorId:    "executor-a",
 			executionInterval: 30 * time.Second,
-			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x04},
 			baseTimestamp:     1000,
-			readyTimestamp:    1000 + 10 + 30*2, // executor-a is at index 0 in sorted order
+			readyTimestamp:    1000 + 30*2, // executor-a is at index 0 in sorted order
 		},
 		{
 			name:              "middle executor with specific message",
 			executorIds:       []string{"executor-c", "executor-a", "executor-b"},
 			thisExecutorId:    "executor-b",
 			executionInterval: 30 * time.Second,
-			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     1000,
-			readyTimestamp:    1000 + 10 + 30*1, // executor-b is at index 1 in sorted order
+			readyTimestamp:    1000 + 30*1, // executor-b is at index 1 in sorted order
 		},
 		{
 			name:              "different message ID changes order",
 			executorIds:       []string{"executor-c", "executor-a", "executor-b"},
 			thisExecutorId:    "executor-a",
 			executionInterval: 30 * time.Second,
-			minWaitPeriod:     10 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x04},
 			baseTimestamp:     1000,
-			readyTimestamp:    1000 + 10 + 30*2,
+			readyTimestamp:    1000 + 30*2,
 		},
 		{
 			name:              "different execution interval",
 			executorIds:       []string{"executor-a", "executor-b"},
 			thisExecutorId:    "executor-b",
 			executionInterval: 60 * time.Second,
-			minWaitPeriod:     5 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     2000,
-			readyTimestamp:    2000 + 5 + 60*1,
+			readyTimestamp:    2000 + 60*1,
 		},
 		{
 			name:              "single executor",
 			executorIds:       []string{"executor-a"},
 			thisExecutorId:    "executor-a",
 			executionInterval: 45 * time.Second,
-			minWaitPeriod:     15 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     1500,
-			readyTimestamp:    1500 + 15 + 45*0, // only one executor at index 0
+			readyTimestamp:    1500 + 45*0, // only one executor at index 0
 		},
 		{
 			name:              "empty executor list",
 			executorIds:       []string{},
 			thisExecutorId:    "executor-a",
 			executionInterval: 45 * time.Second,
-			minWaitPeriod:     15 * time.Second,
 			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
 			baseTimestamp:     1500,
-			readyTimestamp:    1500 + 15, // falls back to just minWaitPeriod
-		},
-		{
-			name:              "0 min wait period",
-			executorIds:       []string{},
-			thisExecutorId:    "executor-a",
-			executionInterval: 45 * time.Second,
-			minWaitPeriod:     0 * time.Second,
-			messageID:         protocol.Bytes32{0x01, 0x02, 0x03},
-			baseTimestamp:     1500,
-			readyTimestamp:    1500, // falls back to just minWaitPeriod
+			readyTimestamp:    1500, // falls back to just baseTimestamp
 		},
 	}
 
@@ -110,40 +93,39 @@ func TestHashBasedLeaderElector(t *testing.T) {
 			// Create the leader elector
 			elector := NewHashBasedLeaderElector(
 				logger.Test(t),
-				tc.executorIds,
+				map[protocol.ChainSelector][]string{tc.chainSel: tc.executorIds},
 				tc.thisExecutorId,
-				tc.executionInterval,
-				tc.minWaitPeriod,
+				map[protocol.ChainSelector]time.Duration{tc.chainSel: tc.executionInterval},
 			)
 
 			require.NotNil(t, elector)
 
 			// Get the ready timestamp
-			actualTimestamp := elector.GetReadyTimestamp(tc.messageID, tc.baseTimestamp)
+			actualTimestamp := elector.GetReadyTimestamp(tc.messageID, tc.chainSel, tc.baseTimestamp)
 
 			assert.Equal(t, tc.readyTimestamp, actualTimestamp)
 
 			// We can check the bounds and consistency
-			minExpectedDelay := int64(tc.minWaitPeriod.Seconds())
-			maxExpectedDelay := int64(tc.minWaitPeriod.Seconds()) + int64(tc.executionInterval.Seconds()*float64(len(tc.executorIds)))
+			minExpectedDelay := int64(0)
+			maxExpectedDelay := int64(tc.executionInterval.Seconds() * float64(len(tc.executorIds)))
 
 			calculatedDelay := actualTimestamp - tc.baseTimestamp
 			assert.GreaterOrEqual(t, calculatedDelay, minExpectedDelay,
-				"Ready timestamp should be at least baseTimestamp + minWaitPeriod")
+				"Ready timestamp should be at least baseTimestamp")
 			assert.LessOrEqual(t, calculatedDelay, maxExpectedDelay,
-				"Ready timestamp should not exceed baseTimestamp + minWaitPeriod + (numExecutors-1)*executionInterval")
+				"Ready timestamp should not exceed baseTimestamp + (numExecutors-1)*executionInterval")
 
 			// Run it again to check consistency
-			readyTimestamp2 := elector.GetReadyTimestamp(tc.messageID, tc.baseTimestamp)
+			readyTimestamp2 := elector.GetReadyTimestamp(tc.messageID, tc.chainSel, tc.baseTimestamp)
 			assert.Equal(t, actualTimestamp, readyTimestamp2, "Results should be deterministic for the same inputs")
 		})
 	}
 }
 
 func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
-	executorIds := []string{"executor-c", "executor-a", "executor-b"}
-	executionInterval := 30 * time.Second
-	minWaitPeriod := 10 * time.Second
+	sel := protocol.ChainSelector(1)
+	executorIds := map[protocol.ChainSelector][]string{sel: {"executor-c", "executor-a", "executor-b"}}
+	executionInterval := map[protocol.ChainSelector]time.Duration{sel: 30 * time.Second}
 	baseTimestamp := int64(1000)
 
 	// Different message IDs should result in different execution orders
@@ -152,20 +134,20 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 
 	// Test that all executors agree on the relative ordering for each message
 	electors := make(map[string]*HashBasedLeaderElector)
-	for _, id := range executorIds {
-		electors[id] = NewHashBasedLeaderElector(logger.Test(t), executorIds, id, executionInterval, minWaitPeriod)
+	for _, id := range executorIds[sel] {
+		electors[id] = NewHashBasedLeaderElector(logger.Test(t), executorIds, id, executionInterval)
 	}
 
 	// Check message1 ordering
 	msg1Times := make(map[string]int64)
 	for id, elector := range electors {
-		msg1Times[id] = elector.GetReadyTimestamp(messageID1, baseTimestamp)
+		msg1Times[id] = elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
 	}
 
 	// Check message2 ordering
 	msg2Times := make(map[string]int64)
 	for id, elector := range electors {
-		msg2Times[id] = elector.GetReadyTimestamp(messageID2, baseTimestamp)
+		msg2Times[id] = elector.GetReadyTimestamp(messageID2, sel, baseTimestamp)
 	}
 
 	// Verify different messages create different orderings
@@ -179,8 +161,8 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 
 	// Verify consistent results across multiple calls
 	for _, elector := range electors {
-		result1 := elector.GetReadyTimestamp(messageID1, baseTimestamp)
-		result2 := elector.GetReadyTimestamp(messageID1, baseTimestamp)
+		result1 := elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
+		result2 := elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
 		assert.Equal(t, result1, result2, "Same elector should return consistent results")
 	}
 }
@@ -218,21 +200,126 @@ func getExecutorOrderFromTimestamps(timestamps map[string]int64) []string {
 }
 
 func TestHashBasedLeaderElector_ExecutorNotInList(t *testing.T) {
-	executorIds := []string{"executor-a", "executor-b"}
+	sel := protocol.ChainSelector(1)
+	executorIds := map[protocol.ChainSelector][]string{sel: {"executor-a", "executor-b"}}
 	thisExecutorId := "executor-not-in-list"
-	executionInterval := 30 * time.Second
-	minWaitPeriod := 10 * time.Second
+	executionInterval := map[protocol.ChainSelector]time.Duration{sel: 30 * time.Second}
 	messageID := protocol.Bytes32{0x01, 0x02, 0x03}
 	baseTimestamp := int64(1000)
 
-	elector := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval, minWaitPeriod)
+	elector := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval)
 
-	readyTimestamp := elector.GetReadyTimestamp(messageID, baseTimestamp)
+	readyTimestamp := elector.GetReadyTimestamp(messageID, sel, baseTimestamp)
 
 	// Should fall back to just minWaitPeriod when executor not in list
-	expectedTimestamp := baseTimestamp + int64(minWaitPeriod.Seconds())
+	expectedTimestamp := baseTimestamp
 	assert.Equal(t, expectedTimestamp, readyTimestamp,
 		"When executor not in list, should return baseTimestamp + minWaitPeriod")
+}
+
+func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testing.T) {
+	type testConfig struct {
+		executorIds       map[protocol.ChainSelector][]string
+		thisExecutorId    string
+		expectedIndices   map[protocol.ChainSelector]int
+		expectedSortedIds map[protocol.ChainSelector][]string
+	}
+	tests := []struct {
+		name string
+		cfg  testConfig
+	}{
+		{
+			name: "single selector, unsorted list gets sorted",
+			cfg: testConfig{
+				executorIds: map[protocol.ChainSelector][]string{
+					1: {"executor-z", "executor-a", "executor-m"},
+				},
+				thisExecutorId: "executor-m",
+				expectedIndices: map[protocol.ChainSelector]int{
+					1: 1, // executor-m is at index 1 after sort
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					1: {"executor-a", "executor-m", "executor-z"},
+				},
+			},
+		},
+		{
+			name: "multiple selectors, all sorted independently",
+			cfg: testConfig{
+				executorIds: map[protocol.ChainSelector][]string{
+					1: {"executor-c", "executor-a", "executor-b"},
+					2: {"x", "a", "m", "z"},
+				},
+				thisExecutorId: "executor-b",
+				expectedIndices: map[protocol.ChainSelector]int{
+					1: 1,  // executor-b at index 1 after sort (["executor-a", "executor-b", "executor-c"])
+					2: -1, // executor-b not present in selector 2
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					1: {"executor-a", "executor-b", "executor-c"},
+					2: {"a", "m", "x", "z"},
+				},
+			},
+		},
+		{
+			name: "multi selector, unique executor per selector",
+			cfg: testConfig{
+				executorIds: map[protocol.ChainSelector][]string{
+					42: {"alpha"},
+					35: {"b", "a", "d", "c"},
+				},
+				thisExecutorId: "a",
+				expectedIndices: map[protocol.ChainSelector]int{
+					42: -1, // "a" not present in selector 42
+					35: 0,  // "a" is index 0 after sort ["a", "b", "c", "d"]
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					42: {"alpha"},
+					35: {"a", "b", "c", "d"},
+				},
+			},
+		},
+		{
+			name: "multiple selectors, duplicate executor id in both selectors",
+			cfg: testConfig{
+				executorIds: map[protocol.ChainSelector][]string{
+					13: {"exec-b", "exec-a", "exec-c"},
+					99: {"exec-c", "exec-b", "exec-a"},
+				},
+				thisExecutorId: "exec-c",
+				expectedIndices: map[protocol.ChainSelector]int{
+					13: 2, // ["exec-a", "exec-b", "exec-c"], exec-c is index 2
+					99: 2, // ["exec-a", "exec-b", "exec-c"], exec-c is index 2
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					13: {"exec-a", "exec-b", "exec-c"},
+					99: {"exec-a", "exec-b", "exec-c"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			intervals := make(map[protocol.ChainSelector]time.Duration)
+			for sel := range tc.cfg.executorIds {
+				intervals[sel] = 10 * time.Second
+			}
+			elector := NewHashBasedLeaderElector(
+				logger.Test(t),
+				tc.cfg.executorIds,
+				tc.cfg.thisExecutorId,
+				intervals,
+			)
+
+			for sel, expectedSorted := range tc.cfg.expectedSortedIds {
+				assert.Equal(t, expectedSorted, elector.executorIDs[sel], "ExecutorIDs should be sorted for selector %d", sel)
+			}
+			for sel, expectedIdx := range tc.cfg.expectedIndices {
+				assert.Equal(t, expectedIdx, elector.executorIndices[sel], "Executor index should match for selector %d", sel)
+			}
+		})
+	}
 }
 
 func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
@@ -240,12 +327,14 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
 		name              string
 		executorIds       []string
 		thisExecutorId    string
+		chainSel          protocol.ChainSelector
 		expectedIndex     int
 		expectedSortedIds []string
 	}{
 		{
 			name:              "unsorted list gets sorted",
 			executorIds:       []string{"executor-z", "executor-a", "executor-m"},
+			chainSel:          protocol.ChainSelector(1),
 			thisExecutorId:    "executor-m",
 			expectedIndex:     1, // executor-m is at index 1 in sorted list [executor-a, executor-m, executor-z]
 			expectedSortedIds: []string{"executor-a", "executor-m", "executor-z"},
@@ -253,6 +342,7 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
 		{
 			name:              "already sorted list",
 			executorIds:       []string{"executor-a", "executor-b", "executor-c"},
+			chainSel:          protocol.ChainSelector(1),
 			thisExecutorId:    "executor-b",
 			expectedIndex:     1,
 			expectedSortedIds: []string{"executor-a", "executor-b", "executor-c"},
@@ -263,15 +353,14 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			elector := NewHashBasedLeaderElector(
 				logger.Test(t),
-				tc.executorIds,
+				map[protocol.ChainSelector][]string{tc.chainSel: tc.executorIds},
 				tc.thisExecutorId,
-				30*time.Second,
-				10*time.Second,
+				map[protocol.ChainSelector]time.Duration{tc.chainSel: 30 * time.Second},
 			)
 
-			assert.Equal(t, tc.expectedIndex, elector.executorIndex,
+			assert.Equal(t, tc.expectedIndex, elector.executorIndices[tc.chainSel],
 				"Executor index should match expected position in sorted array")
-			assert.Equal(t, tc.expectedSortedIds, elector.executorIDs,
+			assert.Equal(t, tc.expectedSortedIds, elector.executorIDs[tc.chainSel],
 				"Executor IDs should be sorted")
 		})
 	}
@@ -394,24 +483,28 @@ func TestHashBasedLeaderElector_GetRetryDelay(t *testing.T) {
 		name              string
 		executorIds       []string
 		executionInterval time.Duration
+		chainSel          protocol.ChainSelector
 		expectedDelay     int64
 	}{
 		{
 			name:              "valid test",
 			executorIds:       []string{"ex-1", "ex-2", "ex-3"},
 			executionInterval: 20 * time.Second,
+			chainSel:          protocol.ChainSelector(1),
 			expectedDelay:     3 * 20, // 3 executors * 20s
 		},
 		{
 			name:              "multiple executors in pool",
 			executorIds:       []string{"ex-1", "ex-2", "ex-3", "ex-4"},
 			executionInterval: 15 * time.Second,
+			chainSel:          protocol.ChainSelector(1),
 			expectedDelay:     4 * 15, // 4 executors * 15s
 		},
 		{
 			name:              "single executor",
 			executorIds:       []string{"only-executor"},
 			executionInterval: 30 * time.Second,
+			chainSel:          protocol.ChainSelector(1),
 			expectedDelay:     1 * 30, // 1 executor * 30s
 		},
 	}
@@ -421,8 +514,12 @@ func TestHashBasedLeaderElector_GetRetryDelay(t *testing.T) {
 			t.Parallel()
 			// Pick the first executor as thisExecutorId for simplicity
 			thisID := tc.executorIds[0]
-			le := NewHashBasedLeaderElector(logger.Test(t), tc.executorIds, thisID, tc.executionInterval, 0)
-			retryDelay := le.GetRetryDelay(123)
+			le := NewHashBasedLeaderElector(
+				logger.Test(t),
+				map[protocol.ChainSelector][]string{tc.chainSel: tc.executorIds},
+				thisID,
+				map[protocol.ChainSelector]time.Duration{tc.chainSel: tc.executionInterval})
+			retryDelay := le.GetRetryDelay(tc.chainSel)
 			assert.Equal(t, tc.expectedDelay, retryDelay, "unexpected retry delay for case %s", tc.name)
 		})
 	}
