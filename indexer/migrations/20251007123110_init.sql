@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS indexer.verifier_results (
     
     -- Message is stored for every verifier result to avoid joins and the additional overhead
     message JSONB NOT NULL,
-	receipt_blobs JSONB NOT NULL,
+    receipt_blobs JSONB NOT NULL,
     
     -- Metadata
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
