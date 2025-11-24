@@ -229,7 +229,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	}
 	// Check if chain has progressed
 	if latest.Number <= r.latestBlock {
-		r.lggr.Debugw("No new blocks",
+		r.lggr.Infow("No new blocks",
 			"chainSelector", r.config.ChainSelector,
 			"latestBlock", latest.Number,
 			"latestBlock", r.latestBlock)
@@ -248,7 +248,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 
 	// Check for reorg: does parent hash match?
 	if latest.ParentHash != expectedParent.Hash {
-		r.lggr.Debugw("Reorg detected - parent hash mismatch",
+		r.lggr.Infow("Reorg detected - parent hash mismatch",
 			"chainSelector", r.config.ChainSelector,
 			"block", latest.Number,
 			"expectedParentHash", expectedParent.Hash,
@@ -309,7 +309,7 @@ func (r *ReorgDetectorService) backfillBlocks(ctx context.Context, startBlock, e
 	// Trim blocks older than finalized
 	r.trimOlderBlocks(finalizedBlockNum)
 
-	r.lggr.Debugw("Backfill completed",
+	r.lggr.Infow("Backfill completed",
 		"chainSelector", r.config.ChainSelector,
 		"latestFinalizedBlock", r.latestFinalizedBlock,
 		"latestBlock", r.latestBlock,
@@ -404,7 +404,7 @@ func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, l
 	gapEnd := latestBlockNum - 1
 	gapSize := gapEnd - gapStart + 1
 
-	r.lggr.Debugw("Gap detected in tail, backfilling",
+	r.lggr.Infow("Gap detected in tail, backfilling",
 		"chainSelector", r.config.ChainSelector,
 		"gapStart", gapStart,
 		"gapEnd", gapEnd,
@@ -447,7 +447,7 @@ func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, l
 		return protocol.BlockHeader{}, false
 	}
 
-	r.lggr.Debugw("Successfully backfilled gap",
+	r.lggr.Infow("Successfully backfilled gap",
 		"chainSelector", r.config.ChainSelector,
 		"gapSize", gapSize)
 

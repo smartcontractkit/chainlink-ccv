@@ -87,8 +87,8 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 	mustSendMessageFunc := func(data string) [32]byte {
 		// Start goroutine to mine block after 2 seconds to confirm the transaction
 		go func() {
-			time.Sleep(1 * time.Second)
-			err := anvilHelper.Mine(ctx, 2) // one for the msg, one afterwards so verifier doesn't get stuck in a infinite reading for the msg
+			time.Sleep(500 * time.Millisecond)
+			err := anvilHelper.Mine(ctx, 1) // one for the msg, one afterwards so verifier doesn't get stuck in a infinite reading for the msg
 			if err != nil {
 				l.Warn().Err(err).Msgf("Failed to mine block for message %s", data)
 			}
@@ -116,8 +116,21 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Str("data", data).
 			Int("seqNumber", int(event.SequenceNumber)).
 			Msg("Sending message")
+
+		//_ = anvilHelper.Mine(ctx, 12) // mining an extra block
 		return event.MessageID
 	}
+
+	t.Run("Mine", func(t *testing.T) {
+		err = anvilHelper.SetAutomine(ctx, false)
+		require.NoError(t, err)
+		_ = anvilHelper.Mine(ctx, 1)
+		//mustSendMessageFunc("test msg")
+	})
+
+	t.Run("Send msg", func(t *testing.T) {
+		mustSendMessageFunc("test msg")
+	})
 
 	t.Run("Disable automine", func(t *testing.T) {
 		err = anvilHelper.SetAutomine(ctx, false)
@@ -131,6 +144,71 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 	})
 	t.Run("Send a msg", func(t *testing.T) {
 		mustSendMessageFunc("test msg")
+	})
+	t.Run("simple reorg", func(t *testing.T) {
+		err = anvilHelper.SetAutomine(ctx, false)
+		require.NoError(t, err)
+		l.Info().Msg("🔒 Automine disabled - full manual control")
+
+		// Re-enable automine at the end
+		t.Cleanup(func() {
+			err := anvilHelper.SetAutomine(ctx, true)
+			if err != nil {
+				l.Warn().Err(err).Msg("Failed to re-enable automine")
+			}
+		})
+
+		err = anvilHelper.Mine(ctx, 4)
+		require.NoError(t, err)
+		time.Sleep(5 * time.Second)
+
+		snapshotID, err := anvilHelper.Snapshot(ctx)
+		require.NoError(t, err)
+
+		snapshotBlock, err := ethClient.BlockByNumber(ctx, nil)
+		require.NoError(t, err)
+		l.Info().
+			Str("snapshotID", snapshotID).
+			Uint64("snapshotBlock", snapshotBlock.Number().Uint64()).
+			Str("snapshotBlockHash", snapshotBlock.Hash().Hex()).
+			Msg("💾 Snapshot created (2 blocks before messages)")
+
+		err = anvilHelper.Mine(ctx, 3)
+		require.NoError(t, err)
+		time.Sleep(5 * time.Second)
+
+		blockBeforeReorg, err := ethClient.BlockByNumber(ctx, nil)
+		require.NoError(t, err)
+		l.Info().
+			Uint64("blockBeforeReorg", blockBeforeReorg.Number().Uint64()).
+			Str("blockBeforeReorgHash", blockBeforeReorg.Hash().Hex()).
+			Msg("⏱️  Block number before reorg (below finality threshold)")
+
+		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot")
+		err = anvilHelper.Revert(ctx, snapshotID)
+		require.NoError(t, err)
+
+		blockAfterRevert, err := ethClient.BlockByNumber(ctx, nil)
+		require.NoError(t, err)
+		l.Info().
+			Uint64("blockAfterRevert", blockAfterRevert.Number().Uint64()).
+			Str("blockAfterRevertHash", blockAfterRevert.Hash().Hex()).
+			Uint64("reorgDepth", blockBeforeReorg.Number().Uint64()-blockAfterRevert.Number().Uint64()).
+			Msg("⏪ Reverted to snapshot")
+
+		time.Sleep(5 * time.Second)
+
+		err = anvilHelper.Mine(ctx, 3)
+
+		blockAfterMining, err := ethClient.BlockByNumber(ctx, nil)
+		require.NoError(t, err)
+		l.Info().
+			Uint64("blockAfterMining", blockAfterMining.Number().Uint64()).
+			Str("blockAfterMiningHash", blockAfterMining.Hash().Hex()).
+			Msg("⏱️  Block number after mining post-reorg")
+		require.NoError(t, err)
+
+		time.Sleep(5 * time.Second)
 	})
 
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
@@ -155,11 +233,12 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		snapshotID, err := anvilHelper.Snapshot(ctx)
 		require.NoError(t, err)
 
-		snapshotBlock, err := ethClient.BlockNumber(ctx)
+		snapshotBlock, err := ethClient.BlockByNumber(ctx, nil)
 		require.NoError(t, err)
 		l.Info().
 			Str("snapshotID", snapshotID).
-			Uint64("snapshotBlock", snapshotBlock).
+			Uint64("snapshotBlock", snapshotBlock.Number().Uint64()).
+			Str("snapshotBlockHash", snapshotBlock.Hash().Hex()).
 			Msg("💾 Snapshot created (2 blocks before messages)")
 
 		// Block 5
@@ -191,10 +270,11 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		time.Sleep(5 * time.Second)
 
-		blockBeforeReorg, err := ethClient.BlockNumber(ctx)
+		blockBeforeReorg, err := ethClient.BlockByNumber(ctx, nil)
 		require.NoError(t, err)
 		l.Info().
-			Uint64("blockBeforeReorg", blockBeforeReorg).
+			Uint64("blockBeforeReorg", blockBeforeReorg.Number().Uint64()).
+			Str("blockBeforeReorgHash", blockBeforeReorg.Hash().Hex()).
 			Msg("⏱️  Block number before reorg (below finality threshold)")
 
 		l.Info().Msg("🔍 Checking messages are NOT in aggregator (below finality)")
@@ -217,11 +297,12 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		time.Sleep(5 * time.Second)
 
-		blockAfterRevert, err := ethClient.BlockNumber(ctx)
+		blockAfterRevert, err := ethClient.BlockByNumber(ctx, nil)
 		require.NoError(t, err)
 		l.Info().
-			Uint64("blockAfterRevert", blockAfterRevert).
-			Uint64("reorgDepth", blockBeforeReorg-blockAfterRevert).
+			Uint64("blockAfterRevert", blockAfterRevert.Number().Uint64()).
+			Str("blockAfterRevertHash", blockAfterRevert.Hash().Hex()).
+			Uint64("reorgDepth", blockBeforeReorg.Number().Uint64()-blockAfterRevert.Number().Uint64()).
 			Msg("⏪ Reverted to snapshot")
 
 		l.Info().Msg("📨 Sending message 2 first (swapped order)")
@@ -246,10 +327,11 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		time.Sleep(10 * time.Second)
 
-		finalBlock, err := ethClient.BlockNumber(ctx)
+		finalBlock, err := ethClient.BlockByNumber(ctx, nil)
 		require.NoError(t, err)
 		l.Info().
-			Uint64("finalBlock", finalBlock).
+			Uint64("finalBlock", finalBlock.Number().Uint64()).
+			Str("finalBlockHash", finalBlock.Hash().Hex()).
 			Msg("✅ Crossed finality threshold")
 
 		// Step 17: Verify both messages are found in aggregator
@@ -271,7 +353,7 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Msg("✅ Message 2 verified in aggregator after finality")
 
 		l.Info().
-			Uint64("reorgDepth", blockBeforeReorg-blockAfterRevert).
+			Uint64("reorgDepth", blockBeforeReorg.Number().Uint64()-blockAfterRevert.Number().Uint64()).
 			Msg("✨ Test completed: Messages sent in swapped order after reorg and verified after finality")
 	})
 }

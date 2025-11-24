@@ -204,7 +204,7 @@ func WithCurseDetector(detector common.CurseChecker) Option {
 func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	vc := &Coordinator{
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		finalityCheckInterval: 5 * time.Millisecond, // Default finality check interval
+		finalityCheckInterval: 2 * time.Second, // Default finality check interval
 		messageTimestamps: cache.New(
 			DefaultE2ELatencyCacheExpiration,
 			DefaultE2ELatencyCacheCleanupInterval,
