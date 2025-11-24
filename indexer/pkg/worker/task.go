@@ -48,14 +48,14 @@ func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *regi
 }
 
 // collectVerifierResults processes all verifier readers concurrently and collects successful results.
-func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*readers.VerifierReader) []protocol.VerifierResult {
+func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*readers.VerifierReader) []common.VerifierResultWithMetadata {
 	if len(verifierReaders) == 0 {
 		return nil
 	}
 
 	var (
 		mu      sync.Mutex
-		results []protocol.VerifierResult
+		results []common.VerifierResultWithMetadata
 		wg      sync.WaitGroup
 	)
 
@@ -81,8 +81,16 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 				}
 				if result.Err() == nil {
 					mu.Lock()
-					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().VerifierDestAddress, t.messageID.String())
-					results = append(results, result.Value())
+					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().VerifierSourceAddress, t.messageID.String())
+					verifierResultWithMetadata := common.VerifierResultWithMetadata{
+						VerifierResult: result.Value(),
+						Metadata: common.VerifierResultMetadata{
+							AttestationTimestamp: result.Value().Timestamp,
+							IngestionTimestamp:   time.Now(),
+							VerifierName:         t.registry.GetVerifierNameFromAddress(result.Value().VerifierSourceAddress),
+						},
+					}
+					results = append(results, verifierResultWithMetadata)
 					mu.Unlock()
 				}
 			case <-ctx.Done():
@@ -130,7 +138,7 @@ func (t *Task) getMissingVerifiers(ctx context.Context) (missing []string, err e
 }
 
 func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err error) {
-	var results []protocol.VerifierResult
+	var results []common.VerifierResultWithMetadata
 
 	// If we're using the sink, ignore the cache and use the persistent stores
 	if sink, ok := t.storage.(*storage.Sink); ok {
@@ -144,7 +152,7 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 	}
 
 	for _, r := range results {
-		existing = append(existing, strings.ToLower(r.VerifierSourceAddress.String()))
+		existing = append(existing, strings.ToLower(r.VerifierResult.VerifierSourceAddress.String()))
 	}
 
 	return existing, nil
@@ -158,4 +166,8 @@ func (t *Task) getVerifiers() []string {
 	}
 
 	return verifiers
+}
+
+func (t *Task) SetMessageStatus(ctx context.Context, messageStatus common.MessageStatus, lastErr string) error {
+	return t.storage.UpdateMessageStatus(ctx, t.messageID, messageStatus, lastErr)
 }

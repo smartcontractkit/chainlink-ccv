@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -31,7 +32,7 @@ func TestInMemoryStorage_TTLEviction(t *testing.T) {
 
 	// Insert some test data
 	now := time.Now().UnixMilli()
-	testData := []protocol.VerifierResult{
+	testData := []common.VerifierResultWithMetadata{
 		createTestCCVDataForEviction("0x001", time.UnixMilli(now-10000), 1, 2), // 10 seconds old (should be evicted)
 		createTestCCVDataForEviction("0x002", time.UnixMilli(now-1000), 1, 2),  // 1 second old (should remain)
 		createTestCCVDataForEviction("0x003", time.UnixMilli(now), 1, 2),       // just now (should remain)
@@ -44,7 +45,7 @@ func TestInMemoryStorage_TTLEviction(t *testing.T) {
 
 	// Verify all data is present
 	storage.mu.RLock()
-	count := len(storage.byTimestamp)
+	count := len(storage.verifierResultStorage.byTimestamp)
 	storage.mu.RUnlock()
 	assert.Equal(t, 3, count)
 
@@ -53,17 +54,17 @@ func TestInMemoryStorage_TTLEviction(t *testing.T) {
 
 	// Check that old data was evicted
 	storage.mu.RLock()
-	count = len(storage.byTimestamp)
+	count = len(storage.verifierResultStorage.byTimestamp)
 	storage.mu.RUnlock()
 
 	assert.LessOrEqual(t, count, 2, "Expected old data to be evicted")
 
 	// Verify that trying to get the old message returns not found
-	_, err := storage.GetCCVData(ctx, testData[0].MessageID)
+	_, err := storage.GetCCVData(ctx, testData[0].VerifierResult.MessageID)
 	assert.ErrorIs(t, err, ErrCCVDataNotFound)
 
 	// Verify recent messages are still present
-	data2, err := storage.GetCCVData(ctx, testData[1].MessageID)
+	data2, err := storage.GetCCVData(ctx, testData[1].VerifierResult.MessageID)
 	require.NoError(t, err)
 	assert.Len(t, data2, 1)
 }
@@ -97,7 +98,7 @@ func TestInMemoryStorage_SizeBasedEviction(t *testing.T) {
 
 	// Verify all 10 items are initially present
 	storage.mu.RLock()
-	count := len(storage.byTimestamp)
+	count := len(storage.verifierResultStorage.byTimestamp)
 	storage.mu.RUnlock()
 	assert.Equal(t, 10, count)
 
@@ -106,7 +107,7 @@ func TestInMemoryStorage_SizeBasedEviction(t *testing.T) {
 
 	// Check that storage is at or below max size
 	storage.mu.RLock()
-	count = len(storage.byTimestamp)
+	count = len(storage.verifierResultStorage.byTimestamp)
 	storage.mu.RUnlock()
 
 	assert.LessOrEqual(t, count, 5, "Expected storage to be trimmed to max size")
@@ -171,7 +172,7 @@ func TestInMemoryStorage_CombinedTTLAndSizeEviction(t *testing.T) {
 
 	// Check that storage is at or below max size
 	storage.mu.RLock()
-	count := len(storage.byTimestamp)
+	count := len(storage.verifierResultStorage.byTimestamp)
 	storage.mu.RUnlock()
 
 	assert.LessOrEqual(t, count, 5, "Expected storage to respect max size")
@@ -210,7 +211,7 @@ func TestInMemoryStorage_NoEviction(t *testing.T) {
 
 	// Verify all 10 items remain (no cleanup goroutine running)
 	storage.mu.RLock()
-	count := len(storage.byTimestamp)
+	count := len(storage.verifierResultStorage.byTimestamp)
 	storage.mu.RUnlock()
 	assert.Equal(t, 10, count)
 
@@ -247,7 +248,7 @@ func TestInMemoryStorage_CleanupStopsOnClose(t *testing.T) {
 }
 
 // Helper function to create test CCVData for eviction tests.
-func createTestCCVDataForEviction(messageIDHex string, timestamp time.Time, sourceChain, destChain protocol.ChainSelector) protocol.VerifierResult {
+func createTestCCVDataForEviction(messageIDHex string, timestamp time.Time, sourceChain, destChain protocol.ChainSelector) common.VerifierResultWithMetadata {
 	// Ensure the messageID is properly padded to 64 hex characters.
 	if len(messageIDHex) < 66 { // "0x" + 64 hex chars
 		messageIDHex = fmt.Sprintf("0x%064s", messageIDHex[2:])
@@ -277,14 +278,20 @@ func createTestCCVDataForEviction(messageIDHex string, timestamp time.Time, sour
 		OnRampAddressLength:  3,
 	}
 
-	return protocol.VerifierResult{
-		MessageID:              messageID,
-		Timestamp:              timestamp,
-		Message:                message,
-		MessageCCVAddresses:    []protocol.UnknownAddress{{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))}},
-		MessageExecutorAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-		VerifierDestAddress:    protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-		VerifierSourceAddress:  protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
-		CCVData:                []byte{0x07, 0x08, 0x09},
+	return common.VerifierResultWithMetadata{
+		VerifierResult: protocol.VerifierResult{
+			MessageID:              messageID,
+			Timestamp:              timestamp,
+			VerifierSourceAddress:  protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			VerifierDestAddress:    protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			CCVData:                []byte{0x07, 0x08, 0x09},
+			MessageCCVAddresses:    []protocol.UnknownAddress{{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))}},
+			MessageExecutorAddress: protocol.UnknownAddress{byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256))},
+			Message:                message,
+		},
+		Metadata: common.VerifierResultMetadata{
+			AttestationTimestamp: timestamp,
+			IngestionTimestamp:   timestamp,
+		},
 	}
 }

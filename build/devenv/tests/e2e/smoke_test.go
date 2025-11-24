@@ -162,7 +162,7 @@ func TestE2ESmoke(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.NotNil(t, result.AggregatedResult)
-				require.Len(t, result.IndexedVerifications.VerifierResults, tc.numExpectedVerifications)
+				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
@@ -237,7 +237,7 @@ func TestE2ESmoke(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.NotNil(t, result.AggregatedResult)
-				require.Len(t, result.IndexedVerifications.VerifierResults, tc.numExpectedVerifications)
+				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)

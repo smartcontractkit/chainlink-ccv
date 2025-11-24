@@ -6,17 +6,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var _ protocol.OffchainStorageReader = (*MockReader)(nil)
+var (
+	_ protocol.OffchainStorageReader = (*MockReader)(nil)
+	_ protocol.VerifierResultsAPI    = (*MockReader)(nil)
+)
 
 // MockReaderConfig configures the behavior of the mock reader.
 type MockReaderConfig struct {
 	// MessageGenerator is a function that generates CCVData for the mock reader.
 	// If nil, a default generator will be used.
 	// The parameter is the message number (1-indexed), not the call count.
-	MessageGenerator func(messageNumber int) protocol.VerifierResult
+	MessageGenerator func(messageNumber int) common.VerifierResultWithMetadata
 
 	// EmitInterval is the interval at which messages should be emitted.
 	// If zero, messages are emitted on every call to ReadCCVData.
@@ -215,7 +219,7 @@ func (m *MockReader) generateResponses(messagesToEmit int, now time.Time) []prot
 
 		response := protocol.QueryResponse{
 			Timestamp: &timestamp,
-			Data:      ccvData,
+			Data:      ccvData.VerifierResult,
 		}
 		responses = append(responses, response)
 	}
@@ -267,7 +271,7 @@ func (m *MockReader) GetMessagesEmitted() int {
 // DefaultMessageGenerator is the default message generator function.
 // It creates a simple CCVData with predictable values for testing.
 // The parameter represents the message number (not call count).
-func DefaultMessageGenerator(messageNumber int) protocol.VerifierResult {
+func DefaultMessageGenerator(messageNumber int) common.VerifierResultWithMetadata {
 	sourceAddr, _ := protocol.RandomAddress()
 	destAddr, _ := protocol.RandomAddress()
 	onRampAddr, _ := protocol.RandomAddress()
@@ -300,14 +304,21 @@ func DefaultMessageGenerator(messageNumber int) protocol.VerifierResult {
 
 	messageID, _ := message.MessageID()
 
-	return protocol.VerifierResult{
-		MessageID:              messageID,
-		Message:                message,
-		MessageCCVAddresses:    []protocol.UnknownAddress{sourceAddr},
-		MessageExecutorAddress: destAddr,
-		CCVData:                []byte{},
-		Timestamp:              time.Now(),
-		VerifierDestAddress:    destAddr,
+	return common.VerifierResultWithMetadata{
+		VerifierResult: protocol.VerifierResult{
+			VerifierSourceAddress:  sourceAddr,
+			VerifierDestAddress:    destAddr,
+			Message:                message,
+			MessageID:              messageID,
+			CCVData:                []byte{},
+			MessageCCVAddresses:    []protocol.UnknownAddress{},
+			MessageExecutorAddress: protocol.UnknownAddress{},
+			Timestamp:              time.Now(),
+		},
+		Metadata: common.VerifierResultMetadata{
+			AttestationTimestamp: time.Now(),
+			IngestionTimestamp:   time.Now(),
+		},
 	}
 }
 

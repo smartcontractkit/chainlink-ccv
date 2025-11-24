@@ -11,7 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -21,9 +21,10 @@ type AggregatorMessageDiscovery struct {
 	logger           logger.Logger
 	config           config.DiscoveryConfig
 	aggregatorReader *readers.ResilientReader
+	registry         *registry.VerifierRegistry
 	storageSink      common.IndexerStorage
 	monitoring       common.IndexerMonitoring
-	messageCh        chan protocol.VerifierResult
+	messageCh        chan common.VerifierResultWithMetadata
 	stopCh           chan struct{}
 	doneCh           chan struct{}
 	readerLock       *sync.Mutex
@@ -34,6 +35,12 @@ type Option func(*AggregatorMessageDiscovery)
 func WithAggregator(aggregator *readers.ResilientReader) Option {
 	return func(a *AggregatorMessageDiscovery) {
 		a.aggregatorReader = aggregator
+	}
+}
+
+func WithRegistry(registry *registry.VerifierRegistry) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.registry = registry
 	}
 }
 
@@ -65,7 +72,7 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	a := &AggregatorMessageDiscovery{
 		stopCh:     make(chan struct{}),
 		doneCh:     make(chan struct{}),
-		messageCh:  make(chan protocol.VerifierResult),
+		messageCh:  make(chan common.VerifierResultWithMetadata),
 		readerLock: &sync.Mutex{},
 	}
 
@@ -95,6 +102,10 @@ func (a *AggregatorMessageDiscovery) validate() error {
 		return errors.New("aggregator must be specified")
 	}
 
+	if a.registry == nil {
+		return errors.New("registry must be specified")
+	}
+
 	if a.logger == nil {
 		return errors.New("logger must be specified")
 	}
@@ -110,7 +121,7 @@ func (a *AggregatorMessageDiscovery) validate() error {
 	return nil
 }
 
-func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan protocol.VerifierResult {
+func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
 	go a.run(ctx)
 	a.logger.Info("MessageDiscovery Started")
 
@@ -203,20 +214,37 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	a.logger.Debug("Called Aggregator")
 
+	ingestionTimestamp := time.Now()
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 
-		// TODO: Update with message ingestion timestamp
-		response.Data.Timestamp = time.Now()
+		verifierResultWithMetadata := common.VerifierResultWithMetadata{
+			VerifierResult: response.Data,
+			Metadata: common.VerifierResultMetadata{
+				IngestionTimestamp:   ingestionTimestamp,
+				AttestationTimestamp: response.Data.Timestamp,
+				VerifierName:         a.registry.GetVerifierNameFromAddress(response.Data.VerifierSourceAddress),
+			},
+		}
+
+		if err := a.storageSink.InsertMessage(ctx, common.MessageWithMetadata{
+			Message: response.Data.Message,
+			Metadata: common.MessageMetadata{
+				IngestionTimestamp: ingestionTimestamp,
+			},
+		}); err != nil {
+			a.logger.Error("Error saving Message for MessageID %s to storage", response.Data.MessageID.String())
+			continue
+		}
 
 		// Save the VerificationResult to the storage layer
-		if err := a.storageSink.InsertCCVData(ctx, response.Data); err != nil {
+		if err := a.storageSink.InsertCCVData(ctx, verifierResultWithMetadata); err != nil {
 			a.logger.Error("Error saving VerificationResult for MessageID %s to storage", response.Data.MessageID.String())
 			continue
 		}
 
 		// Emit the Message into the message channel for downstream components to consume
-		a.messageCh <- response.Data
+		a.messageCh <- verifierResultWithMetadata
 	}
 
 	// Return true if we processed any data, false if the slice was empty

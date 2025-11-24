@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -93,11 +94,17 @@ func TestMockReader_ReturnsErrorAfterCalls(t *testing.T) {
 }
 
 func TestMockReader_CustomMessageGenerator(t *testing.T) {
-	customNonce := uint64(999)
-	customGenerator := func(callCount int) protocol.VerifierResult {
-		return protocol.VerifierResult{
-			Message: protocol.Message{
-				SequenceNumber: protocol.SequenceNumber(customNonce),
+	customNonce := protocol.Nonce(999)
+	customGenerator := func(callCount int) common.VerifierResultWithMetadata {
+		return common.VerifierResultWithMetadata{
+			VerifierResult: protocol.VerifierResult{
+				Message: protocol.Message{
+					SequenceNumber: protocol.SequenceNumber(customNonce),
+				},
+			},
+			Metadata: common.VerifierResultMetadata{
+				IngestionTimestamp:   time.Now(),
+				AttestationTimestamp: time.Now(),
 			},
 		}
 	}
