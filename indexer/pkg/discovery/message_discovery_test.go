@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
@@ -43,21 +44,20 @@ func (ts *testSetup) Cleanup() {
 // setupMessageDiscoveryTest creates a complete test setup with default configuration.
 func setupMessageDiscoveryTest(t *testing.T) *testSetup {
 	t.Helper()
-	return setupMessageDiscoveryTestWithConfig(t, Config{
-		PollInterval:       50 * time.Millisecond,
-		Timeout:            500 * time.Millisecond,
-		MessageChannelSize: 1000,
+	return setupMessageDiscoveryTestWithConfig(t, config.DiscoveryConfig{
+		PollInterval: 50,
+		Timeout:      500,
 	})
 }
 
 // setupMessageDiscoveryTestWithConfig creates a test setup with custom configuration.
-func setupMessageDiscoveryTestWithConfig(t *testing.T, config Config) *testSetup {
+func setupMessageDiscoveryTestWithConfig(t *testing.T, config config.DiscoveryConfig) *testSetup {
 	t.Helper()
 	return setupMessageDiscoveryTestWithTimeout(t, config, 5*time.Second)
 }
 
 // setupMessageDiscoveryTestWithTimeout creates a test setup with custom timeout.
-func setupMessageDiscoveryTestWithTimeout(t *testing.T, config Config, timeout time.Duration) *testSetup {
+func setupMessageDiscoveryTestWithTimeout(t *testing.T, config config.DiscoveryConfig, timeout time.Duration) *testSetup {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -95,7 +95,7 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config Config, timeout t
 }
 
 // setupMessageDiscoveryTestNoTimeout creates a test setup without a timeout context.
-func setupMessageDiscoveryTestNoTimeout(t *testing.T, config Config) *testSetup {
+func setupMessageDiscoveryTestNoTimeout(t *testing.T, config config.DiscoveryConfig) *testSetup {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -131,11 +131,10 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config Config) *testSetup 
 }
 
 // defaultTestConfig returns the standard configuration used in most tests.
-func defaultTestConfig() Config {
-	return Config{
-		PollInterval:       50 * time.Millisecond,
-		Timeout:            500 * time.Millisecond,
-		MessageChannelSize: 1000,
+func defaultTestConfig() config.DiscoveryConfig {
+	return config.DiscoveryConfig{
+		PollInterval: 50,
+		Timeout:      500,
 	}
 }
 

@@ -25,6 +25,7 @@ type Task struct {
 	runAt     time.Time
 	index     int // heap index
 	lastErr   error
+	ttl       time.Time
 }
 
 type TaskResult struct {
@@ -33,7 +34,7 @@ type TaskResult struct {
 	UnavailableCCVs         int
 }
 
-func NewTask(lggr logger.Logger, message protocol.CCVData, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Task, error) {
+func NewTask(lggr logger.Logger, message protocol.CCVData, registry *registry.VerifierRegistry, storage common.IndexerStorage, verificationVisabilityWindow time.Duration) (*Task, error) {
 	return &Task{
 		logger:    logger.Named(logger.With(lggr, "messageID", message.MessageID), "Task"),
 		messageID: message.MessageID,
@@ -42,6 +43,7 @@ func NewTask(lggr logger.Logger, message protocol.CCVData, registry *registry.Ve
 		storage:   storage,
 		attempt:   0,
 		lastErr:   nil,
+		ttl:       time.Now().Add(verificationVisabilityWindow),
 	}, nil
 }
 
