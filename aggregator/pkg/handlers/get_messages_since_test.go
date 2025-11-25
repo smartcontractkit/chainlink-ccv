@@ -31,13 +31,12 @@ func TestGetMessagesSinceHandler_Success(t *testing.T) {
 		destSel   = uint64(2)
 	)
 	signerAddr := addrSigner
-	sourceVerifierAddr := addrSourceVerifier
 	destVerifierAddr := addrDestVerifier
 	committee := buildCommittee(destSel, sourceSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
 
-	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
+	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
 	msgID, _ := msg.MessageID()
-	report := makeAggregatedReport(msgID[:], sourceSel, destSel, sourceVerifierAddr, signerAddr)
+	report := makeAggregatedReport(msg, msgID[:], signerAddr)
 
 	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything).Return(&model.AggregatedReportBatch{Reports: []*model.CommitAggregatedReport{report}, HasMore: false}, nil)
 	labeler.EXPECT().RecordMessageSinceNumberOfRecordsReturned(mock.Anything, 1)

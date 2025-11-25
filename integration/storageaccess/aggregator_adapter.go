@@ -22,90 +22,82 @@ type AggregatorWriter struct {
 	lggr   logger.Logger
 }
 
-func mapReceiptBlob(receiptBlob protocol.ReceiptWithBlob) (*pb.ReceiptBlob, error) {
-	return &pb.ReceiptBlob{
-		Issuer:            receiptBlob.Issuer[:],
-		Blob:              receiptBlob.Blob[:],
-		DestGasLimit:      receiptBlob.DestGasLimit,
-		DestBytesOverhead: receiptBlob.DestBytesOverhead,
-		ExtraArgs:         receiptBlob.ExtraArgs,
-	}, nil
-}
-
-func mapReceiptBlobs(receiptBlobs []protocol.ReceiptWithBlob) ([]*pb.ReceiptBlob, error) {
-	var result []*pb.ReceiptBlob
-	for _, blob := range receiptBlobs {
-		mapped, err := mapReceiptBlob(blob)
-		if err != nil {
-			return nil, err
-		}
-		if mapped != nil {
-			result = append(result, mapped)
-		}
-	}
-	return result, nil
-}
-
-func mapCCVDataToCCVNodeDataProto(ccvData protocol.CCVData) (*pb.WriteCommitteeVerifierNodeResultRequest, error) {
-	receiptBlobs, err := mapReceiptBlobs(ccvData.ReceiptBlobs)
-	if err != nil {
-		return nil, err
+func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*pb.WriteCommitteeVerifierNodeResultRequest, error) {
+	// Convert CCV addresses to byte slices
+	ccvAddresses := make([][]byte, len(ccvData.CCVAddresses))
+	for i, addr := range ccvData.CCVAddresses {
+		ccvAddresses[i] = addr[:]
 	}
 
 	return &pb.WriteCommitteeVerifierNodeResultRequest{
-		CcvNodeData: &pb.CommitteeVerifierNodeResult{
-			MessageId:             ccvData.MessageID[:],
-			SourceVerifierAddress: ccvData.SourceVerifierAddress[:],
-			CcvData:               ccvData.CCVData,
-			BlobData:              ccvData.BlobData,
-			Timestamp:             ccvData.Timestamp.UnixMilli(),
+		CommitteeVerifierNodeResult: &pb.CommitteeVerifierNodeResult{
+			CcvVersion:      ccvData.CCVVersion,
+			CcvAddresses:    ccvAddresses,
+			ExecutorAddress: ccvData.ExecutorAddress[:],
+			Signature:       ccvData.Signature[:],
 			Message: &pb.Message{
 				Version:              uint32(ccvData.Message.Version),
 				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
 				DestChainSelector:    uint64(ccvData.Message.DestChainSelector),
-				Nonce:                uint64(ccvData.Message.Nonce),
+				SequenceNumber:       uint64(ccvData.Message.SequenceNumber),
 				OnRampAddressLength:  uint32(ccvData.Message.OnRampAddressLength),
-				OnRampAddress:        ccvData.Message.OnRampAddress[:],
+				OnRampAddress:        ccvData.Message.OnRampAddress,
 				OffRampAddressLength: uint32(ccvData.Message.OffRampAddressLength),
-				OffRampAddress:       ccvData.Message.OffRampAddress[:],
+				OffRampAddress:       ccvData.Message.OffRampAddress,
 				Finality:             uint32(ccvData.Message.Finality),
 				SenderLength:         uint32(ccvData.Message.SenderLength),
-				Sender:               ccvData.Message.Sender[:],
+				Sender:               ccvData.Message.Sender,
 				ReceiverLength:       uint32(ccvData.Message.ReceiverLength),
-				Receiver:             ccvData.Message.Receiver[:],
+				Receiver:             ccvData.Message.Receiver,
 				DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
-				DestBlob:             ccvData.Message.DestBlob[:],
+				DestBlob:             ccvData.Message.DestBlob,
 				TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
-				TokenTransfer:        ccvData.Message.TokenTransfer[:],
+				TokenTransfer:        ccvData.Message.TokenTransfer,
 				DataLength:           uint32(ccvData.Message.DataLength),
-				Data:                 ccvData.Message.Data[:],
-				GasLimit:             ccvData.Message.GasLimit,
+				Data:                 ccvData.Message.Data,
+				ExecutionGasLimit:    ccvData.Message.ExecutionGasLimit,
+				CcipReceiveGasLimit:  ccvData.Message.CcipReceiveGasLimit,
+				CcvAndExecutorHash:   ccvData.Message.CcvAndExecutorHash[:],
 			},
-			ReceiptBlobs: receiptBlobs,
 		},
 	}, nil
-}
-
-// WriteCCVNodeData writes CCV data to the aggregator via gRPC.
-func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.CCVData) error {
+} // WriteCCVNodeData writes CCV data to the aggregator via gRPC.
+func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
+
+	requests := make([]*pb.WriteCommitteeVerifierNodeResultRequest, 0, len(ccvDataList))
 	for _, ccvData := range ccvDataList {
 		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
+		// FIXME: Single bad entry shouldn't fail the whole batch, it might lead to infinitely retrying the same bad entry
+		// and making no progress
 		if err != nil {
 			return err
 		}
-		responses, err := a.client.BatchWriteCommitteeVerifierNodeResult(ctx, &pb.BatchWriteCommitteeVerifierNodeResultRequest{
-			Requests: []*pb.WriteCommitteeVerifierNodeResultRequest{req},
-		})
-		if err != nil {
-			return fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
+		requests = append(requests, req)
+	}
+
+	responses, err := a.client.BatchWriteCommitteeVerifierNodeResult(
+		ctx, &pb.BatchWriteCommitteeVerifierNodeResultRequest{
+			Requests: requests,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
+	}
+
+	// FIXME: AggregatorWriter should expose underlying errors (per single ccvDataRequest) to the caller,
+	// so that caller can decide what to do with failed entries (i.e., retry only failed ones).
+	for i, resp := range responses.Responses {
+		messageID := "unknown"
+		if i < len(ccvDataList) {
+			messageID = ccvDataList[i].MessageID.String()
 		}
-		for _, resp := range responses.Responses {
-			if resp.Status != pb.WriteStatus_SUCCESS {
-				return fmt.Errorf("failed to write CCV data for message ID %s: status %s", ccvData.MessageID.String(), resp.Status.String())
-			}
-			a.lggr.Infow("Successfully stored CCV data", "messageID", ccvData.MessageID)
+
+		if resp.Status != pb.WriteStatus_SUCCESS {
+			a.lggr.Error("BatchWriteCommitteeVerifierNodeResult", "status", resp.Status)
+			continue
 		}
+		a.lggr.Infow("Successfully stored CCV data", "messageID", messageID)
 	}
 	return nil
 }
@@ -155,7 +147,7 @@ func (a *AggregatorWriter) WriteChainStatus(ctx context.Context, statuses []prot
 	return nil
 }
 
-// NewAggregatorWriter creates instance of AggregatorWriter that satisfies OffchainStorageWriter interface.
+// NewAggregatorWriter creates instance of AggregatorWriter that satisfies CCVNodeDataWriter interface.
 func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig) (*AggregatorWriter, error) {
 	dialOptions := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -182,10 +174,11 @@ func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.Cl
 }
 
 type AggregatorReader struct {
-	client pb.VerifierResultAPIClient
-	lggr   logger.Logger
-	conn   *grpc.ClientConn
-	since  int64
+	client                 pb.VerifierResultAPIClient
+	messageDiscoveryClient pb.MessageDiscoveryClient
+	lggr                   logger.Logger
+	conn                   *grpc.ClientConn
+	since                  int64
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
@@ -208,10 +201,11 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacCo
 	}
 
 	return &AggregatorReader{
-		client: pb.NewVerifierResultAPIClient(conn),
-		conn:   conn,
-		lggr:   logger.With(lggr, "aggregatorAddress", address),
-		since:  since,
+		client:                 pb.NewVerifierResultAPIClient(conn),
+		messageDiscoveryClient: pb.NewMessageDiscoveryClient(conn),
+		conn:                   conn,
+		lggr:                   logger.With(lggr, "aggregatorAddress", address),
+		since:                  since,
 	}, nil
 }
 
@@ -266,7 +260,8 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 	result := protocol.Message{
 		SourceChainSelector: protocol.ChainSelector(msg.SourceChainSelector),
 		DestChainSelector:   protocol.ChainSelector(msg.DestChainSelector),
-		Nonce:               protocol.Nonce(msg.Nonce),
+		SequenceNumber:      protocol.SequenceNumber(msg.SequenceNumber),
+		CcvAndExecutorHash:  protocol.Bytes32(msg.CcvAndExecutorHash),
 		OnRampAddress:       msg.OnRampAddress[:],
 		OffRampAddress:      msg.OffRampAddress[:],
 		Sender:              msg.Sender[:],
@@ -274,7 +269,8 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 		DestBlob:            msg.DestBlob[:],
 		TokenTransfer:       msg.TokenTransfer[:],
 		Data:                msg.Data[:],
-		GasLimit:            msg.GasLimit,
+		ExecutionGasLimit:   msg.ExecutionGasLimit,
+		CcipReceiveGasLimit: msg.CcipReceiveGasLimit,
 	}
 
 	if msg.Version > math.MaxUint8 {
@@ -319,9 +315,18 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 	return result, nil
 }
 
+// convertBytesToByteSlices converts [][]byte to []protocol.UnknownAddress.
+func convertBytesToByteSlices(bytes [][]byte) []protocol.UnknownAddress {
+	result := make([]protocol.UnknownAddress, len(bytes))
+	for i, b := range bytes {
+		result[i] = protocol.UnknownAddress(b)
+	}
+	return result
+}
+
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
-	resp, err := a.client.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
+	resp, err := a.messageDiscoveryClient.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
 		SinceSequence: a.since,
 	})
 	if err != nil {
@@ -332,7 +337,12 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	// Convert the response to []types.QueryResponse
 	results := make([]protocol.QueryResponse, 0, len(resp.Results))
 	tempSince := a.since
-	for i, result := range resp.Results {
+	for i, resultWithSeq := range resp.Results {
+		result := resultWithSeq.VerifierResult
+		if result == nil {
+			return nil, fmt.Errorf("nil VerifierResult at index %d", i)
+		}
+
 		msg, err := mapMessage(result.Message)
 		if err != nil {
 			return nil, fmt.Errorf("error mapping message at index %d: %w", i, err)
@@ -344,37 +354,35 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 			return nil, fmt.Errorf("error computing message ID at index %d: %w", i, err)
 		}
 
-		sequence := result.Sequence
+		sequence := resultWithSeq.Sequence
 		if sequence >= tempSince {
 			tempSince = sequence + 1
 		}
 
-		receiptBlobs := []protocol.ReceiptWithBlob{}
-		for _, receipt := range result.GetReceiptBlobsFromMajority() {
-			receiptBlobs = append(receiptBlobs, protocol.ReceiptWithBlob{
-				Issuer:            protocol.UnknownAddress(receipt.Issuer),
-				Blob:              protocol.ByteSlice(receipt.Blob),
-				ExtraArgs:         protocol.ByteSlice(receipt.ExtraArgs),
-				DestGasLimit:      receipt.DestGasLimit,
-				DestBytesOverhead: receipt.DestBytesOverhead,
-				FeeTokenAmount:    big.NewInt(0), // for some reason doesn't exist in the pb message
-			})
+		// Convert MessageCcvAddresses from [][]byte to []ByteSlice
+		messageCCVAddresses := convertBytesToByteSlices(result.MessageCcvAddresses)
+
+		// Extract timestamp and verifier dest address from metadata
+		var timestamp time.Time
+		var verifierDestAddress protocol.UnknownAddress
+		var verifierSourceAddress protocol.UnknownAddress
+		if result.Metadata != nil {
+			timestamp = time.UnixMilli(result.Metadata.Timestamp)
+			verifierDestAddress = protocol.UnknownAddress(result.Metadata.VerifierDestAddress)
+			verifierSourceAddress = protocol.UnknownAddress(result.Metadata.VerifierSourceAddress)
 		}
 
 		results = append(results, protocol.QueryResponse{
 			Timestamp: nil,
-			Data: protocol.CCVData{
-				SourceVerifierAddress: result.GetSourceVerifierAddress(),
-				DestVerifierAddress:   result.GetDestVerifierAddress(),
-				CCVData:               result.CcvData,
-				// BlobData & ReceiptBlobs need to be added
-				ReceiptBlobs:        receiptBlobs,
-				Message:             msg,
-				Nonce:               msg.Nonce,
-				SourceChainSelector: msg.SourceChainSelector,
-				DestChainSelector:   msg.DestChainSelector,
-				Timestamp:           time.UnixMilli(result.Timestamp),
-				MessageID:           messageID,
+			Data: protocol.VerifierResult{
+				MessageID:              messageID,
+				Message:                msg,
+				MessageCCVAddresses:    messageCCVAddresses,
+				MessageExecutorAddress: protocol.UnknownAddress(result.MessageExecutorAddress),
+				CCVData:                protocol.ByteSlice(result.CcvData),
+				Timestamp:              timestamp,
+				VerifierDestAddress:    verifierDestAddress,
+				VerifierSourceAddress:  verifierSourceAddress,
 			},
 		})
 	}
@@ -384,23 +392,21 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	return results, nil
 }
 
-func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
-	requests := make([]*pb.GetVerifierResultForMessageRequest, 0, len(messageIDs))
+func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
+	messageIDsBytes := make([][]byte, 0, len(messageIDs))
 	for _, id := range messageIDs {
-		requests = append(requests, &pb.GetVerifierResultForMessageRequest{
-			MessageId: id[:],
-		})
+		messageIDsBytes = append(messageIDsBytes, id[:])
 	}
 
-	resp, err := a.client.BatchGetVerifierResultForMessage(ctx, &pb.BatchGetVerifierResultForMessageRequest{
-		Requests: requests,
+	resp, err := a.client.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
+		MessageIds: messageIDsBytes,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error calling BatchGetVerifierResultsForMessage: %s", err)
+		return nil, fmt.Errorf("error calling GetVerifierResultsForMessage: %s", err)
 	}
 
-	a.lggr.Debugw("BatchGetVerifierResultForMessage", "count", len(resp.Results), "messageIDs", messageIDs)
-	results := make(map[protocol.Bytes32]protocol.CCVData)
+	a.lggr.Debugw("GetVerifierResultsForMessage", "count", len(resp.Results), "messageIDs", messageIDs)
+	results := make(map[protocol.Bytes32]protocol.VerifierResult)
 	for i, result := range resp.Results {
 		msg, err := mapMessage(result.Message)
 		if err != nil {
@@ -412,18 +418,28 @@ func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []pr
 			return nil, fmt.Errorf("error computing message ID at index %d: %w", i, err)
 		}
 
-		results[messageID] = protocol.CCVData{
-			SourceVerifierAddress: protocol.UnknownAddress(result.SourceVerifierAddress),
-			DestVerifierAddress:   protocol.UnknownAddress(result.DestVerifierAddress),
-			CCVData:               protocol.ByteSlice(result.CcvData),
-			BlobData:              protocol.ByteSlice{},         // Unavailable in API
-			ReceiptBlobs:          []protocol.ReceiptWithBlob{}, // Unavailable in API
-			Message:               msg,
-			Nonce:                 msg.Nonce,
-			SourceChainSelector:   msg.SourceChainSelector,
-			DestChainSelector:     msg.DestChainSelector,
-			Timestamp:             time.UnixMilli(result.Timestamp),
-			MessageID:             messageID,
+		// Convert MessageCcvAddresses from [][]byte to []ByteSlice
+		messageCCVAddresses := convertBytesToByteSlices(result.MessageCcvAddresses)
+
+		// Extract timestamp and verifier addresses from metadata
+		var timestamp time.Time
+		var verifierSourceAddress protocol.UnknownAddress
+		var verifierDestAddress protocol.UnknownAddress
+		if result.Metadata != nil {
+			timestamp = time.UnixMilli(result.Metadata.Timestamp)
+			verifierSourceAddress = protocol.UnknownAddress(result.Metadata.VerifierSourceAddress)
+			verifierDestAddress = protocol.UnknownAddress(result.Metadata.VerifierDestAddress)
+		}
+
+		results[messageID] = protocol.VerifierResult{
+			MessageID:              messageID,
+			Message:                msg,
+			MessageCCVAddresses:    messageCCVAddresses,
+			MessageExecutorAddress: protocol.UnknownAddress(result.MessageExecutorAddress),
+			CCVData:                protocol.ByteSlice(result.CcvData),
+			Timestamp:              timestamp,
+			VerifierSourceAddress:  verifierSourceAddress,
+			VerifierDestAddress:    verifierDestAddress,
 		}
 	}
 

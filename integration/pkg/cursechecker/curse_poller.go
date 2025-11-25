@@ -55,7 +55,7 @@ func NewCurseDetectorService(
 	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader,
 	pollInterval time.Duration,
 	lggr logger.Logger,
-) (common.CurseChecker, error) {
+) (common.CurseCheckerService, error) {
 	if len(rmnReaders) == 0 {
 		return nil, fmt.Errorf("at least one RMN reader required")
 	}
@@ -122,7 +122,7 @@ func (s *PollerService) Close() error {
 // Returns true if:
 //   - remoteChain appears in localChain's cursed subjects, OR
 //   - localChain has a global curse
-func (s *PollerService) IsRemoteChainCursed(localChain, remoteChain protocol.ChainSelector) bool {
+func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remoteChain protocol.ChainSelector) bool {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -199,9 +199,10 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 	wg.Wait()
 }
 
-func chainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
+func ChainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
 	var result [16]byte
 	// Convert the uint64 to bytes and place it in the last 8 bytes of the array
+
 	binary.BigEndian.PutUint64(result[8:], uint64(chainSel))
 	return result
 }

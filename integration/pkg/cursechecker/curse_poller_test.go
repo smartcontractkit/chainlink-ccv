@@ -30,7 +30,7 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 	// Chain A's RMN Remote says chain B is cursed
 	mockReaderA := protocol_mocks.NewMockRMNCurseReader(t)
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
-		Return([]protocol.Bytes16{chainSelectorToBytes16(chainB)}, nil).
+		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainB)}, nil).
 		Maybe()
 
 	// Chain B's RMN Remote has no curses
@@ -52,16 +52,16 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 	defer svc.Close()
 
 	// Chain A -> Chain B should be cursed
-	require.True(t, svc.IsRemoteChainCursed(chainA, chainB), "chainA->chainB should be cursed")
+	require.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA->chainB should be cursed")
 
 	// Chain A -> Chain C should not be cursed
-	require.False(t, svc.IsRemoteChainCursed(chainA, chainC), "chainA->chainC should not be cursed")
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainC), "chainA->chainC should not be cursed")
 
 	// Chain B -> Chain A should not be cursed - in most real scenarios we curse on both sides but this tests one-way curse
-	require.False(t, svc.IsRemoteChainCursed(chainB, chainA), "chainB->chainA should not be cursed")
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB->chainA should not be cursed")
 
 	// Chain B -> Chain C should not be cursed
-	require.False(t, svc.IsRemoteChainCursed(chainB, chainC), "chainB->chainC should not be cursed")
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainC), "chainB->chainC should not be cursed")
 }
 
 func TestCurseDetectorService_GlobalCurse(t *testing.T) {
@@ -100,12 +100,12 @@ func TestCurseDetectorService_GlobalCurse(t *testing.T) {
 	defer svc.Close()
 
 	// Chain A has global curse, so all remotes are considered cursed
-	require.True(t, svc.IsRemoteChainCursed(chainA, chainB), "chainA has global curse, chainA->chainB should be cursed")
-	require.True(t, svc.IsRemoteChainCursed(chainA, chainC), "chainA has global curse, chainA->chainC should be cursed")
+	require.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA has global curse, chainA->chainB should be cursed")
+	require.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainC), "chainA has global curse, chainA->chainC should be cursed")
 
 	// Chain B has no global curse
-	require.False(t, svc.IsRemoteChainCursed(chainB, chainA), "chainB->chainA should not be cursed")
-	require.False(t, svc.IsRemoteChainCursed(chainB, chainC), "chainB->chainC should not be cursed")
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB->chainA should not be cursed")
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainC), "chainB->chainC should not be cursed")
 }
 
 func TestCurseDetectorService_CurseLifting(t *testing.T) {
@@ -122,7 +122,7 @@ func TestCurseDetectorService_CurseLifting(t *testing.T) {
 	mockReaderA := protocol_mocks.NewMockRMNCurseReader(t)
 	// First call returns curse, subsequent calls return no curse
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
-		Return([]protocol.Bytes16{chainSelectorToBytes16(chainB)}, nil).
+		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainB)}, nil).
 		Maybe()
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return([]protocol.Bytes16{}, nil).
@@ -140,7 +140,7 @@ func TestCurseDetectorService_CurseLifting(t *testing.T) {
 	defer svc.Close()
 
 	// Chain A -> Chain B should be cursed
-	require.True(t, svc.IsRemoteChainCursed(chainA, chainB), "chainA->chainB should be cursed")
+	require.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA->chainB should be cursed")
 
 	// lift the curse
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).Unset()
@@ -151,7 +151,7 @@ func TestCurseDetectorService_CurseLifting(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Chain A -> Chain B should no longer be cursed
-	require.False(t, svc.IsRemoteChainCursed(chainA, chainB), "chainA->chainB should no longer be cursed")
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA->chainB should no longer be cursed")
 }
 
 func TestNewCurseDetectorService_Validation(t *testing.T) {
@@ -212,7 +212,7 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 	// Chain B's reader works fine
 	mockReaderB := protocol_mocks.NewMockRMNCurseReader(t)
 	mockReaderB.EXPECT().GetRMNCursedSubjects(mock.Anything).
-		Return([]protocol.Bytes16{chainSelectorToBytes16(chainA)}, nil).
+		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainA)}, nil).
 		Maybe()
 
 	rmnReaders := map[protocol.ChainSelector]chainaccess.RMNCurseReader{
@@ -228,10 +228,10 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 	defer svc.Close()
 
 	// Chain A should have no curse state (error during fetch)
-	require.False(t, svc.IsRemoteChainCursed(chainA, chainB), "chainA should have no curse state due to error")
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA should have no curse state due to error")
 
 	// Chain B should work correctly
-	require.True(t, svc.IsRemoteChainCursed(chainB, chainA), "chainB should report chainA as cursed")
+	require.True(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB should report chainA as cursed")
 }
 
 func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
@@ -262,5 +262,5 @@ func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
 	defer svc.Close()
 
 	// Nil cursed subjects should be treated as no curses
-	require.False(t, svc.IsRemoteChainCursed(chainA, chainB), "nil cursed subjects should mean no curses")
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "nil cursed subjects should mean no curses")
 }

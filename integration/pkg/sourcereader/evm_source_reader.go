@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -30,6 +31,7 @@ type EVMSourceReader struct {
 	headTracker          heads.Tracker
 	onRampAddress        common.Address
 	rmnRemoteAddress     common.Address
+	rmnRemoteCaller      rmn_remote.RMNRemoteCaller
 	ccipMessageSentTopic string
 	chainSelector        protocol.ChainSelector
 	lggr                 logger.Logger
@@ -72,11 +74,19 @@ func NewEVMSourceReader(
 		return nil, errors.Join(errs...)
 	}
 
+	// Bind to RMN Remote contract
+	rmnRemoteCaller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind RMN Remote contract at %s: %w",
+			rmnRemoteAddress.Hex(), err)
+	}
+
 	return &EVMSourceReader{
 		chainClient:          chainClient,
 		headTracker:          headTracker,
 		onRampAddress:        onRampAddress,
 		rmnRemoteAddress:     rmnRemoteAddress,
+		rmnRemoteCaller:      *rmnRemoteCaller,
 		ccipMessageSentTopic: ccipMessageSentTopic,
 		chainSelector:        chainSelector,
 		lggr:                 lggr,
@@ -243,62 +253,14 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		r.lggr.Infow("Decoded message",
 			"message", decodedMsg)
 
-		// Create receipt blobs from verifier receipts and receipt blobs
-		receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.Receipts)+1)
-
-		if len(event.Receipts) == 0 {
-			r.lggr.Errorw("No verifier receipts found")
-			continue // to next message
-		}
-		// Process verifier receipts
-		for i, vr := range event.Receipts {
-			var blob []byte
-			if i < len(event.VerifierBlobs) && len(event.VerifierBlobs[i]) > 0 {
-				blob = event.VerifierBlobs[i]
-			} else {
-				r.lggr.Infow("Empty or missing receipt blob",
-					"verifierIndex", i,
-				)
-			}
-
-			issuerAddr, _ := protocol.NewUnknownAddressFromHex(vr.Issuer.Hex())
-			receiptBlob := protocol.ReceiptWithBlob{
-				Issuer:            issuerAddr,
-				DestGasLimit:      vr.DestGasLimit,
-				DestBytesOverhead: vr.DestBytesOverhead,
-				Blob:              blob,
-				ExtraArgs:         vr.ExtraArgs,
-				FeeTokenAmount:    vr.FeeTokenAmount,
-			}
-			receiptBlobs = append(receiptBlobs, receiptBlob)
-
-			r.lggr.Infow("Processed verifier receipt",
-				"index", i,
-				"issuer", vr.Issuer.Hex(),
-				"blobLength", len(blob))
-		}
-
-		// Add executor receipt if available
-		issuerAddr, _ := protocol.NewUnknownAddressFromHex(executorReceipt.Issuer.Hex())
-		executorReceiptBlob := protocol.ReceiptWithBlob{
-			Issuer:            issuerAddr,
-			DestGasLimit:      executorReceipt.DestGasLimit,
-			DestBytesOverhead: executorReceipt.DestBytesOverhead,
-			Blob:              []byte{},
-			ExtraArgs:         executorReceipt.ExtraArgs,
-			FeeTokenAmount:    executorReceipt.FeeTokenAmount,
-		}
-		receiptBlobs = append(receiptBlobs, executorReceiptBlob)
-
-		r.lggr.Infow("Processed executor receipt",
-			"issuer", executorReceipt.Issuer.Hex())
+		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 
 		results = append(results, protocol.MessageSentEvent{
 			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
 			SequenceNumber:    event.SequenceNumber,
 			MessageID:         protocol.Bytes32(event.MessageId),
 			Message:           *decodedMsg,
-			Receipts:          receiptBlobs,
+			Receipts:          allReceipts, // Keep original order from OnRamp event
 			BlockNumber:       log.BlockNumber,
 		})
 	}
@@ -343,5 +305,29 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Use the common helper function from cursechecker package
 	// This avoids code duplication with EVMDestinationReader
-	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.chainClient, r.rmnRemoteAddress)
+	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.rmnRemoteCaller)
+}
+
+// receiptBlobsFromEvent converts OnRamp event receipts to protocol.ReceiptWithBlob format.
+// It pairs each receipt with its corresponding verifier blob (if any).
+func receiptBlobsFromEvent(eventReceipts []onramp.OnRampReceipt, verifierBlobs [][]byte) []protocol.ReceiptWithBlob {
+	receipts := make([]protocol.ReceiptWithBlob, len(eventReceipts))
+	for i, vr := range eventReceipts {
+		var blob []byte
+		// Only CCV receipts (first N receipts where N = len(verifierBlobs)) have blobs
+		if i < len(verifierBlobs) {
+			blob = verifierBlobs[i]
+		}
+
+		issuerAddr, _ := protocol.NewUnknownAddressFromHex(vr.Issuer.Hex())
+		receipts[i] = protocol.ReceiptWithBlob{
+			Issuer:            issuerAddr,
+			DestGasLimit:      uint64(vr.DestGasLimit),
+			DestBytesOverhead: vr.DestBytesOverhead,
+			Blob:              blob,
+			ExtraArgs:         vr.ExtraArgs,
+			FeeTokenAmount:    vr.FeeTokenAmount,
+		}
+	}
+	return receipts
 }

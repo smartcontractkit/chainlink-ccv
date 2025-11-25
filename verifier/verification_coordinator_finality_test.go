@@ -40,18 +40,36 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	// Message at block 940 (< finalized 950) should be processed immediately
 	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	messageID, _ := finalizedMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
 	finalizedEvent := protocol.MessageSentEvent{
 		DestChainSelector: finalizedMessage.DestChainSelector,
-		SequenceNumber:    uint64(finalizedMessage.Nonce),
+		SequenceNumber:    uint64(finalizedMessage.SequenceNumber),
 		MessageID:         messageID,
 		Message:           finalizedMessage,
-		Receipts: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{}, // Empty = default finality
-		}},
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{}, // Empty = default finality
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: InitialFinalizedBlock - 10, // 940 <= 950 (finalized), should be processed immediately
 	}
 
@@ -84,18 +102,36 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
 	messageID, _ := readyMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
 	readyEvent := protocol.MessageSentEvent{
 		DestChainSelector: readyMessage.DestChainSelector,
-		SequenceNumber:    uint64(readyMessage.Nonce),
+		SequenceNumber:    uint64(readyMessage.SequenceNumber),
 		MessageID:         messageID,
 		Message:           readyMessage,
-		Receipts: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{},
-		}},
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: uint64(InitialLatestBlock - customFinality), // should be ready
 	}
 
@@ -128,18 +164,36 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
 	messageID, _ := nonFinalizedMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
 	nonFinalizedEvent := protocol.MessageSentEvent{
 		DestChainSelector: nonFinalizedMessage.DestChainSelector,
-		SequenceNumber:    uint64(nonFinalizedMessage.Nonce),
+		SequenceNumber:    uint64(nonFinalizedMessage.SequenceNumber),
 		MessageID:         messageID,
 		Message:           nonFinalizedMessage,
-		Receipts: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{}, // Empty = default finality
-		}},
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{}, // Empty = default finality
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: uint64(nonFinalizedBlock), // should be waiting for finality
 	}
 
@@ -218,10 +272,9 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	// Allow writes for chain status updates
 	mockChainStatusManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+	mockSetup.Reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
 		// Return latest and finalized headers with proper synchronization
 		// Must lock before accessing big.Int to avoid concurrent access issues
 		finalizedBlockMu.RLock()
@@ -253,20 +306,17 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		VerifierID: verifierID,
 	}
 
-	noopMonitoring := &noopMonitoring{}
 	coordinator, err := NewCoordinator(
 		WithVerifier(mockVerifier),
 		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
 			1337: mockSourceReader,
 		}),
-		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
-			1337: mockHeadTracker,
-		}),
 		WithStorage(mockStorage),
 		WithChainStatusManager(mockChainStatusManager),
 		WithConfig(config),
 		WithLogger(lggr),
-		WithMonitoring(noopMonitoring),
+		WithMonitoring(&noopMonitoring{}),
+		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)

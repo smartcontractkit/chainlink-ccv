@@ -3,7 +3,7 @@ package readers
 import (
 	"context"
 	"fmt"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -23,8 +23,8 @@ var (
 
 // ResilienceConfig contains configuration for resiliency policies.
 type ResilienceConfig struct {
-	CircuitBreakerErrorHandler func(map[protocol.Bytes32]protocol.CCVData, error) bool
-	RetryPolicyErrorHandler    func(map[protocol.Bytes32]protocol.CCVData, error) bool
+	CircuitBreakerErrorHandler func(map[protocol.Bytes32]protocol.VerifierResult, error) bool
+	RetryPolicyErrorHandler    func(map[protocol.Bytes32]protocol.VerifierResult, error) bool
 
 	DiscoveryCircuitBreakerErrorHandler func([]protocol.QueryResponse, error) bool
 	DiscoveryRetryPolicyErrorHandler    func([]protocol.QueryResponse, error) bool
@@ -63,12 +63,11 @@ type ResilientReader struct {
 	discoveryAPI protocol.OffchainStorageReader
 
 	discoveryPolicies     executorPolicies[[]protocol.QueryResponse]
-	verificationsPolicies executorPolicies[map[protocol.Bytes32]protocol.CCVData]
+	verificationsPolicies executorPolicies[map[protocol.Bytes32]protocol.VerifierResult]
 
 	lggr                 logger.Logger
-	mu                   sync.RWMutex
-	consecutiveErrors    int
-	maxConsecutiveErrors int
+	consecutiveErrors    atomic.Int32
+	maxConsecutiveErrors int32
 }
 
 // NewResilientReader wraps a reader with resiliency policies.
@@ -135,8 +134,8 @@ func (r *ResilientReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResp
 	})
 }
 
-func (r *ResilientReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
-	return execute(r, r.verificationsPolicies, func() (map[protocol.Bytes32]protocol.CCVData, error) {
+func (r *ResilientReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
+	return execute(r, r.verificationsPolicies, func() (map[protocol.Bytes32]protocol.VerifierResult, error) {
 		return r.underlying.GetVerifications(ctx, messageIDs)
 	})
 }
@@ -165,16 +164,12 @@ func (r *ResilientReader) GetDiscoveryCircuitBreakerState() circuitbreaker.State
 }
 
 func (r *ResilientReader) recordError() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.consecutiveErrors++
-	if r.consecutiveErrors >= r.maxConsecutiveErrors {
-		r.lggr.Warnw("Max consecutive errors reached", "consecutive_errors", r.consecutiveErrors)
+	count := r.consecutiveErrors.Add(1)
+	if count >= r.maxConsecutiveErrors {
+		r.lggr.Warnw("Max consecutive write errors reached", "consecutive_errors", count)
 	}
 }
 
 func (r *ResilientReader) recordSuccess() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.consecutiveErrors = 0
+	r.consecutiveErrors.Store(0)
 }

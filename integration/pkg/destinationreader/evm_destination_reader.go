@@ -2,6 +2,7 @@ package destinationreader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,50 +11,87 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
-const (
-	MESSAGE_UNTOUCHED = iota
-	MESSAGE_IN_PROGRESS
-	MESSAGE_SUCCESS
-	MESSAGE_FAILURE
+var (
+	// Ensure EvmDestinationReader implements the DestinationReader interface.
+	_ = executor.DestinationReader(&EvmDestinationReader{})
+
+	// This 1000 number is arbitrary, it can be adjusted as needed depending on usage pattern.
+	VerifierQuorumCacheMaxEntries = 1000
 )
 
-// Ensure ChainlinkExecutor implements the Executor interface.
-var _ executor.DestinationReader = &EvmDestinationReader{}
-
-type cacheKey struct {
+type verifierQuorumCacheKey struct {
 	sourceChainSelector protocol.ChainSelector
 	receiverAddress     string
 }
+
 type EvmDestinationReader struct {
-	offRampCaller offramp.OffRampCaller
-	lggr          logger.Logger
-	client        bind.ContractCaller
-	chainSelector protocol.ChainSelector
-	ccvCache      *expirable.LRU[cacheKey, executor.CCVAddressInfo]
+	offRampCaller   offramp.OffRampCaller
+	rmnRemoteCaller rmn_remote.RMNRemoteCaller
+	lggr            logger.Logger
+	client          bind.ContractCaller
+	chainSelector   protocol.ChainSelector
+	ccvCache        *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
 }
 
-func NewEvmDestinationReader(lggr logger.Logger, chainSelector protocol.ChainSelector, chainClient client.Client, offrampAddress string, cacheExpiry time.Duration) *EvmDestinationReader {
-	offRampAddr := common.HexToAddress(offrampAddress)
-	offRamp, err := offramp.NewOffRampCaller(offRampAddr, chainClient)
-	if err != nil {
-		lggr.Errorw("Failed to create Off Ramp caller", "error", err, "address", offRampAddr.Hex(), "chainSelector", chainSelector)
+type Params struct {
+	Lggr             logger.Logger
+	ChainSelector    protocol.ChainSelector
+	ChainClient      client.Client
+	OfframpAddress   string
+	RmnRemoteAddress string
+	CacheExpiry      time.Duration
+}
+
+func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
+	var errs []error
+	appendIfNil := func(field any, fieldName string) {
+		if field == nil {
+			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
+		}
 	}
-	// Create cache with max 1000 entries and configurable expiry
-	ccvCache := expirable.NewLRU[cacheKey, executor.CCVAddressInfo](1000, nil, cacheExpiry)
+
+	appendIfNil(params.ChainSelector, "chainSelector")
+	appendIfNil(params.OfframpAddress, "offrampAddress")
+	appendIfNil(params.RmnRemoteAddress, "rmnRemoteAddress")
+	appendIfNil(params.CacheExpiry, "cacheExpiry")
+	appendIfNil(params.ChainClient, "chainClient")
+	appendIfNil(params.Lggr, "logger")
+
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+
+	offRampAddr := common.HexToAddress(params.OfframpAddress)
+	offRamp, err := offramp.NewOffRampCaller(offRampAddr, params.ChainClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create offramp caller for chain %d: %w", params.ChainSelector, err)
+	}
+
+	rmnRemoteAddr := common.HexToAddress(params.RmnRemoteAddress)
+	rmnRemote, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddr, params.ChainClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rmn remote caller for chain %d: %w", params.ChainSelector, err)
+	}
+
+	// Create cache with max 1000 entries and configurable expiry for verifier quorum info.
+	ccvCache := expirable.NewLRU[verifierQuorumCacheKey, executor.CCVAddressInfo](VerifierQuorumCacheMaxEntries, nil, params.CacheExpiry)
 
 	return &EvmDestinationReader{
-		offRampCaller: *offRamp,
-		lggr:          lggr,
-		chainSelector: chainSelector,
-		client:        chainClient,
-		ccvCache:      ccvCache,
-	}
+		offRampCaller:   *offRamp,
+		rmnRemoteCaller: *rmnRemote,
+		lggr:            params.Lggr,
+		chainSelector:   params.ChainSelector,
+		client:          params.ChainClient,
+		ccvCache:        ccvCache,
+	}, nil
 }
 
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.
@@ -62,9 +100,8 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	_ = ctx
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 	// Try to get CCV info from cache first
-	// TODO: Do we need custom cache eviction logic beyond ttl?
 	// TODO: We need to find a way to cache token transfer CCV info as well
-	ccvInfo, found := dr.ccvCache.Get(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()})
+	ccvInfo, found := dr.ccvCache.Peek(verifierQuorumCacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()})
 	if found && message.TokenTransferLength == 0 {
 		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s on source chain %d",
 			receiverAddress.String(), sourceSelector)
@@ -106,17 +143,15 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	)
 
 	// Store in expirable cache for future use
-	dr.ccvCache.Add(cacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()}, ccvInfo)
+	dr.ccvCache.Add(verifierQuorumCacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()}, ccvInfo)
 	dr.lggr.Debugf("CCV info cached for receiver %s on source chain %d: %+v",
 		receiverAddress.String(), sourceSelector, ccvInfo)
 
 	return ccvInfo, nil
 }
 
-// IsMessageExecuted checks the destination chain to verify if a message has been executed.
-func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message protocol.Message) (bool, error) {
-	_ = ctx
-
+// GetMessageExecutionState checks the destination chain to verify if a message has been executed.
+func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, message protocol.Message) (executor.MessageExecutionState, error) {
 	rcv := common.BytesToAddress(message.Receiver)
 	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
@@ -124,19 +159,20 @@ func (dr *EvmDestinationReader) IsMessageExecuted(ctx context.Context, message p
 			// TODO: Add FTF to this check
 		},
 		uint64(message.SourceChainSelector),
-		uint64(message.Nonce),
+		uint64(message.SequenceNumber),
 		message.Sender,
 		rcv)
 	if err != nil {
-		return false, fmt.Errorf("failed to call getExecutionState: %w", err)
+		// expect that the error is checked by the caller so it doesn't accidentally assume success
+		return 0, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
 
-	if execState == MESSAGE_FAILURE || execState == MESSAGE_IN_PROGRESS || execState == MESSAGE_SUCCESS {
-		return true, nil
-	}
-	if execState == MESSAGE_UNTOUCHED {
-		return false, nil
-	}
+	return executor.MessageExecutionState(execState), nil
+}
 
-	return true, fmt.Errorf("unknown execution state: %d", execState)
+// GetRMNCursedSubjects gets all the cursed subjects for the destination chain including global curse.
+// Used in conjunction with common.CurseChecker to persist information. This EVMReadRMNCursedSubjects is shared with verifier.
+func (dr *EvmDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+	// We use an abstracted function to reuse code between verifier and executor.
+	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, dr.rmnRemoteCaller)
 }

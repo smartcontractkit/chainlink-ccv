@@ -143,7 +143,7 @@ func TestE2ESmoke(t *testing.T) {
 					Data:     []byte{},
 				}, cciptestinterfaces.MessageOptions{
 					Version:             2,
-					GasLimit:            200_000,
+					ExecutionGasLimit:   200_000,
 					OutOfOrderExecution: true,
 				})
 				require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestE2ESmoke(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.NotNil(t, result.AggregatedResult)
-				require.Len(t, result.IndexedVerifications.VerifierResults, tc.numExpectedVerifications)
+				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
@@ -215,11 +215,11 @@ func TestE2ESmoke(t *testing.T) {
 						Data:         tc.msgData,
 						TokenAmounts: tokenAmounts,
 					}, cciptestinterfaces.MessageOptions{
-						Version:        3,
-						GasLimit:       200_000,
-						FinalityConfig: tc.finality,
-						Executor:       getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
-						CCVs:           tc.ccvs,
+						Version:           3,
+						ExecutionGasLimit: 200_000,
+						FinalityConfig:    tc.finality,
+						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
+						CCVs:              tc.ccvs,
 					})
 				require.NoError(t, err)
 				require.Lenf(t, sendMessageResult.ReceiptIssuers, tc.numExpectedReceipts, "expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
@@ -237,7 +237,7 @@ func TestE2ESmoke(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.NotNil(t, result.AggregatedResult)
-				require.Len(t, result.IndexedVerifications.VerifierResults, tc.numExpectedVerifications)
+				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
 				e, err := c.WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
@@ -277,10 +277,10 @@ func TestE2ESmoke(t *testing.T) {
 			l.Info().Uint64("SeqNo", seqNo).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("expecting sequence number")
 
 			messageOptions := cciptestinterfaces.MessageOptions{
-				Version:        3,
-				GasLimit:       200_000,
-				FinalityConfig: finalityConfig,
-				Executor:       getContractAddress(t, in, selectors[0], datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
+				Version:           3,
+				ExecutionGasLimit: 200_000,
+				FinalityConfig:    finalityConfig,
+				Executor:          getContractAddress(t, in, selectors[0], datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
 			}
 
 			sendRes, err := c.SendMessage(

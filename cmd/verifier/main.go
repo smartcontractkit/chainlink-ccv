@@ -196,11 +196,16 @@ func main() {
 		os.Exit(1)
 	}
 	// Create chain status manager (includes both writer and reader)
-	chainStatusManager := storageaccess.NewAggregatorChainStatusManager(aggregatorWriter, aggregatorReader)
+	chainStatusManager := storageaccess.NewDefaultResilientChainStatusManager(
+		storageaccess.NewAggregatorChainStatusManager(
+			aggregatorWriter,
+			aggregatorReader,
+		),
+		lggr,
+	)
 
 	// Create source readers and head trackers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	headTrackers := make(map[protocol.ChainSelector]chainaccess.HeadTracker)
 
 	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)
 	// Try to create blockchain source readers if possible
@@ -242,7 +247,6 @@ func main() {
 
 		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
 		sourceReaders[selector] = evmSourceReader
-		headTrackers[selector] = evmSourceReader
 
 		lggr.Infow("Created blockchain source reader", "chain", selector)
 	}
@@ -320,16 +324,32 @@ func main() {
 		os.Exit(1)
 	}
 
+	observedStorageWriter := storageaccess.NewObservedStorageWriter(
+		storageaccess.NewDefaultResilientStorageWriter(
+			aggregatorWriter,
+			lggr,
+		),
+		config.VerifierID,
+		lggr,
+		verifierMonitoring,
+	)
+
+	messageTracker := monitoring.NewMessageLatencyTracker(
+		lggr,
+		config.VerifierID,
+		verifierMonitoring,
+	)
+
 	// Create verification coordinator
 	coordinator, err := verifier.NewCoordinator(
 		verifier.WithVerifier(commitVerifier),
 		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithHeadTrackers(headTrackers),
 		verifier.WithChainStatusManager(chainStatusManager),
-		verifier.WithStorage(aggregatorWriter),
+		verifier.WithStorage(observedStorageWriter),
 		verifier.WithConfig(coordinatorConfig),
 		verifier.WithLogger(lggr),
 		verifier.WithMonitoring(verifierMonitoring),
+		verifier.WithMessageTracker(messageTracker),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
@@ -354,10 +374,12 @@ func main() {
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := coordinator.Ready(); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			lggr.Infow("Unhealthy: %s\n", err.Error())
-			return
+		for serviceName, err := range coordinator.HealthReport() {
+			if err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				lggr.Infow("Unhealthy service: %s, error: %s\n", serviceName, err.Error())
+				return
+			}
 		}
 		w.WriteHeader(http.StatusOK)
 		lggr.Infow("Healthy\n")

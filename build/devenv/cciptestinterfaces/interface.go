@@ -68,9 +68,8 @@ type MessageFields struct {
 type MessageOptions struct {
 	// Version indicates the version of the extraArgs.
 	Version uint8
-	// GasLimit is the gas limit for the message
-	// Equivalent to ComputeLimit for solana.
-	GasLimit uint32
+	// ExecutionGasLimit is the execution gas limit for the message
+	ExecutionGasLimit uint32
 	// OutOfOrderExecution is whether to execute the message out of order
 	OutOfOrderExecution bool
 	// CCVs are the CCVs for the message
@@ -157,7 +156,10 @@ type OffChainConfigurable interface {
 	// ConfigureNodes configure CL nodes from blockchain data
 	// returns a piece of TOML config as a string that the framework inject into final configuration
 	ConfigureNodes(ctx context.Context, blockchain *blockchain.Input) (string, error)
-	// FundNodes Fund Chainlink nodes for some amount of native/LINK currency
+	// FundNodes funds Chainlink nodes for some amount of native/LINK currency
 	// using chain-specific clients or CLDF
 	FundNodes(ctx context.Context, cls []*nodeset.Input, bc *blockchain.Input, linkAmount, nativeAmount *big.Int) error
+	// FundAddresses funds addresses for some amount of native currency
+	// using chain-specific clients or CLDF
+	FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error
 }

@@ -6,15 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
 	"strings"
 
+	"github.com/BurntSushi/toml"
+	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -32,7 +37,7 @@ const (
 	CommonCLNodesConfig = `
 			[Log]
 			JSONConsole = true
-			Level = 'debug'
+			Level = 'info'
 			[Pyroscope]
 			ServerAddress = 'http://host.docker.internal:4040'
 			Environment = 'local'
@@ -72,11 +77,11 @@ const (
 
 type Cfg struct {
 	Mode               services.Mode               `toml:"mode"`
-	CLDF               CLDF                        `toml:"cldf"     validate:"required"`
-	JD                 *jd.Input                   `toml:"jd"       validate:"required"`
-	Fake               *services.FakeInput         `toml:"fake"     validate:"required"`
-	Verifier           []*services.VerifierInput   `toml:"verifier" validate:"required"`
-	Executor           *services.ExecutorInput     `toml:"executor"              validate:"required"`
+	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
+	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
+	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
+	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
+	Executor           []*services.ExecutorInput   `toml:"executor"              validate:"required"`
 	Indexer            *services.IndexerInput      `toml:"indexer"               validate:"required"`
 	Aggregator         []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
 	Blockchains        []*blockchain.Input         `toml:"blockchains"           validate:"required"`
@@ -98,7 +103,7 @@ func checkKeys(in *Cfg) error {
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
 	switch typ {
 	case "anvil":
-		return &evm.CCIP17EVM{}, nil
+		return evm.NewEmptyCCIP17EVM(), nil
 	case "canton":
 		// see devenv-evm implementation and add Canton
 		return nil, nil
@@ -143,7 +148,9 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Executor config...
 	if in.Executor != nil {
-		services.ApplyExecutorDefaults(in.Executor)
+		for _, exec := range in.Executor {
+			services.ApplyExecutorDefaults(exec)
+		}
 	}
 
 	/////////////////////////////
@@ -192,7 +199,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	////////////////////////////
 
 	timeTrack.Record("[infra] deploying CL nodes")
-	onchainPublicKeys, err := launchCLNodes(ctx, in, impls)
+	onchainPublicKeys, err := launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch CL nodes: %w", err)
 	}
@@ -203,7 +210,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	//////////////////////////
 
 	// Verifier configs...
-	currIndex := 0
+	roundRobin := NewRoundRobinAssignment(onchainPublicKeys[signingKeyChainType])
 	for i := range in.Verifier {
 		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
 
@@ -211,13 +218,12 @@ func NewEnvironment() (in *Cfg, err error) {
 		case services.CL:
 			// in cl mode, we can pull in the pubkeys from the CL nodes that were launched
 			// in an earlier step.
-			// to start, do a round-robin assignment of verifier -> cl node.
-			ver.SigningKeyPublic = onchainPublicKeys[signingKeyChainType][currIndex]
-			currIndex = (currIndex + 1) % len(onchainPublicKeys[signingKeyChainType])
+			index, publicKey := roundRobin.GetNext()
+			ver.SigningKeyPublic = publicKey
 			Plog.Info().
 				Str("CommitteeName", ver.CommitteeName).
-				Str("SigningKeyPublic", ver.SigningKeyPublic).
-				Int("CurrentIndex", currIndex).
+				Str("SigningKeyPublic", publicKey).
+				Int("CurrentIndex", index).
 				Msg("Assigning CL node signing key public to verifier")
 
 		case services.Standalone:
@@ -385,19 +391,85 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Start indexer.
 	// start up the indexer after the aggregators are up to avoid spamming of errors
 	// in the logs when it starts before the aggregators are up.
+	// Need to update the addresses in the indexer config due to contract deployment nondeterminism.
+	for _, agg := range in.Aggregator {
+		// XXX: in theory addresses should be matching across chains
+		chain := in.Blockchains[0]
+		chainInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chain details for chain %s: %w", chain.ChainID, err)
+		}
+
+		address, err := e.DataStore.Addresses().Get(
+			datastore.NewAddressRefKey(
+				chainInfo.ChainSelector,
+				datastore.ContractType(committee_verifier.ResolverProxyType),
+				semver.MustParse(committee_verifier.Deploy.Version()),
+				agg.CommitteeName,
+			))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get committee verifier resolver proxy address for committee %s on chain %s: %w", agg.CommitteeName, chain.ChainID, err)
+		}
+
+		// find the verifier in the indexer config that references this aggregator
+		idx := -1
+		for i, ver := range in.Indexer.IndexerConfig.Verifiers {
+			if strings.HasPrefix(ver.Address, agg.CommitteeName) {
+				idx = i
+				break
+			}
+		}
+
+		if idx == -1 {
+			return nil, fmt.Errorf("failed to find verifier in indexer config that references committee verifier resolver proxy address for committee %s on chain %s", agg.CommitteeName, chain.ChainID)
+		}
+
+		in.Indexer.IndexerConfig.Verifiers[idx].IssuerAddresses = []string{
+			address.Address,
+		}
+
+		Plog.Info().
+			Str("committee", agg.CommitteeName).
+			Str("address", address.Address).
+			Msg("assigned issuer address to verifier in indexer config")
+	}
 	_, err = services.NewIndexer(in.Indexer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 
-	if in.Executor != nil {
-		exec, err := services.ResolveContractsForExecutor(e.DataStore, in.Blockchains, in.Executor)
+	if len(in.Executor) > 0 {
+		execs, err := services.ResolveContractsForExecutor(e.DataStore, in.Blockchains, in.Executor)
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup contracts for executor: %w", err)
 		}
-		in.Executor = exec
+		execs, err = services.SetExecutorPoolAndID(execs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set executor pool and ID: %w", err)
+		}
+		execs, err = services.SetTransmitterPrivateKey(execs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set transmitter private key: %w", err)
+		}
+
+		// fund the keys used by the executors to send transactions in standalone mode.
+		addresses := make([]protocol.UnknownAddress, 0, len(execs))
+		for _, exec := range execs {
+			addresses = append(addresses, exec.GetTransmitterAddress())
+		}
+		Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
+		for i, impl := range impls {
+			Plog.Info().Int("ImplIndex", i).Msg("Funding executor")
+			err = impl.FundAddresses(ctx, in.Blockchains[i], addresses, big.NewInt(5))
+			if err != nil {
+				return nil, fmt.Errorf("failed to fund addresses for executors: %w", err)
+			}
+			Plog.Info().Int("ImplIndex", i).Msg("Funded executors")
+		}
+
+		in.Executor = execs
 	}
-	_, err = launchStandaloneExecutor(in.Executor)
+	_, err = launchStandaloneExecutors(in.Executor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
 	}
@@ -424,6 +496,11 @@ func NewEnvironment() (in *Cfg, err error) {
 	// End: Launch standalone services //
 	/////////////////////////////////////
 
+	err = createJobs(in, in.Verifier, in.Executor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create jobs: %w", err)
+	}
+
 	timeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
 		return nil, err
@@ -432,9 +509,111 @@ func NewEnvironment() (in *Cfg, err error) {
 	return in, Store(in)
 }
 
+// createJobs creates the jobs for the verifiers and executors on the CL nodes if they're in CL mode.
+func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.ExecutorInput) error {
+	// Exit early, there are no nodes configured.
+	if len(in.NodeSets) == 0 {
+		return nil
+	}
+
+	clClients, err := clclient.New(in.NodeSets[0].Out.CLNodes)
+	if err != nil {
+		return fmt.Errorf("failed to connect CL node clients: %w", err)
+	}
+
+	roundRobin := NewRoundRobinAssignment(clClients)
+	for _, ver := range vIn {
+		switch ver.Mode {
+		case services.CL:
+			index, clClient := roundRobin.GetNext()
+
+			tomlConfig, err := ver.GenerateConfig()
+			if err != nil {
+				return fmt.Errorf("failed to generate verifier config: %w", err)
+			}
+			jb, resp, err := clClient.CreateJobRaw(committeeVerifierSpec(string(tomlConfig)))
+			if err != nil {
+				return fmt.Errorf("failed to create committee verifier job: %w", err)
+			}
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+				return fmt.Errorf("failed to create committee verifier job: %s", resp.Status)
+			}
+			Plog.Info().
+				Int("CurrentIndex", index).
+				Any("CommitteeVerifierJob", jb).
+				Msg("Created committee verifier job on node")
+		case services.Standalone:
+			continue
+		}
+	}
+
+	for _, exec := range executorIn {
+		switch exec.Mode {
+		case services.CL:
+			index, clClient := roundRobin.GetNext()
+
+			tomlConfig, err := exec.GenerateConfig()
+			if err != nil {
+				return fmt.Errorf("failed to generate executor config: %w", err)
+			}
+
+			jb, resp, err := clClient.CreateJobRaw(executorSpec(string(tomlConfig)))
+			if err != nil {
+				return fmt.Errorf("failed to create executor job: %w", err)
+			}
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+				return fmt.Errorf("failed to create executor job: %s", resp.Status)
+			}
+			Plog.Info().
+				Int("CurrentIndex", index).
+				Any("ExecutorJob", jb).
+				Msg("Created executor job on node")
+		case services.Standalone:
+			continue
+		}
+	}
+
+	return nil
+}
+
+func executorSpec(tomlConfig string) string {
+	return fmt.Sprintf(
+		`
+schemaVersion = 1
+type = "ccvexecutor"
+executorConfig = """
+%s
+"""
+`, tomlConfig,
+	)
+}
+
+func committeeVerifierSpec(tomlConfig string) string {
+	return fmt.Sprintf(
+		`
+schemaVersion = 1
+type = "ccvcommitteeverifier"
+committeeVerifierConfig = """
+%s
+"""
+`, tomlConfig,
+	)
+}
+
 // launchCLNodes encapsulates the logic required to launch the core node. It may be better to wrap this in a service.
 // It returns the onchain public keys for each chain type for each CL node.
-func launchCLNodes(ctx context.Context, in *Cfg, impls []cciptestinterfaces.CCIP17ProductConfiguration) (map[string][]string, error) {
+func launchCLNodes(
+	ctx context.Context,
+	in *Cfg,
+	impls []cciptestinterfaces.CCIP17ProductConfiguration,
+	vIn []*services.VerifierInput,
+	aggregators []*services.AggregatorInput,
+) (map[string][]string, error) {
+	aggByCommittee := make(map[string]*services.AggregatorInput)
+	for _, agg := range aggregators {
+		aggByCommittee[agg.CommitteeName] = agg
+	}
+
 	// Exit early, there are no nodes configured.
 	if len(in.NodeSets) == 0 {
 		return nil, nil
@@ -445,8 +624,8 @@ func launchCLNodes(ctx context.Context, in *Cfg, impls []cciptestinterfaces.CCIP
 		hasAService = hasAService || (ver.Mode == services.CL)
 	}
 
-	if in.Executor != nil {
-		hasAService = hasAService || (in.Executor.Mode == services.CL)
+	for _, exec := range in.Executor {
+		hasAService = hasAService || (exec.Mode == services.CL)
 	}
 
 	// Exit early, there are no services configured to deploy on a CL node.
@@ -468,6 +647,58 @@ func launchCLNodes(ctx context.Context, in *Cfg, impls []cciptestinterfaces.CCIP
 	allConfigs := strings.Join(clChainConfigs, "\n")
 	for _, nodeSpec := range in.NodeSets[0].NodeSpecs {
 		nodeSpec.Node.TestConfigOverrides = allConfigs
+	}
+
+	// set the secret keys of the aggregator for each verifier ID
+	nodeRoundRobin := NewRoundRobinAssignment(in.NodeSets[0].NodeSpecs)
+	aggSecretsPerNode := make(map[int][]AggregatorSecret)
+	for _, ver := range vIn {
+		index, _ := nodeRoundRobin.GetNext()
+		agg := aggByCommittee[ver.CommitteeName]
+		apiKeys, err := agg.GetAPIKeys()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get API keys for aggregator %s: %w", agg.CommitteeName, err)
+		}
+		Plog.Info().
+			Int("index", index).
+			Str("verifier", ver.ContainerName).
+			Str("committee", ver.CommitteeName).
+			Any("apiKeys", apiKeys.Clients).
+			Msg("getting API keys for verifier")
+		var found bool
+		for apiKey, apiClient := range apiKeys.Clients {
+			if apiClient.ClientID == ver.ContainerName {
+				aggSecretsPerNode[index] = append(aggSecretsPerNode[index], AggregatorSecret{
+					VerifierID: ver.ContainerName,
+					APIKey:     apiKey,
+					APISecret:  apiClient.Secrets["primary"],
+				})
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("failed to find API client for verifier %s on node %d", ver.ContainerName, index)
+		}
+	}
+
+	for i := range in.NodeSets[0].NodeSpecs {
+		if len(aggSecretsPerNode[i]) == 0 {
+			return nil, fmt.Errorf("no aggregator secrets found for node %d", i)
+		}
+
+		secrets := Secrets{
+			CCV: CCVSecrets{
+				AggregatorSecrets: aggSecretsPerNode[i],
+			},
+		}
+		secretsToml, err := secrets.TomlString()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal CCV secrets to TOML: %w", err)
+		}
+		in.NodeSets[0].NodeSpecs[i].Node.TestSecretsOverrides = secretsToml
+		Plog.Info().Msg("overrode secrets for node")
+		fmt.Println(secretsToml)
 	}
 	Plog.Info().Msg("Nodes network configuration is generated")
 
@@ -517,15 +748,17 @@ func launchCLNodes(ctx context.Context, in *Cfg, impls []cciptestinterfaces.CCIP
 	return onchainPublicKeys, nil
 }
 
-func launchStandaloneExecutor(in *services.ExecutorInput) ([]*services.ExecutorOutput, error) {
+func launchStandaloneExecutors(in []*services.ExecutorInput) ([]*services.ExecutorOutput, error) {
 	var outs []*services.ExecutorOutput
-	// Start standalone executor if in standalone mode.
-	if in != nil && in.Mode == services.Standalone {
-		out, err := services.NewExecutor(in)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create executor service: %w", err)
+	// Start standalone executors if they are in standalone mode.
+	for _, exec := range in {
+		if exec != nil && exec.Mode == services.Standalone {
+			out, err := services.NewExecutor(exec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create executor service: %w", err)
+			}
+			outs = append(outs, out)
 		}
-		outs = append(outs, out)
 	}
 	return outs, nil
 }
@@ -550,6 +783,63 @@ func prefixWith0xIfNeeded(s string) string {
 		return s
 	}
 	return "0x" + s
+}
+
+// Assignment represents drawing from a list of items without replacement,
+// until all items have been drawn. At that point, the assignment will repeat.
+// Round robin is an example of such an assignment strategy.
+// TODO: probably not the right abstraction but is sufficient for now?
+type Assignment[T any] interface {
+	// GetNext returns the next item in the assignment.
+	GetNext() (index int, item T)
+}
+
+// RoundRobinAssignment returns the next item in a round robin fashion.
+type RoundRobinAssignment[T any] struct {
+	items []T
+	index int
+}
+
+// NewRoundRobinAssignment creates a new round robin assignment.
+func NewRoundRobinAssignment[T any](items []T) Assignment[T] {
+	return &RoundRobinAssignment[T]{items: items, index: 0}
+}
+
+// GetNext returns the next item in the round robin assignment.
+func (a *RoundRobinAssignment[T]) GetNext() (int, T) {
+	defer func() { a.index = (a.index + 1) % len(a.items) }()
+	return a.index, a.items[a.index]
+}
+
+// TODO: this is copied from the toml secret structures in the CL node.
+// We can't really import anything from there so this duplication is
+// currently necessary.
+type Secrets struct {
+	CCV CCVSecrets `toml:",omitempty"`
+}
+
+func (c *Secrets) TomlString() (string, error) {
+	data, err := toml.Marshal(c)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal CCV secrets to TOML: %w", err)
+	}
+	return string(data), nil
+}
+
+type CCVSecrets struct {
+	AggregatorSecrets []AggregatorSecret `toml:",omitempty"`
+	IndexerSecret     *IndexerSecret     `toml:",omitempty"`
+}
+
+type AggregatorSecret struct {
+	VerifierID string `toml:",omitempty"`
+	APIKey     string `toml:",omitempty"`
+	APISecret  string `toml:",omitempty"`
+}
+
+type IndexerSecret struct {
+	APIKey    string `toml:",omitempty"`
+	APISecret string `toml:",omitempty"`
 }
 
 // enableAutomineForAnvilChains enables automine for all Anvil chains during setup.

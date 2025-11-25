@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -27,20 +28,27 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
 const (
-	CONFIG_PATH = "EXECUTOR_CONFIG_PATH"
-	PK_ENV_VAR  = "EXECUTOR_TRANSMITTER_PRIVATE_KEY"
+	configPathEnvVar = "EXECUTOR_CONFIG_PATH"
+	privateKeyEnvVar = "EXECUTOR_TRANSMITTER_PRIVATE_KEY"
+	// indexerPollingInterval describes how frequently we ask indexer for new messages.
+	// This should be kept at 1s for consistent behavior across all executors.
+	indexerPollingInterval = 1 * time.Second
 )
 
 func main() {
+	//
+	// Load configuration
+	// ------------------------------------------------------------------------------------------------
 	configPath := executor.DefaultConfigFile
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
-	envConfig := os.Getenv(CONFIG_PATH)
+	envConfig := os.Getenv(configPathEnvVar)
 	if envConfig != "" {
 		configPath = envConfig
 	}
@@ -53,8 +61,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Keeping it at info level because debug will spam the logs with a lot of RPC caller related
-	// logs.
+	//
+	// Initialize logger
+	// ------------------------------------------------------------------------------------------------
+	// Keeping it at info level because debug will spam the logs with a lot of RPC caller related logs.
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
@@ -81,7 +91,9 @@ func main() {
 
 	lggr.Infow("Executor configuration", "config", executorConfig)
 
+	//
 	// Setup OTEL Monitoring (via beholder)
+	// ------------------------------------------------------------------------------------------------
 	var executorMonitoring executor.Monitoring
 	if executorConfig.Monitoring.Enabled && executorConfig.Monitoring.Type == "beholder" {
 		executorMonitoring, err = monitoring.InitMonitoring(beholder.Config{
@@ -102,6 +114,9 @@ func main() {
 		executorMonitoring = monitoring.NewNoopExecutorMonitoring()
 	}
 
+	//
+	// Initialize Context
+	// ------------------------------------------------------------------------------------------------
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -110,10 +125,14 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	//
+	// Initialize executor components
+	// ------------------------------------------------------------------------------------------------
 	contractTransmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
-	// create executor components
+	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	for strSel, chain := range executorConfig.BlockchainInfos {
+		chainConfig := executorConfig.ChainConfiguration[strSel]
 		selector, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
 			lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
@@ -121,17 +140,22 @@ func main() {
 		}
 
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
-		dr := destinationreader.NewEvmDestinationReader(
-			lggr,
-			protocol.ChainSelector(selector),
-			chainClient,
-			executorConfig.OffRampAddresses[strSel],
-			executorConfig.GetCCVInfoCacheExpiry(),
-		)
+		dr, err := destinationreader.NewEvmDestinationReader(
+			destinationreader.Params{
+				Lggr:             lggr,
+				ChainSelector:    protocol.ChainSelector(selector),
+				ChainClient:      chainClient,
+				OfframpAddress:   chainConfig.OffRampAddress,
+				RmnRemoteAddress: chainConfig.RmnAddress,
+				CacheExpiry:      executorConfig.ReaderCacheExpiry,
+			})
+		if err != nil {
+			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+		}
 
-		pk := os.Getenv(PK_ENV_VAR)
+		pk := os.Getenv(privateKeyEnvVar)
 		if pk == "" {
-			lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
+			lggr.Errorf("Environment variable %s is not set", privateKeyEnvVar)
 			os.Exit(1)
 		}
 
@@ -141,49 +165,79 @@ func main() {
 			protocol.ChainSelector(selector),
 			chain.Nodes[0].InternalHTTPUrl,
 			pk,
-			common.HexToAddress(executorConfig.OffRampAddresses[strSel]),
+			common.HexToAddress(chainConfig.OffRampAddress),
 		)
 		if err != nil {
 			lggr.Errorw("Failed to create contract transmitter", "error", err)
 			os.Exit(1)
 		}
-
-		destReaders[protocol.ChainSelector(selector)] = dr
+		if dr != nil {
+			destReaders[protocol.ChainSelector(selector)] = dr
+			rmnReaders[protocol.ChainSelector(selector)] = dr
+		}
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
 	}
 
-	// create indexer client which implements MessageReader and VerifierResultReader
+	//
+	// Initialize curse checker
+	// ------------------------------------------------------------------------------------------------
+	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
+		Lggr:        lggr,
+		RmnReaders:  rmnReaders,
+		CacheExpiry: executorConfig.ReaderCacheExpiry,
+	})
+
+	//
+	// Initialize indexer client
+	// ------------------------------------------------------------------------------------------------
 	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
 
-	// create executor
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, indexerClient, executorMonitoring)
+	//
+	// Initialize Message Handler
+	// ------------------------------------------------------------------------------------------------
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, indexerClient, executorMonitoring)
 
-	// create hash-based leader elector
+	//
+	// Initialize leader elector
+	// ------------------------------------------------------------------------------------------------
+	execPool := make(map[protocol.ChainSelector][]string)
+	execIntervals := make(map[protocol.ChainSelector]time.Duration)
+	for strSel, chainConfig := range executorConfig.ChainConfiguration {
+		selector, err := strconv.ParseUint(strSel, 10, 64)
+		if err != nil {
+			lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
+			continue
+		}
+		execPool[protocol.ChainSelector(selector)] = chainConfig.ExecutorPool
+		execIntervals[protocol.ChainSelector(selector)] = chainConfig.ExecutionInterval
+	}
 	le := leaderelector.NewHashBasedLeaderElector(
 		lggr,
-		executorConfig.ExecutorPool,
+		execPool,
 		executorConfig.ExecutorID,
-		executorConfig.GetExecutionInterval(),
-		executorConfig.GetMinWaitPeriod(),
+		execIntervals,
 	)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
 			IndexerClient:   indexerClient,
-			LastQueryTime:   time.Now().Add(-1 * executorConfig.GetLookbackWindow()).UnixMilli(),
-			PollingInterval: executorConfig.GetPollingInterval(),
-			Backoff:         executorConfig.GetBackoffDuration(),
+			LastQueryTime:   time.Now().Add(-1 * executorConfig.LookbackWindow).UnixMilli(),
+			PollingInterval: indexerPollingInterval,
+			Backoff:         executorConfig.BackoffDuration,
 			QueryLimit:      executorConfig.IndexerQueryLimit,
 		})
 
-	// Create executor coordinator
+	//
+	// Initialize executor coordinator
+	// ------------------------------------------------------------------------------------------------
 	coordinator, err := executor.NewCoordinator(
 		lggr,
 		ex,
 		indexerStream,
 		le,
 		executorMonitoring,
+		executorConfig.MaxRetryDuration,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)
@@ -195,6 +249,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	//
+	// Wait for shutdown signal
+	// ------------------------------------------------------------------------------------------------
 	<-sigCh
 	lggr.Infow("🛑 Shutdown signal received, stopping verifier...")
 
@@ -215,5 +272,10 @@ func loadConfiguration(filepath string) (*executor.Configuration, error) {
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}
-	return &config, nil
+
+	normalizedConfig, err := config.GetNormalizedConfig()
+	if err != nil {
+		return nil, err
+	}
+	return normalizedConfig, nil
 }

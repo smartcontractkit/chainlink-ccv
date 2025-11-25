@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -160,16 +162,17 @@ func AllTokenCombinations() []TokenCombination {
 			expectedReceiptIssuers:  3, // default CCV, token pool, executor
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 lock -> 1.7.0 release
-			sourcePoolType:          string(lock_release_token_pool.ContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(lock_release_token_pool.ContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  3, // default CCV, token pool, executor
-			expectedVerifierResults: 1, // default CCV
-		},
+		// TODO: Re-enable when chainlink-ccip repo adds ERC20LockBox deployment support
+		// { // 1.7.0 lock -> 1.7.0 release
+		// 	sourcePoolType:          string(lock_release_token_pool.ContractType),
+		// 	sourcePoolVersion:       "1.7.0",
+		// 	sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+		// 	destPoolType:            string(lock_release_token_pool.ContractType),
+		// 	destPoolVersion:         "1.7.0",
+		// 	destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+		// 	expectedReceiptIssuers:  3, // default CCV, token pool, executor
+		// 	expectedVerifierResults: 1, // default CCV
+		// },
 		{ // 1.7.0 burn -> 1.7.0 mint
 			sourcePoolType:          string(burn_mint_token_pool.ContractType),
 			sourcePoolVersion:       "1.7.0",
@@ -248,6 +251,18 @@ type CCIP17EVM struct {
 	ethClients             map[uint64]*ethclient.Client
 	onRampBySelector       map[uint64]*onramp.OnRamp
 	offRampBySelector      map[uint64]*offramp.OffRamp
+}
+
+// NewEmptyCCIP17EVM creates a new CCIP17EVM with a logger that logs to the console.
+func NewEmptyCCIP17EVM() *CCIP17EVM {
+	return &CCIP17EVM{
+		logger: log.
+			Output(zerolog.ConsoleWriter{Out: os.Stderr}).
+			Level(zerolog.DebugLevel).
+			With().
+			Fields(map[string]any{"component": "CCIP17EVM"}).
+			Logger(),
+	}
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
@@ -891,7 +906,7 @@ func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
 		GasLimit *big.Int
 	}
 
-	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.GasLimit))})
+	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.ExecutionGasLimit))})
 	if err != nil {
 		panic(fmt.Sprintf("failed to pack extraArgs: %v", err))
 	}
@@ -922,7 +937,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 	}
 
 	packed, err := arguments.Pack(GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(int64(opts.GasLimit)),
+		GasLimit:                 big.NewInt(int64(opts.ExecutionGasLimit)),
 		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
 	})
 	if err != nil {
@@ -936,7 +951,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
 		opts.FinalityConfig,
-		opts.GasLimit,
+		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
 		opts.TokenArgs,
@@ -1108,7 +1123,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				},
 				// Deploy multiple committee verifiers in order to test different receiver
 				// configurations.
-				CommitteeVerifier: toCommitteeVerifierParams(committees),
+				CommitteeVerifiers: toCommitteeVerifierParams(committees),
 				OnRamp: sequences.OnRampParams{
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),
@@ -1527,6 +1542,34 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		}
 	}
 
+	return nil
+}
+
+func (m *CCIP17EVM) FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error {
+	client, _, _, err := ETHClient(ctx, bc.Out.Nodes[0].ExternalWSUrl, &GasSettings{
+		FeeCapMultiplier: 2,
+		TipCapMultiplier: 2,
+	})
+	if err != nil {
+		return fmt.Errorf("could not create basic eth client: %w", err)
+	}
+	chainInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, chainsel.FamilyEVM)
+	if err != nil {
+		return fmt.Errorf("could not get chain details: %w", err)
+	}
+	for _, addr := range addresses {
+		a, _ := nativeAmount.Float64()
+		addrStr := common.BytesToAddress(addr).Hex()
+		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Msg("Funding address")
+		if err := FundNodeEIP1559(ctx, client, getNetworkPrivateKey(), addrStr, a); err != nil {
+			return fmt.Errorf("failed to fund address %s: %w", addrStr, err)
+		}
+		bal, err := client.BalanceAt(ctx, common.HexToAddress(addrStr), nil)
+		if err != nil {
+			return fmt.Errorf("failed to get balance: %w", err)
+		}
+		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Int64("Balance", bal.Int64()).Msg("Address balance")
+	}
 	return nil
 }
 
