@@ -6,14 +6,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var (
-	vHash = protocol.Keccak256([]byte("CCIP1.7_MessageDiscovery_Version"))
-	// MessageDiscoveryVersion is the version used by the committee verifier to sign messages
-	// that only need to be discovered, and not verified onchain.
-	// 0x3c4605eb in hex.
-	MessageDiscoveryVersion = vHash[:4]
-)
-
 const (
 	// The number of bytes used to represent the verifier version.
 	VerifierVersionLength = 4
