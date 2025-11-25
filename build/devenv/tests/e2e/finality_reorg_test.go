@@ -86,7 +86,10 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		evm.DefaultCommitteeVerifierQualifier,
 		"committee verifier proxy")
 
-	mustSendMessageFunc := func(data string) [32]byte {
+	// Helper function to send a message with logging
+	sendMessageWithLogging := func(data string, logPrefix string) [32]byte {
+		l.Info().Str("data", data).Msgf("📨 %s", logPrefix)
+
 		event, err := c.SendMessage(ctx, srcSelector, destSelector,
 			cciptestinterfaces.MessageFields{
 				Receiver: receiver,
@@ -105,12 +108,30 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 				},
 			})
 		require.NoError(t, err)
+
 		l.Info().
+			Str("messageID", fmt.Sprintf("%x", event.MessageID)).
 			Str("data", data).
 			Int("seqNumber", int(event.SequenceNumber)).
-			Msg("Sending message")
+			Msgf("✅ %s", logPrefix)
 
 		return event.MessageID
+	}
+
+	// Helper function to verify a message exists in aggregator
+	verifyMessageExists := func(messageID [32]byte, description string) {
+		result, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, messageID)
+		require.NoError(t, err, "%s should be found after finality", description)
+		l.Info().
+			Str("messageID", fmt.Sprintf("%x", messageID)).
+			Str("verifierResult", fmt.Sprintf("%x", result)).
+			Msgf("✅ %s verified in aggregator after finality", description)
+	}
+
+	// Helper function to verify a message does NOT exist in aggregator
+	verifyMessageNotExists := func(messageID [32]byte, description string) {
+		_, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, messageID)
+		require.Error(t, err, "%s should not be found in aggregator", description)
 	}
 
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
@@ -138,21 +159,12 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		time.Sleep(2 * time.Second)
 
 		// Block 6
-		l.Info().Msg("📨 Sending message 1")
-		msg1IDBeforeReorg := mustSendMessageFunc("message 1")
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1IDBeforeReorg)).
-			Msg("✅ Message 1 sent")
+		msg1IDBeforeReorg := sendMessageWithLogging("message 1", "Sending message 1")
 
 		time.Sleep(2 * time.Second)
 
 		// Block 7
-		// Step 9: Send second message with data "message 2"
-		l.Info().Msg("📨 Sending message 2")
-		msg2IDBeforeReorg := mustSendMessageFunc("message 2")
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg2IDBeforeReorg)).
-			Msg("✅ Message 2 sent")
+		msg2IDBeforeReorg := sendMessageWithLogging("message 2", "Sending message 2")
 
 		// Block 10
 		err = anvilHelper.Mine(ctx, 3)
@@ -186,26 +198,14 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Uint64("reorgDepth", blockBeforeReorg.Number().Uint64()-blockAfterRevert.Number().Uint64()).
 			Msg("⏪ Reverted to snapshot")
 
-		l.Info().Msg("📨 Sending message 2 first (swapped order)")
-		msg2IDAfterReorg := mustSendMessageFunc("message 2")
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg2IDAfterReorg)).
-			Msg("✅ Message 2 sent (swapped order)")
+		msg2IDAfterReorg := sendMessageWithLogging("message 2", "Sending message 2 first (swapped order)")
 
 		time.Sleep(5 * time.Second)
 
-		// Step 15: Send message 1 second (swapped order)
-		l.Info().Msg("📨 Sending message 1 second (swapped order)")
-		msg1IDAfterReorg := mustSendMessageFunc("message 1")
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1IDAfterReorg)).
-			Msg("✅ Message 1 sent (swapped order)")
+		// Send message 1 second (swapped order)
+		msg1IDAfterReorg := sendMessageWithLogging("message 1", "Sending message 1 second (swapped order)")
 
-		l.Info().Msg("Sending a new msg that wasn't sent pre reorg")
-		msg3ID := mustSendMessageFunc("message 3")
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg3ID)).
-			Msg("✅ Message 3 sent (new message)")
+		msg3ID := sendMessageWithLogging("message 3", "Sending a new msg that wasn't sent pre reorg")
 
 		// Step 16: Mine 11 blocks to cross finality threshold
 		l.Info().Msg("⛏️  Mining 11 blocks to cross finality threshold")
@@ -221,37 +221,15 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Str("finalBlockHash", finalBlock.Hash().Hex()).
 			Msg("✅ Crossed finality threshold")
 
-		// Step 17: Verify both messages are found in aggregator
+		// Verify all messages are found in aggregator after finality
 		l.Info().Msg("🔍 Verifying messages are in aggregator (after finality)")
-
-		result2, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg2IDAfterReorg)
-		require.NoError(t, err, "Message 2 should be found after finality")
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg2IDAfterReorg)).
-			Str("verifierResult", fmt.Sprintf("%x", result2)).
-			Msg("✅ Message 2 verified in aggregator after finality")
-
-		result1, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg1IDAfterReorg)
-		require.NoError(t, err, "Message 1 should be found after finality")
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1IDAfterReorg)).
-			Str("verifierResult", fmt.Sprintf("%x", result1)).
-			Msg("✅ Message 1 verified in aggregator after finality")
-
-		result3, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg3ID)
-		require.NoError(t, err, "Message 3 should be found after finality")
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg3ID)).
-			Str("verifierResult", fmt.Sprintf("%x", result3)).
-			Msg("✅ Message 3 verified in aggregator after finality")
+		verifyMessageExists(msg2IDAfterReorg, "Message 2 after reorg")
+		verifyMessageExists(msg1IDAfterReorg, "Message 1 after reorg")
+		verifyMessageExists(msg3ID, "Message 3 after reorg")
 
 		l.Info().Msg("🔍 Checking messages are NOT in aggregator (below finality)")
-		_, err = defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg1IDBeforeReorg)
-		require.Error(t, err, "Message 1 before reorg should not be found in aggregator")
-
-		_, err = defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg2IDBeforeReorg)
-		require.Error(t, err, "Message 2 should not be found in aggregator")
-
+		verifyMessageNotExists(msg1IDBeforeReorg, "Message 1 before reorg")
+		verifyMessageNotExists(msg2IDBeforeReorg, "Message 2 before reorg")
 		l.Info().Msg("✅ Confirmed messages not in aggregator")
 
 		l.Info().
