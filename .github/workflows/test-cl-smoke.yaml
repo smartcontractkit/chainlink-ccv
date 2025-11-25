@@ -38,7 +38,7 @@ jobs:
         with:
           # Prefer a SHA from the develop branch, since branches that get deleted on remote will cause this
           # checkout to fail.
-          ref: b30e81ce05a0274655b4bfde5186bcbcf60f57c7
+          ref: fb66aa19b7a46e02cedb21e7bbbc7813dbb8a93e
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
