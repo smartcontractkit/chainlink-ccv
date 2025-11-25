@@ -140,7 +140,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 				}
 
 				// get message delay from leader elector
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.DestChainSelector, time.Now().Unix())
 
 				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 					Message:       &msg,

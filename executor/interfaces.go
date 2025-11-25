@@ -37,7 +37,7 @@ type MessageReader interface {
 // VerifierResultReader reads verifier results from a storage backend based on messageID. It is implemented by the IndexerAPI.
 type VerifierResultReader interface {
 	// GetVerifierResults returns all verifierResults for a given messageID
-	GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error)
+	GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error)
 }
 
 // Executor is responsible for executing validating messages.
@@ -59,8 +59,9 @@ type ContractTransmitter interface {
 
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
+	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
 	// todo: Switch this to GetReadyDelay instead of GetReadyTimestamp
-	GetReadyTimestamp(messageID protocol.Bytes32, verifierTimestamp int64) int64
+	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, verifierTimestamp int64) int64
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
 	GetRetryDelay(destinationChain protocol.ChainSelector) int64
 }

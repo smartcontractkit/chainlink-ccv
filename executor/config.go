@@ -2,138 +2,124 @@ package executor
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+const (
+	backoffDurationDefault   = 15 * time.Second
+	lookbackWindowDefault    = 1 * time.Hour
+	readerCacheExpiryDefault = 5 * time.Minute
+	maxRetryDurationDefault  = 8 * time.Hour
+	executionIntervalDefault = 1 * time.Minute
+)
+
+// Configuration is the complete set of information an executor needs to operate normally.
+// We can use time.Duration directly in this config because burntSushi can parse duration from strings.
 type Configuration struct {
 	// BlockchainInfos is a map of chain selector to RPC information for chain interactions.
 	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	// IndexerAddress is the URL of the indexer to receive messages + verifications from.
 	IndexerAddress string `toml:"indexer_address"`
-	// PollingInterval is the interval to poll the Indexer for messages.
-	// todo: Remove polling interval from config, we should only use a 1s interval.
-	PollingInterval string `toml:"source_polling_interval"`
 	// BackoffDuration is the duration to back off after a failed request to the Indexer.
 	// Defaults to 15 seconds.
-	BackoffDuration string `toml:"source_backoff_duration"`
+	BackoffDuration time.Duration `toml:"source_backoff_duration"`
 	// LookbackWindow is the window of time to look back for new messages when an Executor first starts up.
 	// Defaults to 1 hour.
-	LookbackWindow string `toml:"startup_lookback_window"`
+	LookbackWindow time.Duration `toml:"startup_lookback_window"`
 	// IndexerQueryLimit is the maximum number of messages to query from the Indexer at once.
 	// Defaults to 100.
 	IndexerQueryLimit uint64 `toml:"indexer_query_limit"`
 	// PyroscopeURL is the URL of the Pyroscope server to send metrics to.
 	PyroscopeURL string `toml:"pyroscope_url"`
-	// OffRampAddresses is a map of chain selector to offramp address for chain interactions.
-	OffRampAddresses map[string]string `toml:"offramp_addresses"`
-	// ExecutorPool is a list of executor IDs used for turn taking.
-	// TODO: update this to enable a different pool per destination chain.
-	ExecutorPool []string `toml:"executor_pool"`
 	// ExecutorID is the ID of this executor. This executorID should be present in the executor pool.
 	ExecutorID string `toml:"executor_id"`
-	// ExecutionInterval is how long each executor has to process a message before the next executor in the cluster takes over.
-	// Defaults to 30 seconds.
-	ExecutionInterval string `toml:"execution_interval"`
-	// MinWait is the minimum wait time before the first executor in the turn taking pool begins processing a message.
-	// Defaults to 10 seconds.
-	MinWait string `toml:"min_wait"`
 	// Monitoring is the configuration for how Executor emits metrics.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// ReaderCacheExpiry is the duration to cache CCV information for each destination chain.
 	// Cached information includes the Verifier Quorum per receiver address.
 	// Defaults to 5 minutes.
-	ReaderCacheExpiry string `toml:"reader_cache_expiry"`
+	ReaderCacheExpiry time.Duration `toml:"reader_cache_expiry"`
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before giving up.
 	// Defaults to 8 hours.
-	MaxRetryDuration string `toml:"max_retry_duration"`
-	// RMN addresses is a map of chain selector to RMN address to check for curse state.
-	// Will eventually combine with the same config in Verifier.
-	RmnAddresses map[string]string `toml:"rmn_addresses"`
+	MaxRetryDuration time.Duration `toml:"max_retry_duration"`
+	// ChainConfiguration is a map of chain selector to chain configuration.
+	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
+	ChainConfiguration map[string]ChainConfiguration `toml:"chain_configuration"`
+}
+
+// ChainConfiguration is all the configuration an executor needs to know about a specific chain.
+// This is separate from chain-specific RPC information in BlockchainInfos.
+type ChainConfiguration struct {
+	// RMN address is the address of the RMN contract to check for curse state.
+	RmnAddress string `toml:"rmn_address"`
+	// OffRamp address is the address of the offramp contract to send messages to.
+	OffRampAddress string `toml:"off_ramp_address"`
+	// Executor pool is the list of executor IDs used for turn taking. This executor's ID must be in the list.
+	ExecutorPool []string `toml:"executor_pool"`
+	// ExecutionInterval is how long each executor has to process a message before the next executor in the cluster takes over.
+	ExecutionInterval time.Duration `toml:"execution_interval"`
 }
 
 func (c *Configuration) Validate() error {
 	if len(c.BlockchainInfos) == 0 {
 		return fmt.Errorf("no destination chains configured to read from")
 	}
-	if len(c.ExecutorPool) == 0 {
-		return fmt.Errorf("executor_ids must be configured")
-	}
 	if c.ExecutorID == "" {
 		return fmt.Errorf("this_executor_id must be configured")
 	}
 
-	// Check that this executor's ID is in the list of executor IDs
-	found := false
-	for _, id := range c.ExecutorPool {
-		if id == c.ExecutorID {
-			found = true
-			break
+	for chainSel, chainConfig := range c.ChainConfiguration {
+		// can ignore nil check because len of nil slice is 0.
+		if len(chainConfig.ExecutorPool) == 0 {
+			return fmt.Errorf("executor_pool must be configured for chain %s", chainSel)
 		}
-	}
-	if !found {
-		return fmt.Errorf("this_executor_id '%s' not found in executor_ids list", c.ExecutorID)
+		if !slices.Contains(chainConfig.ExecutorPool, c.ExecutorID) {
+			return fmt.Errorf("this_executor_id '%s' not found in executor_pool for chain %s", c.ExecutorID, chainSel)
+		}
 	}
 
 	return nil
 }
 
-// TODO: update all these config getters to use a time.Duration, applyDefaults, and define constants.
-func (c *Configuration) GetBackoffDuration() time.Duration {
-	d, err := time.ParseDuration(c.BackoffDuration)
-	if err != nil {
-		return 15 * time.Second
-	}
-	return d
-}
+// GetNormalizedConfig validates the configuration and applies defaults.
+// It returns a copy of the Configuration where durations are parsed and defaults filled in as necessary.
+func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
+	normalized := *c // shallow copy
 
-func (c *Configuration) GetPollingInterval() time.Duration {
-	d, err := time.ParseDuration(c.PollingInterval)
-	if err != nil {
-		return 1 * time.Second
+	// Validate first using the current Validate method.
+	if err := normalized.Validate(); err != nil {
+		return nil, err
 	}
-	return d
-}
 
-func (c *Configuration) GetIndexerQueryLimit() uint64 {
-	limit := c.IndexerQueryLimit
-	if limit == 0 {
-		return 100
+	// Set default durations if missing or invalid.
+	parseOrDefault := func(raw, defaultVal time.Duration) time.Duration {
+		if raw == 0 {
+			return defaultVal
+		}
+		return raw
 	}
-	return limit
-}
 
-func (c *Configuration) GetLookbackWindow() time.Duration {
-	d, err := time.ParseDuration(c.LookbackWindow)
-	if err != nil {
-		return 1 * time.Hour
+	// Copy base fields with defaults applied.
+	normalized.BackoffDuration = parseOrDefault(c.BackoffDuration, backoffDurationDefault)
+	normalized.LookbackWindow = parseOrDefault(c.LookbackWindow, lookbackWindowDefault)
+	normalized.ReaderCacheExpiry = parseOrDefault(c.ReaderCacheExpiry, readerCacheExpiryDefault)
+	normalized.MaxRetryDuration = parseOrDefault(c.MaxRetryDuration, maxRetryDurationDefault)
+	if c.IndexerQueryLimit == 0 {
+		normalized.IndexerQueryLimit = 100
 	}
-	return d
-}
 
-func (c *Configuration) GetExecutionInterval() time.Duration {
-	d, err := time.ParseDuration(c.ExecutionInterval)
-	if err != nil {
-		return 30 * time.Second
+	// Process per-chain configuration: parse and normalize durations
+	chainConfigs := make(map[string]ChainConfiguration, len(c.ChainConfiguration))
+	for chainSel, updatedChain := range c.ChainConfiguration {
+		updatedChain.ExecutionInterval = parseOrDefault(updatedChain.ExecutionInterval, executionIntervalDefault)
+		chainConfigs[chainSel] = updatedChain
 	}
-	return d
-}
+	normalized.ChainConfiguration = chainConfigs
 
-func (c *Configuration) GetMinWaitPeriod() time.Duration {
-	d, err := time.ParseDuration(c.MinWait)
-	if err != nil {
-		return 10 * time.Second
-	}
-	return d
-}
-
-func (c *Configuration) GetMaxRetryDuration() time.Duration {
-	d, err := time.ParseDuration(c.MaxRetryDuration)
-	if err != nil {
-		return 8 * time.Hour
-	}
-	return d
+	return &normalized, nil
 }
 
 // MonitoringConfig provides monitoring configuration for executor.
@@ -196,12 +182,4 @@ func (b *BeholderConfig) Validate() error {
 	}
 
 	return nil
-}
-
-func (c *Configuration) GetReaderCacheExpiry() time.Duration {
-	d, err := time.ParseDuration(c.ReaderCacheExpiry)
-	if err != nil {
-		return 5 * time.Minute
-	}
-	return d
 }

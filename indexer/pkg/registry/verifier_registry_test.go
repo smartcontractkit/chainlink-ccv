@@ -5,22 +5,22 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // mockVerifierResultsAPI is a simple mock implementation of VerifierResultsAPI for testing.
 type mockVerifierResultsAPI struct {
-	results map[protocol.Bytes32]protocol.CCVData
+	results map[protocol.Bytes32]protocol.VerifierResult
 	err     error
 }
 
-func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	if m.err != nil {
 		return m.results, m.err
 	}
@@ -31,12 +31,11 @@ func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageID
 func newMockVerifierReader() *readers.VerifierReader {
 	ctx := context.Background()
 	mockVerifier := &mockVerifierResultsAPI{
-		results: make(map[protocol.Bytes32]protocol.CCVData),
+		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
-	config := readers.VerifierReaderConfig{
-		BatchSize:         10,
-		MaxWaitTime:       100 * time.Millisecond,
-		MaxPendingBatches: 5,
+	config := &config.VerifierConfig{
+		BatchSize:        10,
+		MaxBatchWaitTime: 100,
 	}
 	return readers.NewVerifierReader(ctx, mockVerifier, config)
 }
@@ -50,7 +49,7 @@ func TestNewVerifierRegistry(t *testing.T) {
 	require.NoError(t, err)
 	mockVerifier := newMockVerifierReader()
 	defer mockVerifier.Close()
-	err = reg.AddVerifier(addr, mockVerifier)
+	err = reg.AddVerifier(addr, "Test", mockVerifier)
 	assert.NoError(t, err)
 }
 
@@ -61,7 +60,7 @@ func TestAddVerifier_Success(t *testing.T) {
 
 	mockVerifier := newMockVerifierReader()
 	defer mockVerifier.Close()
-	err = reg.AddVerifier(addr, mockVerifier)
+	err = reg.AddVerifier(addr, "Test", mockVerifier)
 	assert.NoError(t, err)
 
 	retrieved := reg.GetVerifier(addr)
@@ -75,10 +74,10 @@ func TestAddVerifier_Duplicate(t *testing.T) {
 
 	mockVerifier := newMockVerifierReader()
 	defer mockVerifier.Close()
-	err = reg.AddVerifier(addr, mockVerifier)
+	err = reg.AddVerifier(addr, "Test", mockVerifier)
 	require.NoError(t, err)
 
-	err = reg.AddVerifier(addr, mockVerifier)
+	err = reg.AddVerifier(addr, "Test", mockVerifier)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "verifier already exists")
 }
@@ -88,7 +87,7 @@ func TestAddVerifier_NilVerifier(t *testing.T) {
 	addr, err := protocol.NewUnknownAddressFromHex("0x1234")
 	require.NoError(t, err)
 
-	err = reg.AddVerifier(addr, nil)
+	err = reg.AddVerifier(addr, "Test", nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "verifier cannot be nil")
 }
@@ -100,7 +99,7 @@ func TestRemoveVerifier_Success(t *testing.T) {
 
 	mockVerifier := newMockVerifierReader()
 	defer mockVerifier.Close()
-	err = reg.AddVerifier(addr, mockVerifier)
+	err = reg.AddVerifier(addr, "Test", mockVerifier)
 	require.NoError(t, err)
 
 	err = reg.RemoveVerifier(addr)
@@ -142,9 +141,9 @@ func TestGetVerifier_MultipleVerifiers(t *testing.T) {
 	mockVerifier2 := newMockVerifierReader()
 	defer mockVerifier2.Close()
 
-	err = reg.AddVerifier(addr1, mockVerifier1)
+	err = reg.AddVerifier(addr1, "Test", mockVerifier1)
 	require.NoError(t, err)
-	err = reg.AddVerifier(addr2, mockVerifier2)
+	err = reg.AddVerifier(addr2, "Test 2", mockVerifier2)
 	require.NoError(t, err)
 
 	retrieved1 := reg.GetVerifier(addr1)
@@ -173,7 +172,7 @@ func TestConcurrentAccess(t *testing.T) {
 			verifiersMu.Lock()
 			verifiers = append(verifiers, mockVerifier)
 			verifiersMu.Unlock()
-			_ = reg.AddVerifier(addr, mockVerifier)
+			_ = reg.AddVerifier(addr, fmt.Sprintf("Verifier %s", hexAddr), mockVerifier)
 		}
 		done <- true
 	}()

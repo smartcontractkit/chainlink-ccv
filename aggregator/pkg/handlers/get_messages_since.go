@@ -31,23 +31,18 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 		return nil, err
 	}
 
-	records := make([]*pb.MessageWithVerifierResult, 0, len(batch.Reports))
+	records := make([]*pb.VerifierResultWithSequence, 0, len(batch.Reports))
 	for _, report := range batch.Reports {
-		ccvData, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
+		verifierResult, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
 		if err != nil {
 			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
 			return nil, err
 		}
-		messageWithResult := &pb.MessageWithVerifierResult{
-			Message:                  ccvData.Message,
-			SourceVerifierAddress:    ccvData.SourceVerifierAddress,
-			DestVerifierAddress:      ccvData.DestVerifierAddress,
-			CcvData:                  ccvData.CcvData,
-			Timestamp:                ccvData.Timestamp,
-			Sequence:                 ccvData.Sequence,
-			ReceiptBlobsFromMajority: model.ReceiptBlobsToProto(report.WinningReceiptBlobs),
+		resultWithSequence := &pb.VerifierResultWithSequence{
+			VerifierResult: verifierResult,
+			Sequence:       report.Sequence,
 		}
-		records = append(records, messageWithResult)
+		records = append(records, resultWithSequence)
 	}
 
 	h.m.Metrics().RecordMessageSinceNumberOfRecordsReturned(ctx, len(records))

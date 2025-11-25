@@ -21,6 +21,9 @@ func (n Nonce) String() string {
 	return strconv.FormatUint(uint64(n), 10)
 }
 
+// SequenceNumber represents a sequential identifier for messages in a CCIP lane.
+type SequenceNumber uint64
+
 // UnknownAddress represents an address on an unknown chain.
 type UnknownAddress []byte
 

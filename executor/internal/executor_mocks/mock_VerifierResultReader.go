@@ -24,23 +24,23 @@ func (_m *MockVerifierResultReader) EXPECT() *MockVerifierResultReader_Expecter 
 }
 
 // GetVerifierResults provides a mock function with given fields: ctx, messageID
-func (_m *MockVerifierResultReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+func (_m *MockVerifierResultReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
 	ret := _m.Called(ctx, messageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetVerifierResults")
 	}
 
-	var r0 []protocol.CCVData
+	var r0 []protocol.VerifierResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Bytes32) ([]protocol.CCVData, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Bytes32) ([]protocol.VerifierResult, error)); ok {
 		return rf(ctx, messageID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Bytes32) []protocol.CCVData); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Bytes32) []protocol.VerifierResult); ok {
 		r0 = rf(ctx, messageID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]protocol.CCVData)
+			r0 = ret.Get(0).([]protocol.VerifierResult)
 		}
 	}
 
@@ -72,12 +72,12 @@ func (_c *MockVerifierResultReader_GetVerifierResults_Call) Run(run func(ctx con
 	return _c
 }
 
-func (_c *MockVerifierResultReader_GetVerifierResults_Call) Return(_a0 []protocol.CCVData, _a1 error) *MockVerifierResultReader_GetVerifierResults_Call {
+func (_c *MockVerifierResultReader_GetVerifierResults_Call) Return(_a0 []protocol.VerifierResult, _a1 error) *MockVerifierResultReader_GetVerifierResults_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockVerifierResultReader_GetVerifierResults_Call) RunAndReturn(run func(context.Context, protocol.Bytes32) ([]protocol.CCVData, error)) *MockVerifierResultReader_GetVerifierResults_Call {
+func (_c *MockVerifierResultReader_GetVerifierResults_Call) RunAndReturn(run func(context.Context, protocol.Bytes32) ([]protocol.VerifierResult, error)) *MockVerifierResultReader_GetVerifierResults_Call {
 	_c.Call.Return(run)
 	return _c
 }

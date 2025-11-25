@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -13,14 +12,14 @@ import (
 )
 
 func makeValidWriteReq() *pb.WriteCommitteeVerifierNodeResultRequest {
-	msg, _ := protocol.NewMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.Nonce(1), nil, nil, 0, 500_000, nil, nil, []byte{}, []byte{}, nil)
-	id, _ := msg.MessageID()
+	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
 	return &pb.WriteCommitteeVerifierNodeResultRequest{
-		CcvNodeData: &pb.CommitteeVerifierNodeResult{
-			MessageId: id[:],
-			CcvData:   []byte{0x1},
-			Timestamp: time.Now().UnixMilli(),
-			Message:   model.MapProtocolMessageToProtoMessage(msg),
+		CommitteeVerifierNodeResult: &pb.CommitteeVerifierNodeResult{
+			Signature:       []byte{0x1},
+			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
+			Message:         model.MapProtocolMessageToProtoMessage(msg),
+			CcvAddresses:    [][]byte{},
+			ExecutorAddress: makeTestExecutorAddress(),
 		},
 	}
 }
@@ -31,20 +30,20 @@ func TestValidateWriteRequest_Success(t *testing.T) {
 }
 
 func TestValidateWriteRequest_Errors(t *testing.T) {
-	t.Run("nil_ccv_node_data", func(t *testing.T) {
-		req := &pb.WriteCommitteeVerifierNodeResultRequest{CcvNodeData: nil}
+	t.Run("nil_committee_verifier_node_result", func(t *testing.T) {
+		req := &pb.WriteCommitteeVerifierNodeResultRequest{CommitteeVerifierNodeResult: nil}
 		require.Error(t, validateWriteRequest(req))
 	})
 
-	t.Run("message_id_mismatch", func(t *testing.T) {
+	t.Run("missing_message", func(t *testing.T) {
 		req := makeValidWriteReq()
-		req.CcvNodeData.MessageId[0] ^= 0xFF
+		req.CommitteeVerifierNodeResult.Message = nil
 		require.Error(t, validateWriteRequest(req))
 	})
 
-	t.Run("timestamp_out_of_range", func(t *testing.T) {
+	t.Run("missing_signature", func(t *testing.T) {
 		req := makeValidWriteReq()
-		req.CcvNodeData.Timestamp = time.Now().Add(200 * 365 * 24 * time.Hour).UnixMilli()
+		req.CommitteeVerifierNodeResult.Signature = nil
 		require.Error(t, validateWriteRequest(req))
 	})
 }
@@ -59,15 +58,4 @@ func TestValidateReadRequest(t *testing.T) {
 		req := &pb.ReadCommitteeVerifierNodeResultRequest{MessageId: []byte{0x1}}
 		require.Error(t, validateReadRequest(req))
 	})
-}
-
-func TestIsValidMillisecondTimestamp_Bounds(t *testing.T) {
-	now := time.Now()
-	tooPast := now.Add(-101 * 365 * 24 * time.Hour).UnixMilli()
-	tooFuture := now.Add(101 * 365 * 24 * time.Hour).UnixMilli()
-	inside := now.UnixMilli()
-
-	require.False(t, isValidMillisecondTimestamp(tooPast))
-	require.False(t, isValidMillisecondTimestamp(tooFuture))
-	require.True(t, isValidMillisecondTimestamp(inside))
 }

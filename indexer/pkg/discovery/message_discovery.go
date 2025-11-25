@@ -9,8 +9,9 @@ import (
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -18,20 +19,15 @@ var _ common.MessageDiscovery = (*AggregatorMessageDiscovery)(nil)
 
 type AggregatorMessageDiscovery struct {
 	logger           logger.Logger
-	config           Config
+	config           config.DiscoveryConfig
 	aggregatorReader *readers.ResilientReader
+	registry         *registry.VerifierRegistry
 	storageSink      common.IndexerStorage
 	monitoring       common.IndexerMonitoring
-	messageCh        chan protocol.CCVData
+	messageCh        chan common.VerifierResultWithMetadata
 	stopCh           chan struct{}
 	doneCh           chan struct{}
 	readerLock       *sync.Mutex
-}
-
-type Config struct {
-	PollInterval       time.Duration
-	Timeout            time.Duration
-	MessageChannelSize int
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -39,6 +35,12 @@ type Option func(*AggregatorMessageDiscovery)
 func WithAggregator(aggregator *readers.ResilientReader) Option {
 	return func(a *AggregatorMessageDiscovery) {
 		a.aggregatorReader = aggregator
+	}
+}
+
+func WithRegistry(registry *registry.VerifierRegistry) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.registry = registry
 	}
 }
 
@@ -60,7 +62,7 @@ func WithLogger(lggr logger.Logger) Option {
 	}
 }
 
-func WithConfig(config Config) Option {
+func WithConfig(config config.DiscoveryConfig) Option {
 	return func(a *AggregatorMessageDiscovery) {
 		a.config = config
 	}
@@ -70,6 +72,7 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	a := &AggregatorMessageDiscovery{
 		stopCh:     make(chan struct{}),
 		doneCh:     make(chan struct{}),
+		messageCh:  make(chan common.VerifierResultWithMetadata),
 		readerLock: &sync.Mutex{},
 	}
 
@@ -77,9 +80,6 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	for _, opt := range opts {
 		opt(a)
 	}
-
-	// Create the buffered message channel
-	a.messageCh = make(chan protocol.CCVData, a.config.MessageChannelSize)
 
 	// Validata the configuration
 	if err := a.validate(); err != nil {
@@ -90,10 +90,6 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 }
 
 func (a *AggregatorMessageDiscovery) validate() error {
-	if a.config.MessageChannelSize <= 0 {
-		return errors.New("invalid message channel size")
-	}
-
 	if a.config.PollInterval <= 0 {
 		return errors.New("invalid poll interval")
 	}
@@ -104,6 +100,10 @@ func (a *AggregatorMessageDiscovery) validate() error {
 
 	if a.aggregatorReader == nil {
 		return errors.New("aggregator must be specified")
+	}
+
+	if a.registry == nil {
+		return errors.New("registry must be specified")
 	}
 
 	if a.logger == nil {
@@ -121,7 +121,7 @@ func (a *AggregatorMessageDiscovery) validate() error {
 	return nil
 }
 
-func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan protocol.CCVData {
+func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
 	go a.run(ctx)
 	a.logger.Info("MessageDiscovery Started")
 
@@ -145,7 +145,7 @@ func (a *AggregatorMessageDiscovery) Replay(ctx context.Context, start, end uint
 func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 	defer close(a.doneCh)
 	// Create a ticker based on the scan interval configured
-	ticker := time.NewTicker(a.config.PollInterval)
+	ticker := time.NewTicker(time.Duration(a.config.PollInterval) * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -158,7 +158,7 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Create a child context with a timeout to prevent a single call from blocking the entire discovery process
-			readCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
+			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.
@@ -214,20 +214,37 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	a.logger.Debug("Called Aggregator")
 
+	ingestionTimestamp := time.Now()
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 
-		// TODO: Update with message ingestion timestamp
-		response.Data.Timestamp = time.Now()
+		verifierResultWithMetadata := common.VerifierResultWithMetadata{
+			VerifierResult: response.Data,
+			Metadata: common.VerifierResultMetadata{
+				IngestionTimestamp:   ingestionTimestamp,
+				AttestationTimestamp: response.Data.Timestamp,
+				VerifierName:         a.registry.GetVerifierNameFromAddress(response.Data.VerifierSourceAddress),
+			},
+		}
+
+		if err := a.storageSink.InsertMessage(ctx, common.MessageWithMetadata{
+			Message: response.Data.Message,
+			Metadata: common.MessageMetadata{
+				IngestionTimestamp: ingestionTimestamp,
+			},
+		}); err != nil {
+			a.logger.Error("Error saving Message for MessageID %s to storage", response.Data.MessageID.String())
+			continue
+		}
 
 		// Save the VerificationResult to the storage layer
-		if err := a.storageSink.InsertCCVData(ctx, response.Data); err != nil {
+		if err := a.storageSink.InsertCCVData(ctx, verifierResultWithMetadata); err != nil {
 			a.logger.Error("Error saving VerificationResult for MessageID %s to storage", response.Data.MessageID.String())
 			continue
 		}
 
 		// Emit the Message into the message channel for downstream components to consume
-		a.messageCh <- response.Data
+		a.messageCh <- verifierResultWithMetadata
 	}
 
 	// Return true if we processed any data, false if the slice was empty

@@ -61,9 +61,9 @@ func (m *inmemoryMessageLatencyTracker) MarkMessageAsSeen(task *verifier.Verific
 	m.messageTimestamps.SetDefault(messageID.String(), task.FirstSeenAt)
 }
 
-func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Context, messages []protocol.CCVData) {
-	for _, ccvData := range messages {
-		messageID := ccvData.MessageID.String()
+func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Context, messages []protocol.VerifierNodeResult) {
+	for _, ccvNodeData := range messages {
+		messageID := ccvNodeData.MessageID.String()
 
 		if rawSeenAt, exists := m.messageTimestamps.Get(messageID); exists {
 			seenAt, ok1 := rawSeenAt.(time.Time)
@@ -72,7 +72,7 @@ func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Contex
 				continue
 			}
 			m.monitoring.Metrics().
-				With("source_chain", ccvData.SourceChainSelector.String(), "verifier_id", m.verifierID).
+				With("source_chain", ccvNodeData.Message.SourceChainSelector.String(), "verifier_id", m.verifierID).
 				RecordMessageE2ELatency(ctx, time.Since(seenAt))
 			m.messageTimestamps.Delete(messageID)
 		}

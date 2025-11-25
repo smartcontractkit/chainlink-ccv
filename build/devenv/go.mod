@@ -16,9 +16,9 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.81
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251107170647-25947f0bb4cb
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251107170647-25947f0bb4cb
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251107170647-25947f0bb4cb
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251118152207-d5e3a3b15497
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251118152207-d5e3a3b15497
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251118152207-d5e3a3b15497
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.66.0
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.11.10
@@ -33,11 +33,11 @@ require (
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251107170647-25947f0bb4cb
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251107170647-25947f0bb4cb
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251118152207-d5e3a3b15497
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251118152207-d5e3a3b15497
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251119214842-48620ea319ea
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251121173714-42d2ec68d51a
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 	google.golang.org/grpc v1.76.0
 )

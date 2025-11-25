@@ -76,7 +76,7 @@ func (q *EVMQuorumValidator) DeriveAggregationKey(ctx context.Context, record *m
 		return "", err
 	}
 
-	hash, err := committee.NewSignableHash(messageID, record.BlobData)
+	hash, err := committee.NewSignableHash(messageID, record.CCVVersion)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to produce signed hash", "error", err)
 		return "", err
@@ -86,7 +86,7 @@ func (q *EVMQuorumValidator) DeriveAggregationKey(ctx context.Context, record *m
 
 func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) (*model.IdentifierSigner, *model.QuorumConfig, error) {
 	q.logger(ctx).Debug("Validating signature for report")
-	if record.CcvData == nil {
+	if record.Signature == nil {
 		q.logger(ctx).Error("Missing signature in report")
 		return nil, nil, fmt.Errorf("missing signature in report")
 	}
@@ -99,13 +99,13 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, nil, err
 	}
 
-	hash, err := committee.NewSignableHash(messageID, record.BlobData)
+	hash, err := committee.NewSignableHash(messageID, record.CCVVersion)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to produce signed hash", "error", err)
 		return nil, nil, err
 	}
 
-	r, s, _, err := protocol.DecodeSingleSignature(record.CcvData)
+	r, s, _, err := protocol.DecodeSingleSignature(record.Signature)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode single signature", "error", err)
 		return nil, nil, fmt.Errorf("failed to decode single signature: %w", err)
