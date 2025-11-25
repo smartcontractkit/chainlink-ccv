@@ -21,7 +21,7 @@ import (
 )
 
 // TestSimpleReorgWithMessageOrdering tests that messages sent in different orders
-// before and after a reorg are correctly verified after finality is reached
+// before and after a reorg are correctly verified after finality is reached.
 func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 	// TODO: Make this the regular env-out.toml
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")

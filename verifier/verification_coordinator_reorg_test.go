@@ -261,7 +261,7 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	WaitForMessagesInStorage(setup.t, setup.storage, 2)
 	t.Log("✅ Finalized events (98, 99) have been processed")
 	sourceReaderService := setup.coordinator.sourceStates[chainSelector].reader
-	require.Equal(t, getLastProcessedBlockSafe(sourceReaderService), uint64(102), "Source reader should have read up to block 102")
+	require.Equal(t, uint64(103), getLastProcessedBlockSafe(sourceReaderService), "Source reader should have advanced to block 103 (highestEventBlock + 1)")
 
 	lca := setup.currentFinalized.Number
 	// Inject a reorg event directly (LCA at block 100)

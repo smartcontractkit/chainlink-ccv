@@ -33,6 +33,7 @@ func createTestBlocks(start, end uint64) []protocol.BlockHeader {
 // mockGetBlocksHeaders sets up the mock to return blocks using the exact *big.Int pointers passed in.
 // This is necessary because map lookups with pointer keys require exact pointer match, not just equal values.
 func mockGetBlocksHeaders(mockSR *protocol_mocks.MockSourceReader, blocks []protocol.BlockHeader) {
+	mockSR.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Unset()
 	mockSR.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
 			result := make(map[*big.Int]protocol.BlockHeader)

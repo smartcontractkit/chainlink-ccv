@@ -172,13 +172,13 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	return result, nil
 }
 
-// AnvilRPCHelper provides access to Anvil-specific RPC methods
+// AnvilRPCHelper provides access to Anvil-specific RPC methods.
 type AnvilRPCHelper struct {
 	client *ethclient.Client
 	logger zerolog.Logger
 }
 
-// NewAnvilRPCHelper creates a new helper for Anvil RPC operations
+// NewAnvilRPCHelper creates a new helper for Anvil RPC operations.
 func NewAnvilRPCHelper(client *ethclient.Client, logger zerolog.Logger) *AnvilRPCHelper {
 	return &AnvilRPCHelper{
 		client: client,
@@ -186,9 +186,9 @@ func NewAnvilRPCHelper(client *ethclient.Client, logger zerolog.Logger) *AnvilRP
 	}
 }
 
-// SetAutomine enables or disables automine mode
+// SetAutomine enables or disables automine mode.
 func (a *AnvilRPCHelper) SetAutomine(ctx context.Context, enabled bool) error {
-	var result interface{}
+	var result any
 	err := a.client.Client().CallContext(ctx, &result, "anvil_setAutomine", enabled)
 	if err != nil {
 		return fmt.Errorf("failed to set automine to %v: %w", enabled, err)
@@ -197,10 +197,10 @@ func (a *AnvilRPCHelper) SetAutomine(ctx context.Context, enabled bool) error {
 	return nil
 }
 
-// Mine mines the specified number of blocks
+// Mine mines the specified number of blocks.
 func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
 	for i := 0; i < numBlocks; i++ {
-		var result interface{}
+		var result any
 		err := a.client.Client().CallContext(ctx, &result, "evm_mine")
 		if err != nil {
 			return fmt.Errorf("failed to mine %d blocks: %w", numBlocks, err)
@@ -210,7 +210,7 @@ func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
 	return nil
 }
 
-// Snapshot creates a snapshot of the current blockchain state
+// Snapshot creates a snapshot of the current blockchain state.
 func (a *AnvilRPCHelper) Snapshot(ctx context.Context) (string, error) {
 	var snapshotID string
 	err := a.client.Client().CallContext(ctx, &snapshotID, "evm_snapshot")
@@ -221,7 +221,7 @@ func (a *AnvilRPCHelper) Snapshot(ctx context.Context) (string, error) {
 	return snapshotID, nil
 }
 
-// Revert reverts the blockchain to a previous snapshot
+// Revert reverts the blockchain to a previous snapshot.
 func (a *AnvilRPCHelper) Revert(ctx context.Context, snapshotID string) error {
 	var result bool
 	err := a.client.Client().CallContext(ctx, &result, "evm_revert", snapshotID)
