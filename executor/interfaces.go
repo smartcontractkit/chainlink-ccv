@@ -30,7 +30,7 @@ type MessageSubscriber interface {
 
 // MessageReader reads messages from a storage backend based on query parameters. It is implemented by the IndexerAPI.
 type MessageReader interface {
-	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
+	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message and its metadata.
 	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error)
 }
 
@@ -60,7 +60,7 @@ type ContractTransmitter interface {
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
-	// todo: Switch this to GetReadyDelay instead of GetReadyTimestamp
+	// todo: align so both functions are either return delay or return timestamp.
 	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
 	GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration
