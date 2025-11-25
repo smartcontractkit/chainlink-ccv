@@ -26,7 +26,6 @@ var (
 	_ chainaccess.SourceReader = (*EVMSourceReader)(nil)
 )
 
-// type EVMLogPollerSourceReader
 type EVMSourceReader struct {
 	chainClient          client.Client
 	headTracker          heads.Tracker

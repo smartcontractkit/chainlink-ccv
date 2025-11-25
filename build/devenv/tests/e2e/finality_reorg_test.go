@@ -71,6 +71,13 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 	anvilHelper := NewAnvilRPCHelper(ethClient, *l)
 
+	// Assert that the source chain has auto-mining enabled (instant mining)
+	// This test requires auto-mining/instant-mining (no blocks produced periodically without txs) to properly test reorg behavior
+	automine, err := anvilHelper.GetAutomine(ctx)
+	require.NoError(t, err, "failed to get automine status from source chain")
+	require.True(t, automine, "source chain must have auto-mining enabled (instant mining). Run with env-src-auto-mine.toml configuration")
+	l.Info().Bool("automine", automine).Msg("✅ Verified source chain has auto-mining enabled")
+
 	receiver := mustGetEOAReceiverAddress(t, c, destSelector)
 
 	executorAddr := getContractAddress(t, in, srcSelector,

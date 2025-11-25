@@ -232,3 +232,14 @@ func (a *AnvilRPCHelper) Revert(ctx context.Context, snapshotID string) error {
 	a.logger.Info().Str("snapshotID", snapshotID).Msg("Reverted to snapshot")
 	return nil
 }
+
+// GetAutomine returns whether auto-mining (instant mining) is enabled.
+func (a *AnvilRPCHelper) GetAutomine(ctx context.Context) (bool, error) {
+	var automine bool
+	err := a.client.Client().CallContext(ctx, &automine, "anvil_getAutomine")
+	if err != nil {
+		return false, fmt.Errorf("failed to get automine status: %w", err)
+	}
+	a.logger.Info().Bool("automine", automine).Msg("Got automine status")
+	return automine, nil
+}
