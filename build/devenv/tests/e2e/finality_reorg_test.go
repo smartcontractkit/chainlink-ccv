@@ -100,7 +100,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			},
 			cciptestinterfaces.MessageOptions{
 				Version:        3,
-				GasLimit:       200_000,
 				Executor:       executorAddr,
 				FinalityConfig: 10,
 				CCVs: []protocol.CCV{
