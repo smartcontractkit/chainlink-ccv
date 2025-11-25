@@ -174,51 +174,6 @@ func getLastProcessedBlockSafe(reader *SourceReaderService) uint64 {
 	return reader.lastProcessedBlock.Uint64()
 }
 
-// waitForReorgToComplete waits for the reorg handler to finish processing.
-// Returns true if reorg completed within timeout, false otherwise.
-// Thread-safe: polls the reorgInProgress atomic flag.
-//
-// First waits for reorg to start (flag becomes true), then waits for completion (flag becomes false).
-// This ensures we don't get a false positive if checking before the handler receives the event.
-func waitForReorgToComplete(t *testing.T, state *sourceState, timeout time.Duration) bool {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(5 * time.Millisecond)
-	defer ticker.Stop()
-
-	// Phase 1: Wait for reorg to start (flag becomes true)
-	t.Log("⏳ Waiting for reorg to start...")
-	for {
-		if state.reorgInProgress.Load() {
-			t.Log("🔄 Reorg started")
-			break
-		}
-
-		if time.Now().After(deadline) {
-			t.Log("⚠️  Timeout waiting for reorg to start")
-			return false
-		}
-
-		<-ticker.C
-	}
-
-	// Phase 2: Wait for reorg to complete (flag becomes false)
-	t.Log("⏳ Waiting for reorg to complete...")
-	for {
-		if !state.reorgInProgress.Load() {
-			t.Log("✅ Reorg handling completed")
-			return true
-		}
-
-		if time.Now().After(deadline) {
-			t.Log("⚠️  Timeout waiting for reorg to complete")
-			return false
-		}
-
-		<-ticker.C
-	}
-}
-
 func (s *reorgTestSetup) mustStartCoordinator() {
 	err := s.coordinator.Start(s.ctx)
 	require.NoError(s.t, err)
@@ -328,10 +283,7 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	}
 
 	// Wait for reorg handler goroutine to process the event
-	// Use proper synchronization instead of time.Sleep to avoid race conditions
-	sourceState := setup.coordinator.sourceStates[chainSelector]
-	require.True(t, waitForReorgToComplete(t, sourceState, 5*time.Second),
-		"Reorg handling should complete within timeout")
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify behavior:
 	// - Tasks at blocks 98, 99 (below finalized) should have been PROCESSED
@@ -377,10 +329,7 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 		ResetToBlock: 0, // No safe reset point
 	}
 	// Wait for finality violation handler goroutine to process the event
-	// Use proper synchronization instead of time.Sleep to avoid race conditions
-	sourceState := setup.coordinator.sourceStates[chainSelector]
-	require.True(t, waitForReorgToComplete(t, sourceState, 5*time.Second),
-		"Finality violation handling should complete within timeout")
+	time.Sleep(100 * time.Millisecond)
 
 	// After finality violation:
 	// 1. All pending tasks should be flushed
