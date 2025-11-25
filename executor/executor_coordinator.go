@@ -8,8 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/beevik/ntp"
-
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -31,6 +30,7 @@ type Coordinator struct {
 	delayedMessageHeap message_heap.MessageHeap
 	running            atomic.Bool
 	expiryDuration     time.Duration
+	timeProvider       common.TimeProvider
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -41,6 +41,7 @@ func NewCoordinator(
 	leaderElector LeaderElector,
 	monitoring Monitoring,
 	expiryDuration time.Duration,
+	timeProvider common.TimeProvider,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
 		lggr:              lggr,
@@ -52,6 +53,7 @@ func NewCoordinator(
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
 		expiryDuration: expiryDuration,
+		timeProvider:   timeProvider,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -111,9 +113,6 @@ func (ec *Coordinator) run(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	// Used to track failed attempts to get NTP time for calculating exponential backoff.
-	failedAttempts := 0
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -151,6 +150,12 @@ func (ec *Coordinator) run(ctx context.Context) {
 					msg.DestChainSelector,
 					msgWithMetadata.Metadata.IngestionTimestamp)
 
+				ec.lggr.Infow("pushing message to delayed heap",
+					"messageID", id,
+					"ingestionTimestamp", msgWithMetadata.Metadata.IngestionTimestamp,
+					"readyTimestamp", readyTimestamp,
+				)
+
 				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 					Message:       &msg,
 					ReadyTime:     readyTimestamp,
@@ -160,24 +165,7 @@ func (ec *Coordinator) run(ctx context.Context) {
 				})
 			}
 		case <-ticker.C:
-			// Grabbing NTP time with exponential backoff.
-			currentTime, err := ntp.Time(NtpServer)
-			if err != nil {
-				ec.lggr.Warnw("Unable to get NTP time, will back off and try again", "error", err)
-				waitTime := BackoffDuration
-				for i := 0; i < failedAttempts; i++ {
-					waitTime = waitTime + BackoffDuration*time.Duration(i)
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(BackoffDuration):
-					failedAttempts++
-					continue
-				}
-			}
-			// reset failed attempts counter on successful NTP time retrieval.
-			failedAttempts = 0
+			currentTime := ec.timeProvider.GetTime()
 
 			// Process all messages that are ready to be processed.
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)

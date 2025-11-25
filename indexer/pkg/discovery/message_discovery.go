@@ -3,14 +3,12 @@ package discovery
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
-	"github.com/beevik/ntp"
-
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
@@ -27,6 +25,7 @@ type AggregatorMessageDiscovery struct {
 	registry         *registry.VerifierRegistry
 	storageSink      common.IndexerStorage
 	monitoring       common.IndexerMonitoring
+	timeProvider     ccvcommon.TimeProvider
 	messageCh        chan common.VerifierResultWithMetadata
 	stopCh           chan struct{}
 	doneCh           chan struct{}
@@ -68,6 +67,12 @@ func WithLogger(lggr logger.Logger) Option {
 func WithConfig(config config.DiscoveryConfig) Option {
 	return func(a *AggregatorMessageDiscovery) {
 		a.config = config
+	}
+}
+
+func WithTimeProvider(timeProvider ccvcommon.TimeProvider) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.timeProvider = timeProvider
 	}
 }
 
@@ -217,10 +222,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	a.logger.Debug("Called Aggregator")
 
-	ingestionTimestamp, err := ntp.Time("time.google.com")
-	if err != nil {
-		return false, fmt.Errorf("error getting NTP time: %w", err)
-	}
+	ingestionTimestamp := a.timeProvider.GetTime()
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 

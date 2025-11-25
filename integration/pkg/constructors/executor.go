@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	timeprovider "github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -143,6 +144,8 @@ func NewExecutorCoordinator(
 			QueryLimit:      cfg.IndexerQueryLimit,
 		})
 
+	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration)
+
 	exec, err := executor.NewCoordinator(
 		logger.With(lggr, "component", "Coordinator"),
 		ex,
@@ -150,6 +153,7 @@ func NewExecutorCoordinator(
 		le,
 		executorMonitoring,
 		cfg.MaxRetryDuration,
+		backoffProvider,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)

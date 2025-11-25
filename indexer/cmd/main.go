@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/worker"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -155,10 +156,13 @@ func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.Inde
 		return nil, err
 	}
 
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(cfg.Discovery.Timeout)*time.Second)
+
 	return discovery.NewAggregatorMessageDiscovery(
 		discovery.WithAggregator(aggregator),
 		discovery.WithStorage(storage),
 		discovery.WithRegistry(registry),
+		discovery.WithTimeProvider(timeProvider),
 		discovery.WithMonitoring(monitoring),
 		discovery.WithLogger(lggr),
 		discovery.WithConfig(cfg.Discovery))

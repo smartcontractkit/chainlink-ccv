@@ -102,7 +102,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	cle.lggr.Infow("got ccv info and verifier results for message",
 		"messageID", messageID,
 		"destinationChain", destinationChain,
-		"verifier quorum", ccvInfo,
+		"verifierQuorum", ccvInfo,
 		"ccvDatasLen", len(ccvData),
 		"ccvDatasDestVerifiers", ccvDataDestVerifiers(ccvData),
 		"ccvDatasSourceVerifiers", ccvDataSourceVerifiers(ccvData),
