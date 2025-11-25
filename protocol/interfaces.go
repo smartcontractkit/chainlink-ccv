@@ -7,9 +7,9 @@ import (
 
 // ChainStatusInfo represents chain status with selector, block height and disabled state.
 type ChainStatusInfo struct {
-	ChainSelector ChainSelector
-	BlockNumber   *big.Int
-	Disabled      bool
+	ChainSelector        ChainSelector
+	FinalizedBlockHeight *big.Int
+	Disabled             bool
 }
 
 // ChainStatusManager defines the interface for chain status operations.
