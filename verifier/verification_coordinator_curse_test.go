@@ -188,6 +188,26 @@ func (s *curseTestSetup) sendEvents(events []protocol.MessageSentEvent) {
 	s.t.Log("📋 Events queued")
 }
 
+// advanceChain advances the chain state to the specified latest and finalized blocks.
+func (s *curseTestSetup) advanceChain(latestBlock, finalizedBlock uint64) {
+	s.blocksMu.Lock()
+	defer s.blocksMu.Unlock()
+
+	s.currentLatest = &protocol.BlockHeader{
+		Number:     latestBlock,
+		Hash:       hashFromNumber(latestBlock),
+		ParentHash: hashFromNumber(latestBlock - 1),
+		Timestamp:  time.Now(),
+	}
+	s.currentFinalized = &protocol.BlockHeader{
+		Number:     finalizedBlock,
+		Hash:       hashFromNumber(finalizedBlock),
+		ParentHash: hashFromNumber(finalizedBlock - 1),
+		Timestamp:  time.Now(),
+	}
+	s.t.Logf("⛓️  Chain advanced: latest=%d, finalized=%d", latestBlock, finalizedBlock)
+}
+
 // TestCurseDetection_LaneSpecificCurse tests that a lane-specific curse drops pending and new tasks.
 // This test validates that:
 //  1. Tasks are processed normally before curse
@@ -240,14 +260,17 @@ func TestCurseDetection_LaneSpecificCurse(t *testing.T) {
 	processedTasks = setup.testVerifier.GetProcessedTasks()
 	require.Equal(t, 2, len(processedTasks), "New events should be dropped while cursed")
 
-	// Try to send new events on non-cursed lane
-	otherDestEvents := createTestMessageSentEvents(t, 5, sourceChain, destChain2, []uint64{97, 98})
+	// Try to send new events on non-cursed lane - these should be processed
+	// Advance the chain to make blocks 106-107 available AND finalized
+	// (source reader has processed up to 105, so we need blocks > 105)
+	setup.advanceChain(110, 108) // latest=110, finalized=108 (so 106-107 are finalized)
+	otherDestEvents := createTestMessageSentEvents(t, 7, sourceChain, destChain2, []uint64{106, 107})
 	setup.sendEvents(otherDestEvents)
-	time.Sleep(50 * time.Millisecond)
+	WaitForMessagesInStorage(t, setup.storage, 4) // Wait for all 4 messages
 
-	// Still should have only 2 processed tasks
+	// Should now have 4 processed tasks (2 from before curse + 2 from non-cursed lane)
 	processedTasks = setup.testVerifier.GetProcessedTasks()
-	require.Equal(t, 4, len(processedTasks), "New events should be dropped while cursed")
+	require.Equal(t, 4, len(processedTasks), "Events to non-cursed lane should be processed")
 
 	t.Log("✅ Test completed: Lane-specific curse drops pending and new tasks")
 }
