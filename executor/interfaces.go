@@ -11,7 +11,7 @@ import (
 // StreamerResult is the result of a streaming operation.
 type StreamerResult struct {
 	Error    error
-	Messages []protocol.Message
+	Messages []protocol.MessageWithMetadata
 }
 
 // MessageSubscriber produces a channel of Messages objects that have new verifications.
@@ -31,7 +31,7 @@ type MessageSubscriber interface {
 // MessageReader reads messages from a storage backend based on query parameters. It is implemented by the IndexerAPI.
 type MessageReader interface {
 	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
-	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.Message, error)
+	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error)
 }
 
 // VerifierResultReader reads verifier results from a storage backend based on messageID. It is implemented by the IndexerAPI.

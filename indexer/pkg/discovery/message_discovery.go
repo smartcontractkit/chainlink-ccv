@@ -3,6 +3,8 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/beevik/ntp"
 	"sync"
 	"time"
 
@@ -213,8 +215,11 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	}
 
 	a.logger.Debug("Called Aggregator")
-
-	ingestionTimestamp := time.Now()
+	
+	ingestionTimestamp, err := ntp.Time("time.google.com")
+	if err != nil {
+		return false, fmt.Errorf("error getting NTP time: %w", err)
+	}
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 

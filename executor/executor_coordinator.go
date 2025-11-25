@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/beevik/ntp"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -109,6 +110,9 @@ func (ec *Coordinator) run(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	// Used to track failed attempts to get NTP time for calculating exponential backoff.
+	failedAttempts := 0
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -125,7 +129,8 @@ func (ec *Coordinator) run(ctx context.Context) {
 				ec.lggr.Errorw("error reading from ccv result streamer", "error", streamResult.Error)
 			}
 
-			for _, msg := range streamResult.Messages {
+			for _, msgWithMetadata := range streamResult.Messages {
+				msg := msgWithMetadata.Message
 				err := ec.executor.CheckValidMessage(ctx, msg)
 				if err != nil {
 					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
@@ -139,8 +144,11 @@ func (ec *Coordinator) run(ctx context.Context) {
 					continue
 				}
 
-				// get message delay from leader elector
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.DestChainSelector, time.Now().UTC())
+				// get message delay from leader elector using indexer's ingestion timestamp
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(
+					id,
+					msg.DestChainSelector,
+					msgWithMetadata.Metadata.IngestionTimestamp)
 
 				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 					Message:       &msg,
@@ -151,8 +159,26 @@ func (ec *Coordinator) run(ctx context.Context) {
 				})
 			}
 		case <-ticker.C:
-			// todo: get this current time from a single source across all executors
-			currentTime := time.Now().UTC()
+			// Grabbing NTP time with exponential backoff.
+			currentTime, err := ntp.Time(NtpServer)
+			if err != nil {
+				ec.lggr.Warnw("Unable to get NTP time, will back off and try again", "error", err)
+				waitTime := BackoffDuration
+				for i := 0; i < failedAttempts; i++ {
+					waitTime = waitTime + BackoffDuration*time.Duration(i)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(BackoffDuration):
+					failedAttempts++
+					continue
+				}
+			}
+			// reset failed attempts counter on successful NTP time retrieval.
+			failedAttempts = 0
+
+			// Process all messages that are ready to be processed.
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
 			ec.lggr.Debugw("found messages ready for processing",
 				"count", len(readyMessages),

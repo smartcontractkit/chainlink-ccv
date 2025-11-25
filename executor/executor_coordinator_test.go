@@ -239,11 +239,16 @@ func TestMessageExpiration(t *testing.T) {
 
 			// Create a test message
 			testMessage := executor.StreamerResult{
-				Messages: []protocol.Message{
+				Messages: []protocol.MessageWithMetadata{
 					{
-						DestChainSelector:   1,
-						SourceChainSelector: 2,
-						SequenceNumber:      1,
+						Message: protocol.Message{
+							DestChainSelector:   1,
+							SourceChainSelector: 2,
+							SequenceNumber:      1,
+						},
+						Metadata: protocol.MessageMetadata{
+							IngestionTimestamp: time.Now().UTC().Add(tc.initialReadyDelay),
+						},
 					},
 				},
 			}
