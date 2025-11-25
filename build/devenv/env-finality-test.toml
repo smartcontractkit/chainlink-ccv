@@ -9,7 +9,7 @@
 [[blockchains]]
   container_name = "blockchain-dst"
   chain_id = "2337"
-  docker_cmd_params = ["--no-mining", "--slots-in-an-epoch", "1"]
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
   image = "ghcr.io/foundry-rs/foundry:latest"
   port = "8555"
   type = "anvil"
@@ -17,7 +17,7 @@
 [[blockchains]]
   container_name = "blockchain-3rd"
   chain_id = "3337"
-  docker_cmd_params = ["--no-mining", "--slots-in-an-epoch", "1"]
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
   image = "ghcr.io/foundry-rs/foundry:latest"
   port = "8565"
   type = "anvil"

@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	MAX_GAP_BLOCKS        = 10 // Maximum allowed gap in blocks before rebuilding entire tail
-	DEFAULT_POLL_INTERVAL = 1000 * time.Millisecond
+	// MaxGapBlocks TODO: This max needs to be a percentage out of the tail length
+	MaxGapBlocks        = 15 // Maximum allowed gap in blocks before rebuilding entire tail
+	DefaultPollInterval = 1000 * time.Millisecond
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -113,7 +114,7 @@ func NewReorgDetectorService(
 	pollInterval := config.PollInterval
 	// Default 2 seconds
 	if pollInterval == 0 {
-		pollInterval = DEFAULT_POLL_INTERVAL
+		pollInterval = DefaultPollInterval
 	}
 
 	return &ReorgDetectorService{
@@ -447,7 +448,7 @@ func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, l
 		"tailMax", tailMax)
 
 	// Sanity check: gap should be reasonable
-	if gapSize > MAX_GAP_BLOCKS {
+	if gapSize > MaxGapBlocks {
 		r.lggr.Errorw("Unexpectedly large gap detected, rebuilding entire tail",
 			"chainSelector", r.config.ChainSelector,
 			"gapSize", gapSize,

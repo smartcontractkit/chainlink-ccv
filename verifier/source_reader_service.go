@@ -65,13 +65,6 @@ type SourceReaderService struct {
 // SourceReaderServiceOption is a functional option for SourceReaderService.
 type SourceReaderServiceOption func(*SourceReaderService)
 
-// WithPollInterval sets the poll interval for the source reader service.
-func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
-	return func(s *SourceReaderService) {
-		s.pollInterval = interval
-	}
-}
-
 // NewSourceReaderService creates a new blockchain-based source reader.
 func NewSourceReaderService(
 	sourceReader chainaccess.SourceReader,
@@ -592,7 +585,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		return
 	}
 
-	if latest.Number == r.lastProcessedBlock.Uint64() {
+	if latest.Number <= r.lastProcessedBlock.Uint64() {
 		r.logger.Debugw("No new blocks to process",
 			"lastProcessedBlock", r.lastProcessedBlock.String())
 		return
@@ -656,9 +649,10 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	// Determine the block we've processed up to
 	var processedToBlock *big.Int
 	if len(tasks) > 0 {
-		// Use highest block from returned logs
+		// Use the highest block from returned logs
 		highestLogBlock := findHighestBlockInTasks(tasks)
-		processedToBlock = new(big.Int).Set(highestLogBlock)
+		// We don't want to re-process the same block if it already had messages, so add 1
+		processedToBlock = new(big.Int).Add(highestLogBlock, big.NewInt(1))
 	} else {
 		// No logs - use current position (fromBlock was captured under lock at cycle start)
 		processedToBlock = new(big.Int).Set(fromBlock)

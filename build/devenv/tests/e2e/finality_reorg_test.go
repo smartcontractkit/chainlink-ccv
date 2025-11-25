@@ -121,96 +121,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		return event.MessageID
 	}
 
-	t.Run("Mine", func(t *testing.T) {
-		err = anvilHelper.SetAutomine(ctx, false)
-		require.NoError(t, err)
-		_ = anvilHelper.Mine(ctx, 1)
-		//mustSendMessageFunc("test msg")
-	})
-
-	t.Run("Send msg", func(t *testing.T) {
-		mustSendMessageFunc("test msg")
-	})
-
-	t.Run("Disable automine", func(t *testing.T) {
-		err = anvilHelper.SetAutomine(ctx, false)
-		require.NoError(t, err)
-		mustSendMessageFunc("test msg")
-	})
-
-	t.Run("Enable automine", func(t *testing.T) {
-		err = anvilHelper.SetAutomine(ctx, true)
-		require.NoError(t, err)
-	})
-	t.Run("Send a msg", func(t *testing.T) {
-		mustSendMessageFunc("test msg")
-	})
-	t.Run("simple reorg", func(t *testing.T) {
-		err = anvilHelper.SetAutomine(ctx, false)
-		require.NoError(t, err)
-		l.Info().Msg("🔒 Automine disabled - full manual control")
-
-		// Re-enable automine at the end
-		t.Cleanup(func() {
-			err := anvilHelper.SetAutomine(ctx, true)
-			if err != nil {
-				l.Warn().Err(err).Msg("Failed to re-enable automine")
-			}
-		})
-
-		err = anvilHelper.Mine(ctx, 4)
-		require.NoError(t, err)
-		time.Sleep(5 * time.Second)
-
-		snapshotID, err := anvilHelper.Snapshot(ctx)
-		require.NoError(t, err)
-
-		snapshotBlock, err := ethClient.BlockByNumber(ctx, nil)
-		require.NoError(t, err)
-		l.Info().
-			Str("snapshotID", snapshotID).
-			Uint64("snapshotBlock", snapshotBlock.Number().Uint64()).
-			Str("snapshotBlockHash", snapshotBlock.Hash().Hex()).
-			Msg("💾 Snapshot created (2 blocks before messages)")
-
-		err = anvilHelper.Mine(ctx, 3)
-		require.NoError(t, err)
-		time.Sleep(5 * time.Second)
-
-		blockBeforeReorg, err := ethClient.BlockByNumber(ctx, nil)
-		require.NoError(t, err)
-		l.Info().
-			Uint64("blockBeforeReorg", blockBeforeReorg.Number().Uint64()).
-			Str("blockBeforeReorgHash", blockBeforeReorg.Hash().Hex()).
-			Msg("⏱️  Block number before reorg (below finality threshold)")
-
-		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot")
-		err = anvilHelper.Revert(ctx, snapshotID)
-		require.NoError(t, err)
-
-		blockAfterRevert, err := ethClient.BlockByNumber(ctx, nil)
-		require.NoError(t, err)
-		l.Info().
-			Uint64("blockAfterRevert", blockAfterRevert.Number().Uint64()).
-			Str("blockAfterRevertHash", blockAfterRevert.Hash().Hex()).
-			Uint64("reorgDepth", blockBeforeReorg.Number().Uint64()-blockAfterRevert.Number().Uint64()).
-			Msg("⏪ Reverted to snapshot")
-
-		time.Sleep(5 * time.Second)
-
-		err = anvilHelper.Mine(ctx, 3)
-
-		blockAfterMining, err := ethClient.BlockByNumber(ctx, nil)
-		require.NoError(t, err)
-		l.Info().
-			Uint64("blockAfterMining", blockAfterMining.Number().Uint64()).
-			Str("blockAfterMiningHash", blockAfterMining.Hash().Hex()).
-			Msg("⏱️  Block number after mining post-reorg")
-		require.NoError(t, err)
-
-		time.Sleep(5 * time.Second)
-	})
-
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
 		err = anvilHelper.SetAutomine(ctx, false)
 		require.NoError(t, err)
@@ -249,9 +159,9 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		// Block 6
 		l.Info().Msg("📨 Sending message 1")
-		msg1ID := mustSendMessageFunc("message 1")
+		msg1IDBeforeReorg := mustSendMessageFunc("message 1")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1ID)).
+			Str("messageID", fmt.Sprintf("%x", msg1IDBeforeReorg)).
 			Msg("✅ Message 1 sent")
 
 		time.Sleep(2 * time.Second)
@@ -259,9 +169,9 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		// Block 7
 		// Step 9: Send second message with data "message 2"
 		l.Info().Msg("📨 Sending message 2")
-		msg2ID := mustSendMessageFunc("message 2")
+		msg2IDBeforeReorg := mustSendMessageFunc("message 2")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg2ID)).
+			Str("messageID", fmt.Sprintf("%x", msg2IDBeforeReorg)).
 			Msg("✅ Message 2 sent")
 
 		// Block 10
@@ -276,15 +186,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Uint64("blockBeforeReorg", blockBeforeReorg.Number().Uint64()).
 			Str("blockBeforeReorgHash", blockBeforeReorg.Hash().Hex()).
 			Msg("⏱️  Block number before reorg (below finality threshold)")
-
-		l.Info().Msg("🔍 Checking messages are NOT in aggregator (below finality)")
-		_, err = defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg1ID)
-		require.Error(t, err, "Message 1 should not be found before finality")
-
-		_, err = defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg2ID)
-		require.Error(t, err, "Message 2 should not be found before finality")
-
-		l.Info().Msg("✅ Confirmed messages not in aggregator")
 
 		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot")
 		// Block 3
@@ -306,26 +207,32 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Msg("⏪ Reverted to snapshot")
 
 		l.Info().Msg("📨 Sending message 2 first (swapped order)")
-		msg2IDSwapped := mustSendMessageFunc("message 2")
+		msg2IDAfterReorg := mustSendMessageFunc("message 2")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg2IDSwapped)).
+			Str("messageID", fmt.Sprintf("%x", msg2IDAfterReorg)).
 			Msg("✅ Message 2 sent (swapped order)")
 
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		// Step 15: Send message 1 second (swapped order)
 		l.Info().Msg("📨 Sending message 1 second (swapped order)")
-		msg1IDSwapped := mustSendMessageFunc("message 1")
+		msg1IDAfterReorg := mustSendMessageFunc("message 1")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1IDSwapped)).
+			Str("messageID", fmt.Sprintf("%x", msg1IDAfterReorg)).
 			Msg("✅ Message 1 sent (swapped order)")
+
+		l.Info().Msg("Sending a new msg that wasn't sent pre reorg")
+		msg3ID := mustSendMessageFunc("message 3")
+		l.Info().
+			Str("messageID", fmt.Sprintf("%x", msg3ID)).
+			Msg("✅ Message 3 sent (new message)")
 
 		// Step 16: Mine 11 blocks to cross finality threshold
 		l.Info().Msg("⛏️  Mining 11 blocks to cross finality threshold")
 		err = anvilHelper.Mine(ctx, 11)
 		require.NoError(t, err)
 
-		time.Sleep(10 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		finalBlock, err := ethClient.BlockByNumber(ctx, nil)
 		require.NoError(t, err)
@@ -337,20 +244,35 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		// Step 17: Verify both messages are found in aggregator
 		l.Info().Msg("🔍 Verifying messages are in aggregator (after finality)")
 
-		// FIXME: The swapped message ID should be found instead but they are not currently
-		result1, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg1IDSwapped)
+		result2, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg2IDAfterReorg)
+		require.NoError(t, err, "Message 2 should be found after finality")
+		l.Info().
+			Str("messageID", fmt.Sprintf("%x", msg2IDAfterReorg)).
+			Str("verifierResult", fmt.Sprintf("%x", result2)).
+			Msg("✅ Message 2 verified in aggregator after finality")
+
+		result1, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg1IDAfterReorg)
 		require.NoError(t, err, "Message 1 should be found after finality")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1IDSwapped)).
+			Str("messageID", fmt.Sprintf("%x", msg1IDAfterReorg)).
 			Str("verifierResult", fmt.Sprintf("%x", result1)).
 			Msg("✅ Message 1 verified in aggregator after finality")
 
-		result2, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg2IDSwapped)
-		require.NoError(t, err, "Message 2 should be found after finality")
+		result3, err := defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg3ID)
+		require.NoError(t, err, "Message 3 should be found after finality")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg2IDSwapped)).
-			Str("verifierResult", fmt.Sprintf("%x", result2)).
-			Msg("✅ Message 2 verified in aggregator after finality")
+			Str("messageID", fmt.Sprintf("%x", msg3ID)).
+			Str("verifierResult", fmt.Sprintf("%x", result3)).
+			Msg("✅ Message 3 verified in aggregator after finality")
+
+		l.Info().Msg("🔍 Checking messages are NOT in aggregator (below finality)")
+		_, err = defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg1IDBeforeReorg)
+		require.Error(t, err, "Message 1 before reorg should not be found in aggregator")
+
+		_, err = defaultAggregatorClient.GetVerifierResultForMessage(ctx, msg2IDBeforeReorg)
+		require.Error(t, err, "Message 2 should not be found in aggregator")
+
+		l.Info().Msg("✅ Confirmed messages not in aggregator")
 
 		l.Info().
 			Uint64("reorgDepth", blockBeforeReorg.Number().Uint64()-blockAfterRevert.Number().Uint64()).
