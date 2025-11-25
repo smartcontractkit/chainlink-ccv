@@ -85,14 +85,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		"committee verifier proxy")
 
 	mustSendMessageFunc := func(data string) [32]byte {
-		// Start goroutine to mine block after 2 seconds to confirm the transaction
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			err := anvilHelper.Mine(ctx, 1) // one for the msg, one afterwards so verifier doesn't get stuck in a infinite reading for the msg
-			if err != nil {
-				l.Warn().Err(err).Msgf("Failed to mine block for message %s", data)
-			}
-		}()
 		event, err := c.SendMessage(ctx, srcSelector, destSelector,
 			cciptestinterfaces.MessageFields{
 				Receiver: receiver,
@@ -121,18 +113,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 	}
 
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
-		err = anvilHelper.SetAutomine(ctx, false)
-		require.NoError(t, err)
-		l.Info().Msg("🔒 Automine disabled - full manual control")
-
-		// Re-enable automine at the end
-		t.Cleanup(func() {
-			err := anvilHelper.SetAutomine(ctx, true)
-			if err != nil {
-				l.Warn().Err(err).Msg("Failed to re-enable automine")
-			}
-		})
-
 		err = anvilHelper.Mine(ctx, 3)
 		require.NoError(t, err)
 
