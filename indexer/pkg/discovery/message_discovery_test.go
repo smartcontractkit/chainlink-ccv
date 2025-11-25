@@ -522,8 +522,8 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 
 	// Use a config that opens circuit breaker quickly
 	config := readers.DefaultResilienceConfig()
-	config.FailureThreshold = 1 // Open after 1 failure
-	config.CircuitBreakerDelay = 100 * time.Millisecond
+	config.FailureThreshold = 1                         // Open after 1 failure
+	config.CircuitBreakerDelay = 500 * time.Millisecond // Long enough to check before half-open
 
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, config)
 	ts.Discovery.aggregatorReader = ts.Reader
@@ -537,8 +537,9 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 		}
 	}()
 
-	// Wait for circuit breaker to open
-	time.Sleep(200 * time.Millisecond)
+	// Wait for circuit breaker to open (but not long enough to transition to half-open)
+	// Poll interval is 50ms, so 150ms gives time for 2-3 polls which should trigger the failure
+	time.Sleep(150 * time.Millisecond)
 
 	// Verify circuit breaker is open
 	state := ts.Reader.GetDiscoveryCircuitBreakerState()
