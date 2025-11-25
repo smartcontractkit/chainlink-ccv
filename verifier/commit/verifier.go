@@ -196,7 +196,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		}
 
 		// Fall back to the message discovery version if the default executor is found.
-		verifierBlob = committee.MessageDiscoveryVersion
+		verifierBlob = protocol.MessageDiscoveryVersion
 		cv.lggr.Infow("Using message discovery version for message", "messageID", messageID, "version", hexutil.Encode(verifierBlob))
 	}
 	hash, err := committee.NewSignableHash(messageID, verifierBlob)

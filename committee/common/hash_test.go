@@ -3,7 +3,6 @@ package common_test
 import (
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/stretchr/testify/require"
 
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
@@ -122,11 +121,4 @@ func TestNewSignableHash(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
 	})
-}
-
-func TestMessageDiscoveryVersion(t *testing.T) {
-	vHash := protocol.Keccak256([]byte("CCIP1.7_MessageDiscovery_Version"))
-	version := vHash[:4]
-	t.Logf("version: %s", hexutil.Encode(version))
-	require.Equal(t, committee.MessageDiscoveryVersion, version)
 }

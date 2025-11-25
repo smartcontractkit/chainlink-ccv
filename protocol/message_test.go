@@ -221,3 +221,9 @@ func TestMessageDecodingErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestMessageDiscoveryVersion(t *testing.T) {
+	vHash := Keccak256([]byte("CCIP1.7_MessageDiscovery_Version"))
+	version := vHash[:4]
+	require.Equal(t, MessageDiscoveryVersion, version)
+}
