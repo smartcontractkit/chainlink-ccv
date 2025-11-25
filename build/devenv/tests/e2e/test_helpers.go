@@ -186,17 +186,6 @@ func NewAnvilRPCHelper(client *ethclient.Client, logger zerolog.Logger) *AnvilRP
 	}
 }
 
-// SetAutomine enables or disables automine mode.
-func (a *AnvilRPCHelper) SetAutomine(ctx context.Context, enabled bool) error {
-	var result any
-	err := a.client.Client().CallContext(ctx, &result, "anvil_setAutomine", enabled)
-	if err != nil {
-		return fmt.Errorf("failed to set automine to %v: %w", enabled, err)
-	}
-	a.logger.Info().Bool("enabled", enabled).Msg("Set automine")
-	return nil
-}
-
 // Mine mines the specified number of blocks.
 func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
 	for i := 0; i < numBlocks; i++ {
@@ -215,6 +204,8 @@ func (a *AnvilRPCHelper) MustMine(ctx context.Context, numBlocks int) {
 	if err != nil {
 		panic(fmt.Sprintf("MustMine failed: %v", err))
 	}
+	// This is to ensure that the blocks are read by client (e.g. source reader in verifier) as it's constantly polling.
+	time.Sleep(3 * time.Second)
 }
 
 // Snapshot creates a snapshot of the current blockchain state.

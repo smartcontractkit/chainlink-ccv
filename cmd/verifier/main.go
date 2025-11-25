@@ -35,9 +35,8 @@ import (
 )
 
 const (
-	PkEnvVar          = "VERIFIER_SIGNER_PRIVATE_KEY"
-	ConfigPath        = "VERIFIER_CONFIG_PATH"
-	ConfirmationDepth = 10
+	PkEnvVar   = "VERIFIER_SIGNER_PRIVATE_KEY"
+	ConfigPath = "VERIFIER_CONFIG_PATH"
 )
 
 func loadConfiguration(filepath string) (*verifier.Config, error) {
@@ -443,7 +442,7 @@ func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger) 
 }
 
 // LatestAndFinalizedBlock returns the latest and finalized block headers.
-// Finalized is calculated as latest - ConfirmationDepth.
+// Finalized is calculated as latest - verifier.ConfirmationDepth.
 func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *evmtypes.Head, err error) {
 	// Get latest block
 	latestHead, err := m.chainClient.HeadByNumber(ctx, nil)
@@ -453,8 +452,8 @@ func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) 
 
 	// Calculate finalized block number based on confirmation depth
 	var finalizedBlockNum int64
-	if latestHead.Number >= ConfirmationDepth {
-		finalizedBlockNum = latestHead.Number - ConfirmationDepth
+	if latestHead.Number >= verifier.ConfirmationDepth {
+		finalizedBlockNum = latestHead.Number - verifier.ConfirmationDepth
 	} else {
 		finalizedBlockNum = 0
 	}

@@ -1,3 +1,7 @@
+# This is a profile where source chain is set to auto-mine (instant mining). This gives us more granular control when
+# testing features like reorgs, finality-violation, curses. We keep the destination chain as mixed-mining as most feature tests
+# care about source specifically.
+
 [[blockchains]]
   container_name = "blockchain-src"
   chain_id = "1337"

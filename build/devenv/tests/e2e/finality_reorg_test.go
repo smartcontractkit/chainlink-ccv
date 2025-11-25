@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
@@ -16,6 +15,7 @@ import (
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -95,9 +95,8 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 				Data:     []byte(data),
 			},
 			cciptestinterfaces.MessageOptions{
-				Version:        3,
-				Executor:       executorAddr,
-				FinalityConfig: 10,
+				Version:  3,
+				Executor: executorAddr,
 				CCVs: []protocol.CCV{
 					{
 						CCVAddress: ccvAddr,
@@ -134,34 +133,24 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 	}
 
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
-		anvilHelper.MustMine(ctx, 3)
-		time.Sleep(3 * time.Second)
-		// Block 3
+		// 1/5 Blocks
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 		snapshotID, err := anvilHelper.Snapshot(ctx)
 		require.NoError(t, err)
 		l.Info().Msg("💾 Snapshot created (2 blocks before messages)")
-		// Block 5
-		anvilHelper.MustMine(ctx, 2)
-		time.Sleep(3 * time.Second)
+		// 2/5 Blocks
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 
-		// Block 6
 		msg1IDBeforeReorg := sendMessageWithLogging("message 1", "Sending message 1")
-		time.Sleep(3 * time.Second)
-		// Block 7
 		msg2IDBeforeReorg := sendMessageWithLogging("message 2", "Sending message 2")
-		// Block 10
-		anvilHelper.MustMine(ctx, 3)
-		time.Sleep(3 * time.Second)
+		// 3/5 Blocks + 2 (for above messages to be mined)
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 
 		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot")
-		// Back to Block 3
 		err = anvilHelper.Revert(ctx, snapshotID)
 		require.NoError(t, err)
 
-		// Block 4
 		anvilHelper.MustMine(ctx, 1)
-
-		time.Sleep(3 * time.Second)
 
 		msg2IDAfterReorg := sendMessageWithLogging("message 2", "Sending message 2 first (swapped order)")
 		msg1IDAfterReorg := sendMessageWithLogging("message 1", "Sending message 1 second (swapped order)")
@@ -169,9 +158,7 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		// Mine 11 blocks to cross finality threshold
 		l.Info().Msg("⛏️  Mining 11 blocks to cross finality threshold")
-		anvilHelper.MustMine(ctx, 11)
-
-		time.Sleep(5 * time.Second)
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+2)
 
 		// Verify all messages are found in aggregator after finality
 		l.Info().Msg("🔍 Verifying messages are in aggregator (after finality)")
