@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/beevik/ntp"
+
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"

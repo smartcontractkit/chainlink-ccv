@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/beevik/ntp"
 	"sync"
 	"time"
+
+	"github.com/beevik/ntp"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 
@@ -215,7 +216,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	}
 
 	a.logger.Debug("Called Aggregator")
-	
+
 	ingestionTimestamp, err := ntp.Time("time.google.com")
 	if err != nil {
 		return false, fmt.Errorf("error getting NTP time: %w", err)
