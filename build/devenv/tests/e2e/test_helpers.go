@@ -210,6 +210,13 @@ func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
 	return nil
 }
 
+func (a *AnvilRPCHelper) MustMine(ctx context.Context, numBlocks int) {
+	err := a.Mine(ctx, numBlocks)
+	if err != nil {
+		panic(fmt.Sprintf("MustMine failed: %v", err))
+	}
+}
+
 // Snapshot creates a snapshot of the current blockchain state.
 func (a *AnvilRPCHelper) Snapshot(ctx context.Context) (string, error) {
 	var snapshotID string

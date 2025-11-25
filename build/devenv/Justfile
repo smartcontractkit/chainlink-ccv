@@ -62,11 +62,11 @@ cli:
 
 # Rebuild all (optionally pass config, defaults to env.toml)
 rebuild-all config="env.toml":
-    ccv d
-    echo "Cleaning up old images..."
-    @just clean-docker-dev
     echo "Building CLI and all services"
     @just cli
+    ccv down
+    echo "Cleaning up old images..."
+    @just clean-docker-dev
     @just build-docker-dev
     @just build-jd-docker
     ccv up {{ config }}
