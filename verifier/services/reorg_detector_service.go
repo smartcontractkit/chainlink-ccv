@@ -251,7 +251,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 
 		if storedBlock.Hash == latest.Hash {
 			// Same block we already have - no new blocks
-			r.lggr.Infow("No new blocks",
+			r.lggr.Debugw("No new blocks",
 				"chainSelector", r.config.ChainSelector,
 				"latestBlock", latest.Number)
 			return
@@ -285,7 +285,6 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 
 		// Find LCA and handle reorg using finalized block number
 		if err := r.handleReorg(ctx, *latest, finalized.Number); err != nil {
-			// FIXME: Should we continue to operate on reorg detection failure?
 			r.lggr.Errorw("Failed to handle reorg",
 				"chainSelector", r.config.ChainSelector,
 				"error", err)

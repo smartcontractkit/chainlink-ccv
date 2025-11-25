@@ -67,6 +67,17 @@ func TestNewReorgDetectorService(t *testing.T) {
 		assert.Equal(t, 5*time.Second, service.pollInterval)
 	})
 
+	t.Run("uses default poll interval if not set", func(t *testing.T) {
+		config := ReorgDetectorConfig{
+			ChainSelector: 1337,
+			PollInterval:  0,
+		}
+
+		service, err := NewReorgDetectorService(mockSR, config, lggr)
+		require.NoError(t, err)
+		assert.Equal(t, DefaultPollInterval, service.pollInterval)
+	})
+
 	t.Run("returns error if source reader is nil", func(t *testing.T) {
 		config := ReorgDetectorConfig{ChainSelector: 1337}
 		_, err := NewReorgDetectorService(nil, config, lggr)

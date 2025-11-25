@@ -16,16 +16,6 @@ type VerificationTask struct {
 	QueuedAt     time.Time                  `json:"queued_at"`     // When added to finality queue (for finality wait duration)
 }
 
-// FinalityMode specifies how finalized blocks are determined.
-type FinalityMode string
-
-const (
-	// FinalityModeTag uses the chain's native finality tag (e.g., "finalized" block tag).
-	FinalityModeTag FinalityMode = "finality_tag"
-	// FinalityModeConfirmationDepth calculates finalized blocks using confirmation depth from latest block.
-	FinalityModeConfirmationDepth FinalityMode = "confirmation_depth"
-)
-
 // SourceConfig contains configuration for a single source chain.
 type SourceConfig struct {
 	VerifierAddress        protocol.UnknownAddress `json:"verifier_address"`

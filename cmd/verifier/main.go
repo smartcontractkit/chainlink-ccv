@@ -35,8 +35,9 @@ import (
 )
 
 const (
-	PK_ENV_VAR  = "VERIFIER_SIGNER_PRIVATE_KEY"
-	CONFIG_PATH = "VERIFIER_CONFIG_PATH"
+	PkEnvVar          = "VERIFIER_SIGNER_PRIVATE_KEY"
+	ConfigPath        = "VERIFIER_CONFIG_PATH"
+	ConfirmationDepth = 10
 )
 
 func loadConfiguration(filepath string) (*verifier.Config, error) {
@@ -98,7 +99,7 @@ func main() {
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
-	envConfig := os.Getenv(CONFIG_PATH)
+	envConfig := os.Getenv(ConfigPath)
 	if envConfig != "" {
 		filePath = envConfig
 	}
@@ -285,9 +286,9 @@ func main() {
 		CursePollInterval:   2 * time.Second, // Poll RMN Remotes for curse status every 2s
 	}
 
-	pk := os.Getenv(PK_ENV_VAR)
+	pk := os.Getenv(PkEnvVar)
 	if pk == "" {
-		lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
+		lggr.Errorf("Environment variable %s is not set", PkEnvVar)
 		os.Exit(1)
 	}
 	privateKey, err := commit.ReadPrivateKeyFromString(pk)
@@ -442,10 +443,8 @@ func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger) 
 }
 
 // LatestAndFinalizedBlock returns the latest and finalized block headers.
-// Finalized is calculated as latest - confirmationDepth (hardcoded to 10).
+// Finalized is calculated as latest - ConfirmationDepth
 func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *evmtypes.Head, err error) {
-	const confirmationDepth = 10
-
 	// Get latest block
 	latestHead, err := m.chainClient.HeadByNumber(ctx, nil)
 	if err != nil {
@@ -454,8 +453,8 @@ func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) 
 
 	// Calculate finalized block number based on confirmation depth
 	var finalizedBlockNum int64
-	if latestHead.Number >= confirmationDepth {
-		finalizedBlockNum = latestHead.Number - confirmationDepth
+	if latestHead.Number >= ConfirmationDepth {
+		finalizedBlockNum = latestHead.Number - ConfirmationDepth
 	} else {
 		finalizedBlockNum = 0
 	}

@@ -25,7 +25,6 @@ import (
 // IMPORTANT: Need to run this test against an env that has source chain with auto mining.
 // Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
 func TestSimpleReorgWithMessageOrdering(t *testing.T) {
-	// TODO: Make this the regular env-out.toml
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
 

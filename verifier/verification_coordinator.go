@@ -287,7 +287,6 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			var detector protocol.ReorgDetector
 
 			// Setup ReorgDetector (if provided)
-			// TODO: Initialize reorgDetectorService like the sourceReaderService - we can keep the WithReorgDetector option and create them if they're not present
 			d, ok := vc.reorgDetectors[chainSelector]
 			if !ok {
 				// create the detector
