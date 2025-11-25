@@ -140,22 +140,27 @@ func (ec *Coordinator) run(ctx context.Context) {
 				}
 
 				// get message delay from leader elector
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.DestChainSelector, time.Now().Unix())
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, msg.DestChainSelector, time.Now().UTC())
 
 				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 					Message:       &msg,
 					ReadyTime:     readyTimestamp,
-					ExpiryTime:    readyTimestamp + int64(ec.expiryDuration.Seconds()),
+					ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
 					RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
 					MessageID:     id,
 				})
 			}
 		case <-ticker.C:
 			// todo: get this current time from a single source across all executors
-			currentTime := time.Now().Unix()
+			currentTime := time.Now().UTC()
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
+			ec.lggr.Debugw("found messages ready for processing",
+				"count", len(readyMessages),
+				"currentTime", currentTime.String(),
+				"readyMessages", readyMessages,
+			)
 			for _, payload := range readyMessages {
-				if currentTime > payload.ExpiryTime {
+				if currentTime.After(payload.ExpiryTime) {
 					ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
 					continue
 				}
@@ -164,14 +169,14 @@ func (ec *Coordinator) run(ctx context.Context) {
 					message, currentTime, id := *payload.Message, currentTime, payload.MessageID
 
 					ec.lggr.Infow("processing message with ID", "messageID", id)
-					messageStatus, err := ec.executor.GetMessageStatus(ctx, message, currentTime)
+					messageStatus, err := ec.executor.GetMessageStatus(ctx, message)
 					if err != nil {
 						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
 					}
 
 					if messageStatus.ShouldRetry {
 						// todo: add exponential backoff here
-						retryTime := currentTime + payload.RetryInterval
+						retryTime := currentTime.Add(payload.RetryInterval)
 						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
 						ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 							Message:       &message,

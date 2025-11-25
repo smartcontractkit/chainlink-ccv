@@ -47,7 +47,7 @@ type Executor interface {
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
 	// GetMessageStatus checks if the message is expired, cursed, and if it should be retried and executed.
-	GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (MessageStatusResults, error)
+	GetMessageStatus(ctx context.Context, message protocol.Message) (MessageStatusResults, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains
@@ -61,9 +61,9 @@ type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
 	// todo: Switch this to GetReadyDelay instead of GetReadyTimestamp
-	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, verifierTimestamp int64) int64
+	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
-	GetRetryDelay(destinationChain protocol.ChainSelector) int64
+	GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration
 }
 
 // DestinationReader is an interface for reading message status and data from a single destination chain

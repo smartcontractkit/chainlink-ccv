@@ -197,8 +197,8 @@ func TestMessageExpiration(t *testing.T) {
 	testcases := []struct {
 		name              string
 		expiryDuration    time.Duration
-		retryDelay        int64
-		initialReadyDelay int64
+		retryDelay        time.Duration
+		initialReadyDelay time.Duration
 		shouldRetry       bool
 		shouldExecute     bool
 		shouldExpire      bool
@@ -206,8 +206,8 @@ func TestMessageExpiration(t *testing.T) {
 		{
 			name:              "message expires when retry time exceeds expiry",
 			expiryDuration:    1 * time.Second,
-			retryDelay:        3, // retry after 3 s
-			initialReadyDelay: 0, // ready immediately
+			retryDelay:        3 * time.Second, // retry after 3 s
+			initialReadyDelay: 1 * time.Second, // ready immediately
 			shouldRetry:       true,
 			shouldExecute:     false,
 			shouldExpire:      true,
@@ -215,8 +215,8 @@ func TestMessageExpiration(t *testing.T) {
 		{
 			name:              "message retries when within expiry window",
 			expiryDuration:    20 * time.Second,
-			retryDelay:        2, // 2 seconds retry delay
-			initialReadyDelay: 0,
+			retryDelay:        2 * time.Second, // 2 seconds retry delay
+			initialReadyDelay: 0 * time.Second,
 			shouldRetry:       true,
 			shouldExecute:     false,
 			shouldExpire:      false,
@@ -224,8 +224,8 @@ func TestMessageExpiration(t *testing.T) {
 		{
 			name:              "message does not retry when shouldRetry is false",
 			expiryDuration:    1 * time.Second,
-			retryDelay:        2,
-			initialReadyDelay: 0,
+			retryDelay:        2 * time.Second,
+			initialReadyDelay: 1 * time.Second,
 			shouldRetry:       false,
 			shouldExecute:     false,
 			shouldExpire:      false,
@@ -259,10 +259,10 @@ func TestMessageExpiration(t *testing.T) {
 
 			// Set up leader elector mock
 			leaderElector := executor_mocks.NewMockLeaderElector(t)
-			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(time.Now().Unix() + tc.initialReadyDelay).Maybe()
+			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(time.Now().UTC().Add(tc.initialReadyDelay)).Maybe()
 			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay).Maybe()
 
-			mockExecutor.EXPECT().GetMessageStatus(mock.Anything, mock.Anything, mock.Anything).
+			mockExecutor.EXPECT().GetMessageStatus(mock.Anything, mock.Anything).
 				Return(executor.MessageStatusResults{ShouldRetry: tc.shouldRetry, ShouldExecute: tc.shouldExecute}, nil).Maybe()
 
 			// Create coordinator with test expiry duration
