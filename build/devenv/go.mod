@@ -277,6 +277,8 @@ require (
 	github.com/oklog/run v1.2.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
+	github.com/onsi/ginkgo/v2 v2.22.1 // indirect
+	github.com/onsi/gomega v1.36.2 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.116.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.116.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.116.0 // indirect

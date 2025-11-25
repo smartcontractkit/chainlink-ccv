@@ -263,6 +263,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	mockStorage := &NoopStorage{}
 	verificationTaskCh := mockSetup.Channel
 
+	mockSourceReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
 	// Return empty map to indicate no prior chain status (forces fallback to lookback calculation)
@@ -280,18 +282,16 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		finalizedBlockMu.RUnlock()
 
 		latest := &protocol.BlockHeader{
-			Number:               InitialLatestBlock,
-			Hash:                 protocol.Bytes32{byte(InitialLatestBlock % 256)},
-			ParentHash:           protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
-			Timestamp:            time.Now(),
-			FinalizedBlockNumber: finalizedNum,
+			Number:     InitialLatestBlock,
+			Hash:       protocol.Bytes32{byte(InitialLatestBlock % 256)},
+			ParentHash: protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
+			Timestamp:  time.Now(),
 		}
 		finalized := &protocol.BlockHeader{
-			Number:               finalizedNum,
-			Hash:                 protocol.Bytes32{byte(finalizedNum % 256)},
-			ParentHash:           protocol.Bytes32{byte((finalizedNum - 1) % 256)},
-			Timestamp:            time.Now(),
-			FinalizedBlockNumber: finalizedNum,
+			Number:     finalizedNum,
+			Hash:       protocol.Bytes32{byte(finalizedNum % 256)},
+			ParentHash: protocol.Bytes32{byte((finalizedNum - 1) % 256)},
+			Timestamp:  time.Now(),
 		}
 		return latest, finalized, nil
 	}).Maybe()

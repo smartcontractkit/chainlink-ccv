@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	MAX_GAP_BLOCKS        = 10 // Maximum allowed gap in blocks before rebuilding entire tail
-	DEFAULT_POLL_INTERVAL = 2000 * time.Millisecond
+	// MaxGapBlocks TODO: This max needs to be a percentage out of the tail length.
+	MaxGapBlocks        = 15 // Maximum allowed gap in blocks before rebuilding entire tail
+	DefaultPollInterval = 1000 * time.Millisecond
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -108,7 +109,7 @@ func NewReorgDetectorService(
 	pollInterval := config.PollInterval
 	// Default 2 seconds
 	if pollInterval == 0 {
-		pollInterval = DEFAULT_POLL_INTERVAL
+		pollInterval = DefaultPollInterval
 	}
 
 	return &ReorgDetectorService{
@@ -140,8 +141,9 @@ func NewReorgDetectorService(
 // Thread-safety:
 // - Safe to call once per instance
 // - Subsequent calls will return an error.
-func (r *ReorgDetectorService) Start(ctx context.Context) error {
-	return r.sync.StartOnce("ReorgDetectorService", func() error {
+func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
+	var resultCh <-chan protocol.ChainStatus
+	err := r.sync.StartOnce("ReorgDetectorService", func() error {
 		r.lggr.Infow("Starting reorg detector service",
 			"chainSelector", r.config.ChainSelector,
 			"pollInterval", r.pollInterval)
@@ -166,8 +168,10 @@ func (r *ReorgDetectorService) Start(ctx context.Context) error {
 			"latestFinalizedBlock", r.latestFinalizedBlock,
 			"latestBlock", r.latestBlock)
 
+		resultCh = r.statusCh
 		return nil
 	})
+	return resultCh, err
 }
 
 // pollAndCheckForReorgs is the main polling loop that periodically checks for new blocks
@@ -211,21 +215,55 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		return
 	}
 
-	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
-
 	if latest.Number < finalized.Number {
 		r.lggr.Warnw("Latest block number is less than finalized block number")
 		r.sendFinalityViolation(*latest, finalized.Number)
 		return
 	}
-	// Check if chain has progressed
-	if latest.Number <= r.latestBlock {
-		r.lggr.Debugw("No new blocks",
+
+	// Handle case where chain went backwards (reorg to earlier block)
+	if latest.Number < r.latestBlock {
+		r.lggr.Infow("Chain went backwards - reorg detected",
 			"chainSelector", r.config.ChainSelector,
-			"latestBlock", latest.Number,
-			"latestBlock", r.latestBlock)
+			"previousLatest", r.latestBlock,
+			"newLatest", latest.Number,
+			"blocksReorged", r.latestBlock-latest.Number)
+
+		if err := r.handleReorg(ctx, *latest, finalized.Number); err != nil {
+			r.lggr.Errorw("Failed to handle backwards reorg",
+				"chainSelector", r.config.ChainSelector,
+				"error", err)
+			return
+		}
 		return
 	}
+
+	// Check if we should process this block
+	if latest.Number == r.latestBlock {
+		// Same block number - check if it's actually the same block or a competing fork
+		storedBlock, exists := r.tailBlocks[latest.Number]
+
+		if !exists {
+			// First time seeing this block number - add it and we're done
+			r.addBlockToTail(*latest, finalized.Number)
+			return
+		}
+
+		if storedBlock.Hash == latest.Hash {
+			// Same block we already have - no new blocks
+			r.lggr.Debugw("No new blocks",
+				"chainSelector", r.config.ChainSelector,
+				"latestBlock", latest.Number)
+			return
+		}
+
+		// Different hash at same height - this is a reorg, fall through to parent hash check
+	}
+
+	// At this point: latest.Number >= r.latestBlock and we need to verify chain consistency
+	// For same height: we'll check against the stored block (which will show hash mismatch)
+	// For new height: we'll check parent hash matches expected parent
+	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
 
 	// If we don't have the parent block, backfill the gap
 	// Ideally this should not happen unless pollInterval is misconfigured to be more than block time
@@ -239,7 +277,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 
 	// Check for reorg: does parent hash match?
 	if latest.ParentHash != expectedParent.Hash {
-		r.lggr.Debugw("Reorg detected - parent hash mismatch",
+		r.lggr.Infow("Reorg detected - parent hash mismatch",
 			"chainSelector", r.config.ChainSelector,
 			"block", latest.Number,
 			"expectedParentHash", expectedParent.Hash,
@@ -299,7 +337,7 @@ func (r *ReorgDetectorService) backfillBlocks(ctx context.Context, startBlock, e
 	// Trim blocks older than finalized
 	r.trimOlderBlocks(finalizedBlockNum)
 
-	r.lggr.Debugw("Backfill completed",
+	r.lggr.Infow("Backfill completed",
 		"chainSelector", r.config.ChainSelector,
 		"latestFinalizedBlock", r.latestFinalizedBlock,
 		"latestBlock", r.latestBlock,
@@ -394,7 +432,7 @@ func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, l
 	gapEnd := latestBlockNum - 1
 	gapSize := gapEnd - gapStart + 1
 
-	r.lggr.Debugw("Gap detected in tail, backfilling",
+	r.lggr.Infow("Gap detected in tail, backfilling",
 		"chainSelector", r.config.ChainSelector,
 		"gapStart", gapStart,
 		"gapEnd", gapEnd,
@@ -403,7 +441,7 @@ func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, l
 		"tailMax", tailMax)
 
 	// Sanity check: gap should be reasonable
-	if gapSize > MAX_GAP_BLOCKS {
+	if gapSize > MaxGapBlocks {
 		r.lggr.Errorw("Unexpectedly large gap detected, rebuilding entire tail",
 			"chainSelector", r.config.ChainSelector,
 			"gapSize", gapSize,
@@ -437,7 +475,7 @@ func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, l
 		return protocol.BlockHeader{}, false
 	}
 
-	r.lggr.Debugw("Successfully backfilled gap",
+	r.lggr.Infow("Successfully backfilled gap",
 		"chainSelector", r.config.ChainSelector,
 		"gapSize", gapSize)
 
@@ -509,7 +547,7 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 
 		if exists && ourBlock.Hash == parent.Hash {
 			// Found LCA! Return blockAfterLCA
-			r.lggr.Debugw("Found matching block (LCA)",
+			r.lggr.Infow("Found matching block (LCA)",
 				"chainSelector", r.config.ChainSelector,
 				"lcaBlock", parent.Number,
 				"lcaHash", parent.Hash)

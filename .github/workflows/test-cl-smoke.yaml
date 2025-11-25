@@ -21,6 +21,8 @@ jobs:
       matrix:
         test: [
           { name: "TestE2ESmoke", config: "env.toml,env-cl.toml,env-cl-ci.toml" },
+          # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
+#          { name: "TestSimpleReorgWithMessageOrdering", config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml" },
         ]
       fail-fast: false
     steps:
@@ -103,6 +105,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: container-logs-e2e-smoke-cl-mode
+          name: container-logs-cl-${{ matrix.test.name }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1

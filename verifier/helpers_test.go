@@ -94,6 +94,23 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
 	mockReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
 
+	// Mock GetBlocksHeaders to return proper block headers for the reorg detector
+	// The reorg detector builds an initial tail from finalized to latest block
+	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+			headers := make(map[*big.Int]protocol.BlockHeader)
+			for _, blockNum := range blockNumbers {
+				headers[blockNum] = protocol.BlockHeader{
+					Number:     blockNum.Uint64(),
+					Hash:       protocol.Bytes32{byte(blockNum.Uint64() % 256)},
+					ParentHash: protocol.Bytes32{byte((blockNum.Uint64() - 1) % 256)},
+					Timestamp:  time.Now(),
+				}
+			}
+			return headers, nil
+		},
+	).Maybe()
+
 	return &MockSourceReaderSetup{
 		Reader:  mockReader,
 		Channel: channel,

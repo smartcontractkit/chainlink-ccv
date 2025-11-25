@@ -95,12 +95,6 @@ func NewEVMSourceReader(
 
 // GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
 func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-	// Get current finalized block to populate FinalizedBlockNumber field
-	_, finalizedHeader, err := r.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get finalized block: %w", err)
-	}
-
 	headers := make(map[*big.Int]protocol.BlockHeader)
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
@@ -111,11 +105,10 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 		}
 		headers[blockNumber] = protocol.BlockHeader{
-			Number:               uint64(header.Number),
-			Hash:                 protocol.Bytes32(header.Hash),
-			ParentHash:           protocol.Bytes32(header.ParentHash),
-			Timestamp:            header.Timestamp,
-			FinalizedBlockNumber: finalizedHeader.Number,
+			Number:     uint64(header.Number),
+			Hash:       protocol.Bytes32(header.Hash),
+			ParentHash: protocol.Bytes32(header.ParentHash),
+			Timestamp:  header.Timestamp,
 		}
 	}
 	return headers, nil
@@ -141,17 +134,11 @@ func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protoco
 		return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 	}
 
-	finalizedBlockNum := header.LatestFinalizedHead().BlockNumber()
-	if finalizedBlockNum < 0 {
-		return nil, fmt.Errorf("finalized block number cannot be negative: %d", finalizedBlockNum)
-	}
-
 	return &protocol.BlockHeader{
-		Number:               uint64(header.Number),
-		Hash:                 protocol.Bytes32(header.Hash),
-		ParentHash:           protocol.Bytes32(header.ParentHash),
-		Timestamp:            header.Timestamp,
-		FinalizedBlockNumber: uint64(finalizedBlockNum),
+		Number:     uint64(header.Number),
+		Hash:       protocol.Bytes32(header.Hash),
+		ParentHash: protocol.Bytes32(header.ParentHash),
+		Timestamp:  header.Timestamp,
 	}, nil
 }
 
@@ -297,19 +284,17 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 	}
 
 	latest = &protocol.BlockHeader{
-		Number:               uint64(latestHead.Number),
-		Hash:                 protocol.Bytes32(latestHead.Hash),
-		ParentHash:           protocol.Bytes32(latestHead.ParentHash),
-		Timestamp:            latestHead.Timestamp,
-		FinalizedBlockNumber: uint64(finalizedHead.Number),
+		Number:     uint64(latestHead.Number),
+		Hash:       protocol.Bytes32(latestHead.Hash),
+		ParentHash: protocol.Bytes32(latestHead.ParentHash),
+		Timestamp:  latestHead.Timestamp,
 	}
 
 	finalized = &protocol.BlockHeader{
-		Number:               uint64(finalizedHead.Number),
-		Hash:                 protocol.Bytes32(finalizedHead.Hash),
-		ParentHash:           protocol.Bytes32(finalizedHead.ParentHash),
-		Timestamp:            finalizedHead.Timestamp,
-		FinalizedBlockNumber: uint64(finalizedHead.Number),
+		Number:     uint64(finalizedHead.Number),
+		Hash:       protocol.Bytes32(finalizedHead.Hash),
+		ParentHash: protocol.Bytes32(finalizedHead.ParentHash),
+		Timestamp:  finalizedHead.Timestamp,
 	}
 
 	return latest, finalized, nil

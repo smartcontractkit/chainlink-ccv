@@ -64,13 +64,6 @@ type SourceReaderService struct {
 // SourceReaderServiceOption is a functional option for SourceReaderService.
 type SourceReaderServiceOption func(*SourceReaderService)
 
-// WithPollInterval sets the poll interval for the source reader service.
-func WithPollInterval(interval time.Duration) SourceReaderServiceOption {
-	return func(s *SourceReaderService) {
-		s.pollInterval = interval
-	}
-}
-
 // NewSourceReaderService creates a new blockchain-based source reader.
 func NewSourceReaderService(
 	sourceReader chainaccess.SourceReader,
@@ -565,7 +558,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 
 	// Get current block (potentially slow RPC call - no locks held)
 	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	_, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
+	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
 	cancel()
 
 	if err != nil {
@@ -574,9 +567,16 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
 		return
 	}
-	if finalized == nil {
-		r.logger.Errorw("Finalized block is nil")
+	if finalized == nil || latest == nil {
+		r.logger.Errorw("nil block found during latest/finalized retrieval",
+			"finalized=Nil", finalized == nil, "latest=Nil", latest == nil)
 		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
+		return
+	}
+
+	if latest.Number <= r.lastProcessedBlock.Uint64() {
+		r.logger.Debugw("No new blocks to process",
+			"lastProcessedBlock", r.lastProcessedBlock.String())
 		return
 	}
 
@@ -584,6 +584,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
 	// Fetch message events from blockchain
 	events, err := r.sourceReader.FetchMessageSentEvents(logsCtx, fromBlock, nil)
 	if err != nil {
@@ -637,9 +638,10 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	// Determine the block we've processed up to
 	var processedToBlock *big.Int
 	if len(tasks) > 0 {
-		// Use highest block from returned logs
+		// Use the highest block from returned logs
 		highestLogBlock := findHighestBlockInTasks(tasks)
-		processedToBlock = new(big.Int).Set(highestLogBlock)
+		// We don't want to re-process the same block if it already had messages, so add 1
+		processedToBlock = new(big.Int).Add(highestLogBlock, big.NewInt(1))
 	} else {
 		// No logs - use current position (fromBlock was captured under lock at cycle start)
 		processedToBlock = new(big.Int).Set(fromBlock)

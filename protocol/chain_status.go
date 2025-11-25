@@ -6,11 +6,10 @@ import (
 
 // BlockHeader represents blockchain block header metadata.
 type BlockHeader struct {
-	Number               uint64
-	Hash                 Bytes32
-	ParentHash           Bytes32
-	Timestamp            time.Time
-	FinalizedBlockNumber uint64 // Latest finalized block at time of this block
+	Number     uint64
+	Hash       Bytes32
+	ParentHash Bytes32
+	Timestamp  time.Time
 }
 
 // ReorgType indicates the type of reorg detected.
