@@ -1,6 +1,7 @@
 [[blockchains]]
   container_name = "blockchain-src"
   chain_id = "1337"
+  # When we don't send specific param for mining, anvil defaults to instant mining
   docker_cmd_params = ["--slots-in-an-epoch", "1", "--disable-code-size-limit"]
   image = "ghcr.io/foundry-rs/foundry:latest"
   port = "8545"

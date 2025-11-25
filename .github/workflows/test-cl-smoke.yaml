@@ -21,6 +21,7 @@ jobs:
       matrix:
         test: [
           { name: "TestE2ESmoke", config: "env.toml,env-cl.toml,env-cl-ci.toml" },
+          { name: "TestSimpleReorgWithMessageOrdering", config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml" },
         ]
       fail-fast: false
     steps:

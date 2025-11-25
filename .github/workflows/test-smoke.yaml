@@ -18,6 +18,14 @@ jobs:
       contents: read
       pull-requests: write
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: TestE2ESmoke
+            config: env.toml
+          - name: TestSimpleReorgWithMessageOrdering
+            config: env.toml,env-src-auto-mine.toml
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -71,26 +79,26 @@ jobs:
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
           cd cmd/ccv && go install . && cd -
-          ccv u env.toml && ccv obs up -m loki
+          ccv u ${{ matrix.test.config }} && ccv obs up -m loki
 
-      - name: Run smoke tests
-        id: smoke_test
+      - name: Run tests
+        id: test_run
         working-directory: build/devenv/tests/e2e
         run: |
           set -o pipefail
-          go test -v -timeout 15m -count=1 -run 'TestE2ESmoke'
+          go test -v -timeout 15m -count=1 -run '${{ matrix.test.name }}'
         continue-on-error: true
 
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: container-logs-smoke
+          name: container-logs-${{ matrix.test.name }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1
 
       - name: Check test results
-        if: always() && steps.smoke_test.outcome == 'failure'
+        if: always() && steps.test_run.outcome == 'failure'
         run: |
-          echo "Smoke tests failed."
+          echo "${{ matrix.test.name }} tests failed."
           exit 1

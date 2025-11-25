@@ -22,6 +22,8 @@ import (
 
 // TestSimpleReorgWithMessageOrdering tests that messages sent in different orders
 // before and after a reorg are correctly verified after finality is reached.
+// IMPORTANT: Need to run this test against an env that has source chain with auto mining.
+// Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
 func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 	// TODO: Make this the regular env-out.toml
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
@@ -108,7 +110,6 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 			Int("seqNumber", int(event.SequenceNumber)).
 			Msg("Sending message")
 
-		//_ = anvilHelper.Mine(ctx, 12) // mining an extra block
 		return event.MessageID
 	}
 
