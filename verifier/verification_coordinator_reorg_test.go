@@ -120,7 +120,12 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 // createCoordinator creates a new coordinator instance with the same dependencies.
 // This allows for realistic restart testing - creating a fresh coordinator while reusing
 // shared state (storage, chainStatusManager, etc.).
+// Creates a fresh mock reorg detector for each coordinator to avoid channel reuse issues.
 func (s *reorgTestSetup) createCoordinator() *Coordinator {
+	// Create a fresh mock reorg detector for this coordinator instance
+	// This is necessary because Close() closes the status channel, and we can't reuse it
+	freshMockDetector := newMockReorgDetector()
+
 	coordinator, err := NewCoordinator(
 		WithVerifier(s.testVerifier),
 		WithStorage(s.storage),
@@ -131,13 +136,17 @@ func (s *reorgTestSetup) createCoordinator() *Coordinator {
 			s.chainSelector: s.mockSourceReader,
 		}),
 		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{
-			s.chainSelector: s.mockReorgDetector,
+			s.chainSelector: freshMockDetector,
 		}),
 		WithMonitoring(&noopMonitoring{}),
 		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(s.finalityCheckInterval),
 	)
 	require.NoError(s.t, err)
+
+	// Update the test setup to use the new detector for future event injection
+	s.mockReorgDetector = freshMockDetector
+
 	return coordinator
 }
 
@@ -165,6 +174,51 @@ func getLastProcessedBlockSafe(reader *SourceReaderService) uint64 {
 	return reader.lastProcessedBlock.Uint64()
 }
 
+// waitForReorgToComplete waits for the reorg handler to finish processing.
+// Returns true if reorg completed within timeout, false otherwise.
+// Thread-safe: polls the reorgInProgress atomic flag.
+//
+// First waits for reorg to start (flag becomes true), then waits for completion (flag becomes false).
+// This ensures we don't get a false positive if checking before the handler receives the event.
+func waitForReorgToComplete(t *testing.T, state *sourceState, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Phase 1: Wait for reorg to start (flag becomes true)
+	t.Log("⏳ Waiting for reorg to start...")
+	for {
+		if state.reorgInProgress.Load() {
+			t.Log("🔄 Reorg started")
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Log("⚠️  Timeout waiting for reorg to start")
+			return false
+		}
+
+		<-ticker.C
+	}
+
+	// Phase 2: Wait for reorg to complete (flag becomes false)
+	t.Log("⏳ Waiting for reorg to complete...")
+	for {
+		if !state.reorgInProgress.Load() {
+			t.Log("✅ Reorg handling completed")
+			return true
+		}
+
+		if time.Now().After(deadline) {
+			t.Log("⚠️  Timeout waiting for reorg to complete")
+			return false
+		}
+
+		<-ticker.C
+	}
+}
+
 func (s *reorgTestSetup) mustStartCoordinator() {
 	err := s.coordinator.Start(s.ctx)
 	require.NoError(s.t, err)
@@ -177,7 +231,7 @@ func (s *reorgTestSetup) mustRestartCoordinator() {
 }
 
 func (s *reorgTestSetup) restartCoordinator() error {
-	// Close the old coordinator
+	// Close the old coordinator (this will close its associated mock reorg detector)
 	err := s.coordinator.Close()
 	if err != nil {
 		return err
@@ -186,6 +240,7 @@ func (s *reorgTestSetup) restartCoordinator() error {
 
 	// Create a new coordinator instance (more realistic - simulates process restart)
 	// This reuses the same dependencies (storage, chainStatusManager, etc.)
+	// Note: createCoordinator() creates a fresh mock reorg detector to avoid channel reuse issues
 	s.coordinator = s.createCoordinator()
 	s.t.Log("🆕 New coordinator created")
 
@@ -273,7 +328,10 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	}
 
 	// Wait for reorg handler goroutine to process the event
-	time.Sleep(100 * time.Millisecond)
+	// Use proper synchronization instead of time.Sleep to avoid race conditions
+	sourceState := setup.coordinator.sourceStates[chainSelector]
+	require.True(t, waitForReorgToComplete(t, sourceState, 5*time.Second),
+		"Reorg handling should complete within timeout")
 
 	// Verify behavior:
 	// - Tasks at blocks 98, 99 (below finalized) should have been PROCESSED
@@ -319,7 +377,10 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 		ResetToBlock: 0, // No safe reset point
 	}
 	// Wait for finality violation handler goroutine to process the event
-	time.Sleep(50 * time.Millisecond)
+	// Use proper synchronization instead of time.Sleep to avoid race conditions
+	sourceState := setup.coordinator.sourceStates[chainSelector]
+	require.True(t, waitForReorgToComplete(t, sourceState, 5*time.Second),
+		"Finality violation handling should complete within timeout")
 
 	// After finality violation:
 	// 1. All pending tasks should be flushed

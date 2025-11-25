@@ -443,7 +443,7 @@ func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger) 
 }
 
 // LatestAndFinalizedBlock returns the latest and finalized block headers.
-// Finalized is calculated as latest - ConfirmationDepth
+// Finalized is calculated as latest - ConfirmationDepth.
 func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *evmtypes.Head, err error) {
 	// Get latest block
 	latestHead, err := m.chainClient.HeadByNumber(ctx, nil)
