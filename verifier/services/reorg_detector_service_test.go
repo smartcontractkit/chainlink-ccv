@@ -524,8 +524,6 @@ func TestCheckBlockMaybeHandleReorg_ChainGoesBackwards(t *testing.T) {
 
 	t.Run("detects reorg when chain goes backwards", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
-
 		config := ReorgDetectorConfig{
 			ChainSelector: 1337,
 			PollInterval:  1 * time.Second,
@@ -555,7 +553,7 @@ func TestCheckBlockMaybeHandleReorg_ChainGoesBackwards(t *testing.T) {
 		}
 		finalized := &protocol.BlockHeader{Number: 100}
 
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(newLatest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(newLatest, finalized, nil)
 
 		// Mock walking back through the new chain to find LCA
 		// Block 105's parent is 104 (new chain)
@@ -600,7 +598,6 @@ func TestCheckBlockMaybeHandleReorg_SameBlockDifferentHash(t *testing.T) {
 
 	t.Run("detects reorg when same block number has different hash via parent check", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{
 			ChainSelector: 1337,
@@ -631,7 +628,7 @@ func TestCheckBlockMaybeHandleReorg_SameBlockDifferentHash(t *testing.T) {
 		}
 		finalized := &protocol.BlockHeader{Number: 100}
 
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(newLatest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(newLatest, finalized, nil)
 
 		// The parent hash (0xFE) won't match stored block 104's hash (0x68), triggering reorg
 		// Mock walking back through new chain to find LCA
@@ -668,7 +665,6 @@ func TestCheckBlockMaybeHandleReorg_SameBlockDifferentHash(t *testing.T) {
 
 	t.Run("no reorg when same block and same hash", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
-		mockHT := protocol_mocks.NewMockHeadTracker(t)
 
 		config := ReorgDetectorConfig{
 			ChainSelector: 1337,
@@ -693,7 +689,7 @@ func TestCheckBlockMaybeHandleReorg_SameBlockDifferentHash(t *testing.T) {
 		}
 		finalized := &protocol.BlockHeader{Number: 100}
 
-		mockHT.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
+		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
 
 		// Execute - should do nothing
 		service.checkBlockMaybeHandleReorg(ctx)

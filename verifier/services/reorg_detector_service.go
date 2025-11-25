@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	// MaxGapBlocks TODO: This max needs to be a percentage out of the tail length
+	// MaxGapBlocks TODO: This max needs to be a percentage out of the tail length.
 	MaxGapBlocks        = 15 // Maximum allowed gap in blocks before rebuilding entire tail
 	DefaultPollInterval = 1000 * time.Millisecond
 )
