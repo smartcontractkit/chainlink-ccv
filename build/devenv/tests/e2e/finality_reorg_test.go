@@ -214,16 +214,12 @@ func TestE2EReorg(t *testing.T) {
 		require.NoError(t, err)
 		l.Info().Str("snapshotID", snapshotID).Msg("✅ Initial snapshot created")
 
-		l.Info().Int("blocks", verifier.ConfirmationDepth+1).Msg("⛏️  Mining blocks to establish finalized state")
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+1)
-		l.Info().Msg("✅ Finalized state established")
-
 		l.Info().Msg("📨 Sending pre-violation message")
 		preViolationMessageID := sendMessageWithLogging("pre-violation message", "Sending pre-violation message")
 
-		// Mine additional blocks to cross finality threshold for this message
-		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to cross finality threshold")
+		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to establish finalized state")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		l.Info().Msg("✅ Finalized state established")
 
 		// Wait for message to be processed and appear in aggregator
 		verifyMessageExists(preViolationMessageID, "Pre-violation message")
@@ -260,7 +256,7 @@ func TestE2EReorg(t *testing.T) {
 			"source reader stop log should contain chain selector %d", srcSelector)
 		l.Info().Msg("✅ Source reader stopped for correct chain selector")
 
-		//=======================Close Reorg Detector=======================//
+		//=======================Stop Reorg Detector=======================//
 		// Verify that the reorg detector was closed (for the correct chain)
 		l.Info().Msg("⏳ Waiting for reorg detector to be closed...")
 		reorgCtx, reorgCancel := context.WithTimeout(ctx, 10*time.Second)
