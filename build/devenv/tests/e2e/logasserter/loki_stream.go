@@ -231,6 +231,9 @@ func (s *LogStream) identifyStage(logLine string) string {
 	if strings.Contains(logLine, FinalityViolationDetected().LogPattern) {
 		return FinalityViolationDetected().Name
 	}
+	if strings.Contains(logLine, SourceReaderStopped().LogPattern) {
+		return SourceReaderStopped().Name
+	}
 
 	return ""
 } // parseTimestamp converts Loki's nanosecond timestamp string to time.Time

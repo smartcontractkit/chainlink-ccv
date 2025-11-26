@@ -130,9 +130,10 @@ func (la *LogAsserter) WaitForStage(ctx context.Context, messageID protocol.Byte
 
 // WaitForPatternOnly waits for a log pattern to appear, regardless of messageID.
 // This is useful for system-level logs that don't have an associated message (e.g., finality violations).
-func (la *LogAsserter) WaitForPatternOnly(ctx context.Context, stage LogStage) (time.Time, error) {
+// Returns the first matching InstanceLog for inspection.
+func (la *LogAsserter) WaitForPatternOnly(ctx context.Context, stage LogStage) (InstanceLog, error) {
 	if la.stream == nil {
-		return time.Time{}, fmt.Errorf("streaming not started, call StartStreaming() first")
+		return InstanceLog{}, fmt.Errorf("streaming not started, call StartStreaming() first")
 	}
 
 	ticker := time.NewTicker(la.pollInterval)
@@ -144,7 +145,7 @@ func (la *LogAsserter) WaitForPatternOnly(ctx context.Context, stage LogStage) (
 	for {
 		select {
 		case <-ctx.Done():
-			return time.Time{}, fmt.Errorf("timeout waiting for pattern-only stage %s", stage.Name)
+			return InstanceLog{}, fmt.Errorf("timeout waiting for pattern-only stage %s", stage.Name)
 		case <-ticker.C:
 			if logsInterface, ok := la.logCache.Load(zeroMessageID); ok {
 				msgLogs := logsInterface.(*MessageStageLogs)
@@ -153,8 +154,7 @@ func (la *LogAsserter) WaitForPatternOnly(ctx context.Context, stage LogStage) (
 				msgLogs.mu.RUnlock()
 
 				if len(instances) > 0 {
-					timestamp := instances[0].Timestamp
-					return timestamp, nil
+					return instances[0], nil
 				}
 			}
 		}

@@ -186,6 +186,9 @@ func TestE2EReorg(t *testing.T) {
 	})
 
 	t.Run("finality violation", func(t *testing.T) {
+		// Log the source chain selector for verification
+		l.Info().Uint64("srcSelector", srcSelector).Msg("Source chain selector for finality violation test")
+
 		// Setup log asserter to verify finality violation detection
 		lokiURL := os.Getenv("LOKI_QUERY_URL")
 		if lokiURL == "" {
@@ -195,6 +198,7 @@ func TestE2EReorg(t *testing.T) {
 		logAssert := logasserter.New(lokiURL, logAsserterLogger)
 		err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
 			logasserter.FinalityViolationDetected(),
+			logasserter.SourceReaderStopped(),
 		})
 		if err != nil {
 			t.Logf("Warning: Could not start log asserter: %v", err)
@@ -230,17 +234,30 @@ func TestE2EReorg(t *testing.T) {
 		err = anvilHelper.Revert(ctx, snapshotID)
 		require.NoError(t, err)
 		l.Info().Msg("✅ Reverted to initial snapshot (deep reorg past finalized blocks)")
-
 		// Mine some blocks to give system opportunity to process (if it were working)
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
 
+		// =======================Finality Violation Detection=======================//
 		l.Info().Msg("⏳ Waiting for verifier to detect finality violation...")
-		// Wait for the "FINALITY VIOLATION DETECTED" log to appear
-		violationCtx, violationCancel := context.WithTimeout(ctx, 15*time.Second)
+		violationCtx, violationCancel := context.WithTimeout(ctx, 10*time.Second)
 		defer violationCancel()
 		_, err = logAssert.WaitForPatternOnly(violationCtx, logasserter.FinalityViolationDetected())
 		require.NoError(t, err, "finality violation should be detected and logged")
+		l.Info().Msg("✅ Finality violation detected in logs")
+
+		//=======================Stop Reader =======================//
+		// Verify that the source reader was stopped as a result (for the correct chain)
+		l.Info().Msg("⏳ Waiting for source reader to be stopped...")
+		stopCtx, stopCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer stopCancel()
+		stopLog, err := logAssert.WaitForPatternOnly(stopCtx, logasserter.SourceReaderStopped())
+		require.NoError(t, err, "source reader should be stopped after finality violation")
+		// Verify the log contains the correct chain selector
+		srcSelectorStr := fmt.Sprintf("%d", srcSelector)
+		require.Contains(t, stopLog.LogLine, srcSelectorStr,
+			"source reader stop log should contain chain selector %d", srcSelector)
+		l.Info().Msg("✅ Source reader stopped for correct chain selector")
 
 		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 

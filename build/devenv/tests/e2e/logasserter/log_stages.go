@@ -39,3 +39,11 @@ func FinalityViolationDetected() LogStage {
 		LogPattern: "FINALITY VIOLATION DETECTED",
 	}
 }
+
+func SourceReaderStopped() LogStage {
+	return LogStage{
+		Name:       "SourceReaderStopped",
+		Service:    "verifier",
+		LogPattern: "Stopping SourceReaderService",
+	}
+}
