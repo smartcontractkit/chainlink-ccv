@@ -29,14 +29,14 @@ func (m *InMemoryChainStatusManager) WriteChainStatuses(ctx context.Context, sta
 	for _, status := range statuses {
 		// Make a copy of the BlockNumber to avoid sharing pointers
 		blockHeight := new(big.Int)
-		if status.BlockNumber != nil {
-			blockHeight.Set(status.BlockNumber)
+		if status.FinalizedBlockHeight != nil {
+			blockHeight.Set(status.FinalizedBlockHeight)
 		}
 
 		m.statuses[status.ChainSelector] = &protocol.ChainStatusInfo{
-			ChainSelector: status.ChainSelector,
-			BlockNumber:   blockHeight,
-			Disabled:      status.Disabled,
+			ChainSelector:        status.ChainSelector,
+			FinalizedBlockHeight: blockHeight,
+			Disabled:             status.Disabled,
 		}
 	}
 	return nil
@@ -53,14 +53,14 @@ func (m *InMemoryChainStatusManager) ReadChainStatuses(ctx context.Context, chai
 		if status, ok := m.statuses[selector]; ok {
 			// Return a copy to prevent external modification
 			blockHeight := new(big.Int)
-			if status.BlockNumber != nil {
-				blockHeight.Set(status.BlockNumber)
+			if status.FinalizedBlockHeight != nil {
+				blockHeight.Set(status.FinalizedBlockHeight)
 			}
 
 			result[selector] = &protocol.ChainStatusInfo{
-				ChainSelector: status.ChainSelector,
-				BlockNumber:   blockHeight,
-				Disabled:      status.Disabled,
+				ChainSelector:        status.ChainSelector,
+				FinalizedBlockHeight: blockHeight,
+				Disabled:             status.Disabled,
 			}
 		}
 	}

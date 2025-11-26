@@ -35,9 +35,9 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_HappyPath(t *testing.T) {
 	// Mock successful chain status read on first attempt
 	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
 		chainSelector: {
-			ChainSelector: chainSelector,
-			BlockNumber:   expectedBlock,
-			Disabled:      false,
+			ChainSelector:        chainSelector,
+			FinalizedBlockHeight: expectedBlock,
+			Disabled:             false,
 		},
 	}
 	mockChainStatusManager.EXPECT().
@@ -49,7 +49,7 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_HappyPath(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, expectedBlock, result.BlockNumber)
+	require.Equal(t, expectedBlock, result.FinalizedBlockHeight)
 }
 
 func TestEVMSourceReader_ReadChainStatusWithRetries_NoChainStatusManager(t *testing.T) {
@@ -105,9 +105,9 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_RetryLogic(t *testing.T) {
 
 	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
 		chainSelector: {
-			ChainSelector: chainSelector,
-			BlockNumber:   expectedBlock,
-			Disabled:      false,
+			ChainSelector:        chainSelector,
+			FinalizedBlockHeight: expectedBlock,
+			Disabled:             false,
 		},
 	}
 	mockChainStatusManager.EXPECT().
@@ -121,7 +121,7 @@ func TestEVMSourceReader_ReadChainStatusWithRetries_RetryLogic(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, expectedBlock, result.BlockNumber)
+	require.Equal(t, expectedBlock, result.FinalizedBlockHeight)
 	// Should have some backoff delay (1s + 2s = 3s minimum)
 	require.Greater(t, elapsed, 3*time.Second)
 }
@@ -185,9 +185,9 @@ func TestEVMSourceReader_InitializeStartBlock_WithChainStatus(t *testing.T) {
 	// Mock successful chain status read
 	statusMap := map[protocol.ChainSelector]*protocol.ChainStatusInfo{
 		chainSelector: {
-			ChainSelector: chainSelector,
-			BlockNumber:   chainStatusBlock,
-			Disabled:      false,
+			ChainSelector:        chainSelector,
+			FinalizedBlockHeight: chainStatusBlock,
+			Disabled:             false,
 		},
 	}
 	mockChainStatusManager.EXPECT().
