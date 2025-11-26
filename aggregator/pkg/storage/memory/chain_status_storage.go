@@ -145,8 +145,8 @@ func validateStoreChainStatusInput(clientID string, statuses map[uint64]*common.
 		if chainStatus == nil {
 			return errors.New("chain status cannot be nil")
 		}
-		if chainStatus.FinalizedBlockHeight == 0 {
-			return errors.New("finalized_block_height must be greater than 0")
+		if chainStatus.FinalizedBlockHeight < 0 {
+			return errors.New("finalized_block_height must be greater than or equal 0")
 		}
 	}
 

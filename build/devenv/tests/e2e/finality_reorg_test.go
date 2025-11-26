@@ -272,6 +272,33 @@ func TestE2EReorg(t *testing.T) {
 			"reorg detector close log should contain chain selector %d", srcSelector)
 		l.Info().Msg("✅ Reorg detector closed for correct chain selector")
 
+		//=======================Verify Chain Status in Aggregator=======================//
+		// Verify that the chain status in aggregator shows the chain is disabled with checkpoint 0
+		// Note: ReadChainStatus requires HMAC authentication, so we need to create an authenticated client
+		l.Info().Msg("🔍 Verifying chain status in aggregator...")
+
+		// Create authenticated aggregator client for reading chain status
+		// Using the same API key/secret as the verifier (configured in env.toml)
+		authenticatedAggregatorClient, err := ccv.NewAuthenticatedAggregatorClient(
+			zerolog.Ctx(ctx).With().Str("component", "authenticated-aggregator-client").Logger(),
+			defaultAggregatorAddr,
+			"dev-api-key-verifier-1",
+			"dev-secret-verifier-1",
+		)
+		require.NoError(t, err, "should be able to create authenticated aggregator client")
+		defer authenticatedAggregatorClient.Close()
+
+		chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
+		require.NoError(t, err, "should be able to read chain status from aggregator")
+		require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
+
+		chainStatus := chainStatusResp.Statuses[0]
+		require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
+		require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
+		require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight, "finalized block height should be 0 after finality violation")
+
+		l.Info().Msg("✅ Chain status verified in aggregator: chain is disabled with checkpoint 0")
+
 		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
 		l.Info().

@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -171,8 +172,36 @@ type AggregatorClient struct {
 	conn                 *grpc.ClientConn
 }
 
+// NewAggregatorClient creates a new AggregatorClient without authentication.
+// For APIs that require authentication (e.g., ReadChainStatus), use NewAuthenticatedAggregatorClient.
 func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient, error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
+	}
+
+	return &AggregatorClient{
+		logger:               logger,
+		addr:                 addr,
+		aggregatorClient:     pb.NewAggregatorClient(conn),
+		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
+		conn:                 conn,
+	}, nil
+}
+
+// NewAuthenticatedAggregatorClient creates a new AggregatorClient with HMAC authentication.
+// This is required for APIs like ReadChainStatus that require authentication.
+func NewAuthenticatedAggregatorClient(logger zerolog.Logger, addr, apiKey, secret string) (*AggregatorClient, error) {
+	hmacConfig := &hmacutil.ClientConfig{
+		APIKey: apiKey,
+		Secret: secret,
+	}
+
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(hmacutil.NewClientInterceptor(hmacConfig)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
 	}
