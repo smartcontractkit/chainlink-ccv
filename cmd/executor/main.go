@@ -229,7 +229,7 @@ func main() {
 			QueryLimit:      executorConfig.IndexerQueryLimit,
 		})
 
-	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration)
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 	//
 	// Initialize executor coordinator
 	// ------------------------------------------------------------------------------------------------

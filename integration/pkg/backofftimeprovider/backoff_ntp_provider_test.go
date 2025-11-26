@@ -12,6 +12,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+var defaultNtpServer = "time.google.com"
+
 func TestBackoffNTPProvider_GetTime_Success(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -37,7 +39,7 @@ func TestBackoffNTPProvider_GetTime_Success(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			lggr := logger.Test(t)
-			provider := NewBackoffNTPProvider(lggr, tt.backoffDur)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
 
 			// Mock NTP to return expected time
 			originalNtpTimeFunc := ntpTimeFunc
@@ -79,7 +81,7 @@ func TestBackoffNTPProvider_GetTime_FailureReturnsLocalTime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			lggr := logger.Test(t)
-			provider := NewBackoffNTPProvider(lggr, tt.backoffDur)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
 
 			// Mock NTP to fail
 			originalNtpTimeFunc := ntpTimeFunc
@@ -137,7 +139,7 @@ func TestBackoffNTPProvider_GetTime_BackoffBehavior(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			lggr := logger.Test(t)
-			provider := NewBackoffNTPProvider(lggr, tt.backoffDur)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
 			provider.failedAttempts = tt.initialFailedAttempts
 			provider.lastFailureTime = tt.setLastFailureTime
 
@@ -205,7 +207,7 @@ func TestBackoffNTPProvider_GetTime_ExponentialBackoff(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			lggr := logger.Test(t)
-			provider := NewBackoffNTPProvider(lggr, tt.backoffDur)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
 			provider.failedAttempts = tt.failedAttempts
 
 			// Execute
@@ -243,7 +245,7 @@ func TestBackoffNTPProvider_GetTime_MultipleFailuresThenSuccess(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			lggr := logger.Test(t)
-			provider := NewBackoffNTPProvider(lggr, tt.backoffDur)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
 
 			originalNtpTimeFunc := ntpTimeFunc
 			defer func() { ntpTimeFunc = originalNtpTimeFunc }()
@@ -310,7 +312,7 @@ func TestBackoffNTPProvider_GetTime_ConcurrentCalls(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			lggr := logger.Test(t)
-			provider := NewBackoffNTPProvider(lggr, tt.backoffDur)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
 
 			// Mock NTP to always succeed
 			originalNtpTimeFunc := ntpTimeFunc
@@ -367,7 +369,7 @@ func TestBackoffNTPProvider_GetTime_BackoffDuringConcurrentCalls(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			lggr := logger.Test(t)
-			provider := NewBackoffNTPProvider(lggr, tt.backoffDur)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
 
 			// Mock NTP to fail initially
 			originalNtpTimeFunc := ntpTimeFunc
@@ -437,7 +439,7 @@ func TestNewBackoffNTPProvider(t *testing.T) {
 			lggr := logger.Test(t)
 
 			// Execute
-			provider := NewBackoffNTPProvider(lggr, tt.backoffDur)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
 
 			// Assert
 			assert.NotNil(t, provider)

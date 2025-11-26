@@ -144,7 +144,7 @@ func NewExecutorCoordinator(
 			QueryLimit:      cfg.IndexerQueryLimit,
 		})
 
-	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration)
+	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration, cfg.NtpServer)
 
 	exec, err := executor.NewCoordinator(
 		logger.With(lggr, "component", "Coordinator"),
