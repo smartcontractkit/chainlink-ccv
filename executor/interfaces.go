@@ -11,7 +11,7 @@ import (
 // StreamerResult is the result of a streaming operation.
 type StreamerResult struct {
 	Error    error
-	Messages []protocol.Message
+	Messages []protocol.MessageWithMetadata
 }
 
 // MessageSubscriber produces a channel of Messages objects that have new verifications.
@@ -30,8 +30,8 @@ type MessageSubscriber interface {
 
 // MessageReader reads messages from a storage backend based on query parameters. It is implemented by the IndexerAPI.
 type MessageReader interface {
-	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
-	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.Message, error)
+	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message and its metadata.
+	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error)
 }
 
 // VerifierResultReader reads verifier results from a storage backend based on messageID. It is implemented by the IndexerAPI.
@@ -47,7 +47,7 @@ type Executor interface {
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
 	// GetMessageStatus checks if the message is expired, cursed, and if it should be retried and executed.
-	GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (MessageStatusResults, error)
+	GetMessageStatus(ctx context.Context, message protocol.Message) (MessageStatusResults, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains
@@ -60,10 +60,10 @@ type ContractTransmitter interface {
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
-	// todo: Switch this to GetReadyDelay instead of GetReadyTimestamp
-	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, verifierTimestamp int64) int64
+	// todo: align so both functions are either return delay or return timestamp.
+	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
-	GetRetryDelay(destinationChain protocol.ChainSelector) int64
+	GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration
 }
 
 // DestinationReader is an interface for reading message status and data from a single destination chain

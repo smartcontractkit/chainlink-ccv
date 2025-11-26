@@ -146,7 +146,7 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 func (i *IndexerAPIReader) ReadMessages(
 	ctx context.Context,
 	queryData protocol.MessagesV1Request,
-) (map[string]protocol.Message, error) {
+) (map[string]protocol.MessageWithMetadata, error) {
 	var response protocol.MessagesV1Response
 	err := i.makeRequest(ctx, "/v1/messages", queryParams(queryData), &response)
 	if err != nil {
@@ -160,12 +160,7 @@ func (i *IndexerAPIReader) ReadMessages(
 
 	i.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(response.Messages))
 
-	withoutMeta := make(map[string]protocol.Message)
-	for k, v := range response.Messages {
-		withoutMeta[k] = v.Message
-	}
-
-	return withoutMeta, nil
+	return response.Messages, nil
 }
 
 func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {

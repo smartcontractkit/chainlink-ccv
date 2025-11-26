@@ -78,7 +78,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 	g.Go(func() error {
 		res, err := cle.verifierResultsReader.GetVerifierResults(errGroupCtx, messageID)
 		if err != nil {
-			return fmt.Errorf("failed to get CCV data for message %s: %w", messageID.String(), err)
+			return fmt.Errorf("failed to get Verifier Results for message %s: %w", messageID.String(), err)
 		}
 
 		for _, r := range res {
@@ -98,7 +98,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 			message,
 		)
 		if err != nil && len(res.RequiredCCVs) == 0 {
-			return fmt.Errorf("failed to get CCV Offramp info for message %s: %w", messageID.String(), err)
+			return fmt.Errorf("failed to get Verifier Quorum info for message %s: %w", messageID.String(), err)
 		}
 		ccvInfo = res
 		return nil
@@ -108,11 +108,11 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return err
 	}
 
-	// Order the CCV data to match the order expected by the receiver contract.
-	cle.lggr.Infow("got ccv info and ccvData for message",
+	// Order the Verifier Results to match the order expected by the receiver contract.
+	cle.lggr.Infow("got ccv info and verifier results for message",
 		"messageID", messageID,
 		"destinationChain", destinationChain,
-		"ccvInfo", ccvInfo,
+		"verifierQuorum", ccvInfo,
 		"ccvDatasLen", len(ccvData),
 		"ccvDatasDestVerifiers", ccvDataDestVerifiers(ccvData),
 		"ccvDatasSourceVerifiers", ccvDataSourceVerifiers(ccvData),
@@ -312,7 +312,7 @@ func (cle *ChainlinkExecutor) Validate() error {
 
 // GetMessageStatus checks if a message should be executed and/or retried.
 // Returns (shouldRetry bool, shouldExecute bool, error) to indicate whether the message should be retried (added back to heap) and executed.
-func (cle *ChainlinkExecutor) GetMessageStatus(ctx context.Context, message protocol.Message, currentTime int64) (executor.MessageStatusResults, error) {
+func (cle *ChainlinkExecutor) GetMessageStatus(ctx context.Context, message protocol.Message) (executor.MessageStatusResults, error) {
 	messageID, err := message.MessageID()
 	if err != nil {
 		return executor.MessageStatusResults{}, fmt.Errorf("failed to get message ID: %w", err)
