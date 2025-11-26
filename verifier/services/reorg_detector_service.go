@@ -668,6 +668,16 @@ func (r *ReorgDetectorService) sendFinalityViolation(violatedBlock protocol.Bloc
 		r.lggr.Warnw("Status channel full, dropping finality violation notification",
 			"chainSelector", r.config.ChainSelector)
 	}
+
+	// Stop the reorg detector service after finality violation
+	// The chain is compromised and no longer trustworthy - stop polling
+	go func() {
+		if err := r.Close(); err != nil {
+			r.lggr.Errorw("Failed to close reorg detector after finality violation",
+				"chainSelector", r.config.ChainSelector,
+				"error", err)
+		}
+	}()
 }
 
 // finalityViolationError is returned when a reorg violates finality.
@@ -698,7 +708,7 @@ func (e *finalityViolationError) Error() string {
 // - Blocks until monitoring goroutine exits.
 func (r *ReorgDetectorService) Close() error {
 	return r.sync.StopOnce("ReorgDetectorService", func() error {
-		r.lggr.Infow("Closing reorg detector service", "chainSelector", r.config.ChainSelector)
+		r.lggr.Infow("Stopping ReorgDetectorService", "chainSelector", r.config.ChainSelector)
 
 		// Signal cancellation
 		r.cancel()

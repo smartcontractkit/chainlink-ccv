@@ -164,10 +164,11 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 }
 
 type AggregatorClient struct {
-	logger     zerolog.Logger
-	addr       string
-	grpcClient pb.VerifierResultAPIClient
-	conn       *grpc.ClientConn
+	logger               zerolog.Logger
+	addr                 string
+	aggregatorClient     pb.AggregatorClient
+	verifierResultClient pb.VerifierResultAPIClient
+	conn                 *grpc.ClientConn
 }
 
 func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient, error) {
@@ -177,10 +178,11 @@ func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient,
 	}
 
 	return &AggregatorClient{
-		logger:     logger,
-		addr:       addr,
-		grpcClient: pb.NewVerifierResultAPIClient(conn),
-		conn:       conn,
+		logger:               logger,
+		addr:                 addr,
+		aggregatorClient:     pb.NewAggregatorClient(conn),
+		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
+		conn:                 conn,
 	}, nil
 }
 
@@ -223,7 +225,7 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 }
 
 func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, messageID [32]byte) (*pb.VerifierResult, error) {
-	resp, err := a.grpcClient.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
+	resp, err := a.verifierResultClient.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
 		MessageIds: [][]byte{messageID[:]},
 	})
 	if err != nil {
@@ -241,4 +243,16 @@ func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, mess
 	}
 
 	return nil, fmt.Errorf("no verifier result found")
+}
+
+// ReadChainStatus reads the chain statuses for the given chain selectors.
+// If no chain selectors are provided, all chain statuses are returned.
+func (a *AggregatorClient) ReadChainStatus(ctx context.Context, chainSelectors []uint64) (*pb.ReadChainStatusResponse, error) {
+	resp, err := a.aggregatorClient.ReadChainStatus(ctx, &pb.ReadChainStatusRequest{
+		ChainSelectors: chainSelectors,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read chain status: %w", err)
+	}
+	return resp, nil
 }

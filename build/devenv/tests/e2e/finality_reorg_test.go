@@ -199,6 +199,7 @@ func TestE2EReorg(t *testing.T) {
 		err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
 			logasserter.FinalityViolationDetected(),
 			logasserter.SourceReaderStopped(),
+			logasserter.ReorgDetectorClosed(),
 		})
 		if err != nil {
 			t.Logf("Warning: Could not start log asserter: %v", err)
@@ -258,6 +259,18 @@ func TestE2EReorg(t *testing.T) {
 		require.Contains(t, stopLog.LogLine, srcSelectorStr,
 			"source reader stop log should contain chain selector %d", srcSelector)
 		l.Info().Msg("✅ Source reader stopped for correct chain selector")
+
+		//=======================Close Reorg Detector=======================//
+		// Verify that the reorg detector was closed (for the correct chain)
+		l.Info().Msg("⏳ Waiting for reorg detector to be closed...")
+		reorgCtx, reorgCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer reorgCancel()
+		reorgLog, err := logAssert.WaitForPatternOnly(reorgCtx, logasserter.ReorgDetectorClosed())
+		require.NoError(t, err, "reorg detector should be closed after finality violation")
+		// Verify the log contains the correct chain selector
+		require.Contains(t, reorgLog.LogLine, srcSelectorStr,
+			"reorg detector close log should contain chain selector %d", srcSelector)
+		l.Info().Msg("✅ Reorg detector closed for correct chain selector")
 
 		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
