@@ -153,110 +153,32 @@ func TestNewVerifierCoordinator(t *testing.T) {
 		err     []string
 	}{
 		{
-			name:    "missing every option",
+			name:    "compiles without any options",
 			options: []verifier.Option{},
-			err: []string{
-				"verifier is not set",
-				"storage is not set",
-				"logger is not set",
-				"at least one source reader is required",
-				"monitoring is not set",
-				"coordinator ID cannot be empty",
-			},
+			err:     nil,
 		},
 		{
-			name: "happy",
+			name: "compiles with additional options",
 			options: []verifier.Option{
-				verifier.WithConfig(config),
 				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
-				verifier.WithStorage(ts.storage),
-				verifier.WithLogger(ts.logger),
-				verifier.WithMonitoring(noopMonitoring),
-				verifier.WithMessageTracker(noopLatencyTracker),
+				verifier.WithFinalityCheckInterval(10 * time.Millisecond),
 			},
 			err: nil,
-		},
-		{
-			name: "missing config",
-			options: []verifier.Option{
-				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
-				verifier.WithStorage(ts.storage),
-				verifier.WithLogger(ts.logger),
-				verifier.WithMonitoring(noopMonitoring),
-				verifier.WithMessageTracker(noopLatencyTracker),
-			},
-			err: []string{"coordinator ID cannot be empty"},
-		},
-		{
-			name: "missing source readers",
-			options: []verifier.Option{
-				verifier.WithConfig(config),
-				verifier.WithVerifier(commitVerifier),
-				verifier.WithStorage(ts.storage),
-				verifier.WithLogger(ts.logger),
-				verifier.WithMonitoring(noopMonitoring),
-				verifier.WithMessageTracker(noopLatencyTracker),
-			},
-			err: []string{
-				"at least one source reader is required",
-				"source reader not found for chain selector 42",
-			},
-		},
-		{
-			name: "missing verifier",
-			options: []verifier.Option{
-				verifier.WithConfig(config),
-				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithStorage(ts.storage),
-				verifier.WithLogger(ts.logger),
-				verifier.WithMonitoring(noopMonitoring),
-				verifier.WithMessageTracker(noopLatencyTracker),
-			},
-			err: []string{"verifier is not set"},
-		},
-		{
-			name: "missing storage",
-			options: []verifier.Option{
-				verifier.WithConfig(config),
-				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
-				verifier.WithLogger(ts.logger),
-				verifier.WithMonitoring(noopMonitoring),
-				verifier.WithMessageTracker(noopLatencyTracker),
-			},
-			err: []string{"storage is not set"},
-		},
-		{
-			name: "missing logger",
-			options: []verifier.Option{
-				verifier.WithConfig(config),
-				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
-				verifier.WithStorage(ts.storage),
-				verifier.WithMonitoring(noopMonitoring),
-				verifier.WithMessageTracker(noopLatencyTracker),
-			},
-			err: []string{"logger is not set"},
-		},
-		{
-			name: "missing monitoring",
-			options: []verifier.Option{
-				verifier.WithConfig(config),
-				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithVerifier(commitVerifier),
-				verifier.WithLogger(ts.logger),
-				verifier.WithStorage(ts.storage),
-				verifier.WithMessageTracker(noopLatencyTracker),
-			},
-			err: []string{"monitoring is not set"},
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ec, err := verifier.NewCoordinator(tc.options...)
+			ec, err := verifier.NewCoordinator(
+				ts.logger,
+				commitVerifier,
+				sourceReaders,
+				ts.storage,
+				config,
+				noopLatencyTracker,
+				noopMonitoring,
+				tc.options...,
+			)
 
 			if len(tc.err) > 0 {
 				require.Error(t, err)
@@ -288,13 +210,13 @@ func createVerificationCoordinator(
 	require.NoError(ts.t, err)
 
 	return verifier.NewCoordinator(
-		verifier.WithConfig(config),
-		verifier.WithSourceReaders(sourceReaders),
-		verifier.WithVerifier(commitVerifier),
-		verifier.WithStorage(ts.storage),
-		verifier.WithLogger(ts.logger),
-		verifier.WithMonitoring(noopMonitoring),
-		verifier.WithMessageTracker(noopLatencyTracker),
+		ts.logger,
+		commitVerifier,
+		sourceReaders,
+		ts.storage,
+		config,
+		noopLatencyTracker,
+		noopMonitoring,
 	)
 }
 

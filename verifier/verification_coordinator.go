@@ -21,6 +21,7 @@ import (
 
 const (
 	DefaultSourceReaderPollInterval = 2 * time.Second
+	finalityCheckInterval           = 500 * time.Millisecond
 )
 
 // sourceState manages state for a single source chain reader.
@@ -84,13 +85,6 @@ type Coordinator struct {
 // Option is the functional option type for Coordinator.
 type Option func(*Coordinator)
 
-// WithVerifier sets the verifier implementation.
-func WithVerifier(verifier Verifier) Option {
-	return func(vc *Coordinator) {
-		vc.verifier = verifier
-	}
-}
-
 // WithChainStatusManager sets the chain status manager.
 func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
 	return func(vc *Coordinator) {
@@ -116,44 +110,10 @@ func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainacc
 	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
 }
 
-// WithStorage sets the storage writer.
-func WithStorage(storage protocol.CCVNodeDataWriter) Option {
-	return func(vc *Coordinator) {
-		vc.storage = storage
-	}
-}
-
-// WithConfig sets the coordinator configuration.
-func WithConfig(config CoordinatorConfig) Option {
-	return func(vc *Coordinator) {
-		vc.config = config
-	}
-}
-
-// WithLogger sets the logger.
-func WithLogger(lggr logger.Logger) Option {
-	return func(vc *Coordinator) {
-		vc.lggr = lggr
-	}
-}
-
 // WithFinalityCheckInterval sets the finality check interval.
 func WithFinalityCheckInterval(interval time.Duration) Option {
 	return func(vc *Coordinator) {
 		vc.finalityCheckInterval = interval
-	}
-}
-
-// WithMonitoring sets the monitoring implementation.
-func WithMonitoring(monitoring Monitoring) Option {
-	return func(vc *Coordinator) {
-		vc.monitoring = monitoring
-	}
-}
-
-func WithMessageTracker(tracker MessageLatencyTracker) Option {
-	return func(vc *Coordinator) {
-		vc.messageTracker = tracker
 	}
 }
 
@@ -182,28 +142,64 @@ func WithCurseDetector(detector common.CurseCheckerService) Option {
 	}
 }
 
-// NewCoordinator creates a new verification coordinator.
-func NewCoordinator(opts ...Option) (*Coordinator, error) {
-	vc := &Coordinator{
+func NewCoordinator(
+	lggr logger.Logger,
+	verifier Verifier,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	storage protocol.CCVNodeDataWriter,
+	config CoordinatorConfig,
+	messageTracker MessageLatencyTracker,
+	monitoring Monitoring,
+	opts ...Option,
+) (*Coordinator, error) {
+
+	c := Coordinator{
+		lggr:                  lggr,
+		verifier:              verifier,
+		sourceReaders:         sourceReaders,
+		storage:               storage,
+		config:                config,
+		messageTracker:        messageTracker,
+		monitoring:            monitoring,
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
+		finalityCheckInterval: finalityCheckInterval,
 	}
 
-	// Apply all options
 	for _, opt := range opts {
-		opt(vc)
+		opt(&c)
 	}
 
-	// Validate required components
-	if err := vc.validate(); err != nil {
+	if err := c.validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
 	}
 
-	// Apply defaults to config if not set
-	vc.applyConfigDefaults()
+	c.applyConfigDefaults()
 
-	return vc, nil
+	return &c, nil
 }
+
+// // NewCoordinator creates a new verification coordinator.
+// func NewCoordinator(opts ...Option) (*Coordinator, error) {
+// 	vc := &Coordinator{
+// 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
+// 		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
+// 	}
+
+// 	// Apply all options
+// 	for _, opt := range opts {
+// 		opt(vc)
+// 	}
+
+// 	// Validate required components
+// 	if err := vc.validate(); err != nil {
+// 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
+// 	}
+
+// 	// Apply defaults to config if not set
+// 	vc.applyConfigDefaults()
+
+// 	return vc, nil
+// }
 
 // FIXME: This method is too long, needs refactoring.
 // Maybe we can split into smaller methods related to initialization of different components?
