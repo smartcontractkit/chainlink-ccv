@@ -146,7 +146,6 @@ func NewCoordinator(
 	finalityCheckInterval time.Duration,
 	opts ...Option,
 ) (*Coordinator, error) {
-
 	c := Coordinator{
 		lggr:                  lggr,
 		verifier:              verifier,
