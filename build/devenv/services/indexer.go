@@ -104,6 +104,7 @@ func defaults(in *IndexerInput) {
 				},
 				PollInterval: 500,
 				Timeout:      5000,
+				NtpServer:    "time.google.com",
 			},
 			Verifiers: []config.VerifierConfig{
 				{

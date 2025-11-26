@@ -156,7 +156,7 @@ func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.Inde
 		return nil, err
 	}
 
-	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(cfg.Discovery.Timeout)*time.Second)
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(cfg.Discovery.Timeout)*time.Second, cfg.Discovery.NtpServer)
 
 	return discovery.NewAggregatorMessageDiscovery(
 		discovery.WithAggregator(aggregator),

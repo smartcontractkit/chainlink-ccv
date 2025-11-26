@@ -145,6 +145,7 @@ type DiscoveryConfig struct {
 	AggregatorReaderConfig
 	PollInterval int
 	Timeout      int
+	NtpServer    string
 }
 
 type VerifierConfig struct {

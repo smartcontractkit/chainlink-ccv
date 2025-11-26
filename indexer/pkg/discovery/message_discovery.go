@@ -125,6 +125,9 @@ func (a *AggregatorMessageDiscovery) validate() error {
 	if a.storageSink == nil {
 		return errors.New("storage must be specified")
 	}
+	if a.config.NtpServer == "" {
+		return errors.New("ntp server must be specified")
+	}
 
 	return nil
 }

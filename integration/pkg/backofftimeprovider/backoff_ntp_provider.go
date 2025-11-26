@@ -11,8 +11,7 @@ import (
 )
 
 var (
-	ntpServer                     = "time.google.com"
-	_         common.TimeProvider = &BackoffNTPProvider{}
+	_ common.TimeProvider = &BackoffNTPProvider{}
 	// ntpTimeFunc is a variable that can be overridden in tests.
 	ntpTimeFunc = ntp.Time
 )
@@ -23,13 +22,15 @@ type BackoffNTPProvider struct {
 	failedAttempts  int
 	lastFailureTime time.Time
 	mu              sync.RWMutex
+	ntpServer       string
 }
 
-func NewBackoffNTPProvider(lggr logger.Logger, backoffDuration time.Duration) *BackoffNTPProvider {
+func NewBackoffNTPProvider(lggr logger.Logger, backoffDuration time.Duration, ntpServer string) *BackoffNTPProvider {
 	return &BackoffNTPProvider{
 		lggr:            lggr,
 		backoffDuration: backoffDuration,
 		failedAttempts:  0,
+		ntpServer:       ntpServer,
 	}
 }
 
@@ -55,7 +56,7 @@ func (b *BackoffNTPProvider) GetTime() time.Time {
 	}
 
 	// Attempt to get NTP time
-	ntpTime, err := ntpTimeFunc(ntpServer)
+	ntpTime, err := ntpTimeFunc(b.ntpServer)
 	if err != nil {
 		// NTP failed, increment failure counter and record time
 		b.failedAttempts++
