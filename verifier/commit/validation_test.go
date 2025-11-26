@@ -111,7 +111,7 @@ func TestValidateMessage(t *testing.T) {
 		DestBlobLength:       9,
 		DestBlob:             []byte("test data"),
 		TokenTransferLength:  0,
-		TokenTransfer:        []byte{},
+		TokenTransfer:        nil,
 	}
 
 	// Create verification task with matching CCV and executor addresses

@@ -104,12 +104,8 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	// We need to parse out the token transfer address when caching CCV Info because it can modify the verifier quorum returned by the offramp.
 	// If two messages define the same receiver, but with different tokens, they will have different CCV info. It's important to consider this when caching CCV info.
 	var tokenTransferAddress common.Address
-	if message.TokenTransferLength > 0 {
-		tokenTransfer, err := protocol.DecodeTokenTransfer(message.TokenTransfer)
-		if err != nil {
-			return executor.CCVAddressInfo{}, fmt.Errorf("failed to decode token transfer: %w", err)
-		}
-		tokenTransferAddress = common.BytesToAddress(tokenTransfer.DestTokenAddress)
+	if message.TokenTransfer != nil {
+		tokenTransferAddress = common.BytesToAddress(message.TokenTransfer.DestTokenAddress)
 	}
 
 	// Try to get CCV info from cache first

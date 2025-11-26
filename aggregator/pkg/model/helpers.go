@@ -13,7 +13,7 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
+func MapProtoMessageToProtocolMessage(m *pb.Message) (*protocol.Message, error) {
 	var ccvAndExecutorHash protocol.Bytes32
 	if len(m.CcvAndExecutorHash) > 0 {
 		copy(ccvAndExecutorHash[:], m.CcvAndExecutorHash)
@@ -38,12 +38,23 @@ func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
 		Receiver:             m.Receiver,
 		DestBlobLength:       uint16(m.DestBlobLength), //nolint:gosec // G115: Protocol-defined conversion
 		DestBlob:             m.DestBlob,
-		TokenTransferLength:  uint16(m.TokenTransferLength), //nolint:gosec // G115: Protocol-defined conversion
-		TokenTransfer:        m.TokenTransfer,
+		TokenTransferLength:  uint16(m.TokenTransferLength),
 		DataLength:           uint16(m.DataLength), //nolint:gosec // G115: Protocol-defined conversion
 		Data:                 m.Data,
 	}
-	return msg
+
+	// Decode TokenTransfer if present
+	if m.TokenTransferLength > 0 && len(m.TokenTransfer) > 0 {
+		tt, err := protocol.DecodeTokenTransfer(m.TokenTransfer)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode token transfer: %w", err)
+		}
+		msg.TokenTransfer = tt
+	} else {
+		msg.TokenTransfer = nil
+	}
+
+	return msg, nil
 }
 
 func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Committee) (*pb.VerifierResult, error) {
@@ -143,6 +154,11 @@ func timeToTimestampMillis(t time.Time) int64 {
 
 // MapProtocolMessageToProtoMessage converts a protocol.Message to pb.Message.
 func MapProtocolMessageToProtoMessage(m *protocol.Message) *pb.Message {
+	var tokenTransferBytes []byte
+	if m.TokenTransfer != nil {
+		tokenTransferBytes = m.TokenTransfer.Encode()
+	}
+
 	return &pb.Message{
 		Version:              uint32(m.Version),
 		SourceChainSelector:  uint64(m.SourceChainSelector),
@@ -162,8 +178,8 @@ func MapProtocolMessageToProtoMessage(m *protocol.Message) *pb.Message {
 		Receiver:             m.Receiver,
 		DestBlobLength:       uint32(m.DestBlobLength),
 		DestBlob:             m.DestBlob,
-		TokenTransferLength:  uint32(m.TokenTransferLength),
-		TokenTransfer:        m.TokenTransfer,
+		TokenTransferLength:  uint32(len(tokenTransferBytes)), //nolint:gosec // G115: Length bounded by TokenTransfer encoding
+		TokenTransfer:        tokenTransferBytes,
 		DataLength:           uint32(m.DataLength),
 		Data:                 m.Data,
 	}
@@ -186,7 +202,10 @@ func CommitVerificationRecordFromProto(proto *pb.CommitteeVerifierNodeResult) (*
 	record.SetTimestampFromMillis(time.Now().UnixMilli())
 
 	if proto.Message != nil {
-		msg := MapProtoMessageToProtocolMessage(proto.Message)
+		msg, err := MapProtoMessageToProtocolMessage(proto.Message)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map proto message to protocol message: %w", err)
+		}
 
 		record.Message = msg
 

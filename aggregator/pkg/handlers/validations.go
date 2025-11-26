@@ -36,7 +36,10 @@ func validateWriteRequest(req *pb.WriteCommitteeVerifierNodeResultRequest) error
 		return fmt.Errorf("ccv_and_executor_hash must be exactly 32 bytes, got %d", len(verificationRecord.Message.CcvAndExecutorHash))
 	}
 
-	message := model.MapProtoMessageToProtocolMessage(verificationRecord.Message)
+	message, err := model.MapProtoMessageToProtocolMessage(verificationRecord.Message)
+	if err != nil {
+		return fmt.Errorf("failed to map proto message: %w", err)
+	}
 	_, err = message.MessageID()
 	if err != nil {
 		return fmt.Errorf("failed to compute message ID: %w", err)

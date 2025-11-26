@@ -92,7 +92,7 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 		DestBlobLength:       10,
 		DestBlob:             make([]byte, 10),
 		TokenTransferLength:  0,
-		TokenTransfer:        []byte{},
+		TokenTransfer:        nil,
 		DataLength:           8,
 		Data:                 []byte("testdata"),
 	}
@@ -108,7 +108,8 @@ type MessageWithCCVNodeDataOption = func(*pb.CommitteeVerifierNodeResult) *pb.Co
 
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
 	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
-		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
+		protocolMessage, err := model.MapProtoMessageToProtocolMessage(m.Message)
+		require.NoError(t, err)
 
 		messageID, err := protocolMessage.MessageID()
 		require.NoError(t, err, "failed to get message ID")
@@ -149,6 +150,11 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 	ccvAndExecutorHash, err := protocol.ComputeCCVAndExecutorHash(ccvAddrs, protocol.UnknownAddress(executorAddr))
 	require.NoError(t, err, "failed to compute CCV and executor hash")
 
+	var tokenTransferBytes []byte
+	if message.TokenTransfer != nil {
+		tokenTransferBytes = message.TokenTransfer.Encode()
+	}
+
 	ccvNodeData := &pb.CommitteeVerifierNodeResult{
 		Message: &pb.Message{
 			Version:              uint32(message.Version),
@@ -169,8 +175,8 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 			Receiver:             message.Receiver[:],
 			DestBlobLength:       uint32(message.DestBlobLength),
 			DestBlob:             message.DestBlob[:],
-			TokenTransferLength:  uint32(message.TokenTransferLength),
-			TokenTransfer:        message.TokenTransfer[:],
+			TokenTransferLength:  uint32(len(tokenTransferBytes)), //nolint:gosec // G115: Test fixture with bounded data
+			TokenTransfer:        tokenTransferBytes,
 			DataLength:           uint32(message.DataLength),
 			Data:                 message.Data[:],
 		},
@@ -184,7 +190,8 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 	}
 
 	// Compute and return the message ID
-	protocolMessage := model.MapProtoMessageToProtocolMessage(ccvNodeData.GetMessage())
+	protocolMessage, err := model.MapProtoMessageToProtocolMessage(ccvNodeData.GetMessage())
+	require.NoError(t, err, "failed to map proto message")
 	messageID, err := protocolMessage.MessageID()
 	require.NoError(t, err, "failed to compute message ID")
 

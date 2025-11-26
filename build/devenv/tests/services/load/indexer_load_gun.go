@@ -291,7 +291,7 @@ func defaultMessageGenerator(sequenceNumber uint64) protocol.VerifierResult {
 		DataLength:           0,
 		Data:                 []byte{},
 		TokenTransferLength:  0,
-		TokenTransfer:        []byte{},
+		TokenTransfer:        nil,
 		DestBlobLength:       0,
 		DestBlob:             []byte{},
 	}
