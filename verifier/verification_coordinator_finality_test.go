@@ -307,17 +307,15 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	}
 
 	coordinator, err := NewCoordinator(
-		WithVerifier(mockVerifier),
-		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
-			1337: mockSourceReader,
-		}),
-		WithStorage(mockStorage),
+		lggr,
+		mockVerifier,
+		map[protocol.ChainSelector]chainaccess.SourceReader{1337: mockSourceReader},
+		mockStorage,
+		config,
+		&NoopLatencyTracker{},
+		&noopMonitoring{},
+		10*time.Millisecond,
 		WithChainStatusManager(mockChainStatusManager),
-		WithConfig(config),
-		WithLogger(lggr),
-		WithMonitoring(&noopMonitoring{}),
-		WithMessageTracker(&NoopLatencyTracker{}),
-		WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
 
