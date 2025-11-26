@@ -349,6 +349,7 @@ func main() {
 		coordinatorConfig,
 		messageTracker,
 		verifierMonitoring,
+		verifier.DefaultFinalityCheckInterval,
 		verifier.WithChainStatusManager(chainStatusManager),
 	)
 

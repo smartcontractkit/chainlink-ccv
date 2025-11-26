@@ -122,8 +122,8 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		coordinatorConfig,
 		&NoopLatencyTracker{},
 		&noopMonitoring{},
+		finalityCheckInterval,
 		WithChainStatusManager(setup.chainStatusManager),
-		WithFinalityCheckInterval(finalityCheckInterval),
 		WithCurseDetector(mockCurseDetector),
 	)
 	require.NoError(t, err)

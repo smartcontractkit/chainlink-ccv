@@ -161,7 +161,6 @@ func TestNewVerifierCoordinator(t *testing.T) {
 			name: "compiles with additional options",
 			options: []verifier.Option{
 				verifier.WithSourceReaders(sourceReaders),
-				verifier.WithFinalityCheckInterval(10 * time.Millisecond),
 			},
 			err: nil,
 		},
@@ -177,6 +176,7 @@ func TestNewVerifierCoordinator(t *testing.T) {
 				config,
 				noopLatencyTracker,
 				noopMonitoring,
+				verifier.DefaultFinalityCheckInterval,
 				tc.options...,
 			)
 
@@ -217,6 +217,7 @@ func createVerificationCoordinator(
 		config,
 		noopLatencyTracker,
 		noopMonitoring,
+		verifier.DefaultFinalityCheckInterval,
 	)
 }
 

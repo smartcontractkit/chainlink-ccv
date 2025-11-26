@@ -174,6 +174,7 @@ func NewVerificationCoordinator(
 		coordinatorConfig,
 		messageTracker,
 		verifierMonitoring,
+		verifier.DefaultFinalityCheckInterval,
 		verifier.WithChainStatusManager(chainStatusManager),
 	)
 	if err != nil {

@@ -21,7 +21,7 @@ import (
 
 const (
 	DefaultSourceReaderPollInterval = 2 * time.Second
-	finalityCheckInterval           = 500 * time.Millisecond
+	DefaultFinalityCheckInterval    = 500 * time.Millisecond
 )
 
 // sourceState manages state for a single source chain reader.
@@ -110,13 +110,6 @@ func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainacc
 	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
 }
 
-// WithFinalityCheckInterval sets the finality check interval.
-func WithFinalityCheckInterval(interval time.Duration) Option {
-	return func(vc *Coordinator) {
-		vc.finalityCheckInterval = interval
-	}
-}
-
 // WithReorgDetectors sets the reorg detectors for each source chain.
 func WithReorgDetectors(reorgDetectors map[protocol.ChainSelector]protocol.ReorgDetector) Option {
 	return func(vc *Coordinator) {
@@ -150,6 +143,7 @@ func NewCoordinator(
 	config CoordinatorConfig,
 	messageTracker MessageLatencyTracker,
 	monitoring Monitoring,
+	finalityCheckInterval time.Duration,
 	opts ...Option,
 ) (*Coordinator, error) {
 
@@ -177,29 +171,6 @@ func NewCoordinator(
 
 	return &c, nil
 }
-
-// // NewCoordinator creates a new verification coordinator.
-// func NewCoordinator(opts ...Option) (*Coordinator, error) {
-// 	vc := &Coordinator{
-// 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-// 		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
-// 	}
-
-// 	// Apply all options
-// 	for _, opt := range opts {
-// 		opt(vc)
-// 	}
-
-// 	// Validate required components
-// 	if err := vc.validate(); err != nil {
-// 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
-// 	}
-
-// 	// Apply defaults to config if not set
-// 	vc.applyConfigDefaults()
-
-// 	return vc, nil
-// }
 
 // FIXME: This method is too long, needs refactoring.
 // Maybe we can split into smaller methods related to initialization of different components?

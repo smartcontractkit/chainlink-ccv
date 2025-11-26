@@ -314,8 +314,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		config,
 		&NoopLatencyTracker{},
 		&noopMonitoring{},
+		10*time.Millisecond,
 		WithChainStatusManager(mockChainStatusManager),
-		WithFinalityCheckInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
 
