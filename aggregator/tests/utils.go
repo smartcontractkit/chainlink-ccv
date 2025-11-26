@@ -80,7 +80,7 @@ func WithoutClientAuth() ConfigOption {
 
 // CreateServerAndClient creates a test server and client for functional testing.
 // Uses PostgreSQL storage by default, but can be overridden with options.
-func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.VerifierResultAPIClient, pb.MessageDiscoveryClient, func(), error) {
+func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.CommitteeVerifierClient, pb.VerifierResultAPIClient, pb.MessageDiscoveryClient, func(), error) {
 	// Create server
 	listener, serverCleanup, err := CreateServerOnly(t, options...)
 	if err != nil {
@@ -147,13 +147,13 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			},
 			DefaultLimits: map[string]model.RateLimitConfig{
 				// Generous defaults for tests - 10000 requests per minute
-				pb.MessageDiscovery_GetMessagesSince_FullMethodName:                {LimitPerMinute: 10000},
-				pb.VerifierResultAPI_GetVerifierResultsForMessage_FullMethodName:   {LimitPerMinute: 10000},
-				pb.Aggregator_WriteCommitteeVerifierNodeResult_FullMethodName:      {LimitPerMinute: 10000},
-				pb.Aggregator_BatchWriteCommitteeVerifierNodeResult_FullMethodName: {LimitPerMinute: 10000},
-				pb.Aggregator_ReadCommitteeVerifierNodeResult_FullMethodName:       {LimitPerMinute: 10000},
-				pb.Aggregator_WriteChainStatus_FullMethodName:                      {LimitPerMinute: 10000},
-				pb.Aggregator_ReadChainStatus_FullMethodName:                       {LimitPerMinute: 10000},
+				pb.MessageDiscovery_GetMessagesSince_FullMethodName:                       {LimitPerMinute: 10000},
+				pb.VerifierResultAPI_GetVerifierResultsForMessage_FullMethodName:          {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_WriteCommitteeVerifierNodeResult_FullMethodName:      {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_BatchWriteCommitteeVerifierNodeResult_FullMethodName: {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_ReadCommitteeVerifierNodeResult_FullMethodName:       {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_WriteChainStatus_FullMethodName:                      {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_ReadChainStatus_FullMethodName:                       {LimitPerMinute: 10000},
 			},
 		},
 	}
@@ -209,7 +209,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 }
 
 // CreateAuthenticatedClient creates a gRPC client with optional HMAC authentication.
-func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (pb.AggregatorClient, pb.VerifierResultAPIClient, pb.MessageDiscoveryClient, func()) {
+func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (pb.CommitteeVerifierClient, pb.VerifierResultAPIClient, pb.MessageDiscoveryClient, func()) {
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
 		APIKey:   defaultAPIKey,
@@ -296,7 +296,7 @@ func createAdminHMACClientInterceptor(config *hmacutil.ClientConfig, onBehalfOfC
 }
 
 // CreateAdminAuthenticatedClient creates a gRPC client with admin authentication and optional on-behalf-of functionality.
-func CreateAdminAuthenticatedClient(t *testing.T, listener *bufconn.Listener, adminClientID, adminSecret, onBehalfOfClientID string) (pb.AggregatorClient, pb.VerifierResultAPIClient, func()) {
+func CreateAdminAuthenticatedClient(t *testing.T, listener *bufconn.Listener, adminClientID, adminSecret, onBehalfOfClientID string) (pb.CommitteeVerifierClient, pb.VerifierResultAPIClient, func()) {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -393,7 +393,7 @@ func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts
 	return client, ccvDataConn, nil
 }
 
-func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.AggregatorClient, *grpc.ClientConn, error) {
+func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.CommitteeVerifierClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return aggregatorBuf.Dial()
 	}
@@ -413,7 +413,7 @@ func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener
 		return nil, nil, err
 	}
 
-	client := pb.NewAggregatorClient(aggregatorConn)
+	client := pb.NewCommitteeVerifierClient(aggregatorConn)
 	return client, aggregatorConn, nil
 }
 
