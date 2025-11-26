@@ -20,12 +20,13 @@ import (
 var _ executor.Executor = &ChainlinkExecutor{}
 
 type ChainlinkExecutor struct {
-	lggr                  logger.Logger
-	contractTransmitters  map[protocol.ChainSelector]executor.ContractTransmitter
-	destinationReaders    map[protocol.ChainSelector]executor.DestinationReader
-	curseChecker          common.CurseChecker
-	verifierResultsReader executor.VerifierResultReader
-	monitoring            executor.Monitoring
+	lggr                   logger.Logger
+	contractTransmitters   map[protocol.ChainSelector]executor.ContractTransmitter
+	destinationReaders     map[protocol.ChainSelector]executor.DestinationReader
+	curseChecker           common.CurseChecker
+	verifierResultsReader  executor.VerifierResultReader
+	monitoring             executor.Monitoring
+	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress
 }
 
 func NewChainlinkExecutor(
@@ -35,14 +36,16 @@ func NewChainlinkExecutor(
 	curseChecker common.CurseChecker,
 	verifierResultReader executor.VerifierResultReader,
 	monitoring executor.Monitoring,
+	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
-		lggr:                  lggr,
-		contractTransmitters:  contractTransmitters,
-		destinationReaders:    destinationReaders,
-		curseChecker:          curseChecker,
-		verifierResultsReader: verifierResultReader,
-		monitoring:            monitoring,
+		lggr:                   lggr,
+		contractTransmitters:   contractTransmitters,
+		destinationReaders:     destinationReaders,
+		curseChecker:           curseChecker,
+		verifierResultsReader:  verifierResultReader,
+		monitoring:             monitoring,
+		defaultExecutorAddress: defaultExecutorAddress,
 	}
 }
 
@@ -68,8 +71,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return fmt.Errorf("failed to get message ID: %w", err)
 	}
 
-	// Fetch CCV data from the indexer and CCV info from the destination reader
-	// concurrently.
+	// Fetch CCV data from the indexer and CCV info from the destination reader concurrently.
 	g, errGroupCtx := errgroup.WithContext(ctx)
 	ccvData := make([]protocol.VerifierResult, 0)
 	g.Go(func() error {
@@ -77,7 +79,25 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		if err != nil {
 			return fmt.Errorf("failed to get Verifier Results for message %s: %w", messageID.String(), err)
 		}
-		ccvData = append(ccvData, res...)
+
+		for _, r := range res {
+			if !r.MessageExecutorAddress.Equal(cle.defaultExecutorAddress[destinationChain]) {
+				cle.lggr.Warnw("Verifier Result did not specify our executor",
+					"verifierResult", r,
+				)
+				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
+				continue
+			}
+			if err := r.ValidateFieldsConsistent(); err != nil {
+				cle.lggr.Warnw("Verifier Result fields are inconsistent",
+					"verifierResult", r,
+					"error", err,
+				)
+				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
+				continue
+			}
+			ccvData = append(ccvData, r)
+		}
 		return nil
 	})
 
