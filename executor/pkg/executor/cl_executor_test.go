@@ -26,18 +26,18 @@ func Test_ChainlinkExecutor(t *testing.T) {
 		return ct
 	}
 
-	mockVerifierResultCreator := func() *executor_mocks.MockVerifierResultReader {
-		vr := executor_mocks.NewMockVerifierResultReader(t)
-		vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-			{VerifierDestAddress: protocol.UnknownAddress{}, CCVData: []byte("data")},
-		}, nil).Maybe()
-		return vr
-	}
 	address1, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 	address2, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 
+	mockVerifierResultCreator := func() *executor_mocks.MockVerifierResultReader {
+		vr := executor_mocks.NewMockVerifierResultReader(t)
+		vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
+			{VerifierDestAddress: protocol.UnknownAddress{}, CCVData: []byte("data"), MessageExecutorAddress: address1},
+		}, nil).Maybe()
+		return vr
+	}
 	testcases := []struct {
 		name                       string
 		ct                         func() *executor_mocks.MockContractTransmitter
@@ -126,8 +126,8 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			vr: func() *executor_mocks.MockVerifierResultReader {
 				vr := executor_mocks.NewMockVerifierResultReader(t)
 				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-					{VerifierDestAddress: address1, CCVData: []byte("data")},
-					{VerifierDestAddress: address2, CCVData: []byte("data")},
+					{VerifierDestAddress: address1, CCVData: []byte("data"), MessageExecutorAddress: address1},
+					{VerifierDestAddress: address2, CCVData: []byte("data"), MessageExecutorAddress: address1},
 				}, nil).Maybe()
 				return vr
 			},
@@ -157,12 +157,70 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			vr: func() *executor_mocks.MockVerifierResultReader {
 				vr := executor_mocks.NewMockVerifierResultReader(t)
 				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-					{VerifierDestAddress: address1, CCVData: []byte("data")},
-					{VerifierDestAddress: address2, CCVData: []byte("data")},
+					{VerifierDestAddress: address1, CCVData: []byte("data"), MessageExecutorAddress: address1},
+					{VerifierDestAddress: address2, CCVData: []byte("data"), MessageExecutorAddress: address1},
 				}, nil).Maybe()
 				return vr
 			},
 			msg: coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, SequenceNumber: 1}},
+		},
+		{
+			name: "Should fail to execute if both verifier result messageExecutorAddress does not match defaultExecutorAddress",
+			ct: func() *executor_mocks.MockContractTransmitter {
+				// ConvertAndWriteMessageToChain should not be called if executor address doesn't match
+				ct := executor_mocks.NewMockContractTransmitter(t)
+				return ct
+			},
+			ctChains: []protocol.ChainSelector{1},
+			dr: func() *executor_mocks.MockDestinationReader {
+				dr := executor_mocks.NewMockDestinationReader(t)
+				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{
+					OptionalCCVs:      []protocol.UnknownAddress{address1, address2},
+					OptionalThreshold: 0,
+				}, nil).Maybe()
+				return dr
+			},
+			drChains: []protocol.ChainSelector{1},
+			vr: func() *executor_mocks.MockVerifierResultReader {
+				vr := executor_mocks.NewMockVerifierResultReader(t)
+				// MessageExecutorAddress is not equal to defaultExecutorAddress (address1).
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
+					{VerifierDestAddress: address1, CCVData: []byte("data"), MessageExecutorAddress: address2},
+					{VerifierDestAddress: address2, CCVData: []byte("data"), MessageExecutorAddress: address2},
+				}, nil).Maybe()
+				return vr
+			},
+			msg:                coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, SequenceNumber: 1}},
+			executeShouldError: true,
+		},
+		{
+			name: "Should fail to execute if one verifier result messageExecutorAddress does not match defaultExecutorAddress",
+			ct: func() *executor_mocks.MockContractTransmitter {
+				// ConvertAndWriteMessageToChain should not be called if executor address doesn't match
+				ct := executor_mocks.NewMockContractTransmitter(t)
+				return ct
+			},
+			ctChains: []protocol.ChainSelector{1},
+			dr: func() *executor_mocks.MockDestinationReader {
+				dr := executor_mocks.NewMockDestinationReader(t)
+				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{
+					OptionalCCVs:      []protocol.UnknownAddress{address1, address2},
+					OptionalThreshold: 0,
+				}, nil).Maybe()
+				return dr
+			},
+			drChains: []protocol.ChainSelector{1},
+			vr: func() *executor_mocks.MockVerifierResultReader {
+				vr := executor_mocks.NewMockVerifierResultReader(t)
+				// MessageExecutorAddress is not equal to defaultExecutorAddress (address1).
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
+					{VerifierDestAddress: address1, CCVData: []byte("data"), MessageExecutorAddress: address1},
+					{VerifierDestAddress: address2, CCVData: []byte("data"), MessageExecutorAddress: address2},
+				}, nil).Maybe()
+				return vr
+			},
+			msg:                coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, SequenceNumber: 1}},
+			executeShouldError: true,
 		},
 	}
 
@@ -186,7 +244,11 @@ func Test_ChainlinkExecutor(t *testing.T) {
 				RmnReaders:  allRMNReaders,
 				CacheExpiry: 1 * time.Second,
 			})
-			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, curseChecker, tc.vr(), monitoring.NewNoopExecutorMonitoring())
+			defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+			for _, chain := range tc.drChains {
+				defaultExecutorAddresses[chain] = address1
+			}
+			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, curseChecker, tc.vr(), monitoring.NewNoopExecutorMonitoring(), defaultExecutorAddresses)
 			err := executor.Validate()
 			if tc.validateShouldError {
 				assert.Error(t, err)

@@ -61,6 +61,8 @@ type ChainConfiguration struct {
 	ExecutorPool []string `toml:"executor_pool"`
 	// ExecutionInterval is how long each executor has to process a message before the next executor in the cluster takes over.
 	ExecutionInterval time.Duration `toml:"execution_interval"`
+	// DefaultExecutorAddress is the address of the default executor to check against the message receipts.
+	DefaultExecutorAddress string `toml:"default_executor_address"`
 }
 
 func (c *Configuration) Validate() error {

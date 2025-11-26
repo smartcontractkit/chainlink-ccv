@@ -20,12 +20,13 @@ import (
 var _ executor.Executor = &ChainlinkExecutor{}
 
 type ChainlinkExecutor struct {
-	lggr                  logger.Logger
-	contractTransmitters  map[protocol.ChainSelector]executor.ContractTransmitter
-	destinationReaders    map[protocol.ChainSelector]executor.DestinationReader
-	curseChecker          common.CurseChecker
-	verifierResultsReader executor.VerifierResultReader
-	monitoring            executor.Monitoring
+	lggr                   logger.Logger
+	contractTransmitters   map[protocol.ChainSelector]executor.ContractTransmitter
+	destinationReaders     map[protocol.ChainSelector]executor.DestinationReader
+	curseChecker           common.CurseChecker
+	verifierResultsReader  executor.VerifierResultReader
+	monitoring             executor.Monitoring
+	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress
 }
 
 func NewChainlinkExecutor(
@@ -35,14 +36,16 @@ func NewChainlinkExecutor(
 	curseChecker common.CurseChecker,
 	verifierResultReader executor.VerifierResultReader,
 	monitoring executor.Monitoring,
+	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress,
 ) *ChainlinkExecutor {
 	return &ChainlinkExecutor{
-		lggr:                  lggr,
-		contractTransmitters:  contractTransmitters,
-		destinationReaders:    destinationReaders,
-		curseChecker:          curseChecker,
-		verifierResultsReader: verifierResultReader,
-		monitoring:            monitoring,
+		lggr:                   lggr,
+		contractTransmitters:   contractTransmitters,
+		destinationReaders:     destinationReaders,
+		curseChecker:           curseChecker,
+		verifierResultsReader:  verifierResultReader,
+		monitoring:             monitoring,
+		defaultExecutorAddress: defaultExecutorAddress,
 	}
 }
 
@@ -77,7 +80,14 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		if err != nil {
 			return fmt.Errorf("failed to get CCV data for message %s: %w", messageID.String(), err)
 		}
-		ccvData = append(ccvData, res...)
+
+		for _, r := range res {
+			if !r.MessageExecutorAddress.Equal(cle.defaultExecutorAddress[destinationChain]) {
+				return fmt.Errorf("messageID %s did not specify our executor %s", messageID.String(), cle.defaultExecutorAddress[destinationChain].String())
+			}
+			// should we also validate messageID and other fields from the verifier result?
+			ccvData = append(ccvData, r)
+		}
 		return nil
 	})
 

@@ -38,6 +38,7 @@ func NewExecutorCoordinator(
 	rmnAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	execPool := make(map[protocol.ChainSelector][]string, len(cfg.ChainConfiguration))
 	execIntervals := make(map[protocol.ChainSelector]time.Duration, len(cfg.ChainConfiguration))
+	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	for selStr, chainConfig := range cfg.ChainConfiguration {
 		intSel, err := strconv.ParseUint(selStr, 10, 64)
 		if err != nil {
@@ -54,6 +55,10 @@ func NewExecutorCoordinator(
 		}
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
+		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse default executor address '%s': %w", chainConfig.DefaultExecutorAddress, err)
+		}
 	}
 
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
@@ -123,6 +128,7 @@ func NewExecutorCoordinator(
 		curseChecker,
 		indexerClient,
 		executorMonitoring,
+		defaultExecutorAddresses,
 	)
 
 	// create hash-based leader elector
