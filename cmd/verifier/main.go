@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"sync"
 	"syscall"
 	"time"
 
@@ -36,8 +35,8 @@ import (
 )
 
 const (
-	PK_ENV_VAR  = "VERIFIER_SIGNER_PRIVATE_KEY"
-	CONFIG_PATH = "VERIFIER_CONFIG_PATH"
+	PkEnvVar   = "VERIFIER_SIGNER_PRIVATE_KEY"
+	ConfigPath = "VERIFIER_CONFIG_PATH"
 )
 
 func loadConfiguration(filepath string) (*verifier.Config, error) {
@@ -99,7 +98,7 @@ func main() {
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
-	envConfig := os.Getenv(CONFIG_PATH)
+	envConfig := os.Getenv(ConfigPath)
 	if envConfig != "" {
 		filePath = envConfig
 	}
@@ -126,7 +125,7 @@ func main() {
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "verifier",
 		ServerAddress:   config.PyroscopeURL,
-		Logger:          pyroscope.StandardLogger,
+		Logger:          nil, // Disable pyroscope logging - so noisy
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,
@@ -227,7 +226,9 @@ func main() {
 			continue
 		}
 
-		// Create mock head tracker for this chain
+		// Create head tracker wrapper (uses hardcoded confirmation depth of 10 internally)
+		// This is only for standalone mode and for testing purposes.
+		// In CL node it'll be using HeadTracker which already abstracts away this per chain.
 		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr)
 
 		evmSourceReader, err := sourcereader.NewEVMSourceReader(
@@ -264,6 +265,7 @@ func main() {
 
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
+
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddresses[strSelector],
 			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
@@ -271,6 +273,8 @@ func main() {
 			ChainSelector:          selector,
 			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
 		}
+
+		lggr.Infow("Configured source chain", "chainSelector", selector)
 	}
 
 	coordinatorConfig := verifier.CoordinatorConfig{
@@ -281,9 +285,9 @@ func main() {
 		CursePollInterval:   2 * time.Second, // Poll RMN Remotes for curse status every 2s
 	}
 
-	pk := os.Getenv(PK_ENV_VAR)
+	pk := os.Getenv(PkEnvVar)
 	if pk == "" {
-		lggr.Errorf("Environment variable %s is not set", PK_ENV_VAR)
+		lggr.Errorf("Environment variable %s is not set", PkEnvVar)
 		os.Exit(1)
 	}
 	privateKey, err := commit.ReadPrivateKeyFromString(pk)
@@ -423,13 +427,13 @@ func main() {
 
 // simpleHeadTrackerWrapper is a simple implementation that wraps chain client calls.
 // This provides a HeadTracker interface without requiring the full EVM head tracker setup.
-// It implements the heads.Tracker interface by delegating to the chain client.
+// It calculates finalized blocks using a hardcoded confirmation depth.
 type simpleHeadTrackerWrapper struct {
 	chainClient client.Client
 	lggr        logger.Logger
 }
 
-// newSimpleHeadTrackerWrapper creates a new mock head tracker that delegates to the chain client.
+// newSimpleHeadTrackerWrapper creates a new simple head tracker that delegates to the chain client.
 func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger) *simpleHeadTrackerWrapper {
 	return &simpleHeadTrackerWrapper{
 		chainClient: chainClient,
@@ -438,50 +442,26 @@ func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger) 
 }
 
 // LatestAndFinalizedBlock returns the latest and finalized block headers.
-// This method makes RPC calls in parallel to get the current state of the chain efficiently.
+// Finalized is calculated as latest - verifier.ConfirmationDepth.
 func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *evmtypes.Head, err error) {
-	var latestHead, finalizedHead *evmtypes.Head
-	var wg sync.WaitGroup
-	errCh := make(chan error, 2) // Buffered channel to avoid goroutine leaks
+	// Get latest block
+	latestHead, err := m.chainClient.HeadByNumber(ctx, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get latest block: %w", err)
+	}
 
-	// Fetch latest block in parallel
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		head, err := m.chainClient.HeadByNumber(ctx, nil)
-		if err != nil {
-			errCh <- fmt.Errorf("failed to get latest block: %w", err)
-			return
-		}
-		latestHead = head
-	}()
+	// Calculate finalized block number based on confirmation depth
+	var finalizedBlockNum int64
+	if latestHead.Number >= verifier.ConfirmationDepth {
+		finalizedBlockNum = latestHead.Number - verifier.ConfirmationDepth
+	} else {
+		finalizedBlockNum = 0
+	}
 
-	// Fetch finalized block in parallel
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		head, err := m.chainClient.LatestFinalizedBlock(ctx)
-		if err != nil {
-			// Fallback: if finalized block not available, use genesis
-			m.lggr.Debugw("Failed to get finalized block, falling back to genesis", "error", err)
-			head, err = m.chainClient.HeadByNumber(ctx, big.NewInt(0))
-			if err != nil {
-				errCh <- fmt.Errorf("failed to get genesis block: %w", err)
-				return
-			}
-		}
-		finalizedHead = head
-	}()
-
-	// Wait for both goroutines to complete
-	wg.Wait()
-	close(errCh)
-
-	// Check if any errors occurred
-	for err := range errCh {
-		if err != nil {
-			return nil, nil, err
-		}
+	// Get finalized block header
+	finalizedHead, err := m.chainClient.HeadByNumber(ctx, big.NewInt(finalizedBlockNum))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get block at number %d: %w", finalizedBlockNum, err)
 	}
 
 	return latestHead, finalizedHead, nil

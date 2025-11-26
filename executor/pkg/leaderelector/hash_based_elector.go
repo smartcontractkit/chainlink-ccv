@@ -5,63 +5,66 @@ import (
 	"slices"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// Ensure HashBasedLeaderElector implements the LeaderElector interface.
+var _ executor.LeaderElector = &HashBasedLeaderElector{}
+
 // HashBasedLeaderElector implements deterministic leader election based on message ID hash
 // and executor position in a sorted list of executor IDs.
 type HashBasedLeaderElector struct {
-	lggr              logger.Logger
-	executorIDs       []string
-	thisExecutorID    string
-	executionInterval time.Duration
-	minWaitPeriod     time.Duration
-	executorIndex     int
+	lggr               logger.Logger
+	executorIDs        map[protocol.ChainSelector][]string
+	thisExecutorID     string
+	executionIntervals map[protocol.ChainSelector]time.Duration
+	executorIndices    map[protocol.ChainSelector]int
 }
 
 // NewHashBasedLeaderElector creates a new hash-based leader elector.
-// TODO: Support variable executors per destination chain selector.
+// This component is used to determine the turn order for node executions based on chain selector and messageID.
+// We consider the chain selector here because not all executors will support all destination chains.
 func NewHashBasedLeaderElector(
 	lggr logger.Logger,
-	executorIDs []string,
+	executorIDs map[protocol.ChainSelector][]string,
 	thisExecutorID string,
-	executionInterval time.Duration,
-	minWaitPeriod time.Duration,
+	executionIntervals map[protocol.ChainSelector]time.Duration,
 ) *HashBasedLeaderElector {
 	// Create a sorted copy of executor IDs for deterministic ordering
-	sortedExecutorIDs := make([]string, len(executorIDs))
-	copy(sortedExecutorIDs, executorIDs)
-	slices.Sort(sortedExecutorIDs)
+	sortedExecutorIDs := make(map[protocol.ChainSelector][]string, len(executorIDs))
+	executorIndices := make(map[protocol.ChainSelector]int, len(executorIDs))
+	for chainSel, ids := range executorIDs {
+		sortedExecutorIDs[chainSel] = make([]string, len(ids))
+		copy(sortedExecutorIDs[chainSel], ids)
+		slices.Sort(sortedExecutorIDs[chainSel])
 
-	// Find this executor's position in the sorted array
-	executorIndex := -1
-	for i, id := range sortedExecutorIDs {
-		if id == thisExecutorID {
-			executorIndex = i
-			break
-		}
+		// Find this executor's position in the sorted array
+		executorIndices[chainSel] = slices.Index(sortedExecutorIDs[chainSel], thisExecutorID)
 	}
 
 	return &HashBasedLeaderElector{
-		lggr:              lggr,
-		executorIDs:       sortedExecutorIDs,
-		thisExecutorID:    thisExecutorID,
-		executionInterval: executionInterval,
-		minWaitPeriod:     minWaitPeriod,
-		executorIndex:     executorIndex,
+		lggr:               lggr,
+		executorIDs:        sortedExecutorIDs,
+		thisExecutorID:     thisExecutorID,
+		executionIntervals: executionIntervals,
+		executorIndices:    executorIndices,
 	}
 }
 
 // GetReadyTimestamp implements the LeaderElector interface.
-// It returns: baseTimestamp + (arrayIndex * executionInterval) + minWaitPeriod.
+// It returns: baseTimestamp + (arrayIndex * executionInterval).
 func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	messageID protocol.Bytes32,
-	baseTimestamp int64,
-) int64 {
-	if h.executorIndex == -1 {
+	chainSel protocol.ChainSelector,
+	baseTime time.Time,
+) time.Time {
+	execIndex := h.executorIndices[chainSel]
+	execPool := h.executorIDs[chainSel]
+	if execIndex == -1 {
 		// This executor is not in the list, should not happen if config is validated
-		return baseTimestamp + int64(h.minWaitPeriod.Seconds())
+		return baseTime
 	}
 
 	// Convert first 8 bytes of hash to uint64 for consistent ordering
@@ -70,20 +73,26 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 
 	// Calculate position in execution order for this message
 	// This creates a message-specific ordering of executors
-	startIndex := int(hashValue % uint64(len(h.executorIDs))) //nolint:gosec // G115: modulo will result in positive
+	startIndex := int(hashValue % uint64(len(execPool))) //nolint:gosec // G115: modulo will result in positive
 
 	// todo: this will result in a static relative order, we can remap against the sorted array if necessary
-	delayMultiplier := getSliceIncreasingDistance(len(h.executorIDs), startIndex, h.executorIndex)
+	queueSize := getSliceIncreasingDistance(len(execPool), startIndex, execIndex)
 
-	// Calculate ready timestamp: baseTimestamp + (arrayIndex * executionInterval) + minWaitPeriod
-	delaySeconds := delayMultiplier*int64(h.executionInterval.Seconds()) + int64(h.minWaitPeriod.Seconds())
+	// Calculate time until our turn again (number of executors in queue * executionInterval)
+	delay := time.Duration(queueSize) * h.executionIntervals[chainSel]
+	// Add delay to our base time to get the next execution time
+	readyTime := baseTime.Add(delay)
 
-	h.lggr.Debugf("using delay of minWait(%d) + indexDistance(%d) * executionMultipler(%s) = %d seconds", h.minWaitPeriod, delayMultiplier, h.executionInterval, delaySeconds)
-	// todo: base timestamp comes from the indexer, is it safe to use here?
-	return baseTimestamp + delaySeconds
+	h.lggr.Debugw("calculated ready timestamp",
+		"messageID", messageID.String(),
+		"queueSize", queueSize,
+		"executionInterval", h.executionIntervals[chainSel],
+		"delay", delay.String(),
+		"readyTime", readyTime.String())
+	return readyTime
 }
 
-func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
+func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int {
 	// invalid inputs, return 0
 	if sliceLen <= 0 ||
 		startIndex < 0 || startIndex >= sliceLen ||
@@ -96,11 +105,11 @@ func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
 		return 0
 	} else if selectedIndex < startIndex {
 		// if selectedIndex is lower, we cycle
-		return int64(sliceLen - startIndex + selectedIndex)
+		return sliceLen - startIndex + selectedIndex
 	}
-	return int64(selectedIndex - startIndex)
+	return selectedIndex - startIndex
 }
 
-func (h *HashBasedLeaderElector) GetRetryDelay(_ protocol.ChainSelector) int64 {
-	return int64(len(h.executorIDs)) * int64(h.executionInterval.Seconds())
+func (h *HashBasedLeaderElector) GetRetryDelay(sel protocol.ChainSelector) time.Duration {
+	return time.Duration(len(h.executorIDs[sel])) * h.executionIntervals[sel]
 }

@@ -1,6 +1,3 @@
-//go:build race
-// +build race
-
 package storage
 
 import (
@@ -28,11 +25,11 @@ func TestInMemoryStorage_Race_ConcurrentInserts(t *testing.T) {
 	insertsPerGoroutine := 20
 
 	var wg sync.WaitGroup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < insertsPerGoroutine; j++ {
+			for j := range insertsPerGoroutine {
 				messageID := fmt.Sprintf("0x%03d%03d", goroutineID, j)
 				ccvData := createTestCCVData(messageID, int64(1000+goroutineID*100+j), protocol.ChainSelector(goroutineID%5), protocol.ChainSelector((goroutineID+1)%5))
 				err := storage.InsertCCVData(ctx, ccvData)
@@ -57,7 +54,7 @@ func TestInMemoryStorage_Race_ConcurrentReads(t *testing.T) {
 
 	// Pre-populate with test data
 	numMessages := 50
-	for i := 0; i < numMessages; i++ {
+	for i := range numMessages {
 		messageID := fmt.Sprintf("0x%03d", i)
 		ccvData := createTestCCVData(messageID, int64(1000+i), 1, 2)
 		err := storage.InsertCCVData(ctx, ccvData)
@@ -69,11 +66,11 @@ func TestInMemoryStorage_Race_ConcurrentReads(t *testing.T) {
 	readsPerGoroutine := 10
 
 	var wg sync.WaitGroup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < readsPerGoroutine; j++ {
+			for j := range readsPerGoroutine {
 				// Read random message
 				messageIdx := (goroutineID + j) % numMessages
 				messageID := createTestBytes32(fmt.Sprintf("0x%03d", messageIdx))
@@ -96,7 +93,7 @@ func TestInMemoryStorage_Race_ConcurrentQueries(t *testing.T) {
 
 	// Pre-populate with test data
 	numMessages := 100
-	for i := 0; i < numMessages; i++ {
+	for i := range numMessages {
 		messageID := fmt.Sprintf("0x%03d", i)
 		ccvData := createTestCCVData(messageID, int64(1000+i*10), protocol.ChainSelector(i%5), protocol.ChainSelector((i+1)%5))
 		err := storage.InsertCCVData(ctx, ccvData)
@@ -108,11 +105,11 @@ func TestInMemoryStorage_Race_ConcurrentQueries(t *testing.T) {
 	queriesPerGoroutine := 10
 
 	var wg sync.WaitGroup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < queriesPerGoroutine; j++ {
+			for j := range queriesPerGoroutine {
 				// Query with different timestamp ranges
 				start := int64(1000 + (goroutineID+j)*50)
 				end := start + 200
@@ -142,7 +139,7 @@ func TestInMemoryStorage_Race_MixedReadsAndWrites(t *testing.T) {
 	ctx := context.Background()
 
 	// Pre-populate with some initial data
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		messageID := fmt.Sprintf("0x%03d", i)
 		ccvData := createTestCCVData(messageID, int64(1000+i), 1, 2)
 		err := storage.InsertCCVData(ctx, ccvData)
@@ -153,11 +150,11 @@ func TestInMemoryStorage_Race_MixedReadsAndWrites(t *testing.T) {
 	operationsPerGoroutine := 25
 
 	var wg sync.WaitGroup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < operationsPerGoroutine; j++ {
+			for j := range operationsPerGoroutine {
 				// Alternate between reads and writes
 				if (goroutineID+j)%2 == 0 {
 					// Write
@@ -197,11 +194,11 @@ func TestInMemoryStorage_Race_HeavyConcurrentLoad(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Start writers
-	for i := 0; i < numWriters; i++ {
+	for i := range numWriters {
 		wg.Add(1)
 		go func(writerID int) {
 			defer wg.Done()
-			for j := 0; j < writesPerWriter; j++ {
+			for j := range writesPerWriter {
 				messageID := fmt.Sprintf("0x%03d%03d", writerID, j)
 				ccvData := createTestCCVData(messageID, int64(1000+writerID*1000+j), protocol.ChainSelector(writerID%5), protocol.ChainSelector((writerID+1)%5))
 				err := storage.InsertCCVData(ctx, ccvData)
@@ -213,11 +210,11 @@ func TestInMemoryStorage_Race_HeavyConcurrentLoad(t *testing.T) {
 	}
 
 	// Start readers
-	for i := 0; i < numReaders; i++ {
+	for i := range numReaders {
 		wg.Add(1)
 		go func(readerID int) {
 			defer wg.Done()
-			for j := 0; j < readsPerReader; j++ {
+			for j := range readsPerReader {
 				// Mix of GetCCVData and QueryCCVData
 				if (readerID+j)%2 == 0 {
 					// Query
@@ -256,7 +253,7 @@ func TestInMemoryStorage_Race_SameMessageIDConcurrent(t *testing.T) {
 	numGoroutines := 20
 
 	var wg sync.WaitGroup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -287,11 +284,11 @@ func TestInMemoryStorage_Race_TimestampSortingUnderConcurrency(t *testing.T) {
 	insertsPerGoroutine := 30
 
 	var wg sync.WaitGroup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < insertsPerGoroutine; j++ {
+			for j := range insertsPerGoroutine {
 				// Insert with varying timestamps to test sorting
 				messageID := fmt.Sprintf("0x%03d%03d", goroutineID, j)
 				timestamp := int64(1000 + (goroutineID*insertsPerGoroutine+j)*10)
@@ -309,8 +306,8 @@ func TestInMemoryStorage_Race_TimestampSortingUnderConcurrency(t *testing.T) {
 	inMemStorage.mu.RLock()
 	defer inMemStorage.mu.RUnlock()
 
-	for i := 1; i < len(inMemStorage.byTimestamp); i++ {
-		assert.LessOrEqual(t, inMemStorage.byTimestamp[i-1].Timestamp, inMemStorage.byTimestamp[i].Timestamp,
+	for i := 1; i < len(inMemStorage.verifierResultStorage.byTimestamp); i++ {
+		assert.LessOrEqual(t, inMemStorage.verifierResultStorage.byTimestamp[i-1].Metadata.IngestionTimestamp, inMemStorage.verifierResultStorage.byTimestamp[i].Metadata.IngestionTimestamp,
 			"Timestamps should be sorted in ascending order")
 	}
 }
@@ -325,11 +322,11 @@ func TestInMemoryStorage_Race_ChainSelectorIndexesUnderConcurrency(t *testing.T)
 	insertsPerGoroutine := 20
 
 	var wg sync.WaitGroup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < insertsPerGoroutine; j++ {
+			for j := range insertsPerGoroutine {
 				messageID := fmt.Sprintf("0x%03d%03d", goroutineID, j)
 				sourceChain := protocol.ChainSelector(goroutineID % 5)
 				destChain := protocol.ChainSelector((goroutineID + 1) % 5)
@@ -343,7 +340,7 @@ func TestInMemoryStorage_Race_ChainSelectorIndexesUnderConcurrency(t *testing.T)
 	wg.Wait()
 
 	// Verify chain selector queries work correctly
-	for chainID := 0; chainID < 5; chainID++ {
+	for chainID := range 5 {
 		sourceChains := []protocol.ChainSelector{protocol.ChainSelector(chainID)}
 		results, err := storage.QueryCCVData(ctx, 0, 99999, sourceChains, nil, 1000, 0)
 		require.NoError(t, err)
@@ -358,7 +355,7 @@ func TestInMemoryStorage_Race_PaginationUnderConcurrency(t *testing.T) {
 	ctx := context.Background()
 
 	// Pre-populate with some data
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		messageID := fmt.Sprintf("0x%03d", i)
 		ccvData := createTestCCVData(messageID, int64(1000+i*10), 1, 2)
 		err := storage.InsertCCVData(ctx, ccvData)
@@ -368,14 +365,14 @@ func TestInMemoryStorage_Race_PaginationUnderConcurrency(t *testing.T) {
 	numGoroutines := 20
 	var wg sync.WaitGroup
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
 			if goroutineID%2 == 0 {
 				// Writer
-				for j := 0; j < 10; j++ {
+				for j := range 10 {
 					messageID := fmt.Sprintf("0x%03d%03d", goroutineID, j)
 					ccvData := createTestCCVData(messageID, int64(2000+goroutineID*100+j), 1, 2)
 					err := storage.InsertCCVData(ctx, ccvData)
@@ -383,7 +380,7 @@ func TestInMemoryStorage_Race_PaginationUnderConcurrency(t *testing.T) {
 				}
 			} else {
 				// Reader with pagination
-				for j := 0; j < 10; j++ {
+				for j := range 10 {
 					limit := uint64(5)
 					offset := uint64(j * 5)
 					results, err := storage.QueryCCVData(ctx, 0, 99999, nil, nil, limit, offset)
@@ -406,18 +403,18 @@ func TestInMemoryStorage_Race_ContextCancellation(t *testing.T) {
 	numGoroutines := 10
 	var wg sync.WaitGroup
 
-	// Create a context that will be cancelled mid-operation
+	// Create a context that will be canceled mid-operation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < 50; j++ {
+			for j := range 50 {
 				messageID := fmt.Sprintf("0x%03d%03d", goroutineID, j)
 				ccvData := createTestCCVData(messageID, int64(1000+goroutineID*100+j), 1, 2)
-				// Ignore errors since context may be cancelled
+				// Ignore errors since context may be canceled
 				_ = storage.InsertCCVData(ctx, ccvData)
 
 				// Small sleep to allow cancellation to happen mid-operation

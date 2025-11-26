@@ -123,15 +123,11 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 	}
 
 	if quorumMet {
-		lggr.Infow("Skipping aggregation: existing report already meets quorum",
-			"existingReportTimestamp", existingReport.GetMostRecentVerificationTimestamp(),
-			"verificationCount", len(existingReport.Verifications))
+		lggr.Infow("Skipping aggregation: existing report already meets quorum", "verificationCount", len(existingReport.Verifications))
 		return true, nil
 	}
 
-	lggr.Infow("Existing report no longer meets quorum, proceeding with new aggregation",
-		"existingReportTimestamp", existingReport.GetMostRecentVerificationTimestamp(),
-		"verificationCount", len(existingReport.Verifications))
+	lggr.Infow("Existing report no longer meets quorum, proceeding with new aggregation", "verificationCount", len(existingReport.Verifications))
 	return false, nil
 }
 
@@ -155,21 +151,12 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	lggr.Debugw("Verifications retrieved", "count", len(verifications))
 
-	winningReceiptBlobs, err := selectWinningReceiptBlobSet(verifications)
-	if err != nil {
-		lggr.Errorw("Failed to select winning receipt blob set", "error", err)
-		return nil, err
-	}
-
 	aggregatedReport := &model.CommitAggregatedReport{
-		MessageID:           request.MessageID,
-		Verifications:       verifications,
-		WinningReceiptBlobs: winningReceiptBlobs,
+		MessageID:     request.MessageID,
+		Verifications: verifications,
 	}
 
-	mostRecentTimestamp := aggregatedReport.GetMostRecentVerificationTimestamp()
-
-	lggr.Debugw("Aggregated report created", "timestamp", mostRecentTimestamp, "verificationCount", len(verifications))
+	lggr.Debugw("Aggregated report created", "verificationCount", len(verifications))
 
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
 	if err != nil {

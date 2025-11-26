@@ -8,9 +8,9 @@ import (
 
 type IndexerAPI interface {
 	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
-	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.Message, error)
+	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error)
 	// GetVerifierResults returns all verifierResults for a given messageID
-	GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error)
+	GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error)
 }
 
 type VerifierResultsRequest struct {
@@ -23,7 +23,7 @@ type VerifierResultsRequest struct {
 }
 
 type VerifierResultsResponse struct {
-	CCVData map[string][]protocol.CCVData `json:"ccvData"`
-	Error   string                        `json:"error,omitempty"`
-	Success bool                          `json:"success"`
+	CCVData map[string][]protocol.VerifierResult `json:"ccvData"`
+	Error   string                               `json:"error,omitempty"`
+	Success bool                                 `json:"success"`
 }

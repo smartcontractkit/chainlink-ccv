@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/worker"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -62,33 +63,25 @@ func main() {
 
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
-	messageDiscovery, err := createDiscovery(lggr, config, indexerStorage, indexerMonitoring)
-	if err != nil {
-		lggr.Fatalf("Failed to initialize message discovery: %v", err)
-	}
-
 	verifierRegistry := createRegistry()
 	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
 
-	scheduler, err := worker.NewScheduler(lggr, worker.SchedulerConfig{
-		TickerInterval: time.Millisecond * 50,
-		MaxAttempts:    960, // 8 Hours, assuming 30 second delay
-		BaseDelay:      time.Millisecond * 100,
-		MaxDelay:       time.Second * 30,
-		ReadyQueueSize: 1000,
-		DLQSize:        1000,
-		JitterFrac:     0.02,
-	})
+	messageDiscovery, err := createDiscovery(lggr, config, indexerStorage, indexerMonitoring, verifierRegistry)
+	if err != nil {
+		lggr.Fatalf("Failed to initialize message discovery: %v", err)
+	}
+
+	scheduler, err := worker.NewScheduler(lggr, config.Scheduler)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize scheduler: %v", err)
 	}
 	scheduler.Start(ctx)
 
 	discoveryCh := messageDiscovery.Start(ctx)
-	pool := worker.NewWorkerPool(lggr, worker.Config{WorkerTimeout: time.Minute * 5}, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	pool := worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
 	pool.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
@@ -116,11 +109,7 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 		return err
 	}
 
-	verifierReader := readers.NewVerifierReader(ctx, reader, readers.VerifierReaderConfig{
-		BatchSize:         20,                     // Make configurable
-		MaxWaitTime:       250 * time.Millisecond, // Make configurable
-		MaxPendingBatches: 10,                     // Make configurable
-	})
+	verifierReader := readers.NewVerifierReader(ctx, reader, verifierConfig)
 
 	if err := verifierReader.Start(ctx); err != nil {
 		return err
@@ -132,7 +121,7 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 			return err
 		}
 
-		err = verifierRegistry.AddVerifier(unknownAddress, verifierReader)
+		err = verifierRegistry.AddVerifier(unknownAddress, verifierConfig.Name, verifierReader)
 		if err != nil {
 			return err
 		}
@@ -158,7 +147,7 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 	}
 }
 
-func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) (common.MessageDiscovery, error) {
+func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
 	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, cfg.Discovery.Since, hmac.ClientConfig{
 		APIKey: cfg.Discovery.APIKey,
 		Secret: cfg.Discovery.Secret,
@@ -167,16 +156,16 @@ func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.Inde
 		return nil, err
 	}
 
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(cfg.Discovery.Timeout)*time.Second, cfg.Discovery.NtpServer)
+
 	return discovery.NewAggregatorMessageDiscovery(
 		discovery.WithAggregator(aggregator),
 		discovery.WithStorage(storage),
+		discovery.WithRegistry(registry),
+		discovery.WithTimeProvider(timeProvider),
 		discovery.WithMonitoring(monitoring),
 		discovery.WithLogger(lggr),
-		discovery.WithConfig(discovery.Config{
-			PollInterval:       time.Duration(cfg.Discovery.PollInterval) * time.Second,
-			Timeout:            time.Duration(cfg.Discovery.Timeout) * time.Second,
-			MessageChannelSize: cfg.Discovery.MessageChannelSize,
-		}))
+		discovery.WithConfig(cfg.Discovery))
 }
 
 // createStorage creates the storage backend connection based on the configuration.

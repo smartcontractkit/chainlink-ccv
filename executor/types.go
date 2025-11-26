@@ -7,7 +7,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
+var (
+	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
+	NtpServer                = "time.google.com"
+)
 
 type AbstractAggregatedReport struct {
 	CCVS    []protocol.UnknownAddress
@@ -39,7 +42,7 @@ type ContractAddresses map[string]map[uint64]string
 
 // MessageWithCCVData is a struct that represents the data in between the indexer and executor.
 type MessageWithCCVData struct {
-	CCVData           []protocol.CCVData
+	CCVData           []protocol.VerifierResult
 	Message           protocol.Message
 	VerifiedTimestamp int64
 }

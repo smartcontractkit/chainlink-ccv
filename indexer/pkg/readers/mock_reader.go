@@ -6,17 +6,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var _ protocol.OffchainStorageReader = (*MockReader)(nil)
+var (
+	_ protocol.OffchainStorageReader = (*MockReader)(nil)
+	_ protocol.VerifierResultsAPI    = (*MockReader)(nil)
+)
 
 // MockReaderConfig configures the behavior of the mock reader.
 type MockReaderConfig struct {
 	// MessageGenerator is a function that generates CCVData for the mock reader.
 	// If nil, a default generator will be used.
 	// The parameter is the message number (1-indexed), not the call count.
-	MessageGenerator func(messageNumber int) protocol.CCVData
+	MessageGenerator func(messageNumber int) common.VerifierResultWithMetadata
 
 	// EmitInterval is the interval at which messages should be emitted.
 	// If zero, messages are emitted on every call to ReadCCVData.
@@ -83,7 +87,7 @@ func NewMockReader(config MockReaderConfig) *MockReader {
 	}
 }
 
-func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.CCVData, error) {
+func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	return nil, nil
 }
 
@@ -215,7 +219,7 @@ func (m *MockReader) generateResponses(messagesToEmit int, now time.Time) []prot
 
 		response := protocol.QueryResponse{
 			Timestamp: &timestamp,
-			Data:      ccvData,
+			Data:      ccvData.VerifierResult,
 		}
 		responses = append(responses, response)
 	}
@@ -267,7 +271,7 @@ func (m *MockReader) GetMessagesEmitted() int {
 // DefaultMessageGenerator is the default message generator function.
 // It creates a simple CCVData with predictable values for testing.
 // The parameter represents the message number (not call count).
-func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
+func DefaultMessageGenerator(messageNumber int) common.VerifierResultWithMetadata {
 	sourceAddr, _ := protocol.RandomAddress()
 	destAddr, _ := protocol.RandomAddress()
 	onRampAddr, _ := protocol.RandomAddress()
@@ -280,7 +284,7 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 		Version:              protocol.MessageVersion,
 		SourceChainSelector:  protocol.ChainSelector(1),
 		DestChainSelector:    protocol.ChainSelector(2),
-		Nonce:                protocol.Nonce(messageNumber),
+		SequenceNumber:       protocol.SequenceNumber(messageNumber),
 		OnRampAddressLength:  uint8(len(onRampAddr)),
 		OnRampAddress:        onRampAddr,
 		OffRampAddressLength: uint8(len(offRampAddr)),
@@ -300,18 +304,21 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 
 	messageID, _ := message.MessageID()
 
-	return protocol.CCVData{
-		SourceVerifierAddress: sourceAddr,
-		DestVerifierAddress:   destAddr,
-		Message:               message,
-		Nonce:                 message.Nonce,
-		SourceChainSelector:   message.SourceChainSelector,
-		DestChainSelector:     message.DestChainSelector,
-		MessageID:             messageID,
-		CCVData:               []byte{},
-		BlobData:              []byte{},
-		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Timestamp:             time.Now(),
+	return common.VerifierResultWithMetadata{
+		VerifierResult: protocol.VerifierResult{
+			VerifierSourceAddress:  sourceAddr,
+			VerifierDestAddress:    destAddr,
+			Message:                message,
+			MessageID:              messageID,
+			CCVData:                []byte{},
+			MessageCCVAddresses:    []protocol.UnknownAddress{},
+			MessageExecutorAddress: protocol.UnknownAddress{},
+			Timestamp:              time.Now(),
+		},
+		Metadata: common.VerifierResultMetadata{
+			AttestationTimestamp: time.Now(),
+			IngestionTimestamp:   time.Now(),
+		},
 	}
 }
 

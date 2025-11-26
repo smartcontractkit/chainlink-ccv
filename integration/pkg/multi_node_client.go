@@ -35,9 +35,9 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 	finalizedBlockOffset := ptr[uint32](16)
 	enforceRepeatableRead := ptr(true)
 	deathDeclarationDelay := time.Second * 3
-	noNewFinalizedBlocksThreshold := time.Second * 120
+	noNewFinalizedBlocksThreshold := 15 * time.Minute // High value - allows slow chains and manual mining
 	finalizedBlockPollInterval := time.Second * 10
-	newHeadsPollInterval := time.Second * 4
+	newHeadsPollInterval := time.Second * 1
 	confirmationTimeout := time.Second * 60
 	wsURL, _ := blockchainInfo.GetInternalWebsocketEndpoint()
 	httpURL, _ := blockchainInfo.GetInternalRPCEndpoint()

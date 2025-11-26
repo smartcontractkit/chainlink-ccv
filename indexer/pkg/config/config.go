@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pelletier/go-toml/v2"
+	"github.com/BurntSushi/toml"
 )
 
 // Config provides all configuration for the indexer.
@@ -14,12 +14,35 @@ type Config struct {
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// Discovery is the configuration for the discovery system inside the indexer.
 	Discovery DiscoveryConfig `toml:"Discovery"`
+	// Scheduler is the configuration for the scheduling component inside the indexer.
+	Scheduler SchedulerConfig `toml:"Scheduler"`
+	// Pool is the configuration for the worker pool within the indexer.
+	Pool PoolConfig `toml:"Pool"`
 	// Verifiers contains the configured verifiers known to the indexer.
 	Verifiers []VerifierConfig `toml:"Verifier"`
 	// Storage is the configuration for the storage inside the indexer.
 	Storage StorageConfig `toml:"Storage"`
 	// API is the configuration for the API inside the indexer.
 	API APIConfig `toml:"API"`
+}
+
+type SchedulerConfig struct {
+	// TickerInterval defines the number of milliseconds to wait before running the next scheduling loop.
+	TickerInterval int `toml:"TickerInterval"`
+	// VerificationVisibilityWindow defines the number of seconds before we will no longer attempt to retrieve verifications.
+	VerificationVisibilityWindow int `toml:"VerificationVisibilityWindow"`
+	// BaseDelay defines the minimum number of milliseconds to wait before retrying the message.
+	BaseDelay int `toml:"BaseDelay"`
+	// MaxDelay defines the maximum number of milliseconds to wait before retrying the message.
+	MaxDelay int `toml:"MaxDelay"`
+}
+
+type PoolConfig struct {
+	// ConcurrentWorkers is the maximum number of concurrent workers, equates to maximum number of concurrent messages being indexed.
+	ConcurrentWorkers int `toml:"ConcurrentWorkers"`
+	// WorkerTimeout is the number of seconds a worker can attempt to retrieve verifications for
+	// Note: This value should always be higher then the maximum timeout on the slowest configured verifier.
+	WorkerTimeout int `toml:"WorkerTimeout"`
 }
 
 // APIConfig provides all configuration for the API inside the indexer.
@@ -120,14 +143,19 @@ const (
 // DiscoveryConfig allows you to change the discovery system used by the indexer.
 type DiscoveryConfig struct {
 	AggregatorReaderConfig
-	PollInterval       int
-	Timeout            int
-	MessageChannelSize int
+	PollInterval int
+	Timeout      int
+	NtpServer    string
 }
 
 type VerifierConfig struct {
 	Type            ReaderType `toml:"Type"`
 	IssuerAddresses []string   `toml:"IssuerAddresses"`
+	Name            string     `toml:"Name"`
+	// BatchSize is the maximum batch size to send to the verifier.
+	BatchSize int `toml:"BatchSize"`
+	// MaxBatchWaitTime is the maximum time to wait in milliseconds before sending a batch to the verifier.
+	MaxBatchWaitTime int `toml:"MaxBatchWaitTime"`
 	AggregatorReaderConfig
 	RestReaderConfig
 }
@@ -193,6 +221,14 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 // Validate performs basic validation on the configuration.
 // It returns an error if the configuration is invalid.
 func (c *Config) Validate() error {
+	if err := c.Scheduler.Validate(); err != nil {
+		return fmt.Errorf("scheduler config validation failed: %w", err)
+	}
+
+	if err := c.Discovery.Validate(0); err != nil {
+		return fmt.Errorf("discovery config validation failed: %w", err)
+	}
+
 	// Validate storage config
 	if err := c.Storage.Validate(); err != nil {
 		return fmt.Errorf("storage config validation failed: %w", err)
@@ -207,6 +243,26 @@ func (c *Config) Validate() error {
 		if err := c.Monitoring.Beholder.Validate(); err != nil {
 			return fmt.Errorf("beholder config validation failed: %w", err)
 		}
+	}
+
+	return nil
+}
+
+func (s *SchedulerConfig) Validate() error {
+	if s.BaseDelay <= 0 {
+		return fmt.Errorf("base delay must be greater than 0")
+	}
+
+	if s.MaxDelay <= s.BaseDelay {
+		return fmt.Errorf("max delay must be greater than base delay")
+	}
+
+	if s.TickerInterval <= 20 {
+		return fmt.Errorf("ticker interval must be greater than 20 milliseconds")
+	}
+
+	if s.VerificationVisibilityWindow <= (s.MaxDelay / 1000) {
+		return fmt.Errorf("verification visability window must be greater than max delay after seconds conversion")
 	}
 
 	return nil

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -29,6 +30,7 @@ type Coordinator struct {
 	delayedMessageHeap message_heap.MessageHeap
 	running            atomic.Bool
 	expiryDuration     time.Duration
+	timeProvider       common.TimeProvider
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -39,6 +41,7 @@ func NewCoordinator(
 	leaderElector LeaderElector,
 	monitoring Monitoring,
 	expiryDuration time.Duration,
+	timeProvider common.TimeProvider,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
 		lggr:              lggr,
@@ -50,6 +53,7 @@ func NewCoordinator(
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
 		expiryDuration: expiryDuration,
+		timeProvider:   timeProvider,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -125,7 +129,8 @@ func (ec *Coordinator) run(ctx context.Context) {
 				ec.lggr.Errorw("error reading from ccv result streamer", "error", streamResult.Error)
 			}
 
-			for _, msg := range streamResult.Messages {
+			for _, msgWithMetadata := range streamResult.Messages {
+				msg := msgWithMetadata.Message
 				err := ec.executor.CheckValidMessage(ctx, msg)
 				if err != nil {
 					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
@@ -139,23 +144,38 @@ func (ec *Coordinator) run(ctx context.Context) {
 					continue
 				}
 
-				// get message delay from leader elector
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
+				// get message delay from leader elector using indexer's ingestion timestamp
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(
+					id,
+					msg.DestChainSelector,
+					msgWithMetadata.Metadata.IngestionTimestamp)
+
+				ec.lggr.Infow("pushing message to delayed heap",
+					"messageID", id,
+					"ingestionTimestamp", msgWithMetadata.Metadata.IngestionTimestamp,
+					"readyTimestamp", readyTimestamp,
+				)
 
 				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 					Message:       &msg,
 					ReadyTime:     readyTimestamp,
-					ExpiryTime:    readyTimestamp + int64(ec.expiryDuration.Seconds()),
+					ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
 					RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
 					MessageID:     id,
 				})
 			}
 		case <-ticker.C:
-			// todo: get this current time from a single source across all executors
-			currentTime := time.Now().Unix()
+			currentTime := ec.timeProvider.GetTime()
+
+			// Process all messages that are ready to be processed.
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
+			ec.lggr.Debugw("found messages ready for processing",
+				"count", len(readyMessages),
+				"currentTime", currentTime.String(),
+				"readyMessages", readyMessages,
+			)
 			for _, payload := range readyMessages {
-				if currentTime > payload.ExpiryTime {
+				if currentTime.After(payload.ExpiryTime) {
 					ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
 					continue
 				}
@@ -164,14 +184,14 @@ func (ec *Coordinator) run(ctx context.Context) {
 					message, currentTime, id := *payload.Message, currentTime, payload.MessageID
 
 					ec.lggr.Infow("processing message with ID", "messageID", id)
-					messageStatus, err := ec.executor.GetMessageStatus(ctx, message, currentTime)
+					messageStatus, err := ec.executor.GetMessageStatus(ctx, message)
 					if err != nil {
 						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
 					}
 
 					if messageStatus.ShouldRetry {
 						// todo: add exponential backoff here
-						retryTime := currentTime + payload.RetryInterval
+						retryTime := currentTime.Add(payload.RetryInterval)
 						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
 						ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 							Message:       &message,

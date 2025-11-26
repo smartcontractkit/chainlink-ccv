@@ -16,9 +16,9 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.81
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251107170647-25947f0bb4cb
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251107170647-25947f0bb4cb
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251107170647-25947f0bb4cb
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251125180411-f7d921354df6
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251125180411-f7d921354df6
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251125180411-f7d921354df6
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20250929154511-1f5fbda7ae76
 	github.com/smartcontractkit/chainlink-deployments-framework v0.66.0
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.11.10
@@ -33,11 +33,11 @@ require (
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251107170647-25947f0bb4cb
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251107170647-25947f0bb4cb
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251125180411-f7d921354df6
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251125180411-f7d921354df6
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251119214842-48620ea319ea
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251126123859-d079d6815edb
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
 	google.golang.org/grpc v1.76.0
 )
@@ -277,6 +277,8 @@ require (
 	github.com/oklog/run v1.2.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
+	github.com/onsi/ginkgo/v2 v2.22.1 // indirect
+	github.com/onsi/gomega v1.36.2 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.116.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.116.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.116.0 // indirect

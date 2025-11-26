@@ -3,6 +3,8 @@
 package executor_mocks
 
 import (
+	time "time"
+
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -20,19 +22,19 @@ func (_m *MockLeaderElector) EXPECT() *MockLeaderElector_Expecter {
 	return &MockLeaderElector_Expecter{mock: &_m.Mock}
 }
 
-// GetReadyTimestamp provides a mock function with given fields: messageID, verifierTimestamp
-func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, verifierTimestamp int64) int64 {
-	ret := _m.Called(messageID, verifierTimestamp)
+// GetReadyTimestamp provides a mock function with given fields: messageID, chainSel, baseTime
+func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time {
+	ret := _m.Called(messageID, chainSel, baseTime)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetReadyTimestamp")
 	}
 
-	var r0 int64
-	if rf, ok := ret.Get(0).(func(protocol.Bytes32, int64) int64); ok {
-		r0 = rf(messageID, verifierTimestamp)
+	var r0 time.Time
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) time.Time); ok {
+		r0 = rf(messageID, chainSel, baseTime)
 	} else {
-		r0 = ret.Get(0).(int64)
+		r0 = ret.Get(0).(time.Time)
 	}
 
 	return r0
@@ -45,41 +47,42 @@ type MockLeaderElector_GetReadyTimestamp_Call struct {
 
 // GetReadyTimestamp is a helper method to define mock.On call
 //   - messageID protocol.Bytes32
-//   - verifierTimestamp int64
-func (_e *MockLeaderElector_Expecter) GetReadyTimestamp(messageID interface{}, verifierTimestamp interface{}) *MockLeaderElector_GetReadyTimestamp_Call {
-	return &MockLeaderElector_GetReadyTimestamp_Call{Call: _e.mock.On("GetReadyTimestamp", messageID, verifierTimestamp)}
+//   - chainSel protocol.ChainSelector
+//   - baseTime time.Time
+func (_e *MockLeaderElector_Expecter) GetReadyTimestamp(messageID interface{}, chainSel interface{}, baseTime interface{}) *MockLeaderElector_GetReadyTimestamp_Call {
+	return &MockLeaderElector_GetReadyTimestamp_Call{Call: _e.mock.On("GetReadyTimestamp", messageID, chainSel, baseTime)}
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID protocol.Bytes32, verifierTimestamp int64)) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time)) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(protocol.Bytes32), args[1].(int64))
+		run(args[0].(protocol.Bytes32), args[1].(protocol.ChainSelector), args[2].(time.Time))
 	})
 	return _c
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) Return(_a0 int64) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) Return(_a0 time.Time) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protocol.Bytes32, int64) int64) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protocol.Bytes32, protocol.ChainSelector, time.Time) time.Time) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetRetryDelay provides a mock function with given fields: destinationChain
-func (_m *MockLeaderElector) GetRetryDelay(destinationChain protocol.ChainSelector) int64 {
+func (_m *MockLeaderElector) GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration {
 	ret := _m.Called(destinationChain)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetRetryDelay")
 	}
 
-	var r0 int64
-	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) int64); ok {
+	var r0 time.Duration
+	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) time.Duration); ok {
 		r0 = rf(destinationChain)
 	} else {
-		r0 = ret.Get(0).(int64)
+		r0 = ret.Get(0).(time.Duration)
 	}
 
 	return r0
@@ -103,12 +106,12 @@ func (_c *MockLeaderElector_GetRetryDelay_Call) Run(run func(destinationChain pr
 	return _c
 }
 
-func (_c *MockLeaderElector_GetRetryDelay_Call) Return(_a0 int64) *MockLeaderElector_GetRetryDelay_Call {
+func (_c *MockLeaderElector_GetRetryDelay_Call) Return(_a0 time.Duration) *MockLeaderElector_GetRetryDelay_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockLeaderElector_GetRetryDelay_Call) RunAndReturn(run func(protocol.ChainSelector) int64) *MockLeaderElector_GetRetryDelay_Call {
+func (_c *MockLeaderElector_GetRetryDelay_Call) RunAndReturn(run func(protocol.ChainSelector) time.Duration) *MockLeaderElector_GetRetryDelay_Call {
 	_c.Call.Return(run)
 	return _c
 }

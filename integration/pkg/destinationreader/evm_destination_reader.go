@@ -184,7 +184,7 @@ func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, me
 			// TODO: Add FTF to this check
 		},
 		uint64(message.SourceChainSelector),
-		uint64(message.Nonce),
+		uint64(message.SequenceNumber),
 		message.Sender,
 		rcv)
 	if err != nil {

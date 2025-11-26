@@ -24,23 +24,23 @@ func (_m *MockMessageReader) EXPECT() *MockMessageReader_Expecter {
 }
 
 // ReadMessages provides a mock function with given fields: ctx, queryData
-func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.Message, error) {
+func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error) {
 	ret := _m.Called(ctx, queryData)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReadMessages")
 	}
 
-	var r0 map[string]protocol.Message
+	var r0 map[string]protocol.MessageWithMetadata
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.MessagesV1Request) (map[string]protocol.Message, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error)); ok {
 		return rf(ctx, queryData)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.MessagesV1Request) map[string]protocol.Message); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.MessagesV1Request) map[string]protocol.MessageWithMetadata); ok {
 		r0 = rf(ctx, queryData)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[string]protocol.Message)
+			r0 = ret.Get(0).(map[string]protocol.MessageWithMetadata)
 		}
 	}
 
@@ -72,12 +72,12 @@ func (_c *MockMessageReader_ReadMessages_Call) Run(run func(ctx context.Context,
 	return _c
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) Return(_a0 map[string]protocol.Message, _a1 error) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_ReadMessages_Call) Return(_a0 map[string]protocol.MessageWithMetadata, _a1 error) *MockMessageReader_ReadMessages_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) RunAndReturn(run func(context.Context, protocol.MessagesV1Request) (map[string]protocol.Message, error)) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_ReadMessages_Call) RunAndReturn(run func(context.Context, protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error)) *MockMessageReader_ReadMessages_Call {
 	_c.Call.Return(run)
 	return _c
 }

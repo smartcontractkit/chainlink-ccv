@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -70,8 +71,8 @@ type Coordinator struct {
 	finalityCheckInterval time.Duration
 
 	// Storage batching
-	storageBatcher   *batcher.Batcher[protocol.CCVData]
-	batchedCCVDataCh chan batcher.BatchResult[protocol.CCVData]
+	storageBatcher   *batcher.Batcher[protocol.VerifierNodeResult]
+	batchedCCVDataCh chan batcher.BatchResult[protocol.VerifierNodeResult]
 
 	// Configuration
 	chainStatusManager protocol.ChainStatusManager
@@ -244,7 +245,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
 				vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
 					"chain", chainSelector,
-					"blockHeight", chainStatus.BlockNumber)
+					"blockHeight", chainStatus.FinalizedBlockHeight)
 				continue
 			}
 
@@ -262,11 +263,13 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				sourcePollInterval = sourceCfg.PollInterval
 			}
 
+			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
+
 			service := NewSourceReaderService(
 				sourceReader,
 				chainSelector,
 				vc.chainStatusManager,
-				vc.lggr,
+				readerLogger,
 				sourcePollInterval,
 			)
 
@@ -281,35 +284,53 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				verificationTaskCh: service.VerificationTaskChannel(),
 			}
 
+			var detector protocol.ReorgDetector
+
 			// Setup ReorgDetector (if provided)
-			// TODO: Initialize reorgDetectorService like the sourceReaderService - we can keep the WithReorgDetector option and create them if they're not present
-			if detector, hasDetector := vc.reorgDetectors[chainSelector]; hasDetector {
-				// Start detector (blocks until initial tail is built and subscription is established)
-				reorgStatusCh, err := detector.Start(ctx)
-				if err != nil {
-					vc.lggr.Errorw("Failed to start reorg detector",
-						"chainSelector", chainSelector,
-						"error", err)
-					// TODO: Should we make the reorg detector mandatory to the point we stop the
-					// 	reader as I'm doing here?
-					_ = service.Stop()
-				} else {
-					// Store reorg detection components
-					state.reorgDetector = detector
-					state.reorgStatusCh = reorgStatusCh
-
-					vc.lggr.Infow("Reorg detector started successfully",
-						"chainSelector", chainSelector)
-
-					// Spawn processReorgUpdates goroutine
-					vc.backgroundWg.Add(1)
-					go func(s *sourceState) {
-						defer vc.backgroundWg.Done()
-						vc.processReorgUpdates(ctx, s)
-					}(state)
+			d, ok := vc.reorgDetectors[chainSelector]
+			if !ok {
+				// create the detector
+				reorgDetectorConfig := vservices.ReorgDetectorConfig{
+					ChainSelector: chainSelector,
+					PollInterval:  2 * time.Second, // TODO: make configurable
 				}
+
+				d2, err := vservices.NewReorgDetectorService(
+					vc.sourceReaders[chainSelector],
+					reorgDetectorConfig,
+					logger.With(vc.lggr, "component", "ReorgDetector", "chainID", chainSelector),
+				)
+				if err != nil {
+					vc.lggr.Errorw("Failed to create reorg detector", "error", err, "chainID", chainSelector)
+				}
+				detector = d2
 			} else {
-				vc.lggr.Infow("No reorg detector provided for chain, reorg detection disabled", "chainSelector", chainSelector)
+				vc.lggr.Infow("Using existing reorg detector", "chainSelector", chainSelector)
+				detector = d
+			}
+
+			reorgStatusCh, err := detector.Start(ctx)
+			if err != nil {
+				vc.lggr.Errorw("Failed to start reorg detector",
+					"chainSelector", chainSelector,
+					"error", err)
+				// TODO: Should we make the reorg detector mandatory to the point we stop the
+				// 	reader as I'm doing here?
+				_ = service.Stop()
+			} else {
+				// Store reorg detection components
+				state.reorgDetector = detector
+				state.reorgStatusCh = reorgStatusCh
+
+				vc.lggr.Infow("Reorg detector started successfully",
+					"chainSelector", chainSelector)
+
+				// Spawn processReorgUpdates goroutine
+				vc.backgroundWg.Add(1)
+				go func(s *sourceState) {
+					defer vc.backgroundWg.Done()
+					vc.processReorgUpdates(ctx, s)
+				}(state)
 			}
 
 			vc.sourceStates[chainSelector] = state
@@ -327,7 +348,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 		}
 
 		// Initialize storage batcher (will automatically flush when ctx is canceled)
-		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.CCVData], 10)
+		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
 		vc.storageBatcher = batcher.NewBatcher(
 			ctx,
 			vc.config.StorageBatchSize,
@@ -607,7 +628,7 @@ func (vc *Coordinator) addToPendingQueue(ctx context.Context, task VerificationT
 
 	messageContextLggr.Infow("Message added to finality queue",
 		"blockNumber", task.BlockNumber,
-		"nonce", task.Message.Nonce,
+		"nonce", task.Message.SequenceNumber,
 		"queueSize", len(state.pendingTasks),
 	)
 }
@@ -680,6 +701,13 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 
 	latestBlock := new(big.Int).SetUint64(latest.Number)
 	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
+
+	vc.lggr.Infow("Checking finality queue",
+		"chain", chainSelector,
+		"latestBlock", latestBlock.String(),
+		"latestFinalizedBlock", latestFinalizedBlock.String(),
+		"queueSize", len(state.pendingTasks),
+	)
 
 	// Check finality for each task
 	for _, task := range state.pendingTasks {
@@ -821,7 +849,7 @@ func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch 
 		vc.lggr.Errorw("Message verification failed",
 			"error", verificationError.Error,
 			"messageID", message.MustMessageID(),
-			"nonce", message.Nonce,
+			"nonce", message.SequenceNumber,
 			"sourceChain", message.SourceChainSelector,
 			"destChain", message.DestChainSelector,
 			"timestamp", verificationError.Timestamp,
@@ -965,9 +993,9 @@ func (vc *Coordinator) handleFinalityViolation(
 		blockHeight := big.NewInt(0)
 		err := vc.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 			{
-				ChainSelector: chainSelector,
-				BlockNumber:   blockHeight,
-				Disabled:      true,
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: blockHeight,
+				Disabled:             true,
 			},
 		})
 		if err != nil {
@@ -1020,6 +1048,16 @@ func (vc *Coordinator) isMessageReadyForVerification(
 		// Custom finality: message_block + finality_config <= latest_block
 		requiredBlock := new(big.Int).Add(messageBlockNumber, new(big.Int).SetUint64(uint64(finalityConfig)))
 		ready = requiredBlock.Cmp(latestBlock) <= 0
+
+		vc.lggr.Infow("Checking custom finality requirement",
+			"messageID", messageID,
+			"messageBlock", messageBlockNumber.String(),
+			"finalityConfig", finalityConfig,
+			"requiredBlock", requiredBlock.String(),
+			"latestBlock", latestBlock.String(),
+			"ready", ready,
+		)
+
 		if ready {
 			vc.lggr.Debugw("Message meets custom finality requirement",
 				"messageID", messageID,

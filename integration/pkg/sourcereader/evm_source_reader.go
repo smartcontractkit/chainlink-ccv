@@ -95,12 +95,6 @@ func NewEVMSourceReader(
 
 // GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
 func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-	// Get current finalized block to populate FinalizedBlockNumber field
-	_, finalizedHeader, err := r.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get finalized block: %w", err)
-	}
-
 	headers := make(map[*big.Int]protocol.BlockHeader)
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
@@ -111,11 +105,10 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 		}
 		headers[blockNumber] = protocol.BlockHeader{
-			Number:               uint64(header.Number),
-			Hash:                 protocol.Bytes32(header.Hash),
-			ParentHash:           protocol.Bytes32(header.ParentHash),
-			Timestamp:            header.Timestamp,
-			FinalizedBlockNumber: finalizedHeader.Number,
+			Number:     uint64(header.Number),
+			Hash:       protocol.Bytes32(header.Hash),
+			ParentHash: protocol.Bytes32(header.ParentHash),
+			Timestamp:  header.Timestamp,
 		}
 	}
 	return headers, nil
@@ -141,17 +134,11 @@ func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protoco
 		return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 	}
 
-	finalizedBlockNum := header.LatestFinalizedHead().BlockNumber()
-	if finalizedBlockNum < 0 {
-		return nil, fmt.Errorf("finalized block number cannot be negative: %d", finalizedBlockNum)
-	}
-
 	return &protocol.BlockHeader{
-		Number:               uint64(header.Number),
-		Hash:                 protocol.Bytes32(header.Hash),
-		ParentHash:           protocol.Bytes32(header.ParentHash),
-		Timestamp:            header.Timestamp,
-		FinalizedBlockNumber: uint64(finalizedBlockNum),
+		Number:     uint64(header.Number),
+		Hash:       protocol.Bytes32(header.Hash),
+		ParentHash: protocol.Bytes32(header.ParentHash),
+		Timestamp:  header.Timestamp,
 	}, nil
 }
 
@@ -266,62 +253,14 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		r.lggr.Infow("Decoded message",
 			"message", decodedMsg)
 
-		// Create receipt blobs from verifier receipts and receipt blobs
-		receiptBlobs := make([]protocol.ReceiptWithBlob, 0, len(event.Receipts)+1)
-
-		if len(event.Receipts) == 0 {
-			r.lggr.Errorw("No verifier receipts found")
-			continue // to next message
-		}
-		// Process verifier receipts
-		for i, vr := range event.Receipts {
-			var blob []byte
-			if i < len(event.VerifierBlobs) && len(event.VerifierBlobs[i]) > 0 {
-				blob = event.VerifierBlobs[i]
-			} else {
-				r.lggr.Infow("Empty or missing receipt blob",
-					"verifierIndex", i,
-				)
-			}
-
-			issuerAddr, _ := protocol.NewUnknownAddressFromHex(vr.Issuer.Hex())
-			receiptBlob := protocol.ReceiptWithBlob{
-				Issuer:            issuerAddr,
-				DestGasLimit:      vr.DestGasLimit,
-				DestBytesOverhead: vr.DestBytesOverhead,
-				Blob:              blob,
-				ExtraArgs:         vr.ExtraArgs,
-				FeeTokenAmount:    vr.FeeTokenAmount,
-			}
-			receiptBlobs = append(receiptBlobs, receiptBlob)
-
-			r.lggr.Infow("Processed verifier receipt",
-				"index", i,
-				"issuer", vr.Issuer.Hex(),
-				"blobLength", len(blob))
-		}
-
-		// Add executor receipt if available
-		issuerAddr, _ := protocol.NewUnknownAddressFromHex(executorReceipt.Issuer.Hex())
-		executorReceiptBlob := protocol.ReceiptWithBlob{
-			Issuer:            issuerAddr,
-			DestGasLimit:      executorReceipt.DestGasLimit,
-			DestBytesOverhead: executorReceipt.DestBytesOverhead,
-			Blob:              []byte{},
-			ExtraArgs:         executorReceipt.ExtraArgs,
-			FeeTokenAmount:    executorReceipt.FeeTokenAmount,
-		}
-		receiptBlobs = append(receiptBlobs, executorReceiptBlob)
-
-		r.lggr.Infow("Processed executor receipt",
-			"issuer", executorReceipt.Issuer.Hex())
+		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 
 		results = append(results, protocol.MessageSentEvent{
 			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
 			SequenceNumber:    event.SequenceNumber,
 			MessageID:         protocol.Bytes32(event.MessageId),
 			Message:           *decodedMsg,
-			Receipts:          receiptBlobs,
+			Receipts:          allReceipts, // Keep original order from OnRamp event
 			BlockNumber:       log.BlockNumber,
 		})
 	}
@@ -345,19 +284,17 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 	}
 
 	latest = &protocol.BlockHeader{
-		Number:               uint64(latestHead.Number),
-		Hash:                 protocol.Bytes32(latestHead.Hash),
-		ParentHash:           protocol.Bytes32(latestHead.ParentHash),
-		Timestamp:            latestHead.Timestamp,
-		FinalizedBlockNumber: uint64(finalizedHead.Number),
+		Number:     uint64(latestHead.Number),
+		Hash:       protocol.Bytes32(latestHead.Hash),
+		ParentHash: protocol.Bytes32(latestHead.ParentHash),
+		Timestamp:  latestHead.Timestamp,
 	}
 
 	finalized = &protocol.BlockHeader{
-		Number:               uint64(finalizedHead.Number),
-		Hash:                 protocol.Bytes32(finalizedHead.Hash),
-		ParentHash:           protocol.Bytes32(finalizedHead.ParentHash),
-		Timestamp:            finalizedHead.Timestamp,
-		FinalizedBlockNumber: uint64(finalizedHead.Number),
+		Number:     uint64(finalizedHead.Number),
+		Hash:       protocol.Bytes32(finalizedHead.Hash),
+		ParentHash: protocol.Bytes32(finalizedHead.ParentHash),
+		Timestamp:  finalizedHead.Timestamp,
 	}
 
 	return latest, finalized, nil
@@ -369,4 +306,28 @@ func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.
 	// Use the common helper function from cursechecker package
 	// This avoids code duplication with EVMDestinationReader
 	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.rmnRemoteCaller)
+}
+
+// receiptBlobsFromEvent converts OnRamp event receipts to protocol.ReceiptWithBlob format.
+// It pairs each receipt with its corresponding verifier blob (if any).
+func receiptBlobsFromEvent(eventReceipts []onramp.OnRampReceipt, verifierBlobs [][]byte) []protocol.ReceiptWithBlob {
+	receipts := make([]protocol.ReceiptWithBlob, len(eventReceipts))
+	for i, vr := range eventReceipts {
+		var blob []byte
+		// Only CCV receipts (first N receipts where N = len(verifierBlobs)) have blobs
+		if i < len(verifierBlobs) {
+			blob = verifierBlobs[i]
+		}
+
+		issuerAddr, _ := protocol.NewUnknownAddressFromHex(vr.Issuer.Hex())
+		receipts[i] = protocol.ReceiptWithBlob{
+			Issuer:            issuerAddr,
+			DestGasLimit:      uint64(vr.DestGasLimit),
+			DestBytesOverhead: vr.DestBytesOverhead,
+			Blob:              blob,
+			ExtraArgs:         vr.ExtraArgs,
+			FeeTokenAmount:    vr.FeeTokenAmount,
+		}
+	}
+	return receipts
 }

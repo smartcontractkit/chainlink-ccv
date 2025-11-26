@@ -162,16 +162,17 @@ func AllTokenCombinations() []TokenCombination {
 			expectedReceiptIssuers:  3, // default CCV, token pool, executor
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 lock -> 1.7.0 release
-			sourcePoolType:          string(lock_release_token_pool.ContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(lock_release_token_pool.ContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  3, // default CCV, token pool, executor
-			expectedVerifierResults: 1, // default CCV
-		},
+		// TODO: Re-enable when chainlink-ccip repo adds ERC20LockBox deployment support
+		// { // 1.7.0 lock -> 1.7.0 release
+		// 	sourcePoolType:          string(lock_release_token_pool.ContractType),
+		// 	sourcePoolVersion:       "1.7.0",
+		// 	sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+		// 	destPoolType:            string(lock_release_token_pool.ContractType),
+		// 	destPoolVersion:         "1.7.0",
+		// 	destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+		// 	expectedReceiptIssuers:  3, // default CCV, token pool, executor
+		// 	expectedVerifierResults: 1, // default CCV
+		// },
 		{ // 1.7.0 burn -> 1.7.0 mint
 			sourcePoolType:          string(burn_mint_token_pool.ContractType),
 			sourcePoolVersion:       "1.7.0",
@@ -905,7 +906,7 @@ func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
 		GasLimit *big.Int
 	}
 
-	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.GasLimit))})
+	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.ExecutionGasLimit))})
 	if err != nil {
 		panic(fmt.Sprintf("failed to pack extraArgs: %v", err))
 	}
@@ -936,7 +937,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 	}
 
 	packed, err := arguments.Pack(GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(int64(opts.GasLimit)),
+		GasLimit:                 big.NewInt(int64(opts.ExecutionGasLimit)),
 		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
 	})
 	if err != nil {
@@ -950,7 +951,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
 		opts.FinalityConfig,
-		opts.GasLimit,
+		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
 		opts.TokenArgs,
@@ -1122,7 +1123,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				},
 				// Deploy multiple committee verifiers in order to test different receiver
 				// configurations.
-				CommitteeVerifier: toCommitteeVerifierParams(committees),
+				CommitteeVerifiers: toCommitteeVerifierParams(committees),
 				OnRamp: sequences.OnRampParams{
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),
@@ -1431,8 +1432,12 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	e.OperationsBundle = bundle
 
 	remoteChains := make(map[uint64]adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef])
-
+	feeQuoterGasPriceUpdates := make([]fee_quoter.GasPriceUpdate, 0, len(remoteSelectors))
 	for _, rs := range remoteSelectors {
+		feeQuoterGasPriceUpdates = append(feeQuoterGasPriceUpdates, fee_quoter.GasPriceUpdate{
+			DestChainSelector: rs,
+			UsdPerUnitGas:     big.NewInt(0), // TODO: set proper gas price
+		})
 		remoteChains[rs] = adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
 			AllowTrafficFrom: true,
 			OnRamp: datastore.AddressRef{
@@ -1523,6 +1528,37 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	if err != nil {
 		return err
 	}
+
+	// We need to set the gas prices for each remote chain so we don't get reverts due to NoGasPriceAvailable(uint64).
+	feeQuoter, err := e.DataStore.Addresses().Get(datastore.AddressRef{
+		Type:          datastore.ContractType(fee_quoter.ContractType),
+		Version:       semver.MustParse(fee_quoter.Deploy.Version()),
+		ChainSelector: selector,
+	}.Key())
+	if err != nil {
+		return fmt.Errorf("failed to get fee quoter address on chain %d: %w", selector, err)
+	}
+	chain := e.BlockChains.EVMChains()[selector]
+	report, err := operations.ExecuteOperation(bundle, fee_quoter.UpdatePrices, chain, contract.FunctionInput[fee_quoter.PriceUpdates]{
+		ChainSelector: selector,
+		Address:       common.HexToAddress(feeQuoter.Address),
+		Args: fee_quoter.PriceUpdates{
+			GasPriceUpdates: feeQuoterGasPriceUpdates,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update prices on fee quoter on chain %d: %w", selector, err)
+	}
+
+	// get the receipt so that we can log the message ID.
+	receipt, err := chain.Client.TransactionReceipt(ctx, common.HexToHash(report.Output.ExecInfo.Hash))
+	if err != nil {
+		return fmt.Errorf("failed to get transaction receipt for fee quoter update prices on chain %d: %w", selector, err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("fee quoter update prices failed with status: %d", receipt.Status)
+	}
+	l.Info().Uint64("ChainSelector", selector).Str("TxHash", receipt.TxHash.Hex()).Msg("Fee quoter update prices successful")
 
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
 	for _, poolVersion := range tokenPoolVersions {

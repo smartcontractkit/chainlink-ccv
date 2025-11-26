@@ -40,18 +40,36 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	// Message at block 940 (< finalized 950) should be processed immediately
 	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	messageID, _ := finalizedMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
 	finalizedEvent := protocol.MessageSentEvent{
 		DestChainSelector: finalizedMessage.DestChainSelector,
-		SequenceNumber:    uint64(finalizedMessage.Nonce),
+		SequenceNumber:    uint64(finalizedMessage.SequenceNumber),
 		MessageID:         messageID,
 		Message:           finalizedMessage,
-		Receipts: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{}, // Empty = default finality
-		}},
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{}, // Empty = default finality
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: InitialFinalizedBlock - 10, // 940 <= 950 (finalized), should be processed immediately
 	}
 
@@ -84,18 +102,36 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
 	messageID, _ := readyMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
 	readyEvent := protocol.MessageSentEvent{
 		DestChainSelector: readyMessage.DestChainSelector,
-		SequenceNumber:    uint64(readyMessage.Nonce),
+		SequenceNumber:    uint64(readyMessage.SequenceNumber),
 		MessageID:         messageID,
 		Message:           readyMessage,
-		Receipts: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{},
-		}},
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: uint64(InitialLatestBlock - customFinality), // should be ready
 	}
 
@@ -128,18 +164,36 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
 	messageID, _ := nonFinalizedMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
 	nonFinalizedEvent := protocol.MessageSentEvent{
 		DestChainSelector: nonFinalizedMessage.DestChainSelector,
-		SequenceNumber:    uint64(nonFinalizedMessage.Nonce),
+		SequenceNumber:    uint64(nonFinalizedMessage.SequenceNumber),
 		MessageID:         messageID,
 		Message:           nonFinalizedMessage,
-		Receipts: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{}, // Empty = default finality
-		}},
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{}, // Empty = default finality
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: uint64(nonFinalizedBlock), // should be waiting for finality
 	}
 
@@ -209,6 +263,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	mockStorage := &NoopStorage{}
 	verificationTaskCh := mockSetup.Channel
 
+	mockSourceReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
 	// Return empty map to indicate no prior chain status (forces fallback to lookback calculation)
@@ -226,18 +282,16 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		finalizedBlockMu.RUnlock()
 
 		latest := &protocol.BlockHeader{
-			Number:               InitialLatestBlock,
-			Hash:                 protocol.Bytes32{byte(InitialLatestBlock % 256)},
-			ParentHash:           protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
-			Timestamp:            time.Now(),
-			FinalizedBlockNumber: finalizedNum,
+			Number:     InitialLatestBlock,
+			Hash:       protocol.Bytes32{byte(InitialLatestBlock % 256)},
+			ParentHash: protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
+			Timestamp:  time.Now(),
 		}
 		finalized := &protocol.BlockHeader{
-			Number:               finalizedNum,
-			Hash:                 protocol.Bytes32{byte(finalizedNum % 256)},
-			ParentHash:           protocol.Bytes32{byte((finalizedNum - 1) % 256)},
-			Timestamp:            time.Now(),
-			FinalizedBlockNumber: finalizedNum,
+			Number:     finalizedNum,
+			Hash:       protocol.Bytes32{byte(finalizedNum % 256)},
+			ParentHash: protocol.Bytes32{byte((finalizedNum - 1) % 256)},
+			Timestamp:  time.Now(),
 		}
 		return latest, finalized, nil
 	}).Maybe()

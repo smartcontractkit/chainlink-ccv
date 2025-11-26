@@ -85,6 +85,16 @@ func defaults(in *IndexerInput) {
 					TraceBatchTimeout:        10,
 				},
 			},
+			Scheduler: config.SchedulerConfig{
+				TickerInterval:               50,
+				VerificationVisibilityWindow: 28800,
+				BaseDelay:                    50,        // 50 milliseconds
+				MaxDelay:                     30 * 1000, // 30 Seconds
+			},
+			Pool: config.PoolConfig{
+				ConcurrentWorkers: 1000,   // 1000 concurrent messages
+				WorkerTimeout:     5 * 60, // 5 Minutes
+			},
 			Discovery: config.DiscoveryConfig{
 				AggregatorReaderConfig: config.AggregatorReaderConfig{
 					Address: "aggregator:50051",
@@ -92,9 +102,9 @@ func defaults(in *IndexerInput) {
 					APIKey:  "dev-api-key-indexer",
 					Secret:  "dev-secret-indexer",
 				},
-				PollInterval:       1,
-				Timeout:            5,
-				MessageChannelSize: 1000,
+				PollInterval: 500,
+				Timeout:      5000,
+				NtpServer:    "time.google.com",
 			},
 			Verifiers: []config.VerifierConfig{
 				{
@@ -105,7 +115,10 @@ func defaults(in *IndexerInput) {
 						APIKey:  "dev-api-key-indexer",
 						Secret:  "dev-secret-indexer",
 					},
-					IssuerAddresses: []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"},
+					IssuerAddresses:  []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"},
+					Name:             "CommiteeVerifier (Primary)",
+					BatchSize:        100,
+					MaxBatchWaitTime: 50,
 				},
 				{
 					Type: config.ReaderTypeAggregator,
@@ -115,7 +128,10 @@ func defaults(in *IndexerInput) {
 						APIKey:  "dev-api-key-indexer",
 						Secret:  "dev-secret-indexer",
 					},
-					IssuerAddresses: []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"},
+					IssuerAddresses:  []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"},
+					Name:             "CommiteeVerifier (Secondary)",
+					BatchSize:        100,
+					MaxBatchWaitTime: 50,
 				},
 				{
 					Type: config.ReaderTypeAggregator,
@@ -125,7 +141,10 @@ func defaults(in *IndexerInput) {
 						APIKey:  "dev-api-key-indexer",
 						Secret:  "dev-secret-indexer",
 					},
-					IssuerAddresses: []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"},
+					IssuerAddresses:  []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"},
+					Name:             "CommiteeVerifier (Tertiary)",
+					BatchSize:        100,
+					MaxBatchWaitTime: 50,
 				},
 			},
 			Storage: config.StorageConfig{

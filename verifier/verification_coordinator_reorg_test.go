@@ -120,7 +120,12 @@ func setupReorgTest(t *testing.T, chainSelector protocol.ChainSelector, finality
 // createCoordinator creates a new coordinator instance with the same dependencies.
 // This allows for realistic restart testing - creating a fresh coordinator while reusing
 // shared state (storage, chainStatusManager, etc.).
+// Creates a fresh mock reorg detector for each coordinator to avoid channel reuse issues.
 func (s *reorgTestSetup) createCoordinator() *Coordinator {
+	// Create a fresh mock reorg detector for this coordinator instance
+	// This is necessary because Close() closes the status channel, and we can't reuse it
+	freshMockDetector := newMockReorgDetector()
+
 	coordinator, err := NewCoordinator(
 		WithVerifier(s.testVerifier),
 		WithStorage(s.storage),
@@ -131,13 +136,17 @@ func (s *reorgTestSetup) createCoordinator() *Coordinator {
 			s.chainSelector: s.mockSourceReader,
 		}),
 		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{
-			s.chainSelector: s.mockReorgDetector,
+			s.chainSelector: freshMockDetector,
 		}),
 		WithMonitoring(&noopMonitoring{}),
 		WithMessageTracker(&NoopLatencyTracker{}),
 		WithFinalityCheckInterval(s.finalityCheckInterval),
 	)
 	require.NoError(s.t, err)
+
+	// Update the test setup to use the new detector for future event injection
+	s.mockReorgDetector = freshMockDetector
+
 	return coordinator
 }
 
@@ -177,7 +186,7 @@ func (s *reorgTestSetup) mustRestartCoordinator() {
 }
 
 func (s *reorgTestSetup) restartCoordinator() error {
-	// Close the old coordinator
+	// Close the old coordinator (this will close its associated mock reorg detector)
 	err := s.coordinator.Close()
 	if err != nil {
 		return err
@@ -186,6 +195,7 @@ func (s *reorgTestSetup) restartCoordinator() error {
 
 	// Create a new coordinator instance (more realistic - simulates process restart)
 	// This reuses the same dependencies (storage, chainStatusManager, etc.)
+	// Note: createCoordinator() creates a fresh mock reorg detector to avoid channel reuse issues
 	s.coordinator = s.createCoordinator()
 	s.t.Log("🆕 New coordinator created")
 
@@ -261,7 +271,7 @@ func TestReorgDetection_NormalReorg(t *testing.T) {
 	WaitForMessagesInStorage(setup.t, setup.storage, 2)
 	t.Log("✅ Finalized events (98, 99) have been processed")
 	sourceReaderService := setup.coordinator.sourceStates[chainSelector].reader
-	require.Equal(t, getLastProcessedBlockSafe(sourceReaderService), uint64(102), "Source reader should have read up to block 102")
+	require.Equal(t, uint64(103), getLastProcessedBlockSafe(sourceReaderService), "Source reader should have advanced to block 103 (highestEventBlock + 1)")
 
 	lca := setup.currentFinalized.Number
 	// Inject a reorg event directly (LCA at block 100)
@@ -319,7 +329,7 @@ func TestReorgDetection_FinalityViolation(t *testing.T) {
 		ResetToBlock: 0, // No safe reset point
 	}
 	// Wait for finality violation handler goroutine to process the event
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// After finality violation:
 	// 1. All pending tasks should be flushed

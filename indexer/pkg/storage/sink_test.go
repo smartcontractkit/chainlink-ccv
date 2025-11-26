@@ -27,26 +27,17 @@ func TestStorageSink_ReadFromFirstStorage(t *testing.T) {
 	chain, err := NewSink(lggr, memStorage1, memStorage2)
 	require.NoError(t, err)
 
-	// Create test data
-	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
-	}
+	testData := createTestCCVData("0x1", 1, protocol.ChainSelector(1), protocol.ChainSelector(2))
 
 	// Insert into first storage only
 	err = memStorage1.InsertCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Read from chain should return data from first storage
-	result, err := chain.GetCCVData(ctx, testData.MessageID)
+	result, err := chain.GetCCVData(ctx, testData.VerifierResult.MessageID)
 	require.NoError(t, err)
 	assert.Len(t, result, 1)
-	assert.Equal(t, testData.MessageID, result[0].MessageID)
+	assert.Equal(t, testData.VerifierResult.MessageID, result[0].VerifierResult.MessageID)
 }
 
 func TestStorageSink_ReadFromSecondStorageOnMiss(t *testing.T) {
@@ -62,26 +53,17 @@ func TestStorageSink_ReadFromSecondStorageOnMiss(t *testing.T) {
 	chain, err := NewSink(lggr, memStorage1, memStorage2)
 	require.NoError(t, err)
 
-	// Create test data
-	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
-	}
+	testData := createTestCCVData("0x1", 1, protocol.ChainSelector(1), protocol.ChainSelector(2))
 
 	// Insert into second storage only
 	err = memStorage2.InsertCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Read from chain should find data in second storage
-	result, err := chain.GetCCVData(ctx, testData.MessageID)
+	result, err := chain.GetCCVData(ctx, testData.VerifierResult.MessageID)
 	require.NoError(t, err)
 	assert.Len(t, result, 1)
-	assert.Equal(t, testData.MessageID, result[0].MessageID)
+	assert.Equal(t, testData.VerifierResult.MessageID, result[0].VerifierResult.MessageID)
 }
 
 func TestStorageSink_ReadNotFound(t *testing.T) {
@@ -117,27 +99,18 @@ func TestStorageSink_WriteToAllStorages(t *testing.T) {
 	chain, err := NewSink(lggr, memStorage1, memStorage2)
 	require.NoError(t, err)
 
-	// Create test data
-	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
-	}
+	testData := createTestCCVData("0x1", 1, protocol.ChainSelector(1), protocol.ChainSelector(2))
 
 	// Write through chain
 	err = chain.InsertCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Verify data exists in both storages
-	result1, err := memStorage1.GetCCVData(ctx, testData.MessageID)
+	result1, err := memStorage1.GetCCVData(ctx, testData.VerifierResult.MessageID)
 	require.NoError(t, err)
 	assert.Len(t, result1, 1)
 
-	result2, err := memStorage2.GetCCVData(ctx, testData.MessageID)
+	result2, err := memStorage2.GetCCVData(ctx, testData.VerifierResult.MessageID)
 	require.NoError(t, err)
 	assert.Len(t, result2, 1)
 }
@@ -155,23 +128,14 @@ func TestStorageSink_QueryFromFirstStorage(t *testing.T) {
 	chain, err := NewSink(lggr, memStorage1, memStorage2)
 	require.NoError(t, err)
 
-	// Create test data
-	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
-	}
+	testData := createTestCCVData("0x1", 1, protocol.ChainSelector(1), protocol.ChainSelector(2))
 
 	// Insert into first storage
 	err = memStorage1.InsertCCVData(ctx, testData)
 	require.NoError(t, err)
 
 	// Query from chain
-	results, err := chain.QueryCCVData(ctx, 900, 1100, nil, nil, 10, 0)
+	results, err := chain.QueryCCVData(ctx, 0, time.Now().UnixMilli(), nil, nil, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 }
@@ -189,16 +153,7 @@ func TestStorageSink_WriteDuplicateHandling(t *testing.T) {
 	chain, err := NewSink(lggr, memStorage1, memStorage2)
 	require.NoError(t, err)
 
-	// Create test data
-	testData := protocol.CCVData{
-		MessageID:             protocol.Bytes32{0x01},
-		SourceVerifierAddress: protocol.UnknownAddress{0x02},
-		DestVerifierAddress:   protocol.UnknownAddress{0x03},
-		Timestamp:             time.UnixMilli(1000),
-		SourceChainSelector:   protocol.ChainSelector(1),
-		DestChainSelector:     protocol.ChainSelector(2),
-		Nonce:                 protocol.Nonce(1),
-	}
+	testData := createTestCCVData("0x1", 1, protocol.ChainSelector(1), protocol.ChainSelector(2))
 
 	// Write first time
 	err = chain.InsertCCVData(ctx, testData)
