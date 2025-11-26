@@ -596,8 +596,8 @@ github.com/smartcontractkit/chainlink-framework/metrics v0.0.0-20250717121125-23
 github.com/smartcontractkit/chainlink-framework/metrics v0.0.0-20250717121125-2350c82883e2/go.mod h1:jo+cUqNcHwN8IF7SInQNXDZ8qzBsyMpnLdYbDswviFc=
 github.com/smartcontractkit/chainlink-framework/multinode v0.0.0-20250729142306-508e798f6a5d h1:pTYIcsWHTMG5fAcbRUA8Qk5yscXKdSpopQ0DUEOjPik=
 github.com/smartcontractkit/chainlink-framework/multinode v0.0.0-20250729142306-508e798f6a5d/go.mod h1:2JTBNp3FlRdO/nHc4dsc9bfxxMClMO1Qt8sLJgtreBY=
-github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251121173714-42d2ec68d51a h1:Chhyr1Vn0jan0KW+T59lz4EkytFx39UQ/O+Ql7VUSrE=
-github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251121173714-42d2ec68d51a/go.mod h1:KJkb85Mfxr/2vjPvAWWpq0/QJMAP1Bts1wMWWhRn4/E=
+github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251126123859-d079d6815edb h1:vGLgImXYmzK8eow7kShHGZO948818NAI3FPihEH1v7c=
+github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251126123859-d079d6815edb/go.mod h1:KJkb85Mfxr/2vjPvAWWpq0/QJMAP1Bts1wMWWhRn4/E=
 github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20250911124514-5874cc6d62b2 h1:1/KdO5AbUr3CmpLjMPuJXPo2wHMbfB8mldKLsg7D4M8=
 github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20250911124514-5874cc6d62b2/go.mod h1:jUC52kZzEnWF9tddHh85zolKybmLpbQ1oNA4FjOHt1Q=
 github.com/smartcontractkit/chainlink-protos/svr v1.1.0 h1:79Z9N9dMbMVRGaLoDPAQ+vOwbM+Hnx8tIN2xCPG8H4o=

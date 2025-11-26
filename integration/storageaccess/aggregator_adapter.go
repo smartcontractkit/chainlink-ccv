@@ -17,7 +17,7 @@ import (
 )
 
 type AggregatorWriter struct {
-	client pb.AggregatorClient
+	client pb.CommitteeVerifierClient
 	conn   *grpc.ClientConn
 	lggr   logger.Logger
 }
@@ -167,7 +167,7 @@ func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.Cl
 	}
 
 	return &AggregatorWriter{
-		client: pb.NewAggregatorClient(conn),
+		client: pb.NewCommitteeVerifierClient(conn),
 		conn:   conn,
 		lggr:   lggr,
 	}, nil
@@ -232,7 +232,7 @@ func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors [
 	}
 
 	// Create aggregator client for chain status operations (different from CCV data client)
-	aggregatorClient := pb.NewAggregatorClient(a.conn)
+	aggregatorClient := pb.NewCommitteeVerifierClient(a.conn)
 
 	// Make the gRPC call
 	resp, err := aggregatorClient.ReadChainStatus(ctx, req)
