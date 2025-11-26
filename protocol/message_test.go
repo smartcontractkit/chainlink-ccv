@@ -84,9 +84,11 @@ func TestMessageEncodeDecode(t *testing.T) {
 		assert.Equal(t, msg.DestBlobLength, decoded.DestBlobLength)
 		assert.Equal(t, msg.DestBlob, decoded.DestBlob)
 		assert.Equal(t, msg.TokenTransferLength, decoded.TokenTransferLength)
-		// TokenTransfer may be empty slice in input but nil after decode (or vice versa)
-		assert.Equal(t, len(msg.TokenTransfer), len(decoded.TokenTransfer))
-		if len(msg.TokenTransfer) > 0 {
+		// Compare TokenTransfer structs
+		if msg.TokenTransfer == nil {
+			assert.Nil(t, decoded.TokenTransfer)
+		} else {
+			require.NotNil(t, decoded.TokenTransfer)
 			assert.Equal(t, msg.TokenTransfer, decoded.TokenTransfer)
 		}
 		assert.Equal(t, msg.DataLength, decoded.DataLength)

@@ -20,7 +20,8 @@ func TestMessageMappingRoundTrip_PreservesMessageID(t *testing.T) {
 	protoMessage := MapProtocolMessageToProtoMessage(message)
 	require.NotNil(t, protoMessage)
 
-	convertedMessage := MapProtoMessageToProtocolMessage(protoMessage)
+	convertedMessage, err := MapProtoMessageToProtocolMessage(protoMessage)
+	require.NoError(t, err)
 	require.NotNil(t, convertedMessage)
 
 	convertedID, err := convertedMessage.MessageID()
