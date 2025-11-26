@@ -31,3 +31,11 @@ func ProcessingInExecutor() LogStage {
 		LogPattern: "processing message with ID",
 	}
 }
+
+func FinalityViolationDetected() LogStage {
+	return LogStage{
+		Name:       "FinalityViolationDetected",
+		Service:    "verifier",
+		LogPattern: "FINALITY VIOLATION DETECTED",
+	}
+}

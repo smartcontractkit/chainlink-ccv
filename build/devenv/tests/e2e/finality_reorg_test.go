@@ -3,7 +3,9 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
@@ -14,17 +16,18 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
-// TestSimpleReorgWithMessageOrdering tests that messages sent in different orders
+// TestE2EReorg tests that messages sent in different orders
 // before and after a reorg are correctly verified after finality is reached.
 // IMPORTANT: Need to run this test against an env that has source chain with auto mining.
 // Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
-func TestSimpleReorgWithMessageOrdering(t *testing.T) {
+func TestE2EReorg(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
 
@@ -180,5 +183,68 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		l.Info().
 			Msg("✨ Test completed: Messages sent in swapped order after reorg and verified after finality")
+	})
+
+	t.Run("finality violation", func(t *testing.T) {
+		// Setup log asserter to verify finality violation detection
+		lokiURL := os.Getenv("LOKI_QUERY_URL")
+		if lokiURL == "" {
+			lokiURL = "ws://localhost:3030"
+		}
+		logAsserterLogger := l.With().Str("component", "log-asserter").Logger()
+		logAssert := logasserter.New(lokiURL, logAsserterLogger)
+		err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
+			logasserter.FinalityViolationDetected(),
+		})
+		if err != nil {
+			t.Logf("Warning: Could not start log asserter: %v", err)
+		} else {
+			t.Cleanup(func() {
+				logAssert.StopStreaming()
+			})
+		}
+
+		l.Info().Msg("💾 Creating initial snapshot before mining blocks")
+		snapshotID, err := anvilHelper.Snapshot(ctx)
+		require.NoError(t, err)
+		l.Info().Str("snapshotID", snapshotID).Msg("✅ Initial snapshot created")
+
+		l.Info().Int("blocks", verifier.ConfirmationDepth+1).Msg("⛏️  Mining blocks to establish finalized state")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+1)
+		l.Info().Msg("✅ Finalized state established")
+
+		l.Info().Msg("📨 Sending pre-violation message")
+		preViolationMessageID := sendMessageWithLogging("pre-violation message", "Sending pre-violation message")
+
+		// Mine additional blocks to cross finality threshold for this message
+		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to cross finality threshold")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+
+		// Wait for message to be processed and appear in aggregator
+		verifyMessageExists(preViolationMessageID, "Pre-violation message")
+
+		l.Info().Msg("Sending message to be dropped once finality violation happens")
+		toBeDroppedMessageID := sendMessageWithLogging("toBeDropped message", "Sending toBeDropped message")
+
+		l.Info().Msg("⚠️  Triggering finality violation by reverting to initial snapshot")
+		err = anvilHelper.Revert(ctx, snapshotID)
+		require.NoError(t, err)
+		l.Info().Msg("✅ Reverted to initial snapshot (deep reorg past finalized blocks)")
+
+		// Mine some blocks to give system opportunity to process (if it were working)
+		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+
+		l.Info().Msg("⏳ Waiting for verifier to detect finality violation...")
+		// Wait for the "FINALITY VIOLATION DETECTED" log to appear
+		violationCtx, violationCancel := context.WithTimeout(ctx, 15*time.Second)
+		defer violationCancel()
+		_, err = logAssert.WaitForPatternOnly(violationCtx, logasserter.FinalityViolationDetected())
+		require.NoError(t, err, "finality violation should be detected and logged")
+
+		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
+
+		l.Info().
+			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")
 	})
 }

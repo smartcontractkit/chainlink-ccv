@@ -119,7 +119,7 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 // Stop stops the reader and closes the messages channel.
 func (r *SourceReaderService) Stop() error {
 	return r.sync.StopOnce("SourceReaderService", func() error {
-		r.logger.Infow("Stopping SourceReaderService")
+		r.logger.Infow("Stopping SourceReaderService", "chainSelector", r.chainSelector)
 		close(r.stopCh)
 
 		// Wait for goroutine WITHOUT holding lock to avoid deadlock
