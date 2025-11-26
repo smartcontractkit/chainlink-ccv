@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pelletier/go-toml/v2"
+	"github.com/BurntSushi/toml"
 )
 
 // Config provides all configuration for the indexer.
@@ -145,6 +145,7 @@ type DiscoveryConfig struct {
 	AggregatorReaderConfig
 	PollInterval int
 	Timeout      int
+	NtpServer    string
 }
 
 type VerifierConfig struct {

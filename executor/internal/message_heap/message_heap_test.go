@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -17,7 +18,7 @@ func createTestMessage(nonce, sourceChain, destChain uint64) *protocol.Message {
 	}
 }
 
-func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimestamps {
+func createMessageWithTimestamp(readyTime time.Time, nonce uint64) *MessageWithTimestamps {
 	msg := createTestMessage(nonce, 1, 2)
 	msgID, err := msg.MessageID()
 	if err != nil {
@@ -32,26 +33,29 @@ func createMessageWithTimestamp(readyTime int64, nonce uint64) *MessageWithTimes
 }
 
 func TestMessageHeap_PeekTime(t *testing.T) {
+	t1 := time.Unix(100, 0)
+	t2 := time.Unix(200, 0)
+	t3 := time.Unix(300, 0)
 	tests := []struct {
 		name     string
 		messages []*MessageWithTimestamps
-		expected int64
+		expected time.Time
 	}{
 		{
 			name: "single element heap",
 			messages: []*MessageWithTimestamps{
-				createMessageWithTimestamp(100, 1),
+				createMessageWithTimestamp(t1, 1),
 			},
-			expected: 100,
+			expected: t1,
 		},
 		{
 			name: "multi-element heap - should return earliest",
 			messages: []*MessageWithTimestamps{
-				createMessageWithTimestamp(300, 3),
-				createMessageWithTimestamp(100, 1),
-				createMessageWithTimestamp(200, 2),
+				createMessageWithTimestamp(t3, 3),
+				createMessageWithTimestamp(t1, 1),
+				createMessageWithTimestamp(t2, 2),
 			},
-			expected: 100,
+			expected: t1,
 		},
 	}
 
@@ -72,18 +76,23 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 }
 
 func TestMessageHeap_PopAllReady(t *testing.T) {
+	t05 := time.Unix(50, 0)
+	t1 := time.Unix(100, 0)
+	t15 := time.Unix(150, 0)
+	t2 := time.Unix(200, 0)
+	t3 := time.Unix(300, 0)
 	tests := []struct {
 		name           string
 		messages       []*MessageWithTimestamps
 		expectedNonces []uint64
-		timestamp      int64
+		timestamp      time.Time
 		expectedCount  int
 		remainingCount int
 	}{
 		{
 			name:           "empty heap",
 			messages:       []*MessageWithTimestamps{},
-			timestamp:      100,
+			timestamp:      t1,
 			expectedCount:  0,
 			expectedNonces: []uint64{},
 			remainingCount: 0,
@@ -91,10 +100,10 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		{
 			name: "no messages ready",
 			messages: []*MessageWithTimestamps{
-				createMessageWithTimestamp(300, 2),
-				createMessageWithTimestamp(200, 1),
+				createMessageWithTimestamp(t3, 2),
+				createMessageWithTimestamp(t2, 1),
 			},
-			timestamp:      100,
+			timestamp:      t1,
 			expectedCount:  0,
 			expectedNonces: []uint64{},
 			remainingCount: 2,
@@ -102,12 +111,12 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		{
 			name: "some messages ready",
 			messages: []*MessageWithTimestamps{
-				createMessageWithTimestamp(300, 4),
-				createMessageWithTimestamp(200, 3),
-				createMessageWithTimestamp(50, 1),
-				createMessageWithTimestamp(100, 2),
+				createMessageWithTimestamp(t3, 4),
+				createMessageWithTimestamp(t2, 3),
+				createMessageWithTimestamp(t05, 1),
+				createMessageWithTimestamp(t1, 2),
 			},
-			timestamp:      150,
+			timestamp:      t15,
 			expectedCount:  2,
 			expectedNonces: []uint64{1, 2},
 			remainingCount: 2,
@@ -115,11 +124,11 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 		{
 			name: "all messages ready",
 			messages: []*MessageWithTimestamps{
-				createMessageWithTimestamp(150, 3),
-				createMessageWithTimestamp(50, 1),
-				createMessageWithTimestamp(100, 2),
+				createMessageWithTimestamp(t2, 3),
+				createMessageWithTimestamp(t05, 1),
+				createMessageWithTimestamp(t1, 2),
 			},
-			timestamp:      200,
+			timestamp:      t2,
 			expectedCount:  3,
 			expectedNonces: []uint64{1, 2, 3},
 			remainingCount: 0,
@@ -161,6 +170,10 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 }
 
 func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
+	t0_5 := time.Unix(50, 0)
+	t1 := time.Unix(100, 0)
+	t2 := time.Unix(200, 0)
+	t3 := time.Unix(300, 0)
 	mh := &ReadyTimestampHeap{}
 	heap.Init(mh)
 
@@ -171,10 +184,10 @@ func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
 
 	// Push some messages out of order
 	messages := []*MessageWithTimestamps{
-		createMessageWithTimestamp(50, 0),
-		createMessageWithTimestamp(300, 3),
-		createMessageWithTimestamp(100, 1),
-		createMessageWithTimestamp(200, 2),
+		createMessageWithTimestamp(t0_5, 0),
+		createMessageWithTimestamp(t3, 3),
+		createMessageWithTimestamp(t1, 1),
+		createMessageWithTimestamp(t2, 2),
 	}
 
 	for _, msg := range messages {
@@ -183,7 +196,7 @@ func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
 			MessageID: msg.MessageID,
 		})
 		// Verify heap property - should always return earliest time
-		if mh.Peek().ReadyTime != 50 {
+		if mh.Peek().ReadyTime != t0_5 {
 			t.Errorf("peekTime() = %v, want 50", mh.Peek().ReadyTime)
 		}
 	}
