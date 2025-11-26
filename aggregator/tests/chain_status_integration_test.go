@@ -180,7 +180,7 @@ func TestChainStatusClientIsolation(t *testing.T) {
 
 		// Create all clients upfront
 		type clientInfo struct {
-			client   pb.AggregatorClient
+			client   pb.CommitteeVerifierClient
 			clientID string
 			cleanup  func()
 		}
@@ -371,7 +371,7 @@ func TestChainStatusConcurrency(t *testing.T) {
 
 		// Create all clients upfront
 		type clientInfo struct {
-			client   pb.AggregatorClient
+			client   pb.CommitteeVerifierClient
 			clientID string
 			cleanup  func()
 		}
@@ -743,7 +743,7 @@ func TestChainStatusAdminAPI(t *testing.T) {
 		defer verifier3Cleanup()
 
 		// Each verifier stores initial data
-		for i, client := range []pb.AggregatorClient{verifier1Client, verifier2Client, verifier3Client} {
+		for i, client := range []pb.CommitteeVerifierClient{verifier1Client, verifier2Client, verifier3Client} {
 			initialReq := &pb.WriteChainStatusRequest{
 				Statuses: []*pb.ChainStatus{
 					{ChainSelector: 1, FinalizedBlockHeight: uint64((i + 1) * 1000), Disabled: false},
