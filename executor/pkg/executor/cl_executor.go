@@ -71,8 +71,7 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		return fmt.Errorf("failed to get message ID: %w", err)
 	}
 
-	// Fetch CCV data from the indexer and CCV info from the destination reader
-	// concurrently.
+	// Fetch CCV data from the indexer and CCV info from the destination reader concurrently.
 	g, errGroupCtx := errgroup.WithContext(ctx)
 	ccvData := make([]protocol.VerifierResult, 0)
 	g.Go(func() error {
@@ -83,9 +82,20 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 
 		for _, r := range res {
 			if !r.MessageExecutorAddress.Equal(cle.defaultExecutorAddress[destinationChain]) {
-				return fmt.Errorf("messageID %s did not specify our executor %s", messageID.String(), cle.defaultExecutorAddress[destinationChain].String())
+				cle.lggr.Warnw("Verifier Result did not specify our executor",
+					"verifierResult", r,
+				)
+				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
+				continue
 			}
-			// should we also validate messageID and other fields from the verifier result?
+			if err := r.ValidateFieldsConsistent(); err != nil {
+				cle.lggr.Warnw("Verifier Result fields are inconsistent",
+					"verifierResult", r,
+					"error", err,
+				)
+				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
+				continue
+			}
 			ccvData = append(ccvData, r)
 		}
 		return nil
