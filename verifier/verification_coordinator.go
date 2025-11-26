@@ -245,7 +245,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
 				vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
 					"chain", chainSelector,
-					"blockHeight", chainStatus.BlockNumber)
+					"blockHeight", chainStatus.FinalizedBlockHeight)
 				continue
 			}
 
@@ -993,9 +993,9 @@ func (vc *Coordinator) handleFinalityViolation(
 		blockHeight := big.NewInt(0)
 		err := vc.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 			{
-				ChainSelector: chainSelector,
-				BlockNumber:   blockHeight,
-				Disabled:      true,
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: blockHeight,
+				Disabled:             true,
 			},
 		})
 		if err != nil {
