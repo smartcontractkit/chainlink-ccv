@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
+
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
@@ -172,15 +174,30 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		}
 	}
 	if len(verifierBlob) == 0 {
-		issuers := make([]string, len(verificationTask.ReceiptBlobs))
-		for i, receipt := range verificationTask.ReceiptBlobs {
-			issuers[i] = receipt.Issuer.String()
+		// We didn't find a verifier blob, so look for the default executor issuer.
+		var found bool
+		for _, receipt := range verificationTask.ReceiptBlobs {
+			if bytes.Equal(receipt.Issuer.Bytes(), sourceConfig.DefaultExecutorAddress.Bytes()) {
+				found = true
+				break
+			}
 		}
-		return fmt.Errorf("verifier blob not found for message %s, all issuers: %v, expected issuer: %s",
-			messageID.String(),
-			issuers,
-			sourceConfig.VerifierAddress.String(),
-		)
+		if !found {
+			issuers := make([]string, len(verificationTask.ReceiptBlobs))
+			for i, receipt := range verificationTask.ReceiptBlobs {
+				issuers[i] = receipt.Issuer.String()
+			}
+			return fmt.Errorf("neither verifier nor default executor blob found for message %s, all issuers: %v, expected issuer: %s (verifier) or %s (default executor)",
+				messageID.String(),
+				issuers,
+				sourceConfig.VerifierAddress.String(),
+				sourceConfig.DefaultExecutorAddress.String(),
+			)
+		}
+
+		// Fall back to the message discovery version if the default executor is found.
+		verifierBlob = protocol.MessageDiscoveryVersion
+		cv.lggr.Infow("Using message discovery version for message", "messageID", messageID, "version", hexutil.Encode(verifierBlob))
 	}
 	hash, err := committee.NewSignableHash(messageID, verifierBlob)
 	if err != nil {

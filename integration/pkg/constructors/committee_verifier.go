@@ -56,6 +56,11 @@ func NewVerificationCoordinator(
 		lggr.Errorw("Invalid CCV configuration, failed to map RMN Remote addresses.", "error", err)
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map RMN Remote addresses: %w", err)
 	}
+	defaultExecutorAddrs, err := mapAddresses(cfg.DefaultExecutorOnRampAddresses)
+	if err != nil {
+		lggr.Errorw("Invalid CCV configuration, failed to map default executor addresses.", "error", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map default executor addresses: %w", err)
+	}
 
 	// TODO: monitoring config home
 	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
@@ -107,9 +112,11 @@ func NewVerificationCoordinator(
 
 		sourceReaders[sel] = observedSourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
-			VerifierAddress: verifierAddrs[sel],
-			PollInterval:    1 * time.Second, // TODO: make configurable
-			ChainSelector:   sel,
+			VerifierAddress:        verifierAddrs[sel],
+			DefaultExecutorAddress: defaultExecutorAddrs[sel],
+			PollInterval:           1 * time.Second, // TODO: make configurable
+			ChainSelector:          sel,
+			RMNRemoteAddress:       rmnRemoteAddrs[sel],
 		}
 	}
 
@@ -175,10 +182,4 @@ func NewVerificationCoordinator(
 	}
 
 	return verifierCoordinator, nil
-	/*
-		for {
-			lggr.Infow("verifier health", "HealthCheck()", verifierCoordinator.HealthReport())
-			time.Sleep(10 * time.Second)
-		}
-	*/
 }

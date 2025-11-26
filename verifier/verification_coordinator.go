@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -262,11 +263,13 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				sourcePollInterval = sourceCfg.PollInterval
 			}
 
+			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
+
 			service := NewSourceReaderService(
 				sourceReader,
 				chainSelector,
 				vc.chainStatusManager,
-				vc.lggr,
+				readerLogger,
 				sourcePollInterval,
 			)
 
@@ -281,35 +284,53 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				verificationTaskCh: service.VerificationTaskChannel(),
 			}
 
+			var detector protocol.ReorgDetector
+
 			// Setup ReorgDetector (if provided)
-			// TODO: Initialize reorgDetectorService like the sourceReaderService - we can keep the WithReorgDetector option and create them if they're not present
-			if detector, hasDetector := vc.reorgDetectors[chainSelector]; hasDetector {
-				// Start detector (blocks until initial tail is built and subscription is established)
-				reorgStatusCh, err := detector.Start(ctx)
-				if err != nil {
-					vc.lggr.Errorw("Failed to start reorg detector",
-						"chainSelector", chainSelector,
-						"error", err)
-					// TODO: Should we make the reorg detector mandatory to the point we stop the
-					// 	reader as I'm doing here?
-					_ = service.Stop()
-				} else {
-					// Store reorg detection components
-					state.reorgDetector = detector
-					state.reorgStatusCh = reorgStatusCh
-
-					vc.lggr.Infow("Reorg detector started successfully",
-						"chainSelector", chainSelector)
-
-					// Spawn processReorgUpdates goroutine
-					vc.backgroundWg.Add(1)
-					go func(s *sourceState) {
-						defer vc.backgroundWg.Done()
-						vc.processReorgUpdates(ctx, s)
-					}(state)
+			d, ok := vc.reorgDetectors[chainSelector]
+			if !ok {
+				// create the detector
+				reorgDetectorConfig := vservices.ReorgDetectorConfig{
+					ChainSelector: chainSelector,
+					PollInterval:  2 * time.Second, // TODO: make configurable
 				}
+
+				d2, err := vservices.NewReorgDetectorService(
+					vc.sourceReaders[chainSelector],
+					reorgDetectorConfig,
+					logger.With(vc.lggr, "component", "ReorgDetector", "chainID", chainSelector),
+				)
+				if err != nil {
+					vc.lggr.Errorw("Failed to create reorg detector", "error", err, "chainID", chainSelector)
+				}
+				detector = d2
 			} else {
-				vc.lggr.Infow("No reorg detector provided for chain, reorg detection disabled", "chainSelector", chainSelector)
+				vc.lggr.Infow("Using existing reorg detector", "chainSelector", chainSelector)
+				detector = d
+			}
+
+			reorgStatusCh, err := detector.Start(ctx)
+			if err != nil {
+				vc.lggr.Errorw("Failed to start reorg detector",
+					"chainSelector", chainSelector,
+					"error", err)
+				// TODO: Should we make the reorg detector mandatory to the point we stop the
+				// 	reader as I'm doing here?
+				_ = service.Stop()
+			} else {
+				// Store reorg detection components
+				state.reorgDetector = detector
+				state.reorgStatusCh = reorgStatusCh
+
+				vc.lggr.Infow("Reorg detector started successfully",
+					"chainSelector", chainSelector)
+
+				// Spawn processReorgUpdates goroutine
+				vc.backgroundWg.Add(1)
+				go func(s *sourceState) {
+					defer vc.backgroundWg.Done()
+					vc.processReorgUpdates(ctx, s)
+				}(state)
 			}
 
 			vc.sourceStates[chainSelector] = state
@@ -681,6 +702,13 @@ func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *
 	latestBlock := new(big.Int).SetUint64(latest.Number)
 	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
 
+	vc.lggr.Infow("Checking finality queue",
+		"chain", chainSelector,
+		"latestBlock", latestBlock.String(),
+		"latestFinalizedBlock", latestFinalizedBlock.String(),
+		"queueSize", len(state.pendingTasks),
+	)
+
 	// Check finality for each task
 	for _, task := range state.pendingTasks {
 		msgContextLggr := logger.With(
@@ -1020,6 +1048,16 @@ func (vc *Coordinator) isMessageReadyForVerification(
 		// Custom finality: message_block + finality_config <= latest_block
 		requiredBlock := new(big.Int).Add(messageBlockNumber, new(big.Int).SetUint64(uint64(finalityConfig)))
 		ready = requiredBlock.Cmp(latestBlock) <= 0
+
+		vc.lggr.Infow("Checking custom finality requirement",
+			"messageID", messageID,
+			"messageBlock", messageBlockNumber.String(),
+			"finalityConfig", finalityConfig,
+			"requiredBlock", requiredBlock.String(),
+			"latestBlock", latestBlock.String(),
+			"ready", ready,
+		)
+
 		if ready {
 			vc.lggr.Debugw("Message meets custom finality requirement",
 				"messageID", messageID,

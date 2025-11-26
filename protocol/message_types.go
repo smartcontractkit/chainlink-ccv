@@ -20,6 +20,14 @@ const (
 	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
 )
 
+var (
+	vHash = Keccak256([]byte("CCIP1.7_MessageDiscovery_Version"))
+	// MessageDiscoveryVersion is the version used by the committee verifier to sign messages
+	// that only need to be discovered, and not verified onchain.
+	// 0x3c4605eb in hex.
+	MessageDiscoveryVersion = vHash[:4]
+)
+
 // TokenTransfer represents a chain-agnostic token transfer with canonical encoding.
 type TokenTransfer struct {
 	Amount                   *big.Int  `json:"amount"`

@@ -62,18 +62,16 @@ const (
 
 func mockLatestBlocks(reader *protocol_mocks.MockSourceReader) *protocol_mocks.MockSourceReader {
 	latestHeader := &protocol.BlockHeader{
-		Number:               latestBlockHeight,
-		Hash:                 protocol.Bytes32{byte(latestBlockHeight % 256)},
-		ParentHash:           protocol.Bytes32{byte((latestBlockHeight - 1) % 256)},
-		Timestamp:            time.Now(),
-		FinalizedBlockNumber: finalizedBlockHeight,
+		Number:     latestBlockHeight,
+		Hash:       protocol.Bytes32{byte(latestBlockHeight % 256)},
+		ParentHash: protocol.Bytes32{byte((latestBlockHeight - 1) % 256)},
+		Timestamp:  time.Now(),
 	}
 	finalizedHeader := &protocol.BlockHeader{
-		Number:               finalizedBlockHeight,
-		Hash:                 protocol.Bytes32{byte(finalizedBlockHeight % 256)},
-		ParentHash:           protocol.Bytes32{byte((finalizedBlockHeight - 1) % 256)},
-		Timestamp:            time.Now(),
-		FinalizedBlockNumber: finalizedBlockHeight,
+		Number:     finalizedBlockHeight,
+		Hash:       protocol.Bytes32{byte(finalizedBlockHeight % 256)},
+		ParentHash: protocol.Bytes32{byte((finalizedBlockHeight - 1) % 256)},
+		Timestamp:  time.Now(),
 	}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latestHeader, finalizedHeader, nil).Maybe()
 	return reader
@@ -136,6 +134,8 @@ func TestNewVerifierCoordinator(t *testing.T) {
 	mockSetup := verifier.SetupMockSourceReader(t)
 	mockReader := mockSetup.Reader
 	mockSetup.ExpectFetchMessageSentEvent(true)
+
+	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockReader,
