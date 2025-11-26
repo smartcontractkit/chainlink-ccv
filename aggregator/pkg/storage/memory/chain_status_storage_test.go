@@ -288,7 +288,6 @@ func TestChainStatusStorage(t *testing.T) {
 		require.Error(t, err, "zero chain selector should return error")
 		require.Contains(t, err.Error(), "chain_selector must be greater than 0")
 	})
-
 }
 
 // TestClientChainStatuses tests the ClientChainStatuses struct.
