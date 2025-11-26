@@ -14,6 +14,7 @@ const (
 	readerCacheExpiryDefault = 5 * time.Minute
 	maxRetryDurationDefault  = 8 * time.Hour
 	executionIntervalDefault = 1 * time.Minute
+	ntpServerDefault         = "time.google.com"
 )
 
 // Configuration is the complete set of information an executor needs to operate normally.
@@ -45,6 +46,9 @@ type Configuration struct {
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before giving up.
 	// Defaults to 8 hours.
 	MaxRetryDuration time.Duration `toml:"max_retry_duration"`
+	// NtpServer is the NTP server to use for time synchronization.
+	// Defaults to time.google.com
+	NtpServer string `toml:"ntp_server"`
 	// ChainConfiguration is a map of chain selector to chain configuration.
 	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
 	ChainConfiguration map[string]ChainConfiguration `toml:"chain_configuration"`
@@ -61,6 +65,8 @@ type ChainConfiguration struct {
 	ExecutorPool []string `toml:"executor_pool"`
 	// ExecutionInterval is how long each executor has to process a message before the next executor in the cluster takes over.
 	ExecutionInterval time.Duration `toml:"execution_interval"`
+	// DefaultExecutorAddress is the address of the default executor to check against the message receipts.
+	DefaultExecutorAddress string `toml:"default_executor_address"`
 }
 
 func (c *Configuration) Validate() error {
@@ -92,6 +98,9 @@ func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 	// Validate first using the current Validate method.
 	if err := normalized.Validate(); err != nil {
 		return nil, err
+	}
+	if c.NtpServer == "" {
+		normalized.NtpServer = ntpServerDefault
 	}
 
 	// Set default durations if missing or invalid.

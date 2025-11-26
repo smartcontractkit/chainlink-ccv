@@ -20,6 +20,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	execcontract "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
@@ -43,18 +44,19 @@ const (
 var executorConfigTemplate string
 
 type ExecutorInput struct {
-	Mode             Mode              `toml:"mode"`
-	Out              *ExecutorOutput   `toml:"-"`
-	Image            string            `toml:"image"`
-	SourceCodePath   string            `toml:"source_code_path"`
-	RootPath         string            `toml:"root_path"`
-	ContainerName    string            `toml:"container_name"`
-	Port             int               `toml:"port"`
-	UseCache         bool              `toml:"use_cache"`
-	OfframpAddresses map[uint64]string `toml:"offramp_addresses"`
-	ExecutorPool     []string          `toml:"executor_pool"`
-	ExecutorID       string            `toml:"executor_id"`
-	RmnAddresses     map[uint64]string `toml:"rmn_addresses"`
+	Mode              Mode              `toml:"mode"`
+	Out               *ExecutorOutput   `toml:"-"`
+	Image             string            `toml:"image"`
+	SourceCodePath    string            `toml:"source_code_path"`
+	RootPath          string            `toml:"root_path"`
+	ContainerName     string            `toml:"container_name"`
+	Port              int               `toml:"port"`
+	UseCache          bool              `toml:"use_cache"`
+	OfframpAddresses  map[uint64]string `toml:"offramp_addresses"`
+	ExecutorPool      []string          `toml:"executor_pool"`
+	ExecutorID        string            `toml:"executor_id"`
+	RmnAddresses      map[uint64]string `toml:"rmn_addresses"`
+	ExecutorAddresses map[uint64]string `toml:"executor_addresses"`
 
 	// Only used in standalone mode.
 	TransmitterPrivateKey string `toml:"transmitter_private_key"`
@@ -73,18 +75,19 @@ func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) 
 		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
 	config.ChainConfiguration = make(map[string]executor.ChainConfiguration, len(v.OfframpAddresses))
-	for chainID, address := range v.OfframpAddresses {
+	for chainSelector, address := range v.OfframpAddresses {
 		if len(v.ExecutorPool) == 0 {
 			return nil, errors.New("invalid ExecutorPool, should be non-empty")
 		}
 		if !slices.Contains(v.ExecutorPool, v.ExecutorID) {
 			return nil, fmt.Errorf("invalid ExecutorID %s, should be in ExecutorPool %+v", v.ExecutorID, v.ExecutorPool)
 		}
-		config.ChainConfiguration[strconv.FormatUint(chainID, 10)] = executor.ChainConfiguration{
-			OffRampAddress:    address,
-			RmnAddress:        v.RmnAddresses[chainID],
-			ExecutionInterval: 15 * time.Second,
-			ExecutorPool:      v.ExecutorPool,
+		config.ChainConfiguration[strconv.FormatUint(chainSelector, 10)] = executor.ChainConfiguration{
+			OffRampAddress:         address,
+			RmnAddress:             v.RmnAddresses[chainSelector],
+			ExecutionInterval:      15 * time.Second,
+			ExecutorPool:           v.ExecutorPool,
+			DefaultExecutorAddress: v.ExecutorAddresses[chainSelector],
 		}
 	}
 
@@ -251,6 +254,7 @@ func ResolveContractsForExecutor(ds datastore.DataStore, blockchains []*blockcha
 	for _, exec := range execs {
 		exec.OfframpAddresses = make(map[uint64]string)
 		exec.RmnAddresses = make(map[uint64]string)
+		exec.ExecutorAddresses = make(map[uint64]string)
 	}
 
 	for _, chain := range blockchains {
@@ -280,9 +284,20 @@ func ResolveContractsForExecutor(ds datastore.DataStore, blockchains []*blockcha
 			return nil, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
 		}
 
+		defaultExecutorAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(execcontract.ContractType),
+			semver.MustParse(execcontract.Deploy.Version()),
+			"",
+		))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get executor address for chain %s: %w", chain.ChainID, err)
+		}
+
 		for _, exec := range execs {
 			exec.OfframpAddresses[networkInfo.ChainSelector] = offRampAddressRef.Address
 			exec.RmnAddresses[networkInfo.ChainSelector] = rmnRemoteAddressRef.Address
+			exec.ExecutorAddresses[networkInfo.ChainSelector] = defaultExecutorAddressRef.Address
 		}
 	}
 

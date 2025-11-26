@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -193,15 +194,12 @@ func main() {
 	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
 
 	//
-	// Initialize Message Handler
-	// ------------------------------------------------------------------------------------------------
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, indexerClient, executorMonitoring)
-
-	//
-	// Initialize leader elector
+	// Parse per chain configuration from executor configuration
 	// ------------------------------------------------------------------------------------------------
 	execPool := make(map[protocol.ChainSelector][]string)
 	execIntervals := make(map[protocol.ChainSelector]time.Duration)
+	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+
 	for strSel, chainConfig := range executorConfig.ChainConfiguration {
 		selector, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
@@ -210,7 +208,21 @@ func main() {
 		}
 		execPool[protocol.ChainSelector(selector)] = chainConfig.ExecutorPool
 		execIntervals[protocol.ChainSelector(selector)] = chainConfig.ExecutionInterval
+		defaultExecutorAddresses[protocol.ChainSelector(selector)], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
+		if err != nil {
+			lggr.Errorw("Invalid default executor address in configuration", "error", err, "chainSelector", strSel)
+			continue
+		}
 	}
+
+	//
+	// Initialize Message Handler
+	// ------------------------------------------------------------------------------------------------
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, indexerClient, executorMonitoring, defaultExecutorAddresses)
+
+	//
+	// Initialize leader elector
+	// ------------------------------------------------------------------------------------------------
 	le := leaderelector.NewHashBasedLeaderElector(
 		lggr,
 		execPool,
@@ -228,6 +240,7 @@ func main() {
 			QueryLimit:      executorConfig.IndexerQueryLimit,
 		})
 
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 	//
 	// Initialize executor coordinator
 	// ------------------------------------------------------------------------------------------------
@@ -238,6 +251,7 @@ func main() {
 		le,
 		executorMonitoring,
 		executorConfig.MaxRetryDuration,
+		timeProvider,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)

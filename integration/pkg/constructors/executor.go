@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	timeprovider "github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -38,6 +39,7 @@ func NewExecutorCoordinator(
 	rmnAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	execPool := make(map[protocol.ChainSelector][]string, len(cfg.ChainConfiguration))
 	execIntervals := make(map[protocol.ChainSelector]time.Duration, len(cfg.ChainConfiguration))
+	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	for selStr, chainConfig := range cfg.ChainConfiguration {
 		intSel, err := strconv.ParseUint(selStr, 10, 64)
 		if err != nil {
@@ -54,6 +56,10 @@ func NewExecutorCoordinator(
 		}
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
+		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse default executor address '%s': %w", chainConfig.DefaultExecutorAddress, err)
+		}
 	}
 
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
@@ -123,6 +129,7 @@ func NewExecutorCoordinator(
 		curseChecker,
 		indexerClient,
 		executorMonitoring,
+		defaultExecutorAddresses,
 	)
 
 	// create hash-based leader elector
@@ -143,6 +150,8 @@ func NewExecutorCoordinator(
 			QueryLimit:      cfg.IndexerQueryLimit,
 		})
 
+	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration, cfg.NtpServer)
+
 	exec, err := executor.NewCoordinator(
 		logger.With(lggr, "component", "Coordinator"),
 		ex,
@@ -150,6 +159,7 @@ func NewExecutorCoordinator(
 		le,
 		executorMonitoring,
 		cfg.MaxRetryDuration,
+		backoffProvider,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)

@@ -521,6 +521,22 @@ type VerifierNodeResult struct {
 	Signature       ByteSlice        `json:"signature"`
 }
 
+func (vr *VerifierResult) ValidateFieldsConsistent() error {
+	err := vr.Message.ValidateCCVAndExecutorHash(vr.MessageCCVAddresses, vr.MessageExecutorAddress)
+	if err != nil {
+		return fmt.Errorf("failed to validate ccv and executor hash: %w", err)
+	}
+
+	checkedMessageID, err := vr.Message.MessageID()
+	if err != nil {
+		return fmt.Errorf("failed to get message ID: %w", err)
+	}
+	if checkedMessageID != vr.MessageID {
+		return fmt.Errorf("message ID mismatch: %s != %s", checkedMessageID.String(), vr.MessageID.String())
+	}
+	return nil
+}
+
 // QueryResponse represents the response from CCV data queries.
 type QueryResponse struct {
 	Timestamp *int64         `json:"timestamp,omitempty"`

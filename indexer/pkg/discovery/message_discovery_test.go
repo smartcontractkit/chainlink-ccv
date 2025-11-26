@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
@@ -72,6 +73,9 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config config.DiscoveryC
 		EmitEmptyResponses: true, // Return empty slice when no messages ready
 	})
 
+	timeProvider := ccvcommon.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
+
 	// Wrap mock reader with ResilientReader for testing
 	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
 
@@ -80,6 +84,7 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config config.DiscoveryC
 	discovery, _ := NewAggregatorMessageDiscovery(
 		WithLogger(lggr),
 		WithRegistry(registry),
+		WithTimeProvider(timeProvider),
 		WithMonitoring(mon),
 		WithStorage(store),
 		WithAggregator(resilientReader),
@@ -108,6 +113,8 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config config.DiscoveryCon
 	mon := monitoring.NewNoopIndexerMonitoring()
 	store := storage.NewInMemoryStorage(lggr, mon)
 
+	timeProvider := ccvcommon.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 	mockReader := readers.NewMockReader(readers.MockReaderConfig{
 		EmitEmptyResponses: true,
 	})
@@ -118,6 +125,7 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config config.DiscoveryCon
 	discovery, _ := NewAggregatorMessageDiscovery(
 		WithLogger(lggr),
 		WithRegistry(registry),
+		WithTimeProvider(timeProvider),
 		WithMonitoring(mon),
 		WithStorage(store),
 		WithAggregator(resilientReader),
@@ -158,6 +166,7 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 		WithLogger(lggr),
 		WithMonitoring(mon),
 		WithRegistry(registry),
+		WithTimeProvider(ccvcommon.NewMockTimeProvider(t)),
 		WithStorage(store),
 		WithAggregator(resilientReader),
 		WithConfig(config),
