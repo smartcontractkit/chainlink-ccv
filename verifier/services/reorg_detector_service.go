@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -80,6 +81,9 @@ type ReorgDetectorService struct {
 
 	// Polling configuration
 	pollInterval time.Duration
+
+	// Finality violation flag - once set, no more notifications are sent
+	finalityViolated atomic.Bool
 }
 
 // NewReorgDetectorService creates a new reorg detector service.
@@ -671,7 +675,10 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 	r.lggr.Infow("Finding block after LCA",
 		"chainSelector", r.config.ChainSelector,
 		"currentBlock", currentBlock.Number,
-		"ourFinalizedBlock", ourFinalizedBlock)
+		"currentBlockHash", currentBlock.Hash,
+		"ourFinalizedBlock", ourFinalizedBlock,
+		"ourLatestBlock", r.latestBlock,
+		"tailSize", len(r.tailBlocks))
 
 	// 1. Determine range to fetch: [our finalized, currentBlock]
 	// Use OUR finalized block, not new chain's finalized, because LCA could be below new finalized
@@ -837,6 +844,14 @@ func (r *ReorgDetectorService) rebuildTailFromBlock(ctx context.Context, startBl
 
 // sendReorgNotification sends a reorg notification with the common ancestor block.
 func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
+	// Don't send any more notifications if finality was violated
+	if r.finalityViolated.Load() {
+		r.lggr.Warnw("Skipping reorg notification - finality already violated",
+			"chainSelector", r.config.ChainSelector,
+			"lcaBlockNumber", lcaBlockNumber)
+		return
+	}
+
 	status := protocol.ChainStatus{
 		Type:         protocol.ReorgTypeNormal,
 		ResetToBlock: lcaBlockNumber,
@@ -854,14 +869,18 @@ func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
 	}
 }
 
-// sendFinalityViolation sends a finality violation notification.
+// sendFinalityViolation sends a finality violation notification and stops the polling loop.
 // No reset block is provided - finality violations require immediate stop and manual intervention.
+// The coordinator is responsible for closing the detector after receiving this notification.
 func (r *ReorgDetectorService) sendFinalityViolation(violatedBlock protocol.BlockHeader, finalizedBlockNum uint64) {
-	r.lggr.Errorw("FINALITY VIOLATION - sending notification",
+	r.lggr.Errorw("FINALITY VIOLATION - sending notification and stopping polling",
 		"chainSelector", r.config.ChainSelector,
 		"violatedBlock", violatedBlock.Number,
 		"violatedHash", violatedBlock.Hash,
 		"finalizedBlock", finalizedBlockNum)
+
+	// Set flag to prevent any more notifications
+	r.finalityViolated.Store(true)
 
 	status := protocol.ChainStatus{
 		Type:         protocol.ReorgTypeFinalityViolation,
@@ -878,19 +897,11 @@ func (r *ReorgDetectorService) sendFinalityViolation(violatedBlock protocol.Bloc
 			"chainSelector", r.config.ChainSelector)
 	}
 
-	// Stop the reorg detector service after finality violation
-	// The chain is compromised and no longer trustworthy - stop polling
-	// Signal the polling loop to stop immediately before Close() completes
+	// Signal the polling loop to stop immediately
+	// The coordinator will close the detector after receiving the notification
 	if r.cancel != nil {
-		r.cancel() // ← Stop polling loop immediately
+		r.cancel()
 	}
-	go func() {
-		if err := r.Close(); err != nil {
-			r.lggr.Errorw("Failed to close reorg detector after finality violation",
-				"chainSelector", r.config.ChainSelector,
-				"error", err)
-		}
-	}()
 }
 
 // finalityViolationError is returned when a reorg violates finality.
