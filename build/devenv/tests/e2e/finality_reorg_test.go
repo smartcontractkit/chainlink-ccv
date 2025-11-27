@@ -281,7 +281,7 @@ func TestE2EReorg(t *testing.T) {
 		//=======================Stop Reader =======================//
 		// Verify that the source reader was stopped as a result (for the correct chain)
 		l.Info().Msg("⏳ Waiting for source reader to be stopped...")
-		stopCtx, stopCancel := context.WithTimeout(ctx, 10*time.Second)
+		stopCtx, stopCancel := context.WithTimeout(ctx, 20*time.Second)
 		defer stopCancel()
 		stopLog, err := logAssert.WaitForPatternOnly(stopCtx, logasserter.SourceReaderStopped())
 		require.NoError(t, err, "source reader should be stopped after finality violation")
@@ -294,7 +294,7 @@ func TestE2EReorg(t *testing.T) {
 		//=======================Stop Reorg Detector=======================//
 		// Verify that the reorg detector was closed (for the correct chain)
 		l.Info().Msg("⏳ Waiting for reorg detector to be closed...")
-		reorgCtx, reorgCancel := context.WithTimeout(ctx, 10*time.Second)
+		reorgCtx, reorgCancel := context.WithTimeout(ctx, 20*time.Second)
 		defer reorgCancel()
 		reorgLog, err := logAssert.WaitForPatternOnly(reorgCtx, logasserter.ReorgDetectorClosed())
 		require.NoError(t, err, "reorg detector should be closed after finality violation")

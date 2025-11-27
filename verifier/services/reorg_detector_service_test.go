@@ -291,3 +291,125 @@ func TestStartAndClose(t *testing.T) {
 		require.Error(t, err, "ReorgDetectorService has already been closed")
 	})
 }
+
+func TestIsFinalityViolated_TableDriven(t *testing.T) {
+	lggr := logger.Test(t)
+	mockSR := protocol_mocks.NewMockSourceReader(t)
+
+	config := ReorgDetectorConfig{ChainSelector: 1337}
+
+	type testCase struct {
+		name            string
+		setup           func(svc *ReorgDetectorService)
+		latest          *protocol.BlockHeader
+		finalized       *protocol.BlockHeader
+		expectViolation bool
+	}
+
+	tests := []testCase{
+		{
+			name: "latest behind finalized with hash mismatch (RPC inconsistent)",
+			setup: func(svc *ReorgDetectorService) {
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					100: {Number: 100, Hash: protocol.Bytes32{0x64}},
+				}
+				svc.latestFinalizedBlock = 100
+			},
+			latest: &protocol.BlockHeader{
+				Number: 99,
+				Hash:   protocol.Bytes32{0x63},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 100,
+				Hash:   protocol.Bytes32{0x64},
+			},
+			expectViolation: true,
+		},
+		{
+			name: "latest behind finalized but consistent with tail (no violation)",
+			setup: func(svc *ReorgDetectorService) {
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					99:  {Number: 99, Hash: protocol.Bytes32{0x63}},
+					100: {Number: 100, Hash: protocol.Bytes32{0x64}},
+				}
+				svc.latestFinalizedBlock = 100
+			},
+			latest: &protocol.BlockHeader{
+				Number: 99,
+				Hash:   protocol.Bytes32{0x63},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 100,
+				Hash:   protocol.Bytes32{0x64},
+			},
+			expectViolation: false,
+		},
+		{
+			name: "finalized went backwards with hash mismatch",
+			setup: func(svc *ReorgDetectorService) {
+				svc.latestFinalizedBlock = 110
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					100: {Number: 100, Hash: protocol.Bytes32{0x64}},
+					110: {Number: 110, Hash: protocol.Bytes32{0x6e}},
+				}
+			},
+			latest: &protocol.BlockHeader{
+				Number: 111,
+				Hash:   protocol.Bytes32{0x6f},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 100,
+				Hash:   protocol.Bytes32{0xaa}, // different from stored
+			},
+			expectViolation: true,
+		},
+		{
+			name: "finalized advanced and exists in tail with hash mismatch",
+			setup: func(svc *ReorgDetectorService) {
+				svc.latestFinalizedBlock = 100
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					101: {Number: 101, Hash: protocol.Bytes32{0x65}},
+				}
+			},
+			latest: &protocol.BlockHeader{
+				Number: 105,
+				Hash:   protocol.Bytes32{0x69},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 101,
+				Hash:   protocol.Bytes32{0xaa}, // mismatching stored
+			},
+			expectViolation: true,
+		},
+		{
+			name: "finalized advanced but not in tail yet (no violation)",
+			setup: func(svc *ReorgDetectorService) {
+				svc.latestFinalizedBlock = 100
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					100: {Number: 100, Hash: protocol.Bytes32{0x64}},
+				}
+			},
+			latest: &protocol.BlockHeader{
+				Number: 105,
+				Hash:   protocol.Bytes32{0x69},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 101,
+				Hash:   protocol.Bytes32{0x65},
+			},
+			expectViolation: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, err := NewReorgDetectorService(mockSR, config, lggr)
+			require.NoError(t, err)
+
+			tt.setup(svc)
+
+			got := svc.isFinalityViolated(tt.latest, tt.finalized)
+			assert.Equal(t, tt.expectViolation, got)
+		})
+	}
+}
