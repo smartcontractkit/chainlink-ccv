@@ -127,20 +127,16 @@ func (s *reorgTestSetup) createCoordinator() *Coordinator {
 	freshMockDetector := newMockReorgDetector()
 
 	coordinator, err := NewCoordinator(
-		WithVerifier(s.testVerifier),
-		WithStorage(s.storage),
-		WithLogger(s.lggr),
-		WithConfig(s.coordinatorConfig),
+		s.lggr,
+		s.testVerifier,
+		map[protocol.ChainSelector]chainaccess.SourceReader{s.chainSelector: s.mockSourceReader},
+		s.storage,
+		s.coordinatorConfig,
+		&NoopLatencyTracker{},
+		&noopMonitoring{},
+		s.finalityCheckInterval,
 		WithChainStatusManager(s.chainStatusManager),
-		WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{
-			s.chainSelector: s.mockSourceReader,
-		}),
-		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{
-			s.chainSelector: freshMockDetector,
-		}),
-		WithMonitoring(&noopMonitoring{}),
-		WithMessageTracker(&NoopLatencyTracker{}),
-		WithFinalityCheckInterval(s.finalityCheckInterval),
+		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{s.chainSelector: freshMockDetector}),
 	)
 	require.NoError(s.t, err)
 

@@ -364,9 +364,9 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 	}
 
 	// Resume from chain status + 1
-	startBlock := new(big.Int).Add(chainStatus.BlockNumber, big.NewInt(1))
+	startBlock := new(big.Int).Add(chainStatus.FinalizedBlockHeight, big.NewInt(1))
 	r.logger.Infow("Resuming from chainStatus",
-		"chainStatusBlock", chainStatus.BlockNumber.String(),
+		"chainStatusBlock", chainStatus.FinalizedBlockHeight.String(),
 		"disabled", chainStatus.Disabled,
 		"startBlock", startBlock.String())
 
@@ -469,9 +469,9 @@ func (r *SourceReaderService) updateChainStatus(ctx context.Context, lastProcess
 	// Write chain status (fire-and-forget, just log errors)
 	err = r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 		{
-			ChainSelector: r.chainSelector,
-			BlockNumber:   chainStatusBlock,
-			Disabled:      false,
+			ChainSelector:        r.chainSelector,
+			FinalizedBlockHeight: chainStatusBlock,
+			Disabled:             false,
 		},
 	})
 	if err != nil {

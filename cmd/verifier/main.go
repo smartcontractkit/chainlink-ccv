@@ -342,14 +342,15 @@ func main() {
 
 	// Create verification coordinator
 	coordinator, err := verifier.NewCoordinator(
-		verifier.WithVerifier(commitVerifier),
-		verifier.WithSourceReaders(sourceReaders),
+		lggr,
+		commitVerifier,
+		sourceReaders,
+		observedStorageWriter,
+		coordinatorConfig,
+		messageTracker,
+		verifierMonitoring,
+		verifier.DefaultFinalityCheckInterval,
 		verifier.WithChainStatusManager(chainStatusManager),
-		verifier.WithStorage(observedStorageWriter),
-		verifier.WithConfig(coordinatorConfig),
-		verifier.WithLogger(lggr),
-		verifier.WithMonitoring(verifierMonitoring),
-		verifier.WithMessageTracker(messageTracker),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

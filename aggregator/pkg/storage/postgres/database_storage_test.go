@@ -97,7 +97,7 @@ func createTestProtocolMessage() *protocol.Message {
 		DestBlobLength:       10,
 		DestBlob:             make([]byte, 10),
 		TokenTransferLength:  0,
-		TokenTransfer:        []byte{},
+		TokenTransfer:        nil,
 		DataLength:           8,
 		Data:                 []byte("testdata"),
 	}
@@ -139,9 +139,14 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 			DestBlobLength:       uint32(message.DestBlobLength),
 			DestBlob:             message.DestBlob[:],
 			TokenTransferLength:  uint32(message.TokenTransferLength),
-			TokenTransfer:        message.TokenTransfer[:],
-			DataLength:           uint32(message.DataLength),
-			Data:                 message.Data[:],
+			TokenTransfer: func() []byte {
+				if message.TokenTransfer != nil {
+					return message.TokenTransfer.Encode()
+				}
+				return []byte{}
+			}(),
+			DataLength: uint32(message.DataLength),
+			Data:       message.Data[:],
 		},
 		CcvVersion:      ccvVersion,
 		CcvAddresses:    ccvAddresses,
@@ -149,7 +154,8 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 	}
 
 	// Now compute the correct messageID from the message with CCV data
-	protocolMessage := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+	protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+	require.NoError(t, err)
 	messageID, err := protocolMessage.MessageID()
 	require.NoError(t, err)
 
@@ -172,7 +178,8 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 
 // getMessageIDFromProto is a helper to derive messageID from the proto message.
 func getMessageIDFromProto(t *testing.T, msgWithCCV *pb.CommitteeVerifierNodeResult) []byte {
-	protocolMessage := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+	protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+	require.NoError(t, err)
 	messageID, err := protocolMessage.MessageID()
 	require.NoError(t, err)
 	return messageID[:]
@@ -817,7 +824,8 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
 
-		protocolMessage := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+		protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+		require.NoError(t, err)
 		messageID, err := protocolMessage.MessageID()
 		require.NoError(t, err)
 

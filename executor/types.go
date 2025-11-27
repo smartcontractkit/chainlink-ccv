@@ -7,7 +7,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
+var (
+	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
+	NtpServer                = "time.google.com"
+)
 
 type AbstractAggregatedReport struct {
 	CCVS    []protocol.UnknownAddress

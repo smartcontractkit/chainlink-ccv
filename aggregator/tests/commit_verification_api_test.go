@@ -667,9 +667,17 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 				DestBlobLength:       uint16(report.VerifierResult.Message.DestBlobLength),
 				DestBlob:             report.VerifierResult.Message.DestBlob,
 				TokenTransferLength:  uint16(report.VerifierResult.Message.TokenTransferLength),
-				TokenTransfer:        report.VerifierResult.Message.TokenTransfer,
 				DataLength:           uint16(report.VerifierResult.Message.DataLength),
 				Data:                 report.VerifierResult.Message.Data,
+			}
+
+			// Decode TokenTransfer if present
+			if report.VerifierResult.Message.TokenTransferLength > 0 && len(report.VerifierResult.Message.TokenTransfer) > 0 {
+				tt, err := protocol.DecodeTokenTransfer(report.VerifierResult.Message.TokenTransfer)
+				require.NoError(t, err, "failed to decode token transfer")
+				msg.TokenTransfer = tt
+			} else {
+				msg.TokenTransfer = nil
 			}
 
 			messageId, err := msg.MessageID()

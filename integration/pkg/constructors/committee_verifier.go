@@ -167,14 +167,15 @@ func NewVerificationCoordinator(
 
 	// Create verification coordinator
 	verifierCoordinator, err := verifier.NewCoordinator(
-		verifier.WithLogger(lggr),
-		verifier.WithVerifier(commitVerifier),
-		verifier.WithSourceReaders(sourceReaders),
+		lggr,
+		commitVerifier,
+		sourceReaders,
+		aggregatorWriter,
+		coordinatorConfig,
+		messageTracker,
+		verifierMonitoring,
+		verifier.DefaultFinalityCheckInterval,
 		verifier.WithChainStatusManager(chainStatusManager),
-		verifier.WithStorage(aggregatorWriter),
-		verifier.WithConfig(coordinatorConfig),
-		verifier.WithMonitoring(verifierMonitoring),
-		verifier.WithMessageTracker(messageTracker),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

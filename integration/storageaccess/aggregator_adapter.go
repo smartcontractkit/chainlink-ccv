@@ -17,7 +17,7 @@ import (
 )
 
 type AggregatorWriter struct {
-	client pb.AggregatorClient
+	client pb.CommitteeVerifierClient
 	conn   *grpc.ClientConn
 	lggr   logger.Logger
 }
@@ -52,12 +52,17 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*pb.Writ
 				DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
 				DestBlob:             ccvData.Message.DestBlob,
 				TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
-				TokenTransfer:        ccvData.Message.TokenTransfer,
-				DataLength:           uint32(ccvData.Message.DataLength),
-				Data:                 ccvData.Message.Data,
-				ExecutionGasLimit:    ccvData.Message.ExecutionGasLimit,
-				CcipReceiveGasLimit:  ccvData.Message.CcipReceiveGasLimit,
-				CcvAndExecutorHash:   ccvData.Message.CcvAndExecutorHash[:],
+				TokenTransfer: func() []byte {
+					if ccvData.Message.TokenTransfer != nil {
+						return ccvData.Message.TokenTransfer.Encode()
+					}
+					return []byte{}
+				}(),
+				DataLength:          uint32(ccvData.Message.DataLength),
+				Data:                ccvData.Message.Data,
+				ExecutionGasLimit:   ccvData.Message.ExecutionGasLimit,
+				CcipReceiveGasLimit: ccvData.Message.CcipReceiveGasLimit,
+				CcvAndExecutorHash:  ccvData.Message.CcvAndExecutorHash[:],
 			},
 		},
 	}, nil
@@ -123,7 +128,7 @@ func (a *AggregatorWriter) WriteChainStatus(ctx context.Context, statuses []prot
 	for _, status := range statuses {
 		pbStatuses = append(pbStatuses, &pb.ChainStatus{
 			ChainSelector:        uint64(status.ChainSelector),
-			FinalizedBlockHeight: status.BlockNumber.Uint64(),
+			FinalizedBlockHeight: status.FinalizedBlockHeight.Uint64(),
 			Disabled:             status.Disabled,
 		})
 	}
@@ -167,7 +172,7 @@ func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.Cl
 	}
 
 	return &AggregatorWriter{
-		client: pb.NewAggregatorClient(conn),
+		client: pb.NewCommitteeVerifierClient(conn),
 		conn:   conn,
 		lggr:   lggr,
 	}, nil
@@ -232,7 +237,7 @@ func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors [
 	}
 
 	// Create aggregator client for chain status operations (different from CCV data client)
-	aggregatorClient := pb.NewAggregatorClient(a.conn)
+	aggregatorClient := pb.NewCommitteeVerifierClient(a.conn)
 
 	// Make the gRPC call
 	resp, err := aggregatorClient.ReadChainStatus(ctx, req)
@@ -244,9 +249,9 @@ func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors [
 	for _, chainStatus := range resp.Statuses {
 		selector := protocol.ChainSelector(chainStatus.ChainSelector)
 		result[selector] = &protocol.ChainStatusInfo{
-			ChainSelector: selector,
-			BlockNumber:   new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight),
-			Disabled:      chainStatus.Disabled,
+			ChainSelector:        selector,
+			FinalizedBlockHeight: new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight),
+			Disabled:             chainStatus.Disabled,
 		}
 	}
 
@@ -267,10 +272,20 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 		Sender:              msg.Sender[:],
 		Receiver:            msg.Receiver[:],
 		DestBlob:            msg.DestBlob[:],
-		TokenTransfer:       msg.TokenTransfer[:],
 		Data:                msg.Data[:],
 		ExecutionGasLimit:   msg.ExecutionGasLimit,
 		CcipReceiveGasLimit: msg.CcipReceiveGasLimit,
+	}
+
+	// Decode TokenTransfer if present
+	if msg.TokenTransferLength > 0 && len(msg.TokenTransfer) > 0 {
+		tt, err := protocol.DecodeTokenTransfer(msg.TokenTransfer)
+		if err != nil {
+			return protocol.Message{}, fmt.Errorf("failed to decode token transfer: %w", err)
+		}
+		result.TokenTransfer = tt
+	} else {
+		result.TokenTransfer = nil
 	}
 
 	if msg.Version > math.MaxUint8 {

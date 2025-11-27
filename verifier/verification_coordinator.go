@@ -21,6 +21,7 @@ import (
 
 const (
 	DefaultSourceReaderPollInterval = 2 * time.Second
+	DefaultFinalityCheckInterval    = 500 * time.Millisecond
 )
 
 // sourceState manages state for a single source chain reader.
@@ -84,13 +85,6 @@ type Coordinator struct {
 // Option is the functional option type for Coordinator.
 type Option func(*Coordinator)
 
-// WithVerifier sets the verifier implementation.
-func WithVerifier(verifier Verifier) Option {
-	return func(vc *Coordinator) {
-		vc.verifier = verifier
-	}
-}
-
 // WithChainStatusManager sets the chain status manager.
 func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
 	return func(vc *Coordinator) {
@@ -114,47 +108,6 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]chainaccess.Sour
 // AddSourceReader adds a single source reader to the existing map.
 func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainaccess.SourceReader) Option {
 	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
-}
-
-// WithStorage sets the storage writer.
-func WithStorage(storage protocol.CCVNodeDataWriter) Option {
-	return func(vc *Coordinator) {
-		vc.storage = storage
-	}
-}
-
-// WithConfig sets the coordinator configuration.
-func WithConfig(config CoordinatorConfig) Option {
-	return func(vc *Coordinator) {
-		vc.config = config
-	}
-}
-
-// WithLogger sets the logger.
-func WithLogger(lggr logger.Logger) Option {
-	return func(vc *Coordinator) {
-		vc.lggr = lggr
-	}
-}
-
-// WithFinalityCheckInterval sets the finality check interval.
-func WithFinalityCheckInterval(interval time.Duration) Option {
-	return func(vc *Coordinator) {
-		vc.finalityCheckInterval = interval
-	}
-}
-
-// WithMonitoring sets the monitoring implementation.
-func WithMonitoring(monitoring Monitoring) Option {
-	return func(vc *Coordinator) {
-		vc.monitoring = monitoring
-	}
-}
-
-func WithMessageTracker(tracker MessageLatencyTracker) Option {
-	return func(vc *Coordinator) {
-		vc.messageTracker = tracker
-	}
 }
 
 // WithReorgDetectors sets the reorg detectors for each source chain.
@@ -182,27 +135,40 @@ func WithCurseDetector(detector common.CurseCheckerService) Option {
 	}
 }
 
-// NewCoordinator creates a new verification coordinator.
-func NewCoordinator(opts ...Option) (*Coordinator, error) {
-	vc := &Coordinator{
+func NewCoordinator(
+	lggr logger.Logger,
+	verifier Verifier,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	storage protocol.CCVNodeDataWriter,
+	config CoordinatorConfig,
+	messageTracker MessageLatencyTracker,
+	monitoring Monitoring,
+	finalityCheckInterval time.Duration,
+	opts ...Option,
+) (*Coordinator, error) {
+	c := Coordinator{
+		lggr:                  lggr,
+		verifier:              verifier,
+		sourceReaders:         sourceReaders,
+		storage:               storage,
+		config:                config,
+		messageTracker:        messageTracker,
+		monitoring:            monitoring,
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		finalityCheckInterval: 500 * time.Millisecond, // Default finality check interval
+		finalityCheckInterval: finalityCheckInterval,
 	}
 
-	// Apply all options
 	for _, opt := range opts {
-		opt(vc)
+		opt(&c)
 	}
 
-	// Validate required components
-	if err := vc.validate(); err != nil {
+	if err := c.validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
 	}
 
-	// Apply defaults to config if not set
-	vc.applyConfigDefaults()
+	c.applyConfigDefaults()
 
-	return vc, nil
+	return &c, nil
 }
 
 // FIXME: This method is too long, needs refactoring.
@@ -245,7 +211,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
 				vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
 					"chain", chainSelector,
-					"blockHeight", chainStatus.BlockNumber)
+					"blockHeight", chainStatus.FinalizedBlockHeight)
 				continue
 			}
 
@@ -993,9 +959,9 @@ func (vc *Coordinator) handleFinalityViolation(
 		blockHeight := big.NewInt(0)
 		err := vc.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 			{
-				ChainSelector: chainSelector,
-				BlockNumber:   blockHeight,
-				Disabled:      true,
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: blockHeight,
+				Disabled:             true,
 			},
 		})
 		if err != nil {

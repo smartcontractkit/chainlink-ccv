@@ -5,9 +5,13 @@ import (
 	"slices"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
+
+// Ensure HashBasedLeaderElector implements the LeaderElector interface.
+var _ executor.LeaderElector = &HashBasedLeaderElector{}
 
 // HashBasedLeaderElector implements deterministic leader election based on message ID hash
 // and executor position in a sorted list of executor IDs.
@@ -51,17 +55,16 @@ func NewHashBasedLeaderElector(
 
 // GetReadyTimestamp implements the LeaderElector interface.
 // It returns: baseTimestamp + (arrayIndex * executionInterval).
-// TODO: Support using time.Time instead of int64 for checking timestamps.
 func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	messageID protocol.Bytes32,
 	chainSel protocol.ChainSelector,
-	baseTimestamp int64,
-) int64 {
+	baseTime time.Time,
+) time.Time {
 	execIndex := h.executorIndices[chainSel]
 	execPool := h.executorIDs[chainSel]
 	if execIndex == -1 {
 		// This executor is not in the list, should not happen if config is validated
-		return baseTimestamp
+		return baseTime
 	}
 
 	// Convert first 8 bytes of hash to uint64 for consistent ordering
@@ -73,17 +76,23 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	startIndex := int(hashValue % uint64(len(execPool))) //nolint:gosec // G115: modulo will result in positive
 
 	// todo: this will result in a static relative order, we can remap against the sorted array if necessary
-	delayMultiplier := getSliceIncreasingDistance(len(execPool), startIndex, execIndex)
+	queueSize := getSliceIncreasingDistance(len(execPool), startIndex, execIndex)
 
-	// Calculate ready timestamp: baseTimestamp + (arrayIndex * executionInterval)
-	delaySeconds := delayMultiplier * int64(h.executionIntervals[chainSel].Seconds())
+	// Calculate time until our turn again (number of executors in queue * executionInterval)
+	delay := time.Duration(queueSize) * h.executionIntervals[chainSel]
+	// Add delay to our base time to get the next execution time
+	readyTime := baseTime.Add(delay)
 
-	h.lggr.Debugf("messageID %s using delay of indexDistance(%d) * executionMultipler(%s) = %d seconds", messageID.String(), delayMultiplier, h.executionIntervals[chainSel], delaySeconds)
-	// todo: base timestamp comes from the indexer, is it safe to use here?
-	return baseTimestamp + delaySeconds
+	h.lggr.Debugw("calculated ready timestamp",
+		"messageID", messageID.String(),
+		"queueSize", queueSize,
+		"executionInterval", h.executionIntervals[chainSel],
+		"delay", delay.String(),
+		"readyTime", readyTime.String())
+	return readyTime
 }
 
-func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
+func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int {
 	// invalid inputs, return 0
 	if sliceLen <= 0 ||
 		startIndex < 0 || startIndex >= sliceLen ||
@@ -96,11 +105,11 @@ func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int64 {
 		return 0
 	} else if selectedIndex < startIndex {
 		// if selectedIndex is lower, we cycle
-		return int64(sliceLen - startIndex + selectedIndex)
+		return sliceLen - startIndex + selectedIndex
 	}
-	return int64(selectedIndex - startIndex)
+	return selectedIndex - startIndex
 }
 
-func (h *HashBasedLeaderElector) GetRetryDelay(sel protocol.ChainSelector) int64 {
-	return int64(len(h.executorIDs[sel])) * int64(h.executionIntervals[sel].Seconds())
+func (h *HashBasedLeaderElector) GetRetryDelay(sel protocol.ChainSelector) time.Duration {
+	return time.Duration(len(h.executorIDs[sel])) * h.executionIntervals[sel]
 }

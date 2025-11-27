@@ -40,7 +40,7 @@ import (
 
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
-	pb.UnimplementedAggregatorServer
+	pb.UnimplementedCommitteeVerifierServer
 	pb.UnimplementedVerifierResultAPIServer
 	pb.UnimplementedMessageDiscoveryServer
 
@@ -352,7 +352,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	}
 	pb.RegisterVerifierResultAPIServer(grpcServer, server)
 	pb.RegisterMessageDiscoveryServer(grpcServer, server)
-	pb.RegisterAggregatorServer(grpcServer, server)
+	pb.RegisterCommitteeVerifierServer(grpcServer, server)
 	reflection.Register(grpcServer)
 
 	return server

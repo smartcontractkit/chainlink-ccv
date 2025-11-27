@@ -28,8 +28,9 @@ var (
 )
 
 type verifierQuorumCacheKey struct {
-	sourceChainSelector protocol.ChainSelector
-	receiverAddress     string
+	sourceChainSelector  protocol.ChainSelector
+	receiverAddress      string
+	tokenTransferAddress common.Address
 }
 
 type EvmDestinationReader struct {
@@ -99,12 +100,24 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CCVAddressInfo, error) {
 	_ = ctx
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
+
+	// We need to parse out the token transfer address when caching CCV Info because it can modify the verifier quorum returned by the offramp.
+	// If two messages define the same receiver, but with different tokens, they will have different CCV info. It's important to consider this when caching CCV info.
+	var tokenTransferAddress common.Address
+	if message.TokenTransfer != nil {
+		tokenTransferAddress = common.BytesToAddress(message.TokenTransfer.DestTokenAddress)
+	}
+
 	// Try to get CCV info from cache first
-	// TODO: We need to find a way to cache token transfer CCV info as well
-	ccvInfo, found := dr.ccvCache.Peek(verifierQuorumCacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()})
-	if found && message.TokenTransferLength == 0 {
-		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s on source chain %d",
-			receiverAddress.String(), sourceSelector)
+	ccvInfo, found := dr.ccvCache.Peek(
+		verifierQuorumCacheKey{
+			sourceChainSelector:  sourceSelector,
+			receiverAddress:      receiverAddress.String(),
+			tokenTransferAddress: tokenTransferAddress,
+		})
+	if found {
+		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s and dest token %s on source chain %d",
+			receiverAddress.String(), tokenTransferAddress.String(), sourceSelector)
 		return ccvInfo, nil
 	}
 
@@ -138,14 +151,22 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	dr.lggr.Infow("Using CCV Info",
 		"sourceChain", sourceSelector,
 		"receiver", receiverAddress.String(),
+		"destToken", tokenTransferAddress.String(),
 		"chain", dr.chainSelector,
 		"ccvInfo", ccvInfo,
 	)
 
 	// Store in expirable cache for future use
-	dr.ccvCache.Add(verifierQuorumCacheKey{sourceChainSelector: sourceSelector, receiverAddress: receiverAddress.String()}, ccvInfo)
-	dr.lggr.Debugf("CCV info cached for receiver %s on source chain %d: %+v",
-		receiverAddress.String(), sourceSelector, ccvInfo)
+	dr.ccvCache.Add(
+		verifierQuorumCacheKey{
+			sourceChainSelector:  sourceSelector,
+			receiverAddress:      receiverAddress.String(),
+			tokenTransferAddress: tokenTransferAddress,
+		},
+		ccvInfo,
+	)
+	dr.lggr.Debugf("CCV info cached for receiver %s on source chain %d with token transfer address %s: %+v",
+		receiverAddress.String(), sourceSelector, tokenTransferAddress.String(), ccvInfo)
 
 	return ccvInfo, nil
 }

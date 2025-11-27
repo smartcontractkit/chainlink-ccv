@@ -3,6 +3,7 @@ package message_heap
 import (
 	"container/heap"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -11,22 +12,22 @@ import (
 // Todo: Use a time.Time object rather than a int64 timestamp for better stringification and logging.
 type ExpiryWithMessage struct {
 	Message       *protocol.Message
-	ExpiryTime    int64
-	RetryInterval int64
+	ExpiryTime    time.Time
+	RetryInterval time.Duration
 }
 
 // MessageWithTimestamps is the aggregated struct that is used when inserting and retrieving from the heap.
 type MessageWithTimestamps struct {
 	MessageID     protocol.Bytes32
-	RetryInterval int64
-	ReadyTime     int64
+	RetryInterval time.Duration
+	ReadyTime     time.Time
 	Message       *protocol.Message
-	ExpiryTime    int64
+	ExpiryTime    time.Time
 }
 
 // MessageHeapEntry is the minimal set of data needed to maintain the priority queue heap.
 type MessageHeapEntry struct {
-	ReadyTime int64
+	ReadyTime time.Time
 	MessageID protocol.Bytes32
 }
 
@@ -37,7 +38,7 @@ func (h ReadyTimestampHeap) Len() int {
 }
 
 func (h ReadyTimestampHeap) Less(i, j int) bool {
-	return h[i].ReadyTime < h[j].ReadyTime
+	return h[i].ReadyTime.Before(h[j].ReadyTime)
 }
 
 func (h ReadyTimestampHeap) Swap(i, j int) {
@@ -101,12 +102,12 @@ func (mh *MessageHeap) Push(msg MessageWithTimestamps) {
 	}
 }
 
-func (mh *MessageHeap) PopAllReady(timestamp int64) []MessageWithTimestamps {
+func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps {
 	mh.mu.Lock()
 	defer mh.mu.Unlock()
 
 	var readyMessages []MessageWithTimestamps
-	for mh.heap.Len() > 0 && mh.heap.Peek().ReadyTime <= timestamp {
+	for mh.heap.Len() > 0 && !mh.heap.Peek().ReadyTime.After(timestamp) {
 		msg, ok := heap.Pop(&mh.heap).(MessageHeapEntry)
 		if !ok {
 			continue
