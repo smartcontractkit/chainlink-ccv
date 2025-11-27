@@ -52,12 +52,17 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*pb.Writ
 				DestBlobLength:       uint32(ccvData.Message.DestBlobLength),
 				DestBlob:             ccvData.Message.DestBlob,
 				TokenTransferLength:  uint32(ccvData.Message.TokenTransferLength),
-				TokenTransfer:        ccvData.Message.TokenTransfer,
-				DataLength:           uint32(ccvData.Message.DataLength),
-				Data:                 ccvData.Message.Data,
-				ExecutionGasLimit:    ccvData.Message.ExecutionGasLimit,
-				CcipReceiveGasLimit:  ccvData.Message.CcipReceiveGasLimit,
-				CcvAndExecutorHash:   ccvData.Message.CcvAndExecutorHash[:],
+				TokenTransfer: func() []byte {
+					if ccvData.Message.TokenTransfer != nil {
+						return ccvData.Message.TokenTransfer.Encode()
+					}
+					return []byte{}
+				}(),
+				DataLength:          uint32(ccvData.Message.DataLength),
+				Data:                ccvData.Message.Data,
+				ExecutionGasLimit:   ccvData.Message.ExecutionGasLimit,
+				CcipReceiveGasLimit: ccvData.Message.CcipReceiveGasLimit,
+				CcvAndExecutorHash:  ccvData.Message.CcvAndExecutorHash[:],
 			},
 		},
 	}, nil
@@ -267,10 +272,20 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 		Sender:              msg.Sender[:],
 		Receiver:            msg.Receiver[:],
 		DestBlob:            msg.DestBlob[:],
-		TokenTransfer:       msg.TokenTransfer[:],
 		Data:                msg.Data[:],
 		ExecutionGasLimit:   msg.ExecutionGasLimit,
 		CcipReceiveGasLimit: msg.CcipReceiveGasLimit,
+	}
+
+	// Decode TokenTransfer if present
+	if msg.TokenTransferLength > 0 && len(msg.TokenTransfer) > 0 {
+		tt, err := protocol.DecodeTokenTransfer(msg.TokenTransfer)
+		if err != nil {
+			return protocol.Message{}, fmt.Errorf("failed to decode token transfer: %w", err)
+		}
+		result.TokenTransfer = tt
+	} else {
+		result.TokenTransfer = nil
 	}
 
 	if msg.Version > math.MaxUint8 {

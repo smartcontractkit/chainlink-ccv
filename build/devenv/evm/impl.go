@@ -1119,7 +1119,8 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					Version: semver.MustParse(rmn_remote.Deploy.Version()),
 				},
 				OffRamp: sequences.OffRampParams{
-					Version: semver.MustParse(offrampoperations.Deploy.Version()),
+					Version:              semver.MustParse(offrampoperations.Deploy.Version()),
+					GasForCallExactCheck: 5_000,
 				},
 				// Deploy multiple committee verifiers in order to test different receiver
 				// configurations.
@@ -1432,12 +1433,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	e.OperationsBundle = bundle
 
 	remoteChains := make(map[uint64]adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef])
-	feeQuoterGasPriceUpdates := make([]fee_quoter.GasPriceUpdate, 0, len(remoteSelectors))
 	for _, rs := range remoteSelectors {
-		feeQuoterGasPriceUpdates = append(feeQuoterGasPriceUpdates, fee_quoter.GasPriceUpdate{
-			DestChainSelector: rs,
-			UsdPerUnitGas:     big.NewInt(0), // TODO: set proper gas price
-		})
 		remoteChains[rs] = adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
 			AllowTrafficFrom: true,
 			OnRamp: datastore.AddressRef{
@@ -1487,6 +1483,8 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				DefaultTxGasLimit:           200_000,
 				NetworkFeeUSDCents:          10,
 				ChainFamilySelector:         [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
+				LinkFeeMultiplierPercent:    90,
+				USDPerUnitGas:               big.NewInt(1e6),
 			},
 			ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
 				Enabled:     true,
@@ -1528,37 +1526,6 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	if err != nil {
 		return err
 	}
-
-	// We need to set the gas prices for each remote chain so we don't get reverts due to NoGasPriceAvailable(uint64).
-	feeQuoter, err := e.DataStore.Addresses().Get(datastore.AddressRef{
-		Type:          datastore.ContractType(fee_quoter.ContractType),
-		Version:       semver.MustParse(fee_quoter.Deploy.Version()),
-		ChainSelector: selector,
-	}.Key())
-	if err != nil {
-		return fmt.Errorf("failed to get fee quoter address on chain %d: %w", selector, err)
-	}
-	chain := e.BlockChains.EVMChains()[selector]
-	report, err := operations.ExecuteOperation(bundle, fee_quoter.UpdatePrices, chain, contract.FunctionInput[fee_quoter.PriceUpdates]{
-		ChainSelector: selector,
-		Address:       common.HexToAddress(feeQuoter.Address),
-		Args: fee_quoter.PriceUpdates{
-			GasPriceUpdates: feeQuoterGasPriceUpdates,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to update prices on fee quoter on chain %d: %w", selector, err)
-	}
-
-	// get the receipt so that we can log the message ID.
-	receipt, err := chain.Client.TransactionReceipt(ctx, common.HexToHash(report.Output.ExecInfo.Hash))
-	if err != nil {
-		return fmt.Errorf("failed to get transaction receipt for fee quoter update prices on chain %d: %w", selector, err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("fee quoter update prices failed with status: %d", receipt.Status)
-	}
-	l.Info().Uint64("ChainSelector", selector).Str("TxHash", receipt.TxHash.Hex()).Msg("Fee quoter update prices successful")
 
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
 	for _, poolVersion := range tokenPoolVersions {

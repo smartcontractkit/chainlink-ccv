@@ -434,7 +434,7 @@ func generateFakeMessage(destChainSelector, sourceChainSelector protocol.ChainSe
 		Sender:               emptyAddress,
 		Data:                 emptyBytes,
 		OnRampAddress:        emptyAddress,
-		TokenTransfer:        emptyBytes,
+		TokenTransfer:        nil,
 		OffRampAddress:       emptyAddress,
 		DestBlob:             emptyBytes,
 		Receiver:             emptyAddress,

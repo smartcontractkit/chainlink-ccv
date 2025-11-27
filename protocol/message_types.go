@@ -195,7 +195,7 @@ type Message struct {
 	Sender               UnknownAddress `json:"sender"`
 	Data                 ByteSlice      `json:"data"`
 	OnRampAddress        UnknownAddress `json:"on_ramp_address"`
-	TokenTransfer        ByteSlice      `json:"token_transfer"`
+	TokenTransfer        *TokenTransfer `json:"token_transfer"`
 	OffRampAddress       UnknownAddress `json:"off_ramp_address"`
 	DestBlob             ByteSlice      `json:"dest_blob"`
 	Receiver             UnknownAddress `json:"receiver"`
@@ -275,10 +275,14 @@ func (m *Message) Encode() ([]byte, error) {
 	_, _ = buf.Write(m.DestBlob)
 
 	// Token transfer
-	if err := binary.Write(&buf, binary.BigEndian, m.TokenTransferLength); err != nil {
+	var tokenTransferBytes []byte
+	if m.TokenTransfer != nil {
+		tokenTransferBytes = m.TokenTransfer.Encode()
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint16(len(tokenTransferBytes))); err != nil { //nolint:gosec // G115: Length validated in NewMessage
 		return nil, err
 	}
-	_, _ = buf.Write(m.TokenTransfer)
+	_, _ = buf.Write(tokenTransferBytes)
 
 	// Data
 	if err := binary.Write(&buf, binary.BigEndian, m.DataLength); err != nil {
@@ -424,10 +428,15 @@ func DecodeMessage(data []byte) (*Message, error) {
 	if tokenTransferLen == 0 {
 		msg.TokenTransfer = nil
 	} else {
-		msg.TokenTransfer = make([]byte, tokenTransferLen)
-		if _, err := io.ReadFull(reader, msg.TokenTransfer); err != nil {
+		tokenTransferBytes := make([]byte, tokenTransferLen)
+		if _, err := io.ReadFull(reader, tokenTransferBytes); err != nil {
 			return nil, fmt.Errorf("failed to read token transfer: %w", err)
 		}
+		tt, err := DecodeTokenTransfer(tokenTransferBytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode token transfer: %w", err)
+		}
+		msg.TokenTransfer = tt
 	}
 
 	// Read data
@@ -562,17 +571,17 @@ type VerifierResultsAPI interface {
 func NewEmptyTokenTransfer() *TokenTransfer {
 	return &TokenTransfer{
 		Version:                  MessageVersion,
-		Amount:                   big.NewInt(0),
+		Amount:                   new(big.Int).SetBytes(make([]byte, 32)),
 		SourcePoolAddressLength:  0,
-		SourcePoolAddress:        []byte{},
+		SourcePoolAddress:        nil,
 		SourceTokenAddressLength: 0,
-		SourceTokenAddress:       []byte{},
+		SourceTokenAddress:       nil,
 		DestTokenAddressLength:   0,
-		DestTokenAddress:         []byte{},
+		DestTokenAddress:         nil,
 		TokenReceiverLength:      0,
-		TokenReceiver:            []byte{},
+		TokenReceiver:            nil,
 		ExtraDataLength:          0,
-		ExtraData:                []byte{},
+		ExtraData:                nil,
 	}
 }
 
@@ -600,19 +609,20 @@ func NewMessage(
 	if len(receiver) > math.MaxUint8 {
 		return nil, fmt.Errorf("receiver length exceeds maximum value")
 	}
-	tokenTransferBytes := make([]byte, 0)
-	if tokenTransfer != nil {
-		tokenTransferBytes = tokenTransfer.Encode()
-	}
-	if len(tokenTransferBytes) > math.MaxUint16 {
-		return nil, fmt.Errorf("tokenTransferBytes length exceeds maximum value")
-	}
 	if len(data) > math.MaxUint16 {
 		return nil, fmt.Errorf("data length exceeds maximum value")
 	}
 	if len(destBlob) > math.MaxUint16 {
 		return nil, fmt.Errorf("destBlob length exceeds maximum value")
 	}
+
+	// Calculate token transfer length if present
+	var tokenTransferLength uint16
+	if tokenTransfer != nil {
+		tokenTransferBytes := tokenTransfer.Encode()
+		tokenTransferLength = uint16(len(tokenTransferBytes)) //nolint:gosec // G115: TokenTransfer.Encode() produces bounded output
+	}
+
 	//nolint:gosec // all verified
 	return &Message{
 		Version:              MessageVersion,
@@ -633,8 +643,8 @@ func NewMessage(
 		Receiver:             receiver.Bytes(),
 		DestBlobLength:       uint16(len(destBlob)),
 		DestBlob:             destBlob,
-		TokenTransferLength:  uint16(len(tokenTransferBytes)),
-		TokenTransfer:        tokenTransferBytes,
+		TokenTransfer:        tokenTransfer,
+		TokenTransferLength:  tokenTransferLength,
 		DataLength:           uint16(len(data)),
 		Data:                 data,
 	}, nil
