@@ -52,7 +52,7 @@ test: ensure-go
 
 test-coverage coverage_file="coverage.out":
     # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')
-    go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
+    go test -shuffle on -v -coverprofile={{coverage_file}} ./...
     # Filter mockery-generated files (mock_*.go) from coverage profile
     { head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E '{{COVERAGE_EXCLUDE_REGEX}}' || true; } > {{coverage_file}}.filtered
     mv {{coverage_file}}.filtered {{coverage_file}}

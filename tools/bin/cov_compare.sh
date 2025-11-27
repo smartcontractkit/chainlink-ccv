@@ -26,7 +26,7 @@ MODULE_PATH="${MODULE_PATH:-$(go list -m -f '{{.Path}}' 2>/dev/null || echo "")}
 
 calc_pct_by_top_level_pkg() {
   local file=$1 mod=$2
-  awk -v mod="$mod" '
+  sort $file | awk -v mod="$mod" '
     BEGIN { FS="[: ]+" }
     /^mode:/ { next }
 
@@ -61,7 +61,7 @@ calc_pct_by_top_level_pkg() {
         printf "%s\t%.2f\n", p, pct
       }
     }
-  ' "$file"
+  '
 }
 
 # Join OLD and NEW results
