@@ -22,6 +22,11 @@ const (
 	GapBlocksPercentage = 0.30 // 30% of tail size
 	// DefaultPollInterval is the default interval for polling new blocks
 	DefaultPollInterval = 1000 * time.Millisecond
+	// FinalizedBufferPercentage defines the buffer of finalized blocks to keep as percentage of tail
+	// Keeps historical finalized blocks to verify backwards finality changes without extra RPC calls
+	FinalizedBufferPercentage = 0.20 // 20% of tail size
+	// MinFinalizedBuffer is the minimum number of finalized blocks to keep
+	MinFinalizedBuffer = 10
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -86,22 +91,12 @@ type ReorgDetectorService struct {
 	finalityViolated atomic.Bool
 }
 
-// FinalityViolationType indicates what kind of finality violation occurred
-type FinalityViolationType int
-
-const (
-	NoFinalityViolation   FinalityViolationType = iota
-	FinalityWentBackwards                       // finalized block number decreased
-	FinalityHashMismatch                        // stored hash != new finalized hash at same height
-)
-
 // ReorgDetectionResult indicates what was detected
 type ReorgDetectionResult int
 
 const (
 	NoReorg             ReorgDetectionResult = iota
-	ReorgBackwards                           // chain went to earlier block number
-	ReorgSameHeight                          // different hash at same height
+	ReorgBackwards                           // chain at same/earlier height with different hash
 	ReorgParentMismatch                      // parent hash doesn't match expected
 )
 
@@ -111,8 +106,6 @@ func (r ReorgDetectionResult) String() string {
 		return "NoReorg"
 	case ReorgBackwards:
 		return "ReorgBackwards"
-	case ReorgSameHeight:
-		return "ReorgSameHeight"
 	case ReorgParentMismatch:
 		return "ReorgParentMismatch"
 	default:
@@ -215,31 +208,52 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 	return resultCh, err
 }
 
-// checkFinalityViolation returns finality violation type if detected.
-// Extracts scattered finality checks into single function.
-func (r *ReorgDetectorService) checkFinalityViolation(
-	newFinalized *protocol.BlockHeader,
-) (FinalityViolationType, protocol.BlockHeader) {
-	// TODO: Need to check hashes, RPCs can be a bit behind and doesn't always mean violation
+// checkFinalityViolation checks for finality violations and logs details.
+// Returns true if a finality violation is detected.
+func (r *ReorgDetectorService) checkFinalityViolation(newFinalized *protocol.BlockHeader) bool {
 	// Check if finalized went backwards
-	//if newFinalized.Number < r.latestFinalizedBlock {
-	//	violatedBlock := protocol.BlockHeader{Number: r.latestFinalizedBlock}
-	//	if stored, exists := r.tailBlocks[r.latestFinalizedBlock]; exists {
-	//		violatedBlock = stored
-	//	}
-	//	return FinalityWentBackwards, violatedBlock
-	//}
-
-	// Check if finalized advanced - verify hash matches
-	if newFinalized.Number > r.latestFinalizedBlock {
-		if storedAtFinalized, exists := r.tailBlocks[newFinalized.Number]; exists {
-			if storedAtFinalized.Hash != newFinalized.Hash {
-				return FinalityHashMismatch, storedAtFinalized
-			}
+	if newFinalized.Number < r.latestFinalizedBlock {
+		// RPC says a lower block is finalized than what we think
+		// We buffer finalized blocks for this case - check if hashes match
+		matches, exists := r.blockMatchesStored(*newFinalized)
+		if exists && matches {
+			// RPC's finalized block matches what we have - just behind on finality tag
+			r.lggr.Debugw("RPC finality tag is behind, but block hash matches",
+				"chainSelector", r.config.ChainSelector,
+				"newFinalizedNum", newFinalized.Number,
+				"ourFinalizedNum", r.latestFinalizedBlock)
+			return false
 		}
+
+		// Either we don't have the block (buffer should be already big enough) or hashes differ
+		// This indicates a finality violation
+		r.lggr.Errorw("FINALITY VIOLATION: finalized went backwards with different or missing block",
+			"chainSelector", r.config.ChainSelector,
+			"ourFinalizedNum", r.latestFinalizedBlock,
+			"newFinalizedNum", newFinalized.Number,
+			"blockExistsInBuffer", exists,
+			"hashMatches", matches)
+
+		return true
 	}
 
-	return NoFinalityViolation, protocol.BlockHeader{}
+	// Check if finalized advanced - verify hash if we have the block
+	if newFinalized.Number > r.latestFinalizedBlock {
+		// Finalized advanced - check hash only if we already have this block in tail
+		if storedAtFinalized, exists := r.tailBlocks[newFinalized.Number]; exists {
+			if storedAtFinalized.Hash != newFinalized.Hash {
+				r.lggr.Errorw("FINALITY VIOLATION: finalized block hash differs from our stored block",
+					"chainSelector", r.config.ChainSelector,
+					"finalizedNum", newFinalized.Number,
+					"ourHash", storedAtFinalized.Hash,
+					"finalizedHash", newFinalized.Hash)
+				return true
+			}
+		}
+		// If we don't have it yet, we'll verify chain continuity when processing new blocks
+	}
+
+	return false
 }
 
 // detectReorgType determines reorg type WITHOUT requiring parent block to exist.
@@ -247,21 +261,15 @@ func (r *ReorgDetectorService) checkFinalityViolation(
 func (r *ReorgDetectorService) detectReorgType(
 	latest protocol.BlockHeader,
 ) ReorgDetectionResult {
-	// Chain went backwards
-	if latest.Number < r.latestBlock {
+	// Chain is at same height or went backwards
+	if latest.Number <= r.latestBlock {
+		matches, exists := r.blockMatchesStored(latest)
+		if exists && matches {
+			// Same block we already have - RPC is behind or duplicate poll
+			return NoReorg
+		}
+		// Different hash or missing block - reorg detected
 		return ReorgBackwards
-	}
-
-	// Same block number
-	if latest.Number == r.latestBlock {
-		storedBlock, exists := r.tailBlocks[latest.Number]
-		if !exists {
-			return NoReorg // First time seeing this height
-		}
-		if storedBlock.Hash == latest.Hash {
-			return NoReorg // Same block, no change
-		}
-		return ReorgSameHeight // Different hash = reorg
 	}
 
 	// New block - check parent hash if parent exists
@@ -284,6 +292,19 @@ func (r *ReorgDetectorService) hasParentBlock(blockNum uint64) bool {
 	}
 	_, exists := r.tailBlocks[blockNum-1]
 	return exists
+}
+
+// blockMatchesStored checks if a block at given height matches what we have stored.
+// Returns (matches, exists) where:
+// - matches=true, exists=true: block hash matches our stored block
+// - matches=false, exists=true: different hash at this height (reorg detected)
+// - matches=false, exists=false: we don't have this block number yet
+func (r *ReorgDetectorService) blockMatchesStored(block protocol.BlockHeader) (matches bool, exists bool) {
+	stored, exists := r.tailBlocks[block.Number]
+	if !exists {
+		return false, false
+	}
+	return stored.Hash == block.Hash, true
 }
 
 // pollAndCheckForReorgs is the main polling loop that periodically checks for new blocks
@@ -339,20 +360,16 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	// Validate RPC response
 	// TODO: Currently treats this as finality violation (bug - will fix after refactor)
 	if latest.Number < finalized.Number {
-		r.lggr.Warnw("Latest block number is less than finalized block number")
-		r.sendFinalityViolation(*latest, finalized.Number)
+		r.lggr.Warnw("Latest block number is less than finalized block number - RPC inconsistency")
+		r.sendFinalityViolation(finalized.Number)
 		return
 	}
 
 	// Check for finality violations
-	violationType, violatedBlock := r.checkFinalityViolation(finalized)
-	if violationType != NoFinalityViolation {
-		r.lggr.Errorw("FINALITY VIOLATION: finalized block changed unexpectedly",
-			"chainSelector", r.config.ChainSelector,
-			"violationType", violationType,
-			"violatedBlock", violatedBlock.Number,
-			"newFinalizedBlock", finalized.Number)
-		r.sendFinalityViolation(violatedBlock, r.latestFinalizedBlock)
+	if r.checkFinalityViolation(finalized) {
+		// Violation detected and logged inside checkFinalityViolation
+		// Send notification and stop processing
+		r.sendFinalityViolation(finalized.Number)
 		return
 	}
 
@@ -361,7 +378,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 
 	// Handle based on detection
 	switch reorgType {
-	case ReorgBackwards, ReorgSameHeight, ReorgParentMismatch:
+	case ReorgBackwards, ReorgParentMismatch:
 		r.lggr.Infow("Reorg detected",
 			"chainSelector", r.config.ChainSelector,
 			"reorgType", reorgType,
@@ -378,7 +395,22 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 			r.handleGapAndValidate(ctx, *latest, finalized)
 			return
 		}
-		//TODO: Check hash with parent if parent exists
+
+		// Verify parent hash for normal progression
+		expectedParent := r.tailBlocks[latest.Number-1]
+		if latest.ParentHash != expectedParent.Hash {
+			r.lggr.Infow("Reorg detected - parent hash mismatch in normal progression",
+				"chainSelector", r.config.ChainSelector,
+				"block", latest.Number,
+				"expectedParentHash", expectedParent.Hash,
+				"actualParentHash", latest.ParentHash)
+			if err := r.handleReorg(ctx, *latest, finalized.Number); err != nil {
+				r.lggr.Errorw("Failed to handle reorg",
+					"chainSelector", r.config.ChainSelector,
+					"error", err)
+			}
+			return
+		}
 
 		// Normal progression
 		r.addBlockToTail(*latest, finalized.Number)
@@ -543,15 +575,29 @@ func (r *ReorgDetectorService) buildEntireTail(ctx context.Context) error {
 	return nil
 }
 
-// trimOlderBlocks removes blocks older than the finalized block from the tail.
-// Keeps the tail from finalized to latest. Finality violations are detected by:
-// 1. checkBlockMaybeHandleReorg verifying stored finalized hash matches new finalized hash
-// 2. findBlockAfterLCA not finding an LCA when walking back to finalized
+// trimOlderBlocks removes blocks older than finalized minus buffer from the tail.
+// Keeps a dynamic buffer of finalized blocks (based on tail size) for backwards finality verification.
+// Tail range: [finalized - buffer, latest]
 // Called only by the polling goroutine (single-writer).
 func (r *ReorgDetectorService) trimOlderBlocks(finalizedBlockNum uint64) {
-	// Trim everything before finalized (keep finalized onwards)
 	if r.latestFinalizedBlock < finalizedBlockNum {
-		for blockNum := r.latestFinalizedBlock; blockNum < finalizedBlockNum; blockNum++ {
+		// Calculate buffer size: percentage of tail with minimum threshold
+		tailSize := r.latestBlock - finalizedBlockNum
+		bufferSize := uint64(float64(tailSize) * FinalizedBufferPercentage)
+		if bufferSize < MinFinalizedBuffer {
+			bufferSize = MinFinalizedBuffer
+		}
+
+		// Calculate trim point: keep buffer of blocks before finalized
+		var trimBelow uint64
+		if finalizedBlockNum > bufferSize {
+			trimBelow = finalizedBlockNum - bufferSize
+		} else {
+			trimBelow = 0 // Don't trim if we're still near genesis
+		}
+
+		// Trim blocks below the buffer threshold
+		for blockNum := r.latestFinalizedBlock; blockNum < trimBelow; blockNum++ {
 			delete(r.tailBlocks, blockNum)
 		}
 		r.latestFinalizedBlock = finalizedBlockNum
@@ -691,7 +737,7 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 				"state", r.dumpTailState())
 
 			// Send finality violation notification
-			r.sendFinalityViolation(blockAfterLCA, finalizedBlockNum)
+			r.sendFinalityViolation(finalizedBlockNum)
 			return nil
 		}
 		return fmt.Errorf("failed to find LCA: %w", err)
@@ -929,11 +975,9 @@ func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
 // sendFinalityViolation sends a finality violation notification and stops the polling loop.
 // No reset block is provided - finality violations require immediate stop and manual intervention.
 // The coordinator is responsible for closing the detector after receiving this notification.
-func (r *ReorgDetectorService) sendFinalityViolation(violatedBlock protocol.BlockHeader, finalizedBlockNum uint64) {
+func (r *ReorgDetectorService) sendFinalityViolation(finalizedBlockNum uint64) {
 	r.lggr.Errorw("FINALITY VIOLATION - sending notification and stopping polling",
 		"chainSelector", r.config.ChainSelector,
-		"violatedBlock", violatedBlock.Number,
-		"violatedHash", violatedBlock.Hash,
 		"finalizedBlock", finalizedBlockNum)
 
 	// Set flag to prevent any more notifications
