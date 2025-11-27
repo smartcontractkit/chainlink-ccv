@@ -1611,9 +1611,13 @@ func (m *CCIP17EVM) FundAddresses(ctx context.Context, bc *blockchain.Input, add
 func (m *CCIP17EVM) FundNodes(ctx context.Context, ns []*simple_node_set.Input, bc *blockchain.Input, linkAmount, nativeAmount *big.Int) error {
 	l := m.logger
 	l.Info().Msg("Funding CL nodes with ETH and LINK")
-	nodeClients, err := clclient.New(ns[0].Out.CLNodes)
-	if err != nil {
-		return fmt.Errorf("connecting to CL nodes: %w", err)
+	nodeClients := make([]*clclient.ChainlinkClient, 0)
+	for _, n := range ns {
+		nc, err := clclient.New(n.Out.CLNodes)
+		if err != nil {
+			return fmt.Errorf("connecting to CL nodes: %w", err)
+		}
+		nodeClients = append(nodeClients, nc...)
 	}
 	ethKeyAddressesSrc := make([]string, 0)
 	for i, nc := range nodeClients {

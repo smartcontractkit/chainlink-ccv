@@ -188,12 +188,6 @@ func PrintMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"         Message Timing Metrics        \n"+
 		"========================================\n"+
 		"Total Sent:             %d\n"+
-		"Reached Verifier:       %d\n"+
-		"Verified (Signed):      %d\n"+
-		"Aggregated:             %d\n"+
-		"Indexed:                %d\n"+
-		"Reached Executor:       %d\n"+
-		"Sent to Chain:          %d\n"+
 		"Received (Executed):    %d\n"+
 		"Success Rate:           %.2f%%\n"+
 		"----------------------------------------\n"+
@@ -204,12 +198,6 @@ func PrintMetricsSummary(t *testing.T, summary MetricsSummary) {
 		"  P95:           %v\n"+
 		"  P99:           %v\n",
 		summary.TotalSent,
-		summary.TotalReachedVerifier,
-		summary.TotalVerified,
-		summary.TotalAggregated,
-		summary.TotalIndexed,
-		summary.TotalReachedExecutor,
-		summary.TotalSentToChainInExecutor,
 		summary.TotalReceived,
 		successRate,
 		summary.MinLatency,
@@ -218,160 +206,4 @@ func PrintMetricsSummary(t *testing.T, summary MetricsSummary) {
 		summary.P95Latency,
 		summary.P99Latency,
 	)
-
-	// Print verifier-to-executor metrics if available
-	if summary.MinVerifierToExecutor > 0 {
-		t.Logf("----------------------------------------\n"+
-			"Pipeline Latency (First Verifier → Executor):\n"+
-			"  Min:           %v\n"+
-			"  Max:           %v\n"+
-			"  P90:           %v\n"+
-			"  P95:           %v\n"+
-			"  P99:           %v\n"+
-			"========================================",
-			summary.MinVerifierToExecutor,
-			summary.MaxVerifierToExecutor,
-			summary.P90VerifierToExecutor,
-			summary.P95VerifierToExecutor,
-			summary.P99VerifierToExecutor,
-		)
-	} else {
-		t.Logf("========================================")
-	}
-
-	// Find messages that were sent but didn't reach verifier
-	notReachedVerifier := make(map[uint64]string)
-	for seqNo, msgID := range summary.SentMessages {
-		if _, reached := summary.ReachedVerifierMessages[seqNo]; !reached {
-			notReachedVerifier[seqNo] = msgID
-		}
-	}
-
-	// Find messages that reached verifier but weren't verified/signed
-	notVerified := make(map[uint64]string)
-	for seqNo, msgID := range summary.ReachedVerifierMessages {
-		if _, verified := summary.VerifiedMessages[seqNo]; !verified {
-			notVerified[seqNo] = msgID
-		}
-	}
-
-	// Find messages that were sent but not aggregated
-	notAggregated := make(map[uint64]string)
-	for seqNo, msgID := range summary.SentMessages {
-		if _, aggregated := summary.AggregatedMessages[seqNo]; !aggregated {
-			notAggregated[seqNo] = msgID
-		}
-	}
-
-	// Find messages that were sent but not indexed
-	notIndexed := make(map[uint64]string)
-	for seqNo, msgID := range summary.SentMessages {
-		if _, indexed := summary.IndexedMessages[seqNo]; !indexed {
-			notIndexed[seqNo] = msgID
-		}
-	}
-
-	// Find messages that were indexed but not received
-	indexedNotReceived := make(map[uint64]string)
-	for seqNo, msgID := range summary.IndexedMessages {
-		if _, received := summary.ReceivedMessages[seqNo]; !received {
-			indexedNotReceived[seqNo] = msgID
-		}
-	}
-
-	// Find messages that reached executor but weren't sent to chain
-	reachedExecutorNotSentToChain := make(map[uint64]string)
-	for seqNo, msgID := range summary.ReachedExecutorMessages {
-		if _, sentToChain := summary.SentToChainInExecutorMessages[seqNo]; !sentToChain {
-			reachedExecutorNotSentToChain[seqNo] = msgID
-		}
-	}
-
-	// Print detailed failure information
-	if len(notReachedVerifier) > 0 {
-		t.Logf("\n========================================")
-		t.Logf("Messages NOT Reached Verifier (%d):", len(notReachedVerifier))
-		t.Logf("========================================")
-		seqNos := make([]uint64, 0, len(notReachedVerifier))
-		for seqNo := range notReachedVerifier {
-			seqNos = append(seqNos, seqNo)
-		}
-		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
-		for _, seqNo := range seqNos {
-			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, notReachedVerifier[seqNo])
-		}
-	}
-
-	if len(notVerified) > 0 {
-		t.Logf("\n========================================")
-		t.Logf("Messages Reached Verifier but NOT Signed (%d):", len(notVerified))
-		t.Logf("========================================")
-		seqNos := make([]uint64, 0, len(notVerified))
-		for seqNo := range notVerified {
-			seqNos = append(seqNos, seqNo)
-		}
-		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
-		for _, seqNo := range seqNos {
-			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, notVerified[seqNo])
-		}
-	}
-
-	if len(notAggregated) > 0 {
-		t.Logf("\n========================================")
-		t.Logf("Messages NOT Aggregated (%d):", len(notAggregated))
-		t.Logf("========================================")
-		seqNos := make([]uint64, 0, len(notAggregated))
-		for seqNo := range notAggregated {
-			seqNos = append(seqNos, seqNo)
-		}
-		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
-		for _, seqNo := range seqNos {
-			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, notAggregated[seqNo])
-		}
-	}
-
-	if len(notIndexed) > 0 {
-		t.Logf("\n========================================")
-		t.Logf("Messages NOT Indexed (%d):", len(notIndexed))
-		t.Logf("========================================")
-		// Sort by seqNo for consistent output
-		seqNos := make([]uint64, 0, len(notIndexed))
-		for seqNo := range notIndexed {
-			seqNos = append(seqNos, seqNo)
-		}
-		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
-		for _, seqNo := range seqNos {
-			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, notIndexed[seqNo])
-		}
-	}
-
-	if len(indexedNotReceived) > 0 {
-		t.Logf("\n========================================")
-		t.Logf("Messages Indexed but NOT Received (%d):", len(indexedNotReceived))
-		t.Logf("========================================")
-		// Sort by seqNo for consistent output
-		seqNos := make([]uint64, 0, len(indexedNotReceived))
-		for seqNo := range indexedNotReceived {
-			seqNos = append(seqNos, seqNo)
-		}
-		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
-		for _, seqNo := range seqNos {
-			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, indexedNotReceived[seqNo])
-		}
-	}
-
-	if len(reachedExecutorNotSentToChain) > 0 {
-		t.Logf("\n========================================")
-		t.Logf("Messages Reached Executor but NOT Sent to Chain (%d):", len(reachedExecutorNotSentToChain))
-		t.Logf("========================================")
-		// Sort by seqNo for consistent output
-		seqNos := make([]uint64, 0, len(reachedExecutorNotSentToChain))
-		for seqNo := range reachedExecutorNotSentToChain {
-			seqNos = append(seqNos, seqNo)
-		}
-		sort.Slice(seqNos, func(i, j int) bool { return seqNos[i] < seqNos[j] })
-		for _, seqNo := range seqNos {
-			t.Logf("  SeqNo: %d, MessageID: %s", seqNo, reachedExecutorNotSentToChain[seqNo])
-		}
-	}
 }
