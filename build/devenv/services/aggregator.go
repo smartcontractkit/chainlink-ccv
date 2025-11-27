@@ -82,6 +82,8 @@ type AggregatorInput struct {
 	// Source chain selector -> threshold mapping
 	// If not available we default to a full quorum, i.e. all verifiers must sign.
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
+	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
+	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
 }
 
 func (a *AggregatorInput) GetAPIKeys() (model.APIKeyConfig, error) {
@@ -258,6 +260,10 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 	}
 
 	config.Committee = committeeConfig
+
+	if a.MonitoringOtelExporterHTTPEndpoint != "" {
+		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = a.MonitoringOtelExporterHTTPEndpoint
+	}
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {

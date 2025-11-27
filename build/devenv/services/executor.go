@@ -58,6 +58,12 @@ type ExecutorInput struct {
 	RmnAddresses      map[uint64]string `toml:"rmn_addresses"`
 	ExecutorAddresses map[uint64]string `toml:"executor_addresses"`
 	IndexerAddress    string            `toml:"indexer_address"`
+	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the executor config toml.
+	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
+	// Maps to blockchain_infos in the executor config toml.
+	// NOTE: this should be removed from the executor app config toml and into another config file
+	// that is specifically for standalone mode executors.
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 
 	// Only used in standalone mode.
 	TransmitterPrivateKey string `toml:"transmitter_private_key"`
@@ -111,9 +117,16 @@ func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) 
 	if v.ExecutorID == "" {
 		return nil, errors.New("invalid ExecutorID, should be non-empty")
 	}
+
+	// The set value should be usable for devenv setups, only override if a different value is provided.
 	if v.IndexerAddress != "" {
-		// The default in the template is good for e2e tests on ephemeral envs.
 		config.IndexerAddress = v.IndexerAddress
+	}
+	if v.MonitoringOtelExporterHTTPEndpoint != "" {
+		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = v.MonitoringOtelExporterHTTPEndpoint
+	}
+	if len(v.BlockchainInfos) > 0 {
+		config.BlockchainInfos = v.BlockchainInfos
 	}
 
 	config.ExecutorID = v.ExecutorID

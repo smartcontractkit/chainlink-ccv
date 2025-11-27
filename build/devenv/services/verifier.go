@@ -121,6 +121,12 @@ type VerifierInput struct {
 	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
 	// Maps to rmn_remote_addresses in the verifier config toml.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the verifier config toml.
+	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
+	// Maps to blockchain_infos in the verifier config toml.
+	// NOTE: this should be removed from the verifier app config toml and into another config file
+	// that is specifically for standalone mode verifiers.
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 }
 
 func (v *VerifierInput) GenerateJobSpec() (verifierJobSpec string, err error) {
@@ -152,6 +158,16 @@ func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) 
 	config.OnRampAddresses = v.OnRampAddresses
 	config.DefaultExecutorOnRampAddresses = v.DefaultExecutorOnRampAddresses
 	config.RMNRemoteAddresses = v.RMNRemoteAddresses
+
+	// The value in the template should be usable for devenv setups, only override if a different value is provided.
+	if v.MonitoringOtelExporterHTTPEndpoint != "" {
+		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = v.MonitoringOtelExporterHTTPEndpoint
+	}
+
+	// The value in the template should be usable for devenv setups, only override if a different value is provided.
+	if len(v.BlockchainInfos) > 0 {
+		config.BlockchainInfos = v.BlockchainInfos
+	}
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {

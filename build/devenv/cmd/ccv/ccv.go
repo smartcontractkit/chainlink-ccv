@@ -483,6 +483,10 @@ var generateConfigsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		monitoringOtelExporterHTTPEndpoint, err := cmd.Flags().GetString("monitoring-otel-exporter-http-endpoint")
+		if err != nil {
+			return err
+		}
 
 		ocrThreshold := func(n int) uint8 {
 			f := (n - 1) / 3    // n = 3f + 1 => f = (n - 1) / 3
@@ -511,9 +515,9 @@ var generateConfigsCmd = &cobra.Command{
 		}
 
 		const (
-			verifierIDPrefix = "cll-verifier-"
-			executorIDPrefix = "cll-executor-"
-			committeeName    = "cll"
+			verifierIDPrefix = "default-verifier-"
+			executorIDPrefix = "default-executor-"
+			committeeName    = "default"
 		)
 		var (
 			onRampAddresses = make(map[string]string)
@@ -526,6 +530,7 @@ var generateConfigsCmd = &cobra.Command{
 			rmnRemoteAddressesUint64                = make(map[uint64]string)
 			offRampAddresses                        = make(map[uint64]string)
 			thresholdPerSource                      = make(map[uint64]uint8)
+			blockchainInfos                         = make(map[string]*protocol.BlockchainInfo)
 		)
 		for _, ref := range addressRefs {
 			chainSelectorStr := strconv.FormatUint(ref.ChainSelector, 10)
@@ -545,6 +550,23 @@ var generateConfigsCmd = &cobra.Command{
 				offRampAddresses[ref.ChainSelector] = ref.Address
 			}
 			thresholdPerSource[ref.ChainSelector] = ocrThreshold(len(verifierPubKeys))
+
+			// TODO: these values don't really matter for deployments that use the chainlink node.
+			// Blockchain infos should be moved to a separate config for standalone mode verifiers.
+			blockchainInfos[chainSelectorStr] = &protocol.BlockchainInfo{
+				ChainID:         chainSelectorStr,
+				Type:            "evm",
+				Family:          "evm",
+				UniqueChainName: fmt.Sprintf("blockchain-%s", chainSelectorStr),
+				Nodes: []*protocol.Node{
+					{
+						ExternalHTTPUrl: fmt.Sprintf("some-random-http-url-%s", chainSelectorStr),
+						InternalHTTPUrl: fmt.Sprintf("some-random-internal-http-url-%s", chainSelectorStr),
+						ExternalWSUrl:   fmt.Sprintf("some-random-ws-url-%s", chainSelectorStr),
+						InternalWSUrl:   fmt.Sprintf("some-random-internal-ws-url-%s", chainSelectorStr),
+					},
+				},
+			}
 		}
 
 		// create temporary directory to store the generated configs
@@ -558,14 +580,16 @@ var generateConfigsCmd = &cobra.Command{
 		verifierInputs := make([]*services.VerifierInput, 0, len(verifierPubKeys))
 		for i, pubKey := range verifierPubKeys {
 			verifierInputs = append(verifierInputs, &services.VerifierInput{
-				ContainerName:                  fmt.Sprintf("%s%d", verifierIDPrefix, i),
-				AggregatorAddress:              fmt.Sprintf("%s:%d", aggregatorAddr, aggregatorPort),
-				SigningKeyPublic:               pubKey,
-				CommitteeVerifierAddresses:     committeeVerifierAddresses,
-				OnRampAddresses:                onRampAddresses,
-				DefaultExecutorOnRampAddresses: defaultExecutorOnRampAddresses,
-				RMNRemoteAddresses:             rmnRemoteAddresses,
-				CommitteeName:                  committeeName,
+				ContainerName:                      fmt.Sprintf("%s%d", verifierIDPrefix, i+1),
+				AggregatorAddress:                  fmt.Sprintf("%s:%d", aggregatorAddr, aggregatorPort),
+				SigningKeyPublic:                   pubKey,
+				CommitteeVerifierAddresses:         committeeVerifierAddresses,
+				OnRampAddresses:                    onRampAddresses,
+				DefaultExecutorOnRampAddresses:     defaultExecutorOnRampAddresses,
+				RMNRemoteAddresses:                 rmnRemoteAddresses,
+				CommitteeName:                      committeeName,
+				MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
+				BlockchainInfos:                    blockchainInfos,
 			})
 		}
 		// generate and print the job spec to stdout for now
@@ -598,6 +622,7 @@ var generateConfigsCmd = &cobra.Command{
 				IndexerAddress:    indexerAddress,
 				ExecutorAddresses: defaultExecutorOnRampAddressesUint64,
 				RmnAddresses:      rmnRemoteAddressesUint64,
+				BlockchainInfos:   blockchainInfos,
 			})
 		}
 		// generate and print the config to stdout for now
@@ -620,6 +645,7 @@ var generateConfigsCmd = &cobra.Command{
 			CommitteeName:                           committeeName,
 			CommitteeVerifierResolverProxyAddresses: committeeVerifierResolverProxyAddresses,
 			ThresholdPerSource:                      thresholdPerSource,
+			MonitoringOtelExporterHTTPEndpoint:      monitoringOtelExporterHTTPEndpoint,
 		}
 		// generate and print the config to stdout for now
 		aggregatorConfig, err := aggregatorInput.GenerateConfig(verifierInputs)
@@ -903,6 +929,7 @@ func init() {
 	generateConfigsCmd.Flags().String("aggregator-addr", "", "Aggregator gRPC address")
 	generateConfigsCmd.Flags().Int("aggregator-port", 0, "Aggregator gRPC port")
 	generateConfigsCmd.Flags().String("indexer-addr", "", "Indexer HTTP/s URL address")
+	generateConfigsCmd.Flags().String("monitoring-otel-exporter-http-endpoint", "", "Monitoring OpenTelemetry HTTP endpoint, e.g. otel-collector:4318")
 	generateConfigsCmd.Flags().Int("num-executors", -1, "Number of executors to generate configs for, defaults to number of verifiers if not provided")
 
 	_ = generateConfigsCmd.MarkFlagRequired("address-refs-json")
@@ -910,6 +937,7 @@ func init() {
 	_ = generateConfigsCmd.MarkFlagRequired("aggregator-addr")
 	_ = generateConfigsCmd.MarkFlagRequired("aggregator-port")
 	_ = generateConfigsCmd.MarkFlagRequired("indexer-addr")
+	_ = generateConfigsCmd.MarkFlagRequired("monitoring-otel-exporter-http-endpoint")
 }
 
 func checkDockerIsRunning() {
