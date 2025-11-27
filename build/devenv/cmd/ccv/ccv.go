@@ -449,7 +449,7 @@ var printAddressesCmd = &cobra.Command{
 
 var generateConfigsCmd = &cobra.Command{
 	Use:   "generate-configs",
-	Short: "Generate the verifier, executor, aggregator, and indexer configs for the environment",
+	Short: "Generate the verifier and executor jobspecs (CL deployment only), and the aggregator and indexer TOML configuration files for the environment",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// TODO: maybe move the actual generation logic into a function
 		// so that it can potentially be re-used (maybe from CLD?)
@@ -564,20 +564,19 @@ var generateConfigsCmd = &cobra.Command{
 				CommitteeName:                  committeeName,
 			})
 		}
-		// generate and print the config to stdout for now
+		// generate and print the job spec to stdout for now
 		for _, verifierInput := range verifierInputs {
-			verifierConfig, err := verifierInput.GenerateConfig()
+			verifierJobSpec, err := verifierInput.GenerateJobSpec()
 			if err != nil {
-				return fmt.Errorf("failed to generate verifier config: %w", err)
+				return fmt.Errorf("failed to generate verifier job spec: %w", err)
 			}
-			ccv.Plog.Info().Msg("Generated verifier config, writing to temporary directory as a separate file")
-			fmt.Println(string(verifierConfig))
+			ccv.Plog.Info().Msg("Generated verifier job spec, writing to temporary directory as a separate file")
 			// write to a file in the temporary directory generated above
-			filePath := filepath.Join(tempDir, fmt.Sprintf("verifier-%s-config.toml", verifierInput.ContainerName))
-			if err := os.WriteFile(filePath, verifierConfig, 0o644); err != nil {
-				return fmt.Errorf("failed to write verifier config to file: %w", err)
+			filePath := filepath.Join(tempDir, fmt.Sprintf("verifier-%s-job-spec.toml", verifierInput.ContainerName))
+			if err := os.WriteFile(filePath, []byte(verifierJobSpec), 0o644); err != nil {
+				return fmt.Errorf("failed to write verifier job spec to file: %w", err)
 			}
-			ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote verifier config to file")
+			ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote verifier job spec to file")
 		}
 
 		// create the ExecutorInput for each executor
@@ -597,18 +596,17 @@ var generateConfigsCmd = &cobra.Command{
 		}
 		// generate and print the config to stdout for now
 		for _, executorInput := range executorInputs {
-			executorConfig, err := executorInput.GenerateConfig()
+			executorJobSpec, err := executorInput.GenerateJobSpec()
 			if err != nil {
-				return fmt.Errorf("failed to generate executor config: %w", err)
+				return fmt.Errorf("failed to generate executor job spec: %w", err)
 			}
-			ccv.Plog.Info().Msg("Generated executor config, writing to temporary directory as a separate file")
-			fmt.Println(string(executorConfig))
+			ccv.Plog.Info().Msg("Generated executor job spec, writing to temporary directory as a separate file")
 			// write to a file in the temporary directory generated above
-			filePath := filepath.Join(tempDir, fmt.Sprintf("executor-%s-config.toml", executorInput.ExecutorID))
-			if err := os.WriteFile(filePath, executorConfig, 0o644); err != nil {
-				return fmt.Errorf("failed to write executor config to file: %w", err)
+			filePath := filepath.Join(tempDir, fmt.Sprintf("executor-%s-job-spec.toml", executorInput.ExecutorID))
+			if err := os.WriteFile(filePath, []byte(executorJobSpec), 0o644); err != nil {
+				return fmt.Errorf("failed to write executor job spec to file: %w", err)
 			}
-			ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote executor config to file")
+			ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote executor job spec to file")
 		}
 
 		// Create the AggregatorInput
@@ -623,7 +621,6 @@ var generateConfigsCmd = &cobra.Command{
 			return fmt.Errorf("failed to generate aggregator config: %w", err)
 		}
 		ccv.Plog.Info().Msg("Generated aggregator config:")
-		fmt.Println(string(aggregatorConfig))
 		// write to a file in the temporary directory generated above
 		filePath := filepath.Join(tempDir, "aggregator-config.toml")
 		if err := os.WriteFile(filePath, aggregatorConfig, 0o644); err != nil {

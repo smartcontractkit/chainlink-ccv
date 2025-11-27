@@ -70,6 +70,22 @@ type ExecutorOutput struct {
 	UseCache        bool   `toml:"use_cache"`
 }
 
+func (v *ExecutorInput) GenerateJobSpec() (executorJobSpec string, err error) {
+	tomlConfigBytes, err := v.GenerateConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate executor config: %w", err)
+	}
+	return fmt.Sprintf(
+		`
+schemaVersion = 1
+type = "ccvexecutor"
+executorConfig = """
+%s
+"""
+`, string(tomlConfigBytes),
+	), nil
+}
+
 func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) {
 	var config executor.Configuration
 	if _, err := toml.Decode(executorConfigTemplate, &config); err != nil {

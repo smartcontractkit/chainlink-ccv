@@ -123,6 +123,22 @@ type VerifierInput struct {
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
 }
 
+func (v *VerifierInput) GenerateJobSpec() (verifierJobSpec string, err error) {
+	tomlConfigBytes, err := v.GenerateConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate verifier config: %w", err)
+	}
+	return fmt.Sprintf(
+		`
+schemaVersion = 1
+type = "ccvcommitteeverifier"
+committeeVerifierConfig = """
+%s
+"""
+`, string(tomlConfigBytes),
+	), nil
+}
+
 func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
 	var config verifier.Config
 	if _, err := toml.Decode(verifierConfigTemplate, &config); err != nil {
