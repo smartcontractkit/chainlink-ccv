@@ -167,7 +167,7 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 type AggregatorClient struct {
 	logger               zerolog.Logger
 	addr                 string
-	aggregatorClient     pb.AggregatorClient
+	aggregatorClient     pb.CommitteeVerifierClient
 	verifierResultClient pb.VerifierResultAPIClient
 	conn                 *grpc.ClientConn
 }
@@ -183,7 +183,7 @@ func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient,
 	return &AggregatorClient{
 		logger:               logger,
 		addr:                 addr,
-		aggregatorClient:     pb.NewAggregatorClient(conn),
+		aggregatorClient:     pb.NewCommitteeVerifierClient(conn),
 		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
 		conn:                 conn,
 	}, nil
@@ -209,7 +209,7 @@ func NewAuthenticatedAggregatorClient(logger zerolog.Logger, addr, apiKey, secre
 	return &AggregatorClient{
 		logger:               logger,
 		addr:                 addr,
-		aggregatorClient:     pb.NewAggregatorClient(conn),
+		aggregatorClient:     pb.NewCommitteeVerifierClient(conn),
 		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
 		conn:                 conn,
 	}, nil
