@@ -306,7 +306,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	// Check for finality violations and RPC consistency
 	if r.isFinalityViolated(latest, finalized) {
 		r.lggr.Errorw("FINALITY VIOLATION detected - stopping processing")
-		r.sendFinalityViolation(finalized.Number)
+		r.sendFinalityViolation()
 		return
 	}
 
@@ -350,11 +350,10 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 	if lcaBlockNum == 0 {
 		// No LCA found - finality violation
 		r.lggr.Errorw("FINALITY VIOLATION detected - No LCA found")
-		r.sendFinalityViolation(finalized.Number)
+		r.sendFinalityViolation()
 		return
 	}
 
-	earlierReorg := false
 	// Check if reorg occurred
 	if lcaBlockNum < r.latestBlock {
 		// Reorg detected - LCA is before our latest
@@ -371,29 +370,14 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 		}
 		r.latestBlock = lcaBlockNum
 
-		earlierReorg = true
-		// Send reorg notification
 		r.sendReorgNotification(lcaBlockNum)
+		return
 	}
-
-	// Add fetched blocks after LCA to tail
-	for blockNum, header := range longestValidBlocks {
-		if blockNum > lcaBlockNum {
-			r.tailBlocks[blockNum] = header
-			if blockNum > r.latestBlock {
-				r.latestBlock = blockNum
-			}
-		}
-	}
-
-	r.latestFinalizedBlock = finalized.Number
-	// Trim blocks older than finalized buffer
-	r.trimOlderBlocks(finalized.Number)
 
 	// Check if mid-fetch reorg occurred (fetched blocks were inconsistent)
 	midFetchReorg := len(longestValidBlocks) < len(rawFetchedBlocks)
 	// if lca is not earlier and midFetchReorg happened, notify as well
-	if midFetchReorg && !earlierReorg {
+	if midFetchReorg {
 		var lastValidBlock uint64
 		// Find the last valid block in the longest valid chain
 		for blockNum := range longestValidBlocks {
@@ -409,12 +393,19 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 		r.sendReorgNotification(lastValidBlock)
 	}
 
-	r.lggr.Debugw("Processed new blocks",
-		"lcaBlock", lcaBlockNum,
-		"requestedLatest", latest.Number,
-		"actualLatest", r.latestBlock,
-		"blocksAdded", len(longestValidBlocks),
-		"tailSize", len(r.tailBlocks))
+	// Add fetched blocks after r.latestBlock to tail
+	for blockNum, header := range longestValidBlocks {
+		if blockNum > r.latestBlock {
+			r.tailBlocks[blockNum] = header
+			if blockNum > r.latestBlock {
+				r.latestBlock = blockNum
+			}
+		}
+	}
+
+	r.latestFinalizedBlock = finalized.Number
+	// Trim blocks older than finalized buffer
+	r.trimOlderBlocks(finalized.Number)
 }
 
 // findLCAInBlocks finds the Last Common Ancestor by comparing fetched blocks with our tail.
@@ -530,7 +521,7 @@ func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
 // sendFinalityViolation sends a finality violation notification and stops the polling loop.
 // No reset block is provided - finality violations require immediate stop and manual intervention.
 // The coordinator is responsible for closing the detector after receiving this notification.
-func (r *ReorgDetectorService) sendFinalityViolation(finalizedBlockNum uint64) {
+func (r *ReorgDetectorService) sendFinalityViolation() {
 	// Set flag to prevent any more notifications
 	r.finalityViolated.Store(true)
 
