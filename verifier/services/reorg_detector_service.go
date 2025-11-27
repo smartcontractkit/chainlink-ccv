@@ -218,14 +218,41 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		return
 	}
 
+	r.lggr.Infow("Checking for reorg",
+		"chainSelector", r.config.ChainSelector,
+		"latestBlock", latest.Number,
+		"latestHash", latest.Hash,
+		"finalizedBlock", finalized.Number,
+		"finalizedHash", finalized.Hash,
+		"ourLatestBlock", r.latestBlock,
+		"ourLatestFinalized", r.latestFinalizedBlock,
+		"tailSize", len(r.tailBlocks))
+
 	if latest.Number < finalized.Number {
 		r.lggr.Warnw("Latest block number is less than finalized block number")
 		r.sendFinalityViolation(*latest, finalized.Number)
 		return
 	}
 
-	// CRITICAL: Check for finality violation before trimming old blocks
-	// If finalized block has advanced, verify our stored finalized block matches the new finalized hash
+	// CRITICAL: Check for finality violation FIRST
+	// 1. Check if finalized went BACKWARDS (most severe violation)
+	if finalized.Number < r.latestFinalizedBlock {
+		r.lggr.Errorw("FINALITY VIOLATION: finalized block went backwards",
+			"chainSelector", r.config.ChainSelector,
+			"ourFinalizedBlock", r.latestFinalizedBlock,
+			"newFinalizedBlock", finalized.Number,
+			"blocksReorged", r.latestFinalizedBlock-finalized.Number)
+
+		// Use a block from our tail for the violation notification
+		violatedBlock := protocol.BlockHeader{Number: r.latestFinalizedBlock}
+		if stored, exists := r.tailBlocks[r.latestFinalizedBlock]; exists {
+			violatedBlock = stored
+		}
+		r.sendFinalityViolation(violatedBlock, r.latestFinalizedBlock)
+		return
+	}
+
+	// 2. Check if finalized advanced - verify hash matches
 	if finalized.Number > r.latestFinalizedBlock {
 		// Check if we have a stored block at the new finalized height
 		storedAtFinalized, exists := r.tailBlocks[finalized.Number]
@@ -302,6 +329,25 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		firstBackfilledBlock, exists := r.tailBlocks[tailMaxBeforeBackfill+1]
 		oldTailTop, tailTopExists := r.tailBlocks[tailMaxBeforeBackfill]
 
+		r.lggr.Infow("Checking backfill connection to tail",
+			"chainSelector", r.config.ChainSelector,
+			"tailMaxBeforeBackfill", tailMaxBeforeBackfill,
+			"firstBackfilledBlockNum", tailMaxBeforeBackfill+1,
+			"firstBackfilledExists", exists,
+			"oldTailTopExists", tailTopExists,
+			"firstBackfilledParentHash", func() string {
+				if exists {
+					return firstBackfilledBlock.ParentHash.String()
+				}
+				return "N/A"
+			}(),
+			"oldTailTopHash", func() string {
+				if tailTopExists {
+					return oldTailTop.Hash.String()
+				}
+				return "N/A"
+			}())
+
 		if exists && tailTopExists {
 			if firstBackfilledBlock.ParentHash != oldTailTop.Hash {
 				r.lggr.Infow("Reorg detected - backfilled blocks don't connect to existing tail",
@@ -320,6 +366,9 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 				}
 				return
 			}
+			r.lggr.Infow("Backfilled blocks connect correctly to existing tail",
+				"chainSelector", r.config.ChainSelector,
+				"tailMax", tailMaxBeforeBackfill)
 		}
 	}
 
@@ -422,11 +471,18 @@ func (r *ReorgDetectorService) buildEntireTail(ctx context.Context) error {
 	r.latestFinalizedBlock = finalizedBlockNum
 	r.latestBlock = latestBlockNum
 
-	r.lggr.Infow("Tail rebuilt successfully",
+	// Log detailed tail state for debugging
+	tailBlockNums := make([]uint64, 0, len(r.tailBlocks))
+	for blockNum := range r.tailBlocks {
+		tailBlockNums = append(tailBlockNums, blockNum)
+	}
+
+	r.lggr.Infow("Tail rebuilt successfully in buildEntireTail",
 		"chainSelector", r.config.ChainSelector,
 		"minBlock", r.latestFinalizedBlock,
 		"maxBlock", r.latestBlock,
-		"tailSize", len(r.tailBlocks))
+		"tailSize", len(r.tailBlocks),
+		"tailBlocks", tailBlockNums)
 
 	return nil
 }
@@ -556,7 +612,12 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 	r.lggr.Infow("Handling reorg",
 		"chainSelector", r.config.ChainSelector,
 		"newBlock", newBlock.Number,
-		"latestFinalizedBlock", finalizedBlockNum)
+		"newBlockHash", newBlock.Hash,
+		"newBlockParentHash", newBlock.ParentHash,
+		"latestFinalizedBlock", finalizedBlockNum,
+		"ourLatestBlock", r.latestBlock,
+		"ourLatestFinalized", r.latestFinalizedBlock,
+		"tailSize", len(r.tailBlocks))
 
 	// Find block after LCA by walking back the new chain
 	// Use our stored finalized block, not the new finalized, because LCA could be below new finalized
@@ -579,10 +640,12 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 	// LCA is the parent of blockAfterLCA
 	lcaBlockNumber := blockAfterLCA.Number - 1
 
-	r.lggr.Infow("Found LCA",
+	r.lggr.Infow("Found LCA - preparing to rebuild tail",
 		"chainSelector", r.config.ChainSelector,
 		"lcaBlock", lcaBlockNumber,
-		"blockAfterLCA", blockAfterLCA.Number)
+		"blockAfterLCA", blockAfterLCA.Number,
+		"blockAfterLCAHash", blockAfterLCA.Hash,
+		"blockAfterLCAParentHash", blockAfterLCA.ParentHash)
 
 	// Rebuild tail from blockAfterLCA
 	if err := r.rebuildTailFromBlock(ctx, blockAfterLCA); err != nil {
@@ -590,6 +653,10 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 	}
 
 	// Send reorg notification
+	r.lggr.Infow("Sending reorg notification",
+		"chainSelector", r.config.ChainSelector,
+		"lcaBlock", lcaBlockNumber,
+		"resetToBlock", lcaBlockNumber)
 	r.sendReorgNotification(lcaBlockNumber)
 
 	return nil
@@ -620,9 +687,27 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 	// 3. Walk back from current block comparing with stored tail to find LCA
 	// Note: If fetched blocks are inconsistent, we'll still find LCA or finality violation correctly
 	// Start from currentBlock and walk back until we find a match
+	r.lggr.Infow("Walking back to find LCA",
+		"chainSelector", r.config.ChainSelector,
+		"walkingFrom", currentBlock.Number,
+		"walkingTo", ourFinalizedBlock,
+		"tailSize", len(r.tailBlocks))
+
 	for blockNum := currentBlock.Number; blockNum >= ourFinalizedBlock; blockNum-- {
 		newChainBlock := newChainBlocks[blockNum]
 		ourBlock, exists := r.tailBlocks[blockNum]
+
+		r.lggr.Infow("Comparing block",
+			"chainSelector", r.config.ChainSelector,
+			"blockNum", blockNum,
+			"existsInTail", exists,
+			"newChainHash", newChainBlock.Hash,
+			"ourHash", func() string {
+				if exists {
+					return ourBlock.Hash.String()
+				}
+				return "N/A"
+			}())
 
 		if exists && ourBlock.Hash == newChainBlock.Hash {
 			// Found LCA! The block after LCA is blockNum + 1
@@ -646,8 +731,25 @@ func (r *ReorgDetectorService) findBlockAfterLCA(ctx context.Context, currentBlo
 
 	// 5. If we reach here, we didn't find any matching block down to our finalized
 	// This means our finalized block was reorged (finality violation)
+	r.lggr.Errorw("No LCA found - finality violation detected",
+		"chainSelector", r.config.ChainSelector,
+		"ourFinalizedBlock", ourFinalizedBlock,
+		"currentBlock", currentBlock.Number,
+		"tailSize", len(r.tailBlocks))
+
 	ourStoredFinalizedBlock, exists := r.tailBlocks[ourFinalizedBlock]
 	newChainFinalizedBlock := newChainBlocks[ourFinalizedBlock]
+
+	r.lggr.Errorw("Finality violation details",
+		"chainSelector", r.config.ChainSelector,
+		"ourFinalizedBlockExists", exists,
+		"ourFinalizedHash", func() string {
+			if exists {
+				return ourStoredFinalizedBlock.Hash.String()
+			}
+			return "N/A"
+		}(),
+		"newChainFinalizedHash", newChainFinalizedBlock.Hash)
 
 	// For finality violations, we still need to return a block
 	// Return the block right after our finalized as the "blockAfterLCA"
@@ -716,11 +818,19 @@ func (r *ReorgDetectorService) rebuildTailFromBlock(ctx context.Context, startBl
 	r.latestFinalizedBlock = startBlock.Number
 	r.latestBlock = maxBlock
 
+	// Log detailed tail state for debugging
+	tailBlockNums := make([]uint64, 0, len(r.tailBlocks))
+	for blockNum := range r.tailBlocks {
+		tailBlockNums = append(tailBlockNums, blockNum)
+	}
+
 	r.lggr.Infow("Tail rebuilt successfully",
 		"chainSelector", r.config.ChainSelector,
+		"startBlock", startBlock.Number,
 		"minBlock", r.latestFinalizedBlock,
 		"maxBlock", r.latestBlock,
-		"tailSize", len(r.tailBlocks))
+		"tailSize", len(r.tailBlocks),
+		"tailBlocks", tailBlockNums)
 
 	return nil
 }
@@ -770,6 +880,10 @@ func (r *ReorgDetectorService) sendFinalityViolation(violatedBlock protocol.Bloc
 
 	// Stop the reorg detector service after finality violation
 	// The chain is compromised and no longer trustworthy - stop polling
+	// Signal the polling loop to stop immediately before Close() completes
+	if r.cancel != nil {
+		r.cancel() // ← Stop polling loop immediately
+	}
 	go func() {
 		if err := r.Close(); err != nil {
 			r.lggr.Errorw("Failed to close reorg detector after finality violation",
