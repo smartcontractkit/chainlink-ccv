@@ -413,3 +413,95 @@ func TestIsFinalityViolated_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+func TestGetLongestConsecutiveChain_TableDriven(t *testing.T) {
+	lggr := logger.Test(t)
+	mockSR := protocol_mocks.NewMockSourceReader(t)
+
+	config := ReorgDetectorConfig{ChainSelector: 1337}
+	svc, err := NewReorgDetectorService(mockSR, config, lggr)
+	require.NoError(t, err)
+
+	type testCase struct {
+		name     string
+		blocks   map[uint64]protocol.BlockHeader
+		start    uint64
+		end      uint64
+		wantNums []uint64
+	}
+
+	// Helper to build a valid linear block header with predictable hashes.
+	makeHeader := func(num uint64, parentHash protocol.Bytes32) protocol.BlockHeader {
+		return protocol.BlockHeader{
+			Number:     num,
+			Hash:       protocol.Bytes32{byte(num)},
+			ParentHash: parentHash,
+			Timestamp:  time.Now(),
+		}
+	}
+
+	tests := []testCase{
+		{
+			name:  "fully consecutive chain (no reorg)",
+			start: 100,
+			end:   103,
+			blocks: func() map[uint64]protocol.BlockHeader {
+				m := make(map[uint64]protocol.BlockHeader)
+				var zero protocol.Bytes32
+				m[100] = makeHeader(100, zero)
+				m[101] = makeHeader(101, m[100].Hash)
+				m[102] = makeHeader(102, m[101].Hash)
+				m[103] = makeHeader(103, m[102].Hash)
+				return m
+			}(),
+			wantNums: []uint64{100, 101, 102, 103},
+		},
+		{
+			name:  "mid-fetch reorg at 103 (wrong parent)",
+			start: 100,
+			end:   103,
+			blocks: func() map[uint64]protocol.BlockHeader {
+				m := make(map[uint64]protocol.BlockHeader)
+				var zero protocol.Bytes32
+				m[100] = makeHeader(100, zero)
+				m[101] = makeHeader(101, m[100].Hash)
+				m[102] = makeHeader(102, m[101].Hash)
+				// wrong parent for 103 -> should cut here
+				m[103] = protocol.BlockHeader{
+					Number:     103,
+					Hash:       protocol.Bytes32{0xFF},
+					ParentHash: protocol.Bytes32{0xAA}, // not m[102].Hash
+					Timestamp:  time.Now(),
+				}
+				return m
+			}(),
+			wantNums: []uint64{100, 101, 102},
+		},
+		{
+			name:  "missing first block (start not present)",
+			start: 100,
+			end:   103,
+			blocks: func() map[uint64]protocol.BlockHeader {
+				m := make(map[uint64]protocol.BlockHeader)
+				var zero protocol.Bytes32
+				// 100 is missing
+				m[101] = makeHeader(101, zero)
+				m[102] = makeHeader(102, m[101].Hash)
+				return m
+			}(),
+			wantNums: []uint64{}, // no first block -> returns empty
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := svc.getLongestConsecutiveChain(tt.blocks, tt.start, tt.end)
+			require.Equal(t, len(tt.wantNums), len(got), "length mismatch")
+
+			for _, num := range tt.wantNums {
+				_, ok := got[num]
+				assert.Truef(t, ok, "expected block %d in valid chain", num)
+			}
+		})
+	}
+}
