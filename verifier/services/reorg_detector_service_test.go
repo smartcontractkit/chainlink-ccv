@@ -505,3 +505,162 @@ func TestGetLongestConsecutiveChain_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+func TestFillMissingAndValidate_ReorgDetectedAndNotified(t *testing.T) {
+	lggr := logger.Test(t)
+	ctx := context.Background()
+	mockSR := protocol_mocks.NewMockSourceReader(t)
+
+	config := ReorgDetectorConfig{ChainSelector: 1337}
+	svc, err := NewReorgDetectorService(mockSR, config, lggr)
+	require.NoError(t, err)
+
+	// Existing tail: blocks 100-105 on "chain A"
+	// Hash = {byte(i)}, ParentHash = {byte(i-1)}
+	svc.tailBlocks = make(map[uint64]protocol.BlockHeader)
+	for i := uint64(100); i <= 105; i++ {
+		parent := protocol.Bytes32{}
+		if i > 100 {
+			parent = protocol.Bytes32{byte(i - 1)}
+		}
+		svc.tailBlocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       protocol.Bytes32{byte(i)},
+			ParentHash: parent,
+			Timestamp:  time.Now(),
+		}
+	}
+	svc.latestFinalizedBlock = 100
+	svc.latestBlock = 105
+
+	// New canonical chain ("chain B") from 100 to 108:
+	// 100,101 share hashes with chain A, diverge at 102.
+	rawFetched := make(map[uint64]protocol.BlockHeader)
+
+	// 100,101 same as existing tail (LCA should be 101)
+	rawFetched[100] = svc.tailBlocks[100]
+	rawFetched[101] = svc.tailBlocks[101]
+	rawFetched[102] = svc.tailBlocks[102]
+
+	// Diverge at 102 and beyond on a different fork
+	forkStart := uint64(103)
+	forkEnd := uint64(108)
+
+	prev := rawFetched[101] // last shared ancestor
+
+	hash := byte(150) // arbitrary different base for new fork
+	for i := forkStart; i <= forkEnd; i++ {
+		rawFetched[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       protocol.Bytes32{hash},
+			ParentHash: prev.Hash,
+			Timestamp:  time.Now(),
+		}
+		prev = rawFetched[i]
+		hash++
+	}
+
+	// Mock GetBlocksHeaders to return "rawFetched" for whatever range we ask [100,108].
+	mockSR.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+			res := make(map[*big.Int]protocol.BlockHeader)
+			for _, bn := range blockNumbers {
+				n := bn.Uint64()
+				b, ok := rawFetched[n]
+				if ok {
+					res[bn] = b
+				}
+			}
+			return res, nil
+		})
+
+	// latest and finalized we pass into fillMissingAndValidate directly
+	latest := protocol.BlockHeader{Number: 108, Hash: rawFetched[108].Hash}
+	finalized := &protocol.BlockHeader{Number: 100, Hash: rawFetched[100].Hash}
+
+	// Run reorg detection logic.
+	go svc.fillMissingAndValidate(ctx, latest, finalized)
+
+	// Expect a reorg notification with LCA = 101.
+	status := <-svc.statusCh
+	assert.Equal(t, protocol.ReorgTypeNormal, status.Type)
+	assert.Equal(t, uint64(102), status.ResetToBlock)
+}
+
+func TestFillMissingAndValidate_MidFetchReorgTriggersNotification(t *testing.T) {
+	lggr := logger.Test(t)
+	ctx := context.Background()
+	mockSR := protocol_mocks.NewMockSourceReader(t)
+
+	config := ReorgDetectorConfig{ChainSelector: 1337}
+	svc, err := NewReorgDetectorService(mockSR, config, lggr)
+	require.NoError(t, err)
+
+	// Existing tail: 100–107, linear chain A
+	svc.tailBlocks = make(map[uint64]protocol.BlockHeader)
+	var prevHash protocol.Bytes32
+	for i := uint64(100); i <= 107; i++ {
+		hash := protocol.Bytes32{byte(i)}
+		svc.tailBlocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       hash,
+			ParentHash: prevHash,
+			Timestamp:  time.Now(),
+		}
+		prevHash = hash
+	}
+	svc.latestFinalizedBlock = 100
+	svc.latestBlock = 107
+
+	// Raw fetched blocks from 100 to 110.
+	// 100–107: consistent with tail.
+	// 108: wrong parent -> mid-fetch reorg.
+	rawFetched := make(map[uint64]protocol.BlockHeader)
+
+	for i := uint64(100); i <= 107; i++ {
+		rawFetched[i] = svc.tailBlocks[i]
+	}
+
+	rawFetched[108] = protocol.BlockHeader{
+		Number:     108,
+		Hash:       protocol.Bytes32{0xAA},
+		ParentHash: protocol.Bytes32{0xFF}, // incorrect parent
+		Timestamp:  time.Now(),
+	}
+
+	for i := uint64(109); i <= 110; i++ {
+		rawFetched[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       protocol.Bytes32{byte(0xAA + (i - 108))},
+			ParentHash: rawFetched[i-1].Hash,
+			Timestamp:  time.Now(),
+		}
+	}
+
+	latest := protocol.BlockHeader{
+		Number: 110,
+		Hash:   rawFetched[110].Hash,
+	}
+	finalized := &protocol.BlockHeader{
+		Number: 100,
+		Hash:   rawFetched[100].Hash,
+	}
+
+	mockSR.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+			res := make(map[*big.Int]protocol.BlockHeader)
+			for _, bn := range blockNumbers {
+				n := bn.Uint64()
+				if b, ok := rawFetched[n]; ok {
+					res[bn] = b
+				}
+			}
+			return res, nil
+		})
+
+	go svc.fillMissingAndValidate(ctx, latest, finalized)
+
+	status := <-svc.statusCh
+	assert.Equal(t, protocol.ReorgTypeNormal, status.Type)
+	assert.Equal(t, uint64(107), status.ResetToBlock) // last valid block, reorg starts after 107
+}

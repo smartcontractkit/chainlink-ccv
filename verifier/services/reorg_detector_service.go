@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -81,9 +80,6 @@ type ReorgDetectorService struct {
 
 	// Polling configuration
 	pollInterval time.Duration
-
-	// Finality violation flag - once set, no more notifications are sent
-	finalityViolated atomic.Bool
 }
 
 // NewReorgDetectorService creates a new reorg detector service.
@@ -493,14 +489,6 @@ func (r *ReorgDetectorService) fetchBlockRange(ctx context.Context, startBlock, 
 // handleReorg handles a detected reorg by finding the LCA and sending appropriate notifications.
 // sendReorgNotification sends a reorg notification with the common ancestor block.
 func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
-	// Don't send any more notifications if finality was violated
-	if r.finalityViolated.Load() {
-		r.lggr.Warnw("Skipping reorg notification - finality already violated",
-			"chainSelector", r.config.ChainSelector,
-			"lcaBlockNumber", lcaBlockNumber)
-		return
-	}
-
 	status := protocol.ChainStatus{
 		Type:         protocol.ReorgTypeNormal,
 		ResetToBlock: lcaBlockNumber,
@@ -522,8 +510,6 @@ func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
 // No reset block is provided - finality violations require immediate stop and manual intervention.
 // The coordinator is responsible for closing the detector after receiving this notification.
 func (r *ReorgDetectorService) sendFinalityViolationAndStopPolling() {
-	// Set flag to prevent any more notifications
-	r.finalityViolated.Store(true)
 
 	status := protocol.ChainStatus{
 		Type:         protocol.ReorgTypeFinalityViolation,
