@@ -196,9 +196,9 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 	return resultCh, err
 }
 
-// isFinalityViolation checks for finality violations and RPC consistency.
+// isFinalityViolated checks for finality violations and RPC consistency.
 // Returns true if a finality violation is detected.
-func (r *ReorgDetectorService) isFinalityViolation(
+func (r *ReorgDetectorService) isFinalityViolated(
 	latest *protocol.BlockHeader,
 	finalized *protocol.BlockHeader,
 ) bool {
@@ -304,7 +304,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		"tailSize", len(r.tailBlocks))
 
 	// Check for finality violations and RPC consistency
-	if r.isFinalityViolation(latest, finalized) {
+	if r.isFinalityViolated(latest, finalized) {
 		r.lggr.Errorw("FINALITY VIOLATION detected - stopping processing")
 		r.sendFinalityViolation(finalized.Number)
 		return
@@ -330,18 +330,26 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 ) {
 	// Fetch from our finalized block to new latest
 	// This gives us overlap with our tail to find LCA if reorg occurred
-	fetchedBlocks, err := r.fetchBlockRange(ctx, r.latestFinalizedBlock, latest.Number)
+	rawFetchedBlocks, err := r.fetchBlockRange(ctx, r.latestFinalizedBlock, latest.Number)
 	if err != nil {
 		r.lggr.Errorw("Failed to fetch blocks", "error", err)
 		return
 	}
 
+	// Sanitize fetched blocks - extract longest valid chain
+	// Handles mid-fetch reorgs gracefully
+	longestValidBlocks := r.getLongestConsecutiveChain(rawFetchedBlocks, r.latestFinalizedBlock, latest.Number)
+	if len(longestValidBlocks) == 0 {
+		r.lggr.Errorw("No valid blocks in fetch")
+		return
+	}
+
 	// Find LCA by comparing fetched blocks with our tail
-	lcaBlockNum := r.findLCAInBlocks(fetchedBlocks)
+	lcaBlockNum := r.findLCAInBlocks(longestValidBlocks)
 
 	if lcaBlockNum == 0 {
 		// No LCA found - finality violation
-		r.lggr.Errorw("No LCA found - finality violation",
+		r.lggr.Errorw("FINALITY VIOLATION detected - No LCA found",
 			"state", r.dumpTailState())
 		r.sendFinalityViolation(finalized.Number)
 		return
@@ -368,7 +376,7 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 	}
 
 	// Add fetched blocks after LCA to tail
-	for blockNum, header := range fetchedBlocks {
+	for blockNum, header := range longestValidBlocks {
 		if blockNum > lcaBlockNum {
 			r.tailBlocks[blockNum] = header
 			if blockNum > r.latestBlock {
@@ -377,17 +385,21 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 		}
 	}
 
+	r.latestFinalizedBlock = finalized.Number
 	// Trim blocks older than finalized buffer
 	r.trimOlderBlocks(finalized.Number)
 
 	r.lggr.Debugw("Processed new blocks",
 		"lcaBlock", lcaBlockNum,
-		"newLatest", latest.Number,
+		"requestedLatest", latest.Number,
+		"actualLatest", r.latestBlock,
+		"blocksAdded", len(longestValidBlocks),
 		"tailSize", len(r.tailBlocks))
 }
 
 // findLCAInBlocks finds the Last Common Ancestor by comparing fetched blocks with our tail.
 // Returns the block number of the LCA, or 0 if no LCA found (finality violation).
+// In normal cases the LCA will equal our latest block.
 func (r *ReorgDetectorService) findLCAInBlocks(fetchedBlocks map[uint64]protocol.BlockHeader) uint64 {
 	// Walk backwards from our latest to finalized to find where chains match
 	for blockNum := r.latestBlock; blockNum >= r.latestFinalizedBlock; blockNum-- {
@@ -412,27 +424,24 @@ func (r *ReorgDetectorService) findLCAInBlocks(fetchedBlocks map[uint64]protocol
 // Tail range: [finalized - buffer, latest]
 // Called only by the polling goroutine (single-writer).
 func (r *ReorgDetectorService) trimOlderBlocks(finalizedBlockNum uint64) {
-	if r.latestFinalizedBlock < finalizedBlockNum {
-		// Calculate buffer size: percentage of tail with minimum threshold
-		tailSize := r.latestBlock - finalizedBlockNum
-		bufferSize := uint64(float64(tailSize) * FinalizedBufferPercentage)
-		if bufferSize < MinFinalizedBuffer {
-			bufferSize = MinFinalizedBuffer
-		}
+	// Calculate buffer size: percentage of tail with minimum threshold
+	tailSize := r.latestBlock - finalizedBlockNum
+	bufferSize := uint64(float64(tailSize) * FinalizedBufferPercentage)
+	if bufferSize < MinFinalizedBuffer {
+		bufferSize = MinFinalizedBuffer
+	}
 
-		// Calculate trim point: keep buffer of blocks before finalized
-		var trimBelow uint64
-		if finalizedBlockNum > bufferSize {
-			trimBelow = finalizedBlockNum - bufferSize
-		} else {
-			trimBelow = 0 // Don't trim if we're still near genesis
-		}
+	// Calculate trim point: keep buffer of blocks before finalized
+	var trimBelow uint64
+	if finalizedBlockNum > bufferSize {
+		trimBelow = finalizedBlockNum - bufferSize
+	} else {
+		trimBelow = 0 // Don't trim if we're still near genesis
+	}
 
-		// Trim blocks below the buffer threshold
-		for blockNum := r.latestFinalizedBlock; blockNum < trimBelow; blockNum++ {
-			delete(r.tailBlocks, blockNum)
-		}
-		r.latestFinalizedBlock = finalizedBlockNum
+	// Trim blocks below the buffer threshold
+	for blockNum := r.latestFinalizedBlock; blockNum < trimBelow; blockNum++ {
+		delete(r.tailBlocks, blockNum)
 	}
 }
 
@@ -577,55 +586,53 @@ func (r *ReorgDetectorService) dumpTailState() map[string]interface{} {
 	}
 }
 
-// validateChainSegment checks if blocks in tail form a valid chain via parent hashes.
-// Validates from startNum to endNum in our tail.
-func (r *ReorgDetectorService) validateChainSegment(startNum, endNum uint64) bool {
-	for i := startNum + 1; i <= endNum; i++ {
-		current, currentExists := r.tailBlocks[i]
-		parent, parentExists := r.tailBlocks[i-1]
-
-		if !currentExists || !parentExists {
-			r.lggr.Debugw("Missing block in chain segment",
-				"currentNum", i,
-				"currentExists", currentExists,
-				"parentExists", parentExists)
-			return false
-		}
-
-		if current.ParentHash != parent.Hash {
-			r.lggr.Debugw("Parent hash mismatch in chain segment",
-				"blockNum", i,
-				"expectedHash", parent.Hash,
-				"actualParentHash", current.ParentHash)
-			return false
-		}
-	}
-	return true
-}
-
-// validateChainContinuity checks if blocks form valid chain via parent hashes.
-// Returns error if any block's parent hash doesn't match previous block's hash.
-// Used when building initial tail.
-func (r *ReorgDetectorService) validateChainContinuity(
+// getLongestConsecutiveChain extracts the longest valid chain from fetched blocks.
+// Walks from startNum and stops at first inconsistency.
+// Returns map of valid blocks up to the break point.
+func (r *ReorgDetectorService) getLongestConsecutiveChain(
 	blocks map[uint64]protocol.BlockHeader,
 	startNum, endNum uint64,
-) error {
+) map[uint64]protocol.BlockHeader {
+	validBlocks := make(map[uint64]protocol.BlockHeader)
+
+	// Add first block if it exists
+	if first, exists := blocks[startNum]; exists {
+		validBlocks[startNum] = first
+	} else {
+		r.lggr.Warnw("First block missing in fetch", "blockNum", startNum)
+		return validBlocks
+	}
+
+	// Walk forward, adding blocks while chain is valid
 	for i := startNum + 1; i <= endNum; i++ {
 		current, currentExists := blocks[i]
-		parent, parentExists := blocks[i-1]
 
 		if !currentExists {
-			return fmt.Errorf("missing block %d in range", i)
-		}
-		if !parentExists {
-			return fmt.Errorf("missing parent block %d", i-1)
+			r.lggr.Debugw("Found longest valid chain - block missing",
+				"blockNum", i,
+				"lastValid", i-1)
+			break
 		}
 
+		// Parent must exist (we added it in previous iteration)
+		parent := validBlocks[i-1]
+
 		if current.ParentHash != parent.Hash {
-			return fmt.Errorf("parent hash mismatch at block %d: "+
-				"parent.Hash=%s but current.ParentHash=%s",
-				i, parent.Hash, current.ParentHash)
+			r.lggr.Infow("Found longest valid chain - parent hash mismatch (mid-fetch reorg)",
+				"blockNum", i,
+				"lastValidBlock", i-1)
+			break
 		}
+
+		validBlocks[i] = current
 	}
-	return nil
+
+	if len(validBlocks) < int(endNum-startNum+1) {
+		r.lggr.Infow("mid fetch reorg - extracted longest chain",
+			"requested", endNum-startNum+1,
+			"valid", len(validBlocks),
+			"lastValid", startNum+uint64(len(validBlocks))-1)
+	}
+
+	return validBlocks
 }

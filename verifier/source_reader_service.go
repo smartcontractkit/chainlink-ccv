@@ -175,6 +175,11 @@ func (r *SourceReaderService) ResetToBlock(block uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if block >= r.lastProcessedBlock.Uint64() {
+		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken")
+		return nil
+	}
+
 	resetBlock := new(big.Int).SetUint64(block)
 
 	r.logger.Infow("Resetting source reader to block",
