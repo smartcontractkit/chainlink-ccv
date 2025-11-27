@@ -271,37 +271,37 @@ func TestE2EReorg(t *testing.T) {
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
 
 		// =======================Finality Violation Detection=======================//
-		//l.Info().Msg("⏳ Waiting for verifier to detect finality violation...")
-		//violationCtx, violationCancel := context.WithTimeout(ctx, 20*time.Second)
-		//defer violationCancel()
-		//_, err = logAssert.WaitForPatternOnly(violationCtx, logasserter.FinalityViolationDetected())
-		//require.NoError(t, err, "finality violation should be detected and logged")
-		//l.Info().Msg("✅ Finality violation detected in logs")
+		l.Info().Msg("⏳ Waiting for verifier to detect finality violation...")
+		violationCtx, violationCancel := context.WithTimeout(ctx, 20*time.Second)
+		defer violationCancel()
+		_, err = logAssert.WaitForPatternOnly(violationCtx, logasserter.FinalityViolationDetected())
+		require.NoError(t, err, "finality violation should be detected and logged")
+		l.Info().Msg("✅ Finality violation detected in logs")
 
 		//=======================Stop Reader =======================//
 		// Verify that the source reader was stopped as a result (for the correct chain)
-		//l.Info().Msg("⏳ Waiting for source reader to be stopped...")
-		//stopCtx, stopCancel := context.WithTimeout(ctx, 10*time.Second)
-		//defer stopCancel()
-		//stopLog, err := logAssert.WaitForPatternOnly(stopCtx, logasserter.SourceReaderStopped())
-		//require.NoError(t, err, "source reader should be stopped after finality violation")
-		//// Verify the log contains the correct chain selector
-		//srcSelectorStr := fmt.Sprintf("%d", srcSelector)
-		//require.Contains(t, stopLog.LogLine, srcSelectorStr,
-		//	"source reader stop log should contain chain selector %d", srcSelector)
-		//l.Info().Msg("✅ Source reader stopped for correct chain selector")
+		l.Info().Msg("⏳ Waiting for source reader to be stopped...")
+		stopCtx, stopCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer stopCancel()
+		stopLog, err := logAssert.WaitForPatternOnly(stopCtx, logasserter.SourceReaderStopped())
+		require.NoError(t, err, "source reader should be stopped after finality violation")
+		// Verify the log contains the correct chain selector
+		srcSelectorStr := fmt.Sprintf("%d", srcSelector)
+		require.Contains(t, stopLog.LogLine, srcSelectorStr,
+			"source reader stop log should contain chain selector %d", srcSelector)
+		l.Info().Msg("✅ Source reader stopped for correct chain selector")
 
 		//=======================Stop Reorg Detector=======================//
 		// Verify that the reorg detector was closed (for the correct chain)
-		//l.Info().Msg("⏳ Waiting for reorg detector to be closed...")
-		//reorgCtx, reorgCancel := context.WithTimeout(ctx, 10*time.Second)
-		//defer reorgCancel()
-		//reorgLog, err := logAssert.WaitForPatternOnly(reorgCtx, logasserter.ReorgDetectorClosed())
-		//require.NoError(t, err, "reorg detector should be closed after finality violation")
-		//// Verify the log contains the correct chain selector
-		//require.Contains(t, reorgLog.LogLine, srcSelectorStr,
-		//	"reorg detector close log should contain chain selector %d", srcSelector)
-		//l.Info().Msg("✅ Reorg detector closed for correct chain selector")
+		l.Info().Msg("⏳ Waiting for reorg detector to be closed...")
+		reorgCtx, reorgCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer reorgCancel()
+		reorgLog, err := logAssert.WaitForPatternOnly(reorgCtx, logasserter.ReorgDetectorClosed())
+		require.NoError(t, err, "reorg detector should be closed after finality violation")
+		// Verify the log contains the correct chain selector
+		require.Contains(t, reorgLog.LogLine, srcSelectorStr,
+			"reorg detector close log should contain chain selector %d", srcSelector)
+		l.Info().Msg("✅ Reorg detector closed for correct chain selector")
 
 		//=======================Verify Chain Status in Aggregator=======================//
 		// Verify that the chain status in aggregator shows the chain is disabled with checkpoint 0

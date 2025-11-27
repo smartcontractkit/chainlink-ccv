@@ -344,17 +344,17 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 		return
 	}
 
-	// Find LCA by comparing fetched blocks with our tail
+	// Find LCA by comparing fetched blocks with our tail - in normal cases LCA == our latest block
 	lcaBlockNum := r.findLCAInBlocks(longestValidBlocks)
 
 	if lcaBlockNum == 0 {
 		// No LCA found - finality violation
-		r.lggr.Errorw("FINALITY VIOLATION detected - No LCA found",
-			"state", r.dumpTailState())
+		r.lggr.Errorw("FINALITY VIOLATION detected - No LCA found")
 		r.sendFinalityViolation(finalized.Number)
 		return
 	}
 
+	earlierReorg := false
 	// Check if reorg occurred
 	if lcaBlockNum < r.latestBlock {
 		// Reorg detected - LCA is before our latest
@@ -371,6 +371,7 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 		}
 		r.latestBlock = lcaBlockNum
 
+		earlierReorg = true
 		// Send reorg notification
 		r.sendReorgNotification(lcaBlockNum)
 	}
@@ -388,6 +389,25 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 	r.latestFinalizedBlock = finalized.Number
 	// Trim blocks older than finalized buffer
 	r.trimOlderBlocks(finalized.Number)
+
+	// Check if mid-fetch reorg occurred (fetched blocks were inconsistent)
+	midFetchReorg := len(longestValidBlocks) < len(rawFetchedBlocks)
+	// if lca is not earlier and midFetchReorg happened, notify as well
+	if midFetchReorg && !earlierReorg {
+		var lastValidBlock uint64
+		// Find the last valid block in the longest valid chain
+		for blockNum := range longestValidBlocks {
+			if blockNum > lastValidBlock {
+				lastValidBlock = blockNum
+			}
+		}
+		r.lggr.Infow("Mid-fetch reorg detected - fetched blocks were inconsistent",
+			"requestedBlocks length", len(rawFetchedBlocks),
+			"validBlocks length", len(longestValidBlocks),
+			"lastValidBlock", lastValidBlock)
+
+		r.sendReorgNotification(lastValidBlock)
+	}
 
 	r.lggr.Debugw("Processed new blocks",
 		"lcaBlock", lcaBlockNum,
@@ -559,31 +579,6 @@ func (r *ReorgDetectorService) Close() error {
 		r.lggr.Infow("Reorg detector service closed", "chainSelector", r.config.ChainSelector)
 		return nil
 	})
-}
-
-// dumpTailState returns current tail state for debugging
-func (r *ReorgDetectorService) dumpTailState() map[string]interface{} {
-	tailBlockNums := make([]uint64, 0, len(r.tailBlocks))
-	for blockNum := range r.tailBlocks {
-		tailBlockNums = append(tailBlockNums, blockNum)
-	}
-	// Sort for readability
-	for i := 0; i < len(tailBlockNums); i++ {
-		for j := i + 1; j < len(tailBlockNums); j++ {
-			if tailBlockNums[i] > tailBlockNums[j] {
-				tailBlockNums[i], tailBlockNums[j] = tailBlockNums[j], tailBlockNums[i]
-			}
-		}
-	}
-
-	return map[string]interface{}{
-		"chainSelector":        r.config.ChainSelector,
-		"latestBlock":          r.latestBlock,
-		"latestFinalizedBlock": r.latestFinalizedBlock,
-		"tailSize":             len(r.tailBlocks),
-		"tailBlockNumbers":     tailBlockNums,
-		"finalityViolated":     r.finalityViolated.Load(),
-	}
 }
 
 // getLongestConsecutiveChain extracts the longest valid chain from fetched blocks.
