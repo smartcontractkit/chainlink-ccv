@@ -582,7 +582,7 @@ func (c *AggregatorConfig) LoadFromEnvironment() error {
 	}
 	c.APIKeys = apiKeyConfig
 
-	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis {
+	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis && c.RateLimiting.Enabled {
 		if err := c.loadRateLimiterRedisConfigFromEnvironment(); err != nil {
 			return fmt.Errorf("failed to load rate limiter redis config from environment: %w", err)
 		}
