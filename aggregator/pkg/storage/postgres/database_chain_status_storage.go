@@ -107,15 +107,6 @@ func (d *DatabaseChainStatusStorage) StoreChainStatus(ctx context.Context, clien
 // GetClientChainStatuses retrieves all statuses for a client.
 // Returns an empty map if the client has no statuses.
 func (d *DatabaseChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string, chainSelectors []uint64) (map[uint64]*common.ChainStatus, error) {
-	stmt := `SELECT chain_selector, finalized_block_height, disabled 
-		FROM chain_statuses 
-		WHERE client_id = $1`
-	shouldQueryAllChainStatus := len(chainSelectors) == 0
-
-	if !shouldQueryAllChainStatus {
-		stmt += " AND chain_selector IN ($2)"
-	}
-
 	type chainStatus struct {
 		ChainSelector        string `db:"chain_selector"`
 		FinalizedBlockHeight string `db:"finalized_block_height"`
@@ -123,15 +114,41 @@ func (d *DatabaseChainStatusStorage) GetClientChainStatus(ctx context.Context, c
 	}
 
 	var statuses []chainStatus
-	args := []any{clientID}
-	if !shouldQueryAllChainStatus {
+	var err error
+
+	shouldQueryAllChainStatus := len(chainSelectors) == 0
+
+	if shouldQueryAllChainStatus {
+		// Query all chain statuses for the client
+		stmt := `SELECT chain_selector, finalized_block_height, disabled 
+			FROM chain_statuses 
+			WHERE client_id = $1`
+		err = d.ds.SelectContext(ctx, &statuses, stmt, clientID)
+	} else {
+		// Query specific chain selectors - build IN clause with proper placeholders
+		// Convert uint64 selectors to strings for database comparison
 		chainSelectorsStr := make([]string, len(chainSelectors))
 		for i, sel := range chainSelectors {
-			chainSelectorsStr[i] = fmt.Sprintf("%d", sel)
+			chainSelectorsStr[i] = strconv.FormatUint(sel, 10)
 		}
-		args = append(args, strings.Join(chainSelectorsStr, ","))
+
+		// Build placeholders: $2, $3, $4, ... (starting at $2 since $1 is clientID)
+		placeholders := make([]string, len(chainSelectorsStr))
+		args := make([]any, len(chainSelectorsStr)+1)
+		args[0] = clientID
+		for i, selector := range chainSelectorsStr {
+			placeholders[i] = fmt.Sprintf("$%d", i+2)
+			args[i+1] = selector
+		}
+
+		stmt := fmt.Sprintf(`SELECT chain_selector, finalized_block_height, disabled 
+			FROM chain_statuses 
+			WHERE client_id = $1 AND chain_selector IN (%s)`,
+			strings.Join(placeholders, ","))
+
+		err = d.ds.SelectContext(ctx, &statuses, stmt, args...)
 	}
-	err := d.ds.SelectContext(ctx, &statuses, stmt, args...)
+
 	if err != nil {
 		return nil, err
 	}

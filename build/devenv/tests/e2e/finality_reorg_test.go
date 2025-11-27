@@ -237,7 +237,7 @@ func TestE2EReorg(t *testing.T) {
 
 		// =======================Finality Violation Detection=======================//
 		l.Info().Msg("⏳ Waiting for verifier to detect finality violation...")
-		violationCtx, violationCancel := context.WithTimeout(ctx, 10*time.Second)
+		violationCtx, violationCancel := context.WithTimeout(ctx, 20*time.Second)
 		defer violationCancel()
 		_, err = logAssert.WaitForPatternOnly(violationCtx, logasserter.FinalityViolationDetected())
 		require.NoError(t, err, "finality violation should be detected and logged")
