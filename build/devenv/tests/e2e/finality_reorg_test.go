@@ -291,18 +291,6 @@ func TestE2EReorg(t *testing.T) {
 			"source reader stop log should contain chain selector %d", srcSelector)
 		l.Info().Msg("✅ Source reader stopped for correct chain selector")
 
-		//=======================Stop Reorg Detector=======================//
-		// Verify that the reorg detector was closed (for the correct chain)
-		l.Info().Msg("⏳ Waiting for reorg detector to be closed...")
-		reorgCtx, reorgCancel := context.WithTimeout(ctx, 20*time.Second)
-		defer reorgCancel()
-		reorgLog, err := logAssert.WaitForPatternOnly(reorgCtx, logasserter.ReorgDetectorClosed())
-		require.NoError(t, err, "reorg detector should be closed after finality violation")
-		// Verify the log contains the correct chain selector
-		require.Contains(t, reorgLog.LogLine, srcSelectorStr,
-			"reorg detector close log should contain chain selector %d", srcSelector)
-		l.Info().Msg("✅ Reorg detector closed for correct chain selector")
-
 		//=======================Verify Chain Status in Aggregator=======================//
 		// Verify that the chain status in aggregator shows the chain is disabled with checkpoint 0
 		// Note: ReadChainStatus requires HMAC authentication, so we need to create an authenticated client

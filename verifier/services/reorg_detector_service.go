@@ -306,7 +306,7 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 	// Check for finality violations and RPC consistency
 	if r.isFinalityViolated(latest, finalized) {
 		r.lggr.Errorw("FINALITY VIOLATION detected - stopping processing")
-		r.sendFinalityViolation()
+		r.sendFinalityViolationAndStopPolling()
 		return
 	}
 
@@ -350,7 +350,7 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 	if lcaBlockNum == 0 {
 		// No LCA found - finality violation
 		r.lggr.Errorw("FINALITY VIOLATION detected - No LCA found")
-		r.sendFinalityViolation()
+		r.sendFinalityViolationAndStopPolling()
 		return
 	}
 
@@ -518,10 +518,10 @@ func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
 	}
 }
 
-// sendFinalityViolation sends a finality violation notification and stops the polling loop.
+// sendFinalityViolationAndStopPolling sends a finality violation notification and stops the polling loop.
 // No reset block is provided - finality violations require immediate stop and manual intervention.
 // The coordinator is responsible for closing the detector after receiving this notification.
-func (r *ReorgDetectorService) sendFinalityViolation() {
+func (r *ReorgDetectorService) sendFinalityViolationAndStopPolling() {
 	// Set flag to prevent any more notifications
 	r.finalityViolated.Store(true)
 
@@ -538,7 +538,6 @@ func (r *ReorgDetectorService) sendFinalityViolation() {
 	}
 
 	// Signal the polling loop to stop immediately
-	// The coordinator will close the detector after receiving the notification
 	if r.cancel != nil {
 		r.cancel()
 	}
