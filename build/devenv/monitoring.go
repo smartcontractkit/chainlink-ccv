@@ -285,3 +285,16 @@ func (a *AggregatorClient) ReadChainStatus(ctx context.Context, chainSelectors [
 	}
 	return resp, nil
 }
+
+func (a *AggregatorClient) WriteChainStatus(
+	ctx context.Context,
+	statuses []*pb.ChainStatus,
+) (*pb.WriteChainStatusResponse, error) {
+	resp, err := a.aggregatorClient.WriteChainStatus(ctx, &pb.WriteChainStatusRequest{
+		Statuses: statuses,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to write chain status: %w", err)
+	}
+	return resp, nil
+}
