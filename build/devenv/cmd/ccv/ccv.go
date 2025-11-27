@@ -521,7 +521,9 @@ var generateConfigsCmd = &cobra.Command{
 			committeeVerifierAddresses              = make(map[string]string)
 			committeeVerifierResolverProxyAddresses = make(map[uint64]string)
 			defaultExecutorOnRampAddresses          = make(map[string]string)
+			defaultExecutorOnRampAddressesUint64    = make(map[uint64]string)
 			rmnRemoteAddresses                      = make(map[string]string)
+			rmnRemoteAddressesUint64                = make(map[uint64]string)
 			offRampAddresses                        = make(map[uint64]string)
 			thresholdPerSource                      = make(map[uint64]uint8)
 		)
@@ -535,8 +537,10 @@ var generateConfigsCmd = &cobra.Command{
 				committeeVerifierResolverProxyAddresses[ref.ChainSelector] = ref.Address
 			case datastore.ContractType(executor_operations.ContractType):
 				defaultExecutorOnRampAddresses[chainSelectorStr] = ref.Address
+				defaultExecutorOnRampAddressesUint64[ref.ChainSelector] = ref.Address
 			case datastore.ContractType(rmn_remote.ContractType):
 				rmnRemoteAddresses[chainSelectorStr] = ref.Address
+				rmnRemoteAddressesUint64[ref.ChainSelector] = ref.Address
 			case datastore.ContractType(offrampoperations.ContractType):
 				offRampAddresses[ref.ChainSelector] = ref.Address
 			}
@@ -588,10 +592,12 @@ var generateConfigsCmd = &cobra.Command{
 		}
 		for i := 0; i < numExecutors; i++ {
 			executorInputs = append(executorInputs, services.ExecutorInput{
-				ExecutorID:       fmt.Sprintf("%s%d", executorIDPrefix, i),
-				ExecutorPool:     executorPool,
-				OfframpAddresses: offRampAddresses,
-				IndexerAddress:   indexerAddress,
+				ExecutorID:        fmt.Sprintf("%s%d", executorIDPrefix, i),
+				ExecutorPool:      executorPool,
+				OfframpAddresses:  offRampAddresses,
+				IndexerAddress:    indexerAddress,
+				ExecutorAddresses: defaultExecutorOnRampAddressesUint64,
+				RmnAddresses:      rmnRemoteAddressesUint64,
 			})
 		}
 		// generate and print the config to stdout for now
