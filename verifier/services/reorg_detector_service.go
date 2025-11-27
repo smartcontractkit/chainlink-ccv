@@ -91,28 +91,6 @@ type ReorgDetectorService struct {
 	finalityViolated atomic.Bool
 }
 
-// ReorgDetectionResult indicates what was detected
-type ReorgDetectionResult int
-
-const (
-	NoReorg             ReorgDetectionResult = iota
-	ReorgBackwards                           // chain at same/earlier height with different hash
-	ReorgParentMismatch                      // parent hash doesn't match expected
-)
-
-func (r ReorgDetectionResult) String() string {
-	switch r {
-	case NoReorg:
-		return "NoReorg"
-	case ReorgBackwards:
-		return "ReorgBackwards"
-	case ReorgParentMismatch:
-		return "ReorgParentMismatch"
-	default:
-		return "Unknown"
-	}
-}
-
 // NewReorgDetectorService creates a new reorg detector service.
 //
 // Parameters:
@@ -208,9 +186,9 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 	return resultCh, err
 }
 
-// checkFinalityViolation checks for finality violations and RPC consistency.
+// isFinalityViolation checks for finality violations and RPC consistency.
 // Returns true if a finality violation is detected.
-func (r *ReorgDetectorService) checkFinalityViolation(
+func (r *ReorgDetectorService) isFinalityViolation(
 	latest *protocol.BlockHeader,
 	finalized *protocol.BlockHeader,
 ) bool {
@@ -252,32 +230,34 @@ func (r *ReorgDetectorService) checkFinalityViolation(
 	return false
 }
 
-// detectReorgType determines reorg type WITHOUT requiring parent block to exist.
-// Returns NoReorg if gap exists (caller handles gap separately).
-func (r *ReorgDetectorService) detectReorgType(
-	latest protocol.BlockHeader,
-) ReorgDetectionResult {
+// isReorg checks if a reorg occurred.
+// Returns true if reorg detected, false otherwise (including gaps).
+func (r *ReorgDetectorService) isReorg(latest protocol.BlockHeader) bool {
 	// Chain is at same height or went backwards
 	if latest.Number <= r.latestBlock {
 		if r.checkBlockConsistency(latest) {
 			// Same block we already have - RPC is behind or duplicate poll
-			return NoReorg
+			return false
 		}
 		// Different hash or missing block - reorg detected
-		return ReorgBackwards
+		r.lggr.Infow("Reorg detected: hash mismatch at same/earlier height",
+			"blockNum", latest.Number,
+			"blockHash", latest.Hash)
+		return true
 	}
 
 	// New block - check parent hash if parent exists
 	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
 	if !hasParent {
-		return NoReorg // Gap exists, not a reorg (caller handles gap)
+		return false // Gap exists, not a reorg (caller handles gap)
 	}
 
 	if latest.ParentHash != expectedParent.Hash {
-		return ReorgParentMismatch
+		r.lggr.Infow("Reorg detected: parent hash mismatch", "blockNum", latest.Number)
+		return true
 	}
 
-	return NoReorg
+	return false
 }
 
 // hasParentBlock checks if we have the parent block in our tail
@@ -353,112 +333,74 @@ func (r *ReorgDetectorService) checkBlockMaybeHandleReorg(ctx context.Context) {
 		"tailSize", len(r.tailBlocks))
 
 	// Check for finality violations and RPC consistency
-	if r.checkFinalityViolation(latest, finalized) {
+	if r.isFinalityViolation(latest, finalized) {
 		r.lggr.Errorw("FINALITY VIOLATION detected - stopping processing")
 		r.sendFinalityViolation(finalized.Number)
 		return
 	}
 
 	// Detect reorg
-	reorgType := r.detectReorgType(*latest)
-
-	// Handle based on detection
-	switch reorgType {
-	case ReorgBackwards, ReorgParentMismatch:
-		r.lggr.Infow("Reorg detected",
-			"chainSelector", r.config.ChainSelector,
-			"reorgType", reorgType,
-			"block", latest.Number)
+	if r.isReorg(*latest) {
+		// Reorg detected and logged inside isReorg
 		if err := r.handleReorg(ctx, *latest, finalized.Number); err != nil {
-			r.lggr.Errorw("Failed to handle reorg",
-				"chainSelector", r.config.ChainSelector,
-				"error", err)
+			r.lggr.Errorw("Failed to handle reorg", "error", err)
 		}
-
-	case NoReorg:
-		// Check if gap exists
-		if !r.hasParentBlock(latest.Number) {
-			r.handleGapAndValidate(ctx, *latest, finalized)
-			return
-		}
-
-		// Verify parent hash for normal progression
-		expectedParent := r.tailBlocks[latest.Number-1]
-		if latest.ParentHash != expectedParent.Hash {
-			r.lggr.Infow("Reorg detected - parent hash mismatch in normal progression",
-				"chainSelector", r.config.ChainSelector,
-				"block", latest.Number,
-				"expectedParentHash", expectedParent.Hash,
-				"actualParentHash", latest.ParentHash)
-			if err := r.handleReorg(ctx, *latest, finalized.Number); err != nil {
-				r.lggr.Errorw("Failed to handle reorg",
-					"chainSelector", r.config.ChainSelector,
-					"error", err)
-			}
-			return
-		}
-
-		// Normal progression
-		r.addBlockToTail(*latest, finalized.Number)
+		return
 	}
+
+	// No reorg - fill any missing blocks and validate chain continuity
+	r.fillMissingAndValidate(ctx, *latest, finalized)
 }
 
-// handleGapAndValidate handles gap backfill with post-validation.
-func (r *ReorgDetectorService) handleGapAndValidate(
+// fillMissingAndValidate fills any missing blocks between our latest and the new block,
+// validates chain continuity, and adds the new block.
+// Handles both normal progression (0 missing) and gaps (1+ missing blocks).
+func (r *ReorgDetectorService) fillMissingAndValidate(
 	ctx context.Context,
 	latest protocol.BlockHeader,
 	finalized *protocol.BlockHeader,
 ) {
-	tailMaxBeforeBackfill := r.latestBlock
+	missingBlockCount := latest.Number - r.latestBlock - 1
 
-	// Backfill gap
-	_, ok := r.handleGapBackfill(ctx, r.latestBlock, latest.Number, finalized.Number)
-	if !ok {
-		return
-	}
+	// Fill missing blocks if any (could be 0 for normal progression, 1+ for gaps)
+	if missingBlockCount > 0 {
+		tailMaxBeforeFill := r.latestBlock
 
-	// Validate backfilled blocks connect to existing tail
-	firstBackfilledBlock, exists := r.tailBlocks[tailMaxBeforeBackfill+1]
-	oldTailTop, tailTopExists := r.tailBlocks[tailMaxBeforeBackfill]
-
-	r.lggr.Infow("Checking backfill connection to tail",
-		"chainSelector", r.config.ChainSelector,
-		"tailMaxBeforeBackfill", tailMaxBeforeBackfill,
-		"firstBackfilledExists", exists,
-		"oldTailTopExists", tailTopExists)
-
-	if exists && tailTopExists {
-		if firstBackfilledBlock.ParentHash != oldTailTop.Hash {
-			r.lggr.Infow("Reorg detected - backfilled blocks don't connect to tail",
-				"chainSelector", r.config.ChainSelector,
-				"tailMax", tailMaxBeforeBackfill,
-				"expectedParentHash", oldTailTop.Hash,
-				"actualParentHash", firstBackfilledBlock.ParentHash)
-
-			if err := r.handleReorg(ctx, latest, finalized.Number); err != nil {
-				r.lggr.Errorw("Failed to handle reorg after backfill",
-					"chainSelector", r.config.ChainSelector,
-					"error", err)
-			}
+		// Backfill missing blocks
+		_, ok := r.handleGapBackfill(ctx, r.latestBlock, latest.Number, finalized.Number)
+		if !ok {
 			return
 		}
-		r.lggr.Infow("Backfilled blocks connect correctly to tail",
-			"chainSelector", r.config.ChainSelector)
+
+		// Validate filled blocks connect to existing tail
+		firstFilledBlock, exists := r.tailBlocks[tailMaxBeforeFill+1]
+		oldTailTop, tailTopExists := r.tailBlocks[tailMaxBeforeFill]
+
+		if exists && tailTopExists {
+			if firstFilledBlock.ParentHash != oldTailTop.Hash {
+				r.lggr.Infow("Reorg detected - filled blocks don't connect to tail",
+					"tailMax", tailMaxBeforeFill,
+					"expectedParentHash", oldTailTop.Hash,
+					"actualParentHash", firstFilledBlock.ParentHash)
+
+				if err := r.handleReorg(ctx, latest, finalized.Number); err != nil {
+					r.lggr.Errorw("Failed to handle reorg after fill", "error", err)
+				}
+				return
+			}
+		}
 	}
 
-	// Final check: latest block parent hash
+	// Validate latest block's parent hash (always check, whether we filled blocks or not)
 	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
 	if hasParent && latest.ParentHash != expectedParent.Hash {
 		r.lggr.Infow("Reorg detected - parent hash mismatch",
-			"chainSelector", r.config.ChainSelector,
 			"block", latest.Number,
 			"expectedParentHash", expectedParent.Hash,
 			"actualParentHash", latest.ParentHash)
 
 		if err := r.handleReorg(ctx, latest, finalized.Number); err != nil {
-			r.lggr.Errorw("Failed to handle reorg",
-				"chainSelector", r.config.ChainSelector,
-				"error", err)
+			r.lggr.Errorw("Failed to handle reorg", "error", err)
 		}
 		return
 	}
@@ -700,15 +642,7 @@ func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, l
 
 // handleReorg handles a detected reorg by finding the LCA and sending appropriate notifications.
 func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protocol.BlockHeader, finalizedBlockNum uint64) error {
-	r.lggr.Infow("Handling reorg",
-		"chainSelector", r.config.ChainSelector,
-		"newBlock", newBlock.Number,
-		"newBlockHash", newBlock.Hash,
-		"newBlockParentHash", newBlock.ParentHash,
-		"latestFinalizedBlock", finalizedBlockNum,
-		"ourLatestBlock", r.latestBlock,
-		"ourLatestFinalized", r.latestFinalizedBlock,
-		"tailSize", len(r.tailBlocks))
+	r.lggr.Infow("Handling reorg")
 
 	// Find block after LCA by walking back the new chain
 	// Use our stored finalized block, not the new finalized, because LCA could be below new finalized
@@ -717,7 +651,7 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 		// Check if it's a finality violation
 		var finalityViolationError *finalityViolationError
 		if errors.As(err, &finalityViolationError) {
-			r.lggr.Errorw("FINALITY VIOLATION DETECTED",
+			r.lggr.Errorw("FINALITY VIOLATION detected",
 				"chainSelector", r.config.ChainSelector,
 				"error", err,
 				"state", r.dumpTailState())
@@ -733,7 +667,6 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 	lcaBlockNumber := blockAfterLCA.Number - 1
 
 	r.lggr.Infow("Found LCA - preparing to rebuild tail",
-		"chainSelector", r.config.ChainSelector,
 		"lcaBlock", lcaBlockNumber,
 		"blockAfterLCA", blockAfterLCA.Number,
 		"blockAfterLCAHash", blockAfterLCA.Hash,
@@ -746,7 +679,6 @@ func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protoco
 
 	// Send reorg notification
 	r.lggr.Infow("Sending reorg notification",
-		"chainSelector", r.config.ChainSelector,
 		"lcaBlock", lcaBlockNumber,
 		"resetToBlock", lcaBlockNumber)
 	r.sendReorgNotification(lcaBlockNumber)

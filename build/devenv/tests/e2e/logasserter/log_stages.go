@@ -36,7 +36,7 @@ func FinalityViolationDetected() LogStage {
 	return LogStage{
 		Name:       "FinalityViolationDetected",
 		Service:    "verifier",
-		LogPattern: "FINALITY VIOLATION DETECTED",
+		LogPattern: "FINALITY VIOLATION",
 	}
 }
 
