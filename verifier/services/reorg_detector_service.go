@@ -16,10 +16,6 @@ import (
 )
 
 const (
-	// MinGapBlocks is the minimum gap size before triggering tail rebuild
-	MinGapBlocks = 15
-	// GapBlocksPercentage defines the dynamic gap threshold as percentage of tail size
-	GapBlocksPercentage = 0.30 // 30% of tail size
 	// DefaultPollInterval is the default interval for polling new blocks
 	DefaultPollInterval = 1000 * time.Millisecond
 	// FinalizedBufferPercentage defines the buffer of finalized blocks to keep as percentage of tail
@@ -160,10 +156,28 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 			"chainSelector", r.config.ChainSelector,
 			"pollInterval", r.pollInterval)
 
-		err := r.buildEntireTail(ctx)
+		// Build initial tail from finalized to latest
+		latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to build initial tail: %w", err)
+			return fmt.Errorf("failed to get latest and finalized blocks: %w", err)
 		}
+		if latest == nil || finalized == nil {
+			return fmt.Errorf("received nil block headers")
+		}
+
+		blockMap, err := r.fetchBlockRange(ctx, finalized.Number, latest.Number)
+		if err != nil {
+			return fmt.Errorf("failed to fetch initial blocks: %w", err)
+		}
+
+		r.tailBlocks = blockMap
+		r.latestFinalizedBlock = finalized.Number
+		r.latestBlock = latest.Number
+
+		r.lggr.Infow("Initial tail built",
+			"latestFinalizedBlock", r.latestFinalizedBlock,
+			"latestBlock", r.latestBlock,
+			"tailSize", len(r.tailBlocks))
 
 		ctx1, cancel := context.WithCancel(context.Background())
 		r.cancel = cancel
@@ -175,10 +189,7 @@ func (r *ReorgDetectorService) Start(ctx context.Context) (<-chan protocol.Chain
 			r.pollAndCheckForReorgs(ctx1)
 		}()
 
-		r.lggr.Infow("Reorg detector service started successfully",
-			"chainSelector", r.config.ChainSelector,
-			"latestFinalizedBlock", r.latestFinalizedBlock,
-			"latestBlock", r.latestBlock)
+		r.lggr.Infow("Reorg detector service started successfully")
 
 		resultCh = r.statusCh
 		return nil
@@ -364,41 +375,34 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 
 	// Fill missing blocks if any (could be 0 for normal progression, 1+ for gaps)
 	if missingBlockCount > 0 {
-		tailMaxBeforeFill := r.latestBlock
-
-		// Backfill missing blocks
-		_, ok := r.handleGapBackfill(ctx, r.latestBlock, latest.Number, finalized.Number)
-		if !ok {
+		err := r.backfillBlocks(ctx, r.latestBlock+1, latest.Number-1, finalized.Number)
+		if err != nil {
+			r.lggr.Errorw("Failed to fill missing blocks", "error", err)
 			return
 		}
 
-		// Validate filled blocks connect to existing tail
-		firstFilledBlock, exists := r.tailBlocks[tailMaxBeforeFill+1]
-		oldTailTop, tailTopExists := r.tailBlocks[tailMaxBeforeFill]
-
-		if exists && tailTopExists {
-			if firstFilledBlock.ParentHash != oldTailTop.Hash {
-				r.lggr.Infow("Reorg detected - filled blocks don't connect to tail",
-					"tailMax", tailMaxBeforeFill,
-					"expectedParentHash", oldTailTop.Hash,
-					"actualParentHash", firstFilledBlock.ParentHash)
-
-				if err := r.handleReorg(ctx, latest, finalized.Number); err != nil {
-					r.lggr.Errorw("Failed to handle reorg after fill", "error", err)
-				}
-				return
+		// Validate chain continuity of filled blocks
+		if !r.validateChainSegment(r.latestBlock-1, latest.Number) {
+			r.lggr.Infow("Reorg detected - filled blocks don't form valid chain")
+			if err := r.handleReorg(ctx, latest, finalized.Number); err != nil {
+				r.lggr.Errorw("Failed to handle reorg", "error", err)
 			}
+			return
 		}
 	}
 
-	// Validate latest block's parent hash (always check, whether we filled blocks or not)
+	// Validate latest block's parent hash
 	expectedParent, hasParent := r.tailBlocks[latest.Number-1]
-	if hasParent && latest.ParentHash != expectedParent.Hash {
-		r.lggr.Infow("Reorg detected - parent hash mismatch",
-			"block", latest.Number,
-			"expectedParentHash", expectedParent.Hash,
-			"actualParentHash", latest.ParentHash)
+	if !hasParent {
+		r.lggr.Errorw("Parent block missing after fill",
+			"blockNum", latest.Number,
+			"parentNum", latest.Number-1)
+		return
+	}
 
+	if latest.ParentHash != expectedParent.Hash {
+		r.lggr.Infow("Reorg detected - parent hash mismatch",
+			"block", latest.Number)
 		if err := r.handleReorg(ctx, latest, finalized.Number); err != nil {
 			r.lggr.Errorw("Failed to handle reorg", "error", err)
 		}
@@ -410,95 +414,31 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 }
 
 // backfillBlocks fetches and adds missing blocks to the tail.
-// This is normal when pollInterval spans multiple block times.
-// Includes validation to detect mid-fetch reorgs. If validation fails, the next poll will retry.
 func (r *ReorgDetectorService) backfillBlocks(ctx context.Context, startBlock, endBlock, finalizedBlockNum uint64) error {
-	if startBlock > endBlock {
-		return fmt.Errorf("invalid range: startBlock %d > endBlock %d", startBlock, endBlock)
-	}
-
-	r.lggr.Debugw("Backfilling missing blocks",
-		"chainSelector", r.config.ChainSelector,
+	r.lggr.Debugw("Filling missing blocks",
 		"startBlock", startBlock,
 		"endBlock", endBlock,
 		"count", endBlock-startBlock+1)
 
-	// Fetch block headers in range
 	blockMap, err := r.fetchBlockRange(ctx, startBlock, endBlock)
 	if err != nil {
 		return err
 	}
 
-	// Note: We don't validate chain continuity or connection to existing tail.
-	// If blocks are inconsistent (mid-fetch reorg) or don't connect to existing tail,
-	// the normal parent hash check in checkBlockMaybeHandleReorg will detect and handle it.
-
 	// Add blocks to tail
 	for _, header := range blockMap {
 		r.tailBlocks[header.Number] = header
-
-		// Update latestBlock as we go
 		if header.Number > r.latestBlock {
 			r.latestBlock = header.Number
 		}
 	}
 
-	// Trim blocks older than finalized
+	// Trim blocks older than finalized buffer
 	r.trimOlderBlocks(finalizedBlockNum)
 
-	r.lggr.Infow("Backfill completed",
-		"chainSelector", r.config.ChainSelector,
-		"latestFinalizedBlock", r.latestFinalizedBlock,
+	r.lggr.Debugw("Filled missing blocks",
 		"latestBlock", r.latestBlock,
 		"tailSize", len(r.tailBlocks))
-
-	return nil
-}
-
-// buildEntireTail rebuilds the entire tail from finalized to latest.
-// Used when gap is too large or tail state is inconsistent.
-// Stores whatever blocks are returned; normal parent hash check will handle any inconsistencies.
-func (r *ReorgDetectorService) buildEntireTail(ctx context.Context) error {
-	r.lggr.Infow("Rebuilding entire tail",
-		"chainSelector", r.config.ChainSelector)
-
-	// 1. Get current chain state from HeadTracker
-	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get latest and finalized blocks: %w", err)
-	}
-	if latest == nil || finalized == nil {
-		return fmt.Errorf("received nil block headers")
-	}
-
-	finalizedBlockNum := finalized.Number
-	latestBlockNum := latest.Number
-
-	// 2. Fetch block headers in range
-	blockMap, err := r.fetchBlockRange(ctx, finalizedBlockNum, latestBlockNum)
-	if err != nil {
-		return err
-	}
-
-	// 3. Replace tail completely
-	// Note: If blocks are inconsistent (mid-fetch reorg, out-of-sync RPC, etc.),
-	// the normal parent hash check in checkBlockMaybeHandleReorg will detect and handle it
-	r.tailBlocks = blockMap
-	r.latestFinalizedBlock = finalizedBlockNum
-	r.latestBlock = latestBlockNum
-
-	// Log detailed tail state for debugging
-	tailBlockNums := make([]uint64, 0, len(r.tailBlocks))
-	for blockNum := range r.tailBlocks {
-		tailBlockNums = append(tailBlockNums, blockNum)
-	}
-
-	r.lggr.Infow("Tail rebuilt successfully in buildEntireTail",
-		"chainSelector", r.config.ChainSelector,
-		"minBlock", r.latestFinalizedBlock,
-		"maxBlock", r.latestBlock,
-		"tailSize", len(r.tailBlocks),
-		"tailBlocks", tailBlockNums)
 
 	return nil
 }
@@ -533,8 +473,11 @@ func (r *ReorgDetectorService) trimOlderBlocks(finalizedBlockNum uint64) {
 }
 
 // fetchBlockRange fetches block headers for a range [start, end] and returns them as a map.
-// This is a utility to avoid duplicating the blockNumbers array creation and map building logic.
 func (r *ReorgDetectorService) fetchBlockRange(ctx context.Context, startBlock, endBlock uint64) (map[uint64]protocol.BlockHeader, error) {
+	if startBlock > endBlock {
+		return nil, fmt.Errorf("invalid range: startBlock %d > endBlock %d", startBlock, endBlock)
+	}
+
 	// Build block numbers array
 	var blockNumbers []*big.Int
 	for i := startBlock; i <= endBlock; i++ {
@@ -545,6 +488,9 @@ func (r *ReorgDetectorService) fetchBlockRange(ctx context.Context, startBlock, 
 	headers, err := r.sourceReader.GetBlocksHeaders(ctx, blockNumbers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch block headers for range [%d, %d]: %w", startBlock, endBlock, err)
+	}
+	if headers == nil {
+		return nil, fmt.Errorf("received nil headers map")
 	}
 
 	// Build map keyed by block number
@@ -579,67 +525,6 @@ func (r *ReorgDetectorService) addBlockToTail(block protocol.BlockHeader, finali
 
 // handleGapBackfill handles backfilling when there's a gap in the tail.
 // Returns the expected parent block and a boolean indicating success.
-func (r *ReorgDetectorService) handleGapBackfill(ctx context.Context, tailMax, latestBlockNum, finalizedBlockNum uint64) (protocol.BlockHeader, bool) {
-	gapStart := tailMax + 1
-	gapEnd := latestBlockNum - 1
-	gapSize := gapEnd - gapStart + 1
-
-	r.lggr.Infow("Gap detected in tail, backfilling",
-		"chainSelector", r.config.ChainSelector,
-		"gapStart", gapStart,
-		"gapEnd", gapEnd,
-		"gapSize", gapSize,
-		"latestBlock", latestBlockNum,
-		"tailMax", tailMax)
-
-	// Sanity check: gap should be reasonable
-	// Use dynamic threshold based on tail size to handle chains with large tails (e.g., Arbitrum)
-	maxGap := r.maxGapBlocks()
-	if gapSize > maxGap {
-		r.lggr.Errorw("Unexpectedly large gap detected, rebuilding entire tail",
-			"chainSelector", r.config.ChainSelector,
-			"gapSize", gapSize,
-			"maxGapBlocks", maxGap,
-			"tailMax", tailMax,
-			"latestBlock", latestBlockNum,
-			"state", r.dumpTailState())
-		if err := r.buildEntireTail(ctx); err != nil {
-			r.lggr.Errorw("Failed to rebuild tail after large gap",
-				"chainSelector", r.config.ChainSelector,
-				"error", err,
-				"state", r.dumpTailState())
-		}
-		return protocol.BlockHeader{}, false
-	}
-
-	// Backfill missing blocks
-	if err := r.backfillBlocks(ctx, gapStart, gapEnd, finalizedBlockNum); err != nil {
-		r.lggr.Errorw("Failed to backfill blocks",
-			"chainSelector", r.config.ChainSelector,
-			"gapStart", gapStart,
-			"gapEnd", gapEnd,
-			"error", err,
-			"state", r.dumpTailState())
-		return protocol.BlockHeader{}, false
-	}
-
-	// Re-fetch parent after backfill
-	expectedParent, hasParent := r.tailBlocks[latestBlockNum-1]
-
-	if !hasParent {
-		r.lggr.Errorw("Parent block still missing after backfill",
-			"chainSelector", r.config.ChainSelector,
-			"parentBlock", latestBlockNum-1)
-		return protocol.BlockHeader{}, false
-	}
-
-	r.lggr.Infow("Successfully backfilled gap",
-		"chainSelector", r.config.ChainSelector,
-		"gapSize", gapSize)
-
-	return expectedParent, true
-}
-
 // handleReorg handles a detected reorg by finding the LCA and sending appropriate notifications.
 func (r *ReorgDetectorService) handleReorg(ctx context.Context, newBlock protocol.BlockHeader, finalizedBlockNum uint64) error {
 	r.lggr.Infow("Handling reorg")
@@ -985,8 +870,35 @@ func (r *ReorgDetectorService) dumpTailState() map[string]interface{} {
 	}
 }
 
+// validateChainSegment checks if blocks in tail form a valid chain via parent hashes.
+// Validates from startNum to endNum in our tail.
+func (r *ReorgDetectorService) validateChainSegment(startNum, endNum uint64) bool {
+	for i := startNum + 1; i <= endNum; i++ {
+		current, currentExists := r.tailBlocks[i]
+		parent, parentExists := r.tailBlocks[i-1]
+
+		if !currentExists || !parentExists {
+			r.lggr.Debugw("Missing block in chain segment",
+				"currentNum", i,
+				"currentExists", currentExists,
+				"parentExists", parentExists)
+			return false
+		}
+
+		if current.ParentHash != parent.Hash {
+			r.lggr.Debugw("Parent hash mismatch in chain segment",
+				"blockNum", i,
+				"expectedHash", parent.Hash,
+				"actualParentHash", current.ParentHash)
+			return false
+		}
+	}
+	return true
+}
+
 // validateChainContinuity checks if blocks form valid chain via parent hashes.
 // Returns error if any block's parent hash doesn't match previous block's hash.
+// Used when building initial tail.
 func (r *ReorgDetectorService) validateChainContinuity(
 	blocks map[uint64]protocol.BlockHeader,
 	startNum, endNum uint64,
@@ -1009,15 +921,4 @@ func (r *ReorgDetectorService) validateChainContinuity(
 		}
 	}
 	return nil
-}
-
-// maxGapBlocks returns the dynamic maximum gap size based on tail size.
-// Uses a percentage of the tail size with a minimum threshold.
-func (r *ReorgDetectorService) maxGapBlocks() uint64 {
-	tailSize := r.latestBlock - r.latestFinalizedBlock
-	dynamicMax := uint64(float64(tailSize) * GapBlocksPercentage)
-	if dynamicMax < MinGapBlocks {
-		return MinGapBlocks
-	}
-	return dynamicMax
 }
