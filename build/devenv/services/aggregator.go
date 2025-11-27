@@ -79,6 +79,9 @@ type AggregatorInput struct {
 
 	// Chain selector -> Committee Verifier Resolver Proxy Address
 	CommitteeVerifierResolverProxyAddresses map[uint64]string `toml:"committee_verifier_resolver_proxy_addresses"`
+	// Source chain selector -> threshold mapping
+	// If not available we default to a full quorum, i.e. all verifiers must sign.
+	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 }
 
 func (a *AggregatorInput) GetAPIKeys() (model.APIKeyConfig, error) {
@@ -181,8 +184,8 @@ func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 }
 
 // generateConfigs generates the aggregator service configuration using the inputs.
-func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
-	committeeName := in.CommitteeName
+func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
+	committeeName := a.CommitteeName
 
 	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
 	if err != nil {
@@ -193,14 +196,14 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 	committeeConfig.QuorumConfigs = make(map[string]map[string]*model.QuorumConfig)
 
 	// Collect all chain selectors to use as both source and destination
-	allChainSelectors := make([]uint64, 0, len(in.CommitteeVerifierResolverProxyAddresses))
-	for chainSelector := range in.CommitteeVerifierResolverProxyAddresses {
+	allChainSelectors := make([]uint64, 0, len(a.CommitteeVerifierResolverProxyAddresses))
+	for chainSelector := range a.CommitteeVerifierResolverProxyAddresses {
 		allChainSelectors = append(allChainSelectors, chainSelector)
 	}
 
 	// Note: all verifiers are configured on all chains with the same pubkey.
 	// Create quorum configs for all source-destination pairs (where source != destination)
-	for destChainSelector, verifierAddress := range in.CommitteeVerifierResolverProxyAddresses {
+	for destChainSelector, verifierAddress := range a.CommitteeVerifierResolverProxyAddresses {
 		destChainSelStr := strconv.FormatUint(destChainSelector, 10)
 		threshold := uint8(0)
 		var signers []model.Signer
@@ -225,16 +228,29 @@ func generateConfig(in *AggregatorInput, inV []*VerifierInput) ([]byte, error) {
 			sourceChainSelStr := strconv.FormatUint(sourceChainSelector, 10)
 
 			// Lookup source verifier address
-			sourceVerifierAddress, exists := in.CommitteeVerifierResolverProxyAddresses[sourceChainSelector]
+			sourceVerifierAddress, exists := a.CommitteeVerifierResolverProxyAddresses[sourceChainSelector]
 			if !exists {
 				return nil, fmt.Errorf("source verifier address not found for chain selector %d", sourceChainSelector)
 			}
 
+			// Use the threshold per source if available, otherwise use the default threshold
+			// calculated above.
+			var sourceThreshold uint8
+			if a.ThresholdPerSource != nil {
+				t, exists := a.ThresholdPerSource[sourceChainSelector]
+				if exists {
+					sourceThreshold = t
+				} else {
+					sourceThreshold = threshold
+				}
+			} else {
+				sourceThreshold = threshold
+			}
 			sourceConfigs[sourceChainSelStr] = &model.QuorumConfig{
 				DestinationVerifierAddress: verifierAddress,
 				SourceVerifierAddress:      sourceVerifierAddress,
 				Signers:                    signers,
-				Threshold:                  threshold,
+				Threshold:                  sourceThreshold,
 			}
 		}
 
@@ -266,7 +282,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		return in.Out, err
 	}
 
-	config, err := generateConfig(in, inV)
+	config, err := in.GenerateConfig(inV)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate aggregator config: %w", err)
 	}

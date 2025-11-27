@@ -57,6 +57,7 @@ type ExecutorInput struct {
 	ExecutorID        string            `toml:"executor_id"`
 	RmnAddresses      map[uint64]string `toml:"rmn_addresses"`
 	ExecutorAddresses map[uint64]string `toml:"executor_addresses"`
+	IndexerAddress    string            `toml:"indexer_address"`
 
 	// Only used in standalone mode.
 	TransmitterPrivateKey string `toml:"transmitter_private_key"`
@@ -93,6 +94,10 @@ func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) 
 
 	if v.ExecutorID == "" {
 		return nil, errors.New("invalid ExecutorID, should be non-empty")
+	}
+	if v.IndexerAddress != "" {
+		// The default in the template is good for e2e tests on ephemeral envs.
+		config.IndexerAddress = v.IndexerAddress
 	}
 
 	config.ExecutorID = v.ExecutorID
