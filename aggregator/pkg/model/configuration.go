@@ -316,7 +316,6 @@ type AggregatorConfig struct {
 	OrphanRecovery        OrphanRecoveryConfig `toml:"orphanRecovery"`
 	RateLimiting          RateLimitingConfig   `toml:"rateLimiting"`
 	HealthCheck           HealthCheckConfig    `toml:"healthCheck"`
-	StubMode              bool                 `toml:"stubQuorumValidation"`
 	Monitoring            MonitoringConfig     `toml:"monitoring"`
 	PyroscopeURL          string               `toml:"pyroscope_url"`
 	MaxMessageIDsPerBatch int                  `toml:"maxMessageIDsPerBatch"`
