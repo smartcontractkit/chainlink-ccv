@@ -296,6 +296,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 			Message:           *decodedMsg,
 			Receipts:          allReceipts, // Keep original order from OnRamp event
 			BlockNumber:       log.BlockNumber,
+			TxHash:            protocol.ByteSlice(log.TxHash.Bytes()),
 		})
 	}
 	return results, nil

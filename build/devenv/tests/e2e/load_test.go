@@ -397,7 +397,7 @@ func TestE2ELoad(t *testing.T) {
 		testDuration := 30 * time.Second
 
 		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 5 * time.Minute
+		tc.Timeout = 2 * time.Minute
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
