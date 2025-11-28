@@ -2,44 +2,27 @@ package chainaccess
 
 import "github.com/smartcontractkit/chainlink-ccv/protocol"
 
-// VerifierIssuerFilter filters protocol.MessageSentEvent to only include those
-// that have at least one receipt issued by the specified verifier issuer address.
-type VerifierIssuerFilter struct {
-	issuerAddress protocol.UnknownAddress
+// ReceiptIssuerFilter filters protocol.MessageSentEvent to only include those
+// that have at all issuerAddresses present in their receipts.
+type ReceiptIssuerFilter struct {
+	issuerAddresses []protocol.UnknownAddress
 }
 
-func NewVerifierIssuerFilter(
-	issuerAddress protocol.UnknownAddress,
+func NewReceiptIssuerFilter(
+	issuerAddress ...protocol.UnknownAddress,
 ) MessageFilter {
-	return &VerifierIssuerFilter{
-		issuerAddress: issuerAddress,
+	return &ReceiptIssuerFilter{
+		issuerAddresses: issuerAddress,
 	}
 }
 
-func (v *VerifierIssuerFilter) Filter(msg protocol.MessageSentEvent) bool {
+func (v *ReceiptIssuerFilter) Filter(msg protocol.MessageSentEvent) bool {
+	receipts := make(map[string]struct{})
 	for _, receipt := range msg.Receipts {
-		if v.issuerAddress.Equal(receipt.Issuer) {
-			return true
-		}
+		receipts[receipt.Issuer.String()] = struct{}{}
 	}
-	return false
-}
-
-// CompositeMessageFilter combines multiple MessageFilters using logical AND.
-// Works as allow-all if no filters are provided.
-type CompositeMessageFilter struct {
-	filters []MessageFilter
-}
-
-func NewCompositeMessageFilter(filters ...MessageFilter) MessageFilter {
-	return &CompositeMessageFilter{
-		filters: filters,
-	}
-}
-
-func (c *CompositeMessageFilter) Filter(msg protocol.MessageSentEvent) bool {
-	for _, filter := range c.filters {
-		if !filter.Filter(msg) {
+	for _, addr := range v.issuerAddresses {
+		if _, exists := receipts[addr.String()]; !exists {
 			return false
 		}
 	}

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -21,6 +23,7 @@ func createTestSourceReader(t *testing.T, chainStatusManager protocol.ChainStatu
 		chainStatusManager,
 		logger.Test(t),
 		50*time.Millisecond,
+		chainaccess.NewReceiptIssuerFilter(),
 	)
 }
 
