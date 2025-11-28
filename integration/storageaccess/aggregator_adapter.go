@@ -31,10 +31,11 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*pb.Writ
 
 	return &pb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &pb.CommitteeVerifierNodeResult{
-			CcvVersion:      ccvData.CCVVersion,
-			CcvAddresses:    ccvAddresses,
-			ExecutorAddress: ccvData.ExecutorAddress[:],
-			Signature:       ccvData.Signature[:],
+			CcvVersion:                ccvData.CCVVersion,
+			CcvAddresses:              ccvAddresses,
+			ExecutorAddress:           ccvData.ExecutorAddress[:],
+			Signature:                 ccvData.Signature[:],
+			SourceChainBlockTimestamp: ccvData.SourceChainBlockTimestamp.UnixMilli(),
 			Message: &pb.Message{
 				Version:              uint32(ccvData.Message.Version),
 				SourceChainSelector:  uint64(ccvData.Message.SourceChainSelector),
@@ -291,11 +292,24 @@ func mapMessage(msg *pb.Message) (protocol.Message, error) {
 	if msg.Version > math.MaxUint8 {
 		return protocol.Message{}, fmt.Errorf("field Version %d exceeds uint8 max", msg.Version)
 	}
+
 	result.Version = uint8(msg.Version)
 	if msg.OnRampAddressLength > math.MaxUint8 {
 		return protocol.Message{}, fmt.Errorf("field OnRampAddressLength %d exceeds uint8 max",
 			msg.OnRampAddressLength)
 	}
+
+	// Decode TokenTransfer if present
+	if msg.TokenTransferLength > 0 && len(msg.TokenTransfer) > 0 {
+		tt, err := protocol.DecodeTokenTransfer(msg.TokenTransfer)
+		if err != nil {
+			return protocol.Message{}, fmt.Errorf("failed to decode token transfer: %w", err)
+		}
+		result.TokenTransfer = tt
+	} else {
+		result.TokenTransfer = nil
+	}
+
 	result.OnRampAddressLength = uint8(msg.OnRampAddressLength)
 	if msg.OffRampAddressLength > math.MaxUint8 {
 		return protocol.Message{}, fmt.Errorf("field OffRampAddressLength %d exceeds uint8 max",
@@ -381,23 +395,26 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 		var timestamp time.Time
 		var verifierDestAddress protocol.UnknownAddress
 		var verifierSourceAddress protocol.UnknownAddress
+		var sourceChainBlockTimestamp time.Time
 		if result.Metadata != nil {
 			timestamp = time.UnixMilli(result.Metadata.Timestamp)
 			verifierDestAddress = protocol.UnknownAddress(result.Metadata.VerifierDestAddress)
 			verifierSourceAddress = protocol.UnknownAddress(result.Metadata.VerifierSourceAddress)
+			sourceChainBlockTimestamp = time.UnixMilli(result.Metadata.SourceChainBlockTimestamp)
 		}
-
+		a.lggr.Debugw("Processed message", "messageID", messageID, "sequence", sequence, "timestamp", timestamp, "sourceChainBlockTimestamp", sourceChainBlockTimestamp)
 		results = append(results, protocol.QueryResponse{
 			Timestamp: nil,
 			Data: protocol.VerifierResult{
-				MessageID:              messageID,
-				Message:                msg,
-				MessageCCVAddresses:    messageCCVAddresses,
-				MessageExecutorAddress: protocol.UnknownAddress(result.MessageExecutorAddress),
-				CCVData:                protocol.ByteSlice(result.CcvData),
-				Timestamp:              timestamp,
-				VerifierDestAddress:    verifierDestAddress,
-				VerifierSourceAddress:  verifierSourceAddress,
+				MessageID:                 messageID,
+				Message:                   msg,
+				MessageCCVAddresses:       messageCCVAddresses,
+				MessageExecutorAddress:    protocol.UnknownAddress(result.MessageExecutorAddress),
+				CCVData:                   protocol.ByteSlice(result.CcvData),
+				Timestamp:                 timestamp,
+				SourceChainBlockTimestamp: sourceChainBlockTimestamp,
+				VerifierDestAddress:       verifierDestAddress,
+				VerifierSourceAddress:     verifierSourceAddress,
 			},
 		})
 	}

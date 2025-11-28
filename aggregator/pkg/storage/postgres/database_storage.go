@@ -107,8 +107,9 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 	stmt := `INSERT INTO commit_verification_records 
 		(message_id, signer_address, 
 		 signature_r, signature_s, aggregation_key,
-		 ccv_version, signature, message_ccv_addresses, message_executor_address, message_data) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 ccv_version, signature, message_ccv_addresses, message_executor_address, message_data,
+		 source_chain_block_timestamp) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (message_id, signer_address, aggregation_key) 
 		DO NOTHING
 		RETURNING id`
@@ -125,6 +126,7 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 		params["message_ccv_addresses"],
 		params["message_executor_address"],
 		params["message_data"],
+		params["source_chain_block_timestamp"],
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -237,6 +239,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			&verRow.MessageExecutorAddress,
 			&verRow.MessageData,
 			&verRow.ID,
+			&verRow.SourceChainBlockTimestamp,
 			&verRow.CreatedAt,
 		)
 		if err != nil {
@@ -355,6 +358,7 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 			&verRow.MessageExecutorAddress,
 			&verRow.MessageData,
 			&verRow.ID,
+			&verRow.SourceChainBlockTimestamp,
 			&verRow.CreatedAt,
 		)
 		if err != nil {
@@ -456,6 +460,7 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 			&verRow.MessageExecutorAddress,
 			&verRow.MessageData,
 			&verRow.ID,
+			&verRow.SourceChainBlockTimestamp,
 			&verRow.CreatedAt,
 		)
 		if err != nil {

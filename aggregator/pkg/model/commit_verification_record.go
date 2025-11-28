@@ -32,14 +32,15 @@ func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
 
 // CommitVerificationRecord represents a record of a commit verification.
 type CommitVerificationRecord struct {
-	MessageID              MessageID
-	Message                *protocol.Message
-	CCVVersion             []byte
-	Signature              []byte
-	MessageCCVAddresses    []protocol.UnknownAddress
-	MessageExecutorAddress protocol.UnknownAddress
-	IdentifierSigner       *IdentifierSigner
-	createdAt              time.Time // Internal field for tracking creation time from DB
+	MessageID                 MessageID
+	Message                   *protocol.Message
+	CCVVersion                []byte
+	Signature                 []byte
+	MessageCCVAddresses       []protocol.UnknownAddress
+	MessageExecutorAddress    protocol.UnknownAddress
+	SourceChainBlockTimestamp time.Time // Timestamp when message was included in source chain block (milliseconds)
+	IdentifierSigner          *IdentifierSigner
+	createdAt                 time.Time // Internal field for tracking creation time from DB
 }
 
 // GetID retrieves the unique identifier for the commit verification record.

@@ -140,9 +140,10 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Commit
 		MessageExecutorAddress: []byte(report.GetMessageExecutorAddress()),
 		CcvData:                ccvData,
 		Metadata: &pb.VerifierResultMetadata{
-			Timestamp:             timeToTimestampMillis(report.WrittenAt),
-			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddressBytes(),
-			VerifierDestAddress:   quorumConfig.GetDestVerifierAddressBytes(),
+			Timestamp:                 timeToTimestampMillis(report.WrittenAt),
+			VerifierSourceAddress:     quorumConfig.GetSourceVerifierAddressBytes(),
+			VerifierDestAddress:       quorumConfig.GetDestVerifierAddressBytes(),
+			SourceChainBlockTimestamp: report.GetSourceChainBlockTimestamp().UnixMilli(),
 		},
 	}, nil
 }
@@ -194,10 +195,11 @@ func CommitVerificationRecordFromProto(proto *pb.CommitteeVerifierNodeResult) (*
 	}
 
 	record := &CommitVerificationRecord{
-		CCVVersion:             proto.CcvVersion,
-		Signature:              proto.Signature,
-		MessageCCVAddresses:    ccvAddresses,
-		MessageExecutorAddress: protocol.UnknownAddress(proto.ExecutorAddress),
+		CCVVersion:                proto.CcvVersion,
+		Signature:                 proto.Signature,
+		MessageCCVAddresses:       ccvAddresses,
+		MessageExecutorAddress:    protocol.UnknownAddress(proto.ExecutorAddress),
+		SourceChainBlockTimestamp: time.UnixMilli(proto.SourceChainBlockTimestamp),
 	}
 	record.SetTimestampFromMillis(time.Now().UnixMilli())
 
@@ -228,10 +230,11 @@ func CommitVerificationRecordToProto(record *CommitVerificationRecord) *pb.Commi
 	}
 
 	proto := &pb.CommitteeVerifierNodeResult{
-		CcvVersion:      record.CCVVersion,
-		Signature:       record.Signature,
-		CcvAddresses:    ccvAddresses,
-		ExecutorAddress: []byte(record.MessageExecutorAddress),
+		CcvVersion:                record.CCVVersion,
+		Signature:                 record.Signature,
+		CcvAddresses:              ccvAddresses,
+		ExecutorAddress:           []byte(record.MessageExecutorAddress),
+		SourceChainBlockTimestamp: record.SourceChainBlockTimestamp.UnixMilli(),
 	}
 
 	if record.Message != nil {

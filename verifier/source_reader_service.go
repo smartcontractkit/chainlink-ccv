@@ -618,11 +618,12 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		}
 
 		task := VerificationTask{
-			Message:      event.Message,
-			ReceiptBlobs: event.Receipts,
-			BlockNumber:  event.BlockNumber,
-			TxHash:       event.TxHash,
-			FirstSeenAt:  now,
+			Message:        event.Message,
+			ReceiptBlobs:   event.Receipts,
+			BlockNumber:    event.BlockNumber,
+			TxHash:         event.TxHash,
+			FirstSeenAt:    now,
+			BlockTimestamp: event.BlockTimestamp,
 		}
 		tasks = append(tasks, task)
 	}

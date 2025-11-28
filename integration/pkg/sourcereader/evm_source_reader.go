@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -288,6 +290,15 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 			continue // to next message
 		}
 
+		// Safe conversion of BlockTimestamp from uint64 to int64
+		blockTimestamp := int64(log.BlockTimestamp)
+		if log.BlockTimestamp > math.MaxInt64 {
+			r.lggr.Errorw("BlockTimestamp overflow",
+				"blockTimestamp", log.BlockTimestamp,
+				"blockNumber", log.BlockNumber)
+			continue // to next message
+		}
+
 		results = append(results, protocol.MessageSentEvent{
 			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
 			SequenceNumber:    event.SequenceNumber,
@@ -295,6 +306,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 			Message:           *decodedMsg,
 			Receipts:          allReceipts, // Keep original order from OnRamp event
 			BlockNumber:       log.BlockNumber,
+			BlockTimestamp:    time.Unix(blockTimestamp, 0),
 			TxHash:            protocol.ByteSlice(log.TxHash.Bytes()),
 		})
 	}

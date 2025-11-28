@@ -43,11 +43,12 @@ func CreateVerifierNodeResult(verificationTask *verifier.VerificationTask, signa
 	}
 
 	return &protocol.VerifierNodeResult{
-		MessageID:       messageID,
-		Message:         message,
-		CCVVersion:      verifierBlob,
-		CCVAddresses:    receiptStructure.CCVAddresses,
-		ExecutorAddress: receiptStructure.ExecutorAddress,
-		Signature:       signature,
+		MessageID:                 messageID,
+		Message:                   message,
+		CCVVersion:                verifierBlob,
+		CCVAddresses:              receiptStructure.CCVAddresses,
+		ExecutorAddress:           receiptStructure.ExecutorAddress,
+		Signature:                 signature,
+		SourceChainBlockTimestamp: verificationTask.BlockTimestamp,
 	}, nil
 }
