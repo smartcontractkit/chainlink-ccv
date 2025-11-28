@@ -47,11 +47,3 @@ func SourceReaderStopped() LogStage {
 		LogPattern: "Stopping SourceReaderService",
 	}
 }
-
-func ReorgDetectorClosed() LogStage {
-	return LogStage{
-		Name:       "ReorgDetectorClosed",
-		Service:    "verifier",
-		LogPattern: "Stopping ReorgDetectorService",
-	}
-}

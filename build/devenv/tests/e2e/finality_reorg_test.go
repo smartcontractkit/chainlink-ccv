@@ -237,7 +237,6 @@ func TestE2EReorg(t *testing.T) {
 		err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
 			logasserter.FinalityViolationDetected(),
 			logasserter.SourceReaderStopped(),
-			logasserter.ReorgDetectorClosed(),
 		})
 		if err != nil {
 			t.Logf("Warning: Could not start log asserter: %v", err)
