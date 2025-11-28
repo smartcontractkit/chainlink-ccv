@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -29,7 +28,6 @@ const (
 type sourceState struct {
 	reader        *SourceReaderService2
 	readyTasksCh  <-chan batcher.BatchResult[VerificationTask]
-	reorgDetector protocol.ReorgDetector // kept only so we can Close() it if needed
 	chainSelector protocol.ChainSelector
 }
 
@@ -67,7 +65,6 @@ type Coordinator struct {
 
 	// Dependencies
 	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
-	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
 	chainStatusManager protocol.ChainStatusManager
 
 	// Curse detector is created & owned by coordinator
@@ -79,12 +76,6 @@ type Coordinator struct {
 	// Storage batching (kept in coordinator as requested)
 	storageBatcher   *batcher.Batcher[protocol.VerifierNodeResult]
 	batchedCCVDataCh chan batcher.BatchResult[protocol.VerifierNodeResult]
-
-	// Errors
-	errCh chan error
-
-	// For tests / metrics if you need them
-	started atomic.Bool
 }
 
 // -----------------------------------------------------------------------------
@@ -108,25 +99,6 @@ func WithSourceReaders(sourceReaders map[protocol.ChainSelector]chainaccess.Sour
 			vc.sourceReaders[chainSelector] = reader
 		}
 	}
-}
-
-func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainaccess.SourceReader) Option {
-	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
-}
-
-func WithReorgDetectors(reorgDetectors map[protocol.ChainSelector]protocol.ReorgDetector) Option {
-	return func(vc *Coordinator) {
-		if vc.reorgDetectors == nil {
-			vc.reorgDetectors = make(map[protocol.ChainSelector]protocol.ReorgDetector)
-		}
-		for chainSelector, detector := range reorgDetectors {
-			vc.reorgDetectors[chainSelector] = detector
-		}
-	}
-}
-
-func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.ReorgDetector) Option {
-	return WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{chainSelector: detector})
 }
 
 func WithCurseDetector(detector common.CurseCheckerService) Option {
@@ -160,8 +132,6 @@ func NewCoordinator(
 		monitoring:            monitoring,
 		finalityCheckInterval: finalityCheckInterval,
 		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		reorgDetectors:        make(map[protocol.ChainSelector]protocol.ReorgDetector),
-		errCh:                 make(chan error),
 	}
 
 	for _, opt := range opts {
@@ -223,7 +193,6 @@ func (vc *Coordinator) applyConfigDefaults() {
 func (vc *Coordinator) Start(ctx context.Context) error {
 	return vc.StartOnce("Coordinator", func() error {
 		vc.lggr.Infow("Starting verifier coordinator")
-		vc.started.Store(true)
 
 		ctx, vc.cancel = context.WithCancel(ctx)
 
@@ -235,15 +204,17 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				allSelectors = append(allSelectors, selector)
 			}
 
+			// Make single batch call to read all chain statuses
 			var err error
 			statusMap, err = vc.chainStatusManager.ReadChainStatuses(ctx, allSelectors)
 			if err != nil {
-				vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains", "error", err)
-				statusMap = make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
+				vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains",
+					"error", err)
 			}
 		}
 
-		// 2) Initialize per-chain SourceReaderService2 pipelines and collect RMN readers
+		// Initialize source states with reorg detection
+		// Also collect RMN curse readers for curse detector
 		rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 
 		for chainSelector, sourceReader := range vc.sourceReaders {
@@ -270,35 +241,26 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				continue
 			}
 
-			// Underlying reader service
+			// SourceReader automatically satisfies RMNCurseReader interface
+			rmnReaders[chainSelector] = sourceReader
+
 			sourcePollInterval := DefaultSourceReaderPollInterval
 			if sourceCfg.PollInterval > 0 {
 				sourcePollInterval = sourceCfg.PollInterval
 			}
 
 			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
-			srs := NewSourceReaderService(
+			srs := NewSourceReaderService2(
 				sourceReader,
 				chainSelector,
 				vc.chainStatusManager,
 				readerLogger,
 				sourcePollInterval,
-			)
-
-			// Reorg detector for this chain (if any)
-			detector := vc.reorgDetectors[chainSelector]
-
-			// Wrap with SourceReaderService2 pipeline
-			srs2 := NewSourceReaderService2(
-				srs,
-				logger.With(vc.lggr, "component", "SourceReaderService2", "chain", chainSelector),
 				vc.curseDetector, // will be started below (startCurseDetector)
-				vc.chainStatusManager,
-				detector,
 				vc.finalityCheckInterval,
 			)
 
-			if err := srs2.Start(ctx); err != nil {
+			if err := srs.Start(ctx); err != nil {
 				vc.lggr.Errorw("Failed to start SourceReaderService2",
 					"chainSelector", chainSelector,
 					"error", err)
@@ -306,9 +268,8 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			}
 
 			state := &sourceState{
-				reader:        srs2,
-				readyTasksCh:  srs2.ReadyTasksChannel(),
-				reorgDetector: detector,
+				reader:        srs,
+				readyTasksCh:  srs.ReadyTasksChannel(),
 				chainSelector: chainSelector,
 			}
 			vc.sourceStates[chainSelector] = state
@@ -359,23 +320,17 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	})
 }
 
-func (vc *Coordinator) Stop() error {
+// Close stops the verification coordinator processing.
+func (vc *Coordinator) Close() error {
 	return vc.StopOnce("Coordinator", func() error {
-		if !vc.started.Load() {
-			return nil
-		}
-
-		vc.lggr.Infow("Stopping verifier coordinator")
-
-		// Cancel context so batcher + loops drain
-		if vc.cancel != nil {
-			vc.cancel()
-		}
+		// Signal all goroutines to stop processing new work.
+		// This will also trigger the batcher to flush remaining items.
+		vc.cancel()
 
 		// Wait for any in-flight verification tasks to complete.
 		vc.verifyingWg.Wait()
 
-		// Close storage batcher (this also flushes remaining items)
+		// Wait for storage batcher goroutine to finish flushing
 		if vc.storageBatcher != nil {
 			if err := vc.storageBatcher.Close(); err != nil {
 				vc.lggr.Errorw("Error closing storage batcher", "error", err)
@@ -481,6 +436,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 		tasksByChain[task.Message.SourceChainSelector] = append(tasksByChain[task.Message.SourceChainSelector], task)
 	}
 
+	// TODO: Can parallelize chains
 	// Process each chain's tasks as a batch
 	for chainSelector, chainTasks := range tasksByChain {
 		state, ok := vc.sourceStates[chainSelector]

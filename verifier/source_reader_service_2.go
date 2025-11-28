@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
+
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -61,16 +63,15 @@ func NewSourceReaderService2(
 	lggr logger.Logger,
 	pollInterval time.Duration,
 	curseDetector common.CurseCheckerService,
-	reorgDetector protocol.ReorgDetector,
 	finalityCheckInterval time.Duration,
 ) *SourceReaderService2 {
+
 	return &SourceReaderService2{
 		logger:                logger.With(lggr, "component", "SourceReaderService2", "chain", chainSelector),
 		sourceReader:          sourceReader,
 		chainSelector:         chainSelector,
 		chainStatusManager:    chainStatusManager,
 		curseDetector:         curseDetector,
-		reorgDetector:         reorgDetector,
 		pollInterval:          pollInterval,
 		finalityCheckInterval: finalityCheckInterval,
 		readyTasksCh:          make(chan batcher.BatchResult[VerificationTask]),
@@ -85,6 +86,23 @@ func (r *SourceReaderService2) ReadyTasksChannel() <-chan batcher.BatchResult[Ve
 func (r *SourceReaderService2) Start(ctx context.Context) error {
 	return r.StartOnce("SourceReaderService2", func() error {
 		r.logger.Infow("Starting SourceReaderService2", "chainSelector", r.chainSelector)
+
+		reorgDetectorConfig := vservices.ReorgDetectorConfig{
+			ChainSelector: r.chainSelector,
+			PollInterval:  2 * time.Second, // TODO: make configurable
+		}
+
+		reorgDetector, err := vservices.NewReorgDetectorService(
+			r.sourceReader,
+			reorgDetectorConfig,
+			logger.With(r.logger, "component", "ReorgDetector", "chainID", r.chainSelector),
+		)
+		if err != nil {
+			r.logger.Errorw("Failed to create reorg detector", "error", err, "chainID", r.chainSelector)
+			return err
+		}
+
+		r.reorgDetector = reorgDetector
 
 		// 1. start log/event polling loop (you will plug your existing logic here)
 		r.wg.Add(1)
@@ -753,6 +771,12 @@ func (r *SourceReaderService2) handleReorg(status protocol.ChainStatus) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if ancestor >= r.lastProcessedBlock.Uint64() {
+		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken",
+			"block", ancestor,
+			"lastProcessedBlock", r.lastProcessedBlock.Uint64())
+		return
+	}
 
 	if r.disabled {
 		return
@@ -769,17 +793,18 @@ func (r *SourceReaderService2) handleReorg(status protocol.ChainStatus) {
 	}
 	r.pendingTasks = remaining
 
-	if err := r.ResetToBlock(ancestor); err != nil {
-		r.logger.Errorw("Failed to reset reader after reorg",
-			"chainSelector", r.chainSelector,
-			"resetBlock", ancestor,
-			"error", err)
-	} else {
-		r.logger.Infow("Reset reader after reorg",
-			"chainSelector", r.chainSelector,
-			"resetBlock", ancestor,
-			"flushedTasks", flushed)
-	}
+	resetBlock := new(big.Int).SetUint64(ancestor)
+
+	r.logger.Infow("Resetting source reader to block",
+		"chainSelector", r.chainSelector,
+		"fromBlock", r.lastProcessedBlock,
+		"toBlock", resetBlock,
+		"lastChainStatus", r.lastChainStatusBlock,
+	)
+
+	// Update to reset value (already holding lock from function entry)
+	r.lastProcessedBlock = resetBlock
+	r.resetVersion++
 }
 
 func (r *SourceReaderService2) handleFinalityViolation(ctx context.Context, status protocol.ChainStatus) {
@@ -811,52 +836,6 @@ func (r *SourceReaderService2) handleFinalityViolation(ctx context.Context, stat
 			},
 		})
 	}
-}
-
-// ResetToBlock synchronously resets the reader to the specified block.
-//
-// Thread-safety:
-// This method uses an optimistic locking pattern via resetVersion to coordinate
-// with in-flight processEventCycle() calls. The sequence is:
-//  1. Acquire write lock
-//  2. Write chain status if resetBlock < lastChainStatusBlock (finality violation scenario)
-//  3. Increment resetVersion (signals to cycles: "your read is now stale")
-//  4. Update lastProcessedBlock to the reset value
-//  5. Release lock
-//
-// Any processEventCycle() that captured the old version before step 3 will see
-// the version mismatch and skip its lastProcessedBlock update, preserving the reset.
-//
-// The coordinator's reorgInProgress flag prevents new tasks from being queued
-// into the coordinator's pending queue during the reset window.
-//
-// ChainStatus handling:
-// For regular reorgs (non-finalized range), the common ancestor is always >= chain status,
-// so no chainStatus write is needed - periodic chain status chain statuses will naturally advance.
-// For finality violations, the reset block falls below the last chain status, so we must
-// immediately persist the new chain status to ensure safe restart.
-func (r *SourceReaderService2) ResetToBlock(block uint64) error {
-	if block >= r.lastProcessedBlock.Uint64() {
-		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken",
-			"block", block,
-			"lastProcessedBlock", r.lastProcessedBlock.Uint64())
-		return nil
-	}
-
-	resetBlock := new(big.Int).SetUint64(block)
-
-	r.logger.Infow("Resetting source reader to block",
-		"chainSelector", r.chainSelector,
-		"fromBlock", r.lastProcessedBlock,
-		"toBlock", resetBlock,
-		"lastChainStatus", r.lastChainStatusBlock,
-	)
-
-	// Update to reset value (already holding lock from function entry)
-	r.lastProcessedBlock = resetBlock
-	r.resetVersion++
-
-	return nil
 }
 
 // sendBatchError sends a batch-level error to the coordinator.
