@@ -418,7 +418,7 @@ func TestE2ELoad(t *testing.T) {
 		metrics.PrintMetricsSummary(t, summary)
 
 		require.Equal(t, summary.TotalSent, summary.TotalReceived)
-		require.LessOrEqual(t, summary.P90Latency, 30*time.Second)
+		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
