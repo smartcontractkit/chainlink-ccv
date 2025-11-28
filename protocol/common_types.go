@@ -276,4 +276,5 @@ type MessageSentEvent struct {
 	Message           Message           // The decoded CCIP message
 	Receipts          []ReceiptWithBlob // Verifier receipts + executor receipt
 	BlockNumber       uint64            // Block number where event occurred
+	TxHash            ByteSlice         // Transaction hash of the event
 }
