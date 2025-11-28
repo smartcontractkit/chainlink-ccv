@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/clnode"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -510,11 +511,14 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 		return nil
 	}
 
-	clClients, err := clclient.New(in.NodeSets[0].Out.CLNodes)
-	if err != nil {
-		return fmt.Errorf("failed to connect CL node clients: %w", err)
+	clClients := make([]*clclient.ChainlinkClient, 0)
+	for _, ns := range in.NodeSets {
+		nc, err := clclient.New(ns.Out.CLNodes)
+		if err != nil {
+			return fmt.Errorf("failed to connect CL node clients: %w", err)
+		}
+		clClients = append(clClients, nc...)
 	}
-
 	roundRobin := NewRoundRobinAssignment(clClients)
 	for _, ver := range vIn {
 		switch ver.Mode {
@@ -615,12 +619,19 @@ func launchCLNodes(
 		clChainConfigs = append(clChainConfigs, clChainConfig)
 	}
 	allConfigs := strings.Join(clChainConfigs, "\n")
-	for _, nodeSpec := range in.NodeSets[0].NodeSpecs {
-		nodeSpec.Node.TestConfigOverrides = allConfigs
+
+	for _, nodeSet := range in.NodeSets {
+		for _, nodeSpec := range nodeSet.NodeSpecs {
+			nodeSpec.Node.TestConfigOverrides = allConfigs
+		}
 	}
 
 	// set the secret keys of the aggregator for each verifier ID
-	nodeRoundRobin := NewRoundRobinAssignment(in.NodeSets[0].NodeSpecs)
+	nodeSpecs := make([]*clnode.Input, 0)
+	for _, nodeSet := range in.NodeSets {
+		nodeSpecs = append(nodeSpecs, nodeSet.NodeSpecs...)
+	}
+	nodeRoundRobin := NewRoundRobinAssignment(nodeSpecs)
 	aggSecretsPerNode := make(map[int][]AggregatorSecret)
 	for _, ver := range vIn {
 		index, _ := nodeRoundRobin.GetNext()
@@ -651,32 +662,36 @@ func launchCLNodes(
 			return nil, fmt.Errorf("failed to find API client for verifier %s on node %d", ver.ContainerName, index)
 		}
 	}
+	idx := 0
+	for i, nodeSet := range in.NodeSets {
+		for j := range nodeSet.NodeSpecs {
+			if len(aggSecretsPerNode[idx]) == 0 {
+				return nil, fmt.Errorf("no aggregator secrets found for node %d", i+j)
+			}
 
-	for i := range in.NodeSets[0].NodeSpecs {
-		if len(aggSecretsPerNode[i]) == 0 {
-			return nil, fmt.Errorf("no aggregator secrets found for node %d", i)
+			secrets := Secrets{
+				CCV: CCVSecrets{
+					AggregatorSecrets: aggSecretsPerNode[idx],
+				},
+			}
+			secretsToml, err := secrets.TomlString()
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal CCV secrets to TOML: %w", err)
+			}
+			in.NodeSets[i].NodeSpecs[j].Node.TestSecretsOverrides = secretsToml
+			Plog.Info().Msg("overrode secrets for node")
+			fmt.Println(secretsToml)
+			idx++
 		}
-
-		secrets := Secrets{
-			CCV: CCVSecrets{
-				AggregatorSecrets: aggSecretsPerNode[i],
-			},
-		}
-		secretsToml, err := secrets.TomlString()
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal CCV secrets to TOML: %w", err)
-		}
-		in.NodeSets[0].NodeSpecs[i].Node.TestSecretsOverrides = secretsToml
-		Plog.Info().Msg("overrode secrets for node")
-		fmt.Println(secretsToml)
 	}
 	Plog.Info().Msg("Nodes network configuration is generated")
 
-	_, err = ns.NewSharedDBNodeSet(in.NodeSets[0], nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
+	for _, nodeset := range in.NodeSets {
+		_, err = ns.NewSharedDBNodeSet(nodeset, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create new shared db node set: %w", err)
+		}
 	}
-
 	// Fund nodes...
 	for i, impl := range impls {
 		if err = impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
@@ -685,11 +700,15 @@ func launchCLNodes(
 	}
 
 	// Configured keys on CL nodes
-	clClients, err := clclient.New(in.NodeSets[0].Out.CLNodes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect CL node clients")
-	}
+	clClients := make([]*clclient.ChainlinkClient, 0)
 
+	for _, ns := range in.NodeSets {
+		nc, err := clclient.New(ns.Out.CLNodes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect CL node clients")
+		}
+		clClients = append(clClients, nc...)
+	}
 	onchainPublicKeys := make(map[string][]string) // chainType -> onchain public keys
 	for _, cc := range clClients {
 		ocr2Keys, err := cc.MustReadOCR2Keys()

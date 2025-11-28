@@ -1,0 +1,1156 @@
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
+[cldf]
+
+[jd]
+  csa_encryption_key = "d1093c0060d50a3c89c189b2e485da5a3ce57f3dcb38ab7e2c0d5f0bb2314a44" # any random 32 byte hex string
+  image = "job-distributor:local"
+
+[[blockchains]]
+  container_name = "blockchain-src"
+  chain_id = "1337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1", "--disable-code-size-limit"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8545"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-dst"
+  chain_id = "2337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1", "--disable-code-size-limit"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8555"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-3rd"
+  chain_id = "3337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1", "--disable-code-size-limit"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8565"
+  type = "anvil"
+
+[fake]
+  image = "ccv-fakes:dev"
+  port = 9111
+  source_code_path = "../build/devenv/fakes"
+  root_path = "../../"
+
+[[nodesets]]
+  name = "don-group-1"
+  nodes = 4
+  override_mode = "each"
+  http_port_range_start = 10000
+  p2p_port_range_start = 12000
+
+  [nodesets.db]
+    image = "postgres:15.0"
+    port = 13000
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+[[nodesets]]
+  name = "don-group-2"
+  nodes = 4
+  override_mode = "each"
+  http_port_range_start = 10004
+  p2p_port_range_start = 12004
+
+  [nodesets.db]
+    image = "postgres:15.0"
+    port = 13001
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+[[nodesets]]
+  name = "don-group-3"
+  nodes = 4
+  override_mode = "each"
+  http_port_range_start = 10008
+  p2p_port_range_start = 12008
+
+  [nodesets.db]
+    image = "postgres:15.0"
+    port = 13002
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+[[nodesets]]
+  name = "don-group-4"
+  nodes = 4
+  override_mode = "each"
+  http_port_range_start = 10012
+  p2p_port_range_start = 12012
+
+  [nodesets.db]
+    image = "postgres:15.0"
+    port = 13003
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+## Default Verifier Setup (16 nodes)
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-1"
+  port = 8100
+  # path is relative from "devenv" dir
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-1"
+    aggregator_secret_key = "dev-secret-verifier-1"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-2"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-2"
+    aggregator_secret_key = "dev-secret-verifier-2"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-3"
+  port = 8300
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 2
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-3-db"
+    port = 8434
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-3"
+    aggregator_secret_key = "dev-secret-verifier-3"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-4"
+  port = 8400
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 3
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-4-db"
+    port = 8435
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-4"
+    aggregator_secret_key = "dev-secret-verifier-4"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-5"
+  port = 8500
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 4
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-5-db"
+    port = 8436
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-5"
+    aggregator_secret_key = "dev-secret-verifier-5"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-6"
+  port = 8600
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 5
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-6-db"
+    port = 8437
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-6"
+    aggregator_secret_key = "dev-secret-verifier-6"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-7"
+  port = 8700
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 6
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-7-db"
+    port = 8438
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-7"
+    aggregator_secret_key = "dev-secret-verifier-7"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-8"
+  port = 9100
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 7
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-8-db"
+    port = 8439
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-8"
+    aggregator_secret_key = "dev-secret-verifier-8"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-9"
+  port = 9200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 8
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-9-db"
+    port = 8440
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-9"
+    aggregator_secret_key = "dev-secret-verifier-9"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-10"
+  port = 9300
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 9
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-10-db"
+    port = 8441
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-10"
+    aggregator_secret_key = "dev-secret-verifier-10"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-11"
+  port = 9400
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 10
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-11-db"
+    port = 8442
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-11"
+    aggregator_secret_key = "dev-secret-verifier-11"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-12"
+  port = 9500
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 11
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-12-db"
+    port = 8443
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-12"
+    aggregator_secret_key = "dev-secret-verifier-12"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-13"
+  port = 9600
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 12
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-13-db"
+    port = 8444
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-13"
+    aggregator_secret_key = "dev-secret-verifier-13"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-14"
+  port = 9700
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 13
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-14-db"
+    port = 8445
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-14"
+    aggregator_secret_key = "dev-secret-verifier-14"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-15"
+  port = 9800
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 14
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-15-db"
+    port = 8446
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-15"
+    aggregator_secret_key = "dev-secret-verifier-15"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-16"
+  port = 10100
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 15
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-16-db"
+    port = 8447
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-verifier-16"
+    aggregator_secret_key = "dev-secret-verifier-16"
+
+# Secondary Verifier Setup
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "secondary-verifier-1"
+  port = 10200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-1-db"
+    port = 8448
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-secondary-verifier-1"
+    aggregator_secret_key = "dev-secret-secondary-verifier-1"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "secondary-verifier-2"
+  port = 10300
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-2-db"
+    port = 8449
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-secondary-verifier-2"
+    aggregator_secret_key = "dev-secret-secondary-verifier-2"
+
+# Tertiary Verifier Setup
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "tertiary-verifier-1"
+  port = 10400
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-1-db"
+    port = 8450
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-tertiary-verifier-1"
+    aggregator_secret_key = "dev-secret-tertiary-verifier-1"
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "tertiary-verifier-2"
+  port = 10500
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-2-db"
+    port = 8451
+  
+  # Environment variables for sensitive configuration
+  [verifier.env]
+    aggregator_api_key = "dev-api-key-tertiary-verifier-2"
+    aggregator_secret_key = "dev-secret-tertiary-verifier-2"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8101
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-1"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8102
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-2"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8103
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-3"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8104
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-4"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8105
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-5"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8106
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-6"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8107
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-7"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8108
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-8"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8109
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-9"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8110
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-10"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8111
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-11"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8112
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-12"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8113
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-13"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8114
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-14"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8115
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-15"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8116
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-16"
+
+[indexer]
+  image = "indexer:dev"
+  port = 8103
+  source_code_path = "../indexer"
+  root_path = "../../"
+  [indexer.db]
+    image = "postgres:16-alpine"
+
+[indexer.indexer_config]
+[indexer.indexer_config.Monitoring]
+Enabled = true
+Type = 'beholder'
+
+[indexer.indexer_config.Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'otel-collector:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[indexer.indexer_config.Discovery]
+Address = "default-aggregator:50051"
+Since = 0
+APIKey = "dev-api-key-indexer"
+Secret = "dev-secret-indexer"
+PollInterval = 500
+Timeout = 5000
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 28800
+BaseDelay = 100 
+MaxDelay = 30_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+# Filled in dynamically after contract deployments
+IssuerAddresses = [""]
+Name = "CommiteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+APIKey = "dev-api-key-indexer"
+Secret = "dev-secret-indexer"
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+# Filled in dynamically after contract deployments
+IssuerAddresses = [""]
+Name = "CommiteeVerifier (Secondary)"
+Address = "secondary-aggregator:50051"
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+APIKey = "dev-api-key-indexer"
+Secret = "dev-secret-indexer"
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+# Filled in dynamically after contract deployments
+IssuerAddresses = [""]
+Name = "CommiteeVerifier (Tertiary)"
+Address = "tertiary-aggregator:50051"
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+APIKey = "dev-api-key-indexer"
+Secret = "dev-secret-indexer"
+
+[indexer.indexer_config.Storage]
+Strategy = "sink" 
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = "memory"
+
+[indexer.indexer_config.Storage.Sink.Storages.Memory]
+TTL = 3600            
+MaxSize = 10000      
+CleanupInterval = 300
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Sink.Storages.Postgres]
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[[aggregator]]
+  committee_name = "default"
+  image = "aggregator:dev"
+  host_port = 50051
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7432
+  
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6379
+  
+  # Environment variables for sensitive configuration
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+    api_keys_json = '''
+{
+  "clients": {
+    "dev-api-key-verifier-1": {
+      "clientId": "default-verifier-1",
+      "description": "Development default verifier 1",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-1"
+      }
+    },
+    "dev-api-key-verifier-2": {
+      "clientId": "default-verifier-2",
+      "description": "Development default verifier 2",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-2"
+      }
+    },
+    "dev-api-key-verifier-3": {
+      "clientId": "default-verifier-3",
+      "description": "Development default verifier 3",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-3"
+      }
+    },
+    "dev-api-key-verifier-4": {
+      "clientId": "default-verifier-4",
+      "description": "Development default verifier 4",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-4"
+      }
+    },
+    "dev-api-key-verifier-5": {
+      "clientId": "default-verifier-5",
+      "description": "Development default verifier 5",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-5"
+      }
+    },
+    "dev-api-key-verifier-6": {
+      "clientId": "default-verifier-6",
+      "description": "Development default verifier 6",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-6"
+      }
+    },
+    "dev-api-key-verifier-7": {
+      "clientId": "default-verifier-7",
+      "description": "Development default verifier 7",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-7"
+      }
+    },
+    "dev-api-key-verifier-8": {
+      "clientId": "default-verifier-8",
+      "description": "Development default verifier 8",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-8"
+      }
+    },
+    "dev-api-key-verifier-9": {
+      "clientId": "default-verifier-9",
+      "description": "Development default verifier 9",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-9"
+      }
+    },
+    "dev-api-key-verifier-10": {
+      "clientId": "default-verifier-10",
+      "description": "Development default verifier 10",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-10"
+      }
+    },
+    "dev-api-key-verifier-11": {
+      "clientId": "default-verifier-11",
+      "description": "Development default verifier 11",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-11"
+      }
+    },
+    "dev-api-key-verifier-12": {
+      "clientId": "default-verifier-12",
+      "description": "Development default verifier 12",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-12"
+      }
+    },
+    "dev-api-key-verifier-13": {
+      "clientId": "default-verifier-13",
+      "description": "Development default verifier 13",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-13"
+      }
+    },
+    "dev-api-key-verifier-14": {
+      "clientId": "default-verifier-14",
+      "description": "Development default verifier 14",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-14"
+      }
+    },
+    "dev-api-key-verifier-15": {
+      "clientId": "default-verifier-15",
+      "description": "Development default verifier 15",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-15"
+      }
+    },
+    "dev-api-key-verifier-16": {
+      "clientId": "default-verifier-16",
+      "description": "Development default verifier 16",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-verifier-16"
+      }
+    },
+    "dev-api-key-monitoring": {
+      "clientId": "monitoring",
+      "description": "Monitoring and infrastructure client",
+      "enabled": true,
+      "groups": ["monitoring"],
+      "secrets": {
+        "primary": "dev-secret-monitoring"
+      }
+    },
+    "dev-api-key-indexer": {
+      "clientId": "indexer",
+      "description": "Development Indexer",
+      "enabled": true,
+      "groups": ["indexer"],
+      "secrets": {
+        "primary": "dev-secret-indexer"
+      }
+    }
+  }
+}
+'''
+
+[[aggregator]]
+  committee_name = "secondary"
+  image = "aggregator:dev"
+  host_port = 50052
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7433
+  
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6380
+  
+  # Environment variables for sensitive configuration
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@secondary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "secondary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+    api_keys_json = '''
+{
+  "clients": {
+    "dev-api-key-secondary-verifier-1": {
+      "clientId": "secondary-verifier-1",
+      "description": "Development secondary verifier 1",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-secondary-verifier-1"
+      }
+    },
+    "dev-api-key-secondary-verifier-2": {
+      "clientId": "secondary-verifier-2",
+      "description": "Development secondary verifier 2",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-secondary-verifier-2"
+      }
+    },
+    "dev-api-key-monitoring": {
+      "clientId": "monitoring",
+      "description": "Monitoring and infrastructure client",
+      "enabled": true,
+      "groups": ["monitoring"],
+      "secrets": {
+        "primary": "dev-secret-monitoring"
+      }
+    },
+    "dev-api-key-indexer": {
+      "clientId": "indexer",
+      "description": "Development Indexer",
+      "enabled": true,
+      "groups": ["indexer"],
+      "secrets": {
+        "primary": "dev-secret-indexer"
+      }
+    }
+  }
+}
+'''
+
+[[aggregator]]
+  committee_name = "tertiary"
+  image = "aggregator:dev"
+  host_port = 50053
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7434
+  
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6381
+  
+  # Environment variables for sensitive configuration
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@tertiary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "tertiary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+    api_keys_json = '''
+{
+  "clients": {
+    "dev-api-key-tertiary-verifier-1": {
+      "clientId": "tertiary-verifier-1",
+      "description": "Development tertiary verifier 1",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-tertiary-verifier-1"
+      }
+    },
+    "dev-api-key-tertiary-verifier-2": {
+      "clientId": "tertiary-verifier-2",
+      "description": "Development tertiary verifier 2",
+      "enabled": true,
+      "groups": ["verifiers"],
+      "secrets": {
+        "primary": "dev-secret-tertiary-verifier-2"
+      }
+    },
+    "dev-api-key-monitoring": {
+      "clientId": "monitoring",
+      "description": "Monitoring and infrastructure client",
+      "enabled": true,
+      "groups": ["monitoring"],
+      "secrets": {
+        "primary": "dev-secret-monitoring"
+      }
+    },
+    "dev-api-key-indexer": {
+      "clientId": "indexer",
+      "description": "Development Indexer",
+      "enabled": true,
+      "groups": ["indexer"],
+      "secrets": {
+        "primary": "dev-secret-indexer"
+      }
+    }
+  }
+}
+'''
+
+
