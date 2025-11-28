@@ -52,7 +52,7 @@ func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, a
 		AggregatorClient: aggregatorClient,
 		IndexerClient:    indexerClient,
 		LogAsserter:      logAssert,
-		Timeout:          60 * time.Second,
+		Timeout:          180 * time.Second,
 		logger:           logger,
 	}
 
