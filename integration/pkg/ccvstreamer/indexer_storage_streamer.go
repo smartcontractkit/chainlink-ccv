@@ -2,11 +2,9 @@ package ccvstreamer
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"sync"
 	"time"
-
-	"golang.org/x/exp/maps"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -17,11 +15,11 @@ import (
 var _ executor.MessageSubscriber = &IndexerStorageStreamer{}
 
 type IndexerStorageConfig struct {
-	IndexerClient   executor.MessageReader
-	LastQueryTime   int64
-	PollingInterval time.Duration
-	Backoff         time.Duration
-	QueryLimit      uint64
+	IndexerClient    executor.MessageReader
+	InitialQueryTime time.Time
+	PollingInterval  time.Duration
+	Backoff          time.Duration
+	QueryLimit       uint64
 }
 
 func NewIndexerStorageStreamer(
@@ -32,7 +30,7 @@ func NewIndexerStorageStreamer(
 		reader:          indexerConfig.IndexerClient,
 		lggr:            lggr,
 		queryLimit:      indexerConfig.QueryLimit,
-		lastQueryTime:   indexerConfig.LastQueryTime,
+		lastQueryTime:   indexerConfig.InitialQueryTime,
 		pollingInterval: indexerConfig.PollingInterval,
 		backoff:         indexerConfig.Backoff,
 	}
@@ -41,7 +39,7 @@ func NewIndexerStorageStreamer(
 type IndexerStorageStreamer struct {
 	reader          executor.MessageReader
 	lggr            logger.Logger
-	lastQueryTime   int64
+	lastQueryTime   time.Time
 	pollingInterval time.Duration
 	backoff         time.Duration
 	queryLimit      uint64
@@ -59,80 +57,62 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 // Start implements the MessageSubscriber interface.
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
-	wg *sync.WaitGroup,
-) (<-chan executor.StreamerResult, error) {
+	results chan protocol.MessageWithMetadata,
+	errors chan error,
+) error {
 	if oss.reader == nil {
-		return nil, errors.New("reader not set")
+		return fmt.Errorf("reader not set")
+	}
+	if oss.running {
+		return fmt.Errorf("IndexerStorageStreamer already running")
 	}
 
-	messagesCh := make(chan executor.StreamerResult)
-	wg.Add(1)
 	oss.running = true
 
 	go func() {
 		defer func() {
-			wg.Done()
-			close(messagesCh)
-
 			oss.mu.Lock()
 			oss.running = false
 			oss.mu.Unlock()
 		}()
-		newtime := time.Now().UnixMilli()
-		offset := uint64(0)
+		var waitDuration time.Duration
 		for {
 			select {
 			case <-ctx.Done():
 				// Context canceled, stop loop.
 				return
 			default:
-				// Non-blocking: call ReadCCVData
-				oss.lggr.Infow("IndexerStorageStreamer querying for results", "offset", offset, "start", oss.lastQueryTime, "end", newtime)
 				responses, err := oss.reader.ReadMessages(ctx, protocol.MessagesV1Request{
 					Limit:                oss.queryLimit,
-					Offset:               offset,
 					Start:                oss.lastQueryTime,
-					End:                  newtime,
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
 				})
-				if len(responses) != 0 {
-					oss.lggr.Infow("IndexerStorageStreamer found messages using query", "offset", offset, "start", oss.lastQueryTime, "end", newtime, "messages", responses)
+				oss.lggr.Infow("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "count", len(responses), "error", err)
+
+				for _, msgWithMetadata := range responses {
+					oss.lggr.Infow("Found message from Indexer", "msgWithMetadata", msgWithMetadata)
+					if msgWithMetadata.Metadata.IngestionTimestamp.After(oss.lastQueryTime) {
+						oss.lastQueryTime = msgWithMetadata.Metadata.IngestionTimestamp
+					}
+					results <- msgWithMetadata
 				}
 
-				// todo: is it valuable to pass the messageids as well as the messages?
-				result := executor.StreamerResult{
-					Messages: maps.Values(responses),
-					Error:    err,
-				}
-
-				select {
-				case <-ctx.Done():
-					return
-				case messagesCh <- result:
-				}
-
-				// Handle query results and determine next action
-				var waitDuration time.Duration
-				shouldUpdateQueryWindow := false
-
+				// Determine if we should wait before querying again, or read new results immediately.
 				switch {
 				case err != nil:
 					// Error occurred: backoff and retry with same parameters
-					oss.lggr.Infow("IndexerStorageStreamer read error", "error", err)
 					waitDuration = oss.backoff
+					errors <- fmt.Errorf("IndexerStorageStreamer read error: %w", err)
 
 				case uint64(len(responses)) == oss.queryLimit:
 					// Hit query limit: query again immediately with same time range but incremented offset
 					oss.lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
-					offset += oss.queryLimit
 					continue // Skip waiting and time updates, query immediately
 
 				default:
 					// Complete result set received: update query window and reset for next polling cycle
 					waitDuration = oss.pollingInterval
-					shouldUpdateQueryWindow = true
-					offset = 0
 				}
 
 				// Wait before next iteration (common for error and complete cases)
@@ -141,19 +121,9 @@ func (oss *IndexerStorageStreamer) Start(
 					return
 				case <-time.After(waitDuration):
 				}
-
-				// Update query window if we completed a full result set
-				if shouldUpdateQueryWindow {
-					oss.querymu.Lock()
-					oss.lastQueryTime = newtime
-					oss.querymu.Unlock()
-				}
-
-				// Update time for next iteration
-				newtime = time.Now().UnixMilli()
 			}
 		}
 	}()
 
-	return messagesCh, nil
+	return nil
 }
