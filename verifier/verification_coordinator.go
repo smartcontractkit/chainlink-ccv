@@ -26,7 +26,7 @@ const (
 // -----------------------------------------------------------------------------
 
 type sourceState struct {
-	reader        *SourceReaderService2
+	reader        *SourceReaderService
 	readyTasksCh  <-chan batcher.BatchResult[VerificationTask]
 	chainSelector protocol.ChainSelector
 }
@@ -254,7 +254,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			sourceCfg := vc.config.SourceConfigs[chainSelector]
 
 			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
-			srs, err := NewSourceReaderService2(
+			srs, err := NewSourceReaderService(
 				sourceReader,
 				chainSelector,
 				vc.chainStatusManager,
@@ -264,14 +264,14 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				vc.finalityCheckInterval,
 			)
 			if err != nil {
-				vc.lggr.Errorw("Failed to create SourceReaderService2",
+				vc.lggr.Errorw("Failed to create SourceReaderService",
 					"chainSelector", chainSelector,
 					"error", err)
 				continue
 			}
 
 			if err = srs.Start(ctx); err != nil {
-				vc.lggr.Errorw("Failed to start SourceReaderService2",
+				vc.lggr.Errorw("Failed to start SourceReaderService",
 					"chainSelector", chainSelector,
 					"error", err)
 				continue
@@ -371,7 +371,7 @@ func (vc *Coordinator) readyTasksLoop(ctx context.Context, state *sourceState) {
 				return
 			}
 			if batch.Error != nil {
-				vc.lggr.Errorw("Error batch received from SourceReaderService2",
+				vc.lggr.Errorw("Error batch received from SourceReaderService",
 					"chain", state.chainSelector,
 					"error", batch.Error)
 				continue
