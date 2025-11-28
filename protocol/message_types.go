@@ -501,24 +501,26 @@ type CCV struct {
 
 // VerifierResult represents Cross-Chain Verification data (corresponds to VerifierResult proto).
 type VerifierResult struct {
-	MessageID              Bytes32          `json:"message_id"`
-	Message                Message          `json:"message"`
-	MessageCCVAddresses    []UnknownAddress `json:"message_ccv_addresses"`
-	MessageExecutorAddress UnknownAddress   `json:"message_executor_address"`
-	CCVData                ByteSlice        `json:"ccv_data"`
-	Timestamp              time.Time        `json:"timestamp"`
-	VerifierSourceAddress  UnknownAddress   `json:"verifier_source_address"`
-	VerifierDestAddress    UnknownAddress   `json:"verifier_dest_address"`
+	MessageID                 Bytes32          `json:"message_id"`
+	Message                   Message          `json:"message"`
+	MessageCCVAddresses       []UnknownAddress `json:"message_ccv_addresses"`
+	MessageExecutorAddress    UnknownAddress   `json:"message_executor_address"`
+	CCVData                   ByteSlice        `json:"ccv_data"`
+	Timestamp                 time.Time        `json:"timestamp"`
+	VerifierSourceAddress     UnknownAddress   `json:"verifier_source_address"`
+	VerifierDestAddress       UnknownAddress   `json:"verifier_dest_address"`
+	SourceChainBlockTimestamp time.Time        `json:"source_chain_block_timestamp"`
 }
 
 // VerifierNodeResult represents node-level verification data (corresponds to CommitteeVerifierNodeResult proto).
 type VerifierNodeResult struct {
-	MessageID       Bytes32          `json:"message_id"`
-	Message         Message          `json:"message"`
-	CCVVersion      ByteSlice        `json:"ccv_version"`
-	CCVAddresses    []UnknownAddress `json:"ccv_addresses"`
-	ExecutorAddress UnknownAddress   `json:"executor_address"`
-	Signature       ByteSlice        `json:"signature"`
+	MessageID                 Bytes32          `json:"message_id"`
+	Message                   Message          `json:"message"`
+	CCVVersion                ByteSlice        `json:"ccv_version"`
+	CCVAddresses              []UnknownAddress `json:"ccv_addresses"`
+	ExecutorAddress           UnknownAddress   `json:"executor_address"`
+	Signature                 ByteSlice        `json:"signature"`
+	SourceChainBlockTimestamp time.Time        `json:"source_chain_block_timestamp"`
 }
 
 func (vr *VerifierResult) ValidateFieldsConsistent() error {

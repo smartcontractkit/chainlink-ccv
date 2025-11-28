@@ -127,6 +127,24 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		"ccvDatasDestVerifiers", ccvDataDestVerifiers(ccvData),
 		"ccvDatasSourceVerifiers", ccvDataSourceVerifiers(ccvData),
 	)
+
+	var sourceBlockTimestamp *time.Time
+	for _, data := range ccvData {
+		if sourceBlockTimestamp == nil || data.SourceChainBlockTimestamp.Before(*sourceBlockTimestamp) {
+			if data.SourceChainBlockTimestamp.IsZero() {
+				continue
+			}
+			if sourceBlockTimestamp != nil && !data.SourceChainBlockTimestamp.Equal(*sourceBlockTimestamp) {
+				cle.lggr.Warnw("mismatched source chain block timestamps among required CCVs. Using earliest timestamp.",
+					"existingTimestamp", sourceBlockTimestamp,
+					"newTimestamp", data.SourceChainBlockTimestamp,
+				)
+			}
+
+			sourceBlockTimestamp = &data.SourceChainBlockTimestamp
+		}
+	}
+
 	orderedCCVData, orderedCCVOfframps, latestCCVTimestamp, err := orderCCVData(ccvData, ccvInfo)
 	if err != nil {
 		return fmt.Errorf("failed to order CCV Offramp data for message %s: %w", messageID.String(), err)
@@ -151,7 +169,12 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 
 	// Record the message execution latency.
 	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(time.Unix(latestCCVTimestamp, 0)))
-
+	if sourceBlockTimestamp != nil {
+		cle.monitoring.Metrics().RecordMessageE2ELatency(ctx, time.Since(*sourceBlockTimestamp))
+		cle.lggr.Info("recorded source block latency", "messageID", messageID, "latency", time.Since(*sourceBlockTimestamp))
+	} else {
+		cle.lggr.Warnw("source block timestamp is nil, cannot record source block latency", "messageID", messageID)
+	}
 	return nil
 }
 

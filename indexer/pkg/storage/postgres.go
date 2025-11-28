@@ -57,7 +57,8 @@ func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 			ccv_data,
 			message,
 			message_ccv_addresses,
-			message_executor_address
+			message_executor_address,
+			source_chain_block_timestamp
 		FROM indexer.verifier_results
 		WHERE message_id = $1
 	`
@@ -118,7 +119,8 @@ func (d *PostgresStorage) QueryCCVData(
 			ccv_data,
 			message,
 			message_ccv_addresses,
-			message_executor_address
+			message_executor_address,
+			source_chain_block_timestamp
 		FROM indexer.verifier_results
 		WHERE ingestion_timestamp >= $1 AND ingestion_timestamp <= $2
 	`
@@ -208,8 +210,9 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.Veri
 			ccv_data,
 			message,
 			message_ccv_addresses,
-			message_executor_address
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			message_executor_address,
+			source_chain_block_timestamp
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING
 	`
 
@@ -225,6 +228,7 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.Veri
 		messageJSON,
 		pq.Array(ccvAddressesHex),
 		ccvData.VerifierResult.MessageExecutorAddress.String(),
+		ccvData.VerifierResult.SourceChainBlockTimestamp,
 	)
 	if err != nil {
 		d.lggr.Errorw("Failed to insert CCV data", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
@@ -282,11 +286,12 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 			ccv_data,
 			message,
 			message_ccv_addresses,
-			message_executor_address
+			message_executor_address,
+			source_chain_block_timestamp
 		) VALUES
 	`
 
-	args := make([]any, 0, len(ccvDataList)*11)
+	args := make([]any, 0, len(ccvDataList)*12)
 	valueClauses := make([]string, 0, len(ccvDataList))
 
 	for i, ccvData := range ccvDataList {
@@ -304,10 +309,10 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 		}
 
 		// Calculate parameter positions for this row
-		baseIdx := i * 11
-		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+		baseIdx := i * 12
+		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6,
-			baseIdx+7, baseIdx+8, baseIdx+9, baseIdx+10, baseIdx+11)
+			baseIdx+7, baseIdx+8, baseIdx+9, baseIdx+10, baseIdx+11, baseIdx+12)
 		valueClauses = append(valueClauses, valueClause)
 
 		// Add arguments for this row
@@ -323,6 +328,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 			messageJSON,
 			pq.Array(ccvAddressesHex),
 			ccvData.VerifierResult.MessageExecutorAddress.String(),
+			ccvData.VerifierResult.SourceChainBlockTimestamp,
 		)
 	}
 
@@ -685,17 +691,18 @@ func (d *PostgresStorage) scanCCVData(row interface {
 },
 ) (common.VerifierResultWithMetadata, error) {
 	var (
-		messageIDStr             string
-		sourceVerifierAddrStr    string
-		destVerifierAddrStr      string
-		attestationTimestamp     time.Time
-		ingestionTimestamp       time.Time
-		sourceChainSelector      uint64
-		destChainSelector        uint64
-		ccvDataBytes             []byte
-		messageJSON              []byte
-		messageCCVAddressesArray []string
-		messageExecutorAddrStr   string
+		messageIDStr              string
+		sourceVerifierAddrStr     string
+		destVerifierAddrStr       string
+		attestationTimestamp      time.Time
+		ingestionTimestamp        time.Time
+		sourceChainSelector       uint64
+		destChainSelector         uint64
+		ccvDataBytes              []byte
+		messageJSON               []byte
+		messageCCVAddressesArray  []string
+		messageExecutorAddrStr    string
+		sourceChainBlockTimestamp time.Time
 	)
 
 	err := row.Scan(
@@ -710,6 +717,7 @@ func (d *PostgresStorage) scanCCVData(row interface {
 		&messageJSON,
 		pq.Array(&messageCCVAddressesArray),
 		&messageExecutorAddrStr,
+		&sourceChainBlockTimestamp,
 	)
 	if err != nil {
 		return common.VerifierResultWithMetadata{}, fmt.Errorf("failed to scan row: %w", err)
@@ -757,14 +765,15 @@ func (d *PostgresStorage) scanCCVData(row interface {
 
 	return common.VerifierResultWithMetadata{
 		VerifierResult: protocol.VerifierResult{
-			MessageID:              messageID,
-			Message:                message,
-			MessageCCVAddresses:    messageCCVAddresses,
-			MessageExecutorAddress: messageExecutorAddress,
-			CCVData:                ccvDataBytes,
-			Timestamp:              attestationTimestamp,
-			VerifierSourceAddress:  verifierSourceAddress,
-			VerifierDestAddress:    verifierDestAddress,
+			MessageID:                 messageID,
+			Message:                   message,
+			MessageCCVAddresses:       messageCCVAddresses,
+			MessageExecutorAddress:    messageExecutorAddress,
+			CCVData:                   ccvDataBytes,
+			Timestamp:                 attestationTimestamp,
+			VerifierSourceAddress:     verifierSourceAddress,
+			VerifierDestAddress:       verifierDestAddress,
+			SourceChainBlockTimestamp: sourceChainBlockTimestamp,
 		},
 		Metadata: common.VerifierResultMetadata{
 			AttestationTimestamp: attestationTimestamp,

@@ -34,6 +34,7 @@ const (
 	DefaultAnvilKey   = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 	DefaultLokiURL    = "http://localhost:3030/loki/api/v1/push"
 	DefaultTempoURL   = "http://localhost:4318/v1/traces"
+	DefaultPromURL    = "http://localhost:9099"
 )
 
 var L = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
@@ -101,23 +102,24 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 	}
 
 	// Load addresses into the datastore so that tests can query them appropriately.
-	if c, ok := any(config).(*Cfg); ok {
-		if len(c.CLDF.Addresses) > 0 {
-			ds := datastore.NewMemoryDataStore()
-			for _, addrRefJSON := range c.CLDF.Addresses {
-				var addrs []datastore.AddressRef
-				if err := json.Unmarshal([]byte(addrRefJSON), &addrs); err != nil {
-					return nil, fmt.Errorf("failed to unmarshal addresses from config: %w", err)
-				}
-				for _, addr := range addrs {
-					if err := ds.Addresses().Add(addr); err != nil {
-						return nil, fmt.Errorf("failed to set address in datastore: %w", err)
-					}
-				}
+	c, ok := any(config).(*Cfg)
+	if !ok || len(c.CLDF.Addresses) == 0 {
+		return config, nil
+	}
+
+	ds := datastore.NewMemoryDataStore()
+	for _, addrRefJSON := range c.CLDF.Addresses {
+		var addrs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addrRefJSON), &addrs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal addresses from config: %w", err)
+		}
+		for _, addr := range addrs {
+			if err := ds.Addresses().Add(addr); err != nil {
+				return nil, fmt.Errorf("failed to set address in datastore: %w", err)
 			}
-			c.CLDF.DataStore = ds.Seal()
 		}
 	}
+	c.CLDF.DataStore = ds.Seal()
 
 	return config, nil
 }

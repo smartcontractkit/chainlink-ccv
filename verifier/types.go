@@ -9,12 +9,13 @@ import (
 // VerificationTask represents the complete CCIPMessageSent event data from the onRamp/proxy.
 type VerificationTask struct {
 	// TODO: Rename ReceiptBlobs to VerifierBlobs to match with onchain code.
-	ReceiptBlobs []protocol.ReceiptWithBlob `json:"receipt_blobs"`
-	Message      protocol.Message           `json:"message"`
-	TxHash       protocol.ByteSlice         `json:"tx_hash"`
-	BlockNumber  uint64                     `json:"block_number"`  // Block number when the message was included
-	FirstSeenAt  time.Time                  `json:"first_seen_at"` // When message first entered the system (for E2E latency)
-	QueuedAt     time.Time                  `json:"queued_at"`     // When added to finality queue (for finality wait duration)
+	ReceiptBlobs   []protocol.ReceiptWithBlob `json:"receipt_blobs"`
+	Message        protocol.Message           `json:"message"`
+	TxHash         protocol.ByteSlice         `json:"tx_hash"`
+	BlockNumber    uint64                     `json:"block_number"`    // Block number when the message was included
+	BlockTimestamp time.Time                  `json:"block_timestamp"` // Block timestamp when the message was included on source chain
+	FirstSeenAt    time.Time                  `json:"first_seen_at"`   // When message first entered the system (for E2E latency)
+	QueuedAt       time.Time                  `json:"queued_at"`       // When added to finality queue (for finality wait duration)
 }
 
 // SourceConfig contains configuration for a single source chain.

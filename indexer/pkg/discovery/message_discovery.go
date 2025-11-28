@@ -229,9 +229,10 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		verifierResultWithMetadata := common.VerifierResultWithMetadata{
 			VerifierResult: response.Data,
 			Metadata: common.VerifierResultMetadata{
-				IngestionTimestamp:   ingestionTimestamp,
-				AttestationTimestamp: response.Data.Timestamp,
-				VerifierName:         a.registry.GetVerifierNameFromAddress(response.Data.VerifierSourceAddress),
+				IngestionTimestamp:        ingestionTimestamp,
+				AttestationTimestamp:      response.Data.Timestamp,
+				VerifierName:              a.registry.GetVerifierNameFromAddress(response.Data.VerifierSourceAddress),
+				SourceChainBlockTimestamp: response.Data.SourceChainBlockTimestamp,
 			},
 		}
 

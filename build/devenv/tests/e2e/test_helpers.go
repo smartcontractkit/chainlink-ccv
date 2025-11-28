@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	promapi "github.com/prometheus/client_golang/api"
+	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/model"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
@@ -65,10 +67,6 @@ func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, a
 	}
 
 	return tc
-}
-
-func (tc *TestingContext) enrichMetrics(metrics []metrics.MessageMetrics) {
-	tc.LogAsserter.EnrichMetrics(metrics)
 }
 
 type AssertionResult struct {
@@ -242,4 +240,131 @@ func (a *AnvilRPCHelper) GetAutomine(ctx context.Context) (bool, error) {
 	}
 	a.logger.Info().Bool("automine", automine).Msg("Got automine status")
 	return automine, nil
+}
+
+// PrometheusHelper provides utilities for querying Prometheus metrics.
+type PrometheusHelper struct {
+	api    promv1.API
+	logger zerolog.Logger
+}
+
+// NewPrometheusHelper creates a new helper for Prometheus operations.
+func NewPrometheusHelper(prometheusURL string, logger zerolog.Logger) (*PrometheusHelper, error) {
+	client, err := promapi.NewClient(promapi.Config{
+		Address: prometheusURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Prometheus client: %w", err)
+	}
+
+	return &PrometheusHelper{
+		api:    promv1.NewAPI(client),
+		logger: logger,
+	}, nil
+}
+
+func (p *PrometheusHelper) GetPercentile(
+	ctx context.Context,
+	metric string,
+	percentile float64,
+) (float64, error) {
+	if percentile < 0 || percentile > 1 {
+		return 0, fmt.Errorf("percentile must be between 0 and 1, got %f", percentile)
+	}
+
+	// We assume CI/test runs start from zeroed histogram buckets for the given selector.
+	// Therefore, the bucket values at endTime represent the full histogram over the run.
+	//
+	// Example query:
+	//   histogram_quantile(0.90, sum by (le) (http_request_duration_seconds_bucket{test_id="loadtest-123"}))
+	query := fmt.Sprintf(
+		"histogram_quantile(%.4f, sum by (le) (%s))",
+		percentile,
+		metric,
+	)
+
+	p.logger.Info().
+		Str("metric", metric).
+		Str("query", query).
+		Float64("percentile", percentile).
+		Msg("Prometheus percentile (instant) query")
+
+	// Single evaluation at endTime.
+	result, warnings, err := p.api.Query(ctx, query, time.Now())
+	if err != nil {
+		return 0, fmt.Errorf("failed to query Prometheus: %w", err)
+	}
+
+	if len(warnings) > 0 {
+		p.logger.Warn().
+			Strs("warnings", warnings).
+			Str("query", query).
+			Msg("Prometheus percentile query returned warnings")
+	}
+
+	vector, ok := result.(model.Vector)
+	if !ok {
+		return 0, fmt.Errorf("unexpected result type: %T (expected model.Vector)", result)
+	}
+
+	if len(vector) == 0 {
+		return 0, fmt.Errorf("no data found for metric %s", metric)
+	}
+
+	// sum by (le) + histogram_quantile should yield exactly one sample; take the first.
+	value := float64(vector[0].Value)
+
+	p.logger.Info().
+		Str("metric", metric).
+		Float64("percentile", percentile).
+		Float64("value", value).
+		Str("query", query).
+		Msg("Retrieved percentile metric (instant)")
+
+	return value, nil
+}
+
+func (p *PrometheusHelper) GetCurrentCounter(
+	ctx context.Context,
+	metric string,
+) (int, error) {
+	// Wrap metric in sum() so we get one aggregated value.
+	query := fmt.Sprintf("sum(%s)", metric)
+
+	p.logger.Info().
+		Str("metric", metric).
+		Str("query", query).
+		Msg("Prometheus current-counter query")
+
+	result, warnings, err := p.api.Query(ctx, query, time.Now())
+	if err != nil {
+		return 0, fmt.Errorf("failed to query Prometheus: %w", err)
+	}
+
+	if len(warnings) > 0 {
+		p.logger.Warn().
+			Strs("warnings", warnings).
+			Str("query", query).
+			Msg("Prometheus query returned warnings")
+	}
+
+	vector, ok := result.(model.Vector)
+	if !ok {
+		return 0, fmt.Errorf("unexpected result type: %T (expected model.Vector)", result)
+	}
+
+	if len(vector) == 0 {
+		return 0, fmt.Errorf("no data found for metric %s", metric)
+	}
+
+	// sum(...) should give exactly one sample; we take the first.
+	value := int(vector[0].Value)
+
+	p.logger.Info().
+		Str("metric", metric).
+		Int("value", value).
+		Str("query", query).
+		Msg("Retrieved current counter metric value")
+
+	return value, nil
 }

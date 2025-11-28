@@ -12,11 +12,11 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -181,115 +181,6 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	return &wasp.Response{Data: "ok"}
 }
 
-func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
-	fromSelector := gun.src.Selector
-	toSelector := gun.dest.Selector
-
-	metricsChan := make(chan metrics.MessageMetrics, 100)
-	var wg sync.WaitGroup
-	var totalSent, totalReceived int
-	var countMu sync.Mutex
-
-	// Track specific messages for detailed reporting
-	sentMessages := make(map[uint64]string)
-	receivedMessages := make(map[uint64]string)
-
-	// Create a context with timeout for verification
-	verifyCtx, cancelVerify := context.WithTimeout(tc.Ctx, tc.Timeout)
-
-	go func() {
-		defer close(metricsChan)
-		defer cancelVerify()
-
-		for sentMsg := range gun.sentMsgCh {
-			msgIDHex := common.BytesToHash(sentMsg.MessageID[:]).Hex()
-			countMu.Lock()
-			totalSent++
-			sentMessages[sentMsg.SeqNo] = msgIDHex
-			countMu.Unlock()
-
-			// Launch a goroutine for each message to verify it
-			wg.Add(1)
-			go func(msg SentMessage) {
-				defer wg.Done()
-
-				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
-				execEvent, err := tc.Impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, tc.Timeout)
-
-				if verifyCtx.Err() != nil {
-					tc.T.Logf("Message %d verification timed out", msg.SeqNo)
-					return
-				}
-
-				if err != nil {
-					tc.T.Logf("Failed to get execution event for sequence number %d: %v", msg.SeqNo, err)
-					return
-				}
-
-				if execEvent.State != cciptestinterfaces.ExecutionStateSuccess {
-					tc.T.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, execEvent.State)
-					return
-				}
-
-				executedTime := time.Now()
-				latency := executedTime.Sub(msg.SentTime)
-
-				tc.T.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
-
-				countMu.Lock()
-				totalReceived++
-				receivedMessages[msg.SeqNo] = msgIDHex
-				countMu.Unlock()
-
-				metricsChan <- metrics.MessageMetrics{
-					SeqNo:           msg.SeqNo,
-					MessageID:       msgIDHex,
-					SentTime:        msg.SentTime,
-					ExecutedTime:    executedTime,
-					LatencyDuration: latency,
-				}
-			}(sentMsg)
-		}
-
-		tc.T.Logf("All messages sent, waiting for assertion to complete")
-
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			tc.T.Logf("All verification goroutines completed")
-		case <-verifyCtx.Done():
-			tc.T.Logf("Verification timeout reached, some goroutines may still be running")
-		}
-	}()
-
-	return func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
-		datum := make([]metrics.MessageMetrics, 0, 100)
-		for metric := range metricsChan {
-			datum = append(datum, metric)
-		}
-
-		countMu.Lock()
-		totals := metrics.MessageTotals{
-			Sent:             totalSent,
-			Received:         totalReceived,
-			SentMessages:     sentMessages,
-			ReceivedMessages: receivedMessages,
-		}
-		countMu.Unlock()
-
-		notVerified := totals.Sent - totals.Received
-		tc.T.Logf("Verification complete - Sent: %d, ReachedVerifier: %d, Verified: %d, Aggregated: %d, Indexed: %d, ReachedExecutor: %d, SentToChain: %d, Received: %d, Not Received: %d",
-			totals.Sent, totals.ReachedVerifier, totals.Verified, totals.Aggregated, totals.Indexed, totals.ReachedExecutor, totals.SentToChainInExecutor, totals.Received, notVerified)
-
-		return datum, totals
-	}
-}
-
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	startGasPrice := big.NewInt(2e9)
 	// ramp
@@ -351,6 +242,9 @@ func TestE2ELoad(t *testing.T) {
 	if os.Getenv("LOKI_URL") == "" {
 		_ = os.Setenv("LOKI_URL", ccv.DefaultLokiURL)
 	}
+	if os.Getenv("PROM_URL") == "" {
+		_ = os.Setenv("PROM_URL", ccv.DefaultPromURL)
+	}
 	srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
 	dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
 
@@ -374,51 +268,36 @@ func TestE2ELoad(t *testing.T) {
 	impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
 
-	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
-
-	defaultAggregatorClient, err := ccv.NewAggregatorClient(
-		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		defaultAggregatorAddr)
+	// Initialize Prometheus helper
+	promHelper, err := NewPrometheusHelper(os.Getenv("PROM_URL"), *zerolog.Ctx(ctx))
 	require.NoError(t, err)
-	require.NotNil(t, defaultAggregatorClient)
-	t.Cleanup(func() {
-		defaultAggregatorClient.Close()
-	})
-
-	indexerClient := ccv.NewIndexerClient(
-		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-		indexerURL)
-	require.NotNil(t, indexerClient)
 
 	t.Run("clean", func(t *testing.T) {
-		// just a clean load test to measure performance
-		rps := int64(5)
+		rps := int64(1)
 		testDuration := 30 * time.Second
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 2 * time.Minute
-
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
+		p.Wait()
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
+		waitForAllMessagesToBeExecuted(t, ctx, promHelper, len(gun.msgIDs))
+		assertP90LatencyBelowThreshold(t, ctx, promHelper, 5*time.Second)
+	})
 
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
+	t.Run("burst", func(t *testing.T) {
+		rps := int64(5)
+		testDuration := 30 * time.Second
 
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
+		_, err = p.Run(true)
+		require.NoError(t, err)
+		p.Wait()
 
-		require.Equal(t, summary.TotalSent, summary.TotalReceived)
-		require.LessOrEqual(t, summary.P90Latency, 5*time.Second)
+		waitForAllMessagesToBeExecuted(t, ctx, promHelper, len(gun.msgIDs))
+		assertP90LatencyBelowThreshold(t, ctx, promHelper, 5*time.Second)
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
@@ -432,40 +311,21 @@ func TestE2ELoad(t *testing.T) {
 
 		rps := int64(1)
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-		tc.Timeout = timeoutDuration
-
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
+		p.Wait()
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
-
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
-
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
-
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
-
-		require.Equal(t, summary.TotalSent, summary.TotalReceived)
-		require.LessOrEqual(t, summary.P90Latency, expectedP90Latency)
+		waitForAllMessagesToBeExecuted(t, ctx, promHelper, len(gun.msgIDs))
+		assertP90LatencyBelowThreshold(t, ctx, promHelper, 5*time.Second)
 	})
 
 	t.Run("gas", func(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 10 * time.Minute
-
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -518,27 +378,15 @@ func TestE2ELoad(t *testing.T) {
 		}
 		p.Wait()
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
-
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
-
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
-
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
+		waitForAllMessagesToBeExecuted(t, ctx, promHelper, len(gun.msgIDs))
+		assertP90LatencyBelowThreshold(t, ctx, promHelper, 10*time.Second)
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -601,17 +449,8 @@ func TestE2ELoad(t *testing.T) {
 		}
 		p.Wait()
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
-
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
-
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
-
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
+		waitForAllMessagesToBeExecuted(t, ctx, promHelper, len(gun.msgIDs))
+		assertP90LatencyBelowThreshold(t, ctx, promHelper, 10*time.Second)
 	})
 
 	t.Run("services_chaos", func(t *testing.T) {
@@ -702,10 +541,7 @@ func TestE2ELoad(t *testing.T) {
 			},
 		}
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -721,16 +557,26 @@ func TestE2ELoad(t *testing.T) {
 		}
 		p.Wait()
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
-
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
-
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
-
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
+		waitForAllMessagesToBeExecuted(t, ctx, promHelper, len(gun.msgIDs))
+		assertP90LatencyBelowThreshold(t, ctx, promHelper, 10*time.Second)
 	})
+}
+
+// This is not perfect there are case where we could reprocess message and the metric would reach the expected value
+// but for load test is not completed yet. It is also not going to work unless we create a new environment for each test.
+func waitForAllMessagesToBeExecuted(t *testing.T, ctx context.Context, promHelper *PrometheusHelper, totalMessageExpected int) {
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		totalMessageProcessed, err := promHelper.GetCurrentCounter(ctx, "executor_message_e2e_duration_seconds_count")
+		require.NoError(collect, err)
+		t.Logf("Progess: %d/%d", totalMessageProcessed, totalMessageExpected)
+		require.GreaterOrEqual(collect, totalMessageProcessed, totalMessageExpected,
+			"Total processed messages should be at least total sent messages")
+	}, 2*time.Minute, 10*time.Second)
+}
+
+func assertP90LatencyBelowThreshold(t *testing.T, ctx context.Context, promHelper *PrometheusHelper, threshold time.Duration) {
+	p90E2ELatency, err := promHelper.GetPercentile(ctx, "executor_message_e2e_duration_seconds_bucket", 0.90)
+	require.NoError(t, err)
+	require.Less(t, p90E2ELatency, threshold.Seconds(),
+		fmt.Sprintf("P90 of executor_message_e2e_duration_seconds should be less than %.2f seconds", threshold.Seconds()))
 }

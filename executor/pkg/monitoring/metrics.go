@@ -18,6 +18,7 @@ import (
 type ExecutorMetrics struct {
 	// Latency
 	messageExecutionLatency metric.Float64Histogram
+	messageE2ELatency       metric.Float64Histogram
 
 	// Message Processing Counters
 	messagesProcessedCounter        metric.Int64Counter
@@ -34,6 +35,15 @@ func InitMetrics() (*ExecutorMetrics, error) {
 		"executor_message_execution_duration_seconds",
 		metric.WithDescription("Full message lifecycle latency from source read to storage write"),
 		metric.WithUnit("milliseconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message e2e latency histogram: %w", err)
+	}
+
+	vm.messageE2ELatency, err = beholder.GetMeter().Float64Histogram(
+		"executor_message_e2e_duration_seconds",
+		metric.WithDescription("End-to-end message latency from source chain inclusion to execution"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register message e2e latency histogram: %w", err)
@@ -94,6 +104,11 @@ func (v *ExecutorMetricLabeler) With(keyValues ...string) executor.MetricLabeler
 func (v *ExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.messageExecutionLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.messageE2ELatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *ExecutorMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {

@@ -21,6 +21,10 @@ jobs:
         test:
           - subtest: rpc_latency
             timeout: 1h10m
+          - subtest: gas
+            timeout: 10m
+          - subtest: burst
+            timeout: 10m
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3

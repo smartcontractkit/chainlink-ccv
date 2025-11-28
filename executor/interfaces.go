@@ -90,6 +90,8 @@ type MetricLabeler interface {
 	With(keyValues ...string) MetricLabeler
 	// RecordMessageExecutionLatency records the duration of the full ExecuteMessage operation.
 	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration)
+	// RecordMessageE2ELatency records the duration from first seen to execution for a message.
+	RecordMessageE2ELatency(ctx context.Context, duration time.Duration)
 	// IncrementMessagesProcessed increments the counter for successfully processed messages.
 	IncrementMessagesProcessed(ctx context.Context)
 	// IncrementMessagesProcessingFailed increments the counter for failed message executions.
