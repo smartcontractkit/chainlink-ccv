@@ -544,3 +544,15 @@ func (vc *Coordinator) startCurseDetector(
 
 	return nil
 }
+
+// Name returns the fully qualified name of the coordinator.
+func (vc *Coordinator) Name() string {
+	return fmt.Sprintf("verifier.Coordinator[%s]", vc.config.VerifierID)
+}
+
+// HealthReport returns a full health report of the coordinator and its dependencies.
+func (vc *Coordinator) HealthReport() map[string]error {
+	report := make(map[string]error)
+	report[vc.Name()] = vc.Ready()
+	return report
+}

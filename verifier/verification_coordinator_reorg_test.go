@@ -136,7 +136,6 @@ func (s *reorgTestSetup) createCoordinator() *Coordinator {
 		&noopMonitoring{},
 		s.finalityCheckInterval,
 		WithChainStatusManager(s.chainStatusManager),
-		WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{s.chainSelector: freshMockDetector}),
 	)
 	require.NoError(s.t, err)
 
@@ -159,7 +158,7 @@ func (s *reorgTestSetup) cleanup() {
 
 // getLastProcessedBlockSafe safely reads the lastProcessedBlock from a SourceReaderService.
 // Thread-safe: acquires read lock to prevent data races with background updates.
-func getLastProcessedBlockSafe(reader *SourceReaderService) uint64 {
+func getLastProcessedBlockSafe(reader *SourceReaderService2) uint64 {
 	reader.mu.RLock()
 	defer reader.mu.RUnlock()
 
@@ -215,7 +214,7 @@ func assertSourceReaderChannelState(t *testing.T, coordinator *Coordinator, chai
 
 	require.NotNil(t, sourceReaderService, "Source reader service should not be nil")
 
-	verificationTaskCh := sourceReaderService.VerificationTaskChannel()
+	verificationTaskCh := sourceReaderService.ReadyTasksChannel()
 
 	// Try non-blocking receive - if channel is closed, we'll get ok=false immediately
 	select {
