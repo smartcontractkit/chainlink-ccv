@@ -74,3 +74,23 @@ type ReorgDetector interface {
 	// Close stops the detector and closes the status channel.
 	Close() error
 }
+
+// FinalityViolationChecker validates that finalized blocks never change their hash.
+// This is a synchronous, pull-based interface driven by the caller (typically SourceReaderService).
+// The caller updates the checker with new finalized blocks and checks for violations before processing.
+type FinalityViolationChecker interface {
+	// UpdateFinalized tells the checker about a new finalized block.
+	// The checker will fetch and store block headers from the last known finalized up to this block.
+	// This should be called on every poll cycle before checking for violations.
+	// Returns error if headers cannot be fetched.
+	UpdateFinalized(ctx context.Context, finalizedBlock uint64) error
+
+	// IsFinalityViolated checks if any previously finalized block has changed its hash.
+	// This performs a lightweight check against stored state without making RPC calls.
+	// Should be called after UpdateFinalized to validate chain consistency.
+	// Returns true if a violation is detected (critical error requiring service shutdown).
+	IsFinalityViolated() bool
+
+	// Reset clears all stored state. Used for testing or recovery scenarios.
+	Reset()
+}

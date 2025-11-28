@@ -28,7 +28,7 @@ type SourceReaderService2 struct {
 	sourceReader          chainaccess.SourceReader
 	chainSelector         protocol.ChainSelector
 	curseDetector         common.CurseCheckerService
-	reorgDetector         protocol.ReorgDetector
+	finalityChecker       protocol.FinalityViolationChecker
 	pollInterval          time.Duration
 	finalityCheckInterval time.Duration
 
@@ -78,18 +78,13 @@ func NewSourceReaderService2(
 		return nil, fmt.Errorf("finalityCheckInterval must be positive")
 	}
 
-	reorgDetectorConfig := vservices.ReorgDetectorConfig{
-		ChainSelector: chainSelector,
-		PollInterval:  1 * time.Second, // TODO: make configurable
-	}
-
-	reorgDetector, err := vservices.NewReorgDetectorService(
+	finalityChecker, err := vservices.NewFinalityViolationCheckerService(
 		sourceReader,
-		reorgDetectorConfig,
-		logger.With(lggr, "component", "ReorgDetector", "chainID", chainSelector),
+		chainSelector,
+		logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create reorg detector: %w", err)
+		return nil, fmt.Errorf("failed to create finality checker: %w", err)
 	}
 
 	return &SourceReaderService2{
@@ -98,7 +93,7 @@ func NewSourceReaderService2(
 		chainSelector:         chainSelector,
 		chainStatusManager:    chainStatusManager,
 		curseDetector:         curseDetector,
-		reorgDetector:         reorgDetector,
+		finalityChecker:       finalityChecker,
 		pollInterval:          pollInterval,
 		finalityCheckInterval: finalityCheckInterval,
 		readyTasksCh:          make(chan batcher.BatchResult[VerificationTask]),
@@ -131,26 +126,6 @@ func (r *SourceReaderService2) Start(ctx context.Context) error {
 			defer r.wg.Done()
 			r.eventMonitoringLoop()
 		}()
-
-		//r.wg.Add(1)
-		//go func() {
-		//	defer r.wg.Done()
-		//	r.messageReadinessLoop(ctx)
-		//}()
-
-		if r.reorgDetector != nil {
-			statusCh, err := r.reorgDetector.Start(ctx)
-			if err != nil {
-				r.logger.Errorw("Failed to start reorg detector", "chainSelector", r.chainSelector, "error", err)
-				return err
-			}
-
-			r.wg.Add(1)
-			go func() {
-				defer r.wg.Done()
-				r.reorgLoop(ctx, statusCh)
-			}()
-		}
 
 		r.logger.Infow("SourceReaderService2 started", "chainSelector", r.chainSelector)
 		return nil
@@ -551,22 +526,6 @@ func (r *SourceReaderService2) addToPendingQueueHandleReorg(tasks []Verification
 	}
 }
 
-//func (r *SourceReaderService2) messageReadinessLoop(ctx context.Context) {
-//	ticker := time.NewTicker(r.finalityCheckInterval)
-//	defer ticker.Stop()
-//
-//	for {
-//		select {
-//		case <-r.stopCh:
-//			return
-//		case <-ctx.Done():
-//			return
-//		case <-ticker.C:
-//			r.sendReadyMessages(ctx)
-//		}
-//	}
-//}
-
 func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 	if err != nil {
@@ -577,6 +536,30 @@ func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 	}
 	if latest == nil || finalized == nil {
 		r.logger.Warnw("Latest or finalized block is nil", "chainSelector", r.chainSelector)
+		return
+	}
+
+	// Update finality checker with new finalized block and check for violations
+	if err := r.finalityChecker.UpdateFinalized(ctx, finalized.Number); err != nil {
+		r.logger.Errorw("Failed to update finality checker",
+			"chainSelector", r.chainSelector,
+			"finalizedBlock", finalized.Number,
+			"error", err)
+		// If update failed due to finality violation, handle it
+		if r.finalityChecker.IsFinalityViolated() {
+			r.handleFinalityViolation(ctx)
+			return
+		}
+		// Other errors - log and continue
+		return
+	}
+
+	// Check if finality violation detected
+	if r.finalityChecker.IsFinalityViolated() {
+		r.logger.Errorw("Finality violation detected",
+			"chainSelector", r.chainSelector,
+			"finalizedBlock", finalized.Number)
+		r.handleFinalityViolation(ctx)
 		return
 	}
 
@@ -612,17 +595,7 @@ func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 			continue
 		}
 
-		ok, err := r.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock)
-		if err != nil {
-			r.logger.Warnw("Finality check failed; keeping task in queue",
-				"chainSelector", r.chainSelector,
-				"messageID", task.Message.MustMessageID(),
-				"error", err)
-			remaining[msgID] = task
-			continue
-		}
-
-		if ok {
+		if r.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock) {
 			ready = append(ready, task)
 			// Mark as sent to prevent re-sending
 			r.sentTasks[msgID] = task
@@ -655,12 +628,7 @@ func (r *SourceReaderService2) isMessageReadyForVerification(
 	task VerificationTask,
 	latestBlock *big.Int,
 	latestFinalizedBlock *big.Int,
-) (bool, error) {
-	msgID, err := task.Message.MessageID()
-	if err != nil {
-		return false, fmt.Errorf("failed to compute message ID: %w", err)
-	}
-
+) bool {
 	f := task.Message.Finality
 	msgBlock := new(big.Int).SetUint64(task.BlockNumber)
 
@@ -673,91 +641,52 @@ func (r *SourceReaderService2) isMessageReadyForVerification(
 			"finalizedBlock", latestFinalizedBlock.String(),
 			"meetsRequirement", ok,
 		)
-		return ok, nil
+		return ok
 	}
 
 	// custom finality: msgBlock + f <= latest
 	required := new(big.Int).Add(msgBlock, new(big.Int).SetUint64(uint64(f)))
 	r.logger.Infow("Checking custom finality",
-		"messageID", msgID,
+		"messageID", task.MessageID,
 		"msgBlock", msgBlock.String(),
 		"finality", f,
 		"requiredBlock", required.String(),
 		"latestBlock", latestBlock.String())
 
-	return required.Cmp(latestBlock) <= 0, nil
+	return required.Cmp(latestBlock) <= 0
 }
 
 // -----------------------------------------------------------------------------
-// Reorg / finality violation
+// Finality violation handling
 // -----------------------------------------------------------------------------
 
-func (r *SourceReaderService2) reorgLoop(ctx context.Context, statusCh <-chan protocol.ChainStatus) {
-	r.logger.Infow("Starting reorg loop - waiting for reorg notifications",
+func (r *SourceReaderService2) handleFinalityViolation(ctx context.Context) {
+	r.logger.Errorw("FINALITY VIOLATION - disabling chain",
 		"chainSelector", r.chainSelector)
 
-	for {
-		select {
-		case <-r.stopCh:
-			r.logger.Infow("Reorg loop stopped due to stopCh",
-				"chainSelector", r.chainSelector)
-			return
-		case <-ctx.Done():
-			r.logger.Infow("Reorg loop stopped due to context cancellation",
-				"chainSelector", r.chainSelector)
-			return
-		case status, ok := <-statusCh:
-			if !ok {
-				r.logger.Infow("Reorg loop stopped - status channel closed",
-					"chainSelector", r.chainSelector)
-				return
-			}
-			r.logger.Infow("Received chain status notification",
-				"chainSelector", r.chainSelector,
-				"statusType", status.Type,
-				"resetToBlock", status.ResetToBlock)
-
-			switch status.Type {
-			case protocol.ReorgTypeFinalityViolation:
-				r.handleFinalityViolation(ctx, status)
-			default:
-				r.logger.Warnw("Unexpected chain status type",
-					"chainSelector", r.chainSelector,
-					"type", status.Type)
-			}
-		}
-	}
-}
-
-func (r *SourceReaderService2) handleFinalityViolation(ctx context.Context, status protocol.ChainStatus) {
-	r.logger.Errorw("FINALITY VIOLATION - disabling chain",
-		"chainSelector", r.chainSelector,
-		"statusType", status.Type)
-
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.disabled {
-		r.mu.Unlock()
 		return
 	}
 	flushed := len(r.pendingTasks)
+	sentFlushed := len(r.sentTasks)
 	r.pendingTasks = nil
+	r.sentTasks = nil
 	r.disabled = true
-	r.mu.Unlock()
 
-	r.logger.Errorw("Flushed all pending tasks due to finality violation",
+	r.logger.Errorw("Flushed all tasks due to finality violation",
 		"chainSelector", r.chainSelector,
-		"flushed", flushed)
+		"pendingFlushed", flushed,
+		"sentFlushed", sentFlushed)
 
-	// best-effort disable in DB
-	if r.chainStatusManager != nil {
-		_ = r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
-			{
-				ChainSelector:        r.chainSelector,
-				FinalizedBlockHeight: big.NewInt(0),
-				Disabled:             true,
-			},
-		})
-	}
+	r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+		{
+			ChainSelector:        r.chainSelector,
+			FinalizedBlockHeight: big.NewInt(0),
+			Disabled:             true,
+		},
+	})
 }
 
 // sendBatchError sends a batch-level error to the coordinator.

@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -202,25 +200,6 @@ func TestE2EReorg(t *testing.T) {
 		// Log the source chain selector for verification
 		l.Info().Uint64("srcSelector", srcSelector).Msg("Source chain selector for finality violation test")
 
-		// Setup log asserter to verify finality violation detection
-		lokiURL := os.Getenv("LOKI_QUERY_URL")
-		if lokiURL == "" {
-			lokiURL = "ws://localhost:3030"
-		}
-		logAsserterLogger := l.With().Str("component", "log-asserter").Logger()
-		logAssert := logasserter.New(lokiURL, logAsserterLogger)
-		err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
-			logasserter.FinalityViolationDetected(),
-			logasserter.SourceReaderStopped(),
-		})
-		if err != nil {
-			t.Logf("Warning: Could not start log asserter: %v", err)
-		} else {
-			t.Cleanup(func() {
-				logAssert.StopStreaming()
-			})
-		}
-
 		l.Info().Msg("💾 Creating initial snapshot before mining blocks")
 		snapshotID, err := anvilHelper.Snapshot(ctx)
 		require.NoError(t, err)
@@ -247,30 +226,6 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
 
-		// =======================Finality Violation Detection=======================//
-		l.Info().Msg("⏳ Waiting for verifier to detect finality violation...")
-		violationCtx, violationCancel := context.WithTimeout(ctx, 60*time.Second)
-		defer violationCancel()
-		_, err = logAssert.WaitForPatternOnly(violationCtx, logasserter.FinalityViolationDetected())
-		require.NoError(t, err, "finality violation should be detected and logged")
-		l.Info().Msg("✅ Finality violation detected in logs")
-
-		//=======================Stop Reader =======================//
-		// Verify that the source reader was stopped as a result (for the correct chain)
-		l.Info().Msg("⏳ Waiting for source reader to be stopped...")
-		stopCtx, stopCancel := context.WithTimeout(ctx, 60*time.Second)
-		defer stopCancel()
-		stopLog, err := logAssert.WaitForPatternOnly(stopCtx, logasserter.SourceReaderStopped())
-		require.NoError(t, err, "source reader should be stopped after finality violation")
-		// Verify the log contains the correct chain selector
-		srcSelectorStr := fmt.Sprintf("%d", srcSelector)
-		require.Contains(t, stopLog.LogLine, srcSelectorStr,
-			"source reader stop log should contain chain selector %d", srcSelector)
-		l.Info().Msg("✅ Source reader stopped for correct chain selector")
-
-		//=======================Verify Chain Status in Aggregator=======================//
-		// Verify that the chain status in aggregator shows the chain is disabled with checkpoint 0
-		// Note: ReadChainStatus requires HMAC authentication, so we need to create an authenticated client
 		l.Info().Msg("🔍 Verifying chain status in aggregator...")
 
 		require.Eventually(t, func() bool {
