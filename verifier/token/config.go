@@ -33,7 +33,7 @@ type VerifierConfig struct {
 	// Type is the type of the token verifier. You can think of different token verifiers as different
 	// strategies for processing token data. For example, you can have a token verifiers for USDC tokens using CCTP
 	// and different one for processing LINK token.
-	Type string `toml:"type"`
+	Type string
 	// Version is the version of the token.VerifierConfig and the matching verifier.Verifier implementation for that config.
 	// This is used to determine which version of the verifier to use. Right now, we only have one version
 	// of the verifier, but in the future, we might have multiple versions.
@@ -59,7 +59,7 @@ type VerifierConfig struct {
 	//  }
 	// ]
 	// Having version in that JSON isn't expensive, but it could reduce the risk of breaking the observers in the future.
-	Version string `toml:"version"`
+	Version string
 
 	cctp *cctp.Config
 	lbtc *lbtc.Config
