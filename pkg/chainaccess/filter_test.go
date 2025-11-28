@@ -140,7 +140,7 @@ func TestVerifierIssuerFilter_Filter(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:    "multiple issuers - only first issuer present - should return false",
+			name:    "multiple issuers - only first issuer present - should return true",
 			issuers: []protocol.UnknownAddress{targetIssuer, otherIssuer1},
 			msg: protocol.MessageSentEvent{
 				Receipts: []protocol.ReceiptWithBlob{
@@ -148,10 +148,10 @@ func TestVerifierIssuerFilter_Filter(t *testing.T) {
 					{Issuer: otherIssuer2},
 				},
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name:    "multiple issuers - only second issuer present - should return false",
+			name:    "multiple issuers - only second issuer present - should return true",
 			issuers: []protocol.UnknownAddress{targetIssuer, otherIssuer1},
 			msg: protocol.MessageSentEvent{
 				Receipts: []protocol.ReceiptWithBlob{
@@ -159,7 +159,7 @@ func TestVerifierIssuerFilter_Filter(t *testing.T) {
 					{Issuer: otherIssuer2},
 				},
 			},
-			expected: false,
+			expected: true,
 		},
 		{
 			name:    "multiple issuers - none of the required issuers present - should return false",
@@ -196,7 +196,7 @@ func TestVerifierIssuerFilter_Filter(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:    "three issuers - one missing - should return false",
+			name:    "three issuers - two present (one missing) - should return true",
 			issuers: []protocol.UnknownAddress{targetIssuer, otherIssuer1, otherIssuer2},
 			msg: protocol.MessageSentEvent{
 				Receipts: []protocol.ReceiptWithBlob{
@@ -205,7 +205,7 @@ func TestVerifierIssuerFilter_Filter(t *testing.T) {
 					{Issuer: otherIssuer3},
 				},
 			},
-			expected: false,
+			expected: true,
 		},
 		{
 			name:    "three issuers - all present with duplicates - should return true",
@@ -221,22 +221,22 @@ func TestVerifierIssuerFilter_Filter(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:    "no issuers required - no receipts - should return true",
+			name:    "no issuers required - no receipts - should return false",
 			issuers: []protocol.UnknownAddress{},
 			msg: protocol.MessageSentEvent{
 				Receipts: []protocol.ReceiptWithBlob{},
 			},
-			expected: true,
+			expected: false,
 		},
 		{
-			name:    "no issuers required - with receipts - should return true",
+			name:    "no issuers required - with receipts - should return false",
 			issuers: []protocol.UnknownAddress{},
 			msg: protocol.MessageSentEvent{
 				Receipts: []protocol.ReceiptWithBlob{
 					{Issuer: targetIssuer},
 				},
 			},
-			expected: true,
+			expected: false,
 		},
 	}
 
