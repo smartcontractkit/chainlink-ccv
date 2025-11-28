@@ -9,8 +9,24 @@ import (
 )
 
 func ParseIntOrDefault(val any, defaultVal int) (int, error) {
-	if v, ok := val.(int64); ok {
+	switch v := val.(type) {
+	case int:
+		return v, nil
+	case int32:
 		return int(v), nil
+	case int64:
+		return int(v), nil
+	case uint32:
+		return int(v), nil
+	case uint64:
+		return int(v), nil
+	case string:
+		// Try parsing string as int
+		intVal, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, fmt.Errorf("invalid integer format: %w", err)
+		}
+		return intVal, nil
 	}
 	return defaultVal, nil
 }
