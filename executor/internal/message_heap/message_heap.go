@@ -9,7 +9,6 @@ import (
 )
 
 // ExpiryWithMessage is the struct used to maintain data of a message, not used directly for priority queue.
-// Todo: Use a time.Time object rather than a int64 timestamp for better stringification and logging.
 type ExpiryWithMessage struct {
 	Message       *protocol.Message
 	ExpiryTime    time.Time

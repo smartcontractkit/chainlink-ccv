@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -119,10 +120,14 @@ func (ec *Coordinator) Close() error {
 }
 
 func (ec *Coordinator) runStorageStream(ctx context.Context) {
-	// TODO: this waitgroup is not waited on anywhere right now, will have to fix this up
-	// in a follow up.
-	var wg sync.WaitGroup
-	streamerResults, err := ec.messageSubscriber.Start(ctx, &wg)
+	indexerResults := make(chan protocol.MessageWithMetadata, 100)
+	componentErrors := make(chan error)
+	defer func() {
+		close(indexerResults)
+		close(componentErrors)
+	}()
+
+	err := ec.messageSubscriber.Start(ctx, indexerResults, componentErrors)
 	if err != nil {
 		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
 		return
@@ -133,51 +138,29 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 		case <-ctx.Done():
 			ec.lggr.Infow("Coordinator exiting")
 			return
-		case streamResult, ok := <-streamerResults:
+		case e, ok := <-componentErrors:
+			if !ok {
+				ec.lggr.Warnw("errors channel closed")
+			}
+			ec.lggr.Errorw("error in coordinator component", "error", e)
+		case streamResult, ok := <-indexerResults:
 			if !ok {
 				ec.lggr.Warnw("streamerResults closed")
 				// TODO: handle reconnection logic
-				// TODO: support multiple sources
 			}
 
-			if streamResult.Error != nil {
-				ec.lggr.Errorw("error reading from ccv result streamer", "error", streamResult.Error)
+			msg := streamResult.Message
+			err := ec.executor.CheckValidMessage(ctx, msg)
+			if err != nil {
+				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+				continue
 			}
 
-			for _, msgWithMetadata := range streamResult.Messages {
-				msg := msgWithMetadata.Message
-				err := ec.executor.CheckValidMessage(ctx, msg)
-				if err != nil {
-					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
-					continue
-				}
+			id, _ := msg.MessageID()
 
-				id, _ := msg.MessageID()
-
-				if ec.delayedMessageHeap.Has(id) {
-					ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
-					continue
-				}
-
-				// get message delay from leader elector using indexer's ingestion timestamp
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(
-					id,
-					msg.DestChainSelector,
-					msgWithMetadata.Metadata.IngestionTimestamp)
-
-				ec.lggr.Infow("pushing message to delayed heap",
-					"messageID", id,
-					"ingestionTimestamp", msgWithMetadata.Metadata.IngestionTimestamp,
-					"readyTimestamp", readyTimestamp,
-				)
-
-				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
-					Message:       &msg,
-					ReadyTime:     readyTimestamp,
-					ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
-					RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
-					MessageID:     id,
-				})
+			if ec.delayedMessageHeap.Has(id) {
+				ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
+				continue
 			}
 		}
 	}

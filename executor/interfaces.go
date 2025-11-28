@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -21,8 +20,9 @@ type MessageSubscriber interface {
 	// TODO: this function signature is really odd, we shouldn't be passing in a pointer to a waitgroup.
 	Start(
 		ctx context.Context,
-		wg *sync.WaitGroup,
-	) (<-chan StreamerResult, error)
+		results chan protocol.MessageWithMetadata,
+		errors chan error,
+	) error
 
 	// IsRunning returns whether the streamer is running.
 	IsRunning() bool
