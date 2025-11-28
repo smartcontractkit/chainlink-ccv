@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
@@ -40,7 +41,7 @@ type SourceReaderService2 struct {
 	lastProcessedBlock *big.Int
 	pendingTasks       map[string]VerificationTask
 	sentTasks          map[string]VerificationTask // Track messages already sent to prevent duplicates
-	disabled           bool
+	disabled           atomic.Bool
 
 	// ChainStatus management
 	chainStatusManager   protocol.ChainStatusManager
@@ -176,8 +177,10 @@ func (r *SourceReaderService2) eventMonitoringLoop() {
 			r.logger.Infow("Close signal received, stopping event monitoring")
 			return
 		case <-ticker.C:
-			r.processEventCycle(ctx)
-			r.sendReadyMessages(ctx)
+			if !r.disabled.Load() {
+				r.processEventCycle(ctx)
+				r.sendReadyMessages(ctx)
+			}
 		}
 	}
 }
@@ -464,7 +467,7 @@ func (r *SourceReaderService2) addToPendingQueueHandleReorg(tasks []Verification
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.disabled {
+	if r.disabled.Load() {
 		return
 	}
 
@@ -569,7 +572,7 @@ func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.disabled {
+	if r.disabled.Load() {
 		return
 	}
 
@@ -666,14 +669,14 @@ func (r *SourceReaderService2) handleFinalityViolation(ctx context.Context) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.disabled {
+	if r.disabled.Load() {
 		return
 	}
 	flushed := len(r.pendingTasks)
 	sentFlushed := len(r.sentTasks)
-	r.pendingTasks = nil
-	r.sentTasks = nil
-	r.disabled = true
+	r.pendingTasks = make(map[string]VerificationTask)
+	r.sentTasks = make(map[string]VerificationTask)
+	r.disabled.Store(true)
 
 	r.logger.Errorw("Flushed all tasks due to finality violation",
 		"chainSelector", r.chainSelector,
