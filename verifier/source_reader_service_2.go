@@ -39,6 +39,7 @@ type SourceReaderService2 struct {
 	mu                 sync.RWMutex
 	lastProcessedBlock *big.Int
 	pendingTasks       map[string]VerificationTask
+	sentTasks          map[string]VerificationTask // Track messages already sent to prevent duplicates
 	disabled           bool
 
 	// ChainStatus management
@@ -102,6 +103,7 @@ func NewSourceReaderService2(
 		finalityCheckInterval: finalityCheckInterval,
 		readyTasksCh:          make(chan batcher.BatchResult[VerificationTask]),
 		pendingTasks:          make(map[string]VerificationTask),
+		sentTasks:             make(map[string]VerificationTask),
 		stopCh:                make(chan struct{}),
 	}, nil
 }
@@ -257,8 +259,7 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 	r.mu.RLock()
 	// minimum of lastProcessed and finalized
 	// keep on reading from finalized block to avoid missing messages in case of reorgs
-	minimumBlock := min(r.lastProcessedBlock.Uint64(), finalized.Number)
-	fromBlock := new(big.Int).SetUint64(minimumBlock)
+	fromBlock := r.lastProcessedBlock
 	r.mu.RUnlock()
 
 	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
@@ -306,27 +307,19 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 			"toBlock", "latest")
 	}
 
-	// Determine the block we've processed up to
-	var processedToBlock *big.Int
-	// Always advance at least to finalized (stable across all RPC nodes)
-	finalizedBlock := new(big.Int).SetUint64(finalized.Number)
-	if finalizedBlock.Cmp(processedToBlock) > 0 {
-		processedToBlock = finalizedBlock
-	}
-
 	// Update processed block with optimistic locking check
 	r.mu.Lock()
 	// No reset occurred - safe to update
-	r.lastProcessedBlock = processedToBlock
+	r.lastProcessedBlock = new(big.Int).SetUint64(finalized.Number)
 
 	r.mu.Unlock()
 
-	r.updateChainStatus(ctx, processedToBlock)
+	r.updateChainStatus(ctx, r.lastProcessedBlock)
 
 	r.logger.Debugw("Processed block range",
 		"fromBlock", fromBlock.String(),
 		"toBlock", "latest",
-		"advancedTo", processedToBlock.String(),
+		"advancedTo", r.lastProcessedBlock.String(),
 		"eventsFound", len(events))
 }
 
@@ -364,7 +357,7 @@ func (r *SourceReaderService2) calculateChainStatusBlock(ctx context.Context, la
 	return chainStatusBlock, nil
 }
 
-// updateChainStatus writes a chain status if conditions are met.
+// updateChainStatus writes a chain status every ChainStatusInterval.
 // Takes lastProcessedBlock as parameter to avoid races with concurrent updates.
 //
 // Thread-safety:
@@ -510,11 +503,33 @@ func (r *SourceReaderService2) addToPendingQueueHandleReorg(tasks []Verification
 			delete(r.pendingTasks, msgID)
 		}
 	}
+
+	// Also remove from sentTasks if they were reorged out
+	for msgID := range r.sentTasks {
+		if _, exists := tasksMap[msgID]; !exists {
+			r.logger.Warnw("Removing task from sentTasks due to reorg",
+				"chainSelector", r.chainSelector,
+				"messageID", msgID)
+			delete(r.sentTasks, msgID)
+		}
+	}
+
 	// add new tasks
 	for _, task := range tasks {
+		// Skip if already in pending queue
 		if _, exists := r.pendingTasks[task.MessageID]; exists {
 			continue
 		}
+
+		// Skip if already sent (prevents re-sending after finality)
+		if _, alreadySent := r.sentTasks[task.MessageID]; alreadySent {
+			r.logger.Debugw("Skipping already-sent message",
+				"chainSelector", r.chainSelector,
+				"messageID", task.MessageID,
+				"blockNumber", task.BlockNumber)
+			continue
+		}
+
 		if r.curseDetector != nil &&
 			r.curseDetector.IsRemoteChainCursed(context.TODO(), task.Message.SourceChainSelector, task.Message.DestChainSelector) {
 			r.logger.Warnw("Dropping task - lane is cursed (enqueue)",
@@ -575,6 +590,15 @@ func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 		return
 	}
 
+	// Clean up sentTasks for messages older than finalized block
+	// These can never be reorged, so safe to remove
+	for msgID, task := range r.sentTasks {
+		taskBlock := new(big.Int).SetUint64(task.BlockNumber)
+		if taskBlock.Cmp(latestFinalizedBlock) <= 0 {
+			delete(r.sentTasks, msgID)
+		}
+	}
+
 	ready := make([]VerificationTask, 0, len(r.pendingTasks))
 	remaining := make(map[string]VerificationTask)
 
@@ -600,6 +624,8 @@ func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 
 		if ok {
 			ready = append(ready, task)
+			// Mark as sent to prevent re-sending
+			r.sentTasks[msgID] = task
 		} else {
 			remaining[msgID] = task
 		}
@@ -614,7 +640,8 @@ func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 	r.logger.Infow("Emitting finalized messages",
 		"chainSelector", r.chainSelector,
 		"ready", len(ready),
-		"remaining", len(remaining))
+		"remaining", len(remaining),
+		"sentTasks", len(r.sentTasks))
 
 	batch := batcher.BatchResult[VerificationTask]{Items: ready}
 
