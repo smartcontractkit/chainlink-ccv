@@ -383,13 +383,31 @@ func (vc *Coordinator) ccvDataLoop(ctx context.Context) {
 			return
 		case batch, ok := <-vc.batchedCCVDataCh:
 			if !ok {
+				vc.lggr.Infow("Storage batcher channel closed")
+				vc.verifyingWg.Wait()
 				return
 			}
+
+			// Handle batch-level errors from batcher (should be rare)
 			if batch.Error != nil {
-				vc.lggr.Errorw("Error writing CCV node data", "error", batch.Error)
+				vc.lggr.Errorw("Batch-level error from CCVData batcher",
+					"error", batch.Error,
+					"errorType", "batcher_failure")
 				continue
 			}
-			// Actual writes happen in the batcher handler; nothing else to do here.
+
+			if len(batch.Items) == 0 {
+				vc.lggr.Debugw("Received empty CCVData batch")
+				continue
+			}
+
+			// Write batch of CCVData to offchain storage
+			if err := vc.storage.WriteCCVNodeData(ctx, batch.Items); err == nil {
+				vc.lggr.Infow("CCV data batch stored successfully",
+					"batchSize", len(batch.Items),
+				)
+				vc.messageTracker.TrackMessageLatencies(ctx, batch.Items)
+			}
 		}
 	}
 }
