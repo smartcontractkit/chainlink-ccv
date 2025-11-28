@@ -20,7 +20,7 @@ const (
 	// Keeps historical finalized blocks to verify backwards finality changes without extra RPC calls.
 	FinalizedBufferPercentage = 0.20 // 20% of tail size
 	// MinFinalizedBuffer is the minimum number of finalized blocks to keep.
-	MinFinalizedBuffer = 10
+	MinFinalizedBuffer = 200
 )
 
 // ReorgDetectorConfig contains configuration for the reorg detector service.
@@ -432,17 +432,11 @@ func (r *ReorgDetectorService) trimOlderBlocks(finalizedBlockNum uint64) {
 	// Calculate buffer size: percentage of tail with minimum threshold
 	tailSize := r.latestBlock - finalizedBlockNum
 	bufferSize := uint64(float64(tailSize) * FinalizedBufferPercentage)
-	if bufferSize < MinFinalizedBuffer {
-		bufferSize = MinFinalizedBuffer
-	}
+
+	bufferSize = max(bufferSize, MinFinalizedBuffer)
 
 	// Calculate trim point: keep buffer of blocks before finalized
-	var trimBelow uint64
-	if finalizedBlockNum > bufferSize {
-		trimBelow = finalizedBlockNum - bufferSize
-	} else {
-		trimBelow = 0 // Don't trim if we're still near genesis
-	}
+	var trimBelow = max(0, finalizedBlockNum-bufferSize)
 
 	// Trim blocks below the buffer threshold
 	for blockNum := r.latestFinalizedBlock; blockNum < trimBelow; blockNum++ {

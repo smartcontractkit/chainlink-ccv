@@ -38,7 +38,7 @@ type SourceReaderService2 struct {
 	// mutable per-chain state
 	mu                 sync.RWMutex
 	lastProcessedBlock *big.Int
-	pendingTasks       []VerificationTask
+	pendingTasks       map[string]VerificationTask
 	disabled           bool
 	// Reset coordination using optimistic locking pattern.
 	// This version counter is incremented each time ResetToBlock() is called.
@@ -87,7 +87,7 @@ func NewSourceReaderService2(
 
 	reorgDetectorConfig := vservices.ReorgDetectorConfig{
 		ChainSelector: chainSelector,
-		PollInterval:  2 * time.Second, // TODO: make configurable
+		PollInterval:  1 * time.Second, // TODO: make configurable
 	}
 
 	reorgDetector, err := vservices.NewReorgDetectorService(
@@ -109,6 +109,7 @@ func NewSourceReaderService2(
 		pollInterval:          pollInterval,
 		finalityCheckInterval: finalityCheckInterval,
 		readyTasksCh:          make(chan batcher.BatchResult[VerificationTask]),
+		pendingTasks:          make(map[string]VerificationTask),
 		stopCh:                make(chan struct{}),
 	}, nil
 }
@@ -137,11 +138,11 @@ func (r *SourceReaderService2) Start(ctx context.Context) error {
 			r.eventMonitoringLoop()
 		}()
 
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			r.messageReadinessLoop(ctx)
-		}()
+		//r.wg.Add(1)
+		//go func() {
+		//	defer r.wg.Done()
+		//	r.messageReadinessLoop(ctx)
+		//}()
 
 		if r.reorgDetector != nil {
 			statusCh, err := r.reorgDetector.Start(ctx)
@@ -207,6 +208,7 @@ func (r *SourceReaderService2) eventMonitoringLoop() {
 			return
 		case <-ticker.C:
 			r.processEventCycle(ctx)
+			r.sendReadyMessages(ctx)
 		}
 	}
 }
@@ -273,10 +275,21 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 	now := time.Now()
 	tasks := make([]VerificationTask, 0, len(events))
 	for _, event := range events {
+		computedMessageID, err := event.Message.MessageID()
+		if err != nil {
+			r.logger.Errorw("Failed to compute message ID", "error", err)
+			continue
+		}
+		onchainMessageID := event.MessageID.String()
+		if computedMessageID.String() != onchainMessageID {
+			r.logger.Errorw("Message ID mismatch", "computed", computedMessageID.String(), "onchain", onchainMessageID)
+			continue
+		}
 		task := VerificationTask{
 			Message:      event.Message,
 			ReceiptBlobs: event.Receipts,
 			BlockNumber:  event.BlockNumber,
+			MessageID:    onchainMessageID,
 			FirstSeenAt:  now,
 		}
 		r.addToPendingQueue(task)
@@ -565,24 +578,24 @@ func (r *SourceReaderService2) addToPendingQueue(task VerificationTask) {
 	}
 
 	task.QueuedAt = time.Now()
-	r.pendingTasks = append(r.pendingTasks, task)
+	r.pendingTasks[task.MessageID] = task
 }
 
-func (r *SourceReaderService2) messageReadinessLoop(ctx context.Context) {
-	ticker := time.NewTicker(r.finalityCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-r.stopCh:
-			return
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			r.sendReadyMessages(ctx)
-		}
-	}
-}
+//func (r *SourceReaderService2) messageReadinessLoop(ctx context.Context) {
+//	ticker := time.NewTicker(r.finalityCheckInterval)
+//	defer ticker.Stop()
+//
+//	for {
+//		select {
+//		case <-r.stopCh:
+//			return
+//		case <-ctx.Done():
+//			return
+//		case <-ticker.C:
+//			r.sendReadyMessages(ctx)
+//		}
+//	}
+//}
 
 func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
@@ -608,9 +621,9 @@ func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 	}
 
 	ready := make([]VerificationTask, 0, len(r.pendingTasks))
-	remaining := r.pendingTasks[:0]
+	remaining := make(map[string]VerificationTask)
 
-	for _, task := range r.pendingTasks {
+	for msgID, task := range r.pendingTasks {
 		// re-check curse at finality time
 		if r.curseDetector != nil &&
 			r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector) {
@@ -626,14 +639,14 @@ func (r *SourceReaderService2) sendReadyMessages(ctx context.Context) {
 				"chainSelector", r.chainSelector,
 				"messageID", task.Message.MustMessageID(),
 				"error", err)
-			remaining = append(remaining, task)
+			remaining[msgID] = task
 			continue
 		}
 
 		if ok {
 			ready = append(ready, task)
 		} else {
-			remaining = append(remaining, task)
+			remaining[msgID] = task
 		}
 	}
 
@@ -671,6 +684,11 @@ func (r *SourceReaderService2) isMessageReadyForVerification(
 
 	if f == 0 {
 		// default finality: msgBlock <= finalized
+		r.logger.Infow("Message meets default finality requirement",
+			"messageID", task.Message.MustMessageID(),
+			"messageBlock", task.BlockNumber,
+			"finalizedBlock", latestFinalizedBlock.String(),
+		)
 		return msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
 	}
 
@@ -725,16 +743,23 @@ func (r *SourceReaderService2) handleReorg(status protocol.ChainStatus) {
 		return
 	}
 
-	flushed := 0
-	remaining := r.pendingTasks[:0]
-	for _, t := range r.pendingTasks {
+	dropped := 0
+	remaining := make(map[string]VerificationTask)
+	for msgID, t := range r.pendingTasks {
 		if t.BlockNumber > ancestor {
-			flushed++
+			dropped++
 			continue
 		}
-		remaining = append(remaining, t)
+		remaining[msgID] = t
 	}
 	r.pendingTasks = remaining
+
+	r.logger.Infow("Handling reorg - dropping pending tasks and resetting block",
+		"chainSelector", r.chainSelector,
+		"ancestorBlock", ancestor,
+		"droppedTasks", dropped,
+		"remainingTasks", len(r.pendingTasks),
+	)
 
 	if ancestor >= r.lastProcessedBlock.Uint64() {
 		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken",

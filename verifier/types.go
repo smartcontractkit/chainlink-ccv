@@ -10,6 +10,7 @@ import (
 type VerificationTask struct {
 	// TODO: Rename ReceiptBlobs to VerifierBlobs to match with onchain code.
 	ReceiptBlobs []protocol.ReceiptWithBlob `json:"receipt_blobs"`
+	MessageID    string                     `json:"message_id"`
 	Message      protocol.Message           `json:"message"`
 	BlockNumber  uint64                     `json:"block_number"`  // Block number when the message was included
 	FirstSeenAt  time.Time                  `json:"first_seen_at"` // When message first entered the system (for E2E latency)
