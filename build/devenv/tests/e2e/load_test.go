@@ -271,6 +271,7 @@ func TestE2ELoad(t *testing.T) {
 	// Initialize Prometheus helper
 	promHelper, err := NewPrometheusHelper(os.Getenv("PROM_URL"), *zerolog.Ctx(ctx))
 	require.NoError(t, err)
+	PrintRunningContainers(t)
 	t.Run("clean", func(t *testing.T) {
 		rps := int64(1)
 		testDuration := 30 * time.Second

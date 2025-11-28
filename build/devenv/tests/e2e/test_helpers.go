@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -373,4 +374,19 @@ func (p *PrometheusHelper) GetCurrentCounter(
 		Msg("Retrieved current counter metric value")
 
 	return value, nil
+}
+
+// PrintRunningContainers prints all running Docker containers for debugging purposes.
+// This is useful for CI debugging to understand the container state.
+func PrintRunningContainers(t *testing.T) {
+	t.Helper()
+
+	cmd := exec.Command("docker", "ps", "--format", "table {{.Names}}\t{{.Status}}\t{{.Ports}}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("Warning: failed to list Docker containers: %v", err)
+		return
+	}
+
+	t.Logf("Docker containers currently running:\n%s", string(output))
 }
