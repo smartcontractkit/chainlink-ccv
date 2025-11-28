@@ -25,45 +25,39 @@ type Config struct {
 	Monitoring         verifier.MonitoringConfig `toml:"monitoring"`
 }
 
-const (
-	CCTPHandlerType = "cctp"
-	LBTCHandlerType = "lbtc"
-)
-
-// VerifierConfig is the base struct for token data observers. Every token data observer
-// has to define its type and version. The type and version is used to determine which observer's
-// implementation to use. Whenever you want to add a new observer type, you need to add a new struct and embed that
-// in the VerifierConfig similarly to how CCTPConfig is embedded in the VerifierConfig.
-// There are two additional checks for the VerifierConfig to enforce that it's semantically (Validate)
-// and syntactically correct (WellFormed).
+// VerifierConfig is the base struct for token verifiers. Every token data verifier
+// has to define its type and version. The type and version is used to determine which verifier's
+// implementation to use. Whenever you want to add a new token verifier type, you need to add a new struct and embed that
+// in the VerifierConfig similarly to how cctp.Config is embedded in the VerifierConfig.
 type VerifierConfig struct {
-	// Type is the type of the token data observer. You can think of different token data observers as different
-	// strategies for processing token data. For example, you can have a token data observer for USDC tokens using CCTP
+	// Type is the type of the token verifier. You can think of different token verifiers as different
+	// strategies for processing token data. For example, you can have a token verifiers for USDC tokens using CCTP
 	// and different one for processing LINK token.
 	Type string `toml:"type"`
-	// Version is the version of the TokenObserverConfig and the matching Observer implementation for that config.
-	// This is used to determine which version of the observer to use. Right now, we only have one version
-	// of the observer, but in the future, we might have multiple versions.
-	// This is a precautionary measure to ensure that we can upgrade the observer without breaking the existing ones.
+	// Version is the version of the token.VerifierConfig and the matching verifier.Verifier implementation for that config.
+	// This is used to determine which version of the verifier to use. Right now, we only have one version
+	// of the verifier, but in the future, we might have multiple versions.
+	// This is a precautionary measure to ensure that we can upgrade the verifier without breaking the existing ones.
 	// Example would be CCTPv1 using AttestationAPI and CCTPv2 using a different API or completely
-	// different strategy which requires different configuration and implementation during Observation phase.
+	// different strategy which requires different configuration and implementation during Verification phase.
+	//
+	// Example JSON representation (but any format would work, as long proper marshall/unmarshall is implemented):
 	// [
 	//  {
-	//    "type": "cctp-cctp",
-	//    "version": "1.0",
+	//    "type": "cctp",
+	//    "version": "2.0",
 	//    "attestationAPI": "http://circle.com/attestation",
 	//    "attestationAPITimeout": "1s",
 	//    "attestationAPIIntervalMilliseconds": "500ms"
 	//  },
 	//  {
-	//    "type": "cctp-cctp",
-	//    "version": "2.0",
-	//    "customCirlceAPI": "http://cirle.com/gohere",
-	//    "yetAnotherAPI": "http://cirle.com/anotherone",
-	//    "customCircleAPITimeout": "1s",
-	//    "yetAnotherAPITimeout": "500ms"
+	//    "type": "lbtc",
+	//    "version": "1.0",
+	//    "attestationAPI": "http://lbtc.com/gohere",
+	//    "attestationAPITimeout": "1s",
+	//    "attestationAPIIntervalMilliseconds": "500ms"
 	//  }
-	//]
+	// ]
 	// Having version in that JSON isn't expensive, but it could reduce the risk of breaking the observers in the future.
 	Version string `toml:"version"`
 
@@ -77,25 +71,24 @@ func (o *VerifierConfig) UnmarshalTOML(data any) error {
 		return fmt.Errorf("expected map[string]any, got %T", castedData)
 	}
 
-	if v, ok := castedData["type"].(string); ok {
-		o.Type = v
-	} else {
+	o.Type, ok = castedData["type"].(string)
+	if !ok {
 		return fmt.Errorf("type field is required for VerifierConfig")
 	}
 
-	if v, ok := castedData["version"].(string); ok {
-		o.Version = v
-	} else {
+	o.Version, ok = castedData["version"].(string)
+	if !ok {
 		return fmt.Errorf("version field is required for VerifierConfig")
 	}
 
-	if cctpConfig, err := cctp.TryParsing(o.Type, o.Version, castedData); err == nil {
-		o.cctp = cctpConfig
+	var err error
+	o.cctp, err = cctp.TryParsing(o.Type, o.Version, castedData)
+	if err == nil {
 		return nil
 	}
 
-	if lbtcConfig, err := lbtc.TryParsing(o.Type, o.Version, castedData); err == nil {
-		o.lbtc = lbtcConfig
+	o.lbtc, err = lbtc.TryParsing(o.Type, o.Version, castedData)
+	if err == nil {
 		return nil
 	}
 

@@ -9,11 +9,10 @@ import (
 )
 
 func ParseIntOrDefault(val any, defaultVal int) (int, error) {
-	if v, ok := val.(int); ok {
-		return v, nil
-	} else {
-		return defaultVal, nil
+	if v, ok := val.(int64); ok {
+		return int(v), nil
 	}
+	return defaultVal, nil
 }
 
 func ParseDurationOrDefault(val any, defaultVal time.Duration) (time.Duration, error) {
@@ -23,9 +22,8 @@ func ParseDurationOrDefault(val any, defaultVal time.Duration) (time.Duration, e
 			return 0, fmt.Errorf("invalid duration format: %w", err)
 		}
 		return duration, nil
-	} else {
-		return defaultVal, nil
 	}
+	return defaultVal, nil
 }
 
 func ParseAddressesMap(val any) (map[protocol.ChainSelector]protocol.UnknownAddress, error) {
@@ -40,10 +38,10 @@ func ParseAddressesMap(val any) (map[protocol.ChainSelector]protocol.UnknownAddr
 			if !ok {
 				return nil, fmt.Errorf("invalid verifier address for chain selector %s: expected string, got %T", key, value)
 			}
+			//nolint:gosec // disable G115
 			result[protocol.ChainSelector(chainSelector)] = protocol.UnknownAddress(address)
 		}
 		return result, nil
-	} else {
-		return nil, fmt.Errorf("expected map for addresses, got %T", val)
 	}
+	return nil, fmt.Errorf("expected map for addresses, got %T", val)
 }
