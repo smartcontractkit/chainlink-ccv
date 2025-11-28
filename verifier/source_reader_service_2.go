@@ -40,14 +40,6 @@ type SourceReaderService2 struct {
 	lastProcessedBlock *big.Int
 	pendingTasks       map[string]VerificationTask
 	disabled           bool
-	// Reset coordination using optimistic locking pattern.
-	// This version counter is incremented each time ResetToBlock() is called.
-	// The processEventCycle() captures the version at the start of its cycle,
-	// and checks it again before updating lastProcessedBlock. If the version
-	// changed (indicating a reset occurred during the cycle's RPC calls),
-	// the cycle skips its update to avoid overwriting the reset value.
-	// This allows us to protect lastProcessedBlock without holding locks across I/O.
-	resetVersion uint64
 
 	// ChainStatus management
 	chainStatusManager   protocol.ChainStatusManager
@@ -213,6 +205,35 @@ func (r *SourceReaderService2) eventMonitoringLoop() {
 	}
 }
 
+// readyToQuery checks if there are new blocks to process.
+// Returns (true, finalizedBlock) if new blocks are available.
+func (r *SourceReaderService2) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader) {
+	blockCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
+	cancel()
+
+	if err != nil {
+		r.logger.Errorw("Failed to get latest block", "error", err)
+		// Send batch-level error to coordinator
+		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
+		return false, nil
+	}
+	if finalized == nil || latest == nil {
+		r.logger.Errorw("nil block found during latest/finalized retrieval",
+			"finalized=Nil", finalized == nil, "latest=Nil", latest == nil)
+		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
+		return false, nil
+	}
+
+	if latest.Number <= r.lastProcessedBlock.Uint64() {
+		r.logger.Debugw("No new blocks to process",
+			"lastProcessedBlock", r.lastProcessedBlock.String())
+		return false, finalized
+	}
+
+	return true, finalized
+}
+
 // processEventCycle processes a single cycle of event monitoring.
 //
 // Thread-safety:
@@ -224,39 +245,21 @@ func (r *SourceReaderService2) eventMonitoringLoop() {
 func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 	// Capture resetVersion and lastProcessedBlock atomically under read lock.
 	// This establishes a "snapshot" that we'll validate before updating state later.
-	r.mu.RLock()
-	startVersion := r.resetVersion
-	fromBlock := r.lastProcessedBlock
-	r.mu.RUnlock()
 
-	// Get current block (potentially slow RPC call - no locks held)
-	// TODO: timeout should be less than pollInterval
-	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
-	cancel()
-
-	if err != nil {
-		r.logger.Errorw("Failed to get latest block", "error", err)
-		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
+	ready, finalized := r.readyToQuery(ctx)
+	if !ready {
 		return
 	}
-	if finalized == nil || latest == nil {
-		r.logger.Errorw("nil block found during latest/finalized retrieval",
-			"finalized=Nil", finalized == nil, "latest=Nil", latest == nil)
-		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
-		return
-	}
-
-	if latest.Number <= r.lastProcessedBlock.Uint64() {
-		r.logger.Debugw("No new blocks to process",
-			"lastProcessedBlock", r.lastProcessedBlock.String())
-		return
-	}
-
 	// Query for logs
 	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	r.mu.RLock()
+	// minimum of lastProcessed and finalized
+	// keep on reading from finalized block to avoid missing messages in case of reorgs
+	minimumBlock := min(r.lastProcessedBlock.Uint64(), finalized.Number)
+	fromBlock := new(big.Int).SetUint64(minimumBlock)
+	r.mu.RUnlock()
 
 	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
 	// Fetch message events from blockchain
@@ -273,6 +276,7 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 
 	// Convert MessageSentEvents to VerificationTasks
 	now := time.Now()
+	tasks := make([]VerificationTask, 0, len(events))
 	for _, event := range events {
 		computedMessageID, err := event.Message.MessageID()
 		if err != nil {
@@ -291,8 +295,10 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 			MessageID:    onchainMessageID,
 			FirstSeenAt:  now,
 		}
-		r.addToPendingQueue(task)
+		tasks = append(tasks, task)
 	}
+
+	r.addToPendingQueueHandleReorg(tasks)
 
 	if len(events) == 0 {
 		r.logger.Debugw("No events found in range",
@@ -302,16 +308,6 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 
 	// Determine the block we've processed up to
 	var processedToBlock *big.Int
-	if len(events) > 0 {
-		// Use the highest block from returned logs
-		highestLogBlock := findHighestBlockInEvents(events)
-		// We don't want to re-process the same block if it already had messages, so add 1
-		processedToBlock = new(big.Int).Add(highestLogBlock, big.NewInt(1))
-	} else {
-		// No logs - use current position (fromBlock was captured under lock at cycle start)
-		processedToBlock = new(big.Int).Set(fromBlock)
-	}
-
 	// Always advance at least to finalized (stable across all RPC nodes)
 	finalizedBlock := new(big.Int).SetUint64(finalized.Number)
 	if finalizedBlock.Cmp(processedToBlock) > 0 {
@@ -320,48 +316,18 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 
 	// Update processed block with optimistic locking check
 	r.mu.Lock()
-	currentVersion := r.resetVersion
-	if currentVersion == startVersion {
-		// No reset occurred - safe to update
-		r.lastProcessedBlock = processedToBlock
-	} else {
-		// Reset occurred during this cycle - skip update to preserve reset value
-		r.logger.Infow("Skipping lastProcessedBlock update due to concurrent reset",
-			"cycleStartVersion", startVersion,
-			"currentVersion", currentVersion,
-			"wouldHaveSet", processedToBlock.String(),
-			"preserving", r.lastProcessedBlock.String())
-	}
+	// No reset occurred - safe to update
+	r.lastProcessedBlock = processedToBlock
+
 	r.mu.Unlock()
 
-	// Update chain status if no reset occurred
-	if currentVersion == startVersion {
-		r.updateChainStatus(ctx, processedToBlock)
-	}
+	r.updateChainStatus(ctx, processedToBlock)
 
 	r.logger.Debugw("Processed block range",
 		"fromBlock", fromBlock.String(),
 		"toBlock", "latest",
 		"advancedTo", processedToBlock.String(),
 		"eventsFound", len(events))
-	if len(events) > 0 {
-		r.logger.Debugw("Event details", "logs", events)
-	}
-}
-
-// findHighestBlockInEvents returns the highest block number from verification tasks.
-// Returns nil if tasks is empty.
-func findHighestBlockInEvents(events []protocol.MessageSentEvent) *big.Int {
-	if len(events) == 0 {
-		return nil
-	}
-	highest := uint64(0)
-	for _, event := range events {
-		if event.BlockNumber > highest {
-			highest = event.BlockNumber
-		}
-	}
-	return new(big.Int).SetUint64(highest)
 }
 
 // calculateChainStatusBlock determines the safe chain status block (finalized - buffer).
@@ -415,11 +381,6 @@ func (r *SourceReaderService2) updateChainStatus(ctx context.Context, lastProces
 		return
 	}
 
-	// Capture version before starting chain status calculation
-	r.mu.RLock()
-	versionBeforeCalc := r.resetVersion
-	r.mu.RUnlock()
-
 	// Calculate safe chain status block (finalized - buffer)
 	// This may take time due to RPC calls
 	chainStatusBlock, err := r.calculateChainStatusBlock(ctx, lastProcessed)
@@ -437,16 +398,6 @@ func (r *SourceReaderService2) updateChainStatus(ctx context.Context, lastProces
 	// Acquire lock to check for staleness and perform write atomically
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	// Check if a reset occurred during our calculation
-	currentVersion := r.resetVersion
-	if currentVersion != versionBeforeCalc {
-		r.logger.Debugw("Skipping stale chainStatus write due to concurrent reset",
-			"calculatedChainStatus", chainStatusBlock.String(),
-			"versionBeforeCalc", versionBeforeCalc,
-			"currentVersion", currentVersion)
-		return
-	}
 
 	// Don't re-chain status the same block
 	if r.lastChainStatusBlock != nil &&
@@ -477,45 +428,6 @@ func (r *SourceReaderService2) updateChainStatus(ctx context.Context, lastProces
 		r.lastChainStatusTime = time.Now()
 		r.lastChainStatusBlock = new(big.Int).Set(chainStatusBlock)
 	}
-}
-
-// readChainStatusWithRetries tries to read chain status from aggregator with exponential backoff.
-func (r *SourceReaderService2) readChainStatusWithRetries(ctx context.Context, maxAttempts int) (*protocol.ChainStatusInfo, error) {
-	if r.chainStatusManager == nil {
-		r.logger.Debugw("No chainStatus manager available for chainStatus reading")
-		return nil, nil
-	}
-
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		statusMap, err := r.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{r.chainSelector})
-		if err == nil {
-			// Extract status for this chain from the map
-			chainStatus := statusMap[r.chainSelector]
-			return chainStatus, nil
-		}
-
-		lastErr = err
-		r.logger.Warnw("Failed to read chainStatus",
-			"attempt", attempt,
-			"maxAttempts", maxAttempts,
-			"error", err)
-
-		if attempt < maxAttempts {
-			// Exponential backoff: 1s, 2s, 4s
-			backoffDuration := time.Duration(1<<(attempt-1)) * time.Second
-			r.logger.Debugw("Retrying chainStatus read after backoff", "duration", backoffDuration)
-
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoffDuration):
-				// Continue to next attempt
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("failed to read chainStatus after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // initializeStartBlock determines the starting block for event monitoring.
@@ -574,7 +486,13 @@ func (r *SourceReaderService2) fallbackBlockEstimate(currentBlock uint64, lookba
 // Pending queue + finality
 // -----------------------------------------------------------------------------
 
-func (r *SourceReaderService2) addToPendingQueue(task VerificationTask) {
+// addToPendingQueueHandleReorg adds new tasks to the pending queue,
+// removing any tasks that are no longer valid due to reorg.
+func (r *SourceReaderService2) addToPendingQueueHandleReorg(tasks []VerificationTask) {
+	tasksMap := make(map[string]VerificationTask)
+	for _, task := range tasks {
+		tasksMap[task.MessageID] = task
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -582,34 +500,40 @@ func (r *SourceReaderService2) addToPendingQueue(task VerificationTask) {
 		return
 	}
 
-	if r.curseDetector != nil &&
-		r.curseDetector.IsRemoteChainCursed(context.TODO(), task.Message.SourceChainSelector, task.Message.DestChainSelector) {
-		r.logger.Warnw("Dropping task - lane is cursed (enqueue)",
-			"chainSelector", r.chainSelector,
-			"blockNumber", task.BlockNumber,
-			"messageID", task.Message.MustMessageID())
-		return
+	// remove tasks that are no longer valid due to reorg
+	for msgID, existing := range r.pendingTasks {
+		if _, exists := tasksMap[msgID]; !exists {
+			r.logger.Warnw("Removing task from pending queue due to reorg",
+				"chainSelector", r.chainSelector,
+				"messageID", msgID,
+				"blockNumber", existing.BlockNumber)
+			delete(r.pendingTasks, msgID)
+		}
 	}
+	// add new tasks
+	for _, task := range tasks {
+		if _, exists := r.pendingTasks[task.MessageID]; exists {
+			continue
+		}
+		if r.curseDetector != nil &&
+			r.curseDetector.IsRemoteChainCursed(context.TODO(), task.Message.SourceChainSelector, task.Message.DestChainSelector) {
+			r.logger.Warnw("Dropping task - lane is cursed (enqueue)",
+				"chainSelector", r.chainSelector,
+				"blockNumber", task.BlockNumber,
+				"messageID", task.Message.MustMessageID())
+			return
+		}
 
-	task.QueuedAt = time.Now()
+		task.QueuedAt = time.Now()
 
-	// Check if this message already exists (deduplication via map)
-	if existing, exists := r.pendingTasks[task.MessageID]; exists {
-		r.logger.Warnw("Duplicate message detected - map deduplication in action",
+		r.pendingTasks[task.MessageID] = task
+		r.logger.Infow("Added message to pending queue",
 			"chainSelector", r.chainSelector,
 			"messageID", task.MessageID,
-			"existingBlock", existing.BlockNumber,
-			"newBlock", task.BlockNumber)
-		return
+			"blockNumber", task.BlockNumber,
+			"nonce", task.Message.SequenceNumber,
+			"pendingCount", len(r.pendingTasks))
 	}
-
-	r.pendingTasks[task.MessageID] = task
-	r.logger.Infow("Added message to pending queue",
-		"chainSelector", r.chainSelector,
-		"messageID", task.MessageID,
-		"blockNumber", task.BlockNumber,
-		"nonce", task.Message.SequenceNumber,
-		"pendingCount", len(r.pendingTasks))
 }
 
 //func (r *SourceReaderService2) messageReadinessLoop(ctx context.Context) {
@@ -767,8 +691,6 @@ func (r *SourceReaderService2) reorgLoop(ctx context.Context, statusCh <-chan pr
 				"resetToBlock", status.ResetToBlock)
 
 			switch status.Type {
-			case protocol.ReorgTypeNormal:
-				r.handleReorg(status)
 			case protocol.ReorgTypeFinalityViolation:
 				r.handleFinalityViolation(ctx, status)
 			default:
@@ -778,53 +700,6 @@ func (r *SourceReaderService2) reorgLoop(ctx context.Context, statusCh <-chan pr
 			}
 		}
 	}
-}
-
-func (r *SourceReaderService2) handleReorg(status protocol.ChainStatus) {
-	ancestor := status.ResetToBlock
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.disabled {
-		return
-	}
-
-	dropped := 0
-	remaining := make(map[string]VerificationTask)
-	for msgID, t := range r.pendingTasks {
-		if t.BlockNumber > ancestor {
-			dropped++
-			continue
-		}
-		remaining[msgID] = t
-	}
-	r.pendingTasks = remaining
-
-	r.logger.Infow("Handling reorg - dropping pending tasks and resetting block",
-		"chainSelector", r.chainSelector,
-		"ancestorBlock", ancestor,
-		"droppedTasks", dropped,
-		"remainingTasks", len(r.pendingTasks),
-	)
-
-	if ancestor >= r.lastProcessedBlock.Uint64() {
-		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken",
-			"block", ancestor,
-			"lastProcessedBlock", r.lastProcessedBlock.Uint64())
-		return
-	}
-	resetBlock := new(big.Int).SetUint64(ancestor)
-	r.logger.Infow("Resetting source reader to block",
-		"chainSelector", r.chainSelector,
-		"fromBlock", r.lastProcessedBlock,
-		"toBlock", resetBlock,
-		"lastChainStatus", r.lastChainStatusBlock,
-	)
-
-	// Update to reset value (already holding lock from function entry)
-	r.lastProcessedBlock = resetBlock
-	r.resetVersion++
 }
 
 func (r *SourceReaderService2) handleFinalityViolation(ctx context.Context, status protocol.ChainStatus) {
