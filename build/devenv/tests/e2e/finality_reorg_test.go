@@ -225,6 +225,7 @@ func TestE2EReorg(t *testing.T) {
 		// Mine some blocks to give system opportunity to process (if it were working)
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
 		l.Info().Msg("🔍 Verifying chain status in aggregator...")
 
@@ -242,8 +243,6 @@ func TestE2EReorg(t *testing.T) {
 
 			return true
 		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
-
-		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
 		l.Info().
 			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")

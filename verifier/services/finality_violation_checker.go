@@ -102,15 +102,29 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		return nil
 	}
 
-	// If finalized hasn't advanced, nothing to do
-	if finalizedBlock <= f.lastFinalized {
-		f.lggr.Debugw("Finalized block has not advanced",
+	// If finalizedBlock decreased, check stored hash for consistency
+	if finalizedBlock < f.lastFinalized {
+		header, err := f.fetchSingleBlock(ctx, finalizedBlock)
+		if err != nil {
+			return fmt.Errorf("failed to fetch finalized block %d: %w", finalizedBlock, err)
+		}
+		f.lggr.Warnw("Finalized block number decreased - can be RPC lagging, checking stored hash",
 			"lastFinalized", f.lastFinalized,
-			"newFinalized", finalizedBlock)
-		return nil
+			"newFinalized", finalizedBlock,
+		)
+		stored, ok := f.finalizedBlocks[finalizedBlock]
+		if ok && stored.Hash == header.Hash {
+			return nil
+		}
+
+		f.lggr.Errorw("FINALITY VIOLATION DETECTED - finalized block rewound")
+		f.violationDetected = true
+		return fmt.Errorf("finality violation: finalized block rewound from %d to %d",
+			f.lastFinalized, finalizedBlock)
 	}
 
 	// Fetch blocks from lastFinalized to finalizedBlock
+	// Note: When finalizedBlock == lastFinalized, this still fetches and verifies the hash
 	headers, err := f.fetchBlockRange(ctx, f.lastFinalized, finalizedBlock)
 	if err != nil {
 		return fmt.Errorf("failed to fetch block range [%d, %d]: %w", f.lastFinalized, finalizedBlock, err)
@@ -124,14 +138,12 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		}
 
 		// Check if we already have this block stored
-		if storedHeader, alreadyStored := f.finalizedBlocks[blockNum]; alreadyStored {
+		if storedHeader, ok := f.finalizedBlocks[blockNum]; ok {
 			// Verify hash matches
 			if storedHeader.Hash != newHeader.Hash {
 				f.lggr.Errorw("FINALITY VIOLATION DETECTED - block hash changed",
 					"blockNumber", blockNum,
-					"storedHash", storedHeader.Hash,
-					"newHash", newHeader.Hash,
-					"chainSelector", f.chainSelector)
+				)
 				f.violationDetected = true
 				return fmt.Errorf("finality violation: block %d hash changed from %s to %s",
 					blockNum, storedHeader.Hash, newHeader.Hash)

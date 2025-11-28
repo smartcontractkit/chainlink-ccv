@@ -182,13 +182,64 @@ func TestFinalityViolationChecker_NoAdvancement(t *testing.T) {
 	err = checker.UpdateFinalized(ctx, 100)
 	require.NoError(t, err)
 
-	// Update with same block - should be no-op
+	// Update with same block - should verify hash and succeed
 	err = checker.UpdateFinalized(ctx, 100)
 	require.NoError(t, err)
 	assert.False(t, checker.IsFinalityViolated())
+}
 
-	// Update with earlier block - should be no-op
-	err = checker.UpdateFinalized(ctx, 99)
+func TestFinalityViolationChecker_BackwardMovementDetected(t *testing.T) {
+	lggr, _ := logger.New()
+
+	mock := &mockSourceReaderForFinality{
+		blocks: map[uint64]protocol.BlockHeader{
+			99:  {Number: 99, Hash: makeBytes32("hash99")},
+			100: {Number: 100, Hash: makeBytes32("hash100")},
+		},
+	}
+
+	checker, err := NewFinalityViolationCheckerService(mock, protocol.ChainSelector(1), lggr)
 	require.NoError(t, err)
-	assert.False(t, checker.IsFinalityViolated())
+
+	ctx := context.Background()
+
+	// Initialize with block 100
+	err = checker.UpdateFinalized(ctx, 100)
+	require.NoError(t, err)
+
+	// Update with earlier block - should detect finality violation
+	err = checker.UpdateFinalized(ctx, 99)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finality violation")
+	assert.Contains(t, err.Error(), "rewound")
+	assert.True(t, checker.IsFinalityViolated())
+}
+
+func TestFinalityViolationChecker_SameHeightHashChange(t *testing.T) {
+	lggr, _ := logger.New()
+
+	mock := &mockSourceReaderForFinality{
+		blocks: map[uint64]protocol.BlockHeader{
+			100: {Number: 100, Hash: makeBytes32("hash100")},
+		},
+	}
+
+	checker, err := NewFinalityViolationCheckerService(mock, protocol.ChainSelector(1), lggr)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Initialize with block 100
+	err = checker.UpdateFinalized(ctx, 100)
+	require.NoError(t, err)
+
+	// Change the hash at the same height
+	mock.blocks[100] = protocol.BlockHeader{Number: 100, Hash: makeBytes32("DIFFERENT")}
+
+	// Update with same block - should detect hash change
+	err = checker.UpdateFinalized(ctx, 100)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finality violation")
+	assert.Contains(t, err.Error(), "hash changed")
+	assert.True(t, checker.IsFinalityViolated())
 }
