@@ -23,7 +23,7 @@ jobs:
       matrix:
         test:
           - subtest: clean
-            timeout: 8m
+            timeout: 2m
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
