@@ -580,7 +580,7 @@ var generateConfigsCmd = &cobra.Command{
 		verifierInputs := make([]*services.VerifierInput, 0, len(verifierPubKeys))
 		for i, pubKey := range verifierPubKeys {
 			verifierInputs = append(verifierInputs, &services.VerifierInput{
-				ContainerName:                      fmt.Sprintf("%s%d", verifierIDPrefix, i+1),
+				ContainerName:                      fmt.Sprintf("%s%d", verifierIDPrefix, i),
 				AggregatorAddress:                  fmt.Sprintf("%s:%d", aggregatorAddr, aggregatorPort),
 				SigningKeyPublic:                   pubKey,
 				CommitteeVerifierAddresses:         committeeVerifierAddresses,
