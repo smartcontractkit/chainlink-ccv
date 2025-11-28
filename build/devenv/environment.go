@@ -525,11 +525,11 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 		case services.CL:
 			index, clClient := roundRobin.GetNext()
 
-			tomlConfig, err := ver.GenerateConfig()
+			jobSpec, err := ver.GenerateJobSpec()
 			if err != nil {
 				return fmt.Errorf("failed to generate verifier config: %w", err)
 			}
-			jb, resp, err := clClient.CreateJobRaw(committeeVerifierSpec(string(tomlConfig)))
+			jb, resp, err := clClient.CreateJobRaw(jobSpec)
 			if err != nil {
 				return fmt.Errorf("failed to create committee verifier job: %w", err)
 			}
@@ -550,12 +550,12 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 		case services.CL:
 			index, clClient := roundRobin.GetNext()
 
-			tomlConfig, err := exec.GenerateConfig()
+			jobSpec, err := exec.GenerateJobSpec()
 			if err != nil {
 				return fmt.Errorf("failed to generate executor config: %w", err)
 			}
 
-			jb, resp, err := clClient.CreateJobRaw(executorSpec(string(tomlConfig)))
+			jb, resp, err := clClient.CreateJobRaw(jobSpec)
 			if err != nil {
 				return fmt.Errorf("failed to create executor job: %w", err)
 			}
@@ -572,30 +572,6 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 	}
 
 	return nil
-}
-
-func executorSpec(tomlConfig string) string {
-	return fmt.Sprintf(
-		`
-schemaVersion = 1
-type = "ccvexecutor"
-executorConfig = """
-%s
-"""
-`, tomlConfig,
-	)
-}
-
-func committeeVerifierSpec(tomlConfig string) string {
-	return fmt.Sprintf(
-		`
-schemaVersion = 1
-type = "ccvcommitteeverifier"
-committeeVerifierConfig = """
-%s
-"""
-`, tomlConfig,
-	)
 }
 
 // launchCLNodes encapsulates the logic required to launch the core node. It may be better to wrap this in a service.

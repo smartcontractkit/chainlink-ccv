@@ -233,12 +233,18 @@ func (vc *Coordinator) Start(_ context.Context) error {
 
 			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
 
+			filter := chainaccess.NewReceiptIssuerFilter(
+				sourceCfg.VerifierAddress,
+				sourceCfg.DefaultExecutorAddress,
+			)
+
 			service := NewSourceReaderService(
 				sourceReader,
 				chainSelector,
 				vc.chainStatusManager,
 				readerLogger,
 				sourcePollInterval,
+				filter,
 			)
 
 			err := service.Start(ctx)

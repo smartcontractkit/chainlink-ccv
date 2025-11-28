@@ -73,6 +73,7 @@ func NewSourceReaderService(
 	chainStatusManager protocol.ChainStatusManager,
 	logger logger.Logger,
 	pollInterval time.Duration,
+	filter chainaccess.MessageFilter,
 	opts ...SourceReaderServiceOption,
 ) *SourceReaderService {
 	s := &SourceReaderService{
@@ -84,8 +85,7 @@ func NewSourceReaderService(
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 		chainStatusManager:   chainStatusManager,
-		// TODO: Pass real filters via constructor. Empty chainaccess.CompositeMessageFilter means allow all
-		filter: chainaccess.NewCompositeMessageFilter(),
+		filter:               filter,
 	}
 
 	// Apply options
