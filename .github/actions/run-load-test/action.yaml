@@ -96,9 +96,12 @@ runs:
       id: load_test
       shell: bash
       working-directory: build/devenv/tests/e2e
+      env:
+        LOAD_TEST_OUT_FILE: ../../${{ inputs.env_name }}-out.toml
+        PROM_URL: http://localhost:9099
       run: |
         set -o pipefail
-        LOAD_TEST_OUT_FILE=../../${{ inputs.env_name }}-out.toml go test -v -timeout ${{ inputs.timeout }} -count=1 -run 'TestE2ELoad/${{ inputs.subtest }}'
+        go test -v -timeout ${{ inputs.timeout }} -count=1 -run 'TestE2ELoad/${{ inputs.subtest }}'
       continue-on-error: true
 
     - name: Upload Logs
