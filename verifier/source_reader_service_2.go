@@ -273,7 +273,6 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 
 	// Convert MessageSentEvents to VerificationTasks
 	now := time.Now()
-	tasks := make([]VerificationTask, 0, len(events))
 	for _, event := range events {
 		computedMessageID, err := event.Message.MessageID()
 		if err != nil {
@@ -295,7 +294,7 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 		r.addToPendingQueue(task)
 	}
 
-	if len(tasks) == 0 {
+	if len(events) == 0 {
 		r.logger.Debugw("No events found in range",
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
@@ -303,9 +302,9 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 
 	// Determine the block we've processed up to
 	var processedToBlock *big.Int
-	if len(tasks) > 0 {
+	if len(events) > 0 {
 		// Use the highest block from returned logs
-		highestLogBlock := findHighestBlockInTasks(tasks)
+		highestLogBlock := findHighestBlockInEvents(events)
 		// We don't want to re-process the same block if it already had messages, so add 1
 		processedToBlock = new(big.Int).Add(highestLogBlock, big.NewInt(1))
 	} else {
@@ -344,10 +343,25 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 		"fromBlock", fromBlock.String(),
 		"toBlock", "latest",
 		"advancedTo", processedToBlock.String(),
-		"eventsFound", len(tasks))
-	if len(tasks) > 0 {
-		r.logger.Debugw("Event details", "logs", tasks)
+		"eventsFound", len(events))
+	if len(events) > 0 {
+		r.logger.Debugw("Event details", "logs", events)
 	}
+}
+
+// findHighestBlockInEvents returns the highest block number from verification tasks.
+// Returns nil if tasks is empty.
+func findHighestBlockInEvents(events []protocol.MessageSentEvent) *big.Int {
+	if len(events) == 0 {
+		return nil
+	}
+	highest := uint64(0)
+	for _, event := range events {
+		if event.BlockNumber > highest {
+			highest = event.BlockNumber
+		}
+	}
+	return new(big.Int).SetUint64(highest)
 }
 
 // calculateChainStatusBlock determines the safe chain status block (finalized - buffer).
@@ -578,7 +592,24 @@ func (r *SourceReaderService2) addToPendingQueue(task VerificationTask) {
 	}
 
 	task.QueuedAt = time.Now()
+
+	// Check if this message already exists (deduplication via map)
+	if existing, exists := r.pendingTasks[task.MessageID]; exists {
+		r.logger.Warnw("Duplicate message detected - map deduplication in action",
+			"chainSelector", r.chainSelector,
+			"messageID", task.MessageID,
+			"existingBlock", existing.BlockNumber,
+			"newBlock", task.BlockNumber)
+		return
+	}
+
 	r.pendingTasks[task.MessageID] = task
+	r.logger.Infow("Added message to pending queue",
+		"chainSelector", r.chainSelector,
+		"messageID", task.MessageID,
+		"blockNumber", task.BlockNumber,
+		"nonce", task.Message.SequenceNumber,
+		"pendingCount", len(r.pendingTasks))
 }
 
 //func (r *SourceReaderService2) messageReadinessLoop(ctx context.Context) {
@@ -684,12 +715,14 @@ func (r *SourceReaderService2) isMessageReadyForVerification(
 
 	if f == 0 {
 		// default finality: msgBlock <= finalized
-		r.logger.Infow("Message meets default finality requirement",
+		ok := msgBlock.Cmp(latestFinalizedBlock) <= 0
+		r.logger.Infow("Default finality check",
 			"messageID", task.Message.MustMessageID(),
 			"messageBlock", task.BlockNumber,
 			"finalizedBlock", latestFinalizedBlock.String(),
+			"meetsRequirement", ok,
 		)
-		return msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
+		return ok, nil
 	}
 
 	// custom finality: msgBlock + f <= latest
@@ -709,16 +742,30 @@ func (r *SourceReaderService2) isMessageReadyForVerification(
 // -----------------------------------------------------------------------------
 
 func (r *SourceReaderService2) reorgLoop(ctx context.Context, statusCh <-chan protocol.ChainStatus) {
+	r.logger.Infow("Starting reorg loop - waiting for reorg notifications",
+		"chainSelector", r.chainSelector)
+
 	for {
 		select {
 		case <-r.stopCh:
+			r.logger.Infow("Reorg loop stopped due to stopCh",
+				"chainSelector", r.chainSelector)
 			return
 		case <-ctx.Done():
+			r.logger.Infow("Reorg loop stopped due to context cancellation",
+				"chainSelector", r.chainSelector)
 			return
 		case status, ok := <-statusCh:
 			if !ok {
+				r.logger.Infow("Reorg loop stopped - status channel closed",
+					"chainSelector", r.chainSelector)
 				return
 			}
+			r.logger.Infow("Received chain status notification",
+				"chainSelector", r.chainSelector,
+				"statusType", status.Type,
+				"resetToBlock", status.ResetToBlock)
+
 			switch status.Type {
 			case protocol.ReorgTypeNormal:
 				r.handleReorg(status)
