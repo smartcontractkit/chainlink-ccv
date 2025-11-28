@@ -562,14 +562,20 @@ func (r *ReorgDetectorService) getLongestConsecutiveChain(
 	startNum, endNum uint64,
 ) map[uint64]protocol.BlockHeader {
 	validBlocks := make(map[uint64]protocol.BlockHeader)
+	if startNum > endNum {
+		r.lggr.Warnw("Invalid block range for longest chain extraction, start > end",
+			"startNum", startNum, "endNum", endNum)
+		return validBlocks
+	}
 
 	// Add first block if it exists
-	if first, exists := blocks[startNum]; exists {
-		validBlocks[startNum] = first
-	} else {
+	first, exists := blocks[startNum]
+	if !exists {
 		r.lggr.Warnw("First block missing in fetch", "blockNum", startNum)
 		return validBlocks
 	}
+
+	validBlocks[startNum] = first
 
 	// Walk forward, adding blocks while chain is valid
 	for i := startNum + 1; i <= endNum; i++ {
@@ -595,7 +601,7 @@ func (r *ReorgDetectorService) getLongestConsecutiveChain(
 		validBlocks[i] = current
 	}
 
-	if len(validBlocks) < int(endNum-startNum+1) {
+	if uint64(len(validBlocks)) < endNum-startNum+1 {
 		r.lggr.Infow("mid fetch reorg - extracted longest chain",
 			"requested", endNum-startNum+1,
 			"valid", len(validBlocks),
