@@ -316,7 +316,6 @@ type AggregatorConfig struct {
 	OrphanRecovery        OrphanRecoveryConfig `toml:"orphanRecovery"`
 	RateLimiting          RateLimitingConfig   `toml:"rateLimiting"`
 	HealthCheck           HealthCheckConfig    `toml:"healthCheck"`
-	StubMode              bool                 `toml:"stubQuorumValidation"`
 	Monitoring            MonitoringConfig     `toml:"monitoring"`
 	PyroscopeURL          string               `toml:"pyroscope_url"`
 	MaxMessageIDsPerBatch int                  `toml:"maxMessageIDsPerBatch"`
@@ -583,7 +582,7 @@ func (c *AggregatorConfig) LoadFromEnvironment() error {
 	}
 	c.APIKeys = apiKeyConfig
 
-	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis {
+	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis && c.RateLimiting.Enabled {
 		if err := c.loadRateLimiterRedisConfigFromEnvironment(); err != nil {
 			return fmt.Errorf("failed to load rate limiter redis config from environment: %w", err)
 		}

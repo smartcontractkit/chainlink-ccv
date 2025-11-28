@@ -18,6 +18,14 @@ jobs:
       contents: read
       pull-requests: write
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - subtest: rpc_latency
+            timeout: 25m
+          - subtest: clean
+            timeout: 10m
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -61,6 +69,13 @@ jobs:
         run: |
           go mod download
 
+      - name: Checkout Chainlink repository
+        uses: actions/checkout@v5
+        with:
+          repository: smartcontractkit/chainlink
+          path: chainlink
+          fetch-depth: 1
+
       - name: Build Docker Images
         run: just build-docker-dev-ci
         env:
@@ -71,21 +86,21 @@ jobs:
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
           cd cmd/ccv && go install . && cd -
-          ccv u env.toml && ccv obs up
+          ccv u env-cl-16.toml && ccv obs up
 
       - name: Run load tests
         id: load_test
         working-directory: build/devenv/tests/e2e
         run: |
           set -o pipefail
-          go test -v -timeout 15m -count=1 -run 'TestE2ELoad/clean'
+          LOAD_TEST_OUT_FILE=../../env-cl-16-out.toml go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run 'TestE2ELoad/${{ matrix.test.subtest }}'
         continue-on-error: true
 
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: container-logs-smoke
+          name: container-logs-${{ matrix.test.subtest }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1
 

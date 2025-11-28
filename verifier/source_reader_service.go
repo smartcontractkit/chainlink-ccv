@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -503,7 +504,11 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 	// Add panic recovery
 	defer func() {
 		if rec := recover(); rec != nil {
-			r.logger.Errorw("Recovered from panic in event monitoring loop", "panic", rec)
+			r.logger.Errorw(
+				"Recovered from panic in event monitoring loop",
+				"panic", rec,
+				"stack", string(debug.Stack()),
+			)
 		}
 	}()
 
