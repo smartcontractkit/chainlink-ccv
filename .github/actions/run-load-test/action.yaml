@@ -90,7 +90,7 @@ runs:
         JD_IMAGE: ${{ inputs.jd-image }}
       run: |
         cd cmd/ccv && go install . && cd -
-        ccv u ${{ inputs.env_name }}.toml && ccv obs up
+        ccv u ${{ inputs.env_name }}.toml && ccv obs up --mode full
 
     - name: Run load tests
       id: load_test

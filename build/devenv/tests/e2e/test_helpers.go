@@ -257,8 +257,14 @@ func NewPrometheusHelper(prometheusURL string, logger zerolog.Logger) (*Promethe
 		return nil, fmt.Errorf("failed to create Prometheus client: %w", err)
 	}
 
+	api := promv1.NewAPI(client)
+	_, err = api.Config(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Prometheus at %s: %w", prometheusURL, err)
+	}
+
 	return &PrometheusHelper{
-		api:    promv1.NewAPI(client),
+		api:    api,
 		logger: logger,
 	}, nil
 }
