@@ -93,9 +93,9 @@ executorConfig = """
 }
 
 func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) {
-	var config executor.Configuration
+	var config executor.ConfigWithBlockchainInfo
 	if _, err := toml.Decode(executorConfigTemplate, &config); err != nil {
-		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
+		return nil, fmt.Errorf("failed to decode executor config template: %w", err)
 	}
 	config.ChainConfiguration = make(map[string]executor.ChainConfiguration, len(v.OfframpAddresses))
 	for chainSelector, address := range v.OfframpAddresses {
@@ -180,7 +180,7 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	// Generate and store config file.
 	config, err := in.GenerateConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate verifier config for executor: %w", err)
+		return nil, fmt.Errorf("failed to generate config for executor: %w", err)
 	}
 	confDir := util.CCVConfigDir()
 	configFilePath := filepath.Join(confDir, fmt.Sprintf("executor-%s-config.toml", in.ExecutorID))

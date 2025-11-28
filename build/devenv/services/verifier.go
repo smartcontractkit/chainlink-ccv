@@ -146,7 +146,7 @@ committeeVerifierConfig = """
 }
 
 func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
-	var config verifier.Config
+	var config verifier.ConfigWithBlockchainInfos
 	if _, err := toml.Decode(verifierConfigTemplate, &config); err != nil {
 		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
