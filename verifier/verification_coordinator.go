@@ -196,7 +196,6 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 		ctx, vc.cancel = context.WithCancel(ctx)
 
-		// 1) Read chain statuses (to skip disabled chains) if manager is available
 		statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 		if vc.chainStatusManager != nil {
 			allSelectors := make([]protocol.ChainSelector, 0, len(vc.sourceReaders))
@@ -204,7 +203,6 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				allSelectors = append(allSelectors, selector)
 			}
 
-			// Make single batch call to read all chain statuses
 			var err error
 			statusMap, err = vc.chainStatusManager.ReadChainStatuses(ctx, allSelectors)
 			if err != nil {
@@ -213,15 +211,11 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			}
 		}
 
-		// Initialize source states with reorg detection
-		// Also collect RMN curse readers for curse detector
-		rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
-
+		enabledSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 		for chainSelector, sourceReader := range vc.sourceReaders {
 			if sourceReader == nil {
 				continue
 			}
-
 			vc.lggr.Infow("Chain Status",
 				"chainSelector", chainSelector,
 				"status", statusMap[chainSelector])
@@ -241,13 +235,23 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				continue
 			}
 
-			// SourceReader automatically satisfies RMNCurseReader interface
-			rmnReaders[chainSelector] = sourceReader
-
-			sourcePollInterval := DefaultSourceReaderPollInterval
-			if sourceCfg.PollInterval > 0 {
-				sourcePollInterval = sourceCfg.PollInterval
+			if sourceCfg.PollInterval == 0 {
+				sourceCfg.PollInterval = DefaultSourceReaderPollInterval
 			}
+			enabledSourceReaders[chainSelector] = sourceReader
+		}
+
+		if len(enabledSourceReaders) == 0 {
+			return errors.New("no enabled/initialized chain sources, nothing to coordinate")
+		}
+
+		if err := vc.startCurseDetector(ctx, enabledSourceReaders); err != nil {
+			return fmt.Errorf("failed to start curse detector: %w", err)
+		}
+
+		for chainSelector := range enabledSourceReaders {
+			sourceReader := enabledSourceReaders[chainSelector]
+			sourceCfg := vc.config.SourceConfigs[chainSelector]
 
 			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
 			srs := NewSourceReaderService2(
@@ -255,8 +259,8 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				chainSelector,
 				vc.chainStatusManager,
 				readerLogger,
-				sourcePollInterval,
-				vc.curseDetector, // will be started below (startCurseDetector)
+				sourceCfg.PollInterval,
+				vc.curseDetector,
 				vc.finalityCheckInterval,
 			)
 
@@ -273,24 +277,9 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				chainSelector: chainSelector,
 			}
 			vc.sourceStates[chainSelector] = state
-
-			// If this reader also implements RMNCurseReader, collect it for curse detector
-			if r, ok := sourceReader.(chainaccess.RMNCurseReader); ok {
-				rmnReaders[chainSelector] = r
-			}
 		}
 
-		if len(vc.sourceStates) == 0 {
-			return errors.New("no enabled/initialized chain sources, nothing to coordinate")
-		}
-
-		// 3) Start curse detector (same pattern as current code)
-		if err := vc.startCurseDetector(ctx, rmnReaders); err != nil {
-			return fmt.Errorf("failed to start curse detector: %w", err)
-		}
-
-		// 4) Initialize storage batcher in coordinator (same pattern as current code)
-		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
+		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.VerifierNodeResult])
 		vc.storageBatcher = batcher.NewBatcher(
 			ctx,
 			vc.config.StorageBatchSize,
@@ -298,8 +287,6 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			vc.batchedCCVDataCh,
 		)
 
-		// 5) Start background loops
-		//   - cc v data loop (consume storage batcher results)
 		vc.backgroundWg.Add(1)
 		go func() {
 			defer vc.backgroundWg.Done()
@@ -502,11 +489,15 @@ func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch 
 // Uses CursePollInterval from config, defaulting to 2s if not set.
 func (vc *Coordinator) startCurseDetector(
 	ctx context.Context,
-	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 ) error {
-	if len(rmnReaders) == 0 {
+	if len(sourceReaders) == 0 {
 		vc.lggr.Infow("No RMN readers provided; curse detector will not be started")
 		return nil
+	}
+	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+	for chainSelector, sourceReader := range sourceReaders {
+		rmnReaders[chainSelector] = sourceReader
 	}
 
 	if vc.curseDetector != nil {
