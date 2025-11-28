@@ -121,21 +121,28 @@ func (r *SourceReaderService2) Start(ctx context.Context) error {
 	return r.StartOnce("SourceReaderService2", func() error {
 		r.logger.Infow("Starting SourceReaderService2", "chainSelector", r.chainSelector)
 
-		// 1. start log/event polling loop (you will plug your existing logic here)
+		startBlock, err := r.initializeStartBlock(ctx)
+		if err != nil {
+			r.logger.Errorw("Failed to initialize start block", "error", err)
+			return err
+		}
+		r.mu.Lock()
+		r.lastProcessedBlock = startBlock
+		r.mu.Unlock()
+		r.logger.Infow("Initialized start block", "block", startBlock.String())
+
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
 			r.eventMonitoringLoop()
 		}()
 
-		// 2. start finality loop
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
 			r.messageReadinessLoop(ctx)
 		}()
 
-		// 3. start reorg loop if detector is provided
 		if r.reorgDetector != nil {
 			statusCh, err := r.reorgDetector.Start(ctx)
 			if err != nil {
@@ -189,17 +196,6 @@ func (r *SourceReaderService2) eventMonitoringLoop() {
 			)
 		}
 	}()
-
-	startBlock, err := r.initializeStartBlock(ctx)
-	if err != nil {
-		r.logger.Errorw("Failed to initialize start block", "error", err)
-		// Use fallback
-		startBlock = big.NewInt(1)
-	}
-	r.mu.Lock()
-	r.lastProcessedBlock = startBlock
-	r.mu.Unlock()
-	r.logger.Infow("Initialized start block", "block", startBlock.String())
 
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
@@ -500,16 +496,26 @@ func (r *SourceReaderService2) initializeStartBlock(ctx context.Context) (*big.I
 	r.logger.Infow("Initializing start block for event monitoring")
 
 	// Try to read chain status with retries
-	chainStatus, err := r.readChainStatusWithRetries(ctx, ChainStatusRetryAttempts)
+	chainStatuses, err := r.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{r.chainSelector})
 	if err != nil {
 		r.logger.Warnw("Failed to read chainStatus after retries, falling back to lookback hours window",
 			"lookbackHours", StartupLookbackHours,
 			"error", err)
+		return nil, err
 	}
 
+	chainStatus := chainStatuses[r.chainSelector]
+
 	if chainStatus == nil {
-		r.logger.Infow("No chainStatus found, calculating from lookback hours ago", "lookbackHours", StartupLookbackHours)
-		return r.calculateBlockFromHoursAgo(ctx, StartupLookbackHours)
+		r.logger.Infow("No chainStatus found, starting from block 1")
+		_, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get finalized block: %w", err)
+		}
+		if finalized == nil {
+			return nil, fmt.Errorf("finalized block is nil")
+		}
+		return r.fallbackBlockEstimate(finalized.Number, 500), nil
 	}
 
 	// Resume from chain status + 1
@@ -523,89 +529,18 @@ func (r *SourceReaderService2) initializeStartBlock(ctx context.Context) (*big.I
 }
 
 // fallbackBlockEstimate provides a conservative fallback when block time calculation fails.
-func (r *SourceReaderService2) fallbackBlockEstimate(currentBlock *big.Int) *big.Int {
-	// Conservative fallback: 100 blocks
-	lookback := new(big.Int).Sub(currentBlock, big.NewInt(100))
-	if lookback.Sign() < 0 {
+func (r *SourceReaderService2) fallbackBlockEstimate(currentBlock uint64, lookbackBlocks int64) *big.Int {
+	currentBlockBig := new(big.Int).SetUint64(currentBlock)
+	fallBackBlock := new(big.Int).Sub(currentBlockBig, big.NewInt(lookbackBlocks))
+	if fallBackBlock.Sign() < 0 {
 		return big.NewInt(0)
 	}
 
 	r.logger.Infow("Using fallback block estimate",
-		"currentBlock", currentBlock.String(),
-		"fallbackLookback", lookback.String())
+		"currentBlock", currentBlock,
+		"fallbackBlock", fallBackBlock.String())
 
-	return lookback
-}
-
-// calculateBlockFromHoursAgo calculates the block number from the specified hours ago.
-func (r *SourceReaderService2) calculateBlockFromHoursAgo(ctx context.Context, lookbackHours uint64) (*big.Int, error) {
-	latest, _, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest block: %w", err)
-	}
-	if latest == nil {
-		return nil, fmt.Errorf("latest block is nil")
-	}
-	currentBlock := new(big.Int).SetUint64(latest.Number)
-
-	// Try to sample recent blocks to estimate block time
-	sampleSize := int64(2)
-	startBlock := new(big.Int).Sub(currentBlock, big.NewInt(sampleSize))
-	if startBlock.Sign() < 0 {
-		startBlock = big.NewInt(0)
-	}
-
-	// Get timestamps for block time calculation
-
-	startTime, err := r.sourceReader.BlockTime(ctx, startBlock)
-	if err != nil {
-		r.logger.Warnw("Failed to get start header for block time calculation, using fallback", "error", err)
-		return r.fallbackBlockEstimate(currentBlock), nil
-	}
-
-	currentTime, err := r.sourceReader.BlockTime(ctx, currentBlock)
-	if err != nil {
-		r.logger.Warnw("Failed to get current header for block time calculation, using fallback", "error", err)
-		return r.fallbackBlockEstimate(currentBlock), nil
-	}
-
-	// Calculate average block time
-	blockDiff := new(big.Int).Sub(currentBlock, startBlock)
-	timeDiff := currentTime - startTime
-
-	r.logger.Infow("Block time calculation",
-		"currentBlock", currentBlock.String(),
-		"startBlock", startBlock.String(),
-		"blockDiff", blockDiff.String(),
-		"currentTime", currentTime,
-		"startTime", startTime,
-		"timeDiff", timeDiff)
-	if blockDiff.Sign() > 0 && timeDiff > 0 {
-		avgBlockTime := timeDiff / blockDiff.Uint64()
-		if avgBlockTime <= 0 {
-			r.logger.Warnw("Average block time calculated as zero, using fallback")
-			return r.fallbackBlockEstimate(currentBlock), nil
-		}
-		blocksInLookback := (lookbackHours * 3600) / avgBlockTime
-
-		lookbackBlock := new(big.Int).Sub(currentBlock, new(big.Int).SetUint64(blocksInLookback))
-
-		if lookbackBlock.Sign() < 0 {
-			r.logger.Infow("Lookback block below zero, adjusting to zero", "calculatedLookbackBlock", lookbackBlock.String())
-			lookbackBlock = big.NewInt(0)
-		}
-
-		r.logger.Infow("Calculated lookback",
-			"currentBlock", currentBlock.String(),
-			"lookbackHours", lookbackHours,
-			"avgBlockTime", avgBlockTime,
-			"blocksInLookback", blocksInLookback,
-			"lookbackBlock", lookbackBlock.String())
-
-		return lookbackBlock, nil
-	}
-
-	return r.fallbackBlockEstimate(currentBlock), nil
+	return fallBackBlock
 }
 
 // -----------------------------------------------------------------------------

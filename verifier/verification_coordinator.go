@@ -267,14 +267,14 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				vc.lggr.Errorw("Failed to create SourceReaderService2",
 					"chainSelector", chainSelector,
 					"error", err)
-				return err
+				continue
 			}
 
 			if err = srs.Start(ctx); err != nil {
 				vc.lggr.Errorw("Failed to start SourceReaderService2",
 					"chainSelector", chainSelector,
 					"error", err)
-				return err
+				continue
 			}
 
 			state := &sourceState{
