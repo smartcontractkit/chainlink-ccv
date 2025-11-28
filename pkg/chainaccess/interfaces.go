@@ -63,3 +63,9 @@ type RMNCurseReader interface {
 	// - Chain selectors as bytes16s
 	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }
+
+// MessageFilter defines an interface for filtering protocol.MessageSentEvent.
+type MessageFilter interface {
+	// Filter returns true if the given MessageSentEvent should be processed, false to skip it.
+	Filter(msg protocol.MessageSentEvent) bool
+}

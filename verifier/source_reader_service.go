@@ -43,6 +43,7 @@ type SourceReaderService struct {
 	ccipMessageSentTopic string
 	pollInterval         time.Duration
 	chainSelector        protocol.ChainSelector
+	filter               chainaccess.MessageFilter
 
 	// State that requires synchronization
 	mu                 sync.RWMutex
@@ -83,6 +84,8 @@ func NewSourceReaderService(
 		chainSelector:        chainSelector,
 		ccipMessageSentTopic: onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 		chainStatusManager:   chainStatusManager,
+		// TODO: Pass real filters via constructor. Empty chainaccess.CompositeMessageFilter means allow all
+		filter: chainaccess.NewCompositeMessageFilter(),
 	}
 
 	// Apply options
@@ -606,10 +609,19 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	now := time.Now()
 	tasks := make([]VerificationTask, 0, len(events))
 	for _, event := range events {
+		if !r.filter.Filter(event) {
+			r.logger.Debugw("Event filtered out",
+				"txHash", event.TxHash,
+				"blockNumber", event.BlockNumber,
+				"messageID", event.MessageID,
+			)
+		}
+
 		task := VerificationTask{
 			Message:      event.Message,
 			ReceiptBlobs: event.Receipts,
 			BlockNumber:  event.BlockNumber,
+			TxHash:       event.TxHash,
 			FirstSeenAt:  now,
 		}
 		tasks = append(tasks, task)
