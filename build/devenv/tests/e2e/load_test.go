@@ -397,7 +397,7 @@ func TestE2ELoad(t *testing.T) {
 		testDuration := 30 * time.Second
 
 		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 5 * time.Minute
+		tc.Timeout = 2 * time.Minute
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
@@ -422,7 +422,7 @@ func TestE2ELoad(t *testing.T) {
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
-		testDuration := 250 * time.Second
+		testDuration := 1 * time.Hour
 		expectedP90Latency := 5 * time.Second
 		timeoutDuration := time.Duration((testDuration.Seconds()+expectedP90Latency.Seconds())*10) * time.Second
 		// 400ms latency for any RPC node
@@ -430,7 +430,7 @@ func TestE2ELoad(t *testing.T) {
 		_, err = chaos.ExecPumba(pumbaCmd, 0*time.Second)
 		require.NoError(t, err)
 
-		rps := int64(4)
+		rps := int64(1)
 
 		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
 		tc.Timeout = timeoutDuration
