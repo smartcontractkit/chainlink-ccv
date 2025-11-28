@@ -31,17 +31,6 @@ func TestChainStatusValidation(t *testing.T) {
 		require.Contains(t, err.Error(), "chain_selector must be greater than 0")
 	})
 
-	t.Run("zero_block_height_fails", func(t *testing.T) {
-		chainStatus := &pb.ChainStatus{
-			ChainSelector:        1,
-			FinalizedBlockHeight: 0,
-		}
-
-		err := ValidateChainStatus(chainStatus)
-		require.Error(t, err, "zero block height should fail validation")
-		require.Contains(t, err.Error(), "finalized_block_height must be greater than 0")
-	})
-
 	t.Run("nil_chain_status_fails", func(t *testing.T) {
 		err := ValidateChainStatus(nil)
 		require.Error(t, err, "nil chain status should fail validation")

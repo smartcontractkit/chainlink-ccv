@@ -196,14 +196,6 @@ func TestStoreChainStatus_ValidationErrors(t *testing.T) {
 			},
 			expectedErr: "chain_selector must be greater than 0",
 		},
-		{
-			name:     "zero block height",
-			clientID: "test-client",
-			statuses: map[uint64]*common.ChainStatus{
-				1: {FinalizedBlockHeight: 0, Disabled: false},
-			},
-			expectedErr: "finalized_block_height must be greater than 0",
-		},
 	}
 
 	for _, tt := range tests {

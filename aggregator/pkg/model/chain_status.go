@@ -18,10 +18,6 @@ func ValidateChainStatus(chainStatus *pb.ChainStatus) error {
 		return errors.New("chain_selector must be greater than 0")
 	}
 
-	if chainStatus.FinalizedBlockHeight == 0 {
-		return errors.New("finalized_block_height must be greater than 0")
-	}
-
 	// The disabled field is optional and doesn't require validation
 
 	return nil

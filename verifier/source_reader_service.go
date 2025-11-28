@@ -123,7 +123,7 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 // Stop stops the reader and closes the messages channel.
 func (r *SourceReaderService) Stop() error {
 	return r.sync.StopOnce("SourceReaderService", func() error {
-		r.logger.Infow("Stopping SourceReaderService")
+		r.logger.Infow("Stopping SourceReaderService", "chainSelector", r.chainSelector)
 		close(r.stopCh)
 
 		// Wait for goroutine WITHOUT holding lock to avoid deadlock
@@ -178,6 +178,13 @@ func (r *SourceReaderService) HealthCheck(ctx context.Context) error {
 func (r *SourceReaderService) ResetToBlock(block uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if block >= r.lastProcessedBlock.Uint64() {
+		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken",
+			"block", block,
+			"lastProcessedBlock", r.lastProcessedBlock.Uint64())
+		return nil
+	}
 
 	resetBlock := new(big.Int).SetUint64(block)
 

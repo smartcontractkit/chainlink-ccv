@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -100,172 +99,8 @@ func TestNewReorgDetectorService(t *testing.T) {
 	})
 }
 
-func TestBuildEntireTail(t *testing.T) {
-	lggr := logger.Test(t)
-	ctx := context.Background()
-
-	t.Run("builds tail from finalized to latest", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{
-			ChainSelector: 1337,
-			PollInterval:  1 * time.Second,
-		}
-
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		// Setup mocks
-		latest := &protocol.BlockHeader{Number: 105, Hash: protocol.Bytes32{0x69}}
-		finalized := &protocol.BlockHeader{Number: 100, Hash: protocol.Bytes32{0x64}}
-		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
-
-		blocks := createTestBlocks(100, 105)
-		mockGetBlocksHeaders(mockSR, blocks)
-
-		err = service.buildEntireTail(ctx)
-		require.NoError(t, err)
-
-		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
-		assert.Equal(t, uint64(105), service.latestBlock)
-		assert.Equal(t, 6, len(service.tailBlocks))
-	})
-
-	t.Run("returns error if HeadTracker fails", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(nil, nil, errors.New("rpc error"))
-
-		err = service.buildEntireTail(ctx)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get latest and finalized blocks")
-	})
-
-	t.Run("returns error if GetBlocksHeaders fails", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		latest := &protocol.BlockHeader{Number: 105}
-		finalized := &protocol.BlockHeader{Number: 100}
-		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
-		mockSR.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, errors.New("fetch error"))
-
-		err = service.buildEntireTail(ctx)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to fetch block headers")
-	})
-}
-
-func TestBackfillBlocks(t *testing.T) {
-	lggr := logger.Test(t)
-	ctx := context.Background()
-
-	t.Run("successfully backfills gap", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		// Initialize tail state
-		service.latestFinalizedBlock = 100
-		service.latestBlock = 100
-		service.tailBlocks = map[uint64]protocol.BlockHeader{
-			100: {Number: 100, Hash: protocol.Bytes32{0x64}},
-		}
-
-		// Backfill blocks 101-103
-		blocks := createTestBlocks(101, 103)
-		mockGetBlocksHeaders(mockSR, blocks)
-
-		err = service.backfillBlocks(ctx, 101, 103, 100)
-		require.NoError(t, err)
-
-		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
-		assert.Equal(t, uint64(103), service.latestBlock)
-		assert.Equal(t, 4, len(service.tailBlocks)) // 100-103
-	})
-
-	t.Run("trims old finalized blocks during backfill", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		// Initialize tail with old blocks
-		service.latestFinalizedBlock = 95
-		service.latestBlock = 100
-		service.tailBlocks = map[uint64]protocol.BlockHeader{
-			95:  {Number: 95},
-			96:  {Number: 96},
-			97:  {Number: 97},
-			98:  {Number: 98},
-			99:  {Number: 99},
-			100: {Number: 100},
-		}
-
-		blocks := createTestBlocks(101, 103)
-		mockGetBlocksHeaders(mockSR, blocks)
-
-		// Finalized is now 100, should trim 95-99
-		err = service.backfillBlocks(ctx, 101, 103, 100)
-		require.NoError(t, err)
-
-		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
-		assert.Equal(t, uint64(103), service.latestBlock)
-		assert.Equal(t, 4, len(service.tailBlocks)) // 100-103
-		_, exists := service.tailBlocks[95]
-		assert.False(t, exists)
-	})
-
-	t.Run("returns error for invalid range", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		err = service.backfillBlocks(ctx, 105, 100, 100)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid range")
-	})
-}
-
 func TestTrimOlderBlocks(t *testing.T) {
 	lggr := logger.Test(t)
-
-	t.Run("trims blocks older than finalized", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		service.latestFinalizedBlock = 95
-		service.tailBlocks = map[uint64]protocol.BlockHeader{
-			95:  {Number: 95},
-			96:  {Number: 96},
-			97:  {Number: 97},
-			98:  {Number: 98},
-			99:  {Number: 99},
-			100: {Number: 100},
-		}
-
-		service.trimOlderBlocks(100)
-
-		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
-		assert.Equal(t, 1, len(service.tailBlocks))
-		_, exists := service.tailBlocks[100]
-		assert.True(t, exists)
-	})
 
 	t.Run("does nothing if finalized is not newer", func(t *testing.T) {
 		mockSR := protocol_mocks.NewMockSourceReader(t)
@@ -284,58 +119,6 @@ func TestTrimOlderBlocks(t *testing.T) {
 
 		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
 		assert.Equal(t, 2, len(service.tailBlocks))
-	})
-}
-
-func TestAddBlockToTail(t *testing.T) {
-	lggr := logger.Test(t)
-
-	t.Run("adds block and updates tail max", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		service.latestFinalizedBlock = 100
-		service.latestBlock = 100
-		service.tailBlocks = map[uint64]protocol.BlockHeader{
-			100: {Number: 100},
-		}
-
-		newBlock := protocol.BlockHeader{
-			Number: 101,
-			Hash:   protocol.Bytes32{0x65},
-		}
-
-		service.addBlockToTail(newBlock, 100)
-
-		assert.Equal(t, uint64(101), service.latestBlock)
-		assert.Equal(t, 2, len(service.tailBlocks))
-		_, exists := service.tailBlocks[101]
-		assert.True(t, exists)
-	})
-
-	t.Run("trims old blocks when adding new block", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		service.latestFinalizedBlock = 95
-		service.latestBlock = 100
-		service.tailBlocks = map[uint64]protocol.BlockHeader{
-			95:  {Number: 95},
-			100: {Number: 100},
-		}
-
-		newBlock := protocol.BlockHeader{Number: 101}
-		service.addBlockToTail(newBlock, 100) // Finalized is now 100
-
-		assert.Equal(t, uint64(100), service.latestFinalizedBlock)
-		_, exists := service.tailBlocks[95]
-		assert.False(t, exists)
 	})
 }
 
@@ -364,27 +147,6 @@ func TestSendNotifications(t *testing.T) {
 		status := <-service.statusCh
 		assert.Equal(t, protocol.ReorgTypeNormal, status.Type)
 		assert.Equal(t, uint64(102), status.ResetToBlock)
-	})
-
-	t.Run("sendFinalityViolation sends correct status", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-
-		config := ReorgDetectorConfig{ChainSelector: 1337}
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		violatedBlock := protocol.BlockHeader{
-			Number: 100,
-			Hash:   protocol.Bytes32{0x64},
-		}
-
-		// Send notification in background
-		go service.sendFinalityViolation(violatedBlock, 100)
-
-		// Receive notification
-		status := <-service.statusCh
-		assert.Equal(t, protocol.ReorgTypeFinalityViolation, status.Type)
-		assert.Equal(t, uint64(0), status.ResetToBlock) // No safe reset
 	})
 
 	t.Run("drops notification if channel is full", func(t *testing.T) {
@@ -530,184 +292,375 @@ func TestStartAndClose(t *testing.T) {
 	})
 }
 
-func TestCheckBlockMaybeHandleReorg_ChainGoesBackwards(t *testing.T) {
+func TestIsFinalityViolated_TableDriven(t *testing.T) {
 	lggr := logger.Test(t)
-	ctx := context.Background()
+	mockSR := protocol_mocks.NewMockSourceReader(t)
 
-	t.Run("detects reorg when chain goes backwards", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
-		config := ReorgDetectorConfig{
-			ChainSelector: 1337,
-			PollInterval:  1 * time.Second,
-		}
+	config := ReorgDetectorConfig{ChainSelector: 1337}
 
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
+	type testCase struct {
+		name            string
+		setup           func(svc *ReorgDetectorService)
+		latest          *protocol.BlockHeader
+		finalized       *protocol.BlockHeader
+		expectViolation bool
+	}
 
-		// Initialize service state: chain is at block 110
-		// Create a consistent chain where blocks actually connect
-		service.latestFinalizedBlock = 100
-		service.latestBlock = 110
-		service.tailBlocks = map[uint64]protocol.BlockHeader{
-			100: {Number: 100, Hash: protocol.Bytes32{0x64}, ParentHash: protocol.Bytes32{0x63}},
-			101: {Number: 101, Hash: protocol.Bytes32{0x65}, ParentHash: protocol.Bytes32{0x64}},
-			102: {Number: 102, Hash: protocol.Bytes32{0x66}, ParentHash: protocol.Bytes32{0x65}},
-			103: {Number: 103, Hash: protocol.Bytes32{0x67}, ParentHash: protocol.Bytes32{0x66}},
-			110: {Number: 110, Hash: protocol.Bytes32{0x6E}, ParentHash: protocol.Bytes32{0x6D}},
-		}
+	tests := []testCase{
+		{
+			name: "latest behind finalized with hash mismatch (RPC inconsistent)",
+			setup: func(svc *ReorgDetectorService) {
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					100: {Number: 100, Hash: protocol.Bytes32{0x64}},
+				}
+				svc.latestFinalizedBlock = 100
+			},
+			latest: &protocol.BlockHeader{
+				Number: 99,
+				Hash:   protocol.Bytes32{0x63},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 100,
+				Hash:   protocol.Bytes32{0x64},
+			},
+			expectViolation: true,
+		},
+		{
+			name: "latest behind finalized but consistent with tail (no violation)",
+			setup: func(svc *ReorgDetectorService) {
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					99:  {Number: 99, Hash: protocol.Bytes32{0x63}},
+					100: {Number: 100, Hash: protocol.Bytes32{0x64}},
+				}
+				svc.latestFinalizedBlock = 100
+			},
+			latest: &protocol.BlockHeader{
+				Number: 99,
+				Hash:   protocol.Bytes32{0x63},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 100,
+				Hash:   protocol.Bytes32{0x64},
+			},
+			expectViolation: false,
+		},
+		{
+			name: "finalized went backwards with hash mismatch",
+			setup: func(svc *ReorgDetectorService) {
+				svc.latestFinalizedBlock = 110
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					100: {Number: 100, Hash: protocol.Bytes32{0x64}},
+					110: {Number: 110, Hash: protocol.Bytes32{0x6e}},
+				}
+			},
+			latest: &protocol.BlockHeader{
+				Number: 111,
+				Hash:   protocol.Bytes32{0x6f},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 100,
+				Hash:   protocol.Bytes32{0xaa}, // different from stored
+			},
+			expectViolation: true,
+		},
+		{
+			name: "finalized advanced and exists in tail with hash mismatch",
+			setup: func(svc *ReorgDetectorService) {
+				svc.latestFinalizedBlock = 100
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					101: {Number: 101, Hash: protocol.Bytes32{0x65}},
+				}
+			},
+			latest: &protocol.BlockHeader{
+				Number: 105,
+				Hash:   protocol.Bytes32{0x69},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 101,
+				Hash:   protocol.Bytes32{0xaa}, // mismatching stored
+			},
+			expectViolation: true,
+		},
+		{
+			name: "finalized advanced but not in tail yet (no violation)",
+			setup: func(svc *ReorgDetectorService) {
+				svc.latestFinalizedBlock = 100
+				svc.tailBlocks = map[uint64]protocol.BlockHeader{
+					100: {Number: 100, Hash: protocol.Bytes32{0x64}},
+				}
+			},
+			latest: &protocol.BlockHeader{
+				Number: 105,
+				Hash:   protocol.Bytes32{0x69},
+			},
+			finalized: &protocol.BlockHeader{
+				Number: 101,
+				Hash:   protocol.Bytes32{0x65},
+			},
+			expectViolation: false,
+		},
+	}
 
-		// Simulate chain going backwards to block 105 on a different fork
-		// This new block 105 has a different history than our stored blocks
-		newLatest := &protocol.BlockHeader{
-			Number:     105,
-			Hash:       protocol.Bytes32{0xFF},
-			ParentHash: protocol.Bytes32{0xFE},
-		}
-		finalized := &protocol.BlockHeader{Number: 100}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, err := NewReorgDetectorService(mockSR, config, lggr)
+			require.NoError(t, err)
 
-		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(newLatest, finalized, nil)
+			tt.setup(svc)
 
-		// Mock walking back through the new chain to find LCA
-		// Block 105's parent is 104 (new chain)
-		mockSR.EXPECT().GetBlockHeaderByHash(mock.Anything, protocol.Bytes32{0xFE}).Return(
-			&protocol.BlockHeader{Number: 104, Hash: protocol.Bytes32{0xFE}, ParentHash: protocol.Bytes32{0xFD}},
-			nil,
-		)
-		// Block 104's parent is 103 (new chain)
-		mockSR.EXPECT().GetBlockHeaderByHash(mock.Anything, protocol.Bytes32{0xFD}).Return(
-			&protocol.BlockHeader{Number: 103, Hash: protocol.Bytes32{0xFC}, ParentHash: protocol.Bytes32{0x66}},
-			nil,
-		)
-		// Block 103's parent is 102 (converges with old chain at block 102)
-		mockSR.EXPECT().GetBlockHeaderByHash(mock.Anything, protocol.Bytes32{0x66}).Return(
-			&protocol.BlockHeader{Number: 102, Hash: protocol.Bytes32{0x66}, ParentHash: protocol.Bytes32{0x65}},
-			nil,
-		)
-
-		// Mock rebuilding tail from block 103 (first block after LCA which is 102)
-		newChainBlocks := []protocol.BlockHeader{
-			{Number: 103, Hash: protocol.Bytes32{0xFC}, ParentHash: protocol.Bytes32{0x66}},
-			{Number: 104, Hash: protocol.Bytes32{0xFE}, ParentHash: protocol.Bytes32{0xFD}},
-			{Number: 105, Hash: protocol.Bytes32{0xFF}, ParentHash: protocol.Bytes32{0xFE}},
-		}
-		mockGetBlocksHeaders(mockSR, newChainBlocks)
-
-		// Execute
-		service.checkBlockMaybeHandleReorg(ctx)
-
-		// Verify reorg was handled - latestBlock should be updated
-		assert.Equal(t, uint64(105), service.latestBlock)
-		// Verify new blocks are in tail
-		storedBlock, exists := service.tailBlocks[105]
-		assert.True(t, exists)
-		assert.Equal(t, protocol.Bytes32{0xFF}, storedBlock.Hash)
-	})
+			got := svc.isFinalityViolated(tt.latest, tt.finalized)
+			assert.Equal(t, tt.expectViolation, got)
+		})
+	}
 }
 
-func TestCheckBlockMaybeHandleReorg_SameBlockDifferentHash(t *testing.T) {
+func TestGetLongestConsecutiveChain_TableDriven(t *testing.T) {
+	lggr := logger.Test(t)
+	mockSR := protocol_mocks.NewMockSourceReader(t)
+
+	config := ReorgDetectorConfig{ChainSelector: 1337}
+	svc, err := NewReorgDetectorService(mockSR, config, lggr)
+	require.NoError(t, err)
+
+	type testCase struct {
+		name     string
+		blocks   map[uint64]protocol.BlockHeader
+		start    uint64
+		end      uint64
+		wantNums []uint64
+	}
+
+	// Helper to build a valid linear block header with predictable hashes.
+	makeHeader := func(num uint64, parentHash protocol.Bytes32) protocol.BlockHeader {
+		return protocol.BlockHeader{
+			Number:     num,
+			Hash:       protocol.Bytes32{byte(num)},
+			ParentHash: parentHash,
+			Timestamp:  time.Now(),
+		}
+	}
+
+	tests := []testCase{
+		{
+			name:  "fully consecutive chain (no reorg)",
+			start: 100,
+			end:   103,
+			blocks: func() map[uint64]protocol.BlockHeader {
+				m := make(map[uint64]protocol.BlockHeader)
+				var zero protocol.Bytes32
+				m[100] = makeHeader(100, zero)
+				m[101] = makeHeader(101, m[100].Hash)
+				m[102] = makeHeader(102, m[101].Hash)
+				m[103] = makeHeader(103, m[102].Hash)
+				return m
+			}(),
+			wantNums: []uint64{100, 101, 102, 103},
+		},
+		{
+			name:  "mid-fetch reorg at 103 (wrong parent)",
+			start: 100,
+			end:   103,
+			blocks: func() map[uint64]protocol.BlockHeader {
+				m := make(map[uint64]protocol.BlockHeader)
+				var zero protocol.Bytes32
+				m[100] = makeHeader(100, zero)
+				m[101] = makeHeader(101, m[100].Hash)
+				m[102] = makeHeader(102, m[101].Hash)
+				// wrong parent for 103 -> should cut here
+				m[103] = protocol.BlockHeader{
+					Number:     103,
+					Hash:       protocol.Bytes32{0xFF},
+					ParentHash: protocol.Bytes32{0xAA}, // not m[102].Hash
+					Timestamp:  time.Now(),
+				}
+				return m
+			}(),
+			wantNums: []uint64{100, 101, 102},
+		},
+		{
+			name:  "missing first block (start not present)",
+			start: 100,
+			end:   103,
+			blocks: func() map[uint64]protocol.BlockHeader {
+				m := make(map[uint64]protocol.BlockHeader)
+				var zero protocol.Bytes32
+				// 100 is missing
+				m[101] = makeHeader(101, zero)
+				m[102] = makeHeader(102, m[101].Hash)
+				return m
+			}(),
+			wantNums: []uint64{}, // no first block -> returns empty
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := svc.getLongestConsecutiveChain(tt.blocks, tt.start, tt.end)
+			require.Equal(t, len(tt.wantNums), len(got), "length mismatch")
+
+			for _, num := range tt.wantNums {
+				_, ok := got[num]
+				assert.Truef(t, ok, "expected block %d in valid chain", num)
+			}
+		})
+	}
+}
+
+func TestFillMissingAndValidate_ReorgDetectedAndNotified(t *testing.T) {
 	lggr := logger.Test(t)
 	ctx := context.Background()
+	mockSR := protocol_mocks.NewMockSourceReader(t)
 
-	t.Run("detects reorg when same block number has different hash via parent check", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
+	config := ReorgDetectorConfig{ChainSelector: 1337}
+	svc, err := NewReorgDetectorService(mockSR, config, lggr)
+	require.NoError(t, err)
 
-		config := ReorgDetectorConfig{
-			ChainSelector: 1337,
-			PollInterval:  1 * time.Second,
+	// Existing tail: blocks 100-105 on "chain A"
+	// Hash = {byte(i)}, ParentHash = {byte(i-1)}
+	svc.tailBlocks = make(map[uint64]protocol.BlockHeader)
+	for i := uint64(100); i <= 105; i++ {
+		parent := protocol.Bytes32{}
+		if i > 100 {
+			parent = protocol.Bytes32{byte(i - 1)}
 		}
-
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
-
-		// Initialize service state: chain is at block 105 with a consistent chain
-		service.latestFinalizedBlock = 100
-		service.latestBlock = 105
-		service.tailBlocks = map[uint64]protocol.BlockHeader{
-			100: {Number: 100, Hash: protocol.Bytes32{0x64}, ParentHash: protocol.Bytes32{0x63}},
-			101: {Number: 101, Hash: protocol.Bytes32{0x65}, ParentHash: protocol.Bytes32{0x64}},
-			102: {Number: 102, Hash: protocol.Bytes32{0x66}, ParentHash: protocol.Bytes32{0x65}},
-			103: {Number: 103, Hash: protocol.Bytes32{0x67}, ParentHash: protocol.Bytes32{0x66}},
-			104: {Number: 104, Hash: protocol.Bytes32{0x68}, ParentHash: protocol.Bytes32{0x67}},
-			105: {Number: 105, Hash: protocol.Bytes32{0x69}, ParentHash: protocol.Bytes32{0x68}},
+		svc.tailBlocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       protocol.Bytes32{byte(i)},
+			ParentHash: parent,
+			Timestamp:  time.Now(),
 		}
+	}
+	svc.latestFinalizedBlock = 100
+	svc.latestBlock = 105
 
-		// Simulate same block number but different hash (competing fork at same height)
-		// With refactored code, this falls through to parent hash check
-		newLatest := &protocol.BlockHeader{
-			Number:     105,
-			Hash:       protocol.Bytes32{0xFF}, // Different hash!
-			ParentHash: protocol.Bytes32{0xFE}, // Different parent - this will trigger reorg via parent check
+	// New canonical chain ("chain B") from 100 to 108:
+	// 100,101 share hashes with chain A, diverge at 102.
+	rawFetched := make(map[uint64]protocol.BlockHeader)
+
+	// 100,101 same as existing tail (LCA should be 101)
+	rawFetched[100] = svc.tailBlocks[100]
+	rawFetched[101] = svc.tailBlocks[101]
+	rawFetched[102] = svc.tailBlocks[102]
+
+	// Diverge at 102 and beyond on a different fork
+	forkStart := uint64(103)
+	forkEnd := uint64(108)
+
+	prev := rawFetched[101] // last shared ancestor
+
+	hash := byte(150) // arbitrary different base for new fork
+	for i := forkStart; i <= forkEnd; i++ {
+		rawFetched[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       protocol.Bytes32{hash},
+			ParentHash: prev.Hash,
+			Timestamp:  time.Now(),
 		}
-		finalized := &protocol.BlockHeader{Number: 100}
+		prev = rawFetched[i]
+		hash++
+	}
 
-		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(newLatest, finalized, nil)
+	// Mock GetBlocksHeaders to return "rawFetched" for whatever range we ask [100,108].
+	mockSR.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+			res := make(map[*big.Int]protocol.BlockHeader)
+			for _, bn := range blockNumbers {
+				n := bn.Uint64()
+				b, ok := rawFetched[n]
+				if ok {
+					res[bn] = b
+				}
+			}
+			return res, nil
+		})
 
-		// The parent hash (0xFE) won't match stored block 104's hash (0x68), triggering reorg
-		// Mock walking back through new chain to find LCA
-		mockSR.EXPECT().GetBlockHeaderByHash(mock.Anything, protocol.Bytes32{0xFE}).Return(
-			&protocol.BlockHeader{Number: 104, Hash: protocol.Bytes32{0xFE}, ParentHash: protocol.Bytes32{0xFD}},
-			nil,
-		)
-		mockSR.EXPECT().GetBlockHeaderByHash(mock.Anything, protocol.Bytes32{0xFD}).Return(
-			&protocol.BlockHeader{Number: 103, Hash: protocol.Bytes32{0xFD}, ParentHash: protocol.Bytes32{0x66}},
-			nil,
-		)
-		// Converges at block 102 (hash 0x66)
-		mockSR.EXPECT().GetBlockHeaderByHash(mock.Anything, protocol.Bytes32{0x66}).Return(
-			&protocol.BlockHeader{Number: 102, Hash: protocol.Bytes32{0x66}, ParentHash: protocol.Bytes32{0x65}},
-			nil,
-		)
+	// latest and finalized we pass into fillMissingAndValidate directly
+	latest := protocol.BlockHeader{Number: 108, Hash: rawFetched[108].Hash}
+	finalized := &protocol.BlockHeader{Number: 100, Hash: rawFetched[100].Hash}
 
-		// Mock rebuilding tail from block 103 onwards (after LCA at 102)
-		newChainBlocks := []protocol.BlockHeader{
-			{Number: 103, Hash: protocol.Bytes32{0xFD}, ParentHash: protocol.Bytes32{0x66}},
-			{Number: 104, Hash: protocol.Bytes32{0xFE}, ParentHash: protocol.Bytes32{0xFD}},
-			{Number: 105, Hash: protocol.Bytes32{0xFF}, ParentHash: protocol.Bytes32{0xFE}},
+	// Run reorg detection logic.
+	go svc.fillMissingAndValidate(ctx, latest, finalized)
+
+	// Expect a reorg notification with LCA = 101.
+	status := <-svc.statusCh
+	assert.Equal(t, protocol.ReorgTypeNormal, status.Type)
+	assert.Equal(t, uint64(102), status.ResetToBlock)
+}
+
+func TestFillMissingAndValidate_MidFetchReorgTriggersNotification(t *testing.T) {
+	lggr := logger.Test(t)
+	ctx := context.Background()
+	mockSR := protocol_mocks.NewMockSourceReader(t)
+
+	config := ReorgDetectorConfig{ChainSelector: 1337}
+	svc, err := NewReorgDetectorService(mockSR, config, lggr)
+	require.NoError(t, err)
+
+	// Existing tail: 100–107, linear chain A
+	svc.tailBlocks = make(map[uint64]protocol.BlockHeader)
+	var prevHash protocol.Bytes32
+	for i := uint64(100); i <= 107; i++ {
+		hash := protocol.Bytes32{byte(i)}
+		svc.tailBlocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       hash,
+			ParentHash: prevHash,
+			Timestamp:  time.Now(),
 		}
-		mockGetBlocksHeaders(mockSR, newChainBlocks)
+		prevHash = hash
+	}
+	svc.latestFinalizedBlock = 100
+	svc.latestBlock = 107
 
-		// Execute
-		service.checkBlockMaybeHandleReorg(ctx)
+	// Raw fetched blocks from 100 to 110.
+	// 100–107: consistent with tail.
+	// 108: wrong parent -> mid-fetch reorg.
+	rawFetched := make(map[uint64]protocol.BlockHeader)
 
-		// Verify hash was updated
-		storedBlock, exists := service.tailBlocks[105]
-		assert.True(t, exists)
-		assert.Equal(t, protocol.Bytes32{0xFF}, storedBlock.Hash)
-	})
+	for i := uint64(100); i <= 107; i++ {
+		rawFetched[i] = svc.tailBlocks[i]
+	}
 
-	t.Run("no reorg when same block and same hash", func(t *testing.T) {
-		mockSR := protocol_mocks.NewMockSourceReader(t)
+	rawFetched[108] = protocol.BlockHeader{
+		Number:     108,
+		Hash:       protocol.Bytes32{0xAA},
+		ParentHash: protocol.Bytes32{0xFF}, // incorrect parent
+		Timestamp:  time.Now(),
+	}
 
-		config := ReorgDetectorConfig{
-			ChainSelector: 1337,
-			PollInterval:  1 * time.Second,
+	for i := uint64(109); i <= 110; i++ {
+		rawFetched[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       protocol.Bytes32{byte(0xAA + (i - 108))},
+			ParentHash: rawFetched[i-1].Hash,
+			Timestamp:  time.Now(),
 		}
+	}
 
-		service, err := NewReorgDetectorService(mockSR, config, lggr)
-		require.NoError(t, err)
+	latest := protocol.BlockHeader{
+		Number: 110,
+		Hash:   rawFetched[110].Hash,
+	}
+	finalized := &protocol.BlockHeader{
+		Number: 100,
+		Hash:   rawFetched[100].Hash,
+	}
 
-		// Initialize service state
-		service.latestFinalizedBlock = 100
-		service.latestBlock = 105
-		service.tailBlocks = map[uint64]protocol.BlockHeader{
-			105: {Number: 105, Hash: protocol.Bytes32{0x69}, ParentHash: protocol.Bytes32{0x68}},
-		}
+	mockSR.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+			res := make(map[*big.Int]protocol.BlockHeader)
+			for _, bn := range blockNumbers {
+				n := bn.Uint64()
+				if b, ok := rawFetched[n]; ok {
+					res[bn] = b
+				}
+			}
+			return res, nil
+		})
 
-		// Same block, same hash
-		latest := &protocol.BlockHeader{
-			Number:     105,
-			Hash:       protocol.Bytes32{0x69}, // Same hash
-			ParentHash: protocol.Bytes32{0x68},
-		}
-		finalized := &protocol.BlockHeader{Number: 100}
+	go svc.fillMissingAndValidate(ctx, latest, finalized)
 
-		mockSR.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil)
-
-		// Execute - should do nothing
-		service.checkBlockMaybeHandleReorg(ctx)
-
-		// State should be unchanged
-		assert.Equal(t, uint64(105), service.latestBlock)
-		assert.Equal(t, 1, len(service.tailBlocks))
-	})
+	status := <-svc.statusCh
+	assert.Equal(t, protocol.ReorgTypeNormal, status.Type)
+	assert.Equal(t, uint64(107), status.ResetToBlock) // last valid block, reorg starts after 107
 }
