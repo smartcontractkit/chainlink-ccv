@@ -1,33 +1,30 @@
-name: CCV Load Test - PR
+name: CCV Load Test - Scheduled
 
 on:
-  pull_request:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
 
 defaults:
   run:
     working-directory: build/devenv
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  e2e-load-pr:
+  e2e-load-scheduled:
     permissions:
       id-token: write
       contents: read
-      pull-requests: write
     runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    timeout-minutes: 80 # 1 hour 20 minutes
     strategy:
       fail-fast: false
       matrix:
         test:
-          - subtest: clean
-            timeout: 4m
+          - subtest: rpc_latency
+            timeout: 1h10m
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
-      
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
