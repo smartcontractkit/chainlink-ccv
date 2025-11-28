@@ -19,9 +19,9 @@ func ParseIntOrDefault(val any, defaultVal int) (int, error) {
 	case uint32:
 		return int(v), nil
 	case uint64:
+		// #nosec G115
 		return int(v), nil
 	case string:
-		// Try parsing string as int
 		intVal, err := strconv.Atoi(v)
 		if err != nil {
 			return 0, fmt.Errorf("invalid integer format: %w", err)
