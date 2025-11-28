@@ -146,11 +146,11 @@ func NewExecutorCoordinator(
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:   indexerClient,
-			LastQueryTime:   time.Now().Add(-1 * cfg.LookbackWindow).UnixMilli(),
-			PollingInterval: 1 * time.Second,
-			Backoff:         cfg.BackoffDuration,
-			QueryLimit:      cfg.IndexerQueryLimit,
+			IndexerClient:    indexerClient,
+			InitialQueryTime: time.Now().Add(-1 * cfg.LookbackWindow),
+			PollingInterval:  1 * time.Second,
+			Backoff:          cfg.BackoffDuration,
+			QueryLimit:       cfg.IndexerQueryLimit,
 		})
 
 	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration, cfg.NtpServer)
