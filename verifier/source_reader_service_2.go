@@ -720,12 +720,6 @@ func (r *SourceReaderService2) handleReorg(status protocol.ChainStatus) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if ancestor >= r.lastProcessedBlock.Uint64() {
-		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken",
-			"block", ancestor,
-			"lastProcessedBlock", r.lastProcessedBlock.Uint64())
-		return
-	}
 
 	if r.disabled {
 		return
@@ -742,8 +736,13 @@ func (r *SourceReaderService2) handleReorg(status protocol.ChainStatus) {
 	}
 	r.pendingTasks = remaining
 
+	if ancestor >= r.lastProcessedBlock.Uint64() {
+		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken",
+			"block", ancestor,
+			"lastProcessedBlock", r.lastProcessedBlock.Uint64())
+		return
+	}
 	resetBlock := new(big.Int).SetUint64(ancestor)
-
 	r.logger.Infow("Resetting source reader to block",
 		"chainSelector", r.chainSelector,
 		"fromBlock", r.lastProcessedBlock,
