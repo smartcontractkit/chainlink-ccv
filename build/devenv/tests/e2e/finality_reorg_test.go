@@ -11,6 +11,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -197,28 +199,29 @@ func TestE2EReorg(t *testing.T) {
 			Msg("✨ Test completed: Messages sent in swapped order after reorg and verified after finality")
 	})
 
-	//t.Run("enable chain", func(t *testing.T) {
-	//	resp, err := authenticatedAggregatorClient.WriteChainStatus(ctx, []*pb.ChainStatus{
-	//		{
-	//			ChainSelector:        srcSelector,
-	//			FinalizedBlockHeight: 0,
-	//			Disabled:             false,
-	//		},
-	//	})
-	//
-	//	require.NoError(t, err, "should be able to enable chain in aggregator")
-	//	require.NotNil(t, resp, "response should not be nil when enabling chain")
-	//
-	//	chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
-	//	require.NoError(t, err, "should be able to read chain status from aggregator")
-	//	require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
-	//
-	//	chainStatus := chainStatusResp.Statuses[0]
-	//	require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
-	//	require.False(t, chainStatus.Disabled, "chain should be enabled")
-	//
-	//	l.Info().Msg("✅ Source chain re-enabled in aggregator after being disabled from finality violation")
-	//})
+	// a utility test to enable the chain again in the aggregator instead of creating a new env
+	t.Run("enable chain", func(t *testing.T) {
+		resp, err := authenticatedAggregatorClient.WriteChainStatus(ctx, []*pb.ChainStatus{
+			{
+				ChainSelector:        srcSelector,
+				FinalizedBlockHeight: 0,
+				Disabled:             false,
+			},
+		})
+
+		require.NoError(t, err, "should be able to enable chain in aggregator")
+		require.NotNil(t, resp, "response should not be nil when enabling chain")
+
+		chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
+		require.NoError(t, err, "should be able to read chain status from aggregator")
+		require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
+
+		chainStatus := chainStatusResp.Statuses[0]
+		require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
+		require.False(t, chainStatus.Disabled, "chain should be enabled")
+
+		l.Info().Msg("✅ Source chain re-enabled in aggregator after being disabled from finality violation")
+	})
 
 	t.Run("finality violation", func(t *testing.T) {
 		// Log the source chain selector for verification
@@ -296,17 +299,20 @@ func TestE2EReorg(t *testing.T) {
 		// Note: ReadChainStatus requires HMAC authentication, so we need to create an authenticated client
 		l.Info().Msg("🔍 Verifying chain status in aggregator...")
 
-		time.Sleep(2 * time.Second) // Small delay to ensure status is updated
-		chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
-		require.NoError(t, err, "should be able to read chain status from aggregator")
-		require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
+		require.Eventually(t, func() bool {
+			chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
+			require.NoError(t, err, "should be able to read chain status from aggregator")
+			require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
 
-		chainStatus := chainStatusResp.Statuses[0]
-		require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
-		require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
-		require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight, "finalized block height should be 0 after finality violation")
+			chainStatus := chainStatusResp.Statuses[0]
+			require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
+			require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
+			require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight, "finalized block height should be 0 after finality violation")
 
-		l.Info().Msg("✅ Chain status verified in aggregator: chain is disabled with checkpoint 0")
+			l.Info().Msg("✅ Chain status verified in aggregator: chain is disabled with checkpoint 0")
+
+			return true
+		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
 
 		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 

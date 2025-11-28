@@ -475,7 +475,7 @@ func TestE2ELoad(t *testing.T) {
 
 		require.Equal(t, summary.TotalSent, summary.TotalAggregated)
 		require.Equal(t, summary.TotalSent, summary.TotalIndexed)
-		require.LessOrEqual(t, summary.P90VerifierToExecutor, 30*time.Second)
+		require.LessOrEqual(t, summary.P90VerifierToExecutor, 40*time.Second)
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {

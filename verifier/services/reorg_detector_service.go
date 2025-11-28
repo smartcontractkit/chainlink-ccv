@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	// DefaultPollInterval is the default interval for polling new blocks
+	// DefaultPollInterval is the default interval for polling new blocks.
 	DefaultPollInterval = 1000 * time.Millisecond
 	// FinalizedBufferPercentage defines the buffer of finalized blocks to keep as percentage of tail
-	// Keeps historical finalized blocks to verify backwards finality changes without extra RPC calls
+	// Keeps historical finalized blocks to verify backwards finality changes without extra RPC calls.
 	FinalizedBufferPercentage = 0.20 // 20% of tail size
-	// MinFinalizedBuffer is the minimum number of finalized blocks to keep
+	// MinFinalizedBuffer is the minimum number of finalized blocks to keep.
 	MinFinalizedBuffer = 10
 )
 
@@ -382,8 +382,8 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 			}
 		}
 		r.lggr.Infow("Mid-fetch reorg detected - fetched blocks were inconsistent",
-			"requestedBlocks length", len(rawFetchedBlocks),
-			"validBlocks length", len(longestValidBlocks),
+			"requestedBlocksCount", len(rawFetchedBlocks),
+			"validBlocksCount", len(longestValidBlocks),
 			"lastValidBlock", lastValidBlock)
 
 		r.sendReorgNotification(lastValidBlock)
@@ -393,9 +393,7 @@ func (r *ReorgDetectorService) fillMissingAndValidate(
 	for blockNum, header := range longestValidBlocks {
 		if blockNum > r.latestBlock {
 			r.tailBlocks[blockNum] = header
-			if blockNum > r.latestBlock {
-				r.latestBlock = blockNum
-			}
+			r.latestBlock = blockNum
 		}
 	}
 
@@ -510,7 +508,6 @@ func (r *ReorgDetectorService) sendReorgNotification(lcaBlockNumber uint64) {
 // No reset block is provided - finality violations require immediate stop and manual intervention.
 // The coordinator is responsible for closing the detector after receiving this notification.
 func (r *ReorgDetectorService) sendFinalityViolationAndStopPolling() {
-
 	status := protocol.ChainStatus{
 		Type:         protocol.ReorgTypeFinalityViolation,
 		ResetToBlock: 0, // No safe reset point exists

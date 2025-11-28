@@ -176,7 +176,9 @@ func (r *SourceReaderService) ResetToBlock(block uint64) error {
 	defer r.mu.Unlock()
 
 	if block >= r.lastProcessedBlock.Uint64() {
-		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken")
+		r.logger.Infow("ResetToBlock called with block >= lastProcessedBlock, no action taken",
+			"block", block,
+			"lastProcessedBlock", r.lastProcessedBlock.Uint64())
 		return nil
 	}
 
