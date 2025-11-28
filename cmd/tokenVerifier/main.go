@@ -24,6 +24,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -32,11 +33,11 @@ import (
 )
 
 const (
-	ConfigPath = "VERIFIER_CONFIG_PATH"
+	ConfigPath = "TOKEN_VERIFIER_CONFIG_PATH"
 )
 
-func loadConfiguration(filepath string) (*verifier.Config, error) {
-	var config verifier.Config
+func loadConfiguration(filepath string) (*token.Config, error) {
+	var config token.Config
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, err
 	}
@@ -139,16 +140,11 @@ func main() {
 	// Create source readers and head trackers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 
-	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)
 	// Try to create blockchain source readers if possible
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		lggr.Infow("Creating source reader", "chainSelector", selector, "strSelector", uint64(selector))
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 
-		if config.CommitteeVerifierAddresses[strSelector] == "" {
-			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
-			continue
-		}
 		if config.OnRampAddresses[strSelector] == "" {
 			lggr.Errorw("On ramp address is not set", "chainSelector", selector)
 			continue
