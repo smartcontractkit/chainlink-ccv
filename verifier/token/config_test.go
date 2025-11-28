@@ -15,43 +15,49 @@ import (
 
 func Test_Config_Deserialization(t *testing.T) {
 	tomlConfig := `
-verifier_id = "verifier-1"
-signer_address = "0x1234567890abcdef"
-pyroscope_url = "http://localhost:4040"
-
-[on_ramp_addresses]
-1 = "0xOnRamp1"
-2 = "0xOnRamp2"
-
-[rmn_remote_addresses]
-"1" = "0xRMN1"
-"2" = "0xRMN2"
-
-[[token_verifiers]]
-type = "cctp"
-version = "2.0"
-attestation_api_timeout = "11ms"
-attestation_api = "https://iris-api.circle.com"
-
-[token_verifiers.addresses]
-"1" = "0xCCTPVerifier1"
-2 = "0xCCTPVerifier2"
-
-[[token_verifiers]]
-type = "lbtc"
-version = "1.0"
-attestation_api = "https://lbtc-api.example.com"
-attestation_api_timeout = "10s"
-attestation_api_interval = 20
-
-[token_verifiers.addresses]
-1 = "0xLBTCVerifier1"
-2 = "0xLBTCVerifier2"
-`
+		verifier_id = "verifier-1"
+		signer_address = "0x1234567890abcdef"
+		pyroscope_url = "http://localhost:4040"
+		
+		[on_ramp_addresses]
+		1 = "0xOnRamp1"
+		
+		[rmn_remote_addresses]
+		"1" = "0xRMN1"
+		"2" = "0xRMN2"
+		
+		[[token_verifiers]]
+		type = "cctp"
+		version = "2.0"
+		attestation_api_timeout = "11ms"
+		attestation_api = "https://iris-api.circle.com"
+		
+		[token_verifiers.addresses]
+		"1" = "0xCCTPVerifier1"
+		2 = "0xCCTPVerifier2"
+		
+		[[token_verifiers]]
+		type = "lbtc"
+		version = "1.0"
+		attestation_api = "https://lbtc-api.example.com"
+		attestation_api_timeout = "10s"
+		attestation_api_interval = 20
+		
+		[token_verifiers.addresses]
+		1 = "0xLBTCVerifier1"
+		2 = "0xLBTCVerifier2"
+	`
 
 	var config Config
 	err := toml.Unmarshal([]byte(tomlConfig), &config)
 	require.NoError(t, err)
+
+	assert.Equal(t, "verifier-1", config.VerifierID)
+	assert.Equal(t, "0x1234567890abcdef", config.SignerAddress)
+	assert.Equal(t, "http://localhost:4040", config.PyroscopeURL)
+	assert.Equal(t, "0xOnRamp1", config.OnRampAddresses["1"])
+	assert.Equal(t, "0xRMN1", config.RMNRemoteAddresses["1"])
+	assert.Equal(t, "0xRMN2", config.RMNRemoteAddresses["2"])
 
 	require.Len(t, config.TokenVerifiers, 2)
 	cctpVerifier := config.TokenVerifiers[0]

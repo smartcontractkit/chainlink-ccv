@@ -32,7 +32,6 @@ import (
 )
 
 const (
-	PkEnvVar   = "VERIFIER_SIGNER_PRIVATE_KEY"
 	ConfigPath = "VERIFIER_CONFIG_PATH"
 )
 
