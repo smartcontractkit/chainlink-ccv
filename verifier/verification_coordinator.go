@@ -254,7 +254,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			sourceCfg := vc.config.SourceConfigs[chainSelector]
 
 			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
-			srs := NewSourceReaderService2(
+			srs, err := NewSourceReaderService2(
 				sourceReader,
 				chainSelector,
 				vc.chainStatusManager,
@@ -263,8 +263,14 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				vc.curseDetector,
 				vc.finalityCheckInterval,
 			)
+			if err != nil {
+				vc.lggr.Errorw("Failed to create SourceReaderService2",
+					"chainSelector", chainSelector,
+					"error", err)
+				return err
+			}
 
-			if err := srs.Start(ctx); err != nil {
+			if err = srs.Start(ctx); err != nil {
 				vc.lggr.Errorw("Failed to start SourceReaderService2",
 					"chainSelector", chainSelector,
 					"error", err)

@@ -55,7 +55,7 @@ type SourceReaderService2 struct {
 	lastChainStatusBlock *big.Int
 }
 
-// Constructor: same style as SRS
+// NewSourceReaderService2 Constructor: same style as SRS
 func NewSourceReaderService2(
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
@@ -64,7 +64,40 @@ func NewSourceReaderService2(
 	pollInterval time.Duration,
 	curseDetector common.CurseCheckerService,
 	finalityCheckInterval time.Duration,
-) *SourceReaderService2 {
+) (*SourceReaderService2, error) {
+
+	if sourceReader == nil {
+		return nil, fmt.Errorf("sourceReader cannot be nil")
+	}
+	if chainStatusManager == nil {
+		return nil, fmt.Errorf("chainStatusManager cannot be nil")
+	}
+	if lggr == nil {
+		return nil, fmt.Errorf("logger cannot be nil")
+	}
+	if curseDetector == nil {
+		return nil, fmt.Errorf("curseDetector cannot be nil")
+	}
+	if pollInterval <= 0 {
+		return nil, fmt.Errorf("pollInterval must be positive")
+	}
+	if finalityCheckInterval <= 0 {
+		return nil, fmt.Errorf("finalityCheckInterval must be positive")
+	}
+
+	reorgDetectorConfig := vservices.ReorgDetectorConfig{
+		ChainSelector: chainSelector,
+		PollInterval:  2 * time.Second, // TODO: make configurable
+	}
+
+	reorgDetector, err := vservices.NewReorgDetectorService(
+		sourceReader,
+		reorgDetectorConfig,
+		logger.With(lggr, "component", "ReorgDetector", "chainID", chainSelector),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create reorg detector: %w", err)
+	}
 
 	return &SourceReaderService2{
 		logger:                logger.With(lggr, "component", "SourceReaderService2", "chain", chainSelector),
@@ -72,11 +105,12 @@ func NewSourceReaderService2(
 		chainSelector:         chainSelector,
 		chainStatusManager:    chainStatusManager,
 		curseDetector:         curseDetector,
+		reorgDetector:         reorgDetector,
 		pollInterval:          pollInterval,
 		finalityCheckInterval: finalityCheckInterval,
 		readyTasksCh:          make(chan batcher.BatchResult[VerificationTask]),
 		stopCh:                make(chan struct{}),
-	}
+	}, nil
 }
 
 func (r *SourceReaderService2) ReadyTasksChannel() <-chan batcher.BatchResult[VerificationTask] {
@@ -86,23 +120,6 @@ func (r *SourceReaderService2) ReadyTasksChannel() <-chan batcher.BatchResult[Ve
 func (r *SourceReaderService2) Start(ctx context.Context) error {
 	return r.StartOnce("SourceReaderService2", func() error {
 		r.logger.Infow("Starting SourceReaderService2", "chainSelector", r.chainSelector)
-
-		reorgDetectorConfig := vservices.ReorgDetectorConfig{
-			ChainSelector: r.chainSelector,
-			PollInterval:  2 * time.Second, // TODO: make configurable
-		}
-
-		reorgDetector, err := vservices.NewReorgDetectorService(
-			r.sourceReader,
-			reorgDetectorConfig,
-			logger.With(r.logger, "component", "ReorgDetector", "chainID", r.chainSelector),
-		)
-		if err != nil {
-			r.logger.Errorw("Failed to create reorg detector", "error", err, "chainID", r.chainSelector)
-			return err
-		}
-
-		r.reorgDetector = reorgDetector
 
 		// 1. start log/event polling loop (you will plug your existing logic here)
 		r.wg.Add(1)
@@ -150,10 +167,6 @@ func (r *SourceReaderService2) Stop() error {
 		return nil
 	})
 }
-
-// -----------------------------------------------------------------------------
-// Polling → VerificationTask (you copy your existing logic here)
-// -----------------------------------------------------------------------------
 
 // eventMonitoringLoop should:
 //   - periodically query the chain via sourceReader (using pollInterval)
@@ -219,6 +232,7 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 	r.mu.RUnlock()
 
 	// Get current block (potentially slow RPC call - no locks held)
+	// TODO: timeout should be less than pollInterval
 	blockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
 	cancel()
@@ -269,7 +283,7 @@ func (r *SourceReaderService2) processEventCycle(ctx context.Context) {
 			BlockNumber:  event.BlockNumber,
 			FirstSeenAt:  now,
 		}
-		r.pendingTasks = append(r.pendingTasks, task)
+		r.addToPendingQueue(task)
 	}
 
 	if len(tasks) == 0 {
