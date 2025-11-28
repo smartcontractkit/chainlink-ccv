@@ -225,6 +225,11 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			sourceReader := enabledSourceReaders[chainSelector]
 			sourceCfg := vc.config.SourceConfigs[chainSelector]
 
+			filter := chainaccess.NewReceiptIssuerFilter(
+				sourceCfg.VerifierAddress,
+				sourceCfg.DefaultExecutorAddress,
+			)
+
 			vc.lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
 			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
 			srs, err := NewSourceReaderService(
@@ -234,6 +239,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				readerLogger,
 				sourceCfg.PollInterval,
 				vc.curseDetector,
+				filter,
 			)
 			if err != nil {
 				vc.lggr.Errorw("Failed to create SourceReaderService",

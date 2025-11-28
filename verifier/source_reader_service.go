@@ -52,6 +52,8 @@ type SourceReaderService struct {
 	chainStatusManager   protocol.ChainStatusManager
 	lastChainStatusTime  time.Time
 	lastChainStatusBlock *big.Int
+
+	filter chainaccess.MessageFilter
 }
 
 // NewSourceReaderService Constructor: same style as SRS.
@@ -62,6 +64,7 @@ func NewSourceReaderService(
 	lggr logger.Logger,
 	pollInterval time.Duration,
 	curseDetector common.CurseCheckerService,
+	filter chainaccess.MessageFilter,
 ) (*SourceReaderService, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
@@ -101,6 +104,7 @@ func NewSourceReaderService(
 		pendingTasks:       make(map[string]VerificationTask),
 		sentTasks:          make(map[string]VerificationTask),
 		stopCh:             make(chan struct{}),
+		filter:             filter,
 	}, nil
 }
 
