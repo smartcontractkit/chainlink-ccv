@@ -27,7 +27,7 @@ type curseTestSetup struct {
 	coordinator        *Coordinator
 	mockSourceReader   *protocol_mocks.MockSourceReader
 	mockCurseChecker   *ccv_common.MockCurseCheckerService
-	chainStatusManager *InMemoryChainStatusManager
+	chainStatusManager *protocol_mocks.MockChainStatusManager
 	testVerifier       *TestVerifier
 	storage            *common.InMemoryOffchainStorage
 	sourceChain        protocol.ChainSelector
@@ -76,13 +76,16 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	mockCurseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	mockCurseDetector.EXPECT().Close().Return(nil).Maybe()
 
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil).Maybe()
 	setup := &curseTestSetup{
 		t:                  t,
 		ctx:                ctx,
 		cancel:             cancel,
 		mockSourceReader:   mockSetup.Reader,
 		mockCurseChecker:   mockCurseDetector,
-		chainStatusManager: NewInMemoryChainStatusManager(),
+		chainStatusManager: chainStatusMgr,
 		sourceChain:        sourceChain,
 		destChain:          destChain,
 		lggr:               lggr,
