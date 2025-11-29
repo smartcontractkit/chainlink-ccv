@@ -43,9 +43,6 @@ const (
 //go:embed executor.template.toml
 var executorConfigTemplate string
 
-//go:embed blockchaininfos.template.toml
-var blockchainInfosTemplate string
-
 type ExecutorInput struct {
 	Mode              Mode              `toml:"mode"`
 	Out               *ExecutorOutput   `toml:"-"`
@@ -186,24 +183,6 @@ func (v *ExecutorInput) GetTransmitterAddress() protocol.UnknownAddress {
 	return protocol.UnknownAddress(crypto.PubkeyToAddress(pk.PublicKey).Bytes())
 }
 
-type BlockchainConfig struct {
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
-}
-
-// GenerateBlockchainInfosFromInput creates blockchain infos from ExecutorInput.
-// This is only used for standalone mode executors where the executor manages its own RPC connections.
-// The blockchain infos contain dummy RPC information which will be replaced with actual RPC endpoints
-// when the standalone executor container is configured with real blockchain node URLs.
-func GenerateBlockchainInfosFromInput() (map[string]*protocol.BlockchainInfo, error) {
-	chainConfig := BlockchainConfig{}
-	// Decode template into base config
-	if _, err := toml.Decode(blockchainInfosTemplate, &chainConfig); err != nil {
-		return nil, fmt.Errorf("failed to decode blockchain infos template: %w", err)
-	}
-
-	return chainConfig.BlockchainInfos, nil
-}
-
 func ApplyExecutorDefaults(in *ExecutorInput) {
 	if in.Image == "" {
 		in.Image = DefaultExecutorImage
@@ -234,7 +213,7 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := GenerateBlockchainInfosFromInput()
+	blockchainInfos, err := GetBlockchainInfoFromTemplate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
 	}
