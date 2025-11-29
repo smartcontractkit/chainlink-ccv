@@ -4,50 +4,53 @@ import (
 	"context"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// mockSourceReaderForFinality is a simple mock for testing finality checker
-type mockSourceReaderForFinality struct {
-	blocks map[uint64]protocol.BlockHeader
+// MockSourceReaderSetup contains a mock source Reader and its Channel.
+// This follows the same pattern as verifier.MockSourceReaderSetup but is local to this package.
+type MockSourceReaderSetup struct {
+	Reader  *protocol_mocks.MockSourceReader
+	Channel chan protocol.MessageSentEvent
 }
 
-func (m *mockSourceReaderForFinality) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-	result := make(map[*big.Int]protocol.BlockHeader)
-	for _, num := range blockNumbers {
-		if header, exists := m.blocks[num.Uint64()]; exists {
-			result[num] = header
-		}
+// setupMockSourceReaderForFinality creates a mock source Reader with configurable block headers.
+func setupMockSourceReaderForFinality(t *testing.T, blocks map[uint64]protocol.BlockHeader) *MockSourceReaderSetup {
+	mockReader := protocol_mocks.NewMockSourceReader(t)
+	channel := make(chan protocol.MessageSentEvent, 10)
+
+	now := time.Now().Unix()
+
+	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
+	mockReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
+	mockReader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(nil, nil, nil).Maybe()
+	mockReader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	mockReader.EXPECT().GetBlockHeaderByHash(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
+	// Mock GetBlocksHeaders to return headers from the provided blocks map
+	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+			headers := make(map[*big.Int]protocol.BlockHeader)
+			for _, blockNum := range blockNumbers {
+				if header, exists := blocks[blockNum.Uint64()]; exists {
+					headers[blockNum] = header
+				}
+			}
+			return headers, nil
+		},
+	).Maybe()
+
+	return &MockSourceReaderSetup{
+		Reader:  mockReader,
+		Channel: channel,
 	}
-	return result, nil
-}
-
-func (m *mockSourceReaderForFinality) LatestAndFinalizedBlock(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
-	return nil, nil, nil
-}
-
-func (m *mockSourceReaderForFinality) ReadMessagesInBlockRange(ctx context.Context, from, to *big.Int) ([]protocol.Message, error) {
-	return nil, nil
-}
-
-func (m *mockSourceReaderForFinality) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
-	return nil, nil
-}
-
-func (m *mockSourceReaderForFinality) BlockTime(ctx context.Context, block *big.Int) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockSourceReaderForFinality) GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error) {
-	return nil, nil
-}
-
-func (m *mockSourceReaderForFinality) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
-	return nil, nil
 }
 
 func makeBytes32(s string) protocol.Bytes32 {
@@ -59,16 +62,15 @@ func makeBytes32(s string) protocol.Bytes32 {
 func TestFinalityViolationChecker_NormalOperation(t *testing.T) {
 	lggr, _ := logger.New()
 
-	mock := &mockSourceReaderForFinality{
-		blocks: map[uint64]protocol.BlockHeader{
-			100: {Number: 100, Hash: makeBytes32("hash100")},
-			101: {Number: 101, Hash: makeBytes32("hash101")},
-			102: {Number: 102, Hash: makeBytes32("hash102")},
-			103: {Number: 103, Hash: makeBytes32("hash103")},
-		},
+	blocks := map[uint64]protocol.BlockHeader{
+		100: {Number: 100, Hash: makeBytes32("hash100")},
+		101: {Number: 101, Hash: makeBytes32("hash101")},
+		102: {Number: 102, Hash: makeBytes32("hash102")},
+		103: {Number: 103, Hash: makeBytes32("hash103")},
 	}
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
-	checker, err := NewFinalityViolationCheckerService(mock, protocol.ChainSelector(1), lggr)
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -95,16 +97,15 @@ func TestFinalityViolationChecker_NormalOperation(t *testing.T) {
 func TestFinalityViolationChecker_DetectsViolation(t *testing.T) {
 	lggr, _ := logger.New()
 
-	mock := &mockSourceReaderForFinality{
-		blocks: map[uint64]protocol.BlockHeader{
-			100: {Number: 100, Hash: makeBytes32("hash100")},
-			101: {Number: 101, Hash: makeBytes32("hash101")},
-			102: {Number: 102, Hash: makeBytes32("hash102")},
-			103: {Number: 103, Hash: makeBytes32("hash103")},
-		},
+	blocks := map[uint64]protocol.BlockHeader{
+		100: {Number: 100, Hash: makeBytes32("hash100")},
+		101: {Number: 101, Hash: makeBytes32("hash101")},
+		102: {Number: 102, Hash: makeBytes32("hash102")},
+		103: {Number: 103, Hash: makeBytes32("hash103")},
 	}
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
-	checker, err := NewFinalityViolationCheckerService(mock, protocol.ChainSelector(1), lggr)
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -121,7 +122,19 @@ func TestFinalityViolationChecker_DetectsViolation(t *testing.T) {
 
 	// Simulate finality violation - block 101 hash changes in the RPC
 	// This would happen if the node's finalized block was reorged
-	mock.blocks[101] = protocol.BlockHeader{Number: 101, Hash: makeBytes32("DIFFERENT")}
+	blocks[101] = protocol.BlockHeader{Number: 101, Hash: makeBytes32("DIFFERENT")}
+	// Re-setup the mock expectation with updated blocks
+	mockSetup.Reader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+			headers := make(map[*big.Int]protocol.BlockHeader)
+			for _, blockNum := range blockNumbers {
+				if header, exists := blocks[blockNum.Uint64()]; exists {
+					headers[blockNum] = header
+				}
+			}
+			return headers, nil
+		},
+	).Maybe()
 
 	// Try to advance finality to 102 - will fetch blocks 101-102
 	// Block 101 will be re-fetched and hash mismatch detected
@@ -139,14 +152,13 @@ func TestFinalityViolationChecker_DetectsViolation(t *testing.T) {
 func TestFinalityViolationChecker_Reset(t *testing.T) {
 	lggr, _ := logger.New()
 
-	mock := &mockSourceReaderForFinality{
-		blocks: map[uint64]protocol.BlockHeader{
-			100: {Number: 100, Hash: makeBytes32("hash100")},
-			101: {Number: 101, Hash: makeBytes32("hash101")},
-		},
+	blocks := map[uint64]protocol.BlockHeader{
+		100: {Number: 100, Hash: makeBytes32("hash100")},
+		101: {Number: 101, Hash: makeBytes32("hash101")},
 	}
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
-	checker, err := NewFinalityViolationCheckerService(mock, protocol.ChainSelector(1), lggr)
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -167,13 +179,12 @@ func TestFinalityViolationChecker_Reset(t *testing.T) {
 func TestFinalityViolationChecker_NoAdvancement(t *testing.T) {
 	lggr, _ := logger.New()
 
-	mock := &mockSourceReaderForFinality{
-		blocks: map[uint64]protocol.BlockHeader{
-			100: {Number: 100, Hash: makeBytes32("hash100")},
-		},
+	blocks := map[uint64]protocol.BlockHeader{
+		100: {Number: 100, Hash: makeBytes32("hash100")},
 	}
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
-	checker, err := NewFinalityViolationCheckerService(mock, protocol.ChainSelector(1), lggr)
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -191,14 +202,13 @@ func TestFinalityViolationChecker_NoAdvancement(t *testing.T) {
 func TestFinalityViolationChecker_BackwardMovementDetected(t *testing.T) {
 	lggr, _ := logger.New()
 
-	mock := &mockSourceReaderForFinality{
-		blocks: map[uint64]protocol.BlockHeader{
-			99:  {Number: 99, Hash: makeBytes32("hash99")},
-			100: {Number: 100, Hash: makeBytes32("hash100")},
-		},
+	blocks := map[uint64]protocol.BlockHeader{
+		99:  {Number: 99, Hash: makeBytes32("hash99")},
+		100: {Number: 100, Hash: makeBytes32("hash100")},
 	}
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
-	checker, err := NewFinalityViolationCheckerService(mock, protocol.ChainSelector(1), lggr)
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -218,13 +228,12 @@ func TestFinalityViolationChecker_BackwardMovementDetected(t *testing.T) {
 func TestFinalityViolationChecker_SameHeightHashChange(t *testing.T) {
 	lggr, _ := logger.New()
 
-	mock := &mockSourceReaderForFinality{
-		blocks: map[uint64]protocol.BlockHeader{
-			100: {Number: 100, Hash: makeBytes32("hash100")},
-		},
+	blocks := map[uint64]protocol.BlockHeader{
+		100: {Number: 100, Hash: makeBytes32("hash100")},
 	}
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
-	checker, err := NewFinalityViolationCheckerService(mock, protocol.ChainSelector(1), lggr)
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -234,7 +243,19 @@ func TestFinalityViolationChecker_SameHeightHashChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Change the hash at the same height
-	mock.blocks[100] = protocol.BlockHeader{Number: 100, Hash: makeBytes32("DIFFERENT")}
+	blocks[100] = protocol.BlockHeader{Number: 100, Hash: makeBytes32("DIFFERENT")}
+	// Re-setup the mock expectation with updated blocks
+	mockSetup.Reader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+			headers := make(map[*big.Int]protocol.BlockHeader)
+			for _, blockNum := range blockNumbers {
+				if header, exists := blocks[blockNum.Uint64()]; exists {
+					headers[blockNum] = header
+				}
+			}
+			return headers, nil
+		},
+	).Maybe()
 
 	// Update with same block - should detect hash change
 	err = checker.UpdateFinalized(ctx, 100)
