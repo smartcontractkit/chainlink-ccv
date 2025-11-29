@@ -764,6 +764,11 @@ var sendCmd = &cobra.Command{
 		ctx := context.Background()
 		ctx = ccv.Plog.WithContext(ctx)
 
+		receiverQualifier, err := cmd.Flags().GetString("receiver-qualifier")
+		if err != nil {
+			return fmt.Errorf("failed to parse 'receiver-qualifier' flag: %w", err)
+		}
+
 		// Read the env flag, default to "out"
 		envName, err := cmd.Flags().GetString("env")
 		if err != nil {
@@ -813,7 +818,7 @@ var sendCmd = &cobra.Command{
 				dest,
 				datastore.ContractType(mock_receiver.ContractType),
 				semver.MustParse(mock_receiver.Deploy.Version()),
-				evm.DefaultReceiverQualifier))
+				receiverQualifier))
 		if err != nil {
 			return fmt.Errorf("failed to get mock receiver address: %w", err)
 		}
@@ -913,6 +918,7 @@ func init() {
 	rootCmd.AddCommand(printAddressesCmd)
 	rootCmd.AddCommand(sendCmd)
 	sendCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
+	sendCmd.Flags().String("receiver-qualifier", evm.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
