@@ -368,11 +368,6 @@ func (f *fakeFinalityChecker) lastUpdate() (uint64, bool) {
 	return f.updates[len(f.updates)-1], true
 }
 
-// newTestSRS creates a SourceReaderService with pluggable mocks and overrides
-// finalityChecker with a fake one that tests can control.
-//
-// NOTE: tests can still mutate private fields (like lastProcessedBlock) since
-// they live in the same package.
 func newTestSRS(
 	t *testing.T,
 	chainSelector protocol.ChainSelector,
@@ -380,7 +375,6 @@ func newTestSRS(
 	chainStatusMgr protocol.ChainStatusManager,
 	curseDetector *ccv_common.MockCurseCheckerService,
 	pollInterval time.Duration,
-	finalityCheckInterval time.Duration,
 ) (*SourceReaderService, *fakeFinalityChecker) {
 	t.Helper()
 
@@ -393,7 +387,6 @@ func newTestSRS(
 		lggr,
 		pollInterval,
 		curseDetector,
-		finalityCheckInterval,
 	)
 	require.NoError(t, err)
 

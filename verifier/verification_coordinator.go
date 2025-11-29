@@ -17,8 +17,7 @@ import (
 )
 
 const (
-	DefaultSourceReaderPollInterval = 2 * time.Second
-	DefaultFinalityCheckInterval    = 500 * time.Millisecond
+	DefaultFinalityCheckInterval = 500 * time.Millisecond
 )
 
 // -----------------------------------------------------------------------------
@@ -119,6 +118,7 @@ func NewCoordinator(
 	config CoordinatorConfig,
 	messageTracker MessageLatencyTracker,
 	monitoring Monitoring,
+	chainStatusManager protocol.ChainStatusManager,
 	finalityCheckInterval time.Duration,
 	opts ...Option,
 ) (*Coordinator, error) {
@@ -126,6 +126,7 @@ func NewCoordinator(
 		lggr:                  lggr,
 		verifier:              verifier,
 		sourceReaders:         sourceReaders,
+		chainStatusManager:    chainStatusManager,
 		storage:               storage,
 		config:                config,
 		messageTracker:        messageTracker,
@@ -228,16 +229,13 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				continue
 			}
 
-			sourceCfg, ok := vc.config.SourceConfigs[chainSelector]
+			_, ok := vc.config.SourceConfigs[chainSelector]
 			if !ok {
 				vc.lggr.Warnw("No source config for chain selector, skipping",
 					"chainSelector", chainSelector)
 				continue
 			}
 
-			if sourceCfg.PollInterval == 0 {
-				sourceCfg.PollInterval = DefaultSourceReaderPollInterval
-			}
 			enabledSourceReaders[chainSelector] = sourceReader
 		}
 
@@ -261,7 +259,6 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				readerLogger,
 				sourceCfg.PollInterval,
 				vc.curseDetector,
-				vc.finalityCheckInterval,
 			)
 			if err != nil {
 				vc.lggr.Errorw("Failed to create SourceReaderService",
@@ -450,15 +447,13 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 	// TODO: Can parallelize chains
 	// Process each chain's tasks as a batch
 	for chainSelector, chainTasks := range tasksByChain {
-		state, ok := vc.sourceStates[chainSelector]
+		_, ok := vc.sourceStates[chainSelector]
 		if !ok {
 			vc.lggr.Errorw("No source state found for finalized messages",
 				"chainSelector", chainSelector,
 				"taskCount", len(chainTasks))
 			continue
 		}
-
-		_ = state // currently unused beyond existence check; kept for symmetry
 
 		vc.verifyingWg.Add(1)
 		go func(tasks []VerificationTask, chain protocol.ChainSelector) {

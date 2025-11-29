@@ -80,7 +80,6 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 		chainStatusMgr,
 		curseDetector,
 		10*time.Millisecond,
-		50*time.Millisecond,
 	)
 
 	// Set starting lastProcessed before first event
@@ -155,7 +154,6 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 		chainStatusMgr,
 		curseDetector,
 		10*time.Millisecond,
-		50*time.Millisecond,
 	)
 
 	srs.mu.Lock()
@@ -192,7 +190,6 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 		chainStatusMgr,
 		curseDetector,
 		10*time.Millisecond,
-		50*time.Millisecond,
 	)
 
 	// Build three tasks: A, B, C (C only in sentTasks)
@@ -258,7 +255,6 @@ func TestSRS_Curse_DropsAtEnqueue(t *testing.T) {
 		chainStatusMgr,
 		curseDetector,
 		10*time.Millisecond,
-		50*time.Millisecond,
 	)
 
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100, 101})
@@ -317,7 +313,6 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 		reader,
 		chainStatusMgr,
 		curseDetector,
-		10*time.Millisecond,
 		10*time.Millisecond,
 	)
 
@@ -398,7 +393,6 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 		chainStatusMgr,
 		curseDetector,
 		10*time.Millisecond,
-		10*time.Millisecond,
 	)
 
 	// Custom finality f=10; block = latest - 10 => ready.
@@ -477,7 +471,6 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 		chainStatusMgr,
 		curseDetector,
 		10*time.Millisecond,
-		10*time.Millisecond,
 	)
 
 	// Seed some pending & sent tasks
@@ -554,7 +547,6 @@ func TestSRS_ChainStatus_MonotonicUpdates(t *testing.T) {
 		reader,
 		chainStatusMgr,
 		curseDetector,
-		10*time.Millisecond,
 		10*time.Millisecond,
 	)
 

@@ -22,6 +22,7 @@ import (
 const (
 	// ChainStatusInterval is how often to write statuses.
 	ChainStatusInterval = 300 * time.Second
+	DefaultPollInterval = 2 * time.Second
 )
 
 type SourceReaderService struct {
@@ -30,13 +31,12 @@ type SourceReaderService struct {
 	wg     sync.WaitGroup
 
 	// config / deps
-	logger                logger.Logger
-	sourceReader          chainaccess.SourceReader
-	chainSelector         protocol.ChainSelector
-	curseDetector         common.CurseCheckerService
-	finalityChecker       protocol.FinalityViolationChecker
-	pollInterval          time.Duration
-	finalityCheckInterval time.Duration
+	logger          logger.Logger
+	sourceReader    chainaccess.SourceReader
+	chainSelector   protocol.ChainSelector
+	curseDetector   common.CurseCheckerService
+	finalityChecker protocol.FinalityViolationChecker
+	pollInterval    time.Duration
 
 	// exposed channel to coordinator: READY tasks
 	readyTasksCh chan batcher.BatchResult[VerificationTask]
@@ -62,7 +62,6 @@ func NewSourceReaderService(
 	lggr logger.Logger,
 	pollInterval time.Duration,
 	curseDetector common.CurseCheckerService,
-	finalityCheckInterval time.Duration,
 ) (*SourceReaderService, error) {
 
 	if sourceReader == nil {
@@ -77,13 +76,6 @@ func NewSourceReaderService(
 	if curseDetector == nil {
 		return nil, fmt.Errorf("curseDetector cannot be nil")
 	}
-	if pollInterval <= 0 {
-		return nil, fmt.Errorf("pollInterval must be positive")
-	}
-	if finalityCheckInterval <= 0 {
-		return nil, fmt.Errorf("finalityCheckInterval must be positive")
-	}
-
 	finalityChecker, err := vservices.NewFinalityViolationCheckerService(
 		sourceReader,
 		chainSelector,
@@ -93,19 +85,22 @@ func NewSourceReaderService(
 		return nil, fmt.Errorf("failed to create finality checker: %w", err)
 	}
 
+	var interval time.Duration
+	if pollInterval <= 0 {
+		interval = DefaultPollInterval
+	}
 	return &SourceReaderService{
-		logger:                logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector),
-		sourceReader:          sourceReader,
-		chainSelector:         chainSelector,
-		chainStatusManager:    chainStatusManager,
-		curseDetector:         curseDetector,
-		finalityChecker:       finalityChecker,
-		pollInterval:          pollInterval,
-		finalityCheckInterval: finalityCheckInterval,
-		readyTasksCh:          make(chan batcher.BatchResult[VerificationTask]),
-		pendingTasks:          make(map[string]VerificationTask),
-		sentTasks:             make(map[string]VerificationTask),
-		stopCh:                make(chan struct{}),
+		logger:             logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector),
+		sourceReader:       sourceReader,
+		chainSelector:      chainSelector,
+		chainStatusManager: chainStatusManager,
+		curseDetector:      curseDetector,
+		finalityChecker:    finalityChecker,
+		pollInterval:       interval,
+		readyTasksCh:       make(chan batcher.BatchResult[VerificationTask]),
+		pendingTasks:       make(map[string]VerificationTask),
+		sentTasks:          make(map[string]VerificationTask),
+		stopCh:             make(chan struct{}),
 	}, nil
 }
 
