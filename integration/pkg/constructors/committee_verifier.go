@@ -175,7 +175,6 @@ func NewVerificationCoordinator(
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
-		verifier.DefaultFinalityCheckInterval,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

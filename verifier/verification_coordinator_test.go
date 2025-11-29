@@ -150,7 +150,6 @@ func createVerificationCoordinator(
 		noopLatencyTracker,
 		noopMonitoring,
 		ts.chainStatusManager,
-		verifier.DefaultFinalityCheckInterval,
 	)
 }
 

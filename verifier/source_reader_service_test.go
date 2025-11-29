@@ -204,7 +204,6 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 		taskB.MessageID: taskB,
 	}
 	srs.sentTasks = map[string]VerificationTask{
-		taskB.MessageID: taskB,
 		taskC.MessageID: taskC,
 	}
 	srs.mu.Unlock()
@@ -214,7 +213,7 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	taskD := VerificationTask{Message: msgsD[0].Message, BlockNumber: msgsD[0].BlockNumber, MessageID: msgsD[0].MessageID.String()}
 	newTasks := []VerificationTask{taskA, taskD}
 
-	srs.addToPendingQueueHandleReorg(newTasks)
+	srs.addToPendingQueueHandleReorg(newTasks, big.NewInt(100))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -264,7 +263,7 @@ func TestSRS_Curse_DropsAtEnqueue(t *testing.T) {
 	}
 
 	// Because lane is cursed, addToPendingQueueHandleReorg should drop everything.
-	srs.addToPendingQueueHandleReorg(tasks)
+	srs.addToPendingQueueHandleReorg(tasks, big.NewInt(100))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()

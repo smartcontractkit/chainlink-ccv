@@ -69,9 +69,6 @@ type Coordinator struct {
 	// Curse detector is created & owned by coordinator
 	curseDetector common.CurseCheckerService
 
-	// Finality
-	finalityCheckInterval time.Duration
-
 	// Storage batching (kept in coordinator as requested)
 	storageBatcher   *batcher.Batcher[protocol.VerifierNodeResult]
 	batchedCCVDataCh chan batcher.BatchResult[protocol.VerifierNodeResult]
@@ -119,20 +116,18 @@ func NewCoordinator(
 	messageTracker MessageLatencyTracker,
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
-	finalityCheckInterval time.Duration,
 	opts ...Option,
 ) (*Coordinator, error) {
 	vc := &Coordinator{
-		lggr:                  lggr,
-		verifier:              verifier,
-		sourceReaders:         sourceReaders,
-		chainStatusManager:    chainStatusManager,
-		storage:               storage,
-		config:                config,
-		messageTracker:        messageTracker,
-		monitoring:            monitoring,
-		finalityCheckInterval: finalityCheckInterval,
-		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
+		lggr:               lggr,
+		verifier:           verifier,
+		sourceReaders:      sourceReaders,
+		chainStatusManager: chainStatusManager,
+		storage:            storage,
+		config:             config,
+		messageTracker:     messageTracker,
+		monitoring:         monitoring,
+		sourceStates:       make(map[protocol.ChainSelector]*sourceState),
 	}
 
 	for _, opt := range opts {
@@ -179,11 +174,6 @@ func (vc *Coordinator) applyConfigDefaults() {
 		if vc.lggr != nil {
 			vc.lggr.Debugw("Using default StorageBatchTimeout", "value", vc.config.StorageBatchTimeout)
 		}
-	}
-
-	// Default finality check interval if not set externally
-	if vc.finalityCheckInterval <= 0 {
-		vc.finalityCheckInterval = time.Second
 	}
 }
 
@@ -251,6 +241,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			sourceReader := enabledSourceReaders[chainSelector]
 			sourceCfg := vc.config.SourceConfigs[chainSelector]
 
+			vc.lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
 			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
 			srs, err := NewSourceReaderService(
 				sourceReader,

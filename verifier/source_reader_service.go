@@ -86,6 +86,7 @@ func NewSourceReaderService(
 	}
 
 	var interval time.Duration
+	interval = pollInterval
 	if pollInterval <= 0 {
 		interval = DefaultPollInterval
 	}
@@ -178,6 +179,7 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 			return
 		case <-ticker.C:
 			if !r.disabled.Load() {
+				//TODO: consider querying latest and finalized here and sending them to processEventCycle and sendReadyMessages
 				r.processEventCycle(ctx)
 				r.sendReadyMessages(ctx)
 			}
@@ -268,7 +270,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 		tasks = append(tasks, task)
 	}
 
-	r.addToPendingQueueHandleReorg(tasks)
+	r.addToPendingQueueHandleReorg(tasks, fromBlock)
 
 	if len(events) == 0 {
 		r.logger.Debugw("No events found in range",
@@ -389,7 +391,9 @@ func (r *SourceReaderService) fallbackBlockEstimate(currentBlock uint64, lookbac
 
 // addToPendingQueueHandleReorg adds new tasks to the pending queue,
 // removing any tasks that are no longer valid due to reorg.
-func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask) {
+// fromBlock and toBlock define the queried range - only remove messages
+// that are in this range but not found in the results.
+func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock *big.Int) {
 	tasksMap := make(map[string]VerificationTask)
 	for _, task := range tasks {
 		tasksMap[task.MessageID] = task
@@ -402,21 +406,34 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 	}
 
 	// remove tasks that are no longer valid due to reorg
+	// Only remove if the message is in the queried range but not found
 	for msgID, existing := range r.pendingTasks {
-		if _, exists := tasksMap[msgID]; !exists {
-			r.logger.Warnw("Removing task from pending queue due to reorg",
-				"messageID", msgID,
-				"blockNumber", existing.BlockNumber)
-			delete(r.pendingTasks, msgID)
+		existingBlock := new(big.Int).SetUint64(existing.BlockNumber)
+
+		// Only remove if:
+		// 1. Message is in the queried range (fromBlock <= msgBlock)
+		// 2. Message is not in the new results
+		if existingBlock.Cmp(fromBlock) >= 0 {
+			if _, exists := tasksMap[msgID]; !exists {
+				r.logger.Warnw("Removing task from pending queue due to reorg",
+					"messageID", msgID,
+					"blockNumber", existing.BlockNumber,
+					"fromBlock", fromBlock.String(),
+				)
+				delete(r.pendingTasks, msgID)
+			}
 		}
 	}
 
-	// Also remove from sentTasks if they were reorged out
-	for msgID := range r.sentTasks {
-		if _, exists := tasksMap[msgID]; !exists {
-			r.logger.Warnw("Removing task from sentTasks due to reorg",
-				"messageID", msgID)
-			delete(r.sentTasks, msgID)
+	// Also remove from sentTasks if they were reorged out (same logic)
+	for msgID, task := range r.sentTasks {
+		taskBlock := new(big.Int).SetUint64(task.BlockNumber)
+		if taskBlock.Cmp(fromBlock) >= 0 {
+			if _, exists := tasksMap[msgID]; !exists {
+				r.logger.Warnw("Removing task from sentTasks due to reorg",
+					"messageID", msgID)
+				delete(r.sentTasks, msgID)
+			}
 		}
 	}
 
@@ -501,7 +518,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context) {
 	// These can never be reorged, so safe to remove
 	for msgID, task := range r.sentTasks {
 		taskBlock := new(big.Int).SetUint64(task.BlockNumber)
-		if taskBlock.Cmp(latestFinalizedBlock) <= 0 {
+		if taskBlock.Cmp(latestFinalizedBlock) < 0 {
 			delete(r.sentTasks, msgID)
 		}
 	}
