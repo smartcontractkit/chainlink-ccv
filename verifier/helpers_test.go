@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -326,4 +328,78 @@ func createTestMessageSentEvents(
 		}
 	}
 	return events
+}
+
+type fakeFinalityChecker struct {
+	mu          sync.Mutex
+	updates     []uint64
+	updateErr   error
+	violated    bool
+	violatedNow bool
+}
+
+func (f *fakeFinalityChecker) Reset() {
+
+}
+
+func (f *fakeFinalityChecker) UpdateFinalized(_ context.Context, n uint64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updates = append(f.updates, n)
+	// If violatedNow is true, flip violated to true once we see an update.
+	if f.violatedNow {
+		f.violated = true
+	}
+	return f.updateErr
+}
+
+func (f *fakeFinalityChecker) IsFinalityViolated() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.violated
+}
+
+func (f *fakeFinalityChecker) lastUpdate() (uint64, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.updates) == 0 {
+		return 0, false
+	}
+	return f.updates[len(f.updates)-1], true
+}
+
+// newTestSRS creates a SourceReaderService with pluggable mocks and overrides
+// finalityChecker with a fake one that tests can control.
+//
+// NOTE: tests can still mutate private fields (like lastProcessedBlock) since
+// they live in the same package.
+func newTestSRS(
+	t *testing.T,
+	chainSelector protocol.ChainSelector,
+	reader *protocol_mocks.MockSourceReader,
+	chainStatusMgr protocol.ChainStatusManager,
+	curseDetector *ccv_common.MockCurseCheckerService,
+	pollInterval time.Duration,
+	finalityCheckInterval time.Duration,
+) (*SourceReaderService, *fakeFinalityChecker) {
+	t.Helper()
+
+	lggr := logger.Test(t)
+
+	srs, err := NewSourceReaderService(
+		reader,
+		chainSelector,
+		chainStatusMgr,
+		lggr,
+		pollInterval,
+		curseDetector,
+		finalityCheckInterval,
+	)
+	require.NoError(t, err)
+
+	// Override the internal finalityChecker with a controllable fake.
+	fc := &fakeFinalityChecker{}
+	srs.finalityChecker = fc
+
+	return srs, fc
 }

@@ -14,7 +14,7 @@ import (
 const MaxFinalityBlocksStored = 1000
 
 // FinalityViolationCheckerService validates that finalized blocks never change their hash.
-// This is a synchronous, pull-based service driven by the caller (SourceReaderService2).
+// This is a synchronous, pull-based service driven by the caller
 //
 // Architecture:
 // - Caller invokes UpdateFinalized() on each poll cycle with the new finalized block number
@@ -31,7 +31,6 @@ const MaxFinalityBlocksStored = 1000
 // Storage:
 // - Stores finalized block headers in a map keyed by block number
 // - Only stores blocks that are finalized (no unfinalized blocks)
-// - No trimming needed since finalized blocks should never change
 //
 // Thread-safety:
 // - All methods are protected by a mutex
