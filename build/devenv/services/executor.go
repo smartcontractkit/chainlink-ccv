@@ -43,6 +43,9 @@ const (
 //go:embed executor.template.toml
 var executorConfigTemplate string
 
+//go:embed blockchaininfos.template.toml
+var blockchainInfosTemplate string
+
 type ExecutorInput struct {
 	Mode              Mode              `toml:"mode"`
 	Out               *ExecutorOutput   `toml:"-"`
@@ -60,10 +63,6 @@ type ExecutorInput struct {
 	IndexerAddress    string            `toml:"indexer_address"`
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the executor config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
-	// Maps to blockchain_infos in the executor config toml.
-	// NOTE: this should be removed from the executor app config toml and into another config file
-	// that is specifically for standalone mode executors.
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 
 	// Only used in standalone mode.
 	TransmitterPrivateKey string `toml:"transmitter_private_key"`
@@ -76,6 +75,8 @@ type ExecutorOutput struct {
 	UseCache        bool   `toml:"use_cache"`
 }
 
+// GenerateJobSpec generates a Chainlink job spec for the executor.
+// This is used for Chainlink node deployments and does NOT include blockchain infos.
 func (v *ExecutorInput) GenerateJobSpec() (executorJobSpec string, err error) {
 	tomlConfigBytes, err := v.GenerateConfig()
 	if err != nil {
@@ -92,19 +93,28 @@ executorConfig = """
 	), nil
 }
 
-func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) {
-	var config executor.ConfigWithBlockchainInfo
-	if _, err := toml.Decode(executorConfigTemplate, &config); err != nil {
-		return nil, fmt.Errorf("failed to decode executor config template: %w", err)
+// buildExecutorConfiguration builds the core executor configuration from ExecutorInput.
+// This is shared logic used by both GenerateConfig and GenerateConfigWithBlockchainInfos.
+func (v *ExecutorInput) buildExecutorConfiguration(config *executor.Configuration) error {
+	// Decode template into base config
+	if _, err := toml.Decode(executorConfigTemplate, config); err != nil {
+		return fmt.Errorf("failed to decode executor config template: %w", err)
 	}
+
+	// Validate inputs
+	if v.ExecutorID == "" {
+		return errors.New("invalid ExecutorID, should be non-empty")
+	}
+	if len(v.ExecutorPool) == 0 {
+		return errors.New("invalid ExecutorPool, should be non-empty")
+	}
+	if !slices.Contains(v.ExecutorPool, v.ExecutorID) {
+		return fmt.Errorf("invalid ExecutorID %s, should be in ExecutorPool %+v", v.ExecutorID, v.ExecutorPool)
+	}
+
+	// Build chain configuration
 	config.ChainConfiguration = make(map[string]executor.ChainConfiguration, len(v.OfframpAddresses))
 	for chainSelector, address := range v.OfframpAddresses {
-		if len(v.ExecutorPool) == 0 {
-			return nil, errors.New("invalid ExecutorPool, should be non-empty")
-		}
-		if !slices.Contains(v.ExecutorPool, v.ExecutorID) {
-			return nil, fmt.Errorf("invalid ExecutorID %s, should be in ExecutorPool %+v", v.ExecutorID, v.ExecutorPool)
-		}
 		config.ChainConfiguration[strconv.FormatUint(chainSelector, 10)] = executor.ChainConfiguration{
 			OffRampAddress:         address,
 			RmnAddress:             v.RmnAddresses[chainSelector],
@@ -114,26 +124,54 @@ func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) 
 		}
 	}
 
-	if v.ExecutorID == "" {
-		return nil, errors.New("invalid ExecutorID, should be non-empty")
-	}
+	// Set executor ID
+	config.ExecutorID = v.ExecutorID
 
-	// The set value should be usable for devenv setups, only override if a different value is provided.
+	// Apply optional overrides from input
 	if v.IndexerAddress != "" {
 		config.IndexerAddress = v.IndexerAddress
 	}
 	if v.MonitoringOtelExporterHTTPEndpoint != "" {
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = v.MonitoringOtelExporterHTTPEndpoint
 	}
-	if len(v.BlockchainInfos) > 0 {
-		config.BlockchainInfos = v.BlockchainInfos
-	}
 
-	config.ExecutorID = v.ExecutorID
+	return nil
+}
+
+// GenerateConfig generates the executor TOML configuration for Chainlink node deployments.
+// This does NOT include blockchain infos - use GenerateConfigWithBlockchainInfos for standalone mode.
+func (v *ExecutorInput) GenerateConfig() (executorTomlConfig []byte, err error) {
+	var config executor.Configuration
+	if err := v.buildExecutorConfiguration(&config); err != nil {
+		return nil, err
+	}
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
+		return nil, fmt.Errorf("failed to marshal executor config to TOML: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// GenerateConfigWithBlockchainInfos generates the executor TOML configuration for standalone deployments.
+// This includes blockchain infos which contain RPC node information.
+func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo) (executorTomlConfig []byte, err error) {
+	// Build base configuration
+	var baseConfig executor.Configuration
+	if err := v.buildExecutorConfiguration(&baseConfig); err != nil {
+		return nil, err
+	}
+
+	// Wrap in ConfigWithBlockchainInfo and add blockchain infos
+	config := executor.ConfigWithBlockchainInfo{
+		Configuration:   baseConfig,
+		BlockchainInfos: blockchainInfos,
+	}
+
+	cfg, err := toml.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal executor config to TOML: %w", err)
 	}
 
 	return cfg, nil
@@ -146,6 +184,24 @@ func (v *ExecutorInput) GetTransmitterAddress() protocol.UnknownAddress {
 		return protocol.UnknownAddress{}
 	}
 	return protocol.UnknownAddress(crypto.PubkeyToAddress(pk.PublicKey).Bytes())
+}
+
+type BlockchainConfig struct {
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+}
+
+// GenerateBlockchainInfosFromInput creates blockchain infos from ExecutorInput.
+// This is only used for standalone mode executors where the executor manages its own RPC connections.
+// The blockchain infos contain dummy RPC information which will be replaced with actual RPC endpoints
+// when the standalone executor container is configured with real blockchain node URLs.
+func GenerateBlockchainInfosFromInput() (map[string]*protocol.BlockchainInfo, error) {
+	chainConfig := BlockchainConfig{}
+	// Decode template into base config
+	if _, err := toml.Decode(blockchainInfosTemplate, &chainConfig); err != nil {
+		return nil, fmt.Errorf("failed to decode blockchain infos template: %w", err)
+	}
+
+	return chainConfig.BlockchainInfos, nil
 }
 
 func ApplyExecutorDefaults(in *ExecutorInput) {
@@ -177,8 +233,14 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 		return in.Out, err
 	}
 
-	// Generate and store config file.
-	config, err := in.GenerateConfig()
+	// Generate blockchain infos for standalone mode
+	blockchainInfos, err := GenerateBlockchainInfosFromInput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
+	}
+
+	// Generate and store config file with blockchain infos for standalone mode
+	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate config for executor: %w", err)
 	}
