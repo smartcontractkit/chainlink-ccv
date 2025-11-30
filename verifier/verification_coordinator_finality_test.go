@@ -74,7 +74,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	}
 
 	// Send message
-	setup.verificationTaskCh <- finalizedEvent
+	setup.sentEventsCh <- finalizedEvent
 	// Wait for processing (poll interval is 100ms, add some buffer)
 	time.Sleep(200 * time.Millisecond)
 
@@ -136,7 +136,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 	}
 
 	// Send message
-	setup.verificationTaskCh <- readyEvent
+	setup.sentEventsCh <- readyEvent
 	// Wait for processing (poll interval is 100ms, add some buffer)
 	time.Sleep(200 * time.Millisecond)
 
@@ -199,7 +199,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Send message with timeout
 	select {
-	case setup.verificationTaskCh <- nonFinalizedEvent:
+	case setup.sentEventsCh <- nonFinalizedEvent:
 		// Successfully sent
 	case <-ctx.Done():
 		t.Fatal("Timeout sending event to verification channel")
@@ -215,6 +215,14 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Update the shared variable to simulate finalized block advancing
 	setup.setFinalizedBlock(uint64(nonFinalizedBlock))
+	// TODO: This is a hack because the mock doesn't keep on returning the event if it's within range once it's sent to channel.
+	//  This is purely a mock limitation.
+	select {
+	case setup.sentEventsCh <- nonFinalizedEvent:
+		// Successfully sent
+	case <-ctx.Done():
+		t.Fatal("Timeout sending event to verification channel")
+	}
 
 	// Poll until message is processed or timeout
 	deadline := time.Now().Add(2 * time.Second)
@@ -237,7 +245,7 @@ type coordinatorTestSetup struct {
 	coordinator           *Coordinator
 	mockSourceReader      *protocol_mocks.MockSourceReader
 	mockVerifier          *TestVerifier
-	verificationTaskCh    chan protocol.MessageSentEvent
+	sentEventsCh          chan protocol.MessageSentEvent
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
@@ -322,7 +330,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		coordinator:           coordinator,
 		mockSourceReader:      mockSourceReader,
 		mockVerifier:          mockVerifier,
-		verificationTaskCh:    verificationTaskCh,
+		sentEventsCh:          verificationTaskCh,
 		currentFinalizedBlock: currentFinalizedBlock,
 		finalizedBlockMu:      finalizedBlockMu,
 	}
