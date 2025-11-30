@@ -185,7 +185,8 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 	return vc.StartOnce("Coordinator", func() error {
 		vc.lggr.Infow("Starting verifier coordinator")
 
-		ctx, vc.cancel = context.WithCancel(ctx)
+		c, cancel := context.WithCancel(context.Background())
+		vc.cancel = cancel
 
 		statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
 		if vc.chainStatusManager != nil {
@@ -284,7 +285,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		vc.backgroundWg.Add(1)
 		go func() {
 			defer vc.backgroundWg.Done()
-			vc.ccvDataLoop(ctx)
+			vc.ccvDataLoop(c)
 		}()
 
 		//   - per-chain ready tasks loops
@@ -292,7 +293,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			vc.backgroundWg.Add(1)
 			go func(s *sourceState) {
 				defer vc.backgroundWg.Done()
-				vc.readyTasksLoop(ctx, s)
+				vc.readyTasksLoop(c, s)
 			}(state)
 		}
 
@@ -513,11 +514,6 @@ func (vc *Coordinator) startCurseDetector(
 	if vc.curseDetector != nil {
 		vc.lggr.Infow("Curse detector already injected; skipping creation from RMN readers")
 		return nil
-	}
-
-	cursePollInterval := vc.config.CursePollInterval
-	if cursePollInterval <= 0 {
-		cursePollInterval = 2 * time.Second
 	}
 
 	// if a curse detector service is already set, use it; otherwise create a new one

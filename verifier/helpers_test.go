@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
@@ -140,29 +141,6 @@ func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerification
 const (
 	defaultDestChain = protocol.ChainSelector(100)
 )
-
-// mockReorgDetector is a simple mock that returns a channel we can control in tests.
-type mockReorgDetector struct {
-	statusCh  chan protocol.ChainStatus
-	closeOnce sync.Once
-}
-
-func newMockReorgDetector() *mockReorgDetector {
-	return &mockReorgDetector{
-		statusCh: make(chan protocol.ChainStatus, 10),
-	}
-}
-
-func (m *mockReorgDetector) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
-	return m.statusCh, nil
-}
-
-func (m *mockReorgDetector) Close() error {
-	m.closeOnce.Do(func() {
-		close(m.statusCh)
-	})
-	return nil
-}
 
 // noopMonitoring is a simple noop monitoring implementation for tests.
 type noopMonitoring struct{}

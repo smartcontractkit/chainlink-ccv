@@ -54,7 +54,7 @@ type SourceReaderService struct {
 	lastChainStatusBlock *big.Int
 }
 
-// NewSourceReaderService Constructor: same style as SRS
+// NewSourceReaderService Constructor: same style as SRS.
 func NewSourceReaderService(
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
@@ -63,7 +63,6 @@ func NewSourceReaderService(
 	pollInterval time.Duration,
 	curseDetector common.CurseCheckerService,
 ) (*SourceReaderService, error) {
-
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
 	}
@@ -179,7 +178,7 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 			return
 		case <-ticker.C:
 			if !r.disabled.Load() {
-				//TODO: consider querying latest and finalized here and sending them to processEventCycle and sendReadyMessages
+				// TODO: consider querying latest and finalized here and sending them to processEventCycle and sendReadyMessages
 				r.processEventCycle(ctx)
 				r.sendReadyMessages(ctx)
 			}
@@ -208,11 +207,11 @@ func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol
 	}
 
 	// TODO: Keep it or not?
-	//if latest.Number <= r.lastProcessedBlock.Uint64() {
+	// if latest.Number <= r.lastProcessedBlock.Uint64() {
 	//	r.logger.Debugw("No new blocks to process",
 	//		"lastProcessedBlock", r.lastProcessedBlock.String())
 	//	return false, finalized
-	//}
+	// }
 
 	return true, finalized
 }
@@ -625,7 +624,6 @@ func (r *SourceReaderService) handleFinalityViolation(ctx context.Context) {
 			Disabled:             true,
 		},
 	})
-
 	if err != nil {
 		r.logger.Errorw("Failed to write disabled chainStatus after finality violation",
 			"error", err,

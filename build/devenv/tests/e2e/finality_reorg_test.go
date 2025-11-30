@@ -8,8 +8,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 	"github.com/stretchr/testify/require"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"

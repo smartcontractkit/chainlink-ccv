@@ -34,7 +34,7 @@ const MaxFinalityBlocksStored = 1000
 //
 // Thread-safety:
 // - All methods are protected by a mutex
-// - Safe for concurrent calls from multiple goroutines
+// - Safe for concurrent calls from multiple goroutines.
 type FinalityViolationCheckerService struct {
 	mu sync.RWMutex
 

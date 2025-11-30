@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // MockSourceReaderSetup contains a mock source Reader and its Channel.
