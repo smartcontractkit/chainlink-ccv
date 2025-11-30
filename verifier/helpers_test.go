@@ -330,44 +330,6 @@ func createTestMessageSentEvents(
 	return events
 }
 
-type fakeFinalityChecker struct {
-	mu          sync.Mutex
-	updates     []uint64
-	updateErr   error
-	violated    bool
-	violatedNow bool
-}
-
-func (f *fakeFinalityChecker) Reset() {
-
-}
-
-func (f *fakeFinalityChecker) UpdateFinalized(_ context.Context, n uint64) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.updates = append(f.updates, n)
-	// If violatedNow is true, flip violated to true once we see an update.
-	if f.violatedNow {
-		f.violated = true
-	}
-	return f.updateErr
-}
-
-func (f *fakeFinalityChecker) IsFinalityViolated() bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.violated
-}
-
-func (f *fakeFinalityChecker) lastUpdate() (uint64, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.updates) == 0 {
-		return 0, false
-	}
-	return f.updates[len(f.updates)-1], true
-}
-
 func newTestSRS(
 	t *testing.T,
 	chainSelector protocol.ChainSelector,
@@ -375,7 +337,7 @@ func newTestSRS(
 	chainStatusMgr protocol.ChainStatusManager,
 	curseDetector *ccv_common.MockCurseCheckerService,
 	pollInterval time.Duration,
-) (*SourceReaderService, *fakeFinalityChecker) {
+) (*SourceReaderService, *protocol_mocks.MockFinalityViolationChecker) {
 	t.Helper()
 
 	lggr := logger.Test(t)
@@ -390,9 +352,11 @@ func newTestSRS(
 	)
 	require.NoError(t, err)
 
-	// Override the internal finalityChecker with a controllable fake.
-	fc := &fakeFinalityChecker{}
-	srs.finalityChecker = fc
+	// Override the internal finalityChecker with a mock.
+	mockFC := protocol_mocks.NewMockFinalityViolationChecker(t)
+	srs.finalityChecker = mockFC
+	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
-	return srs, fc
+	return srs, mockFC
 }

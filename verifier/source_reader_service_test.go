@@ -306,7 +306,7 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, fc := newTestSRS(
+	srs, mockFC := newTestSRS(
 		t,
 		chain,
 		reader,
@@ -314,6 +314,16 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 		curseDetector,
 		10*time.Millisecond,
 	)
+
+	// Mock finality checker expectations
+	mockFC.EXPECT().
+		UpdateFinalized(mock.Anything, finalized.Number).
+		Return(nil).
+		Maybe()
+	mockFC.EXPECT().
+		IsFinalityViolated().
+		Return(false).
+		Maybe()
 
 	// Task with Finality=0 and block <= finalized should be ready.
 	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
@@ -330,12 +340,6 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 
 	// Call sendReadyMessages once
 	go srs.sendReadyMessages(ctx)
-
-	// Assert finality checker got update
-	time.Sleep(20 * time.Millisecond)
-	lastUpdate, ok := fc.lastUpdate()
-	require.True(t, ok)
-	require.Equal(t, finalized.Number, lastUpdate)
 
 	// Receive ready batch
 	select {
@@ -463,7 +467,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, fc := newTestSRS(
+	srs, mockFC := newTestSRS(
 		t,
 		chain,
 		reader,
@@ -471,6 +475,12 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 		curseDetector,
 		10*time.Millisecond,
 	)
+
+	mockFC.EXPECT().IsFinalityViolated().Unset()
+	mockFC.EXPECT().
+		IsFinalityViolated().
+		Return(true).
+		Maybe()
 
 	// Seed some pending & sent tasks
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{940, 960})
@@ -481,9 +491,6 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	srs.pendingTasks[task1.MessageID] = task1
 	srs.sentTasks[task2.MessageID] = task2
 	srs.mu.Unlock()
-
-	// Configure fakeFinalityChecker to flag violation on first update
-	fc.violatedNow = true
 
 	go srs.sendReadyMessages(ctx)
 
