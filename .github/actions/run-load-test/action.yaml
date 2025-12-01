@@ -20,7 +20,12 @@ inputs:
   env_name:
     description: 'Environment name for CCV'
     required: false
-    default: 'env-cl-16-ci'
+    default: 'env-cl-16-ci.toml'
+  env_name_out:
+    description: 'Environment name for CCV'
+    required: false
+    default: 'env-cl-16-ci-out.toml'
+
 
 
 runs:
@@ -86,7 +91,7 @@ runs:
         JD_IMAGE: ${{ inputs.jd-image }}
       run: |
         cd cmd/ccv && go install . && cd -
-        ccv u ${{ inputs.env_name }}.toml && ccv obs up
+        ccv u ${{ inputs.env_name }} && ccv obs up
 
     - name: Run load tests
       id: load_test
@@ -94,7 +99,7 @@ runs:
       working-directory: build/devenv/tests/e2e
       run: |
         set -o pipefail
-        LOAD_TEST_OUT_FILE=../../${{ inputs.env_name }}-out.toml go test -v -timeout ${{ inputs.timeout }} -count=1 -run 'TestE2ELoad/${{ inputs.subtest }}'
+        LOAD_TEST_OUT_FILE=../../${{ inputs.env_name_out }} go test -v -timeout ${{ inputs.timeout }} -count=1 -run 'TestE2ELoad/${{ inputs.subtest }}'
       continue-on-error: true
 
     - name: Upload Logs

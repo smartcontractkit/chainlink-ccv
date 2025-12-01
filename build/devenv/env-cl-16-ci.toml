@@ -51,37 +51,37 @@ cl_nodes_funding_link = 50
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
-      docker_ctx = "../../chainlink"
-      docker_file = "plugins/chainlink.Dockerfile"
-
+      image = "docker.io/library/local:latest"
+    
     [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
-      docker_ctx = "../../chainlink"
-      docker_file = "plugins/chainlink.Dockerfile"
-
+      image = "docker.io/library/local:latest"
+    
     [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
-      docker_ctx = "../../chainlink"
-      docker_file = "plugins/chainlink.Dockerfile"
-
+      image = "docker.io/library/local:latest"
+    
     [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
-      docker_ctx = "../../chainlink"
-      docker_file = "plugins/chainlink.Dockerfile"
-
+      image = "docker.io/library/local:latest"
+    
     [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
 [[nodesets]]
@@ -98,37 +98,37 @@ cl_nodes_funding_link = 50
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
-      docker_ctx = "../../chainlink"
-      docker_file = "plugins/chainlink.Dockerfile"
-
+      image = "docker.io/library/local:latest"
+    
     [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
-      docker_ctx = "../../chainlink"
-      docker_file = "plugins/chainlink.Dockerfile"
-
+      image = "docker.io/library/local:latest"
+    
     [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
-      docker_ctx = "../../chainlink"
-      docker_file = "plugins/chainlink.Dockerfile"
-
+      image = "docker.io/library/local:latest"
+    
     [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
-      docker_ctx = "../../chainlink"
-      docker_file = "plugins/chainlink.Dockerfile"
-
+      image = "docker.io/library/local:latest"
+    
     [nodesets.node_specs.node.env_vars]
+      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
 [[nodesets]]
@@ -150,6 +150,7 @@ cl_nodes_funding_link = 50
     [nodesets.node_specs.node.env_vars]
       # XXX: this is required for the integration to work
       CL_EVM_CMD=""
+
   [[nodesets.node_specs]]
 
     [nodesets.node_specs.node]
