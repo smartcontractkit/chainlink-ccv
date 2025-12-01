@@ -568,3 +568,176 @@ func BenchmarkConcurrentInserts(b *testing.B) {
 		}
 	})
 }
+
+// Discovery state tests
+
+func TestCreateDiscoveryState(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	startingSequenceNumber := 10
+
+	err := storage.CreateDiscoveryState(ctx, TestDiscoveryLocation, startingSequenceNumber)
+	require.NoError(t, err)
+
+	// Verify state was created
+	sequenceNumber, err := storage.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, startingSequenceNumber, sequenceNumber)
+}
+
+func TestCreateDiscoveryStateIdempotent(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	startingSequenceNumber := 10
+
+	// Create first time
+	err := storage.CreateDiscoveryState(ctx, TestDiscoveryLocation, startingSequenceNumber)
+	require.NoError(t, err)
+
+	// Try to create again (should be idempotent)
+	err = storage.CreateDiscoveryState(ctx, TestDiscoveryLocation, 20)
+	require.NoError(t, err)
+
+	// Verify original value is still there (idempotent behavior)
+	sequenceNumber, err := storage.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, startingSequenceNumber, sequenceNumber)
+}
+
+func TestGetDiscoverySequenceNumber(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	sequenceNumber := 42
+
+	// Create state first
+	err := storage.CreateDiscoveryState(ctx, TestDiscoveryLocation, sequenceNumber)
+	require.NoError(t, err)
+
+	// Retrieve it
+	retrieved, err := storage.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, sequenceNumber, retrieved)
+}
+
+func TestGetDiscoverySequenceNumberNotFound(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	TestDiscoveryLocation := "non-existent-location"
+	_, err := storage.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to find discovery sequence number")
+}
+
+func TestUpdateDiscoverySequenceNumber(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	initialSequenceNumber := 10
+	newSequenceNumber := 25
+
+	// Create state first
+	err := storage.CreateDiscoveryState(ctx, TestDiscoveryLocation, initialSequenceNumber)
+	require.NoError(t, err)
+
+	// Update sequence number
+	err = storage.UpdateDiscoverySequenceNumber(ctx, TestDiscoveryLocation, newSequenceNumber)
+	require.NoError(t, err)
+
+	// Verify update
+	sequenceNumber, err := storage.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, newSequenceNumber, sequenceNumber)
+}
+
+func TestUpdateDiscoverySequenceNumberNotFound(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	err := storage.UpdateDiscoverySequenceNumber(ctx, "non-existent-location", 100)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "discovery record not found")
+}
+
+func TestDiscoveryStateMultipleLocations(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	// Create multiple discovery states
+	location1 := "location-1"
+	location2 := "location-2"
+	location3 := "location-3"
+
+	err := storage.CreateDiscoveryState(ctx, location1, 10)
+	require.NoError(t, err)
+
+	err = storage.CreateDiscoveryState(ctx, location2, 20)
+	require.NoError(t, err)
+
+	err = storage.CreateDiscoveryState(ctx, location3, 30)
+	require.NoError(t, err)
+
+	// Verify all can be retrieved independently
+	seq1, err := storage.GetDiscoverySequenceNumber(ctx, location1)
+	require.NoError(t, err)
+	assert.Equal(t, 10, seq1)
+
+	seq2, err := storage.GetDiscoverySequenceNumber(ctx, location2)
+	require.NoError(t, err)
+	assert.Equal(t, 20, seq2)
+
+	seq3, err := storage.GetDiscoverySequenceNumber(ctx, location3)
+	require.NoError(t, err)
+	assert.Equal(t, 30, seq3)
+
+	// Update one independently
+	err = storage.UpdateDiscoverySequenceNumber(ctx, location2, 25)
+	require.NoError(t, err)
+
+	// Verify others are unchanged
+	seq1, err = storage.GetDiscoverySequenceNumber(ctx, location1)
+	require.NoError(t, err)
+	assert.Equal(t, 10, seq1)
+
+	seq2, err = storage.GetDiscoverySequenceNumber(ctx, location2)
+	require.NoError(t, err)
+	assert.Equal(t, 25, seq2)
+
+	seq3, err = storage.GetDiscoverySequenceNumber(ctx, location3)
+	require.NoError(t, err)
+	assert.Equal(t, 30, seq3)
+}
+
+func TestConcurrentDiscoveryStateAccess(t *testing.T) {
+	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
+	ctx := context.Background()
+
+	// Test concurrent creates
+	done := make(chan bool, 10)
+	for i := range 10 {
+		go func(i int) {
+			location := fmt.Sprintf("location-%d", i)
+			err := storage.CreateDiscoveryState(ctx, location, i*10)
+			assert.NoError(t, err)
+			done <- true
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	for range 10 {
+		<-done
+	}
+
+	// Verify all were created
+	for i := range 10 {
+		location := fmt.Sprintf("location-%d", i)
+		seq, err := storage.GetDiscoverySequenceNumber(ctx, location)
+		assert.NoError(t, err)
+		assert.Equal(t, i*10, seq)
+	}
+}

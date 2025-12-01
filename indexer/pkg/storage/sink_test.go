@@ -13,6 +13,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const TestDiscoveryLocation string = "test-location"
+
 // TestStorageSink_ReadFromFirstStorage tests that data is read from the first storage when available.
 func TestStorageSink_ReadFromFirstStorage(t *testing.T) {
 	ctx := context.Background()
@@ -171,4 +173,227 @@ func TestStorageSink_NoStoragesError(t *testing.T) {
 	_, err := NewSink(lggr)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one storage is required")
+}
+
+// Discovery state tests
+
+func TestStorageSink_GetDiscoverySequenceNumberFromFirstStorage(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+
+	// Create two storages
+	memStorage1 := NewInMemoryStorage(lggr, mon)
+	memStorage2 := NewInMemoryStorage(lggr, mon)
+
+	// Create storage sink
+	chain, err := NewSink(lggr, memStorage1, memStorage2)
+	require.NoError(t, err)
+
+	sequenceNumber := 42
+
+	// Create state in first storage only
+	err = memStorage1.CreateDiscoveryState(ctx, TestDiscoveryLocation, sequenceNumber)
+	require.NoError(t, err)
+
+	// Read from chain should return data from first storage
+	result, err := chain.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, sequenceNumber, result)
+}
+
+func TestStorageSink_GetDiscoverySequenceNumberFromSecondStorage(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+
+	// Create two storages
+	memStorage1 := NewInMemoryStorage(lggr, mon)
+	memStorage2 := NewInMemoryStorage(lggr, mon)
+
+	// Create storage sink
+	chain, err := NewSink(lggr, memStorage1, memStorage2)
+	require.NoError(t, err)
+
+	sequenceNumber := 42
+
+	// Create state in second storage only
+	err = memStorage2.CreateDiscoveryState(ctx, TestDiscoveryLocation, sequenceNumber)
+	require.NoError(t, err)
+
+	// Read from chain should find data in second storage
+	result, err := chain.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, sequenceNumber, result)
+}
+
+func TestStorageSink_GetDiscoverySequenceNumberNotFound(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+
+	// Create two storages
+	memStorage1 := NewInMemoryStorage(lggr, mon)
+	memStorage2 := NewInMemoryStorage(lggr, mon)
+
+	// Create storage sink
+	chain, err := NewSink(lggr, memStorage1, memStorage2)
+	require.NoError(t, err)
+
+	// Try to read non-existent discovery state
+	_, err = chain.GetDiscoverySequenceNumber(ctx, "non-existent-location")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to find discovery sequence number")
+}
+
+func TestStorageSink_CreateDiscoveryStateInAllStorages(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+
+	// Create two storages
+	memStorage1 := NewInMemoryStorage(lggr, mon)
+	memStorage2 := NewInMemoryStorage(lggr, mon)
+
+	// Create storage sink
+	chain, err := NewSink(lggr, memStorage1, memStorage2)
+	require.NoError(t, err)
+
+	startingSequenceNumber := 10
+
+	// Create through chain
+	err = chain.CreateDiscoveryState(ctx, TestDiscoveryLocation, startingSequenceNumber)
+	require.NoError(t, err)
+
+	// Verify state exists in both storages
+	seq1, err := memStorage1.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, startingSequenceNumber, seq1)
+
+	seq2, err := memStorage2.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, startingSequenceNumber, seq2)
+}
+
+func TestStorageSink_CreateDiscoveryStateIdempotent(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+
+	// Create two storages
+	memStorage1 := NewInMemoryStorage(lggr, mon)
+	memStorage2 := NewInMemoryStorage(lggr, mon)
+
+	// Create storage sink
+	chain, err := NewSink(lggr, memStorage1, memStorage2)
+	require.NoError(t, err)
+
+	startingSequenceNumber := 10
+
+	// Create first time
+	err = chain.CreateDiscoveryState(ctx, TestDiscoveryLocation, startingSequenceNumber)
+	require.NoError(t, err)
+
+	// Create again (should be idempotent)
+	err = chain.CreateDiscoveryState(ctx, TestDiscoveryLocation, 20)
+	require.NoError(t, err)
+
+	// Verify original value is still there in both storages
+	seq1, err := memStorage1.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, startingSequenceNumber, seq1)
+
+	seq2, err := memStorage2.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, startingSequenceNumber, seq2)
+}
+
+func TestStorageSink_UpdateDiscoverySequenceNumberInAllStorages(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+
+	// Create two storages
+	memStorage1 := NewInMemoryStorage(lggr, mon)
+	memStorage2 := NewInMemoryStorage(lggr, mon)
+
+	// Create storage sink
+	chain, err := NewSink(lggr, memStorage1, memStorage2)
+	require.NoError(t, err)
+
+	initialSequenceNumber := 10
+	newSequenceNumber := 25
+
+	// Create state in both storages first
+	err = memStorage1.CreateDiscoveryState(ctx, TestDiscoveryLocation, initialSequenceNumber)
+	require.NoError(t, err)
+	err = memStorage2.CreateDiscoveryState(ctx, TestDiscoveryLocation, initialSequenceNumber)
+	require.NoError(t, err)
+
+	// Update through chain
+	err = chain.UpdateDiscoverySequenceNumber(ctx, TestDiscoveryLocation, newSequenceNumber)
+	require.NoError(t, err)
+
+	// Verify update in both storages
+	seq1, err := memStorage1.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, newSequenceNumber, seq1)
+
+	seq2, err := memStorage2.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, newSequenceNumber, seq2)
+}
+
+func TestStorageSink_UpdateDiscoverySequenceNumberNotFound(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+
+	// Create two storages
+	memStorage1 := NewInMemoryStorage(lggr, mon)
+	memStorage2 := NewInMemoryStorage(lggr, mon)
+
+	// Create storage sink
+	chain, err := NewSink(lggr, memStorage1, memStorage2)
+	require.NoError(t, err)
+
+	// Try to update non-existent discovery state
+	err = chain.UpdateDiscoverySequenceNumber(ctx, "non-existent-location", 100)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to update discovery sequence number in any storage")
+}
+
+func TestStorageSink_UpdateDiscoverySequenceNumberPartialFailure(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+
+	// Create two storages
+	memStorage1 := NewInMemoryStorage(lggr, mon)
+	memStorage2 := NewInMemoryStorage(lggr, mon)
+
+	// Create storage sink
+	chain, err := NewSink(lggr, memStorage1, memStorage2)
+	require.NoError(t, err)
+
+	initialSequenceNumber := 10
+	newSequenceNumber := 25
+
+	// Create state in first storage only
+	err = memStorage1.CreateDiscoveryState(ctx, TestDiscoveryLocation, initialSequenceNumber)
+	require.NoError(t, err)
+
+	// Update through chain (should fail for second storage but succeed for first)
+	err = chain.UpdateDiscoverySequenceNumber(ctx, TestDiscoveryLocation, newSequenceNumber)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "partial update failure")
+
+	// Verify first storage was updated
+	seq1, err := memStorage1.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	require.NoError(t, err)
+	assert.Equal(t, newSequenceNumber, seq1)
+
+	// Verify second storage doesn't have the state
+	_, err = memStorage2.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
+	assert.Error(t, err)
 }

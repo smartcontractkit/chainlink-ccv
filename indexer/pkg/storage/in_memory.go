@@ -19,6 +19,7 @@ type InMemoryStorage struct {
 	// Storage
 	verifierResultStorage *InMemoryVerifierResultStorage
 	messageStorage        *InMemoryMessageStorage
+	discoveryStateStorage map[string]int // discoveryLocation -> sequenceNumber
 
 	// Eviction configuration
 	ttl         time.Duration // 0 means no TTL-based eviction
@@ -92,10 +93,11 @@ func NewInMemoryStorageWithConfig(lggr logger.Logger, monitoring common.IndexerM
 			bySourceChain: make(map[protocol.ChainSelector][]int),
 			byDestChain:   make(map[protocol.ChainSelector][]int),
 		},
-		ttl:        config.TTL,
-		maxSize:    config.MaxSize,
-		lggr:       lggr,
-		monitoring: monitoring,
+		discoveryStateStorage: make(map[string]int),
+		ttl:                   config.TTL,
+		maxSize:               config.MaxSize,
+		lggr:                  lggr,
+		monitoring:            monitoring,
 	}
 
 	// Start background cleanup goroutine if TTL or MaxSize is enabled
@@ -719,6 +721,53 @@ func (i *InMemoryStorage) intersectMessageTimestampAndChainIndices(startIdx, end
 		}
 	}
 	return candidates
+}
+
+// GetDiscoverySequenceNumber retrieves the discovery sequence number for a given discovery location.
+func (i *InMemoryStorage) GetDiscoverySequenceNumber(ctx context.Context, discoveryLocation string) (int, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	sequenceNumber, exists := i.discoveryStateStorage[discoveryLocation]
+	if !exists {
+		return 0, fmt.Errorf("failed to find discovery sequence number for location: %s", discoveryLocation)
+	}
+
+	return sequenceNumber, nil
+}
+
+// CreateDiscoveryState creates a new discovery state record with the given starting sequence number.
+// If the discovery location already exists, this is a no-op (idempotent behavior).
+func (i *InMemoryStorage) CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error {
+	startInsertMetric := time.Now()
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	// Check if discovery location already exists
+	if _, exists := i.discoveryStateStorage[discoveryLocation]; exists {
+		i.lggr.Debugw("Discovery state already exists, skipping creation", "discoveryLocation", discoveryLocation)
+		i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+		return nil
+	}
+
+	// Create new discovery state
+	i.discoveryStateStorage[discoveryLocation] = startingSequenceNumber
+
+	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+	return nil
+}
+
+// UpdateDiscoverySequenceNumber updates the discovery sequence number for a given discovery location.
+func (i *InMemoryStorage) UpdateDiscoverySequenceNumber(ctx context.Context, discoveryLocation string, sequenceNumber int) error {
+	startUpdateMetric := time.Now()
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	// Update the sequence number
+	i.discoveryStateStorage[discoveryLocation] = sequenceNumber
+
+	i.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
+	return nil
 }
 
 // Close stops the background cleanup goroutine and releases resources.
