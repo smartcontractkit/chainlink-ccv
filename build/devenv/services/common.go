@@ -1,12 +1,16 @@
 package services
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
+	"github.com/BurntSushi/toml"
 	"github.com/testcontainers/testcontainers-go"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type Mode string
@@ -82,4 +86,24 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 		),
 	)
 	return mounts
+}
+
+//go:embed blockchaininfos.template.toml
+var blockchainInfosTemplate string
+
+type BlockchainConfig struct {
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+}
+
+// GetBlockchainInfoFromTemplate creates blockchain infos from ExecutorInput.
+// This is only used for standalone mode executors/verifiers where RPC connections are managed
+// independently and when the standalone container is configured with real blockchain node URLs.
+func GetBlockchainInfoFromTemplate() (map[string]*protocol.BlockchainInfo, error) {
+	chainConfig := BlockchainConfig{}
+	// Decode template into base config
+	if _, err := toml.Decode(blockchainInfosTemplate, &chainConfig); err != nil {
+		return nil, fmt.Errorf("failed to decode blockchain infos template: %w", err)
+	}
+
+	return chainConfig.BlockchainInfos, nil
 }
