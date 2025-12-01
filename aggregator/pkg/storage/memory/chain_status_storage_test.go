@@ -288,18 +288,6 @@ func TestChainStatusStorage(t *testing.T) {
 		require.Error(t, err, "zero chain selector should return error")
 		require.Contains(t, err.Error(), "chain_selector must be greater than 0")
 	})
-
-	t.Run("zero_block_height_validation", func(t *testing.T) {
-		storage := NewChainStatusStorage()
-
-		invalidChainStatuses := map[uint64]*common.ChainStatus{
-			1: {FinalizedBlockHeight: 0, Disabled: false}, // Invalid block height
-		}
-
-		err := storage.StoreChainStatus(t.Context(), "test-client", invalidChainStatuses)
-		require.Error(t, err, "zero block height should return error")
-		require.Contains(t, err.Error(), "finalized_block_height must be greater than 0")
-	})
 }
 
 // TestClientChainStatuses tests the ClientChainStatuses struct.

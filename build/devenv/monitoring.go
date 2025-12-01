@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -164,12 +165,15 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 }
 
 type AggregatorClient struct {
-	logger     zerolog.Logger
-	addr       string
-	grpcClient pb.VerifierResultAPIClient
-	conn       *grpc.ClientConn
+	logger               zerolog.Logger
+	addr                 string
+	aggregatorClient     pb.CommitteeVerifierClient
+	verifierResultClient pb.VerifierResultAPIClient
+	conn                 *grpc.ClientConn
 }
 
+// NewAggregatorClient creates a new AggregatorClient without authentication.
+// For APIs that require authentication (e.g., ReadChainStatus), use NewAuthenticatedAggregatorClient.
 func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient, error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -177,10 +181,37 @@ func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient,
 	}
 
 	return &AggregatorClient{
-		logger:     logger,
-		addr:       addr,
-		grpcClient: pb.NewVerifierResultAPIClient(conn),
-		conn:       conn,
+		logger:               logger,
+		addr:                 addr,
+		aggregatorClient:     pb.NewCommitteeVerifierClient(conn),
+		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
+		conn:                 conn,
+	}, nil
+}
+
+// NewAuthenticatedAggregatorClient creates a new AggregatorClient with HMAC authentication.
+// This is required for APIs like ReadChainStatus that require authentication.
+func NewAuthenticatedAggregatorClient(logger zerolog.Logger, addr, apiKey, secret string) (*AggregatorClient, error) {
+	hmacConfig := &hmacutil.ClientConfig{
+		APIKey: apiKey,
+		Secret: secret,
+	}
+
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(hmacutil.NewClientInterceptor(hmacConfig)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
+	}
+
+	return &AggregatorClient{
+		logger:               logger,
+		addr:                 addr,
+		aggregatorClient:     pb.NewCommitteeVerifierClient(conn),
+		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
+		conn:                 conn,
 	}, nil
 }
 
@@ -223,7 +254,7 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 }
 
 func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, messageID [32]byte) (*pb.VerifierResult, error) {
-	resp, err := a.grpcClient.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
+	resp, err := a.verifierResultClient.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
 		MessageIds: [][]byte{messageID[:]},
 	})
 	if err != nil {
@@ -241,4 +272,29 @@ func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, mess
 	}
 
 	return nil, fmt.Errorf("no verifier result found")
+}
+
+// ReadChainStatus reads the chain statuses for the given chain selectors.
+// If no chain selectors are provided, all chain statuses are returned.
+func (a *AggregatorClient) ReadChainStatus(ctx context.Context, chainSelectors []uint64) (*pb.ReadChainStatusResponse, error) {
+	resp, err := a.aggregatorClient.ReadChainStatus(ctx, &pb.ReadChainStatusRequest{
+		ChainSelectors: chainSelectors,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read chain status: %w", err)
+	}
+	return resp, nil
+}
+
+func (a *AggregatorClient) WriteChainStatus(
+	ctx context.Context,
+	statuses []*pb.ChainStatus,
+) (*pb.WriteChainStatusResponse, error) {
+	resp, err := a.aggregatorClient.WriteChainStatus(ctx, &pb.WriteChainStatusRequest{
+		Statuses: statuses,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to write chain status: %w", err)
+	}
+	return resp, nil
 }

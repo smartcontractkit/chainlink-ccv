@@ -24,7 +24,7 @@ jobs:
         test:
           - name: TestE2ESmoke
             config: env.toml
-          - name: TestSimpleReorgWithMessageOrdering
+          - name: TestE2EReorg
             config: env.toml,env-src-auto-mine.toml
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
