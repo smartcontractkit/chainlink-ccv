@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -14,126 +12,82 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const (
-	DefaultSourceReaderPollInterval = 2 * time.Second
-	DefaultFinalityCheckInterval    = 500 * time.Millisecond
+	DefaultFinalityCheckInterval = 500 * time.Millisecond
 )
 
-// sourceState manages state for a single source chain reader.
+// -----------------------------------------------------------------------------
+// Per-chain state
+// -----------------------------------------------------------------------------
+
 type sourceState struct {
-	reader             *SourceReaderService
-	verificationTaskCh <-chan batcher.BatchResult[VerificationTask]
-	chainSelector      protocol.ChainSelector
-
-	// Reorg detection (per-source)
-	reorgDetector   protocol.ReorgDetector
-	reorgStatusCh   <-chan protocol.ChainStatus // Receive-only, from detector.Start()
-	chainStatus     protocol.ChainStatus
-	chainStatusMu   sync.RWMutex
-	reorgInProgress atomic.Bool // Set during reorg handling to prevent new tasks from being added
-
-	// Per-chain pending task queue
-	pendingTasks []VerificationTask
-	pendingMu    sync.RWMutex
+	readerService *SourceReaderService
+	readyTasksCh  <-chan batcher.BatchResult[VerificationTask]
+	chainSelector protocol.ChainSelector
 }
 
 func (s *sourceState) Close() error {
-	var aggErr error
-	if s.reorgDetector != nil {
-		if err := s.reorgDetector.Close(); err != nil {
-			aggErr = errors.Join(aggErr, fmt.Errorf("failed to close reorg detector: %w", err))
-		}
+	if s == nil {
+		return nil
 	}
-	if err := s.reader.Stop(); err != nil {
-		aggErr = errors.Join(aggErr, fmt.Errorf("failed to stop source reader: %w", err))
+	if s.readerService != nil {
+		return s.readerService.Stop()
 	}
-	return aggErr
+	return nil
 }
 
-// Coordinator orchestrates the verification workflow using the new message format with finality awareness.
+// -----------------------------------------------------------------------------
+// Coordinator
+// -----------------------------------------------------------------------------
+
 type Coordinator struct {
-	sync         services.StateMachine
+	services.StateMachine
+
 	cancel       context.CancelFunc
 	verifyingWg  sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
-	backgroundWg sync.WaitGroup // Tracks background goroutines: run() and readyMessagesCheckingLoop() (must complete after error channels closed)
+	backgroundWg sync.WaitGroup // Tracks background goroutines
 
-	verifier              Verifier
-	storage               protocol.CCVNodeDataWriter
-	lggr                  logger.Logger
-	monitoring            Monitoring
-	messageTracker        MessageLatencyTracker
-	sourceStates          map[protocol.ChainSelector]*sourceState
-	config                CoordinatorConfig
-	finalityCheckInterval time.Duration
+	verifier       Verifier
+	storage        protocol.CCVNodeDataWriter
+	lggr           logger.Logger
+	monitoring     Monitoring
+	messageTracker MessageLatencyTracker
+	config         CoordinatorConfig
 
-	// Storage batching
+	// Per-chain state
+	sourceStates map[protocol.ChainSelector]*sourceState
+
+	// Dependencies
+	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
+	chainStatusManager protocol.ChainStatusManager
+
+	// Curse detector is created & owned by coordinator
+	curseDetector common.CurseCheckerService
+
+	// Storage batching (kept in coordinator as requested)
 	storageBatcher   *batcher.Batcher[protocol.VerifierNodeResult]
 	batchedCCVDataCh chan batcher.BatchResult[protocol.VerifierNodeResult]
-
-	// Configuration
-	chainStatusManager protocol.ChainStatusManager
-	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
-	reorgDetectors     map[protocol.ChainSelector]protocol.ReorgDetector
-	curseDetector      common.CurseCheckerService
 }
 
-// Option is the functional option type for Coordinator.
+// -----------------------------------------------------------------------------
+// Options
+// -----------------------------------------------------------------------------
+
 type Option func(*Coordinator)
 
-// WithChainStatusManager sets the chain status manager.
-func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
-	return func(vc *Coordinator) {
-		vc.chainStatusManager = manager
-	}
-}
-
-// WithSourceReaders sets multiple source readers.
-func WithSourceReaders(sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader) Option {
-	return func(vc *Coordinator) {
-		if vc.sourceReaders == nil {
-			vc.sourceReaders = make(map[protocol.ChainSelector]chainaccess.SourceReader)
-		}
-
-		for chainSelector, reader := range sourceReaders {
-			vc.sourceReaders[chainSelector] = reader
-		}
-	}
-}
-
-// AddSourceReader adds a single source reader to the existing map.
-func AddSourceReader(chainSelector protocol.ChainSelector, sourceReader chainaccess.SourceReader) Option {
-	return WithSourceReaders(map[protocol.ChainSelector]chainaccess.SourceReader{chainSelector: sourceReader})
-}
-
-// WithReorgDetectors sets the reorg detectors for each source chain.
-func WithReorgDetectors(reorgDetectors map[protocol.ChainSelector]protocol.ReorgDetector) Option {
-	return func(vc *Coordinator) {
-		if vc.reorgDetectors == nil {
-			vc.reorgDetectors = make(map[protocol.ChainSelector]protocol.ReorgDetector)
-		}
-		for chainSelector, detector := range reorgDetectors {
-			vc.reorgDetectors[chainSelector] = detector
-		}
-	}
-}
-
-// AddReorgDetector adds a single reorg detector for a specific chain.
-func AddReorgDetector(chainSelector protocol.ChainSelector, detector protocol.ReorgDetector) Option {
-	return WithReorgDetectors(map[protocol.ChainSelector]protocol.ReorgDetector{chainSelector: detector})
-}
-
-// WithCurseDetector sets the curse detector for monitoring RMN Remote contracts.
-// This is primarily for testing - in production, the coordinator creates its own curse detector.
 func WithCurseDetector(detector common.CurseCheckerService) Option {
 	return func(vc *Coordinator) {
 		vc.curseDetector = detector
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Construction / config
+// -----------------------------------------------------------------------------
 
 func NewCoordinator(
 	lggr logger.Logger,
@@ -143,73 +97,105 @@ func NewCoordinator(
 	config CoordinatorConfig,
 	messageTracker MessageLatencyTracker,
 	monitoring Monitoring,
-	finalityCheckInterval time.Duration,
+	chainStatusManager protocol.ChainStatusManager,
 	opts ...Option,
 ) (*Coordinator, error) {
-	c := Coordinator{
-		lggr:                  lggr,
-		verifier:              verifier,
-		sourceReaders:         sourceReaders,
-		storage:               storage,
-		config:                config,
-		messageTracker:        messageTracker,
-		monitoring:            monitoring,
-		sourceStates:          make(map[protocol.ChainSelector]*sourceState),
-		finalityCheckInterval: finalityCheckInterval,
+	vc := &Coordinator{
+		lggr:               lggr,
+		verifier:           verifier,
+		sourceReaders:      sourceReaders,
+		chainStatusManager: chainStatusManager,
+		storage:            storage,
+		config:             config,
+		messageTracker:     messageTracker,
+		monitoring:         monitoring,
+		sourceStates:       make(map[protocol.ChainSelector]*sourceState),
 	}
 
 	for _, opt := range opts {
-		opt(&c)
+		opt(vc)
 	}
 
-	if err := c.validate(); err != nil {
+	if err := vc.validateConfig(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
 	}
+	vc.applyConfigDefaults()
 
-	c.applyConfigDefaults()
-
-	return &c, nil
+	return vc, nil
 }
 
-// FIXME: This method is too long, needs refactoring.
-// Maybe we can split into smaller methods related to initialization of different components?
-// Start begins the verification coordinator processing.
+func (vc *Coordinator) validateConfig() error {
+	if vc.verifier == nil {
+		return errors.New("verifier is required")
+	}
+	if vc.storage == nil {
+		return errors.New("storage is required")
+	}
+	if vc.lggr == nil {
+		return errors.New("logger is required")
+	}
+	if vc.config.SourceConfigs == nil {
+		return errors.New("source configs are required")
+	}
+
+	return nil
+}
+
+// applyConfigDefaults sets default values for config fields that are not set.
+func (vc *Coordinator) applyConfigDefaults() {
+	// Default storage batch size: 50 items
+	if vc.config.StorageBatchSize <= 0 {
+		vc.config.StorageBatchSize = 50
+		if vc.lggr != nil {
+			vc.lggr.Debugw("Using default StorageBatchSize", "value", vc.config.StorageBatchSize)
+		}
+	}
+
+	// Default storage batch timeout: 1 second
+	if vc.config.StorageBatchTimeout <= 0 {
+		vc.config.StorageBatchTimeout = time.Second
+		if vc.lggr != nil {
+			vc.lggr.Debugw("Using default StorageBatchTimeout", "value", vc.config.StorageBatchTimeout)
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Start / Stop
+// -----------------------------------------------------------------------------
+
 func (vc *Coordinator) Start(_ context.Context) error {
-	return vc.sync.StartOnce("Coordinator", func() error {
-		ctx, cancel := context.WithCancel(context.Background())
+	return vc.StartOnce("Coordinator", func() error {
+		vc.lggr.Infow("Starting verifier coordinator")
+
+		c, cancel := context.WithCancel(context.Background())
 		vc.cancel = cancel
 
-		// Check for disabled chains before initialization
 		statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-
 		if vc.chainStatusManager != nil {
-			// Gather all configured chain selectors
 			allSelectors := make([]protocol.ChainSelector, 0, len(vc.sourceReaders))
 			for selector := range vc.sourceReaders {
 				allSelectors = append(allSelectors, selector)
 			}
 
-			// Make single batch call to read all chain statuses
 			var err error
-			statusMap, err = vc.chainStatusManager.ReadChainStatuses(ctx, allSelectors)
+			statusMap, err = vc.chainStatusManager.ReadChainStatuses(c, allSelectors)
 			if err != nil {
 				vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains",
 					"error", err)
 			}
 		}
 
-		// Initialize source states with reorg detection
-		// Also collect RMN curse readers for curse detector
-		rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
-
+		enabledSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 		for chainSelector, sourceReader := range vc.sourceReaders {
 			if sourceReader == nil {
 				continue
 			}
+			vc.lggr.Infow("Chain Status",
+				"chainSelector", chainSelector,
+				"status", statusMap[chainSelector])
 
-			vc.lggr.Infow("Chain Status", "chainSelector", chainSelector, "status", statusMap[chainSelector])
-
-			// Check if chain is disabled
+			// Skip disabled chains
 			if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
 				vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
 					"chain", chainSelector,
@@ -217,143 +203,97 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				continue
 			}
 
-			sourceCfg, ok := vc.config.SourceConfigs[chainSelector]
+			_, ok := vc.config.SourceConfigs[chainSelector]
 			if !ok {
-				vc.lggr.Warnw("skipping source reader: no source config found for chain selector", "chainSelector", chainSelector)
+				vc.lggr.Warnw("No source config for chain selector, skipping",
+					"chainSelector", chainSelector)
 				continue
 			}
 
-			// SourceReader automatically satisfies RMNCurseReader interface
-			rmnReaders[chainSelector] = sourceReader
+			enabledSourceReaders[chainSelector] = sourceReader
+		}
 
-			sourcePollInterval := DefaultSourceReaderPollInterval
-			if sourceCfg.PollInterval > 0 {
-				sourcePollInterval = sourceCfg.PollInterval
-			}
+		if len(enabledSourceReaders) == 0 {
+			return errors.New("no enabled/initialized chain sources, nothing to coordinate")
+		}
 
-			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
+		if err := vc.startCurseDetector(c, enabledSourceReaders); err != nil {
+			return fmt.Errorf("failed to start curse detector: %w", err)
+		}
+
+		for chainSelector := range enabledSourceReaders {
+			sourceReader := enabledSourceReaders[chainSelector]
+			sourceCfg := vc.config.SourceConfigs[chainSelector]
 
 			filter := chainaccess.NewReceiptIssuerFilter(
 				sourceCfg.VerifierAddress,
 				sourceCfg.DefaultExecutorAddress,
 			)
 
-			service := NewSourceReaderService(
+			vc.lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
+			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
+			srs, err := NewSourceReaderService(
 				sourceReader,
 				chainSelector,
 				vc.chainStatusManager,
 				readerLogger,
-				sourcePollInterval,
+				sourceCfg.PollInterval,
+				vc.curseDetector,
 				filter,
 			)
-
-			err := service.Start(ctx)
 			if err != nil {
-				return fmt.Errorf("failed to start source reader for chain %d: %w", chainSelector, err)
-			}
-			// Create source state
-			state := &sourceState{
-				reader:             service,
-				chainSelector:      chainSelector,
-				verificationTaskCh: service.VerificationTaskChannel(),
-			}
-
-			var detector protocol.ReorgDetector
-
-			// Setup ReorgDetector (if provided)
-			d, ok := vc.reorgDetectors[chainSelector]
-			if !ok {
-				// create the detector
-				reorgDetectorConfig := vservices.ReorgDetectorConfig{
-					ChainSelector: chainSelector,
-					PollInterval:  2 * time.Second, // TODO: make configurable
-				}
-
-				d2, err := vservices.NewReorgDetectorService(
-					vc.sourceReaders[chainSelector],
-					reorgDetectorConfig,
-					logger.With(vc.lggr, "component", "ReorgDetector", "chainID", chainSelector),
-				)
-				if err != nil {
-					vc.lggr.Errorw("Failed to create reorg detector", "error", err, "chainID", chainSelector)
-				}
-				detector = d2
-			} else {
-				vc.lggr.Infow("Using existing reorg detector", "chainSelector", chainSelector)
-				detector = d
-			}
-
-			reorgStatusCh, err := detector.Start(ctx)
-			if err != nil {
-				vc.lggr.Errorw("Failed to start reorg detector",
+				vc.lggr.Errorw("Failed to create SourceReaderService",
 					"chainSelector", chainSelector,
 					"error", err)
-				// TODO: Should we make the reorg detector mandatory to the point we stop the
-				// 	reader as I'm doing here?
-				_ = service.Stop()
-			} else {
-				// Store reorg detection components
-				state.reorgDetector = detector
-				state.reorgStatusCh = reorgStatusCh
-
-				vc.lggr.Infow("Reorg detector started successfully",
-					"chainSelector", chainSelector)
-
-				// Spawn processReorgUpdates goroutine
-				vc.backgroundWg.Add(1)
-				go func(s *sourceState) {
-					defer vc.backgroundWg.Done()
-					vc.processReorgUpdates(ctx, s)
-				}(state)
+				continue
 			}
 
+			if err = srs.Start(c); err != nil {
+				vc.lggr.Errorw("Failed to start SourceReaderService",
+					"chainSelector", chainSelector,
+					"error", err)
+				continue
+			}
+
+			state := &sourceState{
+				readerService: srs,
+				readyTasksCh:  srs.ReadyTasksChannel(),
+				chainSelector: chainSelector,
+			}
 			vc.sourceStates[chainSelector] = state
 		}
 
-		// If all chains are disabled, there are no source states and no RMN readers
-		// In this case, we should not start the coordinator as there's nothing to coordinate
-		if len(vc.sourceStates) == 0 {
-			vc.lggr.Warnw("No enabled chains found, coordinator cannot start")
-			return fmt.Errorf("no enabled chains to coordinate")
-		}
-
-		if err := vc.startCurseDetector(ctx, rmnReaders); err != nil {
-			return fmt.Errorf("failed to create and start curse detector: %w", err)
-		}
-
-		// Initialize storage batcher (will automatically flush when ctx is canceled)
-		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
+		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.VerifierNodeResult])
 		vc.storageBatcher = batcher.NewBatcher(
-			ctx,
+			c,
 			vc.config.StorageBatchSize,
 			vc.config.StorageBatchTimeout,
 			vc.batchedCCVDataCh,
 		)
 
-		// Start processing loop and finality checking
 		vc.backgroundWg.Add(1)
 		go func() {
 			defer vc.backgroundWg.Done()
-			vc.run(ctx)
+			vc.ccvDataLoop(c)
 		}()
 
-		vc.backgroundWg.Add(1)
-		go func() {
-			defer vc.backgroundWg.Done()
-			vc.readyMessagesCheckingLoop(ctx)
-		}()
+		//   - per-chain ready tasks loops
+		for _, state := range vc.sourceStates {
+			vc.backgroundWg.Add(1)
+			go func(s *sourceState) {
+				defer vc.backgroundWg.Done()
+				vc.readyTasksLoop(c, s)
+			}(state)
+		}
 
-		vc.lggr.Infow("Coordinator started with finality checking and reorg detection",
-			"coordinatorID", vc.config.VerifierID,
-		)
-
+		vc.lggr.Infow("Coordinator started successfully")
 		return nil
 	})
 }
 
 // Close stops the verification coordinator processing.
 func (vc *Coordinator) Close() error {
-	return vc.sync.StopOnce("Coordinator", func() error {
+	return vc.StopOnce("Coordinator", func() error {
 		// Signal all goroutines to stop processing new work.
 		// This will also trigger the batcher to flush remaining items.
 		vc.cancel()
@@ -368,374 +308,101 @@ func (vc *Coordinator) Close() error {
 			}
 		}
 
-		// Wait for background goroutines (run, readyMessagesCheckingLoop, and processReorgUpdates) to finish.
-		vc.backgroundWg.Wait()
-
-		// Close curse detector
+		// Stop curse detector
 		if vc.curseDetector != nil {
 			if err := vc.curseDetector.Close(); err != nil {
 				vc.lggr.Errorw("Error closing curse detector", "error", err)
 			}
 		}
 
-		// Close reorg detectors & source readers
+		// Stop per-chain pipelines (includes underlying readers and reorg detectors)
 		for chainSelector, state := range vc.sourceStates {
 			if err := state.Close(); err != nil {
-				vc.lggr.Errorw("Error closing detector/sourceReader", "error", err, "chainSelector", chainSelector)
+				vc.lggr.Errorw("Error closing source state",
+					"chainSelector", chainSelector,
+					"error", err)
 			}
 		}
 
-		vc.lggr.Infow("Coordinator stopped")
+		// Wait for background goroutines
+		vc.backgroundWg.Wait()
 
+		vc.lggr.Infow("Verifier coordinator stopped")
 		return nil
 	})
 }
 
-// run is the main processing loop.
-func (vc *Coordinator) run(ctx context.Context) {
-	// Start goroutines for each source state
-	var wg sync.WaitGroup
-	for _, state := range vc.sourceStates {
-		wg.Add(1)
-		go vc.processSourceMessages(ctx, &wg, state)
-	}
+// -----------------------------------------------------------------------------
+// Loops
+// -----------------------------------------------------------------------------
 
-	// Main loop - process batched storage writes
+// readyTasksLoop consumes ready tasks from a chain's SRS2 and sends them for verification.
+func (vc *Coordinator) readyTasksLoop(ctx context.Context, state *sourceState) {
 	for {
 		select {
 		case <-ctx.Done():
-			vc.lggr.Infow("Context cancelled, stopping coordinator")
-			wg.Wait()
 			return
-		case ccvDataBatch, ok := <-vc.batchedCCVDataCh:
+		case batch, ok := <-state.readyTasksCh:
+			if !ok {
+				vc.lggr.Infow("ReadyTasksChannel closed; exiting readyTasksLoop",
+					"chain", state.chainSelector)
+				return
+			}
+			if batch.Error != nil {
+				vc.lggr.Errorw("Error batch received from SourceReaderService",
+					"chain", state.chainSelector,
+					"error", batch.Error)
+				continue
+			}
+			vc.processReadyTasks(ctx, batch.Items)
+		}
+	}
+}
+
+// ccvDataLoop consumes results from the storage batcher (if you need to log errors, etc).
+func (vc *Coordinator) ccvDataLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case batch, ok := <-vc.batchedCCVDataCh:
 			if !ok {
 				vc.lggr.Infow("Storage batcher channel closed")
-				wg.Wait()
+				vc.verifyingWg.Wait()
 				return
 			}
 
 			// Handle batch-level errors from batcher (should be rare)
-			if ccvDataBatch.Error != nil {
+			if batch.Error != nil {
 				vc.lggr.Errorw("Batch-level error from CCVData batcher",
-					"error", ccvDataBatch.Error,
+					"error", batch.Error,
 					"errorType", "batcher_failure")
 				continue
 			}
 
-			// Skip empty batches
-			if len(ccvDataBatch.Items) == 0 {
+			if len(batch.Items) == 0 {
 				vc.lggr.Debugw("Received empty CCVData batch")
 				continue
 			}
 
+			// TODO: Run in Go Routine
 			// Write batch of CCVData to offchain storage
-			if err := vc.storage.WriteCCVNodeData(ctx, ccvDataBatch.Items); err == nil {
+			if err := vc.storage.WriteCCVNodeData(ctx, batch.Items); err == nil {
 				vc.lggr.Infow("CCV data batch stored successfully",
-					"batchSize", len(ccvDataBatch.Items),
+					"batchSize", len(batch.Items),
 				)
-				vc.messageTracker.TrackMessageLatencies(ctx, ccvDataBatch.Items)
+				vc.messageTracker.TrackMessageLatencies(ctx, batch.Items)
 			}
 		}
 	}
 }
 
-// processSourceMessages handles message processing for a single source state.
-func (vc *Coordinator) processSourceMessages(ctx context.Context, wg *sync.WaitGroup, state *sourceState) {
-	defer wg.Done()
-	chainSelector := state.chainSelector
+// -----------------------------------------------------------------------------
+// Core verification flow
+// -----------------------------------------------------------------------------
 
-	vc.lggr.Debugw("Starting source message processor", "chainSelector", chainSelector)
-	defer vc.lggr.Debugw("Source message processor stopped", "chainSelector", chainSelector)
-
-	for {
-		select {
-		case <-ctx.Done():
-			vc.lggr.Debugw("Source message processor stopped due to context cancellation", "chainSelector", chainSelector)
-			return
-
-		case taskBatch, ok := <-state.verificationTaskCh:
-			if !ok {
-				vc.lggr.Debugw("Message channel closed for source", "chainSelector", chainSelector)
-				return
-			}
-
-			// Handle batch-level errors (RPC failures, log query errors, etc.)
-			if taskBatch.Error != nil {
-				vc.lggr.Errorw("Batch-level error from source reader - skipping cycle",
-					"chainSelector", chainSelector,
-					"error", taskBatch.Error,
-					"errorType", "source_read_failure")
-				// Batch-level errors indicate infrastructure/chain issues
-				// The source reader will retry on next cycle
-				continue
-			}
-
-			// Skip empty batches
-			if len(taskBatch.Items) == 0 {
-				vc.lggr.Debugw("Received empty batch from source reader",
-					"chainSelector", chainSelector)
-				continue
-			}
-
-			// Drop tasks if reorg is in progress for this chain
-			if state.reorgInProgress.Load() {
-				vc.lggr.Warnw("Dropping task batch due to ongoing reorg",
-					"chainSelector", chainSelector,
-					"droppedCount", len(taskBatch.Items))
-				continue
-			}
-
-			// Process all tasks in the batch
-			vc.lggr.Debugw("Received verification task batch",
-				"chainSelector", chainSelector,
-				"batchSize", len(taskBatch.Items))
-
-			for _, verificationTask := range taskBatch.Items {
-				// Add to pending queue for finality checking
-				vc.addToPendingQueue(ctx, verificationTask, state)
-			}
-		}
-	}
-}
-
-// applyConfigDefaults sets default values for config fields that are not set.
-func (vc *Coordinator) applyConfigDefaults() {
-	// Default storage batch size: 50 items
-	if vc.config.StorageBatchSize <= 0 {
-		vc.config.StorageBatchSize = 50
-		if vc.lggr != nil {
-			vc.lggr.Debugw("Using default StorageBatchSize", "value", vc.config.StorageBatchSize)
-		}
-	}
-
-	// Default storage batch timeout: 100ms
-	if vc.config.StorageBatchTimeout <= 0 {
-		vc.config.StorageBatchTimeout = 100 * time.Millisecond
-		if vc.lggr != nil {
-			vc.lggr.Debugw("Using default StorageBatchTimeout", "value", vc.config.StorageBatchTimeout)
-		}
-	}
-}
-
-// validate checks that all required components are configured.
-func (vc *Coordinator) validate() error {
-	var errs []error
-	appendIfNil := func(field any, fieldName string) {
-		if field == nil {
-			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
-		}
-	}
-
-	appendIfNil(vc.verifier, "verifier")
-	appendIfNil(vc.storage, "storage")
-	appendIfNil(vc.lggr, "logger")
-	appendIfNil(vc.monitoring, "monitoring")
-	// chain statusManager is optional, not required
-
-	if len(vc.sourceReaders) == 0 {
-		errs = append(errs, fmt.Errorf("at least one source reader is required"))
-	}
-
-	// Validate that all configured sources have corresponding readers
-	for chainSelector := range vc.config.SourceConfigs {
-		if _, exists := vc.sourceReaders[chainSelector]; !exists {
-			errs = append(errs, fmt.Errorf("source reader not found for chain selector %d", chainSelector))
-		}
-	}
-
-	if vc.config.VerifierID == "" {
-		errs = append(errs, fmt.Errorf("coordinator ID cannot be empty"))
-	}
-
-	return errors.Join(errs...)
-}
-
-// HealthReport returns a full health report of the coordinator and its dependencies.
-func (vc *Coordinator) HealthReport() map[string]error {
-	report := make(map[string]error)
-	report[vc.Name()] = vc.sync.Ready()
-	return report
-}
-
-// Name returns the fully qualified name of the coordinator.
-func (vc *Coordinator) Name() string {
-	return fmt.Sprintf("verifier.Coordinator[%s]", vc.config.VerifierID)
-}
-
-// addToPendingQueue adds a verification task to the per-chain pending queue for finality checking.
-func (vc *Coordinator) addToPendingQueue(ctx context.Context, task VerificationTask, state *sourceState) {
-	state.pendingMu.Lock()
-	defer state.pendingMu.Unlock()
-
-	// Double-checked locking: Check if reorg started while we were waiting for lock
-	// The caller already checked reorgInProgress before calling, but reorg may have
-	// started between that check and acquiring this lock
-	if state.reorgInProgress.Load() {
-		vc.lggr.Debugw("Reorg started while acquiring lock, dropping task",
-			"chain", state.chainSelector,
-			"blockNumber", task.BlockNumber)
-		return
-	}
-
-	messageContextLggr := logger.With(
-		vc.lggr,
-		"messageID", task.Message.MustMessageID(),
-		"source", task.Message.SourceChainSelector,
-		"dest", task.Message.DestChainSelector,
-	)
-
-	// Check if lane is cursed (source -> dest)
-	// Use context.TODO() to avoid passing nil context, underlying function does not use it.
-	if vc.curseDetector.IsRemoteChainCursed(
-		ctx,
-		task.Message.SourceChainSelector,
-		task.Message.DestChainSelector,
-	) {
-		messageContextLggr.Warnw("Dropping task - lane is cursed", "blockNumber", task.BlockNumber)
-		return
-	}
-
-	// Set QueuedAt timestamp for finality wait duration tracking
-	task.QueuedAt = time.Now()
-	state.pendingTasks = append(state.pendingTasks, task)
-	vc.messageTracker.MarkMessageAsSeen(&task)
-
-	messageContextLggr.Infow("Message added to finality queue",
-		"blockNumber", task.BlockNumber,
-		"nonce", task.Message.SequenceNumber,
-		"queueSize", len(state.pendingTasks),
-	)
-}
-
-// readyMessagesCheckingLoop runs the finality checking loop for all chains.
-func (vc *Coordinator) readyMessagesCheckingLoop(ctx context.Context) {
-	ticker := time.NewTicker(vc.finalityCheckInterval)
-	defer ticker.Stop()
-
-	vc.lggr.Infow("Starting finality checking loop")
-
-	for {
-		select {
-		case <-ctx.Done():
-			vc.lggr.Infow("Finality checking stopped due to context cancellation")
-			return
-		case <-ticker.C:
-			// Process finality for each chain independently
-			for _, state := range vc.sourceStates {
-				vc.processFinalityQueueForChain(ctx, state)
-			}
-		}
-	}
-}
-
-// processFinalityQueueForChain processes the pending queue for a single chain.
-func (vc *Coordinator) processFinalityQueueForChain(ctx context.Context, state *sourceState) {
-	// Fast path: Skip if reorg is in progress (avoids lock contention)
-	if state.reorgInProgress.Load() {
-		vc.lggr.Debugw("Skipping finality check during reorg",
-			"chain", state.chainSelector)
-		return
-	}
-
-	state.pendingMu.Lock()
-	defer state.pendingMu.Unlock()
-
-	// Double-checked locking: Recheck after acquiring lock to handle TOCTOU race
-	// where reorg completed between first check and lock acquisition
-	if state.reorgInProgress.Load() {
-		vc.lggr.Debugw("Reorg started while acquiring lock, aborting finality check",
-			"chain", state.chainSelector)
-		return
-	}
-
-	if len(state.pendingTasks) == 0 {
-		return
-	}
-
-	chainSelector := state.chainSelector
-
-	// Record queue size metric
-	vc.monitoring.Metrics().
-		With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).
-		RecordFinalityQueueSize(ctx, int64(len(state.pendingTasks)))
-
-	var readyTasks []VerificationTask
-	var remainingTasks []VerificationTask
-
-	// Get latest and finalized block headers for this chain
-	latest, finalized, err := state.reader.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		vc.lggr.Errorw("Failed to get latest and finalized blocks", "error", err, "chain", chainSelector)
-		return
-	}
-	if latest == nil || finalized == nil {
-		vc.lggr.Errorw("Received nil block headers", "chain", chainSelector)
-		return
-	}
-
-	latestBlock := new(big.Int).SetUint64(latest.Number)
-	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
-
-	vc.lggr.Infow("Checking finality queue",
-		"chain", chainSelector,
-		"latestBlock", latestBlock.String(),
-		"latestFinalizedBlock", latestFinalizedBlock.String(),
-		"queueSize", len(state.pendingTasks),
-	)
-
-	// Check finality for each task
-	for _, task := range state.pendingTasks {
-		msgContextLggr := logger.With(
-			vc.lggr,
-			"messageID", task.Message.MustMessageID(),
-			"source", task.Message.SourceChainSelector,
-			"dest", task.Message.DestChainSelector,
-		)
-
-		// Check if lane is cursed before processing finalized tasks
-		if vc.curseDetector.IsRemoteChainCursed(
-			ctx,
-			task.Message.SourceChainSelector,
-			task.Message.DestChainSelector,
-		) {
-			msgContextLggr.Warnw("Dropping finalized task - lane is cursed", "chain", chainSelector)
-			// Drop the task (don't add to remainingTasks or readyTasks)
-			continue
-		}
-
-		ready, err := vc.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock)
-		if err != nil {
-			msgContextLggr.Warnw("Failed to check finality for message",
-				"error", err,
-				"chain", chainSelector)
-			// Keep in queue to retry later
-			remainingTasks = append(remainingTasks, task)
-			continue
-		}
-
-		if ready {
-			readyTasks = append(readyTasks, task)
-		} else {
-			remainingTasks = append(remainingTasks, task)
-		}
-	}
-
-	// Update the pending queue for this chain
-	state.pendingTasks = remainingTasks
-
-	if len(readyTasks) > 0 {
-		vc.lggr.Infow("Processing finalized messages",
-			"chain", chainSelector,
-			"readyCount", len(readyTasks),
-			"remainingCount", len(remainingTasks),
-		)
-
-		// Process ready tasks with verifier
-		vc.processReadyTasks(ctx, readyTasks)
-	}
-}
-
-// processReadyTasks processes a batch of tasks that have met their finality requirements.
+// processReadyTasks receives tasks that are already ready (finality + curses handled
+// by SRS2) and fans out verification per source chain.
 func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []VerificationTask) {
 	if len(tasks) == 0 {
 		return
@@ -743,7 +410,7 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 
 	vc.lggr.Debugw("Processing batch of finalized messages", "batchSize", len(tasks))
 
-	// Record finality wait duration for each task
+	// Metrics: finality wait duration based on QueuedAt set in SRS2
 	for _, task := range tasks {
 		if !task.QueuedAt.IsZero() && vc.monitoring != nil {
 			finalityWaitDuration := time.Since(task.QueuedAt)
@@ -753,45 +420,28 @@ func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []Verificati
 		}
 	}
 
-	// Group tasks by source chain for better logging/organization
+	// Group tasks by source chain
 	tasksByChain := make(map[protocol.ChainSelector][]VerificationTask)
 	for _, task := range tasks {
 		tasksByChain[task.Message.SourceChainSelector] = append(tasksByChain[task.Message.SourceChainSelector], task)
 	}
 
+	// TODO: Can parallelize chains
 	// Process each chain's tasks as a batch
 	for chainSelector, chainTasks := range tasksByChain {
-		state, exists := vc.sourceStates[chainSelector]
-		if !exists {
+		_, ok := vc.sourceStates[chainSelector]
+		if !ok {
 			vc.lggr.Errorw("No source state found for finalized messages",
 				"chainSelector", chainSelector,
 				"taskCount", len(chainTasks))
 			continue
 		}
 
-		// Check chain status before processing
-		state.chainStatusMu.RLock()
-		isFinalityViolated := state.chainStatus.IsFinalityViolated()
-		state.chainStatusMu.RUnlock()
-
-		if isFinalityViolated {
-			vc.lggr.Warnw("Skipping message processing due to finality violation",
-				"chain", chainSelector,
-				"taskCount", len(chainTasks))
-			// TODO: Record dropped messages metric - this method needs to be added to monitoring interface
-			// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).AddMessagesDroppedDueToFinalityViolation(ctx, int64(len(chainTasks)))
-			continue
-		}
-
-		// Process the batch of tasks for this chain
 		vc.verifyingWg.Add(1)
 		go func(tasks []VerificationTask, chain protocol.ChainSelector) {
 			defer vc.verifyingWg.Done()
 
-			// Call verifier and get error batch
 			errorBatch := vc.verifier.VerifyMessages(ctx, tasks, vc.storageBatcher)
-
-			// Process errors from the batch
 			vc.handleVerificationErrors(ctx, errorBatch, chain, len(tasks))
 		}(chainTasks, chainSelector)
 	}
@@ -802,7 +452,7 @@ func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch 
 	if len(errorBatch.Items) <= 0 {
 		vc.lggr.Debugw("Verification batch completed successfully",
 			"chainSelector", chainSelector,
-			"taskCount", totalTasks)
+			"totalTasks", totalTasks)
 		return
 	}
 
@@ -832,227 +482,28 @@ func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch 
 	}
 }
 
-// processReorgUpdates handles reorg status updates from the reorg detector.
-func (vc *Coordinator) processReorgUpdates(ctx context.Context, state *sourceState) {
-	for {
-		select {
-		case <-ctx.Done():
-			vc.lggr.Debugw("Reorg updates processor stopped", "chain", state.chainSelector)
-			return
-		case newStatus := <-state.reorgStatusCh:
-			// Update chain status
-			state.chainStatusMu.Lock()
-			state.chainStatus = newStatus
-			state.chainStatusMu.Unlock()
-
-			// Handle based on type (only receive problem events)
-			switch newStatus.Type {
-			case protocol.ReorgTypeNormal:
-				vc.handleReorg(ctx, state, newStatus)
-
-			case protocol.ReorgTypeFinalityViolation:
-				vc.handleFinalityViolation(ctx, state, newStatus)
-
-			default:
-				vc.lggr.Warnw("Received unknown chain status type",
-					"chain", state.chainSelector,
-					"statusType", newStatus.Type)
-			}
-		}
-	}
-}
-
-// handleReorg handles a regular reorg event.
-// Sets reorgInProgress flag to prevent new tasks from being added during handling.
-func (vc *Coordinator) handleReorg(
-	ctx context.Context,
-	state *sourceState,
-	reorgStatus protocol.ChainStatus,
-) {
-	chainSelector := state.chainSelector
-	commonAncestor := reorgStatus.ResetToBlock
-
-	// Set reorgInProgress flag to stop new tasks from being added
-	state.reorgInProgress.Store(true)
-	defer state.reorgInProgress.Store(false)
-
-	vc.lggr.Infow("Handling reorg",
-		"chain", chainSelector,
-		"type", reorgStatus.Type.String(),
-		"commonAncestor", commonAncestor)
-
-	// 1. Flush pending tasks from reorged blocks (per-chain queue)
-	state.pendingMu.Lock()
-	remaining := make([]VerificationTask, 0, len(state.pendingTasks))
-	flushedCount := 0
-	for _, task := range state.pendingTasks {
-		if task.BlockNumber > commonAncestor {
-			flushedCount++
-			continue
-		}
-		remaining = append(remaining, task)
-	}
-	state.pendingTasks = remaining
-	state.pendingMu.Unlock()
-
-	// 2. Reset SourceReaderService synchronously
-	// Note: For regular reorgs, the common ancestor is always >= last chain status,
-	// so ResetToBlock will update in-memory position without writing chain status.
-	// Periodic chain status chain statuses will naturally advance from this point.
-
-	if err := state.reader.ResetToBlock(commonAncestor); err != nil {
-		vc.lggr.Errorw("Failed to reset source reader after reorg",
-			"error", err,
-			"chain", chainSelector,
-			"resetBlock", commonAncestor)
-		// Log error but continue - source reader will retry on next cycle
-	} else {
-		vc.lggr.Infow("Source reader reset successfully",
-			"chain", chainSelector,
-			"resetBlock", commonAncestor)
-	}
-
-	vc.lggr.Infow("Reorg handled successfully",
-		"chain", chainSelector,
-		"commonAncestor", commonAncestor,
-		"flushedTasks", flushedCount)
-
-	// TODO: Record metrics - these methods need to be added to the monitoring interface
-	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).IncrementReorgDetected(ctx)
-	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).RecordReorgDepth(ctx, int64(depth))
-	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).AddTasksFlushedDueToReorg(ctx, int64(flushedCount))
-}
-
-// handleFinalityViolation handles a finality violation event.
-// Finality violations indicate the chain's security model is broken.
-// We immediately stop the reader and require manual intervention - no safe reset point exists.
-func (vc *Coordinator) handleFinalityViolation(
-	ctx context.Context,
-	state *sourceState,
-	violationStatus protocol.ChainStatus,
-) {
-	// Set reorgInProgress flag to stop new tasks from being added
-	state.reorgInProgress.Store(true)
-	defer state.reorgInProgress.Store(false)
-	chainSelector := state.chainSelector
-
-	vc.lggr.Errorw("FINALITY VIOLATION DETECTED - stopping chain reader immediately",
-		"chain", chainSelector,
-		"type", violationStatus.Type.String())
-
-	// Flush ALL pending tasks for this chain (per-chain queue)
-	state.pendingMu.Lock()
-	flushedCount := len(state.pendingTasks)
-	state.pendingTasks = nil // Clear entire queue
-	state.pendingMu.Unlock()
-
-	vc.lggr.Warnw("Flushed all tasks due to finality violation",
-		"chain", chainSelector,
-		"flushedCount", flushedCount)
-
-	// Stop SourceReaderService immediately
-	// No reset - finality violation means there's no safe block to reset to
-	if err := state.reader.Stop(); err != nil {
-		vc.lggr.Errorw("Failed to stop source reader after finality violation",
-			"error", err,
-			"chain", chainSelector)
-	} else {
-		vc.lggr.Errorw("Source reader stopped due to finality violation - manual intervention required",
-			"chain", chainSelector)
-	}
-
-	// Write disabled chain status to aggregator DB
-	// Use blockHeight 0 since there's no safe block to reset to
-	if vc.chainStatusManager != nil {
-		blockHeight := big.NewInt(0)
-		err := vc.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
-			{
-				ChainSelector:        chainSelector,
-				FinalizedBlockHeight: blockHeight,
-				Disabled:             true,
-			},
-		})
-		if err != nil {
-			vc.lggr.Errorw("Failed to write disabled chain status",
-				"error", err,
-				"chain", chainSelector)
-		} else {
-			vc.lggr.Infow("Wrote disabled chain status to aggregator DB due to finality violation",
-				"chain", chainSelector,
-				"blockHeight", blockHeight)
-		}
-	}
-
-	// TODO: Use Pause() instead of Stop() when implemented (separate PR)
-
-	// TODO: These methods need to be added to the monitoring interface
-	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).IncrementFinalityViolation(ctx)
-	// vc.monitoring.Metrics().With("source_chain", chainSelector.String(), "verifier_id", vc.config.VerifierID).AddTasksFlushedDueToReorg(ctx, int64(flushedCount))
-}
-
-// isMessageReadyForVerification determines if a message meets its finality requirements.
-// This implements the same logic as Python's commit_verifier.py finality checking.
-func (vc *Coordinator) isMessageReadyForVerification(
-	task VerificationTask,
-	latestBlock *big.Int,
-	latestFinalizedBlock *big.Int,
-) (bool, error) {
-	messageID, err := task.Message.MessageID()
-	if err != nil {
-		return false, fmt.Errorf("failed to compute message ID: %w", err)
-	}
-
-	// Parse extra args to get finality configuration
-	finalityConfig := task.Message.Finality
-
-	messageBlockNumber := new(big.Int).SetUint64(task.BlockNumber)
-
-	ready := false
-	if finalityConfig == 0 {
-		// Default finality: wait for chain finalization
-		ready = messageBlockNumber.Cmp(latestFinalizedBlock) <= 0
-		if ready {
-			vc.lggr.Debugw("Message meets default finality requirement",
-				"messageID", messageID,
-				"messageBlock", messageBlockNumber.String(),
-				"finalizedBlock", latestFinalizedBlock.String(),
-			)
-		}
-	} else {
-		// Custom finality: message_block + finality_config <= latest_block
-		requiredBlock := new(big.Int).Add(messageBlockNumber, new(big.Int).SetUint64(uint64(finalityConfig)))
-		ready = requiredBlock.Cmp(latestBlock) <= 0
-
-		vc.lggr.Infow("Checking custom finality requirement",
-			"messageID", messageID,
-			"messageBlock", messageBlockNumber.String(),
-			"finalityConfig", finalityConfig,
-			"requiredBlock", requiredBlock.String(),
-			"latestBlock", latestBlock.String(),
-			"ready", ready,
-		)
-
-		if ready {
-			vc.lggr.Debugw("Message meets custom finality requirement",
-				"messageID", messageID,
-				"messageBlock", messageBlockNumber.String(),
-				"finalityConfig", finalityConfig,
-				"requiredBlock", requiredBlock.String(),
-				"latestBlock", latestBlock.String(),
-			)
-		}
-	}
-	return ready, nil
-}
+// -----------------------------------------------------------------------------
+// Curse detector wiring (kept in coordinator as requested)
+// -----------------------------------------------------------------------------
 
 // startCurseDetector creates, configures, and starts a curse detector service from RMN readers.
 // Uses CursePollInterval from config, defaulting to 2s if not set.
 func (vc *Coordinator) startCurseDetector(
 	ctx context.Context,
-	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 ) error {
-	if len(rmnReaders) == 0 {
-		return fmt.Errorf("no RMN readers provided for curse detector")
+	if len(sourceReaders) == 0 {
+		vc.lggr.Infow("No RMN readers provided; curse detector will not be started")
+		return nil
+	}
+	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+	for chainSelector, sourceReader := range sourceReaders {
+		rmnReaders[chainSelector] = sourceReader
+	}
+
+	if vc.curseDetector != nil {
+		vc.lggr.Infow("Curse detector already injected; skipping creation from RMN readers")
+		return nil
 	}
 
 	// if a curse detector service is already set, use it; otherwise create a new one
@@ -1079,4 +530,16 @@ func (vc *Coordinator) startCurseDetector(
 	vc.lggr.Infow("Curse detector started", "chainCount", len(rmnReaders))
 
 	return nil
+}
+
+// Name returns the fully qualified name of the coordinator.
+func (vc *Coordinator) Name() string {
+	return fmt.Sprintf("verifier.Coordinator[%s]", vc.config.VerifierID)
+}
+
+// HealthReport returns a full health report of the coordinator and its dependencies.
+func (vc *Coordinator) HealthReport() map[string]error {
+	report := make(map[string]error)
+	report[vc.Name()] = vc.Ready()
+	return report
 }

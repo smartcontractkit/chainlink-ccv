@@ -349,8 +349,7 @@ func main() {
 		coordinatorConfig,
 		messageTracker,
 		verifierMonitoring,
-		verifier.DefaultFinalityCheckInterval,
-		verifier.WithChainStatusManager(chainStatusManager),
+		chainStatusManager,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

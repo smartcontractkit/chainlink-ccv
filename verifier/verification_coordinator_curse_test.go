@@ -27,7 +27,7 @@ type curseTestSetup struct {
 	coordinator        *Coordinator
 	mockSourceReader   *protocol_mocks.MockSourceReader
 	mockCurseChecker   *ccv_common.MockCurseCheckerService
-	chainStatusManager *InMemoryChainStatusManager
+	chainStatusManager *protocol_mocks.MockChainStatusManager
 	testVerifier       *TestVerifier
 	storage            *common.InMemoryOffchainStorage
 	sourceChain        protocol.ChainSelector
@@ -76,13 +76,16 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	mockCurseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	mockCurseDetector.EXPECT().Close().Return(nil).Maybe()
 
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil).Maybe()
 	setup := &curseTestSetup{
 		t:                  t,
 		ctx:                ctx,
 		cancel:             cancel,
 		mockSourceReader:   mockSetup.Reader,
 		mockCurseChecker:   mockCurseDetector,
-		chainStatusManager: NewInMemoryChainStatusManager(),
+		chainStatusManager: chainStatusMgr,
 		sourceChain:        sourceChain,
 		destChain:          destChain,
 		lggr:               lggr,
@@ -122,9 +125,8 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		coordinatorConfig,
 		&NoopLatencyTracker{},
 		&noopMonitoring{},
-		finalityCheckInterval,
-		WithChainStatusManager(setup.chainStatusManager),
-		WithCurseDetector(mockCurseDetector),
+		setup.chainStatusManager,
+		WithCurseDetector(setup.mockCurseChecker),
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator
@@ -260,7 +262,7 @@ func TestCurseDetection_LaneSpecificCurse(t *testing.T) {
 
 	// Try to send new events on non-cursed lane - these should be processed
 	// Advance the chain to make blocks 106-107 available AND finalized
-	// (source reader has processed up to 105, so we need blocks > 105)
+	// (source readerService has processed up to 105, so we need blocks > 105)
 	setup.advanceChain(110, 108) // latest=110, finalized=108 (so 106-107 are finalized)
 	otherDestEvents := createTestMessageSentEvents(t, 7, sourceChain, destChain2, []uint64{106, 107})
 	setup.sendEvents(otherDestEvents)
@@ -298,7 +300,7 @@ func TestCurseDetection_GlobalCurse(t *testing.T) {
 	// Try to send events to 2 dest chains - all should be dropped
 	setup.sendEvents(eventsToChain1)
 	setup.sendEvents(eventsToChain2)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Should still have only 2 processed tasks (before global curse)
 	processedTasks := setup.testVerifier.GetProcessedTasks()
