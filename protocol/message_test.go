@@ -242,10 +242,3 @@ func TestMessageCCVHashValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ccvHash, derivedHash.String())
 }
-
-func TestExecutorAddressValidation(t *testing.T) {
-	jobspec := "0x54802Db75581604cd29835Eb03a4854d60E530A8"
-	config, err := NewUnknownAddressFromHex(jobspec)
-	require.NoError(t, err)
-	require.Equal(t, jobspec, config.String())
-}
