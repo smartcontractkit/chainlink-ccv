@@ -186,6 +186,7 @@ func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 
 	return cfg, nil
 }
+
 func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
 	var config verifier.Config
 	err = v.buildVerifierConfiguration(&config)

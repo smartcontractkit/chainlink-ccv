@@ -8,8 +8,9 @@ import (
 	"runtime"
 
 	"github.com/BurntSushi/toml"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/testcontainers/testcontainers-go"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type Mode string
