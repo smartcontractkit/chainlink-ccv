@@ -113,7 +113,7 @@ func (r *SourceReaderService) ReadyTasksChannel() <-chan batcher.BatchResult[Ver
 }
 
 func (r *SourceReaderService) Start(ctx context.Context) error {
-	return r.StartOnce("SourceReaderService", func() error {
+	return r.StartOnce(r.Name(), func() error {
 		r.logger.Infow("Starting SourceReaderService")
 
 		startBlock, err := r.initializeStartBlock(ctx)
@@ -138,9 +138,8 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 }
 
 func (r *SourceReaderService) Stop() error {
-	return r.StopOnce("SourceReaderService", func() error {
+	return r.StopOnce(r.Name(), func() error {
 		r.logger.Infow("Stopping SourceReaderService")
-
 		close(r.stopCh)
 		r.wg.Wait()
 		close(r.readyTasksCh)
@@ -148,6 +147,10 @@ func (r *SourceReaderService) Stop() error {
 		r.logger.Infow("SourceReaderService stopped")
 		return nil
 	})
+}
+
+func (r *SourceReaderService) Name() string {
+	return fmt.Sprintf("verifier.SourceReaderService[%s]", r.chainSelector)
 }
 
 // eventMonitoringLoop should:

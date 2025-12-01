@@ -165,7 +165,7 @@ func (vc *Coordinator) applyConfigDefaults() {
 // -----------------------------------------------------------------------------
 
 func (vc *Coordinator) Start(_ context.Context) error {
-	return vc.StartOnce("Coordinator", func() error {
+	return vc.StartOnce(vc.Name(), func() error {
 		vc.lggr.Infow("Starting verifier coordinator")
 
 		c, cancel := context.WithCancel(context.Background())
@@ -293,7 +293,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 
 // Close stops the verification coordinator processing.
 func (vc *Coordinator) Close() error {
-	return vc.StopOnce("Coordinator", func() error {
+	return vc.StopOnce(vc.Name(), func() error {
 		// Signal all goroutines to stop processing new work.
 		// This will also trigger the batcher to flush remaining items.
 		vc.cancel()
