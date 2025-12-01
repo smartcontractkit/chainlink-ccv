@@ -59,7 +59,7 @@ func Command() *cobra.Command {
 
 	cmd.Flags().StringVar(&args.receiverQualifier, "receiver-qualifier", evm.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
 	cmd.Flags().StringVar(&args.env, "env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to 'out' for env-out.toml)")
-	cmd.Flags().StringArrayVar(&selectorStrings, "selector", []string{}, "Selectors to use for the mock receiver contract, provide 2 or 3 selectors")
+	cmd.Flags().StringArrayVar(&selectorStrings, "selector", []string{}, "Selectors to use for the mock receiver contract, provide 2 or 3 selectors. Order is important: <src>,<dest>[,<finality>]")
 	cmd.Flags().StringArrayVar(&tokenStrings, "token", []string{}, "Token amounts to send in the format <amount>:<tokenAddress>, e.g., 1000000000000000000:0xTokenAddress")
 
 	return cmd
