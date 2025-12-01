@@ -27,7 +27,7 @@ import (
 func Command() *cobra.Command {
 	var args sendArgs
 	var selectorStrings []string
-	var tokenStrings []string
+	var token string
 
 	cmd := &cobra.Command{
 		Use:     "send <src>,<dest>[,<finality>]",
@@ -48,7 +48,7 @@ func Command() *cobra.Command {
 				return err
 			}
 
-			args.tokenAmounts, err = parseTokenAmounts(tokenStrings)
+			args.tokenAmount, err = parseTokenAmount(token)
 			if err != nil {
 				return err
 			}
@@ -60,7 +60,7 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVar(&args.receiverQualifier, "receiver-qualifier", evm.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
 	cmd.Flags().StringVar(&args.env, "env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to 'out' for env-out.toml)")
 	cmd.Flags().StringArrayVar(&selectorStrings, "selector", []string{}, "Selectors to use for the mock receiver contract, provide 2 or 3 selectors. Order is important: <src>,<dest>[,<finality>]")
-	cmd.Flags().StringArrayVar(&tokenStrings, "token", []string{}, "Token amounts to send in the format <amount>:<tokenAddress>, e.g., 1000000000000000000:0xTokenAddress")
+	cmd.Flags().StringVar(&token, "token", "", "Token amounts to send in the format <amount>:<tokenAddress>, e.g., 1000000000000000000:0xTokenAddress")
 
 	return cmd
 }
@@ -69,7 +69,7 @@ type sendArgs struct {
 	receiverQualifier string
 	env               string
 
-	tokenAmounts []cciptestinterfaces.TokenAmount
+	tokenAmount cciptestinterfaces.TokenAmount
 
 	srcSel      uint64
 	destSel     uint64
@@ -119,9 +119,9 @@ func run(args sendArgs) error {
 	}
 
 	messageFields := cciptestinterfaces.MessageFields{
-		Receiver:     common.HexToAddress(mockReceiverRef.Address).Bytes(), // mock receiver
-		Data:         []byte{},
-		TokenAmounts: args.tokenAmounts,
+		Receiver:    common.HexToAddress(mockReceiverRef.Address).Bytes(), // mock receiver
+		Data:        []byte{},
+		TokenAmount: args.tokenAmount,
 	}
 	messageOptions, err := getMessageOptions(args, in.CLDF.DataStore.Addresses())
 	if err != nil {
@@ -183,44 +183,45 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	}, nil
 }
 
-func parseTokenAmounts(inputs []string) ([]cciptestinterfaces.TokenAmount, error) {
-	var tokenAmounts []cciptestinterfaces.TokenAmount
-	for _, input := range inputs {
-		parts := strings.Split(input, ":")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid token amount format: %s, expected <amount>:<address>", input)
-		}
-		amount, ok := new(big.Int).SetString(parts[0], 10)
-		if !ok {
-			return nil, fmt.Errorf("invalid token amount: %s", parts[0])
-		}
-		if !common.IsHexAddress(parts[1]) {
-			return nil, fmt.Errorf("invalid token address: %s", parts[1])
-		}
-		tokenAddress := common.HexToAddress(parts[1])
-		tokenAmounts = append(tokenAmounts, cciptestinterfaces.TokenAmount{
-			Amount:       amount,
-			TokenAddress: tokenAddress.Bytes(),
-		})
+func parseTokenAmount(input string) (cciptestinterfaces.TokenAmount, error) {
+	if input == "" {
+		return cciptestinterfaces.TokenAmount{}, nil
 	}
-	return tokenAmounts, nil
+
+	parts := strings.Split(input, ":")
+	if len(parts) != 2 {
+		return cciptestinterfaces.TokenAmount{}, fmt.Errorf("invalid token amount format: %s, expected <amount>:<address>", input)
+	}
+	amount, ok := new(big.Int).SetString(parts[0], 10)
+	if !ok {
+		return cciptestinterfaces.TokenAmount{}, fmt.Errorf("invalid token amount: %s", parts[0])
+	}
+	if !common.IsHexAddress(parts[1]) {
+		return cciptestinterfaces.TokenAmount{}, fmt.Errorf("invalid token address: %s", parts[1])
+	}
+
+	tokenAddress := common.HexToAddress(parts[1])
+	return cciptestinterfaces.TokenAmount{
+		Amount:       amount,
+		TokenAddress: tokenAddress.Bytes(),
+	}, nil
 }
 
 func parseSelectors(input []string) (src, dest, finality uint64, err error) {
 	src, err = strconv.ParseUint(input[0], 10, 64)
 	if err != nil {
 		err = fmt.Errorf("failed to parse source chain selector: %w", err)
-		return
+		return src, dest, finality, err
 	}
 	dest, err = strconv.ParseUint(input[1], 10, 64)
 	if err != nil {
 		err = fmt.Errorf("failed to parse destination chain selector: %w", err)
-		return
+		return src, dest, finality, err
 	}
 	finality, err = strconv.ParseUint(input[2], 10, 64)
 	if err != nil {
 		err = fmt.Errorf("failed to parse finality chain selector: %w", err)
-		return
+		return src, dest, finality, err
 	}
-	return
+	return src, dest, finality, err
 }

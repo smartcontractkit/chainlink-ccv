@@ -21,7 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
@@ -198,9 +198,9 @@ func TestE2ESmoke(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				var receiverStartBalance *big.Int
 				var destTokenAddress protocol.UnknownAddress
-				var tokenAmounts []cciptestinterfaces.TokenAmount
+				var tokenAmount cciptestinterfaces.TokenAmount
 				if tc.tokenTransfer != nil {
-					tokenAmounts = append(tokenAmounts, tc.tokenTransfer.tokenAmount)
+					tokenAmount = tc.tokenTransfer.tokenAmount
 					destTokenAddress = getContractAddress(t, in, tc.dstSelector, tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
 					receiverStartBalance, err = c.GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
 					require.NoError(t, err)
@@ -211,9 +211,9 @@ func TestE2ESmoke(t *testing.T) {
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 				sendMessageResult, err := c.SendMessage(
 					ctx, tc.srcSelector, tc.dstSelector, cciptestinterfaces.MessageFields{
-						Receiver:     tc.receiver,
-						Data:         tc.msgData,
-						TokenAmounts: tokenAmounts,
+						Receiver:    tc.receiver,
+						Data:        tc.msgData,
+						TokenAmount: tokenAmount,
 					}, cciptestinterfaces.MessageOptions{
 						Version:           3,
 						ExecutionGasLimit: 200_000,
@@ -287,10 +287,10 @@ func TestE2ESmoke(t *testing.T) {
 				ctx, selectors[0], selectors[1],
 				cciptestinterfaces.MessageFields{
 					Receiver: receiver,
-					TokenAmounts: []cciptestinterfaces.TokenAmount{{
+					TokenAmount: cciptestinterfaces.TokenAmount{
 						Amount:       big.NewInt(1000),
 						TokenAddress: srcToken,
-					}},
+					},
 				},
 				messageOptions,
 			)
