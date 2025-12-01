@@ -21,6 +21,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
@@ -652,9 +653,9 @@ var fundAddressesCmd = &cobra.Command{
 	Use:   "fund-addresses --env <env>--chain-id <chain-id> --addresses <address1,address2,...> --amount <amount>",
 	Short: "Fund addresses with ETH",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		chainID, err := cmd.Flags().GetString("chain-id")
+		chainSelector, err := cmd.Flags().GetUint64("chain-selector")
 		if err != nil {
-			return fmt.Errorf("failed to parse chain-id: %w", err)
+			return fmt.Errorf("failed to parse chain-selector: %w", err)
 		}
 		addresses, err := cmd.Flags().GetStringSlice("addresses")
 		if err != nil {
@@ -688,9 +689,15 @@ var fundAddressesCmd = &cobra.Command{
 			unknownAddresses = append(unknownAddresses, unknownAddress)
 		}
 
+		chainID, err := chainsel.ChainIdFromSelector(chainSelector)
+		if err != nil {
+			return fmt.Errorf("failed to get chain details: %w", err)
+		}
+		chainIDStr := strconv.FormatUint(chainID, 10)
+
 		var input *blockchain.Input
 		for _, bc := range in.Blockchains {
-			if bc.ChainID == chainID {
+			if bc.ChainID == chainIDStr {
 				input = bc
 				break
 			}
@@ -957,12 +964,12 @@ func init() {
 	// Fund addresses
 	rootCmd.AddCommand(fundAddressesCmd)
 	fundAddressesCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
-	fundAddressesCmd.Flags().String("chain-id", "", "Chain ID to fund addresses for")
+	fundAddressesCmd.Flags().Uint64("chain-selector", 0, "Chain selector to fund addresses for")
 	fundAddressesCmd.Flags().StringSlice("addresses", []string{}, "Addresses to fund (comma separated)")
 	fundAddressesCmd.Flags().String("amount", "", "Amount to fund (in ETH, not in wei)")
 
 	_ = fundAddressesCmd.MarkFlagRequired("env")
-	_ = fundAddressesCmd.MarkFlagRequired("chain-id")
+	_ = fundAddressesCmd.MarkFlagRequired("chain-selector")
 	_ = fundAddressesCmd.MarkFlagRequired("addresses")
 	_ = fundAddressesCmd.MarkFlagRequired("amount")
 
