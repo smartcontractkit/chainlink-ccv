@@ -229,3 +229,24 @@ func TestMessageDiscoveryVersion(t *testing.T) {
 	version := vHash[:4]
 	require.Equal(t, MessageDiscoveryVersion, version)
 }
+
+func TestMessageCCVHashValidation(t *testing.T) {
+	verifierAddress, err := NewUnknownAddressFromHex("0x8fb4c06de17cefca5a89b013ac003e51445bac81")
+	require.NoError(t, err)
+	executorAddress, err := NewUnknownAddressFromHex("0x54802db75581604cd29835eb03a4854d60e530a8")
+	require.NoError(t, err)
+
+	ccvHash := "0x50ca3349fc87e9129c329ec5ad80180f19aabf50d85de8378e0441044854c10a"
+
+	derivedHash, err := ComputeCCVAndExecutorHash([]UnknownAddress{verifierAddress}, executorAddress)
+	require.NoError(t, err)
+	require.Equal(t, ccvHash, derivedHash.String())
+}
+
+func TestExecutorAddressValidation(t *testing.T) {
+	jobspec := "0x54802Db75581604cd29835Eb03a4854d60E530A8"
+	config, err := NewUnknownAddressFromHex(jobspec)
+	require.NoError(t, err)
+	require.Equal(t, jobspec, config.String())
+
+}
