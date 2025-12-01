@@ -98,7 +98,7 @@ func NewSourceReaderService(
 
 // Start begins reading messages and pushing them to the messages channel.
 func (r *SourceReaderService) Start(ctx context.Context) error {
-	return r.sync.StartOnce("SourceReaderService", func() error {
+	return r.sync.StartOnce(r.Name(), func() error {
 		r.logger.Infow("Starting SourceReaderService",
 			"chainSelector", r.chainSelector,
 			"topic", r.ccipMessageSentTopic)
@@ -122,7 +122,7 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 
 // Stop stops the reader and closes the messages channel.
 func (r *SourceReaderService) Stop() error {
-	return r.sync.StopOnce("SourceReaderService", func() error {
+	return r.sync.StopOnce(r.Name(), func() error {
 		r.logger.Infow("Stopping SourceReaderService", "chainSelector", r.chainSelector)
 		close(r.stopCh)
 
@@ -141,6 +141,10 @@ func (r *SourceReaderService) Stop() error {
 // VerificationTaskChannel returns the channel where new message events are delivered as batches.
 func (r *SourceReaderService) VerificationTaskChannel() <-chan batcher.BatchResult[VerificationTask] {
 	return r.verificationTaskCh
+}
+
+func (r *SourceReaderService) Name() string {
+	return fmt.Sprintf("verifier.SourceChainService[%s]", r.chainSelector)
 }
 
 // HealthCheck returns the current health status of the reader.

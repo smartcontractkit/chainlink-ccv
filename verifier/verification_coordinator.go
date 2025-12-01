@@ -175,7 +175,7 @@ func NewCoordinator(
 // Maybe we can split into smaller methods related to initialization of different components?
 // Start begins the verification coordinator processing.
 func (vc *Coordinator) Start(_ context.Context) error {
-	return vc.sync.StartOnce("Coordinator", func() error {
+	return vc.sync.StartOnce(vc.Name(), func() error {
 		ctx, cancel := context.WithCancel(context.Background())
 		vc.cancel = cancel
 
@@ -353,7 +353,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 
 // Close stops the verification coordinator processing.
 func (vc *Coordinator) Close() error {
-	return vc.sync.StopOnce("Coordinator", func() error {
+	return vc.sync.StopOnce(vc.Name(), func() error {
 		// Signal all goroutines to stop processing new work.
 		// This will also trigger the batcher to flush remaining items.
 		vc.cancel()
