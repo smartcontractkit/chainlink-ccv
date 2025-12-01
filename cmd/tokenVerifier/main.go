@@ -11,6 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
@@ -180,7 +183,7 @@ func main() {
 	}
 
 	// Setup OTEL Monitoring (via beholder)
-	_, err = monitoring.InitMonitoring(beholder.Config{
+	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
 		InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 		CACertFile:               config.Monitoring.Beholder.CACertFile,
 		OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
@@ -202,6 +205,64 @@ func main() {
 			lggr.Errorw("HTTP server error", "error", err)
 		}
 	}()
+
+	messageTracker := monitoring.NewMessageLatencyTracker(
+		lggr,
+		config.VerifierID,
+		verifierMonitoring,
+	)
+
+	cctpConfig := config.TokenVerifiers[0].CCTP
+
+	cctpVerifier := cctp.NewVerifier(
+		cctp.NewAttestationService(*cctpConfig),
+	)
+
+	cctpCoordinator, err := verifier.NewCoordinator(
+		lggr,
+		cctpVerifier,
+		nil,
+		cctp.NewOffchainStorage(),
+		verifier.CoordinatorConfig{},
+		messageTracker,
+		verifierMonitoring,
+		nil,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
+		os.Exit(1)
+	}
+
+	if err := cctpCoordinator.Start(ctx); err != nil {
+		lggr.Errorw("Failed to start verification coordinator", "error", err)
+		os.Exit(1)
+	}
+
+	lbtcConfig := config.TokenVerifiers[0].LBTC
+
+	lbtcVerifier := lbtc.NewVerifier(
+		lbtc.NewAttestationService(*lbtcConfig),
+	)
+
+	lbtcCoordinator, err := verifier.NewCoordinator(
+		lggr,
+		lbtcVerifier,
+		nil,
+		lbtc.NewOffchainStorage(),
+		verifier.CoordinatorConfig{},
+		messageTracker,
+		verifierMonitoring,
+		nil,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create verification coordinator for lbtc", "error", err)
+		os.Exit(1)
+	}
+
+	if err := lbtcCoordinator.Start(ctx); err != nil {
+		lggr.Errorw("Failed to start verification coordinator", "error", err)
+		os.Exit(1)
+	}
 
 	lggr.Infow("🎯 Verifier service fully started and ready!")
 

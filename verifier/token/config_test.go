@@ -27,7 +27,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		"2" = "0xRMN2"
 		
 		[[token_verifiers]]
-		type = "cctp"
+		type = "CCTP"
 		version = "2.0"
 		attestation_api_timeout = "11ms"
 		attestation_api = "https://iris-api.circle.com"
@@ -37,9 +37,9 @@ func Test_Config_Deserialization(t *testing.T) {
 		2 = "0xCCTPVerifier2"
 		
 		[[token_verifiers]]
-		type = "lbtc"
+		type = "LBTC"
 		version = "1.0"
-		attestation_api = "https://lbtc-api.example.com"
+		attestation_api = "https://LBTC-api.example.com"
 		attestation_api_timeout = "10s"
 		attestation_api_interval = 20
 		
@@ -61,21 +61,21 @@ func Test_Config_Deserialization(t *testing.T) {
 
 	require.Len(t, config.TokenVerifiers, 2)
 	cctpVerifier := config.TokenVerifiers[0]
-	assert.Equal(t, "cctp", cctpVerifier.Type)
+	assert.Equal(t, "CCTP", cctpVerifier.Type)
 	assert.Equal(t, "2.0", cctpVerifier.Version)
-	assert.Equal(t, 11*time.Millisecond, cctpVerifier.cctp.AttestationAPITimeout)
-	assert.Equal(t, "https://iris-api.circle.com", cctpVerifier.cctp.AttestationAPI)
-	assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier1"), cctpVerifier.cctp.Verifiers[1])
-	assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier2"), cctpVerifier.cctp.Verifiers[2])
+	assert.Equal(t, 11*time.Millisecond, cctpVerifier.CCTP.AttestationAPITimeout)
+	assert.Equal(t, "https://iris-api.circle.com", cctpVerifier.CCTP.AttestationAPI)
+	assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier1"), cctpVerifier.CCTP.Verifiers[1])
+	assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier2"), cctpVerifier.CCTP.Verifiers[2])
 
 	lbtcVerifier := config.TokenVerifiers[1]
-	assert.Equal(t, "lbtc", lbtcVerifier.Type)
+	assert.Equal(t, "LBTC", lbtcVerifier.Type)
 	assert.Equal(t, "1.0", lbtcVerifier.Version)
-	assert.Equal(t, 10*time.Second, lbtcVerifier.lbtc.AttestationAPITimeout)
-	assert.Equal(t, 100*time.Millisecond, lbtcVerifier.lbtc.AttestationAPIInterval)
-	assert.Equal(t, "https://lbtc-api.example.com", lbtcVerifier.lbtc.AttestationAPI)
-	assert.Equal(t, protocol.UnknownAddress("0xLBTCVerifier1"), lbtcVerifier.lbtc.Verifiers[1])
-	assert.Equal(t, protocol.UnknownAddress("0xLBTCVerifier2"), lbtcVerifier.lbtc.Verifiers[2])
+	assert.Equal(t, 10*time.Second, lbtcVerifier.LBTC.AttestationAPITimeout)
+	assert.Equal(t, 100*time.Millisecond, lbtcVerifier.LBTC.AttestationAPIInterval)
+	assert.Equal(t, "https://lbtc-api.example.com", lbtcVerifier.LBTC.AttestationAPI)
+	assert.Equal(t, protocol.UnknownAddress("0xLBTCVerifier1"), lbtcVerifier.LBTC.Verifiers[1])
+	assert.Equal(t, protocol.UnknownAddress("0xLBTCVerifier2"), lbtcVerifier.LBTC.Verifiers[2])
 }
 
 func Test_VerifierConfig_Deserialization(t *testing.T) {
@@ -86,9 +86,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name: "valid cctp config with all values provided",
+			name: "valid CCTP config with all values provided",
 			toml: `
-				type = "cctp"
+				type = "CCTP"
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
 				attestation_api_timeout = "100s"
@@ -100,9 +100,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				2 = "0xVerifier2"
 			`,
 			expected: VerifierConfig{
-				Type:    "cctp",
+				Type:    "CCTP",
 				Version: "2.0",
-				cctp: &cctp.Config{
+				CCTP: &cctp.Config{
 					AttestationAPI:         "http://circle.com/attestation",
 					AttestationAPITimeout:  100 * time.Second,
 					AttestationAPIInterval: 300 * time.Millisecond,
@@ -115,9 +115,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			},
 		},
 		{
-			name: "valid cctp config with missing optional values",
+			name: "valid CCTP config with missing optional values",
 			toml: `
-				type = "cctp"
+				type = "CCTP"
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
 
@@ -125,9 +125,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				"1" = "0xVerifier1"
 			`,
 			expected: VerifierConfig{
-				Type:    "cctp",
+				Type:    "CCTP",
 				Version: "2.0",
-				cctp: &cctp.Config{
+				CCTP: &cctp.Config{
 					AttestationAPI:         "http://circle.com/attestation",
 					AttestationAPITimeout:  1 * time.Second,
 					AttestationAPIInterval: 100 * time.Millisecond,
@@ -139,9 +139,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			},
 		},
 		{
-			name: "malformed cctp config returns error",
+			name: "malformed CCTP config returns error",
 			toml: `
-				type = "cctp"
+				type = "CCTP"
 				version = "2.0"
 				attestation_api_timeout = "not-a-duration"
 
@@ -151,11 +151,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "valid lbtc config with all values provided",
+			name: "valid LBTC config with all values provided",
 			toml: `
-				type = "lbtc"
+				type = "LBTC"
 				version = "1.0"
-				attestation_api = "http://lbtc.com/gohere"
+				attestation_api = "http://LBTC.com/gohere"
 				attestation_api_timeout = "2s"
 				attestation_api_interval = "500ms"
 				attestation_api_batch_size = 50
@@ -165,9 +165,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				2 = "0xLBTCVerifier2"	
 			`,
 			expected: VerifierConfig{
-				Type:    "lbtc",
+				Type:    "LBTC",
 				Version: "1.0",
-				lbtc: &lbtc.Config{
+				LBTC: &lbtc.Config{
 					AttestationAPI:          "http://lbtc.com/gohere",
 					AttestationAPITimeout:   2 * time.Second,
 					AttestationAPIInterval:  500 * time.Millisecond,
@@ -180,19 +180,19 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			},
 		},
 		{
-			name: "valid lbtc config with missing optional values",
+			name: "valid LBTC config with missing optional values",
 			toml: `
-				type = "lbtc"
+				type = "LBTC"
 				version = "1.0"
-				attestation_api = "http://lbtc.com/gohere"
+				attestation_api = "http://LBTC.com/gohere"
 
 				[addresses]
 				1 = "0xLBTCVerifier1"
 			`,
 			expected: VerifierConfig{
-				Type:    "lbtc",
+				Type:    "LBTC",
 				Version: "1.0",
-				lbtc: &lbtc.Config{
+				LBTC: &lbtc.Config{
 					AttestationAPI:          "http://lbtc.com/gohere",
 					AttestationAPITimeout:   1 * time.Second,
 					AttestationAPIInterval:  100 * time.Millisecond,
@@ -204,9 +204,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			},
 		},
 		{
-			name: "malformed lbtc config returns error",
+			name: "malformed LBTC config returns error",
 			toml: `
-				type = "lbtc"
+				type = "LBTC"
 				version = "1.0"
 				attestation_api_dur = "10s"
 
@@ -230,25 +230,25 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			assert.Equal(t, tt.expected.Type, result.Type)
 			assert.Equal(t, tt.expected.Version, result.Version)
 
-			if tt.expected.cctp != nil {
-				require.NotNil(t, result.cctp)
-				assert.Equal(t, tt.expected.cctp.AttestationAPI, result.cctp.AttestationAPI)
-				assert.Equal(t, tt.expected.cctp.AttestationAPIInterval, result.cctp.AttestationAPIInterval)
-				assert.Equal(t, tt.expected.cctp.AttestationAPICooldown, result.cctp.AttestationAPICooldown)
-				assert.Equal(t, tt.expected.cctp.Verifiers, result.cctp.Verifiers)
+			if tt.expected.CCTP != nil {
+				require.NotNil(t, result.CCTP)
+				assert.Equal(t, tt.expected.CCTP.AttestationAPI, result.CCTP.AttestationAPI)
+				assert.Equal(t, tt.expected.CCTP.AttestationAPIInterval, result.CCTP.AttestationAPIInterval)
+				assert.Equal(t, tt.expected.CCTP.AttestationAPICooldown, result.CCTP.AttestationAPICooldown)
+				assert.Equal(t, tt.expected.CCTP.Verifiers, result.CCTP.Verifiers)
 			} else {
-				assert.Nil(t, result.cctp)
+				assert.Nil(t, result.CCTP)
 			}
 
-			if tt.expected.lbtc != nil {
-				require.NotNil(t, result.lbtc)
-				assert.Equal(t, tt.expected.lbtc.AttestationAPI, result.lbtc.AttestationAPI)
-				assert.Equal(t, tt.expected.lbtc.AttestationAPITimeout, result.lbtc.AttestationAPITimeout)
-				assert.Equal(t, tt.expected.lbtc.AttestationAPIInterval, result.lbtc.AttestationAPIInterval)
-				assert.Equal(t, tt.expected.lbtc.AttestationAPIBatchSize, result.lbtc.AttestationAPIBatchSize)
-				assert.Equal(t, tt.expected.lbtc.Verifiers, result.lbtc.Verifiers)
+			if tt.expected.LBTC != nil {
+				require.NotNil(t, result.LBTC)
+				assert.Equal(t, tt.expected.LBTC.AttestationAPI, result.LBTC.AttestationAPI)
+				assert.Equal(t, tt.expected.LBTC.AttestationAPITimeout, result.LBTC.AttestationAPITimeout)
+				assert.Equal(t, tt.expected.LBTC.AttestationAPIInterval, result.LBTC.AttestationAPIInterval)
+				assert.Equal(t, tt.expected.LBTC.AttestationAPIBatchSize, result.LBTC.AttestationAPIBatchSize)
+				assert.Equal(t, tt.expected.LBTC.Verifiers, result.LBTC.Verifiers)
 			} else {
-				assert.Nil(t, result.lbtc)
+				assert.Nil(t, result.LBTC)
 			}
 		})
 	}

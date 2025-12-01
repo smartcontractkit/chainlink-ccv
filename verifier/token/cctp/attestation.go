@@ -2,6 +2,7 @@ package cctp
 
 import (
 	"context"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -11,7 +12,23 @@ type AttestationService interface {
 	Fetch(ctx context.Context, txHash protocol.ByteSlice, message protocol.Message) (protocol.ByteSlice, error)
 }
 
-type HTTPAttestationService struct{}
+type HTTPAttestationService struct {
+	api      string
+	timeout  time.Duration
+	interval time.Duration
+	cooldown time.Duration
+}
+
+func NewAttestationService(
+	config Config,
+) AttestationService {
+	return &HTTPAttestationService{
+		api:      config.AttestationAPI,
+		timeout:  config.AttestationAPITimeout,
+		interval: config.AttestationAPIInterval,
+		cooldown: config.AttestationAPICooldown,
+	}
+}
 
 func (h HTTPAttestationService) Fetch(
 	ctx context.Context,

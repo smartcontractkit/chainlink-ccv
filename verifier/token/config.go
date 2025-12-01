@@ -44,14 +44,14 @@ type VerifierConfig struct {
 	// Example JSON representation (but any format would work, as long proper marshall/unmarshall is implemented):
 	// [
 	//  {
-	//    "type": "cctp",
+	//    "type": "CCTP",
 	//    "version": "2.0",
 	//    "attestationAPI": "http://circle.com/attestation",
 	//    "attestationAPITimeout": "1s",
 	//    "attestationAPIIntervalMilliseconds": "500ms"
 	//  },
 	//  {
-	//    "type": "lbtc",
+	//    "type": "LBTC",
 	//    "version": "1.0",
 	//    "attestationAPI": "http://lbtc.com/gohere",
 	//    "attestationAPITimeout": "1s",
@@ -61,8 +61,8 @@ type VerifierConfig struct {
 	// Having version in that JSON isn't expensive, but it could reduce the risk of breaking the observers in the future.
 	Version string
 
-	cctp *cctp.Config
-	lbtc *lbtc.Config
+	CCTP *cctp.Config
+	LBTC *lbtc.Config
 }
 
 func (o *VerifierConfig) UnmarshalTOML(data any) error {
@@ -82,12 +82,12 @@ func (o *VerifierConfig) UnmarshalTOML(data any) error {
 	}
 
 	var err error
-	o.cctp, err = cctp.TryParsing(o.Type, o.Version, castedData)
+	o.CCTP, err = cctp.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
 	}
 
-	o.lbtc, err = lbtc.TryParsing(o.Type, o.Version, castedData)
+	o.LBTC, err = lbtc.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
 	}

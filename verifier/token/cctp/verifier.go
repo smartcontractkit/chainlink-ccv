@@ -13,6 +13,12 @@ type Verifier struct {
 	attestationService AttestationService
 }
 
+func NewVerifier(attestationService AttestationService) Verifier {
+	return Verifier{
+		attestationService: attestationService,
+	}
+}
+
 func (v Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,

@@ -2,6 +2,7 @@ package lbtc
 
 import (
 	"context"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -11,7 +12,21 @@ type AttestationService interface {
 	Fetch(ctx context.Context, message []protocol.Message) ([]protocol.ByteSlice, error)
 }
 
-type HTTPAttestationService struct{}
+type HTTPAttestationService struct {
+	api       string
+	timeout   time.Duration
+	interval  time.Duration
+	batchSize int
+}
+
+func NewAttestationService(config Config) AttestationService {
+	return HTTPAttestationService{
+		api:       config.AttestationAPI,
+		timeout:   config.AttestationAPITimeout,
+		interval:  config.AttestationAPIInterval,
+		batchSize: config.AttestationAPIBatchSize,
+	}
+}
 
 func (h HTTPAttestationService) Fetch(
 	ctx context.Context,
