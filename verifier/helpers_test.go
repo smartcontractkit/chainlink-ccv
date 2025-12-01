@@ -308,12 +308,12 @@ func createTestMessageSentEvents(
 	return events
 }
 
-type noopFilter struct {
-}
+type noopFilter struct{}
 
 func (n *noopFilter) Filter(msg protocol.MessageSentEvent) bool {
 	return true
 }
+
 func newTestSRS(
 	t *testing.T,
 	chainSelector protocol.ChainSelector,
