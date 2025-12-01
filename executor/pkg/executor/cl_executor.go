@@ -38,6 +38,9 @@ func NewChainlinkExecutor(
 	monitoring executor.Monitoring,
 	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress,
 ) *ChainlinkExecutor {
+	lggr.Infow("new chainlink executor",
+		"defaultExecutorAddress", defaultExecutorAddress,
+	)
 	return &ChainlinkExecutor{
 		lggr:                   lggr,
 		contractTransmitters:   contractTransmitters,
@@ -65,7 +68,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 // AttemptExecuteMessage will try to get all supplementary information for a message required for execution, then attempt the execution.
 // If not all supplementary information is available (ie not enough verifierResults) it will return an error and the message will not be attempted.
 func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message protocol.Message) error {
-	destinationChain := message.DestChainSelector
+	destinationChain, sourceSelector := message.DestChainSelector, message.SourceChainSelector
 	messageID, err := message.MessageID()
 	if err != nil {
 		return fmt.Errorf("failed to get message ID: %w", err)
@@ -81,9 +84,10 @@ func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message
 		}
 
 		for _, r := range res {
-			if !r.MessageExecutorAddress.Equal(cle.defaultExecutorAddress[destinationChain]) {
+			if !r.MessageExecutorAddress.Equal(cle.defaultExecutorAddress[sourceSelector]) {
 				cle.lggr.Warnw("Verifier Result did not specify our executor",
 					"verifierResult", r,
+					"defaultExecutorAddress", cle.defaultExecutorAddress[destinationChain].String(),
 				)
 				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
 				continue

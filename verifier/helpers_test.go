@@ -11,6 +11,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -138,29 +141,6 @@ func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerification
 const (
 	defaultDestChain = protocol.ChainSelector(100)
 )
-
-// mockReorgDetector is a simple mock that returns a channel we can control in tests.
-type mockReorgDetector struct {
-	statusCh  chan protocol.ChainStatus
-	closeOnce sync.Once
-}
-
-func newMockReorgDetector() *mockReorgDetector {
-	return &mockReorgDetector{
-		statusCh: make(chan protocol.ChainStatus, 10),
-	}
-}
-
-func (m *mockReorgDetector) Start(ctx context.Context) (<-chan protocol.ChainStatus, error) {
-	return m.statusCh, nil
-}
-
-func (m *mockReorgDetector) Close() error {
-	m.closeOnce.Do(func() {
-		close(m.statusCh)
-	})
-	return nil
-}
 
 // noopMonitoring is a simple noop monitoring implementation for tests.
 type noopMonitoring struct{}
@@ -326,4 +306,42 @@ func createTestMessageSentEvents(
 		}
 	}
 	return events
+}
+
+type noopFilter struct{}
+
+func (n *noopFilter) Filter(msg protocol.MessageSentEvent) bool {
+	return true
+}
+
+func newTestSRS(
+	t *testing.T,
+	chainSelector protocol.ChainSelector,
+	reader *protocol_mocks.MockSourceReader,
+	chainStatusMgr protocol.ChainStatusManager,
+	curseDetector *ccv_common.MockCurseCheckerService,
+	pollInterval time.Duration,
+) (*SourceReaderService, *protocol_mocks.MockFinalityViolationChecker) {
+	t.Helper()
+
+	lggr := logger.Test(t)
+
+	srs, err := NewSourceReaderService(
+		reader,
+		chainSelector,
+		chainStatusMgr,
+		lggr,
+		pollInterval,
+		curseDetector,
+		&noopFilter{},
+	)
+	require.NoError(t, err)
+
+	// Override the internal finalityChecker with a mock.
+	mockFC := protocol_mocks.NewMockFinalityViolationChecker(t)
+	srs.finalityChecker = mockFC
+	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
+
+	return srs, mockFC
 }

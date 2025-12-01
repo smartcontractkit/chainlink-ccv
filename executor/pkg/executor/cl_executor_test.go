@@ -108,11 +108,13 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			name: "Should only use up to threshold amount of optional CCVs",
 			ct: func() *executor_mocks.MockContractTransmitter {
 				ct := executor_mocks.NewMockContractTransmitter(t)
-				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, coordinator.AbstractAggregatedReport{
-					Message: generateFakeMessage(1, 2, 1, address1, address1),
-					CCVS:    []protocol.UnknownAddress{address1},
-					CCVData: [][]byte{[]byte("data1")},
-				}).Return(nil).Once()
+				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.MatchedBy(func(report coordinator.AbstractAggregatedReport) bool {
+					wantMsg := generateFakeMessage(1, 2, 1, address1, address2)
+					return assert.ObjectsAreEqual(wantMsg, report.Message) &&
+						len(report.CCVS) == 1 &&
+						len(report.CCVData) == 1 &&
+						string(report.CCVData[0]) == "data1"
+				})).Return(nil).Once()
 				return ct
 			},
 			ctChains: []protocol.ChainSelector{1},
@@ -129,12 +131,12 @@ func Test_ChainlinkExecutor(t *testing.T) {
 				vr := executor_mocks.NewMockVerifierResultReader(t)
 				messageID, _ := msg.MessageID()
 				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-					{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address1}, CCVData: []byte("data1"), VerifierDestAddress: address1, MessageExecutorAddress: address1},
-					{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address2}, CCVData: []byte("data2"), VerifierDestAddress: address2, MessageExecutorAddress: address1},
+					{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address1}, CCVData: []byte("data1"), VerifierDestAddress: address1, MessageExecutorAddress: address2},
+					{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address2}, CCVData: []byte("data2"), VerifierDestAddress: address2, MessageExecutorAddress: address2},
 				}, nil).Maybe()
 				return vr
 			},
-			msg: coordinator.MessageWithCCVData{Message: generateFakeMessage(1, 2, 1, address1, address1)},
+			msg: coordinator.MessageWithCCVData{Message: generateFakeMessage(1, 2, 1, address1, address2)},
 		},
 		{
 			name: "Should support a 0 threshold for optional CCVs",
@@ -251,6 +253,7 @@ func Test_ChainlinkExecutor(t *testing.T) {
 			for _, chain := range tc.drChains {
 				defaultExecutorAddresses[chain] = address1
 			}
+			defaultExecutorAddresses[tc.msg.Message.SourceChainSelector] = address2
 			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, curseChecker, tc.vr(tc.msg.Message), monitoring.NewNoopExecutorMonitoring(), defaultExecutorAddresses)
 			err := executor.Validate()
 			if tc.validateShouldError {

@@ -60,17 +60,22 @@ type Service interface {
 	HealthReporter
 }
 
-// ReorgDetector monitors a blockchain for reorgs and finality violations.
-type ReorgDetector interface {
-	// Start initializes the detector by building the initial chain tail and subscribing to new blocks.
-	// Blocks until the initial tail is ready and subscription is established.
-	// The returned channel only receives messages when problems occur:
-	// - ReorgTypeNormal: A regular reorg was detected
-	// - ReorgTypeFinalityViolation: A finality violation was detected (critical error)
-	// Returns error if initial tail cannot be fetched or subscription fails.
-	// The returned channel is closed when the detector stops.
-	Start(ctx context.Context) (<-chan ChainStatus, error)
+// FinalityViolationChecker validates that finalized blocks never change their hash.
+// This is a synchronous, pull-based interface driven by the caller (typically SourceReaderService).
+// The caller updates the checker with new finalized blocks and checks for violations before processing.
+type FinalityViolationChecker interface {
+	// UpdateFinalized tells the checker about a new finalized block.
+	// The checker will fetch and store block headers from the last known finalized up to this block.
+	// This should be called on every poll cycle before checking for violations.
+	// Returns error if headers cannot be fetched.
+	UpdateFinalized(ctx context.Context, finalizedBlock uint64) error
 
-	// Close stops the detector and closes the status channel.
-	Close() error
+	// IsFinalityViolated checks if any previously finalized block has changed its hash.
+	// This performs a lightweight check against stored state without making RPC calls.
+	// Should be called after UpdateFinalized to validate chain consistency.
+	// Returns true if a violation is detected (critical error requiring service shutdown).
+	IsFinalityViolated() bool
+
+	// Reset clears all stored state. Used for testing or recovery scenarios.
+	Reset()
 }

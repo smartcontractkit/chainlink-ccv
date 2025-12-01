@@ -116,43 +116,6 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 	return headers, nil
 }
 
-// GetBlockHeaderByHash returns a block header by its hash.
-// Required for walking back parent chain during LCA finding in reorg detection.
-func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error) {
-	// Convert protocol.Bytes32 to common.Hash
-	var ethHash common.Hash
-	copy(ethHash[:], hash[:])
-
-	header, err := r.chainClient.HeadByHash(ctx, ethHash)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get block by hash %s: %w", ethHash.Hex(), err)
-	}
-
-	if header == nil {
-		return nil, nil // Block not found
-	}
-
-	if header.Number < 0 {
-		return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
-	}
-
-	return &protocol.BlockHeader{
-		Number:     uint64(header.Number),
-		Hash:       protocol.Bytes32(header.Hash),
-		ParentHash: protocol.Bytes32(header.ParentHash),
-		Timestamp:  header.Timestamp,
-	}, nil
-}
-
-// BlockTime returns the timestamp of a given block.
-func (r *EVMSourceReader) BlockTime(ctx context.Context, block *big.Int) (uint64, error) {
-	hdr, err := r.chainClient.HeaderByNumber(ctx, block)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get block header for block %s: %w", block.String(), err)
-	}
-	return hdr.Time, nil
-}
-
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
 // The toBlock parameter can be nil to query up to the latest block.
 func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {

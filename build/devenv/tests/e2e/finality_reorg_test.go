@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -18,7 +17,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -199,52 +197,9 @@ func TestE2EReorg(t *testing.T) {
 			Msg("✨ Test completed: Messages sent in swapped order after reorg and verified after finality")
 	})
 
-	// a utility test to enable the chain again in the aggregator instead of creating a new env
-	t.Run("enable chain", func(t *testing.T) {
-		resp, err := authenticatedAggregatorClient.WriteChainStatus(ctx, []*pb.ChainStatus{
-			{
-				ChainSelector:        srcSelector,
-				FinalizedBlockHeight: 0,
-				Disabled:             false,
-			},
-		})
-
-		require.NoError(t, err, "should be able to enable chain in aggregator")
-		require.NotNil(t, resp, "response should not be nil when enabling chain")
-
-		chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
-		require.NoError(t, err, "should be able to read chain status from aggregator")
-		require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
-
-		chainStatus := chainStatusResp.Statuses[0]
-		require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
-		require.False(t, chainStatus.Disabled, "chain should be enabled")
-
-		l.Info().Msg("✅ Source chain re-enabled in aggregator after being disabled from finality violation")
-	})
-
 	t.Run("finality violation", func(t *testing.T) {
 		// Log the source chain selector for verification
 		l.Info().Uint64("srcSelector", srcSelector).Msg("Source chain selector for finality violation test")
-
-		// Setup log asserter to verify finality violation detection
-		lokiURL := os.Getenv("LOKI_QUERY_URL")
-		if lokiURL == "" {
-			lokiURL = "ws://localhost:3030"
-		}
-		logAsserterLogger := l.With().Str("component", "log-asserter").Logger()
-		logAssert := logasserter.New(lokiURL, logAsserterLogger)
-		err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
-			logasserter.FinalityViolationDetected(),
-			logasserter.SourceReaderStopped(),
-		})
-		if err != nil {
-			t.Logf("Warning: Could not start log asserter: %v", err)
-		} else {
-			t.Cleanup(func() {
-				logAssert.StopStreaming()
-			})
-		}
 
 		l.Info().Msg("💾 Creating initial snapshot before mining blocks")
 		snapshotID, err := anvilHelper.Snapshot(ctx)
@@ -271,31 +226,8 @@ func TestE2EReorg(t *testing.T) {
 		// Mine some blocks to give system opportunity to process (if it were working)
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
-		// =======================Finality Violation Detection=======================//
-		l.Info().Msg("⏳ Waiting for verifier to detect finality violation...")
-		violationCtx, violationCancel := context.WithTimeout(ctx, 20*time.Second)
-		defer violationCancel()
-		_, err = logAssert.WaitForPatternOnly(violationCtx, logasserter.FinalityViolationDetected())
-		require.NoError(t, err, "finality violation should be detected and logged")
-		l.Info().Msg("✅ Finality violation detected in logs")
-
-		//=======================Stop Reader =======================//
-		// Verify that the source reader was stopped as a result (for the correct chain)
-		l.Info().Msg("⏳ Waiting for source reader to be stopped...")
-		stopCtx, stopCancel := context.WithTimeout(ctx, 20*time.Second)
-		defer stopCancel()
-		stopLog, err := logAssert.WaitForPatternOnly(stopCtx, logasserter.SourceReaderStopped())
-		require.NoError(t, err, "source reader should be stopped after finality violation")
-		// Verify the log contains the correct chain selector
-		srcSelectorStr := fmt.Sprintf("%d", srcSelector)
-		require.Contains(t, stopLog.LogLine, srcSelectorStr,
-			"source reader stop log should contain chain selector %d", srcSelector)
-		l.Info().Msg("✅ Source reader stopped for correct chain selector")
-
-		//=======================Verify Chain Status in Aggregator=======================//
-		// Verify that the chain status in aggregator shows the chain is disabled with checkpoint 0
-		// Note: ReadChainStatus requires HMAC authentication, so we need to create an authenticated client
 		l.Info().Msg("🔍 Verifying chain status in aggregator...")
 
 		require.Eventually(t, func() bool {
@@ -313,9 +245,31 @@ func TestE2EReorg(t *testing.T) {
 			return true
 		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
 
-		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
-
 		l.Info().
 			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")
+	})
+
+	// a utility test to enable the chain again in the aggregator instead of creating a new env
+	t.Run("enable chain", func(t *testing.T) {
+		resp, err := authenticatedAggregatorClient.WriteChainStatus(ctx, []*pb.ChainStatus{
+			{
+				ChainSelector:        srcSelector,
+				FinalizedBlockHeight: 0,
+				Disabled:             false,
+			},
+		})
+
+		require.NoError(t, err, "should be able to enable chain in aggregator")
+		require.NotNil(t, resp, "response should not be nil when enabling chain")
+
+		chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
+		require.NoError(t, err, "should be able to read chain status from aggregator")
+		require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
+
+		chainStatus := chainStatusResp.Statuses[0]
+		require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
+		require.False(t, chainStatus.Disabled, "chain should be enabled")
+
+		l.Info().Msg("✅ Source chain re-enabled in aggregator after being disabled from finality violation")
 	})
 }
