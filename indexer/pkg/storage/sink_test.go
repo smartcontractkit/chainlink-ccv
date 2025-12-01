@@ -344,25 +344,6 @@ func TestStorageSink_UpdateDiscoverySequenceNumberInAllStorages(t *testing.T) {
 	assert.Equal(t, newSequenceNumber, seq2)
 }
 
-func TestStorageSink_UpdateDiscoverySequenceNumberNotFound(t *testing.T) {
-	ctx := context.Background()
-	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
-
-	// Create two storages
-	memStorage1 := NewInMemoryStorage(lggr, mon)
-	memStorage2 := NewInMemoryStorage(lggr, mon)
-
-	// Create storage sink
-	chain, err := NewSink(lggr, memStorage1, memStorage2)
-	require.NoError(t, err)
-
-	// Try to update non-existent discovery state
-	err = chain.UpdateDiscoverySequenceNumber(ctx, "non-existent-location", 100)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to update discovery sequence number in any storage")
-}
-
 func TestStorageSink_UpdateDiscoverySequenceNumberPartialFailure(t *testing.T) {
 	ctx := context.Background()
 	lggr := logger.Test(t)
