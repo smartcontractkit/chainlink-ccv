@@ -704,7 +704,7 @@ var fundAddressesCmd = &cobra.Command{
 		}
 
 		if input == nil {
-			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-id", chainID)
+			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-selector", chainIDStr)
 		}
 
 		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
