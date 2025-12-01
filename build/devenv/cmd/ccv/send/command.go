@@ -124,6 +124,9 @@ func run(args sendArgs) error {
 		TokenAmounts: args.tokenAmounts,
 	}
 	messageOptions, err := getMessageOptions(args, in.CLDF.DataStore.Addresses())
+	if err != nil {
+		return fmt.Errorf("failed to get message options: %w", err)
+	}
 
 	result, err := impl.SendMessage(ctx, args.srcSel, args.destSel, messageFields, messageOptions)
 	if err != nil {
