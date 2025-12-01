@@ -150,7 +150,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		return fmt.Errorf("message format validation failed for message %s: %w", messageID.String(), err)
 	}
 
-	if err := ValidateMessage(&verificationTask, sourceConfig.VerifierAddress, sourceConfig.DefaultExecutorAddress); err != nil {
+	if err := ValidateMessage(&verificationTask); err != nil {
 		return fmt.Errorf(
 			"message validation failed for message %s with verifier address %s and default executor address %s: %w",
 			messageID.String(),

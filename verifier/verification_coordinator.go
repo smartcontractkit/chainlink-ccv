@@ -207,6 +207,8 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				continue
 			}
 
+			vc.lggr.Infow("Chain Status", "chainSelector", chainSelector, "status", statusMap[chainSelector])
+
 			// Check if chain is disabled
 			if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
 				vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
@@ -231,12 +233,18 @@ func (vc *Coordinator) Start(_ context.Context) error {
 
 			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
 
+			filter := chainaccess.NewReceiptIssuerFilter(
+				sourceCfg.VerifierAddress,
+				sourceCfg.DefaultExecutorAddress,
+			)
+
 			service := NewSourceReaderService(
 				sourceReader,
 				chainSelector,
 				vc.chainStatusManager,
 				readerLogger,
 				sourcePollInterval,
+				filter,
 			)
 
 			err := service.Start(ctx)

@@ -100,7 +100,8 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get block %s: %w", blockNumber.String(), err)
+			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumber.String(), "error", err)
+			continue
 		}
 		if header.Number < 0 {
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
@@ -295,6 +296,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 			Message:           *decodedMsg,
 			Receipts:          allReceipts, // Keep original order from OnRamp event
 			BlockNumber:       log.BlockNumber,
+			TxHash:            protocol.ByteSlice(log.TxHash.Bytes()),
 		})
 	}
 	return results, nil
