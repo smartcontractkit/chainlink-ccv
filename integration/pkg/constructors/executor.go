@@ -30,8 +30,8 @@ import (
 func NewExecutorCoordinator(
 	lggr logger.Logger,
 	cfg executor.Configuration,
-	// TODO: all these are EVM specific, shouldn't be.
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
+	// TODO move keys + fromAddress to CCVProvider services
 	keys map[protocol.ChainSelector]keys.RoundRobin,
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {

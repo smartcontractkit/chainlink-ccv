@@ -7,6 +7,16 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+type Provider struct {
+	SourceReader SourceReader
+
+	// TODO: Unused? The filter is created by the verification coordinator directly.
+	// MessageFilter
+
+	// TODO: add Executor interfaces
+	// TxManager    txmgr.TxManager
+}
+
 // HeadTracker provides access to the latest blockchain head information.
 // This interface is responsible for tracking the current and finalized block states.
 //
