@@ -39,12 +39,12 @@ const (
 	ConfigPath = "VERIFIER_CONFIG_PATH"
 )
 
-func loadConfiguration(filepath string) (*verifier.Config, error) {
-	var config verifier.Config
+func loadConfiguration(filepath string) (*verifier.Config, map[string]*protocol.BlockchainInfo, error) {
+	var config verifier.ConfigWithBlockchainInfos
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &config, nil
+	return &config.Config, config.BlockchainInfos, nil
 }
 
 func logBlockchainInfo(blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger) {
@@ -102,7 +102,7 @@ func main() {
 	if envConfig != "" {
 		filePath = envConfig
 	}
-	config, err := loadConfiguration(filePath)
+	config, blockchainInfos, err := loadConfiguration(filePath)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		os.Exit(1)
@@ -141,12 +141,12 @@ func main() {
 	// Use actual blockchain information from configuration
 	var blockchainHelper *protocol.BlockchainHelper
 	chainClients := make(map[protocol.ChainSelector]client.Client)
-	if len(config.BlockchainInfos) == 0 {
+	if len(blockchainInfos) == 0 {
 		lggr.Warnw("No blockchain information in config")
 	} else {
-		blockchainHelper = protocol.NewBlockchainHelper(config.BlockchainInfos)
+		blockchainHelper = protocol.NewBlockchainHelper(blockchainInfos)
 		lggr.Infow("Using real blockchain information from environment",
-			"chainCount", len(config.BlockchainInfos))
+			"chainCount", len(blockchainInfos))
 		logBlockchainInfo(blockchainHelper, lggr)
 		for _, selector := range blockchainHelper.GetAllChainSelectors() {
 			lggr.Infow("Creating chain client", "chainSelector", selector)

@@ -145,10 +145,9 @@ committeeVerifierConfig = """
 	), nil
 }
 
-func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
-	var config verifier.Config
+func (v *VerifierInput) buildVerifierConfiguration(config *verifier.Config) error {
 	if _, err := toml.Decode(verifierConfigTemplate, &config); err != nil {
-		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
+		return fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
 
 	config.VerifierID = v.ContainerName
@@ -164,9 +163,35 @@ func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) 
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = v.MonitoringOtelExporterHTTPEndpoint
 	}
 
-	// The value in the template should be usable for devenv setups, only override if a different value is provided.
-	if len(v.BlockchainInfos) > 0 {
-		config.BlockchainInfos = v.BlockchainInfos
+	return nil
+}
+
+func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo) (verifierTomlConfig []byte, err error) {
+	// Build base configuration
+	var baseConfig verifier.Config
+	if err := v.buildVerifierConfiguration(&baseConfig); err != nil {
+		return nil, err
+	}
+
+	// Wrap in ConfigWithBlockchainInfo and add blockchain infos
+	config := verifier.ConfigWithBlockchainInfos{
+		Config:          baseConfig,
+		BlockchainInfos: blockchainInfos,
+	}
+
+	cfg, err := toml.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
+	var config verifier.Config
+	err = v.buildVerifierConfiguration(&config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build verifier configuration: %w", err)
 	}
 
 	cfg, err := toml.Marshal(config)
@@ -224,6 +249,12 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		return in.Out, err
 	}
 
+	// Generate blockchain infos for standalone mode
+	blockchainInfos, err := GetBlockchainInfoFromTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
+	}
+
 	/* Database */
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
@@ -270,7 +301,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	// Generate and store config file.
-	config, err := in.GenerateConfig()
+	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate verifier config for committee %s: %w", in.CommitteeName, err)
 	}
