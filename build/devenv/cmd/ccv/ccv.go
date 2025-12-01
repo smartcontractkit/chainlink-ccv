@@ -707,24 +707,12 @@ var fundAddressesCmd = &cobra.Command{
 			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-selector", chainIDStr)
 		}
 
-		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-		for _, bc := range in.Blockchains {
-			chainIDs = append(chainIDs, bc.ChainID)
-			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+		impl, err := ccv.NewProductConfigurationFromNetwork(input.Type)
+		if err != nil {
+			return fmt.Errorf("failed to create product configuration: %w", err)
 		}
 
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-		if err != nil {
-			return fmt.Errorf("creating CLDF operations environment: %w", err)
-		}
-		ctx := ccv.Plog.WithContext(cmd.Context())
-		l := zerolog.Ctx(ctx)
-		impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-		if err != nil {
-			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
-		}
-
-		err = impl.FundAddresses(ctx, input, unknownAddresses, amountBig)
+		err = impl.FundAddresses(cmd.Context(), input, unknownAddresses, amountBig)
 		if err != nil {
 			return fmt.Errorf("failed to fund addresses: %w", err)
 		}
