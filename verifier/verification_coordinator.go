@@ -164,7 +164,7 @@ func (vc *Coordinator) applyConfigDefaults() {
 // Start / Stop
 // -----------------------------------------------------------------------------
 
-func (vc *Coordinator) Start(ctx context.Context) error {
+func (vc *Coordinator) Start(_ context.Context) error {
 	return vc.StartOnce("Coordinator", func() error {
 		vc.lggr.Infow("Starting verifier coordinator")
 
@@ -179,7 +179,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			}
 
 			var err error
-			statusMap, err = vc.chainStatusManager.ReadChainStatuses(ctx, allSelectors)
+			statusMap, err = vc.chainStatusManager.ReadChainStatuses(c, allSelectors)
 			if err != nil {
 				vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains",
 					"error", err)
@@ -217,7 +217,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			return errors.New("no enabled/initialized chain sources, nothing to coordinate")
 		}
 
-		if err := vc.startCurseDetector(ctx, enabledSourceReaders); err != nil {
+		if err := vc.startCurseDetector(c, enabledSourceReaders); err != nil {
 			return fmt.Errorf("failed to start curse detector: %w", err)
 		}
 
@@ -242,7 +242,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 				continue
 			}
 
-			if err = srs.Start(ctx); err != nil {
+			if err = srs.Start(c); err != nil {
 				vc.lggr.Errorw("Failed to start SourceReaderService",
 					"chainSelector", chainSelector,
 					"error", err)
@@ -259,7 +259,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.VerifierNodeResult])
 		vc.storageBatcher = batcher.NewBatcher(
-			ctx,
+			c,
 			vc.config.StorageBatchSize,
 			vc.config.StorageBatchTimeout,
 			vc.batchedCCVDataCh,
