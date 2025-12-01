@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -597,12 +599,13 @@ var generateConfigsCmd = &cobra.Command{
 		}
 		for i := 0; i < numExecutors; i++ {
 			executorInputs = append(executorInputs, services.ExecutorInput{
-				ExecutorID:        fmt.Sprintf("%s%d", executorIDPrefix, i),
-				ExecutorPool:      executorPool,
-				OfframpAddresses:  offRampAddresses,
-				IndexerAddress:    indexerAddress,
-				ExecutorAddresses: defaultExecutorOnRampAddressesUint64,
-				RmnAddresses:      rmnRemoteAddressesUint64,
+				ExecutorID:                         fmt.Sprintf("%s%d", executorIDPrefix, i),
+				ExecutorPool:                       executorPool,
+				OfframpAddresses:                   offRampAddresses,
+				IndexerAddress:                     indexerAddress,
+				ExecutorAddresses:                  defaultExecutorOnRampAddressesUint64,
+				RmnAddresses:                       rmnRemoteAddressesUint64,
+				MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
 			})
 		}
 		// generate and print the config to stdout for now
@@ -640,6 +643,83 @@ var generateConfigsCmd = &cobra.Command{
 			return fmt.Errorf("failed to write aggregator config to file: %w", err)
 		}
 		ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
+
+		return nil
+	},
+}
+
+var fundAddressesCmd = &cobra.Command{
+	Use:   "fund-addresses --env <env>--chain-id <chain-id> --addresses <address1,address2,...> --amount <amount>",
+	Short: "Fund addresses with ETH",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		chainID, err := cmd.Flags().GetString("chain-id")
+		if err != nil {
+			return fmt.Errorf("failed to parse chain-id: %w", err)
+		}
+		addresses, err := cmd.Flags().GetStringSlice("addresses")
+		if err != nil {
+			return fmt.Errorf("failed to parse addresses: %w", err)
+		}
+		amount, err := cmd.Flags().GetString("amount")
+		if err != nil {
+		}
+		env, err := cmd.Flags().GetString("env")
+		if err != nil {
+			return fmt.Errorf("failed to parse env: %w", err)
+		}
+
+		in, err := ccv.LoadOutput[ccv.Cfg](fmt.Sprintf("env-%s.toml", env))
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+
+		amountBig, ok := new(big.Int).SetString(amount, 10)
+		if !ok {
+			return fmt.Errorf("failed to parse amount: %w", err)
+		}
+
+		unknownAddresses := make([]protocol.UnknownAddress, 0, len(addresses))
+		for _, addr := range addresses {
+			unknownAddress, err := protocol.NewUnknownAddressFromHex(addr)
+			if err != nil {
+				return fmt.Errorf("failed to parse address: %w", err)
+			}
+			unknownAddresses = append(unknownAddresses, unknownAddress)
+		}
+
+		var input *blockchain.Input
+		for _, bc := range in.Blockchains {
+			if bc.ChainID == chainID {
+				input = bc
+				break
+			}
+		}
+
+		if input == nil {
+			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-id", chainID)
+		}
+
+		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+		for _, bc := range in.Blockchains {
+			chainIDs = append(chainIDs, bc.ChainID)
+			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+		}
+
+		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		if err != nil {
+			return fmt.Errorf("creating CLDF operations environment: %w", err)
+		}
+		ctx := ccv.Plog.WithContext(cmd.Context())
+		l := zerolog.Ctx(ctx)
+		impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+		if err != nil {
+			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
+		}
+
+		err = impl.FundAddresses(ctx, input, unknownAddresses, amountBig)
+		if err != nil {
+			return fmt.Errorf("failed to fund addresses: %w", err)
+		}
 
 		return nil
 	},
@@ -872,6 +952,18 @@ var sendCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
+
+	// Fund addresses
+	rootCmd.AddCommand(fundAddressesCmd)
+	fundAddressesCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
+	fundAddressesCmd.Flags().String("chain-id", "", "Chain ID to fund addresses for")
+	fundAddressesCmd.Flags().StringSlice("addresses", []string{}, "Addresses to fund (comma separated)")
+	fundAddressesCmd.Flags().String("amount", "", "Amount to fund (in ETH, not in wei)")
+
+	_ = fundAddressesCmd.MarkFlagRequired("env")
+	_ = fundAddressesCmd.MarkFlagRequired("chain-id")
+	_ = fundAddressesCmd.MarkFlagRequired("addresses")
+	_ = fundAddressesCmd.MarkFlagRequired("amount")
 
 	// Blockscout, on-chain debug
 	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8555", "EVM RPC node URL (default to dst chain on 8555")
