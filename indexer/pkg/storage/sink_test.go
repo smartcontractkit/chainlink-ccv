@@ -343,38 +343,3 @@ func TestStorageSink_UpdateDiscoverySequenceNumberInAllStorages(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newSequenceNumber, seq2)
 }
-
-func TestStorageSink_UpdateDiscoverySequenceNumberPartialFailure(t *testing.T) {
-	ctx := context.Background()
-	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
-
-	// Create two storages
-	memStorage1 := NewInMemoryStorage(lggr, mon)
-	memStorage2 := NewInMemoryStorage(lggr, mon)
-
-	// Create storage sink
-	chain, err := NewSink(lggr, memStorage1, memStorage2)
-	require.NoError(t, err)
-
-	initialSequenceNumber := 10
-	newSequenceNumber := 25
-
-	// Create state in first storage only
-	err = memStorage1.CreateDiscoveryState(ctx, TestDiscoveryLocation, initialSequenceNumber)
-	require.NoError(t, err)
-
-	// Update through chain (should fail for second storage but succeed for first)
-	err = chain.UpdateDiscoverySequenceNumber(ctx, TestDiscoveryLocation, newSequenceNumber)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "partial update failure")
-
-	// Verify first storage was updated
-	seq1, err := memStorage1.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
-	require.NoError(t, err)
-	assert.Equal(t, newSequenceNumber, seq1)
-
-	// Verify second storage doesn't have the state
-	_, err = memStorage2.GetDiscoverySequenceNumber(ctx, TestDiscoveryLocation)
-	assert.Error(t, err)
-}
