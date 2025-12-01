@@ -54,7 +54,7 @@ func main() {
 		configPath = envConfig
 	}
 
-	executorConfig, err := loadConfiguration(configPath)
+	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -91,6 +91,7 @@ func main() {
 	lggr = logger.Sugared(lggr)
 
 	lggr.Infow("Executor configuration", "config", executorConfig)
+	lggr.Infow("Blockchain information", "blockchainInfo", blockchainInfo)
 
 	//
 	// Setup OTEL Monitoring (via beholder)
@@ -132,7 +133,7 @@ func main() {
 	contractTransmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
-	for strSel, chain := range executorConfig.BlockchainInfos {
+	for strSel, chain := range blockchainInfo {
 		chainConfig := executorConfig.ChainConfiguration[strSel]
 		selector, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
@@ -281,15 +282,15 @@ func main() {
 	lggr.Infow("✅ Execution service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*executor.Configuration, error) {
-	var config executor.Configuration
+func loadConfiguration(filepath string) (*executor.Configuration, map[string]*protocol.BlockchainInfo, error) {
+	var config executor.ConfigWithBlockchainInfo
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	normalizedConfig, err := config.GetNormalizedConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return normalizedConfig, nil
+	return normalizedConfig, config.BlockchainInfos, nil
 }

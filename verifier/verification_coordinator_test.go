@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"errors"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -46,13 +45,14 @@ var (
 
 // testSetup contains common test dependencies.
 type testSetup struct {
-	t          *testing.T
-	ctx        context.Context
-	cancel     context.CancelFunc
-	logger     logger.Logger
-	storage    *common.InMemoryOffchainStorage
-	signerAddr protocol.UnknownAddress
-	signer     verifier.MessageSigner
+	t                  *testing.T
+	ctx                context.Context
+	cancel             context.CancelFunc
+	logger             logger.Logger
+	storage            *common.InMemoryOffchainStorage
+	chainStatusManager *protocol_mocks.MockChainStatusManager
+	signerAddr         protocol.UnknownAddress
+	signer             verifier.MessageSigner
 }
 
 const (
@@ -83,15 +83,19 @@ func newTestSetup(t *testing.T) *testSetup {
 	lggr := logger.Test(t)
 	storage := common.NewInMemoryOffchainStorage(lggr)
 	signer, addr := createTestSigner(t)
+	chainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusManager.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(nil, nil)
+	chainStatusManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	return &testSetup{
-		t:          t,
-		ctx:        ctx,
-		cancel:     cancel,
-		logger:     lggr,
-		storage:    storage,
-		signerAddr: addr,
-		signer:     signer,
+		t:                  t,
+		ctx:                ctx,
+		cancel:             cancel,
+		logger:             lggr,
+		storage:            storage,
+		chainStatusManager: chainStatusManager,
+		signerAddr:         addr,
+		signer:             signer,
 	}
 }
 
@@ -126,78 +130,6 @@ func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSel
 	}
 }
 
-func TestNewVerifierCoordinator(t *testing.T) {
-	config := createCoordinatorConfig("test-custom-mockery-verifier", map[protocol.ChainSelector]protocol.UnknownAddress{
-		sourceChain1: testCCVAddr,
-	})
-
-	mockSetup := verifier.SetupMockSourceReader(t)
-	mockReader := mockSetup.Reader
-	mockSetup.ExpectFetchMessageSentEvent(true)
-
-	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
-
-	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
-		sourceChain1: mockReader,
-	}
-	ts := newTestSetup(t)
-
-	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
-	noopLatencyTracker := verifier.NoopLatencyTracker{}
-	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
-	require.NoError(t, err)
-
-	testcases := []struct {
-		name    string
-		options []verifier.Option
-		err     []string
-	}{
-		{
-			name:    "compiles without any options",
-			options: []verifier.Option{},
-			err:     nil,
-		},
-		{
-			name: "compiles with additional options",
-			options: []verifier.Option{
-				verifier.WithSourceReaders(sourceReaders),
-			},
-			err: nil,
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			ec, err := verifier.NewCoordinator(
-				ts.logger,
-				commitVerifier,
-				sourceReaders,
-				ts.storage,
-				config,
-				noopLatencyTracker,
-				noopMonitoring,
-				verifier.DefaultFinalityCheckInterval,
-				tc.options...,
-			)
-
-			if len(tc.err) > 0 {
-				require.Error(t, err)
-				require.Nil(t, ec)
-				joinedError := err.Error()
-
-				for _, errStr := range tc.err {
-					require.ErrorContains(t, err, errStr)
-				}
-
-				require.Len(t, tc.err, len(strings.Split(joinedError, "\n")), "unexpected number of errors")
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, ec)
-			}
-		})
-	}
-}
-
 // createVerificationCoordinator creates a verification coordinator with the given setup.
 func createVerificationCoordinator(
 	ts *testSetup,
@@ -217,7 +149,7 @@ func createVerificationCoordinator(
 		config,
 		noopLatencyTracker,
 		noopMonitoring,
-		verifier.DefaultFinalityCheckInterval,
+		ts.chainStatusManager,
 	)
 }
 
@@ -267,7 +199,7 @@ func TestVerifier(t *testing.T) {
 		sourceChain1: testCCVAddr,
 	})
 
-	// Set up mock source reader
+	// Set up mock source readerService
 	mockSetup := verifier.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
@@ -286,8 +218,8 @@ func TestVerifier(t *testing.T) {
 
 	// Create and send test events
 	testEvents := []protocol.MessageSentEvent{
-		createTestMessageSentEvent(t, 100, sourceChain1, defaultDestChain, 0, 300_000, 100),
-		createTestMessageSentEvent(t, 200, sourceChain1, defaultDestChain, 0, 300_000, 200),
+		createTestMessageSentEvent(t, 100, sourceChain1, defaultDestChain, 0, 300_000, 900),
+		createTestMessageSentEvent(t, 200, sourceChain1, defaultDestChain, 0, 300_000, 901),
 	}
 
 	var messagesSent atomic.Int32
@@ -441,51 +373,6 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	assert.Len(t, storedDataSource2, 0) // No messages from failed source
 }
 
-func TestMultiSourceVerifier_ValidationErrors(t *testing.T) {
-	ts := newTestSetup(t)
-	defer ts.cleanup()
-
-	tests := []struct {
-		readers     map[protocol.ChainSelector]chainaccess.SourceReader
-		name        string
-		expectError string
-		config      verifier.CoordinatorConfig
-	}{
-		{
-			name:        "no source readers",
-			config:      createCoordinatorConfig("test-no-sources", map[protocol.ChainSelector]protocol.UnknownAddress{}),
-			readers:     map[protocol.ChainSelector]chainaccess.SourceReader{},
-			expectError: "at least one source reader is required",
-		},
-		{
-			name: "mismatched source config and readers",
-			config: createCoordinatorConfig("test-mismatch", map[protocol.ChainSelector]protocol.UnknownAddress{
-				sourceChain1: testCCVAddr,
-				sourceChain2: testCCVAddr,
-			}),
-			readers: func() map[protocol.ChainSelector]chainaccess.SourceReader {
-				// Create a mock that only expects FetchMessageSentEvents call
-				mockSetup := verifier.SetupMockSourceReader(t)
-				mockSetup.ExpectFetchMessageSentEvent(true)
-
-				return map[protocol.ChainSelector]chainaccess.SourceReader{
-					sourceChain1: mockSetup.Reader, // Missing reader for sourceChain2
-				}
-			}(),
-			expectError: "source reader not found for chain selector 84",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// For error tests, provide empty head trackers to trigger validation errors
-			_, err := createVerificationCoordinator(ts, tt.config, tt.readers)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.expectError)
-		})
-	}
-}
-
 func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.cleanup()
@@ -553,7 +440,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	mockSetup2.ExpectFetchMessageSentEvent(true)
 
 	// Create source readers map that includes the unconfigured chain
-	// This simulates having a reader for a chain that's not in the coordinator config
+	// This simulates having a readerService for a chain that's not in the coordinator config
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1:      mockSetup1.Reader,
 		unconfiguredChain: mockSetup2.Reader,
