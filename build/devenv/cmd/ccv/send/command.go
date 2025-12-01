@@ -125,63 +125,64 @@ func run(args sendArgs) error {
 	if err != nil {
 		return fmt.Errorf("failed to get mock receiver address: %w", err)
 	}
-	// Use V3 if finality config is provided, otherwise use V2
-	var result cciptestinterfaces.MessageSentEvent
-	if args.finalitySel != 0 {
-		// V3 format with finality config
-		committeeVerifierProxyRef, err := in.CLDF.DataStore.Addresses().Get(
-			datastore.NewAddressRefKey(
-				args.srcSel,
-				datastore.ContractType(committee_verifier.ResolverProxyType),
-				semver.MustParse(committee_verifier.Deploy.Version()),
-				evm.DefaultCommitteeVerifierQualifier))
-		if err != nil {
-			return fmt.Errorf("failed to get committee verifier proxy address: %w", err)
-		}
-		executorRef, err := in.CLDF.DataStore.Addresses().Get(
-			datastore.NewAddressRefKey(
-				args.srcSel,
-				datastore.ContractType(executor_operations.ContractType),
-				semver.MustParse(executor_operations.Deploy.Version()),
-				""))
-		if err != nil {
-			return fmt.Errorf("failed to get executor address: %w", err)
-		}
-		result, err = impl.SendMessage(ctx, args.srcSel, args.destSel, cciptestinterfaces.MessageFields{
-			Receiver: common.HexToAddress(mockReceiverRef.Address).Bytes(), // mock receiver
-			Data:     []byte{},
-		}, cciptestinterfaces.MessageOptions{
-			Version:        3,
-			FinalityConfig: uint16(args.finalitySel),
-			Executor:       common.HexToAddress(executorRef.Address).Bytes(), // executor address
-			ExecutorArgs:   nil,
-			TokenArgs:      nil,
-			CCVs: []protocol.CCV{
-				{
-					CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
-					Args:       []byte{},
-					ArgsLen:    0,
-				},
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to send message: %w", err)
-		}
-	} else {
-		// V2 format - use the dedicated V2 function
-		result, err = impl.SendMessage(ctx, args.srcSel, args.destSel, cciptestinterfaces.MessageFields{
-			Receiver: common.HexToAddress(mockReceiverRef.Address).Bytes(), // mock receiver
-			Data:     []byte{},
-		}, cciptestinterfaces.MessageOptions{
-			Version:             2,
-			ExecutionGasLimit:   200_000,
-			OutOfOrderExecution: true,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to send message: %w", err)
-		}
+
+	messageFields := cciptestinterfaces.MessageFields{
+		Receiver: common.HexToAddress(mockReceiverRef.Address).Bytes(), // mock receiver
+		Data:     []byte{},
 	}
+	messageOptions, err := getMessageOptions(args, in.CLDF.DataStore.Addresses())
+
+	result, err := impl.SendMessage(ctx, args.srcSel, args.destSel, messageFields, messageOptions)
+	if err != nil {
+		return fmt.Errorf("failed to send message: %w", err)
+	}
+
 	ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
 	ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
 	return nil
+}
+
+func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptestinterfaces.MessageOptions, error) {
+	if args.finalitySel == 0 {
+		// V2 format - use the dedicated V2 function
+		return cciptestinterfaces.MessageOptions{
+			Version:             2,
+			ExecutionGasLimit:   200_000,
+			OutOfOrderExecution: true,
+		}, nil
+	}
+
+	// V3 format with finality config
+	committeeVerifierProxyRef, err := addrs.Get(
+		datastore.NewAddressRefKey(
+			args.srcSel,
+			datastore.ContractType(committee_verifier.ResolverProxyType),
+			semver.MustParse(committee_verifier.Deploy.Version()),
+			evm.DefaultCommitteeVerifierQualifier))
+	if err != nil {
+		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get committee verifier proxy address: %w", err)
+	}
+	executorRef, err := addrs.Get(
+		datastore.NewAddressRefKey(
+			args.srcSel,
+			datastore.ContractType(executor_operations.ContractType),
+			semver.MustParse(executor_operations.Deploy.Version()),
+			""))
+	if err != nil {
+		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get executor address: %w", err)
+	}
+	return cciptestinterfaces.MessageOptions{
+		Version:        3,
+		FinalityConfig: uint16(args.finalitySel),
+		Executor:       common.HexToAddress(executorRef.Address).Bytes(), // executor address
+		ExecutorArgs:   nil,
+		TokenArgs:      nil,
+		CCVs: []protocol.CCV{
+			{
+				CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
+				Args:       []byte{},
+				ArgsLen:    0,
+			},
+		},
+	}, nil
 }
