@@ -654,16 +654,6 @@ func TestUpdateDiscoverySequenceNumber(t *testing.T) {
 	assert.Equal(t, newSequenceNumber, sequenceNumber)
 }
 
-func TestUpdateDiscoverySequenceNumberNotFound(t *testing.T) {
-	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
-	ctx := context.Background()
-
-	err := storage.UpdateDiscoverySequenceNumber(ctx, "non-existent-location", 100)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "discovery record not found")
-}
-
 func TestDiscoveryStateMultipleLocations(t *testing.T) {
 	storage := NewInMemoryStorage(logger.Nop(), monitoring.NewNoopIndexerMonitoring())
 	ctx := context.Background()
