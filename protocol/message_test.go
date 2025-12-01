@@ -248,5 +248,4 @@ func TestExecutorAddressValidation(t *testing.T) {
 	config, err := NewUnknownAddressFromHex(jobspec)
 	require.NoError(t, err)
 	require.Equal(t, jobspec, config.String())
-
 }
