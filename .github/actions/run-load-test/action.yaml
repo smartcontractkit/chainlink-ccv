@@ -69,12 +69,8 @@ runs:
       working-directory: build/devenv
       run: go mod download
 
-    - name: Checkout Chainlink repository
-      uses: actions/checkout@v5
-      with:
-        repository: smartcontractkit/chainlink
-        path: chainlink
-        fetch-depth: 1
+    - name: Build Chainlink image
+      uses: ./.github/actions/build-cl
 
     - name: Build Docker Images
       shell: bash

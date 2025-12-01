@@ -163,6 +163,7 @@ func (v *VerifierInput) buildVerifierConfiguration(config *verifier.Config) erro
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = v.MonitoringOtelExporterHTTPEndpoint
 	}
 
+	fmt.Printf("verifier configuration %+v", *config)
 	return nil
 }
 
