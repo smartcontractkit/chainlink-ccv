@@ -20,7 +20,7 @@ inputs:
   env_name:
     description: 'Environment name for CCV'
     required: false
-    default: 'env-cl-16'
+    default: 'env-cl-16-ci'
 
 
 runs:
