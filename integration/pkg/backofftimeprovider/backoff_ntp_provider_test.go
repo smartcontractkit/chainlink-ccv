@@ -418,6 +418,63 @@ func TestBackoffNTPProvider_GetTime_BackoffDuringConcurrentCalls(t *testing.T) {
 	}
 }
 
+func TestBackoffNTPProvider_GetTime_FailureUsesCachedDifference(t *testing.T) {
+	tests := []struct {
+		name           string
+		backoffDur     time.Duration
+		offsetDuration time.Duration // difference between NTP and Local
+	}{
+		{
+			name:           "NTP 1 hour ahead",
+			backoffDur:     1 * time.Second,
+			offsetDuration: 1 * time.Hour,
+		},
+		{
+			name:           "NTP 1 hour behind",
+			backoffDur:     1 * time.Second,
+			offsetDuration: -1 * time.Hour,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			lggr := logger.Test(t)
+			provider := NewBackoffNTPProvider(lggr, tt.backoffDur, defaultNtpServer)
+
+			originalNtpTimeFunc := ntpTimeFunc
+			defer func() { ntpTimeFunc = originalNtpTimeFunc }()
+
+			// 1. Success call
+			ntpTimeFunc = func(host string) (time.Time, error) {
+				return time.Now().UTC().Add(tt.offsetDuration), nil
+			}
+
+			successResult := provider.GetTime()
+			// Assert it's close to expected offset
+			now := time.Now().UTC()
+			assert.InDelta(t, float64(now.Add(tt.offsetDuration).Unix()), float64(successResult.Unix()), 1.0)
+			assert.Equal(t, 0, provider.failedAttempts)
+			assert.False(t, provider.lastSuccessLocalTime.IsZero())
+			assert.False(t, provider.lastSuccessNTPTime.IsZero())
+
+			// 2. Failure call
+			ntpTimeFunc = func(host string) (time.Time, error) {
+				return time.Time{}, errors.New("ntp failure")
+			}
+
+			failureResult := provider.GetTime()
+			now2 := time.Now().UTC()
+
+			// Assert
+			// failureResult should be approximately now2 + offsetDuration
+			expectedFailureResult := now2.Add(tt.offsetDuration)
+			assert.InDelta(t, float64(expectedFailureResult.Unix()), float64(failureResult.Unix()), 1.0)
+			assert.Equal(t, 1, provider.failedAttempts)
+		})
+	}
+}
+
 func TestNewBackoffNTPProvider(t *testing.T) {
 	tests := []struct {
 		name       string
