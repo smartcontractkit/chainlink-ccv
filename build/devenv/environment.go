@@ -529,8 +529,6 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 			if err != nil {
 				return fmt.Errorf("failed to generate verifier config: %w", err)
 			}
-
-			fmt.Println("Job spec", jobSpec)
 			jb, resp, err := clClient.CreateJobRaw(jobSpec)
 			if err != nil {
 				return fmt.Errorf("failed to create committee verifier job: %w", err)
