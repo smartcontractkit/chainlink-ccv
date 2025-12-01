@@ -662,6 +662,7 @@ var fundAddressesCmd = &cobra.Command{
 		}
 		amount, err := cmd.Flags().GetString("amount")
 		if err != nil {
+			return fmt.Errorf("failed to parse amount flag: %w", err)
 		}
 		env, err := cmd.Flags().GetString("env")
 		if err != nil {
@@ -675,7 +676,7 @@ var fundAddressesCmd = &cobra.Command{
 
 		amountBig, ok := new(big.Int).SetString(amount, 10)
 		if !ok {
-			return fmt.Errorf("failed to parse amount: %w", err)
+			return fmt.Errorf("failed to parse amount into big int: %w", err)
 		}
 
 		unknownAddresses := make([]protocol.UnknownAddress, 0, len(addresses))
