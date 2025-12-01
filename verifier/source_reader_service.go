@@ -144,7 +144,7 @@ func (r *SourceReaderService) VerificationTaskChannel() <-chan batcher.BatchResu
 }
 
 func (r *SourceReaderService) Name() string {
-	return fmt.Sprintf("verifier.SourceChainService[%s]", r.chainSelector)
+	return fmt.Sprintf("verifier.SourceReaderService[%s]", r.chainSelector)
 }
 
 // HealthCheck returns the current health status of the reader.
