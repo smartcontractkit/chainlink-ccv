@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
@@ -23,8 +22,28 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
+func parseSelectors(input []string) (src, dest, finality uint64, err error) {
+	src, err = strconv.ParseUint(input[0], 10, 64)
+	if err != nil {
+		err = fmt.Errorf("failed to parse source chain selector: %w", err)
+		return
+	}
+	dest, err = strconv.ParseUint(input[1], 10, 64)
+	if err != nil {
+		err = fmt.Errorf("failed to parse destination chain selector: %w", err)
+		return
+	}
+	finality, err = strconv.ParseUint(input[2], 10, 64)
+	if err != nil {
+		err = fmt.Errorf("failed to parse finality chain selector: %w", err)
+		return
+	}
+	return
+}
+
 func Command() *cobra.Command {
 	var args sendArgs
+	var selectorStrings []string
 
 	cmd := &cobra.Command{
 		Use:     "send <src>,<dest>[,<finality>]",
@@ -32,13 +51,26 @@ func Command() *cobra.Command {
 		Args:    cobra.RangeArgs(1, 1),
 		Short:   "Send a message",
 		RunE: func(cmd *cobra.Command, positionalArgs []string) error {
-			args.selectors = strings.Split(positionalArgs[0], ",")
+			if len(positionalArgs) != 0 && len(selectorStrings) != 0 {
+				return fmt.Errorf("cannot use both positional arguments and --selectors flag")
+			}
+			if len(positionalArgs) != 0 {
+				selectorStrings = positionalArgs
+			}
+
+			var err error
+			args.srcSel, args.destSel, args.finalitySel, err = parseSelectors(selectorStrings)
+			if err != nil {
+				return err
+			}
+
 			return run(args)
 		},
 	}
 
 	cmd.Flags().StringVar(&args.receiverQualifier, "receiver-qualifier", evm.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
 	cmd.Flags().StringVar(&args.env, "env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to 'out' for env-out.toml)")
+	cmd.Flags().StringArrayVar(&selectorStrings, "selector", []string{}, "Selectors to use for the mock receiver contract, provide 2 or 3 selectors")
 
 	return cmd
 }
@@ -46,7 +78,10 @@ func Command() *cobra.Command {
 type sendArgs struct {
 	receiverQualifier string
 	env               string
-	selectors         []string
+
+	srcSel      uint64
+	destSel     uint64
+	finalitySel uint64
 }
 
 func run(args sendArgs) error {
@@ -60,17 +95,8 @@ func run(args sendArgs) error {
 	}
 
 	// Support both V2 (2 params) and V3 (3 params) formats
-	if len(args.selectors) != 2 && len(args.selectors) != 3 {
-		return fmt.Errorf("expected 2 or 3 parameters (src,dest for V2 or src,dest,finality for V3), got %d", len(args.selectors))
-	}
-
-	src, err := strconv.ParseUint(args.selectors[0], 10, 64)
-	if err != nil {
-		return fmt.Errorf("failed to parse source chain selector: %w", err)
-	}
-	dest, err := strconv.ParseUint(args.selectors[1], 10, 64)
-	if err != nil {
-		return fmt.Errorf("failed to parse destination chain selector: %w", err)
+	if args.srcSel == 0 || args.destSel == 0 {
+		return fmt.Errorf("expected source and destination selectors (src,dest for V2 or src,dest,finality for V3)")
 	}
 
 	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
@@ -92,7 +118,7 @@ func run(args sendArgs) error {
 
 	mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
-			dest,
+			args.destSel,
 			datastore.ContractType(mock_receiver.ContractType),
 			semver.MustParse(mock_receiver.Deploy.Version()),
 			args.receiverQualifier))
@@ -101,16 +127,11 @@ func run(args sendArgs) error {
 	}
 	// Use V3 if finality config is provided, otherwise use V2
 	var result cciptestinterfaces.MessageSentEvent
-	if len(args.selectors) == 3 {
+	if args.finalitySel != 0 {
 		// V3 format with finality config
-		finality, err := strconv.ParseUint(args.selectors[2], 10, 32)
-		if err != nil {
-			return fmt.Errorf("failed to parse finality config: %w", err)
-		}
-
 		committeeVerifierProxyRef, err := in.CLDF.DataStore.Addresses().Get(
 			datastore.NewAddressRefKey(
-				src,
+				args.srcSel,
 				datastore.ContractType(committee_verifier.ResolverProxyType),
 				semver.MustParse(committee_verifier.Deploy.Version()),
 				evm.DefaultCommitteeVerifierQualifier))
@@ -119,20 +140,20 @@ func run(args sendArgs) error {
 		}
 		executorRef, err := in.CLDF.DataStore.Addresses().Get(
 			datastore.NewAddressRefKey(
-				src,
+				args.srcSel,
 				datastore.ContractType(executor_operations.ContractType),
 				semver.MustParse(executor_operations.Deploy.Version()),
 				""))
 		if err != nil {
 			return fmt.Errorf("failed to get executor address: %w", err)
 		}
-		result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
-			Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
+		result, err = impl.SendMessage(ctx, args.srcSel, args.destSel, cciptestinterfaces.MessageFields{
+			Receiver: common.HexToAddress(mockReceiverRef.Address).Bytes(), // mock receiver
 			Data:     []byte{},
 		}, cciptestinterfaces.MessageOptions{
 			Version:        3,
-			FinalityConfig: uint16(finality),
-			Executor:       protocol.UnknownAddress(common.HexToAddress(executorRef.Address).Bytes()), // executor address
+			FinalityConfig: uint16(args.finalitySel),
+			Executor:       common.HexToAddress(executorRef.Address).Bytes(), // executor address
 			ExecutorArgs:   nil,
 			TokenArgs:      nil,
 			CCVs: []protocol.CCV{
@@ -148,8 +169,8 @@ func run(args sendArgs) error {
 		}
 	} else {
 		// V2 format - use the dedicated V2 function
-		result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
-			Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
+		result, err = impl.SendMessage(ctx, args.srcSel, args.destSel, cciptestinterfaces.MessageFields{
+			Receiver: common.HexToAddress(mockReceiverRef.Address).Bytes(), // mock receiver
 			Data:     []byte{},
 		}, cciptestinterfaces.MessageOptions{
 			Version:             2,
