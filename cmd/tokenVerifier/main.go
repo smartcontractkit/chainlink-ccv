@@ -212,6 +212,7 @@ func main() {
 		verifierMonitoring,
 	)
 
+	// Dummy, just to show multiple verifiers support
 	cctpConfig := config.TokenVerifiers[0].CCTP
 
 	cctpVerifier := cctp.NewVerifier(
@@ -238,7 +239,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	lbtcConfig := config.TokenVerifiers[0].LBTC
+	// Dummy, just to show multiple verifiers support
+	lbtcConfig := config.TokenVerifiers[1].LBTC
 
 	lbtcVerifier := lbtc.NewVerifier(
 		lbtc.NewAttestationService(*lbtcConfig),
