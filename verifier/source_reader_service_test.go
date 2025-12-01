@@ -23,7 +23,7 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
-	// Mock source reader
+	// Mock source readerService
 	reader := protocol_mocks.NewMockSourceReader(t)
 
 	latest := &protocol.BlockHeader{
@@ -514,7 +514,7 @@ func TestSRS_ChainStatus_MonotonicUpdates(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := protocol_mocks.NewMockSourceReader(t)
 
-	// We won't use reader here
+	// We won't use readerService here
 	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
 
 	// ReadChainStatuses for initializeStartBlock

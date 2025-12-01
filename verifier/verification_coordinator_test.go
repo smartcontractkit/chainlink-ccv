@@ -199,7 +199,7 @@ func TestVerifier(t *testing.T) {
 		sourceChain1: testCCVAddr,
 	})
 
-	// Set up mock source reader
+	// Set up mock source readerService
 	mockSetup := verifier.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
@@ -440,7 +440,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	mockSetup2.ExpectFetchMessageSentEvent(true)
 
 	// Create source readers map that includes the unconfigured chain
-	// This simulates having a reader for a chain that's not in the coordinator config
+	// This simulates having a readerService for a chain that's not in the coordinator config
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1:      mockSetup1.Reader,
 		unconfiguredChain: mockSetup2.Reader,

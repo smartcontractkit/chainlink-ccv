@@ -254,6 +254,9 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 			r.logger.Errorw("Failed to compute message ID", "error", err)
 			continue
 		}
+		// TODO: Move more validations here?
+		// TODO: Copy validation from evm source reader to source reader service
+		// TODO: Add the filter back
 		onchainMessageID := event.MessageID.String()
 		if computedMessageID.String() != onchainMessageID {
 			r.logger.Errorw("Message ID mismatch", "computed", computedMessageID.String(), "onchain", onchainMessageID)
@@ -264,6 +267,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 			ReceiptBlobs: event.Receipts,
 			BlockNumber:  event.BlockNumber,
 			MessageID:    onchainMessageID,
+			TxHash:       event.TxHash,
 			FirstSeenAt:  now,
 		}
 		tasks = append(tasks, task)

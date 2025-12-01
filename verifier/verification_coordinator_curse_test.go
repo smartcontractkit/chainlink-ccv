@@ -262,7 +262,7 @@ func TestCurseDetection_LaneSpecificCurse(t *testing.T) {
 
 	// Try to send new events on non-cursed lane - these should be processed
 	// Advance the chain to make blocks 106-107 available AND finalized
-	// (source reader has processed up to 105, so we need blocks > 105)
+	// (source readerService has processed up to 105, so we need blocks > 105)
 	setup.advanceChain(110, 108) // latest=110, finalized=108 (so 106-107 are finalized)
 	otherDestEvents := createTestMessageSentEvents(t, 7, sourceChain, destChain2, []uint64{106, 107})
 	setup.sendEvents(otherDestEvents)

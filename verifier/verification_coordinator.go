@@ -25,7 +25,7 @@ const (
 // -----------------------------------------------------------------------------
 
 type sourceState struct {
-	reader        *SourceReaderService
+	readerService *SourceReaderService
 	readyTasksCh  <-chan batcher.BatchResult[VerificationTask]
 	chainSelector protocol.ChainSelector
 }
@@ -34,9 +34,8 @@ func (s *sourceState) Close() error {
 	if s == nil {
 		return nil
 	}
-	// SRS2 owns underlying reader + reorg detector lifecycle
-	if s.reader != nil {
-		return s.reader.Stop()
+	if s.readerService != nil {
+		return s.readerService.Stop()
 	}
 	return nil
 }
@@ -79,23 +78,6 @@ type Coordinator struct {
 // -----------------------------------------------------------------------------
 
 type Option func(*Coordinator)
-
-func WithChainStatusManager(manager protocol.ChainStatusManager) Option {
-	return func(vc *Coordinator) {
-		vc.chainStatusManager = manager
-	}
-}
-
-func WithSourceReaders(sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader) Option {
-	return func(vc *Coordinator) {
-		if vc.sourceReaders == nil {
-			vc.sourceReaders = make(map[protocol.ChainSelector]chainaccess.SourceReader)
-		}
-		for chainSelector, reader := range sourceReaders {
-			vc.sourceReaders[chainSelector] = reader
-		}
-	}
-}
 
 func WithCurseDetector(detector common.CurseCheckerService) Option {
 	return func(vc *Coordinator) {
@@ -155,6 +137,7 @@ func (vc *Coordinator) validateConfig() error {
 	if vc.config.SourceConfigs == nil {
 		return errors.New("source configs are required")
 	}
+
 	return nil
 }
 
@@ -267,7 +250,7 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 			}
 
 			state := &sourceState{
-				reader:        srs,
+				readerService: srs,
 				readyTasksCh:  srs.ReadyTasksChannel(),
 				chainSelector: chainSelector,
 			}
@@ -396,6 +379,7 @@ func (vc *Coordinator) ccvDataLoop(ctx context.Context) {
 				continue
 			}
 
+			// TODO: Run in Go Routine
 			// Write batch of CCVData to offchain storage
 			if err := vc.storage.WriteCCVNodeData(ctx, batch.Items); err == nil {
 				vc.lggr.Infow("CCV data batch stored successfully",
