@@ -288,8 +288,6 @@ func loadConfiguration(filepath string) (*executor.Configuration, map[string]*pr
 		return nil, nil, err
 	}
 
-	fmt.Println("Blockchain information", "blockchainInfo", config.BlockchainInfos)
-
 	normalizedConfig, err := config.GetNormalizedConfig()
 	if err != nil {
 		return nil, nil, err

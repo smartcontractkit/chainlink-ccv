@@ -73,7 +73,6 @@ type ChainConfiguration struct {
 }
 
 func (c *Configuration) Validate() error {
-
 	if c.ExecutorID == "" {
 		return fmt.Errorf("this_executor_id must be configured")
 	}
