@@ -1,10 +1,5 @@
 name: 'Build CL Node Image'
 description: 'Build Chainlink node image with plugins'
-inputs:
-  ref:
-    description: 'Chainlink Core Repository Ref'
-    default: develop
-    required: true
 
 runs:
   using: "composite"
@@ -13,7 +8,7 @@ runs:
       uses: actions/checkout@v5
       with:
         repository: smartcontractkit/chainlink
-        ref: ${{ inputs.ref }}
+        ref: becbfb2fc0774c97f7168780563ac9090aa3e3f1
         path: chainlink-repo
 
     - name: Setup path to go.mod

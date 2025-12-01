@@ -17,11 +17,14 @@ const (
 	ntpServerDefault         = "time.google.com"
 )
 
+type ConfigWithBlockchainInfo struct {
+	Configuration
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+}
+
 // Configuration is the complete set of information an executor needs to operate normally.
 // We can use time.Duration directly in this config because burntSushi can parse duration from strings.
 type Configuration struct {
-	// BlockchainInfos is a map of chain selector to RPC information for chain interactions.
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	// IndexerAddress is the URL of the indexer to receive messages + verifications from.
 	IndexerAddress string `toml:"indexer_address"`
 	// BackoffDuration is the duration to back off after a failed request to the Indexer.
@@ -70,9 +73,6 @@ type ChainConfiguration struct {
 }
 
 func (c *Configuration) Validate() error {
-	if len(c.BlockchainInfos) == 0 {
-		return fmt.Errorf("no destination chains configured to read from")
-	}
 	if c.ExecutorID == "" {
 		return fmt.Errorf("this_executor_id must be configured")
 	}

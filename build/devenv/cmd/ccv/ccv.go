@@ -530,7 +530,6 @@ var generateConfigsCmd = &cobra.Command{
 			rmnRemoteAddressesUint64                = make(map[uint64]string)
 			offRampAddresses                        = make(map[uint64]string)
 			thresholdPerSource                      = make(map[uint64]uint8)
-			blockchainInfos                         = make(map[string]*protocol.BlockchainInfo)
 		)
 		for _, ref := range addressRefs {
 			chainSelectorStr := strconv.FormatUint(ref.ChainSelector, 10)
@@ -550,23 +549,6 @@ var generateConfigsCmd = &cobra.Command{
 				offRampAddresses[ref.ChainSelector] = ref.Address
 			}
 			thresholdPerSource[ref.ChainSelector] = ocrThreshold(len(verifierPubKeys))
-
-			// TODO: these values don't really matter for deployments that use the chainlink node.
-			// Blockchain infos should be moved to a separate config for standalone mode verifiers.
-			blockchainInfos[chainSelectorStr] = &protocol.BlockchainInfo{
-				ChainID:         chainSelectorStr,
-				Type:            "evm",
-				Family:          "evm",
-				UniqueChainName: fmt.Sprintf("blockchain-%s", chainSelectorStr),
-				Nodes: []*protocol.Node{
-					{
-						ExternalHTTPUrl: fmt.Sprintf("some-random-http-url-%s", chainSelectorStr),
-						InternalHTTPUrl: fmt.Sprintf("some-random-internal-http-url-%s", chainSelectorStr),
-						ExternalWSUrl:   fmt.Sprintf("some-random-ws-url-%s", chainSelectorStr),
-						InternalWSUrl:   fmt.Sprintf("some-random-internal-ws-url-%s", chainSelectorStr),
-					},
-				},
-			}
 		}
 
 		// create temporary directory to store the generated configs
@@ -589,7 +571,6 @@ var generateConfigsCmd = &cobra.Command{
 				RMNRemoteAddresses:                 rmnRemoteAddresses,
 				CommitteeName:                      committeeName,
 				MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
-				BlockchainInfos:                    blockchainInfos,
 			})
 		}
 		// generate and print the job spec to stdout for now
@@ -622,11 +603,11 @@ var generateConfigsCmd = &cobra.Command{
 				IndexerAddress:    indexerAddress,
 				ExecutorAddresses: defaultExecutorOnRampAddressesUint64,
 				RmnAddresses:      rmnRemoteAddressesUint64,
-				BlockchainInfos:   blockchainInfos,
 			})
 		}
 		// generate and print the config to stdout for now
 		for _, executorInput := range executorInputs {
+			// Chainlink node deployments don't need blockchain infos in job specs
 			executorJobSpec, err := executorInput.GenerateJobSpec()
 			if err != nil {
 				return fmt.Errorf("failed to generate executor job spec: %w", err)
