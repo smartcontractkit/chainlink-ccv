@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 )
@@ -62,7 +63,7 @@ func (h *VerifierResultsHandler) Handle(ctx context.Context, req *pb.GetVerifier
 		}
 
 		pbResults[i] = &pb.VerifierResult{
-			Message:                nil,
+			Message:                common.MapProtocolMessageToProtoMessage(&result.Data.Message),
 			MessageCcvAddresses:    nil,
 			MessageExecutorAddress: nil,
 			CcvData:                result.Data.CCVData,

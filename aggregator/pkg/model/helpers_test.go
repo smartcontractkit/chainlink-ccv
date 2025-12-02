@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -17,10 +18,10 @@ func TestMessageMappingRoundTrip_PreservesMessageID(t *testing.T) {
 	originalID, err := message.MessageID()
 	require.NoError(t, err)
 
-	protoMessage := MapProtocolMessageToProtoMessage(message)
+	protoMessage := common.MapProtocolMessageToProtoMessage(message)
 	require.NotNil(t, protoMessage)
 
-	convertedMessage, err := MapProtoMessageToProtocolMessage(protoMessage)
+	convertedMessage, err := common.MapProtoMessageToProtocolMessage(protoMessage)
 	require.NoError(t, err)
 	require.NotNil(t, convertedMessage)
 
