@@ -99,6 +99,7 @@ type AggregatorOutput struct {
 	UseCache           bool   `toml:"use_cache"`
 	ContainerName      string `toml:"container_name"`
 	Address            string `toml:"address"`
+	ExternalHTTPUrl    string `toml:"external_http_url"`
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 }
@@ -429,16 +430,23 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
 	}
 
-	_, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
+
+	host, err := c.Host(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container host: %w", err)
+	}
+
 	in.Out = &AggregatorOutput{
-		ContainerName: aggregatorContainerName,
-		Address:       fmt.Sprintf("%s:%d", aggregatorContainerName, in.HostPort),
+		ContainerName:   aggregatorContainerName,
+		Address:         fmt.Sprintf("%s:%d", aggregatorContainerName, in.HostPort),
+		ExternalHTTPUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
 	}
 	return in.Out, nil
 }

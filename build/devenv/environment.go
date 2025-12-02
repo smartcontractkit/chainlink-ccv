@@ -76,18 +76,20 @@ const (
 )
 
 type Cfg struct {
-	Mode               services.Mode               `toml:"mode"`
-	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
-	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
-	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
-	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
-	Executor           []*services.ExecutorInput   `toml:"executor"              validate:"required"`
-	Indexer            *services.IndexerInput      `toml:"indexer"               validate:"required"`
-	Aggregator         []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
-	Blockchains        []*blockchain.Input         `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                 `toml:"nodesets"              validate:"required"`
-	CLNodesFundingETH  float64                     `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                     `toml:"cl_nodes_funding_link"`
+	Mode                services.Mode               `toml:"mode"`
+	CLDF                CLDF                        `toml:"cldf"                  validate:"required"`
+	JD                  *jd.Input                   `toml:"jd"                    validate:"required"`
+	Fake                *services.FakeInput         `toml:"fake"                  validate:"required"`
+	Verifier            []*services.VerifierInput   `toml:"verifier"              validate:"required"`
+	Executor            []*services.ExecutorInput   `toml:"executor"              validate:"required"`
+	Indexer             *services.IndexerInput      `toml:"indexer"               validate:"required"`
+	Aggregator          []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
+	Blockchains         []*blockchain.Input         `toml:"blockchains"           validate:"required"`
+	NodeSets            []*ns.Input                 `toml:"nodesets"              validate:"required"`
+	CLNodesFundingETH   float64                     `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink  float64                     `toml:"cl_nodes_funding_link"`
+	AggregatorEndpoints map[string]string           `toml:"aggregator_endpoints"`
+	IndexerEndpoint     string                      `toml:"indexer_endpoint"`
 }
 
 func checkKeys(in *Cfg) error {
@@ -358,6 +360,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////////////
 
 	// Start aggregators.
+	in.AggregatorEndpoints = make(map[string]string)
 	for _, aggregatorInput := range in.Aggregator {
 		// Initialize proxy addresses from datastore.
 		addrs, _ := e.DataStore.Addresses().Fetch()
@@ -377,10 +380,11 @@ func NewEnvironment() (in *Cfg, err error) {
 			aggregatorInput.CommitteeVerifierResolverProxyAddresses[addr.ChainSelector] = addr.Address
 		}
 
-		_, err = services.NewAggregator(aggregatorInput, in.Verifier)
+		out, err := services.NewAggregator(aggregatorInput, in.Verifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
+		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPUrl
 	}
 
 	// Start indexer.
@@ -428,10 +432,12 @@ func NewEnvironment() (in *Cfg, err error) {
 			Str("address", address.Address).
 			Msg("assigned issuer address to verifier in indexer config")
 	}
-	_, err = services.NewIndexer(in.Indexer)
+	indexerOut, err := services.NewIndexer(in.Indexer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
+
+	in.IndexerEndpoint = indexerOut.ExternalHTTPURL
 
 	if len(in.Executor) > 0 {
 		execs, err := services.ResolveContractsForExecutor(e.DataStore, in.Blockchains, in.Executor)
