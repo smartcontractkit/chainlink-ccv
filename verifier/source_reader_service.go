@@ -593,16 +593,25 @@ func (r *SourceReaderService) isMessageReadyForVerification(
 		return ok
 	}
 
-	// custom finality: msgBlock + f <= latest
+	// custom finality: (msgBlock + f <= latest) OR (msgBlock <= finalized)
+	// Cap at finalization to prevent DoS from malicious actors setting higher finality
 	required := new(big.Int).Add(msgBlock, new(big.Int).SetUint64(uint64(f)))
-	r.logger.Infow("Checking custom finality",
+	customFinalityMet := required.Cmp(latestBlock) <= 0
+	cappedAtFinality := msgBlock.Cmp(latestFinalizedBlock) <= 0
+
+	ready := customFinalityMet || cappedAtFinality
+	r.logger.Infow("Custom finality check",
 		"messageID", task.MessageID,
 		"msgBlock", msgBlock.String(),
 		"finality", f,
 		"requiredBlock", required.String(),
-		"latestBlock", latestBlock.String())
+		"latestBlock", latestBlock.String(),
+		"customFinalityMet", customFinalityMet,
+		"cappedAtFinality", cappedAtFinality,
+		"ready", ready,
+	)
 
-	return required.Cmp(latestBlock) <= 0
+	return ready
 }
 
 // -----------------------------------------------------------------------------
