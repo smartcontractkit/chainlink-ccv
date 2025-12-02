@@ -1,29 +1,58 @@
-package token
+package storage
 
 import (
 	"context"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type OffchainStorage struct {
-	data map[string][]byte
+	data map[protocol.Bytes32]protocol.VerifierNodeResult
 }
 
-func NewOffchainStorage() protocol.CCVNodeDataWriter {
+func NewOffchainStorage() *OffchainStorage {
 	return &OffchainStorage{
-		data: make(map[string][]byte),
+		data: make(map[protocol.Bytes32]protocol.VerifierNodeResult),
 	}
 }
 
-func (o OffchainStorage) WriteCCVNodeData(
+func (o *OffchainStorage) WriteCCVNodeData(
 	_ context.Context,
 	ccvDataList []protocol.VerifierNodeResult,
 ) error {
 	for _, ccvData := range ccvDataList {
-		o.data[ccvData.MessageID.String()] = ccvData.Signature
+		o.data[ccvData.MessageID] = ccvData
 	}
 	return nil
+}
+
+func (o *OffchainStorage) ReadBatchCCVData(
+	_ context.Context,
+	msgsIDs []protocol.Bytes32,
+) (map[protocol.Bytes32]protocol.QueryResponse, error) {
+	results := make(map[protocol.Bytes32]protocol.QueryResponse)
+
+	for _, msgID := range msgsIDs {
+		ccv, ok := o.data[msgID]
+		if !ok {
+			continue
+		}
+		results[msgID] = protocol.QueryResponse{
+			Timestamp: nil,
+			Data: protocol.VerifierResult{
+				MessageID:              ccv.MessageID,
+				Message:                ccv.Message,
+				MessageCCVAddresses:    ccv.CCVAddresses,
+				MessageExecutorAddress: ccv.ExecutorAddress,
+				CCVData:                ccv.Signature,
+				Timestamp:              time.Now(),
+				VerifierSourceAddress:  nil,
+				VerifierDestAddress:    nil,
+			},
+		}
+	}
+	return results, nil
 }
 
 type ChainStatusManager struct {
