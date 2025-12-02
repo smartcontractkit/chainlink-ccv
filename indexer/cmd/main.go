@@ -35,7 +35,12 @@ func main() {
 		panic(err)
 	}
 
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	logLevel, err := zapcore.ParseLevel(config.LogLevel)
+	if err != nil {
+		panic(err)
+	}
+
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(logLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
