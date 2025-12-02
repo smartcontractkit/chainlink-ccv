@@ -58,6 +58,7 @@ func Command() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&args.receiverQualifier, "receiver-qualifier", evm.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
+	cmd.Flags().StringVar(&args.receiverAddress, "receiver-address", "", "Receiver address to use, if not provided, will look up the mock receiver contract address from the datastore")
 	cmd.Flags().StringVar(&args.env, "env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to 'out' for env-out.toml)")
 	cmd.Flags().StringArrayVar(&selectorStrings, "selector", []string{}, "Selectors to use for the mock receiver contract, provide 2 or 3 selectors. Order is important: <src>,<dest>[,<finality>]")
 	cmd.Flags().StringVar(&token, "token", "", "Token amounts to send in the format <amount>:<tokenAddress>, e.g., 1000000000000000000:0xTokenAddress")
@@ -67,6 +68,7 @@ func Command() *cobra.Command {
 
 type sendArgs struct {
 	receiverQualifier string
+	receiverAddress   string
 	env               string
 
 	tokenAmount cciptestinterfaces.TokenAmount
@@ -108,18 +110,22 @@ func run(args sendArgs) error {
 		return fmt.Errorf("failed to create CCIP17EVM: %w", err)
 	}
 
-	mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			args.destSel,
-			datastore.ContractType(mock_receiver.ContractType),
-			semver.MustParse(mock_receiver.Deploy.Version()),
-			args.receiverQualifier))
-	if err != nil {
-		return fmt.Errorf("failed to get mock receiver address: %w", err)
+	// resolve mock receiver address if not provided
+	if args.receiverAddress == "" {
+		mockReceiver, err := in.CLDF.DataStore.Addresses().Get(
+			datastore.NewAddressRefKey(
+				args.destSel,
+				datastore.ContractType(mock_receiver.ContractType),
+				semver.MustParse(mock_receiver.Deploy.Version()),
+				args.receiverQualifier))
+		if err != nil {
+			return fmt.Errorf("failed to get mock receiver address: %w", err)
+		}
+		args.receiverAddress = mockReceiver.Address
 	}
 
 	messageFields := cciptestinterfaces.MessageFields{
-		Receiver:    common.HexToAddress(mockReceiverRef.Address).Bytes(), // mock receiver
+		Receiver:    common.HexToAddress(args.receiverAddress).Bytes(),
 		Data:        []byte{},
 		TokenAmount: args.tokenAmount,
 	}
