@@ -131,9 +131,7 @@ type Chains interface {
 	// GetMaxDataBytes gets the maximum data size for a CCIP message to a remote chain.
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 	// ManuallyExecuteMessage manually executes a message on a destination chain and returns an error if the execution fails.
-	// TODO: once the indexer persists message ID results indefinitely we can change indexerResultJSON to indexerURL
-	// and fetch the result from the indexer directly.
-	ManuallyExecuteMessage(ctx context.Context, destChainSelector uint64, messageID [32]byte, gasLimit uint64, indexerResultJSON string) error
+	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
 }
 
 type OnChainCommittees struct {

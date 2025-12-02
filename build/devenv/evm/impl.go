@@ -1,7 +1,6 @@
 package evm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1679,61 +1678,49 @@ func (m *CCIP17EVM) fundLockReleaseTokenPool(
 
 func (m *CCIP17EVM) ManuallyExecuteMessage(
 	ctx context.Context,
-	destChainSelector uint64,
-	messageID [32]byte,
+	message protocol.Message,
 	gasLimit uint64,
-	indexerResultJSON string,
-) error {
+	ccvs []protocol.UnknownAddress,
+	verifierResults [][]byte,
+) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+	destChainSelector := uint64(message.DestChainSelector)
 	offRamp, ok := m.offRampBySelector[destChainSelector]
 	if !ok {
-		return fmt.Errorf("no off ramp for selector %d", destChainSelector)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("no off ramp for selector %d", destChainSelector)
 	}
 	privateKeyString := getNetworkPrivateKey()
 	privKey, err := crypto.HexToECDSA(privateKeyString)
 	if err != nil {
-		return fmt.Errorf("failed to parse private key: %w", err)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to parse private key: %w", err)
 	}
 	chainID, err := m.ethClients[destChainSelector].ChainID(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get chain ID: %w", err)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get chain ID: %w", err)
 	}
 
 	transactOpts := bind.NewKeyedTransactor(privKey, chainID)
 	transactOpts.GasLimit = gasLimit
 
-	var verifications protocol.MessageIDV1Response
-	err = json.Unmarshal([]byte(indexerResultJSON), &verifications)
+	encodedMsg, err := message.Encode()
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal indexer result: %w", err)
-	}
-	if len(verifications.Results) == 0 {
-		return fmt.Errorf("no verifications found for messageID")
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to encode message: %w", err)
 	}
 
-	msg := verifications.Results[0].VerifierResult.Message
-	encodedMsg, err := msg.Encode()
-	if err != nil {
-		return fmt.Errorf("failed to encode message: %w", err)
+	ccvAddresses := make([]common.Address, 0, len(ccvs))
+	for _, ccv := range ccvs {
+		ccvAddresses = append(ccvAddresses, common.HexToAddress(ccv.String()))
 	}
 
-	msgID := msg.MustMessageID()
-	if !bytes.Equal(msgID[:], messageID[:]) {
-		return fmt.Errorf("messageID mismatch: calculated %s != provided %s", msgID.String(), hexutil.Encode(messageID[:]))
+	results := make([]string, 0, len(verifierResults))
+	for _, result := range verifierResults {
+		results = append(results, hexutil.Encode(result))
 	}
-
-	var ccvs []common.Address
-	var verifierResults [][]byte
-	for _, verification := range verifications.Results {
-		ccvs = append(ccvs, common.HexToAddress(verification.VerifierResult.VerifierDestAddress.String()))
-		verifierResults = append(verifierResults, verification.VerifierResult.CCVData)
-	}
-
 	m.logger.Info().
-		Str("MessageID", hexutil.Encode(messageID[:])).
-		Any("Message", msg).
-		Any("CCVs", ccvs).
-		Int("NumVerifierResults", len(verifications.Results)).
-		Str("FirstVerifierResult", hexutil.Encode(verifierResults[0])).
+		Str("MessageID", message.MustMessageID().String()).
+		Any("Message", message).
+		Any("CCVs", ccvAddresses).
+		Int("NumVerifierResults", len(verifierResults)).
+		Strs("VerifierResults", results).
 		Uint64("ChainSelector", destChainSelector).
 		Msg("Executing message")
 
@@ -1742,23 +1729,45 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 		Signer:   transactOpts.Signer,
 		Context:  ctx,
 		GasLimit: gasLimit,
-	}, encodedMsg, ccvs, verifierResults)
+	}, encodedMsg, ccvAddresses, verifierResults)
 	if err != nil {
-		return fmt.Errorf("failed to execute off ramp: %w", err)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to execute off ramp: %w", err)
 	}
 
 	receipt, err := bind.WaitMined(ctx, m.ethClients[destChainSelector], tx.Hash())
 	if err != nil {
-		return fmt.Errorf("failed to wait for execution transaction to be mined: %w", err)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to wait for execution transaction to be mined: %w", err)
 	}
 	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("execution transaction failed with status: %d", receipt.Status)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("execution transaction failed with status: %d", receipt.Status)
+	}
+
+	// fetch the event from the receipt's logs
+	topic := offramp.OffRampExecutionStateChanged{}.Topic()
+	var event cciptestinterfaces.ExecutionStateChangedEvent
+	for _, lg := range receipt.Logs {
+		if lg.Address == offRamp.Address() &&
+			lg.Topics[0] == topic {
+			parsedLog, err := offRamp.ParseExecutionStateChanged(*lg)
+			if err != nil {
+				m.logger.Warn().Err(err).Msg("Failed to parse execution state changed event")
+				continue
+			}
+			event = cciptestinterfaces.ExecutionStateChangedEvent{
+				MessageID:      parsedLog.MessageId,
+				SequenceNumber: parsedLog.SequenceNumber,
+				State:          cciptestinterfaces.MessageExecutionState(parsedLog.State),
+				ReturnData:     parsedLog.ReturnData,
+			}
+			break
+		}
 	}
 
 	m.logger.Info().
 		Str("TxHash", tx.Hash().Hex()).
 		Uint64("ChainSelector", destChainSelector).
+		Any("Event", event).
 		Msg("Execution transaction mined")
 
-	return nil
+	return event, nil
 }

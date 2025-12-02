@@ -723,7 +723,7 @@ var fundAddressesCmd = &cobra.Command{
 }
 
 var manuallyExecuteCmd = &cobra.Command{
-	Use:   "manually-execute --env <env> --chain-selector <chain-selector> --message-id <message-id> --indexer-result-json <indexer-result-json> --gas-limit <gas-limit>",
+	Use:   "manually-execute",
 	Short: "Manually execute a message",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		chainSelector, err := cmd.Flags().GetUint64("chain-selector")
@@ -738,6 +738,8 @@ var manuallyExecuteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to parse env: %w", err)
 		}
+		// TODO: once the indexer persists message ID results indefinitely we can change indexerResultJSON to indexerURL
+		// and fetch the result from the indexer directly.
 		indexerResultJSON, err := cmd.Flags().GetString("indexer-result-json")
 		if err != nil {
 			return fmt.Errorf("failed to parse indexer-result-json: %w", err)
@@ -755,6 +757,20 @@ var manuallyExecuteCmd = &cobra.Command{
 		var messageIDBytes32 protocol.Bytes32
 		messageIDBytes := hexutil.MustDecode(messageID)
 		copy(messageIDBytes32[:], messageIDBytes)
+
+		var resp protocol.MessageIDV1Response
+		err = json.Unmarshal([]byte(indexerResultJSON), &resp)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal indexer result JSON: %w", err)
+		}
+
+		msg := resp.Results[0].VerifierResult.Message
+		ccvs := make([]protocol.UnknownAddress, 0, len(resp.Results))
+		verifierResults := make([][]byte, 0, len(resp.Results))
+		for _, result := range resp.Results {
+			ccvs = append(ccvs, result.VerifierResult.VerifierDestAddress)
+			verifierResults = append(verifierResults, result.VerifierResult.CCVData)
+		}
 
 		chainID, err := chainsel.ChainIdFromSelector(chainSelector)
 		if err != nil {
@@ -796,7 +812,7 @@ var manuallyExecuteCmd = &cobra.Command{
 		}
 		// END TODO.
 
-		err = impl.ManuallyExecuteMessage(cmd.Context(), chainSelector, messageIDBytes32, gasLimit, indexerResultJSON)
+		_, err = impl.ManuallyExecuteMessage(cmd.Context(), msg, gasLimit, ccvs, verifierResults)
 		if err != nil {
 			return fmt.Errorf("failed to manually execute message: %w", err)
 		}
@@ -1106,7 +1122,6 @@ func init() {
 	manuallyExecuteCmd.Flags().String("indexer-result-json", "", "Indexer result JSON to manually execute message from")
 	manuallyExecuteCmd.Flags().Uint64("gas-limit", 0, "Gas limit to use for the manually executed message")
 
-	_ = manuallyExecuteCmd.MarkFlagRequired("env")
 	_ = manuallyExecuteCmd.MarkFlagRequired("chain-selector")
 	_ = manuallyExecuteCmd.MarkFlagRequired("message-id")
 	_ = manuallyExecuteCmd.MarkFlagRequired("indexer-result-json")
