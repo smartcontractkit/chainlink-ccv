@@ -72,6 +72,7 @@ func (p *Pool) run(ctx context.Context) {
 			return
 		case task, ok := <-p.scheduler.Ready():
 			if !ok {
+				p.logger.Error("Scheduler ready channel closed! worker pool will no longer function")
 				continue
 			}
 
@@ -119,6 +120,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 			return
 		case message, ok := <-p.discoveryChannel:
 			if !ok {
+				p.logger.Error("Discovery Channel closed, worker pool will no longer be able to enqueue messages correctly")
 				continue
 			}
 			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
@@ -148,6 +150,7 @@ func (p *Pool) handleDLQ(ctx context.Context) {
 			return
 		case task, ok := <-p.scheduler.DLQ():
 			if !ok {
+				p.logger.Error("DLQ Queue closed, worker pool will be unable to continue processing")
 				continue
 			}
 			p.logger.Warnf("Message %s entered DLQ. Partial verifications may have been recieved", task.messageID.String())
