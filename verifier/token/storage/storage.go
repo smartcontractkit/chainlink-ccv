@@ -1,4 +1,4 @@
-package token
+package storage
 
 import (
 	"context"
@@ -11,7 +11,7 @@ type OffchainStorage struct {
 	data map[protocol.Bytes32]protocol.VerifierNodeResult
 }
 
-func NewOffchainStorage() protocol.CCVNodeDataWriter {
+func NewOffchainStorage() *OffchainStorage {
 	return &OffchainStorage{
 		data: make(map[protocol.Bytes32]protocol.VerifierNodeResult),
 	}

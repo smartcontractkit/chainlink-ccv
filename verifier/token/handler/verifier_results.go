@@ -1,4 +1,4 @@
-package api
+package handler
 
 import (
 	"context"
@@ -11,16 +11,27 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 )
 
-type BatchCCVHandler struct {
+type VerifierResultsHandler struct {
 	lggr                  logger.Logger
-	storage               token.OffchainStorage
+	storage               storage.OffchainStorage
 	maxMessageIDsPerBatch int
 }
 
-func (h *BatchCCVHandler) Handle(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
+func NewVerifierResultsHandler(
+	lggr logger.Logger,
+	storage storage.OffchainStorage,
+) *VerifierResultsHandler {
+	return &VerifierResultsHandler{
+		lggr:                  lggr,
+		storage:               storage,
+		maxMessageIDsPerBatch: 20,
+	}
+}
+
+func (h *VerifierResultsHandler) Handle(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
 	// Validate batch size limits
 	if len(req.GetMessageIds()) == 0 {
 		return nil, grpcstatus.Errorf(codes.InvalidArgument, "message_ids cannot be empty")
